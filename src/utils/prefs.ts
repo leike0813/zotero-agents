@@ -62,13 +62,17 @@ type PluginPrefsMap = BasePluginPrefsMap & {
 
 const PREFS_PREFIX = config.prefsPrefix;
 
+export function getPrefName<K extends keyof PluginPrefsMap>(key: K) {
+  return `${PREFS_PREFIX}.${key}`;
+}
+
 /**
  * Get preference value.
  * Wrapper of `Zotero.Prefs.get`.
  * @param key
  */
 export function getPref<K extends keyof PluginPrefsMap>(key: K) {
-  return Zotero.Prefs.get(`${PREFS_PREFIX}.${key}`, true) as PluginPrefsMap[K];
+  return Zotero.Prefs.get(getPrefName(key), true) as PluginPrefsMap[K];
 }
 
 /**
@@ -81,7 +85,7 @@ export function setPref<K extends keyof PluginPrefsMap>(
   key: K,
   value: PluginPrefsMap[K],
 ) {
-  return Zotero.Prefs.set(`${PREFS_PREFIX}.${key}`, value, true);
+  return Zotero.Prefs.set(getPrefName(key), value, true);
 }
 
 /**

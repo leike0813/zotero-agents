@@ -1,0 +1,32 @@
+- [x] 1. OpenSpec artifacts
+  - [x] 1.1 Add delta specs for ACP performance, Assistant sidebar UI, and SkillRunner sidebar runtime.
+  - [x] 1.2 Validate `govern-assistant-workspace-ui-refresh` with `openspec validate --strict`.
+- [x] 2. Shared publish policy
+  - [x] 2.1 Add internal publish reason types and shared cadence constants.
+  - [x] 2.2 Keep `assistantStreamingRenderEnabled` as the global preference and expose it to all three panels.
+  - [x] 2.3 Observe the persisted Zotero preference so Preferences and Assistant Workspace stay synchronized across script contexts.
+  - [x] 2.4 Route Preferences checkbox activation through the main prefs event dispatcher so the workspace runtime is notified immediately.
+- [x] 3. ACP Chat
+  - [x] 3.1 Separate canonical conversation state from UI-visible transcript state.
+  - [x] 3.2 Route text chunks, metadata, diagnostics, tool/plan, permission, and completion events through the publish policy.
+  - [x] 3.3 Prevent metadata side channels from publishing partial text while streaming render is disabled.
+- [x] 4. ACP Skills
+  - [x] 4.1 Apply the same publish policy to selected run snapshots.
+  - [x] 4.2 Keep permission/error/waiting states immediate without leaking unpublished transcript text.
+  - [x] 4.3 Publish output revision projections as transcript boundaries.
+- [x] 5. SkillRunner
+  - [x] 5.1 Add the global switch to the SkillRunner toolbar.
+  - [x] 5.2 Govern run workspace snapshot refreshes through the shared live/boundary policy.
+  - [x] 5.3 Preserve waiting/auth/error/cancel immediacy.
+- [x] 6. Child rendering
+  - [x] 6.1 Add transcript revision/render keys to panel snapshots.
+  - [x] 6.2 Skip transcript renderer calls when the transcript revision is unchanged.
+  - [x] 6.3 Preserve drawer and focused reply state during live refreshes.
+- [x] 7. Localization
+  - [x] 7.1 Update preference and toolbar wording to Assistant Workspace scope in all locales.
+  - [x] 7.2 Ensure no new non-English locale falls back to English.
+- [x] 8. Tests and verification
+  - [x] 8.1 Add ACP Chat regression tests for text chunk plus metadata side-channel updates.
+  - [x] 8.2 Add ACP Skills tests for suppressed partial transcript leakage and immediate boundary states.
+  - [x] 8.3 Add SkillRunner/sidebar UI smoke tests for the switch and transcript render revision gating.
+  - [x] 8.4 Run TypeScript, targeted mocha, localization governance, and OpenSpec validation.

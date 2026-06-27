@@ -167,6 +167,10 @@ const itemsByKey = new Map<string, MockItem>();
 const collectionsById = new Map<number, MockCollection>();
 const collectionsByKey = new Map<string, MockCollection>();
 const prefsStore = new Map<string, unknown>();
+const prefObservers = new Map<
+  symbol,
+  { key: string; handler: (key: string) => void }
+>();
 let notifierCounter = 0;
 
 function initializeZoteroMockState() {
@@ -180,6 +184,14 @@ function initializeZoteroMockState() {
   prefsStore.set(`${config.prefsPrefix}.workflowDir`, "");
   prefsStore.set(`${config.prefsPrefix}.skillDir`, "");
   notifierCounter = 0;
+}
+
+function notifyPrefObservers(key: string) {
+  for (const observer of prefObservers.values()) {
+    if (observer.key === key) {
+      observer.handler(key);
+    }
+  }
 }
 
 export function resetZoteroMockStateForTests() {
@@ -2527,9 +2539,22 @@ function createZoteroMock(): ZoteroMock {
       get: (key: string) => prefsStore.get(key),
       set: (key: string, value: unknown) => {
         prefsStore.set(key, value);
+        notifyPrefObservers(key);
       },
       clear: (key: string) => {
         prefsStore.delete(key);
+        notifyPrefObservers(key);
+      },
+      registerObserver: (
+        key: string,
+        handler: (key: string) => void,
+      ): symbol => {
+        const token = Symbol(String(key || "pref"));
+        prefObservers.set(token, { key: String(key || ""), handler });
+        return token;
+      },
+      unregisterObserver: (token: symbol) => {
+        prefObservers.delete(token);
       },
     },
     Notifier: {

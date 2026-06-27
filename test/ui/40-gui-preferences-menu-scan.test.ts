@@ -399,6 +399,7 @@ function createPrefsWindow(args?: {
   includeRuntimeDataControls?: boolean;
   includeHostAccessControls?: boolean;
   includeContentPackageControls?: boolean;
+  includeAssistantStreamingRenderControl?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -409,6 +410,10 @@ function createPrefsWindow(args?: {
     : [];
   const confirmMessages: string[] = [];
   const promptMessages: string[] = [];
+  const windowListeners = new Map<
+    string,
+    Array<{ listener: Listener; once: boolean }>
+  >();
 
   const workflowDirInput = document.createXULElement("input");
   workflowDirInput.id = `zotero-prefpane-${config.addonRef}-workflow-dir`;
@@ -459,6 +464,13 @@ function createPrefsWindow(args?: {
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
+  const assistantStreamingRenderEnabledCheckbox =
+    args?.includeAssistantStreamingRenderControl
+      ? document.createXULElement("input")
+      : null;
+  if (assistantStreamingRenderEnabledCheckbox) {
+    assistantStreamingRenderEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`;
+  }
   const hostBridgeDisableWriteApprovalCheckbox =
     document.createXULElement("input");
   hostBridgeDisableWriteApprovalCheckbox.id = `zotero-prefpane-${config.addonRef}-host-bridge-disable-write-approval`;
@@ -742,24 +754,55 @@ function createPrefsWindow(args?: {
   localRuntimeProgressText.id = `zotero-prefpane-${config.addonRef}-skillrunner-local-progress-text`;
   localRuntimeProgressRow.appendChild(localRuntimeProgressText);
 
+  const windowObject = {
+    document,
+    confirm: (message: string) => {
+      confirmMessages.push(message);
+      if (confirmResults.length > 0) {
+        return confirmResults.shift() === true;
+      }
+      return true;
+    },
+    prompt: (message: string) => {
+      promptMessages.push(message);
+      if (promptResults.length > 0) {
+        return promptResults.shift() ?? null;
+      }
+      return null;
+    },
+    addEventListener: (
+      type: string,
+      listener: Listener,
+      options?: { once?: boolean },
+    ) => {
+      const existing = windowListeners.get(type) || [];
+      existing.push({ listener, once: options?.once === true });
+      windowListeners.set(type, existing);
+    },
+    removeEventListener: (type: string, listener: Listener) => {
+      windowListeners.set(
+        type,
+        (windowListeners.get(type) || []).filter(
+          (entry) => entry.listener !== listener,
+        ),
+      );
+    },
+  } as unknown as Window;
+
+  const dispatchWindowEvent = (type: string) => {
+    const listeners = windowListeners.get(type) || [];
+    windowListeners.set(
+      type,
+      listeners.filter((entry) => !entry.once),
+    );
+    for (const entry of listeners) {
+      entry.listener({ type, target: windowObject as unknown as Window });
+    }
+  };
+
   return {
-    window: {
-      document,
-      confirm: (message: string) => {
-        confirmMessages.push(message);
-        if (confirmResults.length > 0) {
-          return confirmResults.shift() === true;
-        }
-        return true;
-      },
-      prompt: (message: string) => {
-        promptMessages.push(message);
-        if (promptResults.length > 0) {
-          return promptResults.shift() ?? null;
-        }
-        return null;
-      },
-    } as unknown as Window,
+    window: windowObject,
+    dispatchWindowEvent,
     workflowDirInput,
     skillDirInput,
     workflowBrowseButton,
@@ -773,6 +816,7 @@ function createPrefsWindow(args?: {
     contentPackageCheckButton,
     contentPackageInstallButton,
     backendManageButton,
+    assistantStreamingRenderEnabledCheckbox,
     hostBridgeDisableWriteApprovalCheckbox,
     hostBridgeLanCheckbox,
     mcpServerEnabledCheckbox,
@@ -1135,6 +1179,74 @@ describe("gui: preference scripts", function () {
     assert.deepEqual(calls[5].data, {
       window,
     });
+  });
+
+  it("persists assistant streaming render checkbox from click activation and deduplicates follow-up events", async function () {
+    const prefKey = `${config.prefsPrefix}.assistantStreamingRenderEnabled`;
+    const calls: Array<{ type: string; data: any }> = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: any) => Promise<any>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type, data) => {
+      calls.push({ type, data });
+      if (type === "setAssistantStreamingRenderEnabled") {
+        return { ok: true, enabled: data.enabled === true };
+      }
+      return { ok: true };
+    };
+
+    Zotero.Prefs.set(prefKey, true, true);
+    const {
+      window,
+      dispatchWindowEvent,
+      assistantStreamingRenderEnabledCheckbox,
+    } = createPrefsWindow({ includeAssistantStreamingRenderControl: true });
+    assert.isNotNull(assistantStreamingRenderEnabledCheckbox);
+    const checkbox = assistantStreamingRenderEnabledCheckbox!;
+
+    await registerPrefsScripts(window);
+    assert.isTrue(checkbox.checked);
+
+    checkbox.checked = false;
+    checkbox.dispatch("click", {
+      target: checkbox,
+    });
+    await flushTasks();
+
+    assert.isFalse(Zotero.Prefs.get(prefKey, true));
+    assert.deepInclude(
+      calls.map((call) => ({
+        type: call.type,
+        enabled: call.data?.enabled,
+      })),
+      { type: "setAssistantStreamingRenderEnabled", enabled: false },
+    );
+
+    const submittedCount = calls.filter(
+      (call) => call.type === "setAssistantStreamingRenderEnabled",
+    ).length;
+    checkbox.dispatch("input", {
+      target: checkbox,
+    });
+    checkbox.dispatch("change", {
+      target: checkbox,
+    });
+    await flushTasks();
+
+    assert.lengthOf(
+      calls.filter(
+        (call) => call.type === "setAssistantStreamingRenderEnabled",
+      ),
+      submittedCount,
+      "same-value follow-up checkbox events should not submit again",
+    );
+
+    dispatchWindowEvent("unload");
   });
 
   it("enables official Workflow package install only when missing or an update is available", async function () {

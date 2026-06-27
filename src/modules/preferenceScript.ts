@@ -48,7 +48,8 @@ function bindXulButtonActivation(
 }
 
 function bindPrefEvents() {
-  const doc = addon.data.prefs?.window.document;
+  const prefPaneWindow = addon.data.prefs?.window;
+  const doc = prefPaneWindow?.document;
   if (!doc) {
     return;
   }
@@ -2260,19 +2261,49 @@ function bindPrefEvents() {
   }
 
   if (assistantStreamingRenderEnabledCheckbox) {
-    assistantStreamingRenderEnabledCheckbox.checked =
+    let submittedAssistantStreamingRenderEnabled =
       isAssistantStreamingRenderEnabled();
+    assistantStreamingRenderEnabledCheckbox.checked =
+      submittedAssistantStreamingRenderEnabled;
+    const syncAssistantStreamingRenderCheckbox = (enabled: boolean) => {
+      submittedAssistantStreamingRenderEnabled = enabled;
+      assistantStreamingRenderEnabledCheckbox.checked = enabled;
+    };
     const unsubscribe = subscribeAssistantStreamingRenderPreference(
       (enabled) => {
-        assistantStreamingRenderEnabledCheckbox.checked = enabled;
+        syncAssistantStreamingRenderCheckbox(enabled);
       },
     );
-    window.addEventListener("unload", unsubscribe, { once: true });
-    assistantStreamingRenderEnabledCheckbox.addEventListener("change", () => {
-      setAssistantStreamingRenderEnabled(
-        assistantStreamingRenderEnabledCheckbox.checked === true,
+    prefPaneWindow.addEventListener("unload", unsubscribe, { once: true });
+    const persistAssistantStreamingRenderEnabled = () => {
+      const enabled = assistantStreamingRenderEnabledCheckbox.checked === true;
+      if (enabled === submittedAssistantStreamingRenderEnabled) {
+        return;
+      }
+      const next = setAssistantStreamingRenderEnabled(enabled);
+      syncAssistantStreamingRenderCheckbox(next);
+      void addon.hooks
+        .onPrefsEvent("setAssistantStreamingRenderEnabled", {
+          enabled: next,
+          window: prefPaneWindow,
+        })
+        .then((response: unknown) => {
+          const normalized =
+            response &&
+            typeof response === "object" &&
+            typeof (response as { enabled?: unknown }).enabled === "boolean"
+              ? ((response as { enabled: boolean }).enabled as boolean)
+              : next;
+          syncAssistantStreamingRenderCheckbox(normalized);
+        })
+        .catch(() => undefined);
+    };
+    for (const eventType of ["input", "change", "click", "command"]) {
+      assistantStreamingRenderEnabledCheckbox.addEventListener(
+        eventType,
+        persistAssistantStreamingRenderEnabled,
       );
-    });
+    }
   }
 
   if (browseWorkflowDirButton) {

@@ -4766,7 +4766,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.notProperty(listed, "resultJson");
   });
 
-  it("coalesces high-frequency ACP skill session update notifications without dropping transcript data", async function () {
+  it("streams ACP skill text updates naturally without dropping transcript data", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
       requestId: "run-coalesced-updates",
@@ -4800,15 +4800,20 @@ describe("ACP SkillRunner-compatible runner", function () {
           content: { type: "text", text: "C" },
         },
       } as any);
-      assert.equal(notifications, 0);
-      await delay(120);
-      assert.equal(notifications, 1);
+      assert.equal(notifications, 3);
       const thought = getAcpSkillRunRecord(
         "run-coalesced-updates",
       )?.transcriptItems.find((item) => item.kind === "thought");
       assert.equal(thought?.kind, "thought");
       if (thought?.kind === "thought") {
         assert.equal(thought.text, "ABC");
+      }
+      const visibleThought = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-coalesced-updates",
+      }).selectedRun?.transcriptItems.find((item) => item.kind === "thought");
+      assert.equal(visibleThought?.kind, "thought");
+      if (visibleThought?.kind === "thought") {
+        assert.equal(visibleThought.text, "ABC");
       }
     } finally {
       unsubscribe();
@@ -4872,6 +4877,174 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
     } finally {
       unsubscribe();
+    }
+  });
+
+  it("keeps ACP Skills usage updates from leaking partial transcript when streaming render is disabled", async function () {
+    resetAcpSkillRunsForTests();
+    setAssistantStreamingRenderEnabled(false);
+    upsertAcpSkillRun({
+      requestId: "run-streaming-usage-side-channel",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+
+    recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "partial" },
+      },
+    } as any);
+    recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "usage_update",
+        used: 5,
+        size: 100,
+      },
+    } as any);
+    await delay(120);
+
+    const canonical = getAcpSkillRunRecord("run-streaming-usage-side-channel");
+    const canonicalMessage = canonical?.transcriptItems.find(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.equal(canonicalMessage?.kind, "message");
+    if (canonicalMessage?.kind === "message") {
+      assert.equal(canonicalMessage.text, "partial");
+      assert.equal(canonicalMessage.state, "streaming");
+    }
+
+    const beforeBoundary = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-streaming-usage-side-channel",
+    });
+    assert.isUndefined(
+      beforeBoundary.selectedRun?.transcriptItems.find(
+        (item) => item.kind === "message" && item.role === "assistant",
+      ),
+    );
+
+    recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "pending",
+      },
+    } as any);
+
+    const afterBoundary = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-streaming-usage-side-channel",
+    });
+    const visibleMessage = afterBoundary.selectedRun?.transcriptItems.find(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.equal(visibleMessage?.kind, "message");
+    if (visibleMessage?.kind === "message") {
+      assert.equal(visibleMessage.text, "partial");
+      assert.equal(visibleMessage.state, "complete");
+    }
+  });
+
+  it("shows ACP Skills workspace activity immediately without leaking held text when streaming render is disabled", function () {
+    resetAcpSkillRunsForTests();
+    setAssistantStreamingRenderEnabled(false);
+    upsertAcpSkillRun({
+      requestId: "run-streaming-workspace-activity-disabled",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      activePrompt: true,
+    });
+
+    recordAcpSkillRunSessionUpdate(
+      "run-streaming-workspace-activity-disabled",
+      {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "held partial" },
+        },
+      } as any,
+    );
+    upsertAcpSkillRun({
+      requestId: "run-streaming-workspace-activity-disabled",
+      event: {
+        stage: "workspace-activity",
+        message: "result/output.json",
+        level: "info",
+        details: { relativePath: "result/output.json" },
+      },
+    });
+
+    const visible = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-streaming-workspace-activity-disabled",
+    }).selectedRun?.transcriptItems;
+    assert.isUndefined(
+      visible?.find(
+        (item) => item.kind === "message" && item.role === "assistant",
+      ),
+    );
+    const activity = visible?.find(
+      (item) => item.kind === "status" && item.label === "workspace-activity",
+    );
+    assert.equal(activity?.kind, "status");
+    if (activity?.kind === "status") {
+      assert.equal(activity.text, "result/output.json");
+    }
+  });
+
+  it("shows ACP Skills tool completion immediately when streaming render is disabled", function () {
+    resetAcpSkillRunsForTests();
+    setAssistantStreamingRenderEnabled(false);
+    upsertAcpSkillRun({
+      requestId: "run-streaming-tool-update-disabled",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+
+    recordAcpSkillRunSessionUpdate("run-streaming-tool-update-disabled", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "pending",
+      },
+    } as any);
+    let visibleTool = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-streaming-tool-update-disabled",
+    }).selectedRun?.transcriptItems.find(
+      (item) => item.kind === "tool_call" && item.toolCallId === "tool-1",
+    );
+    assert.equal(visibleTool?.kind, "tool_call");
+    if (visibleTool?.kind === "tool_call") {
+      assert.equal(visibleTool.state, "pending");
+    }
+
+    recordAcpSkillRunSessionUpdate("run-streaming-tool-update-disabled", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "completed",
+        result: "ok",
+      },
+    } as any);
+    visibleTool = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-streaming-tool-update-disabled",
+    }).selectedRun?.transcriptItems.find(
+      (item) => item.kind === "tool_call" && item.toolCallId === "tool-1",
+    );
+    assert.equal(visibleTool?.kind, "tool_call");
+    if (visibleTool?.kind === "tool_call") {
+      assert.equal(visibleTool.state, "completed");
+      assert.include(visibleTool.resultSummary || "", "ok");
     }
   });
 

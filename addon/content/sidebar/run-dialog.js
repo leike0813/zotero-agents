@@ -13,6 +13,8 @@
     transcriptNodeMap: new Map(),
     transcriptOrderKey: "",
     transcriptModeKey: "",
+    transcriptRevision: null,
+    transcriptRenderedMode: "",
     transcriptRenderToken: 0,
     pendingTranscriptSnapshot: null,
     toolActivityExpandedIds: new Set(),
@@ -767,6 +769,14 @@
   }
 
   function scheduleTranscriptRender(panelSnapshot) {
+    const raw = panelSnapshot && panelSnapshot.raw ? panelSnapshot.raw : {};
+    const revision = Number(raw && raw.transcriptRevision) || 0;
+    if (
+      state.transcriptRevision === revision &&
+      state.transcriptRenderedMode === state.chatDisplayMode
+    ) {
+      return;
+    }
     const token = state.transcriptRenderToken + 1;
     state.transcriptRenderToken = token;
     state.pendingTranscriptSnapshot = panelSnapshot || null;
@@ -775,6 +785,8 @@
       const pending = state.pendingTranscriptSnapshot;
       state.pendingTranscriptSnapshot = null;
       renderTranscript(pending || {});
+      state.transcriptRevision = revision;
+      state.transcriptRenderedMode = state.chatDisplayMode;
     };
     if (typeof window.requestAnimationFrame === "function") {
       window.requestAnimationFrame(function () {

@@ -9,6 +9,8 @@
     transcriptNodeMap: new Map(),
     transcriptOrderKey: "",
     transcriptMode: "",
+    transcriptRevision: null,
+    transcriptRenderedMode: "",
     markdownParser: undefined,
     toolActivityExpandedIds: new Set(),
     permissionRequestDetails: null,
@@ -368,6 +370,13 @@
     const view = projectConversationView(snapshot || {});
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
+    const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
+    if (
+      state.transcriptRevision === revision &&
+      state.transcriptRenderedMode === mode
+    ) {
+      return;
+    }
     transcriptEl.classList.toggle("plain-mode", mode === "plain");
     transcriptEl.classList.toggle("bubble-mode", mode === "bubble");
     if (plainModeEl)
@@ -424,6 +433,8 @@
       onRendered: function (result) {
         state.transcriptOrderKey = result.orderKey;
         state.transcriptMode = result.modeKey;
+        state.transcriptRevision = revision;
+        state.transcriptRenderedMode = mode;
       },
     });
   }

@@ -19,6 +19,7 @@ declare namespace _ZoteroTypes {
       "tagVocabularyStagedJson": string;
       "collectSkillRunFeedbackEnabled": boolean;
       "markdownReaderEnabled": boolean;
+      "assistantStreamingRenderEnabled": boolean;
       "workflowDir": string;
       "skillDir": string;
       "contentFeedChannel": string;

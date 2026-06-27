@@ -30,6 +30,7 @@ import {
   setAcpConversationMode,
   setAcpConversationReasoningEffort,
   subscribeAcpConversationSnapshots,
+  subscribeAcpFrontendSnapshots,
   setAcpConnectionAdapterFactoryForTests,
   startNewAcpConversation,
   toggleAcpConversationStatusDetails,
@@ -112,6 +113,8 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   emitReplayOnLoad = false;
   emitPermissionDuringPrompt = false;
   streamingChunkCount = 0;
+  emitUsageAfterEachStreamingChunk = false;
+  streamingChunkDelayMs = 0;
   holdPromptUntil: Promise<void> | null = null;
   modelState = {
     currentModelId: "gpt-5.4",
@@ -490,6 +493,11 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
     if (this.streamingChunkCount > 0) {
       for (let index = 0; index < this.streamingChunkCount; index += 1) {
+        if (this.streamingChunkDelayMs > 0) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.streamingChunkDelayMs),
+          );
+        }
         await this.emitUpdate({
           sessionId: args.sessionId,
           update: {
@@ -500,6 +508,16 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             },
           },
         });
+        if (this.emitUsageAfterEachStreamingChunk) {
+          await this.emitUpdate({
+            sessionId: args.sessionId,
+            update: {
+              sessionUpdate: "usage_update",
+              used: 1200 + index,
+              size: 8000,
+            },
+          });
+        }
       }
     } else {
       await this.emitUpdate({
@@ -1990,15 +2008,24 @@ describe("acp session manager", function () {
     assert.lengthOf(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID), 0);
   });
 
-  it("throttles streaming snapshot notifications while preserving the final transcript", async function () {
+  it("streams ACP chat text naturally while preserving the final transcript", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       lastAdapter = new FakeAcpConnectionAdapter();
       lastAdapter.streamingChunkCount = 100;
       return lastAdapter;
     });
-    let snapshotCount = 0;
-    const unsubscribe = subscribeAcpConversationSnapshots(() => {
-      snapshotCount += 1;
+    let streamingAssistantSnapshotCount = 0;
+    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
+      if (
+        snapshot.items.some(
+          (entry) =>
+            entry.kind === "message" &&
+            entry.role === "assistant" &&
+            entry.state === "streaming",
+        )
+      ) {
+        streamingAssistantSnapshotCount += 1;
+      }
     });
 
     await sendAcpConversationPrompt({
@@ -2012,7 +2039,7 @@ describe("acp session manager", function () {
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
-    assert.isBelow(snapshotCount, 40);
+    assert.isAbove(streamingAssistantSnapshotCount, 0);
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(
       persisted.items.find(
@@ -2066,6 +2093,141 @@ describe("acp session manager", function () {
       )?.text.length,
       100,
     );
+  });
+
+  it("keeps ACP chat usage updates from leaking partial text when streaming render is disabled", async function () {
+    setAssistantStreamingRenderEnabled(false);
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.streamingChunkCount = 20;
+      lastAdapter.emitUsageAfterEachStreamingChunk = true;
+      return lastAdapter;
+    });
+    const partialLengths: number[] = [];
+    const unsubscribe = subscribeAcpFrontendSnapshots((snapshot) => {
+      const assistant = snapshot.activeSnapshot?.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      );
+      const length = assistant?.text.length || 0;
+      if (length > 0 && length < 20) {
+        partialLengths.push(length);
+      }
+    });
+
+    await sendAcpConversationPrompt({
+      message: "stream chunks with usage side channel disabled",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    unsubscribe();
+
+    assert.deepEqual(partialLengths, []);
+    const snapshot = getAcpFrontendSnapshot();
+    const assistant = snapshot.activeSnapshot?.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.equal(assistant?.text.length, 20);
+    assert.equal(
+      loadAcpConversationState(ACP_OPENCODE_BACKEND_ID).items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text.length,
+      20,
+    );
+  });
+
+  it("shows ACP chat tool completion immediately when streaming render is disabled", async function () {
+    setAssistantStreamingRenderEnabled(false);
+    await reconnectAcpConversation();
+    const sessionId = getAcpConversationSnapshot().sessionId;
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "held partial" },
+      },
+    } as any);
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "pending",
+      },
+    } as any);
+
+    let visible = getAcpFrontendSnapshot().activeSnapshot?.items || [];
+    assert.isUndefined(
+      visible.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      ),
+    );
+    let tool = visible.find(
+      (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
+    );
+    assert.equal(tool?.kind, "tool_call");
+    if (tool?.kind === "tool_call") {
+      assert.equal(tool.state, "pending");
+    }
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "completed",
+        result: "ok",
+      },
+    } as any);
+
+    visible = getAcpFrontendSnapshot().activeSnapshot?.items || [];
+    tool = visible.find(
+      (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
+    );
+    assert.equal(tool?.kind, "tool_call");
+    if (tool?.kind === "tool_call") {
+      assert.equal(tool.state, "completed");
+      assert.include(tool.resultSummary || "", "ok");
+    }
+  });
+
+  it("streams ACP chat chunks naturally when streaming render is enabled", async function () {
+    setAssistantStreamingRenderEnabled(true);
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.streamingChunkCount = 20;
+      lastAdapter.streamingChunkDelayMs = 10;
+      lastAdapter.emitUsageAfterEachStreamingChunk = true;
+      return lastAdapter;
+    });
+    const partialLengths: number[] = [];
+    const unsubscribe = subscribeAcpFrontendSnapshots((snapshot) => {
+      const assistant = snapshot.activeSnapshot?.items.find(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.state === "streaming",
+      );
+      const length = assistant?.text.length || 0;
+      if (length > 0 && length < 20) {
+        partialLengths.push(length);
+      }
+    });
+
+    await sendAcpConversationPrompt({
+      message: "stream chunks with usage side channel enabled",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 240));
+    unsubscribe();
+
+    assert.isAtLeast(new Set(partialLengths).size, 10);
+    assert.include(partialLengths, 1);
+    assert.isAtLeast(Math.max(...partialLengths), 10);
+    const snapshot = getAcpFrontendSnapshot();
+    const assistant = snapshot.activeSnapshot?.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.equal(assistant?.text.length, 20);
   });
 
   it("does not fan out high-frequency diagnostics as one UI snapshot per trace", async function () {

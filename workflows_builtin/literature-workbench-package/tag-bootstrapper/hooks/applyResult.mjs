@@ -105,6 +105,13 @@ function resolveSynthesisVocabularyApi(runtime) {
   return synthesis;
 }
 
+async function loadStagedTagSuggestions(synthesis) {
+  if (typeof synthesis?.listStagedTagSuggestions !== "function") {
+    return [];
+  }
+  return synthesis.listStagedTagSuggestions();
+}
+
 async function applyResultImpl({ resultContext, runResult, runtime }) {
   const output = resolveTagBootstrapperOutput({ resultContext, runResult });
   if (!output) {
@@ -114,6 +121,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
       reason: "tag-bootstrapper output malformed: missing result payload",
       added: [],
       skipped_existing: [],
+      skipped_staged: [],
       warnings: [],
     };
   }
@@ -124,20 +132,32 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
   }
   const synthesis = resolveSynthesisVocabularyApi(runtime);
   const current = await synthesis.loadTagVocabulary();
+  const staged = await loadStagedTagSuggestions(synthesis);
   const existingLower = new Set(
     (Array.isArray(current?.entries) ? current.entries : []).map((entry) =>
       asString(entry?.tag).toLowerCase(),
     ),
   );
+  const stagedLower = new Set(
+    (Array.isArray(staged) ? staged : []).map((entry) =>
+      asString(entry?.tag).toLowerCase(),
+    ),
+  );
   const additions = [];
   const skippedExisting = [];
+  const skippedStaged = [];
   for (const entry of normalized.entries) {
-    if (existingLower.has(entry.tag.toLowerCase())) {
+    const lowered = entry.tag.toLowerCase();
+    if (existingLower.has(lowered)) {
       skippedExisting.push(entry.tag);
       continue;
     }
+    if (stagedLower.has(lowered)) {
+      skippedStaged.push(entry.tag);
+      continue;
+    }
     additions.push(entry);
-    existingLower.add(entry.tag.toLowerCase());
+    existingLower.add(lowered);
   }
   if (additions.length) {
     await synthesis.saveTagVocabulary({
@@ -157,6 +177,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
       skipped: additions.length === 0,
       added: additions.map((entry) => entry.tag),
       skipped_existing: skippedExisting,
+      skipped_staged: skippedStaged,
     },
     skillOutputDiagnostics,
   );

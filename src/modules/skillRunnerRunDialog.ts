@@ -78,6 +78,10 @@ import {
   type SkillRunnerSidebarRelationState,
 } from "./skillRunnerSidebarModel";
 import { ASSISTANT_SIDEBAR_STREAM_FLUSH_MS } from "./assistantSidebarViewModel";
+import {
+  canPublishAssistantWorkspaceLiveUpdates,
+  type AssistantWorkspacePublishReason,
+} from "./assistantWorkspaceUiPublishPolicy";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
 import {
   getSkillRunnerHostBridgePermissionRequest,
@@ -393,6 +397,7 @@ export type RunWorkspaceGroup = {
 export type RunWorkspaceSnapshot = {
   title: string;
   hostMode?: "dialog" | "sidebar";
+  transcriptRevision?: number;
   labels: {
     assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
     title: string;
@@ -466,6 +471,9 @@ type RunWorkspaceState = {
   ) => Promise<boolean> | boolean;
   snapshotFlushTimer?: ReturnType<typeof setTimeout> | null;
   pendingSnapshotType?: "init" | "snapshot";
+  refreshFlushTimer?: ReturnType<typeof setTimeout> | null;
+  pendingRefreshArgs?: RunWorkspaceRefreshArgs;
+  pendingRefreshReason?: AssistantWorkspacePublishReason;
   refreshChain: Promise<void>;
   selectedTaskKey: string;
   selectionIntent: RunWorkspaceSelectionIntent | null;
@@ -483,6 +491,21 @@ type RunWorkspaceState = {
   historyNotice: string;
   currentEntry?: RunDialogEntry;
   loadingBackends: boolean;
+  transcriptRevision: number;
+  publishedTranscriptEntryKey: string;
+  publishedTranscriptMessages: SkillRunnerConversationEntry[];
+  lastPublishedTranscriptSignature: string;
+  lastTranscriptPublishedAt: number;
+};
+
+type RunWorkspaceRefreshArgs = {
+  forceInit?: boolean;
+  runKey?: string;
+  selection?: RunWorkspaceSelectionIntent | null;
+  selectionChanged?: boolean;
+  profile?: RunWorkspaceReadProfile;
+  clearSelection?: boolean;
+  publishReason?: AssistantWorkspacePublishReason;
 };
 
 const SKILLRUNNER_BACKEND_TYPE = "skillrunner";
@@ -513,6 +536,14 @@ const runWorkspaceState: RunWorkspaceState = {
   loadingBackends: false,
   snapshotFlushTimer: null,
   pendingSnapshotType: undefined,
+  refreshFlushTimer: null,
+  pendingRefreshArgs: undefined,
+  pendingRefreshReason: undefined,
+  transcriptRevision: 0,
+  publishedTranscriptEntryKey: "",
+  publishedTranscriptMessages: [],
+  lastPublishedTranscriptSignature: "",
+  lastTranscriptPublishedAt: 0,
 };
 
 const runDialogMap = new Map<string, RunDialogEntry>();
@@ -534,15 +565,16 @@ function isRunDialogEntrySelected(entry: RunDialogEntry) {
 function pushSnapshotForRunDialogEntry(
   entry: RunDialogEntry,
   type: "init" | "snapshot" = "snapshot",
+  reason: AssistantWorkspacePublishReason = "critical",
 ) {
   if (isRunDialogEntrySelected(entry)) {
-    pushSnapshot(type);
+    pushSnapshot(type, reason);
   }
 }
 
 function scheduleSnapshotFlushForRunDialogEntry(
   entry: RunDialogEntry,
-  args?: { immediate?: boolean },
+  args?: { immediate?: boolean; reason?: AssistantWorkspacePublishReason },
 ) {
   if (isRunDialogEntrySelected(entry)) {
     scheduleSnapshotFlush(args || {});
@@ -2154,6 +2186,7 @@ function buildRunDialogSnapshot(
   entry: RunDialogEntry,
   displayTitle?: string,
   selectedTask?: RunWorkspaceTaskItem,
+  options?: { transcriptMessages?: SkillRunnerConversationEntry[] },
 ): RunDialogSnapshot {
   const pending = entry.session.pendingInteraction;
   const pendingAuth = entry.session.pendingAuth;
@@ -2162,7 +2195,9 @@ function buildRunDialogSnapshot(
     ? getSkillRunnerHostBridgePermissionRequest(requestId)
     : null;
   entry.session.pendingPermission = pendingPermission;
-  const displayMessages = buildRunDialogDisplayMessages(entry.session.messages);
+  const displayMessages = buildRunDialogDisplayMessages(
+    options?.transcriptMessages || entry.session.messages,
+  );
   const rawStatus = String(entry.session.status || "").trim();
   const normalizedStatus =
     rawStatus || normalizeStatus(entry.session.status, "running");
@@ -2492,6 +2527,85 @@ function buildRunDialogSnapshot(
   };
 }
 
+function cloneRunDialogTranscriptMessages(
+  messages: SkillRunnerConversationEntry[],
+) {
+  return messages.map((entry) => ({ ...entry }));
+}
+
+function skillRunnerTranscriptSignature(
+  messages: SkillRunnerConversationEntry[],
+) {
+  return messages
+    .map((entry) =>
+      [
+        entry.seq,
+        entry.role,
+        entry.kind,
+        entry.text,
+        entry.displayText || "",
+        entry.displayFormat || "",
+      ].join("\u001f"),
+    )
+    .join("\u001e");
+}
+
+function isSkillRunnerTranscriptBoundary(entry: RunDialogEntry | undefined) {
+  if (!entry) {
+    return false;
+  }
+  const rawStatus = String(entry.session.status || "")
+    .trim()
+    .toLowerCase();
+  const status = normalizeStatus(rawStatus, "running");
+  return (
+    isTerminalStatus(status) ||
+    status === "waiting_user" ||
+    status === "waiting_auth" ||
+    rawStatus === "authenticating"
+  );
+}
+
+function resolveRunWorkspaceTranscriptMessages(args: {
+  entry: RunDialogEntry;
+  reason: AssistantWorkspacePublishReason;
+}) {
+  const entryKey = String(args.entry.key || "").trim();
+  const canonicalMessages = args.entry.session.messages;
+  const signature = skillRunnerTranscriptSignature(canonicalMessages);
+  if (entryKey !== runWorkspaceState.publishedTranscriptEntryKey) {
+    runWorkspaceState.publishedTranscriptEntryKey = entryKey;
+    runWorkspaceState.publishedTranscriptMessages =
+      cloneRunDialogTranscriptMessages(canonicalMessages);
+    runWorkspaceState.lastPublishedTranscriptSignature = signature;
+    runWorkspaceState.lastTranscriptPublishedAt = Date.now();
+    runWorkspaceState.transcriptRevision += 1;
+    return cloneRunDialogTranscriptMessages(
+      runWorkspaceState.publishedTranscriptMessages,
+    );
+  }
+  if (signature === runWorkspaceState.lastPublishedTranscriptSignature) {
+    return cloneRunDialogTranscriptMessages(
+      runWorkspaceState.publishedTranscriptMessages,
+    );
+  }
+  const now = Date.now();
+  const shouldPublish =
+    args.reason === "boundary" ||
+    isSkillRunnerTranscriptBoundary(args.entry) ||
+    (args.reason === "live" && canPublishAssistantWorkspaceLiveUpdates());
+  if (shouldPublish) {
+    runWorkspaceState.publishedTranscriptMessages =
+      cloneRunDialogTranscriptMessages(canonicalMessages);
+    runWorkspaceState.transcriptRevision += 1;
+    runWorkspaceState.lastPublishedTranscriptSignature = signature;
+    runWorkspaceState.lastTranscriptPublishedAt = now;
+  }
+  return cloneRunDialogTranscriptMessages(
+    runWorkspaceState.publishedTranscriptMessages,
+  );
+}
+
 function buildRunWorkspaceSnapshot(
   session: RunDialogSnapshot | null,
   selectedTask?: RunWorkspaceTaskItem,
@@ -2515,6 +2629,7 @@ function buildRunWorkspaceSnapshot(
       String(selectedTask?.title || "").trim() ||
       session?.title ||
       resolveRunWorkspaceTitle(),
+    transcriptRevision: runWorkspaceState.transcriptRevision,
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
       title: localize(
@@ -2597,11 +2712,20 @@ function isRunWorkspaceHostAlive() {
   return isWindowAlive(runWorkspaceState.hostWindow);
 }
 
-function pushSnapshot(messageType: "init" | "snapshot") {
+function pushSnapshot(
+  messageType: "init" | "snapshot",
+  reason: AssistantWorkspacePublishReason = "critical",
+) {
   if (runWorkspaceState.snapshotFlushTimer) {
     clearTimeout(runWorkspaceState.snapshotFlushTimer);
     runWorkspaceState.snapshotFlushTimer = null;
     runWorkspaceState.pendingSnapshotType = undefined;
+  }
+  if (runWorkspaceState.refreshFlushTimer) {
+    clearTimeout(runWorkspaceState.refreshFlushTimer);
+    runWorkspaceState.refreshFlushTimer = null;
+    runWorkspaceState.pendingRefreshArgs = undefined;
+    runWorkspaceState.pendingRefreshReason = undefined;
   }
   if (!runWorkspaceState.frameWindow) {
     return;
@@ -2612,12 +2736,17 @@ function pushSnapshot(messageType: "init" | "snapshot") {
   const selectedTask = runWorkspaceState.taskIndex.get(
     runWorkspaceState.selectedTaskKey,
   )?.item;
-  const session = runWorkspaceState.currentEntry
-    ? buildRunDialogSnapshot(
-        runWorkspaceState.currentEntry,
-        selectedTask?.title,
-        selectedTask,
-      )
+  const currentEntry = runWorkspaceState.currentEntry;
+  const transcriptMessages = currentEntry
+    ? resolveRunWorkspaceTranscriptMessages({
+        entry: currentEntry,
+        reason,
+      })
+    : undefined;
+  const session = currentEntry
+    ? buildRunDialogSnapshot(currentEntry, selectedTask?.title, selectedTask, {
+        transcriptMessages,
+      })
     : null;
   const snapshot = runWorkspaceState.decorateSnapshot
     ? runWorkspaceState.decorateSnapshot(
@@ -2636,10 +2765,19 @@ function pushSnapshot(messageType: "init" | "snapshot") {
 function scheduleSnapshotFlush(args: {
   messageType?: "init" | "snapshot";
   immediate?: boolean;
+  reason?: AssistantWorkspacePublishReason;
 }) {
   const messageType = args.messageType || "snapshot";
-  if (args.immediate) {
-    pushSnapshot(messageType);
+  const reason =
+    args.reason || (args.immediate ? "critical" : ("live" as const));
+  if (reason === "background") {
+    return;
+  }
+  if (reason === "live" && !canPublishAssistantWorkspaceLiveUpdates()) {
+    return;
+  }
+  if (args.immediate || reason === "critical" || reason === "boundary") {
+    pushSnapshot(messageType, reason);
     return;
   }
   runWorkspaceState.pendingSnapshotType =
@@ -2651,8 +2789,124 @@ function scheduleSnapshotFlush(args: {
     const pending = runWorkspaceState.pendingSnapshotType || "snapshot";
     runWorkspaceState.snapshotFlushTimer = null;
     runWorkspaceState.pendingSnapshotType = undefined;
-    pushSnapshot(pending);
+    pushSnapshot(pending, "live");
   }, ASSISTANT_SIDEBAR_STREAM_FLUSH_MS);
+}
+
+function publishReasonRank(reason: AssistantWorkspacePublishReason) {
+  switch (reason) {
+    case "critical":
+      return 4;
+    case "boundary":
+      return 3;
+    case "live":
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function mergePublishReason(
+  current: AssistantWorkspacePublishReason | undefined,
+  next: AssistantWorkspacePublishReason,
+) {
+  if (!current || publishReasonRank(next) > publishReasonRank(current)) {
+    return next;
+  }
+  return current;
+}
+
+function mergeRunWorkspaceRefreshArgs(
+  current: RunWorkspaceRefreshArgs | undefined,
+  next: RunWorkspaceRefreshArgs,
+) {
+  return {
+    ...(current || {}),
+    ...next,
+    forceInit: current?.forceInit === true || next.forceInit === true,
+    selectionChanged:
+      current?.selectionChanged === true || next.selectionChanged === true,
+    clearSelection:
+      current?.clearSelection === true || next.clearSelection === true,
+    publishReason: mergePublishReason(
+      current?.publishReason,
+      next.publishReason || "live",
+    ),
+  } satisfies RunWorkspaceRefreshArgs;
+}
+
+function scheduleWorkspaceSnapshotRefresh(args: RunWorkspaceRefreshArgs = {}) {
+  const reason = args.publishReason || "live";
+  if (reason === "background") {
+    return;
+  }
+  if (reason === "live" && !canPublishAssistantWorkspaceLiveUpdates()) {
+    return;
+  }
+  if (
+    reason === "critical" ||
+    reason === "boundary" ||
+    args.forceInit ||
+    args.selectionChanged ||
+    args.clearSelection ||
+    typeof args.runKey !== "undefined" ||
+    typeof args.selection !== "undefined"
+  ) {
+    if (runWorkspaceState.refreshFlushTimer) {
+      clearTimeout(runWorkspaceState.refreshFlushTimer);
+      runWorkspaceState.refreshFlushTimer = null;
+      runWorkspaceState.pendingRefreshArgs = undefined;
+      runWorkspaceState.pendingRefreshReason = undefined;
+    }
+    void refreshWorkspaceSnapshot({ ...args, publishReason: reason });
+    return;
+  }
+  runWorkspaceState.pendingRefreshArgs = mergeRunWorkspaceRefreshArgs(
+    runWorkspaceState.pendingRefreshArgs,
+    args,
+  );
+  runWorkspaceState.pendingRefreshReason = mergePublishReason(
+    runWorkspaceState.pendingRefreshReason,
+    reason,
+  );
+  if (runWorkspaceState.refreshFlushTimer) {
+    return;
+  }
+  runWorkspaceState.refreshFlushTimer = setTimeout(() => {
+    const pendingArgs = runWorkspaceState.pendingRefreshArgs || {};
+    const pendingReason = runWorkspaceState.pendingRefreshReason || "live";
+    runWorkspaceState.refreshFlushTimer = null;
+    runWorkspaceState.pendingRefreshArgs = undefined;
+    runWorkspaceState.pendingRefreshReason = undefined;
+    void refreshWorkspaceSnapshot({
+      ...pendingArgs,
+      publishReason: pendingReason,
+    });
+  }, ASSISTANT_SIDEBAR_STREAM_FLUSH_MS);
+}
+
+function resolveRunStoreRefreshReason(): AssistantWorkspacePublishReason {
+  const selectedKey = String(
+    runWorkspaceState.currentEntry?.key ||
+      runWorkspaceState.selectedTaskKey ||
+      "",
+  ).trim();
+  const record = selectedKey ? getSkillRunnerRunRecord(selectedKey) : null;
+  if (!record) {
+    return "live";
+  }
+  if (record.error) {
+    return "critical";
+  }
+  if (isTerminal(record.status) || isWaiting(record.status)) {
+    return "boundary";
+  }
+  if (record.backendStatus) {
+    if (isTerminal(record.backendStatus) || isWaiting(record.backendStatus)) {
+      return "boundary";
+    }
+  }
+  return "live";
 }
 
 function clearRunWorkspaceHostState() {
@@ -2681,6 +2935,11 @@ function clearRunWorkspaceHostState() {
   runWorkspaceState.groups = [];
   runWorkspaceState.historyTruncated = false;
   runWorkspaceState.historyNotice = "";
+  runWorkspaceState.transcriptRevision = 0;
+  runWorkspaceState.publishedTranscriptEntryKey = "";
+  runWorkspaceState.publishedTranscriptMessages = [];
+  runWorkspaceState.lastPublishedTranscriptSignature = "";
+  runWorkspaceState.lastTranscriptPublishedAt = 0;
 }
 
 function ensureRunWorkspaceSubscriptions() {
@@ -2689,7 +2948,7 @@ function ensureRunWorkspaceSubscriptions() {
       if (!isRunWorkspaceHostAlive()) {
         return;
       }
-      void refreshWorkspaceSnapshot();
+      scheduleWorkspaceSnapshotRefresh({ publishReason: "live" });
     });
   }
   if (!runWorkspaceState.unsubscribeRunStore) {
@@ -2697,7 +2956,9 @@ function ensureRunWorkspaceSubscriptions() {
       if (!isRunWorkspaceHostAlive()) {
         return;
       }
-      void refreshWorkspaceSnapshot();
+      scheduleWorkspaceSnapshotRefresh({
+        publishReason: resolveRunStoreRefreshReason(),
+      });
     });
   }
   if (!runWorkspaceState.unsubscribeAutoReplyObserver) {
@@ -2706,7 +2967,7 @@ function ensureRunWorkspaceSubscriptions() {
         if (!isRunWorkspaceHostAlive()) {
           return;
         }
-        void refreshWorkspaceSnapshot();
+        scheduleWorkspaceSnapshotRefresh({ publishReason: "live" });
       });
   }
   if (!runWorkspaceState.unsubscribeBackendHealth) {
@@ -2715,7 +2976,7 @@ function ensureRunWorkspaceSubscriptions() {
         if (!isRunWorkspaceHostAlive()) {
           return;
         }
-        void refreshWorkspaceSnapshot();
+        scheduleWorkspaceSnapshotRefresh({ publishReason: "live" });
       });
   }
   if (!runWorkspaceState.unsubscribeHostBridgePermissions) {
@@ -2724,7 +2985,7 @@ function ensureRunWorkspaceSubscriptions() {
         if (!isRunWorkspaceHostAlive()) {
           return;
         }
-        void refreshWorkspaceSnapshot();
+        scheduleWorkspaceSnapshotRefresh({ publishReason: "critical" });
       });
   }
 }
@@ -3152,7 +3413,14 @@ async function startRunObserver(entry: RunDialogEntry) {
     scheduleSnapshotFlushForRunDialogEntry(entry, {
       immediate:
         conversationEntry.kind !== "assistant_message" &&
-        conversationEntry.kind !== "assistant_process",
+        conversationEntry.kind !== "assistant_process"
+          ? true
+          : canPublishAssistantWorkspaceLiveUpdates(),
+      reason:
+        conversationEntry.kind === "assistant_message" ||
+        conversationEntry.kind === "assistant_process"
+          ? "live"
+          : "boundary",
     });
   };
 
@@ -4215,14 +4483,7 @@ async function selectWorkspaceTask(taskKey: string) {
   });
 }
 
-async function refreshWorkspaceSnapshot(args?: {
-  forceInit?: boolean;
-  runKey?: string;
-  selection?: RunWorkspaceSelectionIntent | null;
-  selectionChanged?: boolean;
-  profile?: RunWorkspaceReadProfile;
-  clearSelection?: boolean;
-}) {
+async function refreshWorkspaceSnapshot(args?: RunWorkspaceRefreshArgs) {
   if (!isRunWorkspaceHostAlive()) {
     return;
   }
@@ -4324,7 +4585,13 @@ async function refreshWorkspaceSnapshot(args?: {
         runWorkspaceState.selectionIntent = null;
       }
       await selectWorkspaceTask(nextSelected);
-      pushSnapshot(args?.forceInit ? "init" : "snapshot");
+      const publishReason =
+        args?.publishReason || (args?.forceInit ? "critical" : "live");
+      const selectedEntry = runWorkspaceState.currentEntry;
+      const effectiveReason = isSkillRunnerTranscriptBoundary(selectedEntry)
+        ? "boundary"
+        : publishReason;
+      pushSnapshot(args?.forceInit ? "init" : "snapshot", effectiveReason);
     },
   );
   await runWorkspaceState.refreshChain;

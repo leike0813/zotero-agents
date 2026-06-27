@@ -2,7 +2,11 @@ import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE, ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
 import { joinPath } from "../utils/path";
-import { isAssistantStreamingRenderEnabled } from "./assistantStreamingRenderPreference";
+import {
+  ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
+  canPublishAssistantWorkspaceLiveUpdates,
+  type AssistantWorkspacePublishReason,
+} from "./assistantWorkspaceUiPublishPolicy";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -76,11 +80,17 @@ import {
 
 type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
+type AcpUiPublishMode = "full" | "metadata" | "structural";
 
 export type AcpSessionSlot = {
   backendId: string;
   adapter: AcpConnectionAdapter | null;
   snapshot: AcpConversationSnapshot;
+  uiSnapshot: AcpConversationSnapshot | null;
+  uiRevision: number;
+  uiTranscriptRevision: number;
+  uiHasUnpublishedTranscript: boolean;
+  uiPendingPublishMode: AcpUiPublishMode | null;
   unsubscribeUpdate: (() => void) | null;
   unsubscribeClose: (() => void) | null;
   unsubscribeDiagnostics: (() => void) | null;
@@ -107,6 +117,9 @@ type AcpEmitOptions = {
   throttlePersist?: boolean;
   touchUpdatedAt?: boolean;
   notifyUi?: boolean;
+  uiReason?: AssistantWorkspacePublishReason;
+  publishTranscript?: boolean;
+  publishMode?: AcpUiPublishMode;
 };
 
 let adapterFactory: (
@@ -119,7 +132,6 @@ const slots = new Map<string, AcpSessionSlot>();
 const listeners = new Set<AcpSnapshotListener>();
 const frontendListeners = new Set<AcpFrontendSnapshotListener>();
 const MAX_DIAGNOSTICS = 40;
-const STREAMING_UI_EMIT_THROTTLE_MS = 80;
 const STREAMING_PERSIST_THROTTLE_MS = 1500;
 const HOST_BRIDGE_CLI_WRAPPER_SKILL_ID = "zotero-bridge-cli";
 
@@ -327,6 +339,11 @@ function getOrCreateSlot(backendIdRaw?: string) {
     backendId,
     adapter: null,
     snapshot: hydrateSnapshot(backendId),
+    uiSnapshot: null,
+    uiRevision: 0,
+    uiTranscriptRevision: 0,
+    uiHasUnpublishedTranscript: false,
+    uiPendingPublishMode: null,
     unsubscribeUpdate: null,
     unsubscribeClose: null,
     unsubscribeDiagnostics: null,
@@ -425,18 +442,106 @@ function persistSlotSnapshotNow(slot: AcpSessionSlot) {
   }
 }
 
+function clonePublishedSlotSnapshot(slot: AcpSessionSlot) {
+  if (!slot.uiSnapshot) {
+    slot.uiSnapshot = cloneSnapshotValue(slot.snapshot);
+  }
+  const cloned = cloneSnapshotValue(
+    slot.uiSnapshot,
+  ) as AcpConversationSnapshot & Record<string, unknown>;
+  cloned.uiRevision = slot.uiRevision;
+  cloned.transcriptRevision = slot.uiTranscriptRevision;
+  return cloned;
+}
+
+function markSlotTranscriptUnpublished(slot: AcpSessionSlot) {
+  slot.uiHasUnpublishedTranscript = true;
+}
+
+function resolveAcpUiPublishMode(options: {
+  publishMode?: AcpUiPublishMode;
+  publishTranscript?: boolean;
+}) {
+  if (options.publishMode) {
+    return options.publishMode;
+  }
+  return options.publishTranscript === false ? "metadata" : "full";
+}
+
+function mergeAcpUiPublishMode(
+  current: AcpUiPublishMode | null,
+  next: AcpUiPublishMode,
+) {
+  if (current === "full" || next === "full") {
+    return "full";
+  }
+  if (current === "structural" || next === "structural") {
+    return "structural";
+  }
+  return "metadata";
+}
+
+function mergeStructuralConversationItems(
+  slot: AcpSessionSlot,
+  previous: AcpConversationSnapshot | null,
+) {
+  const previousById = new Map(
+    (previous?.items || []).map((entry) => [entry.id, entry]),
+  );
+  let hasHeldStreamingText = false;
+  const items: AcpConversationItem[] = [];
+  for (const entry of slot.snapshot.items) {
+    if (
+      slot.uiHasUnpublishedTranscript &&
+      (entry.kind === "message" || entry.kind === "thought") &&
+      entry.state === "streaming"
+    ) {
+      hasHeldStreamingText = true;
+      const previousEntry = previousById.get(entry.id);
+      if (previousEntry) {
+        items.push(cloneAcpConversationItem(previousEntry));
+      }
+      continue;
+    }
+    items.push(cloneAcpConversationItem(entry));
+  }
+  slot.uiHasUnpublishedTranscript = hasHeldStreamingText;
+  return items;
+}
+
+function updatePublishedSlotSnapshot(
+  slot: AcpSessionSlot,
+  publishMode: AcpUiPublishMode,
+) {
+  const previous = slot.uiSnapshot;
+  const next = cloneSnapshotValue(slot.snapshot);
+  if (publishMode === "metadata" && previous) {
+    next.items = previous.items.map((entry) => cloneAcpConversationItem(entry));
+  } else if (publishMode === "structural") {
+    next.items = mergeStructuralConversationItems(slot, previous);
+  }
+  slot.uiSnapshot = next;
+  slot.uiRevision += 1;
+  if (publishMode !== "metadata") {
+    slot.uiTranscriptRevision += 1;
+    if (publishMode === "full") {
+      slot.uiHasUnpublishedTranscript = false;
+    }
+  }
+}
+
 function notifyConversationListenersNow(slot: AcpSessionSlot) {
   if (!isActiveSlot(slot)) {
     return;
   }
-  const cloned = cloneSnapshotValue(slot.snapshot);
+  const cloned = clonePublishedSlotSnapshot(slot);
   for (const listener of listeners) {
     listener(cloned);
   }
 }
 
 function notifyFrontendListenersNow() {
-  const frontend = buildFrontendSnapshot();
+  const frontend = buildFrontendSnapshot({ uiVisible: true });
   for (const listener of frontendListeners) {
     listener(frontend);
   }
@@ -450,11 +555,17 @@ function flushPendingPersistence(slot: AcpSessionSlot) {
   persistSlotSnapshotNow(slot);
 }
 
-function flushPendingUiEmit(slot: AcpSessionSlot) {
+function flushPendingUiEmit(
+  slot: AcpSessionSlot,
+  publishMode: AcpUiPublishMode = "full",
+) {
   if (slot.uiEmitTimer) {
     clearTimeout(slot.uiEmitTimer);
     slot.uiEmitTimer = null;
   }
+  const mode = mergeAcpUiPublishMode(slot.uiPendingPublishMode, publishMode);
+  slot.uiPendingPublishMode = null;
+  updatePublishedSlotSnapshot(slot, mode);
   notifyConversationListenersNow(slot);
   notifyFrontendListenersNow();
 }
@@ -469,15 +580,47 @@ function schedulePersistenceFlush(slot: AcpSessionSlot) {
   }, STREAMING_PERSIST_THROTTLE_MS);
 }
 
-function scheduleUiEmit(slot: AcpSessionSlot) {
+function scheduleUiEmit(
+  slot: AcpSessionSlot,
+  publishMode: AcpUiPublishMode = "metadata",
+) {
+  slot.uiPendingPublishMode = mergeAcpUiPublishMode(
+    slot.uiPendingPublishMode,
+    publishMode,
+  );
   if (slot.uiEmitTimer) {
     return;
   }
   slot.uiEmitTimer = setTimeout(() => {
     slot.uiEmitTimer = null;
+    const mode = slot.uiPendingPublishMode || "metadata";
+    slot.uiPendingPublishMode = null;
+    updatePublishedSlotSnapshot(slot, mode);
     notifyConversationListenersNow(slot);
     notifyFrontendListenersNow();
-  }, STREAMING_UI_EMIT_THROTTLE_MS);
+  }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
+}
+
+function publishSlotUiSnapshot(
+  slot: AcpSessionSlot,
+  reason: AssistantWorkspacePublishReason,
+  publishMode: AcpUiPublishMode,
+) {
+  if (reason === "background") {
+    return;
+  }
+  if (reason === "live") {
+    if (!canPublishAssistantWorkspaceLiveUpdates()) {
+      return;
+    }
+    if (publishMode === "full") {
+      flushPendingUiEmit(slot, publishMode);
+      return;
+    }
+    scheduleUiEmit(slot, publishMode);
+    return;
+  }
+  flushPendingUiEmit(slot, publishMode);
 }
 
 function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
@@ -497,11 +640,14 @@ function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
     }
   }
   if (options.notifyUi !== false) {
-    if (options.throttleUi) {
-      scheduleUiEmit(slot);
-    } else {
-      flushPendingUiEmit(slot);
-    }
+    const reason: AssistantWorkspacePublishReason =
+      options.uiReason || (options.throttleUi ? "live" : "critical");
+    const publishMode = resolveAcpUiPublishMode({
+      publishMode: options.publishMode,
+      publishTranscript:
+        options.publishTranscript ?? !slot.uiHasUnpublishedTranscript,
+    });
+    publishSlotUiSnapshot(slot, reason, publishMode);
   }
 }
 
@@ -1498,12 +1644,12 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      const renderStreaming = isAssistantStreamingRenderEnabled();
+      markSlotTranscriptUnpublished(slot);
       emitSlotSnapshot(slot, {
-        throttleUi: renderStreaming,
         throttlePersist: true,
         touchUpdatedAt: false,
-        notifyUi: renderStreaming,
+        uiReason: "live",
+        publishMode: "full",
       });
       return;
     }
@@ -1535,25 +1681,31 @@ function handleSessionUpdate(
       }
       target.text += chunk;
       target.state = "streaming";
-      const renderStreaming = isAssistantStreamingRenderEnabled();
+      markSlotTranscriptUnpublished(slot);
       emitSlotSnapshot(slot, {
-        throttleUi: renderStreaming,
         throttlePersist: true,
         touchUpdatedAt: false,
-        notifyUi: renderStreaming,
+        uiReason: "live",
+        publishMode: "full",
       });
       return;
     }
     case "tool_call": {
       slot.snapshot.lastLifecycleEvent = "tool_call";
       upsertToolCallItem(slot, update);
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, {
+        uiReason: "boundary",
+        publishMode: "structural",
+      });
       return;
     }
     case "tool_call_update": {
       slot.snapshot.lastLifecycleEvent = "tool_call_update";
       upsertToolCallItem(slot, update);
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, {
+        uiReason: "boundary",
+        publishMode: "structural",
+      });
       return;
     }
     case "plan": {
@@ -1581,7 +1733,10 @@ function handleSessionUpdate(
         target.entries = entries;
         target.updatedAt = nowIso();
       }
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, {
+        uiReason: "boundary",
+        publishMode: "structural",
+      });
       return;
     }
     case "available_commands_update": {
@@ -1595,7 +1750,7 @@ function handleSessionUpdate(
             }))
             .filter((entry) => entry.name)
         : [];
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "current_mode_update": {
@@ -1603,7 +1758,7 @@ function handleSessionUpdate(
       applyModeState(slot, {
         currentModeId: String(update.currentModeId || "").trim(),
       });
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "config_option_update": {
@@ -1623,14 +1778,17 @@ function handleSessionUpdate(
           text: "Session configuration options updated.",
         });
       }
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, {
+        uiReason: "boundary",
+        publishMode: "structural",
+      });
       return;
     }
     case "session_info_update": {
       slot.snapshot.lastLifecycleEvent = "session_info_update";
       slot.snapshot.sessionTitle = String(update.title || "").trim();
       slot.snapshot.sessionUpdatedAt = String(update.updatedAt || "").trim();
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "usage_update": {
@@ -1643,7 +1801,7 @@ function handleSessionUpdate(
           size: Math.max(0, Math.floor(size)),
         };
       }
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     default:
@@ -1671,7 +1829,7 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
       clearPromptCancelCloseExpectation(slot);
       markPromptCancelled(slot);
       slot.snapshot.lastLifecycleEvent = "prompt_cancelled";
-      emitSlotSnapshot(slot);
+      emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
       return;
     }
     slot.snapshot.busy = false;
@@ -1699,7 +1857,8 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
     appendDiagnostic(slot, entry);
     emitSlotSnapshot(slot, {
       persist: false,
-      throttleUi: true,
+      uiReason: "live",
+      publishMode: "metadata",
     });
   });
   slot.unsubscribePermission = nextAdapter.onPermissionRequest((request) => {
@@ -2191,10 +2350,15 @@ function buildBackendSummary(
   };
 }
 
-function buildFrontendSnapshot(): AcpFrontendSnapshot {
+function buildFrontendSnapshot(options?: {
+  uiVisible?: boolean;
+}): AcpFrontendSnapshot {
   ensureInitialized();
   const activeSlot = getOrCreateSlot(activeBackendId);
-  const activeSnapshot = cloneSnapshotValue(activeSlot.snapshot);
+  const activeSnapshot =
+    options?.uiVisible === true
+      ? clonePublishedSlotSnapshot(activeSlot)
+      : cloneSnapshotValue(activeSlot.snapshot);
   activeSnapshot.mcpServer = getZoteroMcpServerStatus();
   activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
   const chatSessions = listAcpChatSessions(activeBackendId);
@@ -2254,7 +2418,7 @@ function buildFrontendSnapshot(): AcpFrontendSnapshot {
 }
 
 export function getAcpFrontendSnapshot() {
-  return buildFrontendSnapshot();
+  return buildFrontendSnapshot({ uiVisible: true });
 }
 
 export function subscribeAcpFrontendSnapshots(
@@ -2274,11 +2438,18 @@ export function getAcpConversationSnapshot(backendId?: string) {
   );
 }
 
+export function getAcpConversationUiSnapshot(backendId?: string) {
+  ensureInitialized();
+  return clonePublishedSlotSnapshot(
+    getOrCreateSlot(backendId || activeBackendId),
+  );
+}
+
 export function subscribeAcpConversationSnapshots(
   listener: AcpSnapshotListener,
 ) {
   listeners.add(listener);
-  listener(getAcpConversationSnapshot());
+  listener(getAcpConversationUiSnapshot());
   return () => {
     listeners.delete(listener);
   };
@@ -2458,7 +2629,7 @@ export async function sendAcpConversationPrompt(args: {
     slot.snapshot.status = "connected";
     slot.snapshot.lastStopReason = String(response.stopReason || "").trim();
     finalizeStreamingItems(slot, "complete", "skipped");
-    emitSlotSnapshot(slot);
+    emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
   } catch (error) {
     slot.snapshot.busy = false;
     finalizeStreamingItems(slot, "error", "cancelled");
@@ -2474,7 +2645,7 @@ export async function sendAcpConversationPrompt(args: {
       slot.snapshot.prerequisiteError =
         slot.snapshot.prerequisiteError || slot.snapshot.lastError;
     }
-    emitSlotSnapshot(slot);
+    emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
     throw error;
   }
 }
@@ -2497,7 +2668,7 @@ export async function cancelAcpConversationPrompt(args?: {
     slot.promptCancelInFlight = false;
   }
   markPromptCancelled(slot);
-  emitSlotSnapshot(slot);
+  emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
 }
 
 export async function startNewAcpConversation(args?: { backendId?: string }) {

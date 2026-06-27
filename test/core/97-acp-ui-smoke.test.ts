@@ -4090,6 +4090,52 @@ describe("acp ui smoke", function () {
     ]);
   });
 
+  it("projects the global streaming render switch on SkillRunner panels", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      streamingRenderEnabled: false,
+      session: {
+        requestId: "req-skillrunner-switch",
+        status: "running",
+      },
+      workspace: {
+        selectedTaskKey: "",
+        groups: [],
+      },
+      drawer: {
+        sections: [],
+      },
+    });
+
+    const action = panel.actions.toolbar.find(
+      (entry: any) => entry.action === "set-streaming-render-enabled",
+    );
+    assert.equal(action?.kind, "switch");
+    assert.equal(action?.align, "end");
+    assert.equal(action?.checked, false);
+    assert.deepEqual(action?.payload, { enabled: true });
+  });
+
+  it("gates transcript rendering with revisions in all Assistant Workspace child panels", async function () {
+    const acpChatJs = await readProjectFile(
+      "addon/content/sidebar/acp-chat.js",
+    );
+    const acpSkillRunJs = await readProjectFile(
+      "addon/content/sidebar/acp-skill-run.js",
+    );
+    const runDialogJs = await readProjectFile(
+      "addon/content/sidebar/run-dialog.js",
+    );
+
+    for (const source of [acpChatJs, acpSkillRunJs, runDialogJs]) {
+      assert.include(source, "transcriptRevision");
+      assert.include(source, "transcriptRenderedMode");
+    }
+    assert.include(acpChatJs, "state.transcriptRevision === revision");
+    assert.include(acpSkillRunJs, "state.transcriptRevision === revision");
+    assert.include(runDialogJs, "state.transcriptRevision === revision");
+  });
+
   it("renders waiting_user choice options as clickable reply buttons", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const fakeDocument = createFakeDocumentForAssistantPanel();

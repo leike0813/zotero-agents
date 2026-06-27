@@ -25,7 +25,7 @@ import {
   cancelAcpConversationPrompt,
   connectAcpConversation,
   disconnectAcpConversation,
-  getAcpConversationSnapshot,
+  getAcpConversationUiSnapshot,
   getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
   reconnectAcpConversation,
@@ -402,6 +402,7 @@ function buildDecoratedSkillRunnerSnapshot(
     snapshot: {
       ...snapshot,
       hostMode: "sidebar" as const,
+      streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
       drawer: {
         open: host.drawerOpen,
         notice: snapshot.drawer?.notice,
@@ -605,7 +606,7 @@ function buildAcpSnapshot(target: AcpSidebarTarget) {
   return {
     ...(buildAcpSidebarViewSnapshot({
       target,
-      snapshot: getAcpConversationSnapshot(),
+      snapshot: getAcpConversationUiSnapshot(),
       frontendSnapshot: getAcpFrontendSnapshot(),
     }) as unknown as Record<string, unknown>),
     streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
@@ -952,6 +953,13 @@ async function handleChildAction(
       ? (payload.payload as Record<string, unknown>)
       : {};
   if (tab === "skillrunner") {
+    if (action === "set-streaming-render-enabled") {
+      setAssistantStreamingRenderEnabled(childPayload.enabled === true);
+      scheduleSkillRunnerSidebarRefresh(host, target, {
+        selectionChanged: false,
+      });
+      return;
+    }
     const handledByHost = await createSkillRunnerHostActionHandler(host)({
       action,
       payload: childPayload,
@@ -1503,6 +1511,12 @@ export function installAssistantWorkspaceSidebarShell(
   });
   host.removeStreamingRenderPreferenceSubscription =
     subscribeAssistantStreamingRenderPreference(() => {
+      if (host.activeTab === "skillrunner" && host.activeTarget) {
+        scheduleSkillRunnerSidebarRefresh(host, host.activeTarget, {
+          selectionChanged: false,
+        });
+        return;
+      }
       schedulePostSnapshot(host);
     });
   updateAssistantAttentionIndicator(host);

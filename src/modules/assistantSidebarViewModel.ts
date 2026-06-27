@@ -27,7 +27,7 @@ export type AssistantSidebarSnapshot = {
   renderHints: AssistantSidebarRenderHints;
 };
 
-export const ASSISTANT_SIDEBAR_STREAM_FLUSH_MS = 80;
+export const ASSISTANT_SIDEBAR_STREAM_FLUSH_MS = 160;
 
 export function createAssistantSidebarScopeKey(prefix = "assistant-sidebar") {
   return `${prefix}-${Date.now().toString(36)}-${Math.random()

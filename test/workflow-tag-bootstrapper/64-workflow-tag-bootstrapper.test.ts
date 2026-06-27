@@ -286,6 +286,71 @@ describe("workflow: tag-bootstrapper", function () {
     assert.deepEqual(result.skipped_existing, ["field:cs/ai"]);
   });
 
+  it("does not add bootstrapper tags that duplicate staged suggestions", async function () {
+    const { runtime, service } = await makeRuntime();
+    await service.saveTagVocabulary({
+      entries: [
+        {
+          tag: "field:CS/AI",
+          facet: "field",
+          note: "AI",
+        },
+      ],
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "ai_task:detection",
+          facet: "ai_task",
+          note: "staged detection task",
+          source_flow: "tag-regulator-suggest",
+          parent_bindings: [42],
+        },
+      ],
+    });
+
+    const result = (await applyResult({
+      parent: null,
+      bundleReader: { readText: async () => "" },
+      manifest: {} as never,
+      runtime: runtime as never,
+      runResult: {
+        resultJson: {
+          data: {
+            add_tags: [
+              { tag: "field:cs/ai", facet: "field", note: "duplicate" },
+              {
+                tag: "ai_task:detection",
+                facet: "ai_task",
+                note: "duplicate staged task",
+              },
+              { tag: "method:survey", note: "Survey study" },
+            ],
+            warnings: [],
+            error: null,
+          },
+        },
+      },
+    })) as Record<string, any>;
+
+    const snapshot = await service.loadTagVocabulary();
+    assert.deepEqual(
+      snapshot.entries.map((entry) => entry.tag),
+      ["field:CS/AI", "method:survey"],
+    );
+    const staged = await service.listStagedTagSuggestions();
+    assert.deepEqual(
+      staged.map((entry) => entry.tag),
+      ["ai_task:detection"],
+    );
+    assert.deepEqual(staged[0]?.parent_bindings, [42]);
+    assert.deepEqual(result.added, ["method:survey"]);
+    assert.deepEqual(result.skipped_existing, ["field:cs/ai"]);
+    assert.deepEqual(result.skipped_staged, ["ai_task:detection"]);
+    assert.equal(result.applied, true);
+    assert.equal(result.skipped, false);
+  });
+
   it("applies valid additions when skill output includes a non-null error diagnostic", async function () {
     const { runtime, service } = await makeRuntime();
     await service.saveTagVocabulary({

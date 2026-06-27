@@ -3652,6 +3652,7 @@
               "Manage Backends",
             ),
           },
+          buildStreamingRenderToggleAction(envelope),
         ],
         context: [],
         details: [

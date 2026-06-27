@@ -80,6 +80,7 @@ import {
   removeAssistantWorkspaceSidebarShell,
   toggleAssistantWorkspaceSidebar,
 } from "./modules/assistantWorkspaceSidebar";
+import { setAssistantStreamingRenderEnabled } from "./modules/assistantStreamingRenderPreference";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -1040,6 +1041,14 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
           enabled,
           server: getZoteroMcpServerStatus(),
         },
+      };
+    }
+    case "setAssistantStreamingRenderEnabled": {
+      const enabled = setAssistantStreamingRenderEnabled(data.enabled === true);
+      return {
+        ok: true,
+        stage: "assistant-streaming-render-setting",
+        enabled,
       };
     }
     case "showHostBridgeEndpoint": {

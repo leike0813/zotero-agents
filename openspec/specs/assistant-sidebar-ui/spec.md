@@ -459,6 +459,13 @@ state when a snapshot changes unrelated panel data.
 - **THEN** the renderer SHALL keep the same textarea DOM node
 - **AND** it SHALL preserve the user's current value and selection.
 
+#### Scenario: Metadata-only snapshot skips transcript rendering
+
+- **WHEN** a child panel receives a snapshot whose transcript revision is
+  unchanged
+- **THEN** the transcript renderer SHALL NOT be invoked
+- **AND** toolbar, banner, drawer, details, and reply regions MAY still update.
+
 #### Scenario: Existing composer semantics remain unchanged
 
 - **WHEN** the reply model represents enabled text reply, choice buttons,
@@ -545,24 +552,40 @@ across normal and narrow sidebars.
 
 ### Requirement: ACP Panels Expose Streaming Render Toggle
 
-ACP Chat and ACP Skills SHALL show a toolbar switch for the global streaming
-render preference. The switch SHALL be right-aligned in the managed toolbar,
-use a green visual state when enabled, and use a red visual state when disabled.
+ACP Chat, ACP Skills, and SkillRunner SHALL show a toolbar switch for the global
+streaming render preference. The switch SHALL be right-aligned in the managed
+toolbar, use a green visual state when enabled, and use a red visual state when
+disabled.
 
-The Preferences checkbox and both ACP toolbar switches SHALL read and write the
-same global preference. Changing the state from any of these surfaces SHALL
-update the other open surfaces.
+The Preferences checkbox and all three toolbar switches SHALL read and write
+the same global preference. Changing the state from any of these surfaces SHALL
+update the other open surfaces. The persisted Zotero preference SHALL be the
+single source of truth; Assistant Workspace SHALL observe preference changes
+instead of treating its toolbar switch state as authoritative.
 
-SkillRunner SHALL NOT show this switch and SHALL NOT change behavior for this
-preference.
+The preference label and help text SHALL describe Assistant Workspace streaming
+render behavior rather than ACP-only behavior.
 
-#### Scenario: ACP Chat switch updates ACP Skills
-- **GIVEN** ACP Chat and ACP Skills surfaces are open
-- **WHEN** the user changes the streaming render switch in ACP Chat
-- **THEN** ACP Skills receives the same preference state on its next snapshot.
+#### Scenario: any panel switch updates all panels
 
-#### Scenario: Preferences checkbox updates ACP panels
+- **GIVEN** ACP Chat, ACP Skills, and SkillRunner surfaces are open
+- **WHEN** the user changes the streaming render switch in any one panel
+- **THEN** the other panels receive the same preference state on their next
+  snapshot
+- **AND** the Preferences checkbox reflects the same state.
+
+#### Scenario: Preferences checkbox updates all panels
+
 - **WHEN** the user changes the Preferences checkbox
-- **THEN** ACP Chat and ACP Skills toolbar switches reflect the same state
-- **AND** SkillRunner remains unchanged.
+- **THEN** the persisted preference is updated from that user activation
+- **AND** ACP Chat, ACP Skills, and SkillRunner toolbar switches reflect the
+  same state.
+
+#### Scenario: Preferences remains authoritative after reopening
+
+- **GIVEN** Assistant Workspace and Preferences are open
+- **WHEN** the user changes the streaming render checkbox in Preferences
+- **AND** closes and reopens Preferences
+- **THEN** the reopened checkbox reflects the persisted preference value
+- **AND** Assistant Workspace does not overwrite it with a stale toolbar state.
 

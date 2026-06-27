@@ -11,6 +11,8 @@
     transcriptNodeMap: new Map(),
     transcriptOrderKey: "",
     transcriptMode: "",
+    transcriptRevision: null,
+    transcriptRenderedMode: "",
     transcriptRunId: "",
     toolActivityExpandedIds: new Set(),
     drawerCompletedCollapsed: true,
@@ -225,6 +227,8 @@
     state.transcriptNodeMap.clear();
     state.transcriptOrderKey = "";
     state.transcriptMode = "";
+    state.transcriptRevision = null;
+    state.transcriptRenderedMode = "";
     state.toolActivityExpandedIds.clear();
   }
 
@@ -495,6 +499,14 @@
       state.transcriptRunId = requestId;
       resetTranscriptRenderState();
     }
+    const revision = Number(run && run.transcriptRevision) || 0;
+    if (
+      state.transcriptRevision === revision &&
+      state.transcriptRenderedMode === state.chatDisplayMode
+    ) {
+      renderChatDisplayMode();
+      return;
+    }
     renderer.renderAssistantTranscript({
       container: transcript,
       items: Array.isArray(view.items) ? view.items : [],
@@ -525,6 +537,8 @@
       onRendered: function (result) {
         state.transcriptOrderKey = result.orderKey;
         state.transcriptMode = result.modeKey;
+        state.transcriptRevision = revision;
+        state.transcriptRenderedMode = state.chatDisplayMode;
       },
     });
     renderChatDisplayMode();
