@@ -1166,6 +1166,12 @@ describe("acp ui smoke", function () {
     const sharedPanelCss = await readProjectFile(
       "addon/content/shared/assistant/assistant-panel-shared.css",
     );
+    const sharedIconsCss = await readProjectFile(
+      "addon/content/shared/icons.css",
+    );
+    const editDocumentIconSvg = await readProjectFile(
+      "addon/content/icons/material-symbols/edit_document.svg",
+    );
     const sharedThemeCss = await readProjectFile(
       "addon/content/shared/theme.css",
     );
@@ -1538,22 +1544,27 @@ describe("acp ui smoke", function () {
     );
     assert.include(sharedPanelCss, "border-left-width: 0;");
     assert.include(sharedPanelCss, "display: none;");
+    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon");
+    assert.include(sharedPanelCss, "--zs-icon-size: 16px;");
+    assert.include(sharedIconsCss, ".zs-icon-edit-document");
     assert.include(
-      sharedPanelCss,
-      ".assistant-transcript-workspace-file-icon::before",
+      sharedIconsCss,
+      "../icons/material-symbols/edit_document.svg",
     );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-transcript-workspace-file-icon::after",
-    );
-    assert.include(sharedPanelCss, ".assistant-transcript-workspace-badge");
+    assert.include(editDocumentIconSvg, "<svg");
+    assert.include(editDocumentIconSvg, "<path");
     assert.include(
       assistantTranscriptRendererJs,
-      "assistant-transcript-workspace-badge",
+      "assistant-transcript-workspace-file-icon zs-icon zs-icon-sm zs-icon-edit-document",
     );
-    assert.include(
+    assert.notInclude(sharedPanelCss, ".assistant-transcript-workspace-badge");
+    assert.notInclude(
       assistantTranscriptRendererJs,
       'transcriptLabel(options, "workspaceActivity")',
+    );
+    assert.notInclude(
+      assistantTranscriptRendererJs,
+      "assistant-transcript-workspace-badge",
     );
     assert.notInclude(
       assistantTranscriptRendererJs,

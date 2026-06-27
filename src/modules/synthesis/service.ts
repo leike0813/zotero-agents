@@ -17014,6 +17014,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
     const timestamp = now();
     const sourceRef = item.paperRef;
+    const normalizedCitationAnalysisPayload = citationAnalysisPayload(
+      args.citationAnalysis,
+    );
+    const citationAnalysisHash =
+      cleanString(args.citationAnalysis?.payloadHash) ||
+      (Object.keys(normalizedCitationAnalysisPayload).length > 0
+        ? hashCanonicalJson(normalizedCitationAnalysisPayload)
+        : "");
     const artifactStates: SynthesisArtifactSidecarRecord[] = [
       {
         sourceRef,
@@ -17055,7 +17063,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         itemKey: item.itemKey,
         artifactType: "citation_analysis",
         status: args.citationAnalysis ? "available" : "missing",
-        artifactHash: cleanString(args.citationAnalysis?.payloadHash),
+        artifactHash: citationAnalysisHash,
         locatorJson: JSON.stringify({
           note_key: cleanString(args.citationAnalysis?.noteKey),
         }),

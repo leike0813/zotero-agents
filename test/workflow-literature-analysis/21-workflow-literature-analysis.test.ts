@@ -1217,6 +1217,75 @@ describe("workflow: literature-analysis", function () {
   );
 
   itNodeOnly(
+    "passes citation analysis payload to the Synthesis sidecar apply hook",
+    async function () {
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "Workflow Citation Sidecar Payload Parent" },
+      });
+      const loaded = await loadWorkflowManifests(workflowsPath());
+      const workflow = loaded.workflows.find(
+        (entry) => entry.manifest.id === "literature-analysis",
+      );
+      assert.isOk(workflow, "missing literature-analysis workflow");
+
+      let capturedSidecarInput: any = null;
+      const baseHostApi = createWorkflowHostApi();
+      await executeApplyResult({
+        workflow: workflow!,
+        parent,
+        bundleReader: {
+          async readText(entryPath: string) {
+            if (entryPath === "result/result.json") {
+              return JSON.stringify({
+                status: "success",
+                data: {
+                  digest_path: "artifacts/digest.md",
+                  references_path: "artifacts/references.json",
+                  citation_analysis_path: "artifacts/citation_analysis.json",
+                },
+              });
+            }
+            if (entryPath === "artifacts/digest.md") {
+              return "# Digest";
+            }
+            if (entryPath === "artifacts/references.json") {
+              return JSON.stringify([
+                { id: "ref-1", title: "Baseline Paper", year: "2021" },
+              ]);
+            }
+            if (entryPath === "artifacts/citation_analysis.json") {
+              return JSON.stringify({
+                items: [{ ref_index: 0, function: "baseline" }],
+                report_md: "# Citation Analysis",
+              });
+            }
+            throw new Error(`missing bundle entry: ${entryPath}`);
+          },
+        },
+        runtime: {
+          hostApi: {
+            ...baseHostApi,
+            synthesis: {
+              ...(baseHostApi as any).synthesis,
+              async applyLiteratureDigestSidecar(args: any) {
+                capturedSidecarInput = args;
+                return { status: "sidecar_applied" };
+              },
+            },
+          } as any,
+        },
+      });
+
+      assert.equal(
+        capturedSidecarInput?.citationAnalysis?.payload?.citation_analysis
+          ?.items?.[0]?.function,
+        "baseline",
+      );
+    },
+  );
+
+  itNodeOnly(
     "applies ACP local result paths through shared result context without bundle projection",
     async function () {
       const root = await mkTempRoot();

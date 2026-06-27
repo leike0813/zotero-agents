@@ -222,6 +222,54 @@ describe("Synthesis sidecar cache hard cut", function () {
     );
   });
 
+  it("refreshes sidecar roles when citation payload changes without an explicit payload hash", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({ root });
+    const baseInput = {
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Attention Paper",
+      year: "2020",
+      digest: { noteKey: "NDIGEST", content: "# Digest\n\nBody" },
+      references: {
+        noteKey: "NREFS",
+        references: [
+          { id: "ref-1", title: "Detection Transformer", year: "2021" },
+        ],
+      },
+    };
+
+    await service.applyLiteratureDigestSidecar({
+      ...baseInput,
+      citationAnalysis: {
+        noteKey: "NCITE",
+        payload: {
+          citation_analysis: {
+            items: [{ ref_index: 0, function: "baseline" }],
+          },
+        },
+      },
+    });
+
+    const rerun = await service.applyLiteratureDigestSidecar({
+      ...baseInput,
+      citationAnalysis: {
+        noteKey: "NCITE",
+        payload: {
+          citation_analysis: {
+            items: [{ ref_index: 0, function: "dataset" }],
+          },
+        },
+      },
+    });
+
+    assert.notEqual((rerun as { unchanged?: boolean }).unchanged, true);
+    const roles = JSON.parse(
+      repository.listRawReferences()[0]?.rolesJson || "[]",
+    ).map((entry: { role?: string }) => entry.role);
+    assert.deepEqual(roles, ["dataset"]);
+  });
+
   it("persists best-effort citation roles from literature-analysis apply", async function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({ root });

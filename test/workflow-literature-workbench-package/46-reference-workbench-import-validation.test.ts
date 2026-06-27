@@ -118,6 +118,19 @@ describe("literature-workbench import schema validation", function () {
     );
   });
 
+  it("accepts empty citation summary from tolerant best-effort analysis", function () {
+    const rawPayload = {
+      ...buildCitationSchemaPayload(),
+      summary: "",
+    };
+
+    assert.deepEqual(validateImportedCitationPayload(rawPayload).errors, []);
+    assert.equal(
+      normalizeImportedCitationPayload(rawPayload).citation_analysis.summary,
+      "",
+    );
+  });
+
   it("rejects wrapper-shaped citation payloads", function () {
     const result = validateImportedCitationPayload(
       buildWrappedCitationPayload(),

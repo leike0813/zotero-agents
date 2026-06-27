@@ -2328,40 +2328,9 @@ details.assistant-panel-details-section[open]
 }
 
 .assistant-transcript-workspace-file-icon {
-  position: relative;
-  width: 12px;
-  height: 14px;
   flex: 0 0 auto;
-  border: 1.5px solid var(--asst-muted);
-  border-radius: 2px;
   color: var(--asst-muted);
-}
-
-.assistant-transcript-workspace-file-icon::before {
-  content: "";
-  position: absolute;
-  top: -1.5px;
-  right: -1.5px;
-  width: 5px;
-  height: 5px;
-  border-left: 1.5px solid var(--asst-muted);
-  border-bottom: 1.5px solid var(--asst-muted);
-  background: var(--asst-surface-soft);
-}
-
-.assistant-transcript-workspace-file-icon::after {
-  content: "";
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  top: 6px;
-  height: 1.5px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.assistant-transcript-workspace-badge {
-  max-width: none;
+  --zs-icon-size: 16px;
 }
 
 .assistant-transcript-tool-activity-summary,

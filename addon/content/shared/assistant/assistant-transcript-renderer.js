@@ -840,16 +840,12 @@
         item.details.relativePath
           ? item.details.relativePath
           : item.text;
-      const fileIcon = el("span", "assistant-transcript-workspace-file-icon");
+      const fileIcon = el(
+        "span",
+        "assistant-transcript-workspace-file-icon zs-icon zs-icon-sm zs-icon-edit-document",
+      );
       fileIcon.setAttribute("aria-hidden", "true");
       body.appendChild(fileIcon);
-      body.appendChild(
-        el(
-          "span",
-          "assistant-transcript-tool-badge assistant-transcript-workspace-badge",
-          transcriptLabel(options, "workspaceActivity"),
-        ),
-      );
       body.appendChild(
         el(
           "span",

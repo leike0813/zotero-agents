@@ -593,6 +593,7 @@ async function applyResultImpl({
         referencesEntryPath: referencesResolved.entryPath,
         citationAnalysisEntryPath: citationAnalysisResolved.entryPath,
         referencesPayload: referencesPayload.payload,
+        citationAnalysisPayload: citationPayload,
         literatureMatchingMetadata: literatureMatchingMetadataResolved.payload,
       }),
   );

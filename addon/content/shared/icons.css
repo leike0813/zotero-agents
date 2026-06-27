@@ -153,6 +153,11 @@
   mask-image: url("../icons/material-symbols/draft.svg");
 }
 
+.zs-icon-edit-document {
+  -webkit-mask-image: url("../icons/material-symbols/edit_document.svg");
+  mask-image: url("../icons/material-symbols/edit_document.svg");
+}
+
 .zs-icon-product-article {
   -webkit-mask-image: url("../icons/material-symbols/article.svg");
   mask-image: url("../icons/material-symbols/article.svg");

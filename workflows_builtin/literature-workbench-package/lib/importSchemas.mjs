@@ -111,7 +111,6 @@ export const CITATION_ANALYSIS_SCHEMA = {
         },
         summary: {
           type: "string",
-          minLength: 1,
         },
         timeline: {
           type: "object",
