@@ -4,6 +4,7 @@ import { config } from "../../package.json";
 import {
   appendRuntimeLog,
   buildRuntimeDiagnosticBundle,
+  buildRuntimeIssueDiagnosticBundle,
   buildRuntimeIssueSummary,
   clearRuntimeLogs,
   flushRuntimeLogsPersistence,
@@ -408,6 +409,103 @@ describe("runtime log manager", function () {
     });
     assert.include(issue, "Runtime Diagnostic Summary");
     assert.include(issue, "req-1");
+  });
+
+  it("builds high-signal issue diagnostic bundle without raw entries by default", function () {
+    appendRuntimeLog({
+      level: "info",
+      scope: "provider",
+      backendId: "acp-1",
+      backendType: "acp",
+      providerId: "acp",
+      component: "acp-backend-probe",
+      operation: "probe-acp-runtime-options",
+      stage: "acp-runtime-options-probe-ok",
+      message: "ACP backend runtime options cache refreshed",
+      details: {
+        authorization: "Bearer secret-value",
+        cache: { displayModels: 2 },
+      },
+    });
+    appendRuntimeLog({
+      level: "info",
+      scope: "provider",
+      backendId: "acp-1",
+      backendType: "acp",
+      stage: "low-value-info",
+      message: "ordinary info",
+    });
+
+    const bundle = buildRuntimeIssueDiagnosticBundle({
+      filters: {
+        backendId: "acp-1",
+        backendType: "acp",
+      },
+    });
+
+    assert.equal(bundle.schemaVersion, "runtime-issue-diagnostic-bundle/v1");
+    assert.notProperty(bundle, "entries");
+    assert.notProperty(bundle, "developerRawEntries");
+    assert.equal(bundle.timeline.length, 1);
+    assert.equal(bundle.timeline[0].stage, "acp-runtime-options-probe-ok");
+    assert.equal(bundle.backendHealth.acpRuntimeOptions[0].status, "ok");
+    assert.deepEqual(bundle.evidenceGaps, []);
+    assert.equal(bundle.redaction.includesDebug, false);
+    assert.equal(bundle.redaction.includesRawEntries, false);
+  });
+
+  it("resolves platform from Zotero flags or process fallback", function () {
+    const runtime = globalThis as typeof globalThis & {
+      Zotero?: { isWin?: boolean; isMac?: boolean; isLinux?: boolean };
+    };
+    const previousIsWin = runtime.Zotero?.isWin;
+    const previousIsMac = runtime.Zotero?.isMac;
+    const previousIsLinux = runtime.Zotero?.isLinux;
+    try {
+      runtime.Zotero = runtime.Zotero || {};
+      runtime.Zotero.isWin = false;
+      runtime.Zotero.isMac = true;
+      runtime.Zotero.isLinux = false;
+      assert.equal(
+        buildRuntimeIssueDiagnosticBundle().environment.platform,
+        "darwin",
+      );
+
+      runtime.Zotero.isMac = false;
+      const platform = buildRuntimeDiagnosticBundle().meta.platform;
+      assert.notEqual(platform, "unknown-platform");
+      assert.include(platform, process.platform);
+    } finally {
+      if (runtime.Zotero) {
+        runtime.Zotero.isWin = previousIsWin;
+        runtime.Zotero.isMac = previousIsMac;
+        runtime.Zotero.isLinux = previousIsLinux;
+      }
+    }
+  });
+
+  it("reports evidence gaps in issue diagnostic bundles", function () {
+    appendRuntimeLog({
+      level: "info",
+      scope: "provider",
+      backendId: "acp-missing",
+      backendType: "acp",
+      stage: "provider-started",
+      message: "started",
+    });
+
+    const bundle = buildRuntimeIssueDiagnosticBundle({
+      filters: {
+        backendId: "acp-missing",
+        backendType: "acp",
+        requestId: "missing-request",
+      },
+    });
+
+    assert.includeMembers(
+      bundle.evidenceGaps.map((gap) => gap.code),
+      ["no_retained_runtime_logs", "missing_request_context"],
+    );
   });
 
   it("drops expired logs older than retention window", function () {

@@ -9,6 +9,10 @@ import {
   resolveContentPackageVersionBump,
 } from "../../../scripts/bump-content-package-version";
 import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
+import {
+  parseContentPackageReleaseArgs,
+  prepareContentPackageRelease,
+} from "../../../scripts/prepare-content-package-release";
 
 type Feed = {
   schema: string;
@@ -185,6 +189,119 @@ describe("content package release scripts", function () {
     });
     assert.equal(updated.version, "1.3.0");
     assert.equal(updated.id, "zotero-agents-official-workflows");
+  });
+
+  it("prepares a content package version bump without publishing by default", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(filePath, JSON.stringify({ version: "1.2.3" }, null, 2));
+
+    const result = await prepareContentPackageRelease({
+      target: "patch",
+      versionFile: filePath,
+      dispatch: false,
+      runCommand: async () => {
+        throw new Error("should not run external commands");
+      },
+    });
+    const updated = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+    assert.deepEqual(result.bump, {
+      previousVersion: "1.2.3",
+      version: "1.2.4",
+    });
+    assert.equal(updated.version, "1.2.4");
+    assert.isFalse(result.dispatched);
+    assert.includeMembers(result.nextCommands, [
+      "git add content-package.version.json",
+      "gh workflow run publish-content-feed.yml --repo leike0813/zotero-agents --ref main",
+    ]);
+  });
+
+  it("dispatches the content package publish workflow only from a clean tree", async function () {
+    const calls: Array<{ command: string; args: string[] }> = [];
+
+    const result = await prepareContentPackageRelease({
+      dispatch: true,
+      watch: true,
+      repo: "owner/repo",
+      ref: "release-branch",
+      runCommand: async (command, args) => {
+        calls.push({ command, args });
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.isTrue(result.dispatched);
+    assert.deepEqual(calls, [
+      { command: "git", args: ["status", "--porcelain"] },
+      { command: "git", args: ["fetch", "origin", "release-branch"] },
+      {
+        command: "git",
+        args: ["merge-base", "--is-ancestor", "HEAD", "origin/release-branch"],
+      },
+      {
+        command: "gh",
+        args: [
+          "workflow",
+          "run",
+          "publish-content-feed.yml",
+          "--repo",
+          "owner/repo",
+          "--ref",
+          "release-branch",
+        ],
+      },
+      { command: "gh", args: ["run", "watch", "--repo", "owner/repo"] },
+    ]);
+  });
+
+  it("rejects workflow dispatch when local HEAD has not reached the remote ref", async function () {
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        ref: "main",
+        runCommand: async (command, args) => {
+          if (command === "git" && args[0] === "merge-base") {
+            throw new Error("not ancestor");
+          }
+          return { stdout: "", stderr: "" };
+        },
+      }),
+      /origin\/main/,
+    );
+  });
+
+  it("rejects workflow dispatch when local changes are still uncommitted", async function () {
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        runCommand: async (command) => ({
+          stdout: command === "git" ? " M content-package.version.json\n" : "",
+          stderr: "",
+        }),
+      }),
+      /[Cc]ommit and push content package changes before dispatching/,
+    );
+  });
+
+  it("parses content package release helper arguments", function () {
+    assert.deepInclude(
+      parseContentPackageReleaseArgs([
+        "minor",
+        "--dispatch",
+        "--watch",
+        "--repo",
+        "owner/repo",
+        "--ref=release-branch",
+      ]),
+      {
+        target: "minor",
+        dispatch: true,
+        watch: true,
+        repo: "owner/repo",
+        ref: "release-branch",
+      },
+    );
   });
 
   it("verifies matching GitHub and Gitee feeds and release assets", async function () {

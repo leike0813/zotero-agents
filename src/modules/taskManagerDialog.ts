@@ -9,7 +9,10 @@ import { getString } from "../utils/locale";
 import { resolveSkillRunnerBackendUnavailableToastText } from "../utils/localizationGovernance";
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { isWindowAlive } from "../utils/window";
-import { listRuntimeLogs } from "./runtimeLogManager";
+import {
+  listRuntimeLogs,
+  type RuntimeLogListFilters,
+} from "./runtimeLogManager";
 import {
   cleanupTaskDashboardHistory,
   listTaskDashboardHistory,
@@ -3764,13 +3767,10 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "runtime-logs-copy-diagnostic-bundle") {
       try {
-        const { buildRuntimeDiagnosticBundle } =
+        const { buildRuntimeIssueDiagnosticBundle } =
           await import("./runtimeLogManager");
-        const bundle = buildRuntimeDiagnosticBundle({
-          filters: {
-            ...state.runtimeLogFilters,
-            levels: ["debug", "info", "warn", "error"],
-          },
+        const bundle = buildRuntimeIssueDiagnosticBundle({
+          filters: state.runtimeLogFilters as RuntimeLogListFilters,
         });
         const textToCopy = JSON.stringify(bundle, null, 2);
         const helper = (Components as any).classes?.[

@@ -16,6 +16,21 @@
   --dashboard-control-active-bg: #bfdbfe;
   --dashboard-control-border: #8fb3f4;
   --dashboard-control-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --log-level-debug-bg: #f1f5f9;
+  --log-level-debug-border: rgba(100, 116, 139, 0.35);
+  --log-level-debug-text: #475569;
+  --log-level-info-bg: #dbeafe;
+  --log-level-info-border: rgba(37, 99, 235, 0.32);
+  --log-level-info-text: #1d4ed8;
+  --log-level-warn-bg: #fef3c7;
+  --log-level-warn-border: rgba(217, 119, 6, 0.36);
+  --log-level-warn-text: #92400e;
+  --log-level-error-bg: #fee2e2;
+  --log-level-error-border: rgba(220, 38, 38, 0.35);
+  --log-level-error-text: #b91c1c;
+  --log-level-unknown-bg: var(--panel);
+  --log-level-unknown-border: var(--line-strong);
+  --log-level-unknown-text: var(--muted);
 }
 
 :root[data-zs-theme="dark"] {
@@ -24,6 +39,21 @@
   --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
   --dashboard-control-border: rgba(147, 197, 253, 0.38);
   --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --log-level-debug-bg: rgba(148, 163, 184, 0.12);
+  --log-level-debug-border: rgba(148, 163, 184, 0.32);
+  --log-level-debug-text: #cbd5e1;
+  --log-level-info-bg: rgba(96, 165, 250, 0.16);
+  --log-level-info-border: rgba(96, 165, 250, 0.38);
+  --log-level-info-text: #93c5fd;
+  --log-level-warn-bg: rgba(245, 158, 11, 0.16);
+  --log-level-warn-border: rgba(245, 158, 11, 0.4);
+  --log-level-warn-text: #fcd34d;
+  --log-level-error-bg: rgba(248, 113, 113, 0.16);
+  --log-level-error-border: rgba(248, 113, 113, 0.42);
+  --log-level-error-text: #fca5a5;
+  --log-level-unknown-bg: rgba(148, 163, 184, 0.1);
+  --log-level-unknown-border: rgba(148, 163, 184, 0.24);
+  --log-level-unknown-text: #cbd5e1;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,6 +63,21 @@
     --dashboard-control-active-bg: rgba(96, 165, 250, 0.28);
     --dashboard-control-border: rgba(147, 197, 253, 0.38);
     --dashboard-control-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --log-level-debug-bg: rgba(148, 163, 184, 0.12);
+    --log-level-debug-border: rgba(148, 163, 184, 0.32);
+    --log-level-debug-text: #cbd5e1;
+    --log-level-info-bg: rgba(96, 165, 250, 0.16);
+    --log-level-info-border: rgba(96, 165, 250, 0.38);
+    --log-level-info-text: #93c5fd;
+    --log-level-warn-bg: rgba(245, 158, 11, 0.16);
+    --log-level-warn-border: rgba(245, 158, 11, 0.4);
+    --log-level-warn-text: #fcd34d;
+    --log-level-error-bg: rgba(248, 113, 113, 0.16);
+    --log-level-error-border: rgba(248, 113, 113, 0.42);
+    --log-level-error-text: #fca5a5;
+    --log-level-unknown-bg: rgba(148, 163, 184, 0.1);
+    --log-level-unknown-border: rgba(148, 163, 184, 0.24);
+    --log-level-unknown-text: #cbd5e1;
   }
 }
 
@@ -478,6 +523,42 @@ tr.clickable {
   color: var(--danger);
   border-color: var(--zs-danger-border);
   background: var(--zs-danger-soft);
+}
+
+.log-level-badge {
+  min-width: 54px;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.log-level-badge--debug {
+  color: var(--log-level-debug-text);
+  border-color: var(--log-level-debug-border);
+  background: var(--log-level-debug-bg);
+}
+
+.log-level-badge--info {
+  color: var(--log-level-info-text);
+  border-color: var(--log-level-info-border);
+  background: var(--log-level-info-bg);
+}
+
+.log-level-badge--warn {
+  color: var(--log-level-warn-text);
+  border-color: var(--log-level-warn-border);
+  background: var(--log-level-warn-bg);
+}
+
+.log-level-badge--error {
+  color: var(--log-level-error-text);
+  border-color: var(--log-level-error-border);
+  background: var(--log-level-error-bg);
+}
+
+.log-level-badge--unknown {
+  color: var(--log-level-unknown-text);
+  border-color: var(--log-level-unknown-border);
+  background: var(--log-level-unknown-bg);
 }
 
 .toolbar {

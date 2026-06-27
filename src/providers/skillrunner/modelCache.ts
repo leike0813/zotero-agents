@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../../backends/types";
 import { loadBackendsRegistry } from "../../backends/registry";
 import { getPref, setPref } from "../../utils/prefs";
+import { appendRuntimeLog } from "../../modules/runtimeLogManager";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -231,6 +232,50 @@ function buildSkillRunnerRequestHeaders(backend: BackendInstance) {
   return headers;
 }
 
+function countModelsByEngine(
+  modelsByEngine: Record<string, SkillRunnerModelCacheModel[]>,
+) {
+  return Object.values(modelsByEngine).reduce(
+    (total, models) => total + models.length,
+    0,
+  );
+}
+
+function appendSkillRunnerModelCacheLog(args: {
+  backend: BackendInstance;
+  backendId: string;
+  baseUrl: string;
+  level: "info" | "warn" | "error";
+  stage: string;
+  message: string;
+  startedAt: number;
+  details?: Record<string, unknown>;
+  error?: unknown;
+}) {
+  appendRuntimeLog({
+    level: args.level,
+    scope: "provider",
+    backendId: args.backendId,
+    backendType:
+      String(args.backend.type || "").trim() || SKILLRUNNER_BACKEND_TYPE,
+    providerId: "skillrunner",
+    component: "skillrunner-model-cache",
+    operation: "refresh-skillrunner-model-cache",
+    stage: args.stage,
+    message: args.message,
+    transport: {
+      method: "GET",
+      path: "/v1/engines",
+      duration: Math.max(0, Date.now() - args.startedAt),
+    },
+    details: {
+      baseUrl: args.baseUrl,
+      ...args.details,
+    },
+    error: args.error,
+  });
+}
+
 function parseEnginesPayload(payload: unknown) {
   const enginesRaw =
     isObjectRecord(payload) && Array.isArray(payload.engines)
@@ -381,7 +426,18 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
   const backend = args.backend;
   const baseUrl = normalizeBaseUrl(backend.baseUrl);
   const backendId = String(backend.id || "").trim();
+  const startedAt = Date.now();
   if (!backendId || !baseUrl) {
+    appendSkillRunnerModelCacheLog({
+      backend,
+      backendId,
+      baseUrl,
+      level: "warn",
+      stage: "skillrunner-model-cache-refresh-invalid-backend",
+      message:
+        "SkillRunner model cache refresh requires backend id and baseUrl",
+      startedAt,
+    });
     return {
       ok: false,
       backendId,
@@ -390,6 +446,16 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     };
   }
   if (String(backend.type || "").trim() !== SKILLRUNNER_BACKEND_TYPE) {
+    appendSkillRunnerModelCacheLog({
+      backend,
+      backendId,
+      baseUrl,
+      level: "warn",
+      stage: "skillrunner-model-cache-refresh-invalid-backend-type",
+      message: "SkillRunner model cache refresh requires a skillrunner backend",
+      startedAt,
+      details: { backendType: backend.type },
+    });
     return {
       ok: false,
       backendId,
@@ -401,6 +467,15 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     args.fetchImpl ||
     ((globalThis as { fetch?: FetchLike }).fetch as FetchLike);
   if (typeof fetchImpl !== "function") {
+    appendSkillRunnerModelCacheLog({
+      backend,
+      backendId,
+      baseUrl,
+      level: "warn",
+      stage: "skillrunner-model-cache-refresh-fetch-unavailable",
+      message: "fetch() is unavailable in current runtime",
+      startedAt,
+    });
     return {
       ok: false,
       backendId,
@@ -409,6 +484,20 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     };
   }
   const headers = buildSkillRunnerRequestHeaders(backend);
+  appendSkillRunnerModelCacheLog({
+    backend,
+    backendId,
+    baseUrl,
+    level: "info",
+    stage: "skillrunner-model-cache-refresh-started",
+    message: "SkillRunner model cache refresh started",
+    startedAt,
+    details: {
+      requestPaths: ["/v1/engines"],
+      hasAuthorization: !!headers.authorization,
+      headerKeys: Object.keys(headers).sort(),
+    },
+  });
   try {
     const enginesResponse = await fetchImpl(`${baseUrl}/v1/engines`, {
       method: "GET",
@@ -420,7 +509,10 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
     );
     const engines = parseEnginesPayload(enginesPayload);
     const modelsByEngine: Record<string, SkillRunnerModelCacheModel[]> = {};
+    const requestPaths = ["/v1/engines"];
     for (const engine of engines) {
+      const modelPath = `/v1/engines/${engine}/models`;
+      requestPaths.push(modelPath);
       const response = await fetchImpl(
         `${baseUrl}/v1/engines/${encodeURIComponent(engine)}/models`,
         {
@@ -428,10 +520,7 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
           headers,
         },
       );
-      const payload = await readJsonOrThrow(
-        response,
-        `/v1/engines/${engine}/models`,
-      );
+      const payload = await readJsonOrThrow(response, modelPath);
       modelsByEngine[engine] = parseEngineModelsPayload(payload);
     }
     const updatedAt = toIsoNow();
@@ -442,6 +531,21 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
       engines,
       modelsByEngine,
     });
+    appendSkillRunnerModelCacheLog({
+      backend,
+      backendId,
+      baseUrl,
+      level: "info",
+      stage: "skillrunner-model-cache-refresh-ok",
+      message: "SkillRunner model cache refreshed",
+      startedAt,
+      details: {
+        refreshedAt: updatedAt,
+        engines: engines.length,
+        models: countModelsByEngine(modelsByEngine),
+        requestPaths,
+      },
+    });
     return {
       ok: true,
       backendId,
@@ -449,6 +553,16 @@ export async function refreshSkillRunnerModelCacheForBackend(args: {
       refreshedAt: updatedAt,
     };
   } catch (error) {
+    appendSkillRunnerModelCacheLog({
+      backend,
+      backendId,
+      baseUrl,
+      level: "warn",
+      stage: "skillrunner-model-cache-refresh-failed",
+      message: String(error),
+      startedAt,
+      error,
+    });
     return {
       ok: false,
       backendId,

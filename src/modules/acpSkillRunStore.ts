@@ -49,6 +49,7 @@ import {
   resolveAcpRawModelIdForSelection,
   type AcpSelectableOption,
 } from "./acpModelOptionFolding";
+import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 
 export type AcpSkillRunStatus =
   | "queued"
@@ -239,6 +240,7 @@ export type AcpSkillRunRecord = {
     | "failed";
   runtimeDependencyError?: string;
   hostBridgeCli?: AcpSkillRunHostBridgeCliState;
+  auditTrail?: AcpSkillRunAuditTrailState;
   repairRounds: number;
   validationStatus?: "pending" | "valid" | "invalid";
   validationErrors?: string[];
@@ -1196,6 +1198,26 @@ function parseHostBridgeCliState(
   };
 }
 
+function parseAuditTrailState(
+  value: unknown,
+): AcpSkillRunAuditTrailState | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const files = isRecord(value.files)
+    ? Object.fromEntries(
+        Object.entries(value.files)
+          .map(([key, filePath]) => [key, normalizeString(filePath)])
+          .filter((entry) => entry[1]),
+      )
+    : {};
+  return {
+    initialized: value.initialized === true,
+    files,
+    lastError: normalizeString(value.lastError) || undefined,
+  };
+}
+
 function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
   if (!isRecord(raw)) {
     return null;
@@ -1273,6 +1295,7 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     runtimeDependencyError:
       normalizeString(raw.runtimeDependencyError) || undefined,
     hostBridgeCli: parseHostBridgeCliState(raw.hostBridgeCli),
+    auditTrail: parseAuditTrailState(raw.auditTrail),
     repairRounds: Math.max(0, Math.floor(Number(raw.repairRounds || 0) || 0)),
     validationStatus:
       raw.validationStatus === "valid" || raw.validationStatus === "invalid"
@@ -1669,6 +1692,7 @@ export function upsertAcpSkillRun(update: {
   runtimeDependencyStatus?: AcpSkillRunRecord["runtimeDependencyStatus"];
   runtimeDependencyError?: string;
   hostBridgeCli?: AcpSkillRunHostBridgeCliState;
+  auditTrail?: AcpSkillRunAuditTrailState;
   repairRounds?: number;
   validationStatus?: AcpSkillRunRecord["validationStatus"];
   validationErrors?: string[];
@@ -1853,6 +1877,13 @@ export function upsertAcpSkillRun(update: {
   }
   if (update.hostBridgeCli) {
     next.hostBridgeCli = { ...update.hostBridgeCli };
+  }
+  if (update.auditTrail) {
+    next.auditTrail = {
+      initialized: update.auditTrail.initialized === true,
+      files: { ...update.auditTrail.files },
+      lastError: normalizeString(update.auditTrail.lastError) || undefined,
+    };
   }
   if (
     typeof update.repairRounds === "number" &&

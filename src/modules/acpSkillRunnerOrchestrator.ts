@@ -110,6 +110,16 @@ import {
   readRuntimeTextFile,
   statRuntimePath,
 } from "./runtimePersistence";
+import {
+  appendAcpSkillRunAuditDiagnostic,
+  appendAcpSkillRunAuditEvent,
+  appendAcpSkillRunAuditUpdate,
+  initializeAcpSkillRunAuditTrail,
+  writeAcpSkillRunAuditFinalState,
+  writeAcpSkillRunAuditPrompt,
+  writeAcpSkillRunAuditRuntimeLogs,
+  writeAcpSkillRunAuditStderrTail,
+} from "./acpSkillRunAuditTrail";
 import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
 import {
   getSequenceRunStateByStepRequest,
@@ -546,6 +556,11 @@ async function buildRunPrompt(args: {
   repairPrompt?: string;
 }) {
   if (args.repairPrompt) {
+    await writeAcpSkillRunAuditPrompt({
+      requestId: args.context.workspace.requestId,
+      runtimeDir: args.context.workspace.runtimeDir,
+      prompt: args.repairPrompt,
+    });
     return args.repairPrompt;
   }
   const { context } = args;
@@ -564,6 +579,11 @@ async function buildRunPrompt(args: {
     runnerJson: context.materialization.runnerJson,
     inputContext: context.inputContext,
     parameterContext: context.parameterContext,
+  });
+  await writeAcpSkillRunAuditPrompt({
+    requestId: context.workspace.requestId,
+    runtimeDir: context.workspace.runtimeDir,
+    prompt: basePrompt,
   });
   return basePrompt;
 }
@@ -2722,8 +2742,13 @@ export async function recoverAcpSkillRunConversation(args: {
       runtimeOptions: recoveredRuntimeOptions,
     });
   });
-  unsubscribeUpdate = adapter.onUpdate((event) => {
+  unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    await appendAcpSkillRunAuditUpdate({
+      requestId,
+      runtimeDir: record.runtimeDir,
+      event,
+    });
     if (captureAssistantText && normalizeString(update.sessionUpdate)) {
       currentTurnObservedAcpActivity = true;
     }
@@ -2740,7 +2765,12 @@ export async function recoverAcpSkillRunConversation(args: {
     }
     recordAcpSkillRunSessionUpdate(requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
+    await appendAcpSkillRunAuditDiagnostic({
+      requestId,
+      runtimeDir: record.runtimeDir,
+      entry,
+    });
     upsertAcpSkillRun({
       requestId,
       event: {
@@ -2761,8 +2791,13 @@ export async function recoverAcpSkillRunConversation(args: {
       },
     });
   });
-  unsubscribeClose = adapter.onClose((event) => {
+  unsubscribeClose = adapter.onClose(async (event) => {
     const stderrText = normalizeString(event?.stderrText);
+    await writeAcpSkillRunAuditStderrTail({
+      requestId,
+      runtimeDir: record.runtimeDir,
+      stderrText,
+    });
     upsertAcpSkillRun({
       requestId,
       activePrompt: false,
@@ -2777,6 +2812,16 @@ export async function recoverAcpSkillRunConversation(args: {
           stderrText,
         },
       },
+    });
+    await writeAcpSkillRunAuditRuntimeLogs({
+      requestId,
+      runtimeDir: record.runtimeDir,
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId,
+      runtimeDir: record.runtimeDir,
+      record: getAcpSkillRunRecord(requestId),
+      stderrText,
     });
     registerAcpSkillRunController(requestId, null);
   });
@@ -2990,6 +3035,12 @@ export async function executeAcpSkillRunnerJob(args: {
     backend: args.backend,
     providerOptions: args.providerOptions,
   });
+  const auditTrail = await initializeAcpSkillRunAuditTrail({
+    workspace,
+    backend: args.backend,
+    request,
+    providerOptions: args.providerOptions,
+  });
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     status: "queued",
@@ -3010,11 +3061,25 @@ export async function executeAcpSkillRunnerJob(args: {
     runtimeDir: workspace.runtimeDir,
     inputManifestPath: workspace.inputManifestPath,
     resultJsonPath: workspace.resultJsonPath,
+    auditTrail,
     acpModeId: frozenRuntimeOptions.modeId,
     acpModelId: frozenRuntimeOptions.modelId,
     acpReasoningEffort: frozenRuntimeOptions.reasoningEffort,
     acpRawModelId: frozenRuntimeOptions.rawModelId,
     event: {
+      stage: "workspace-created",
+      message: "ACP skill run workspace created.",
+      level: "info",
+      details: {
+        workspaceDir: workspace.workspaceDir,
+      },
+    },
+  });
+  await appendAcpSkillRunAuditEvent({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+    event: {
+      ts: new Date().toISOString(),
       stage: "workspace-created",
       message: "ACP skill run workspace created.",
       level: "info",
@@ -3583,6 +3648,28 @@ export async function executeAcpSkillRunnerJob(args: {
         details: diagnostic.details,
       },
     });
+    await appendAcpSkillRunAuditEvent({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      event: {
+        ts: new Date().toISOString(),
+        stage: diagnostic.stage,
+        message: diagnostic.message,
+        level: "error",
+        details: diagnostic.details,
+      },
+    });
+    await writeAcpSkillRunAuditRuntimeLogs({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      record: getAcpSkillRunRecord(workspace.requestId),
+      status: "failed",
+      error: diagnostic.error,
+    });
     await cleanupLiveSession({
       conversationState: hasRecoverableSession ? "closed" : "error",
       conversationError: hasRecoverableSession ? undefined : diagnostic.error,
@@ -3900,8 +3987,13 @@ export async function executeAcpSkillRunnerJob(args: {
       runtimeOptions: frozenRuntimeOptions,
     });
   });
-  unsubscribeUpdate = adapter.onUpdate((event) => {
+  unsubscribeUpdate = adapter.onUpdate(async (event) => {
     const update = event.update || { sessionUpdate: "" };
+    await appendAcpSkillRunAuditUpdate({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      event,
+    });
     if (captureAssistantText && normalizeString(update.sessionUpdate)) {
       currentTurnObservedAcpActivity = true;
     }
@@ -3918,7 +4010,12 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     recordAcpSkillRunSessionUpdate(workspace.requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
+    await appendAcpSkillRunAuditDiagnostic({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      entry,
+    });
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       event: {
@@ -3943,8 +4040,13 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     });
   });
-  unsubscribeClose = adapter.onClose((event) => {
+  unsubscribeClose = adapter.onClose(async (event) => {
     const stderrText = normalizeString(event?.stderrText);
+    await writeAcpSkillRunAuditStderrTail({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      stderrText,
+    });
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       activePrompt: false,
@@ -3958,6 +4060,16 @@ export async function executeAcpSkillRunnerJob(args: {
           stderrText,
         },
       },
+    });
+    await writeAcpSkillRunAuditRuntimeLogs({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      record: getAcpSkillRunRecord(workspace.requestId),
+      stderrText,
     });
     if (keepConversationAlive) {
       void cleanupLiveSession({
@@ -4370,6 +4482,26 @@ export async function executeAcpSkillRunnerJob(args: {
             level: "info",
           },
         });
+        await appendAcpSkillRunAuditEvent({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+          event: {
+            ts: new Date().toISOString(),
+            stage: "disconnect-completed",
+            message: "ACP skill run local connection detached.",
+            level: "info",
+          },
+        });
+        await writeAcpSkillRunAuditRuntimeLogs({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+        });
+        await writeAcpSkillRunAuditFinalState({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+          record: getAcpSkillRunRecord(workspace.requestId),
+          status: disconnectedStatus,
+        });
         return {
           status: "deferred",
           requestId: workspace.requestId,
@@ -4402,6 +4534,30 @@ export async function executeAcpSkillRunnerJob(args: {
               cancelRequested: promptResult.cancelRequested === true,
             },
           },
+        });
+        await appendAcpSkillRunAuditEvent({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+          event: {
+            ts: new Date().toISOString(),
+            stage: "interrupt-completed",
+            message: "ACP skill run current turn interrupted.",
+            level: "warn",
+            details: {
+              reason: "current turn canceled after prompt returned",
+              cancelRequested: promptResult.cancelRequested === true,
+            },
+          },
+        });
+        await writeAcpSkillRunAuditRuntimeLogs({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+        });
+        await writeAcpSkillRunAuditFinalState({
+          requestId: workspace.requestId,
+          runtimeDir: workspace.runtimeDir,
+          record: getAcpSkillRunRecord(workspace.requestId),
+          status: "waiting_user",
         });
         return {
           status: "deferred",
@@ -4635,6 +4791,30 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       },
     });
+    await appendAcpSkillRunAuditEvent({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      event: {
+        ts: new Date().toISOString(),
+        stage: "succeeded",
+        message: "ACP skill run succeeded.",
+        level: "info",
+        details: {
+          resultJsonPath: workspace.resultJsonPath,
+          workspaceDir: workspace.workspaceDir,
+        },
+      },
+    });
+    await writeAcpSkillRunAuditRuntimeLogs({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      record: getAcpSkillRunRecord(workspace.requestId),
+      status: "succeeded",
+    });
     hardTimeoutMonitor?.clear();
     keepConversationAlive = true;
     return {
@@ -4688,6 +4868,29 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         },
       });
+      await appendAcpSkillRunAuditEvent({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        event: {
+          ts: new Date().toISOString(),
+          stage: "disconnect-completed",
+          message: "ACP skill run local connection detached.",
+          level: "info",
+          details: {
+            reason: message,
+          },
+        },
+      });
+      await writeAcpSkillRunAuditRuntimeLogs({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+      });
+      await writeAcpSkillRunAuditFinalState({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        record: getAcpSkillRunRecord(workspace.requestId),
+        status: disconnectedStatus,
+      });
       return {
         status: "deferred",
         requestId: workspace.requestId,
@@ -4720,6 +4923,29 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         },
       });
+      await appendAcpSkillRunAuditEvent({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        event: {
+          ts: new Date().toISOString(),
+          stage: "interrupt-completed",
+          message: "ACP skill run current turn interrupted.",
+          level: "warn",
+          details: {
+            reason: message,
+          },
+        },
+      });
+      await writeAcpSkillRunAuditRuntimeLogs({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+      });
+      await writeAcpSkillRunAuditFinalState({
+        requestId: workspace.requestId,
+        runtimeDir: workspace.runtimeDir,
+        record: getAcpSkillRunRecord(workspace.requestId),
+        status: "waiting_user",
+      });
       return {
         status: "deferred",
         requestId: workspace.requestId,
@@ -4742,6 +4968,27 @@ export async function executeAcpSkillRunnerJob(args: {
         message: cancellationRequested ? "ACP skill run canceled." : message,
         level: cancellationRequested ? "warn" : "error",
       },
+    });
+    await appendAcpSkillRunAuditEvent({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      event: {
+        ts: new Date().toISOString(),
+        stage: cancellationRequested ? "canceled" : "failed",
+        message: cancellationRequested ? "ACP skill run canceled." : message,
+        level: cancellationRequested ? "warn" : "error",
+      },
+    });
+    await writeAcpSkillRunAuditRuntimeLogs({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+    });
+    await writeAcpSkillRunAuditFinalState({
+      requestId: workspace.requestId,
+      runtimeDir: workspace.runtimeDir,
+      record: getAcpSkillRunRecord(workspace.requestId),
+      status: cancellationRequested ? "canceled" : "failed",
+      error: message,
     });
     throw error;
   } finally {

@@ -214,4 +214,13 @@ describe("suite governance constraints", function () {
       /run-ci-gate\.ts\s+release/i,
     );
   });
+
+  it("Risk: content package release helper keeps the publish workflow entry explicit", function () {
+    const scripts = getScripts();
+
+    assert.match(
+      scripts["release:content-package"] || "",
+      /prepare-content-package-release\.ts/i,
+    );
+  });
 });

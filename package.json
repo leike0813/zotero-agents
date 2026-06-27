@@ -38,6 +38,7 @@
     "check:content-package-release": "tsx scripts/check-content-package-release.ts",
     "build:content-feed": "tsx scripts/build-content-package-feed.ts",
     "bump:content-package": "tsx scripts/bump-content-package-version.ts",
+    "release:content-package": "tsx scripts/prepare-content-package-release.ts",
     "render:host-bridge-surface": "tsx scripts/render-host-bridge-surface.ts",
     "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
     "prebuild:zotero-bridge-cli": "node scripts/build-zotero-bridge-cli.mjs",

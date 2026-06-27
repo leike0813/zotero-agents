@@ -10,12 +10,13 @@ The plugin SHALL provide a dedicated log window entry from workflow-related menu
 - **WHEN** user clicks the log menu entry in plugin workflow menu
 - **THEN** the plugin SHALL open an independent log window
 
-### Requirement: Log Viewer Window SHALL Default to Showing All Levels and Provide Level Filters
-The log viewer SHALL show all available levels in its visible filter state by default and SHALL allow users to filter by level.
+### Requirement: Log Viewer Window SHALL Default to Hiding Debug and Provide Level Filters
+The log viewer SHALL show non-debug levels in its visible filter state by default and SHALL allow users to filter by level.
 
 #### Scenario: Initial open state
 - **WHEN** the log window opens
-- **THEN** visible filters SHALL include all levels (`debug/info/warn/error`) selected by default
+- **THEN** visible filters SHALL include `info`, `warn`, and `error` selected by default
+- **AND** `debug` SHALL NOT be selected by default.
 
 #### Scenario: Filter to errors only
 - **WHEN** user applies level filter to `error` only
@@ -36,8 +37,8 @@ Interactive components like filter dropdowns SHALL NOT be closed or reset when t
 - **WHEN** a background log update occurs while a filter dropdown is open
 - **THEN** the dropdown SHALL remain open and maintain its current selection state
 
-### Requirement: Log Viewer Window SHALL Support Copy/Export for Debug Feedback
-The log viewer MUST provide user actions to copy diagnostics for issue reporting and agent debugging, including structured bundle export.
+### Requirement: Log Viewer Window SHALL Support Copy/Export for Issue Feedback and Developer Debugging
+The log viewer MUST provide user actions to copy issue diagnostics and developer debugging logs without mixing the two outputs.
 
 #### Scenario: Copy visible logs
 - **WHEN** user triggers copy action for visible logs
@@ -49,9 +50,9 @@ The log viewer MUST provide user actions to copy diagnostics for issue reporting
 - **THEN** the output SHALL include all retained entries in Pretty JSON Array format
 
 #### Scenario: Copy diagnostic bundle JSON
-- **WHEN** user triggers `Copy Diagnostic Bundle JSON`
-- **THEN** the output SHALL conform to `RuntimeDiagnosticBundleV1`
-- **AND** output SHALL respect current filters and selected time scope
+- **WHEN** user triggers `Copy Diagnostic Bundle`
+- **THEN** the output SHALL conform to `RuntimeIssueDiagnosticBundleV1`
+- **AND** it SHALL NOT include full raw retained log entries by default.
 
 #### Scenario: Copy issue summary markdown
 - **WHEN** user triggers `Copy Issue Summary`
