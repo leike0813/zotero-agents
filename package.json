@@ -1,7 +1,7 @@
 {
   "name": "zotero-agents",
   "type": "module",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A Zotero plugin for running agent workflows from Zotero",
   "config": {
     "addonName": "Zotero Agents",
