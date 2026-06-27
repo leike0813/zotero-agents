@@ -6,6 +6,12 @@ ACP（Agent Client Protocol）是一种用于与 Agent 后端通信的协议。Z
 
 ACP 后端是**首推**的配置方式——只要本机安装了任意一款支持 ACP 协议的 Agent 工具，即可零额外配置直接使用。
 
+## 不熟悉 Agent？
+
+如果您是第一次接触 Agent 工具，不知道如何选择与安装，可以访问以下网站获取指引与推荐：
+
+**[Agent 使用指引](https://agent.ps5.online)**
+
 ## 为什么首选 ACP？
 
 - **零配置负担**：无需额外部署服务，直接用本机已有的 Agent 工具

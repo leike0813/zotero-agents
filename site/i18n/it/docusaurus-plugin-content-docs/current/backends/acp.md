@@ -6,6 +6,12 @@ ACP (Agent Client Protocol) è un protocollo per comunicare con i backend agent.
 
 Il backend ACP è il metodo di configurazione **consigliato** — finché hai uno strumento agent compatibile con ACP installato sul tuo computer, puoi usarlo direttamente senza alcuna configurazione aggiuntiva.
 
+## Nuovo su Agent?
+
+Se sei nuovo agli strumenti agent e non sei sicuro di quale scegliere o come installarlo, consulta questa guida:
+
+**[Guida introduttiva agli Agent](https://agent.ps5.online)**
+
 ## Perché l'ACP come prima scelta?
 
 - **Nessun carico di configurazione**: Non è necessario distribuire servizi aggiuntivi; usa gli strumenti agent già presenti sul tuo computer
