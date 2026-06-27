@@ -17,6 +17,14 @@
 4. Нажмите на значок шестерёнки и выберите **Установить дополнение из файла...**
 5. Выберите скачанный файл `.xpi`
 
+### Через Zotero Plugin Marketplace
+
+Если у вас установлен плагин [Zotero Plugin Marketplace](https://github.com/syt2/zotero-addons), вы можете найти и установить Zotero Agents напрямую из маркетплейса:
+
+1. Нажмите на значок <img src="/img/zotero-addons_icon.png" alt="Zotero Plugin Marketplace" style="width:20px;vertical-align:middle"/> на панели инструментов Zotero, чтобы открыть маркетплейс
+2. Найдите **Zotero Agents**
+3. Нажмите установить
+
 ### Сборка из исходного кода
 
 ```bash

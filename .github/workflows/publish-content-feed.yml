@@ -85,6 +85,7 @@ jobs:
 
       - name: Publish Gitee release assets
         if: env.GITEE_TOKEN != ''
+        continue-on-error: true
         run: |
           VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
           TAG="official-workflows-v${VERSION}"
@@ -99,6 +100,7 @@ jobs:
 
       - name: Publish content-feed branch to Gitee mirror
         if: env.GITEE_TOKEN != ''
+        continue-on-error: true
         run: |
           rm -rf content-feed-gitee
           mkdir content-feed-gitee

@@ -649,21 +649,25 @@ async function resolveFeed(
   if (successes.length === 0) {
     throw Object.assign(new Error("all content feeds failed"), { failures });
   }
-  if (successes.length > 1) {
-    const firstSignature = packageSignature(successes[0].feed);
-    const mismatch = successes.find(
-      (entry) => packageSignature(entry.feed) !== firstSignature,
-    );
-    if (mismatch) {
-      throw Object.assign(new Error("content feed mirror mismatch"), {
-        failures,
-      });
+  const selected =
+    successes.find((entry) => entry.kind === "primary") || successes[0];
+  const selectedSignature = packageSignature(selected.feed);
+  const matchingSuccesses = successes.filter(
+    (entry) => packageSignature(entry.feed) === selectedSignature,
+  );
+  for (const mismatch of successes) {
+    if (packageSignature(mismatch.feed) === selectedSignature) {
+      continue;
     }
+    failures.push({
+      kind: mismatch.kind,
+      url: mismatch.url,
+      error: "content feed mirror mismatch",
+    });
   }
   return {
-    selected:
-      successes.find((entry) => entry.kind === "primary") || successes[0],
-    successes,
+    selected,
+    successes: matchingSuccesses,
     failures,
   };
 }

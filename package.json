@@ -36,6 +36,7 @@
     "check:ssot-invariants": "tsx --import ./test/setup/zotero-mock.ts scripts/check-skillrunner-ssot-invariants.ts",
     "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-doc-sync.ts",
     "check:content-package-release": "tsx scripts/check-content-package-release.ts",
+    "check:content-package-mirror": "tsx scripts/check-content-package-release.ts --check-mirror",
     "build:content-feed": "tsx scripts/build-content-package-feed.ts",
     "bump:content-package": "tsx scripts/bump-content-package-version.ts",
     "release:content-package": "tsx scripts/prepare-content-package-release.ts",

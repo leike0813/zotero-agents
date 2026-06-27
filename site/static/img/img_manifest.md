@@ -5,6 +5,7 @@
 - icon_workbench.png: 工具栏`打开Dashboard/Synthesis工作区`快捷按钮
 - icon_sidebar.png: 工具栏`打开助手侧边栏`快捷按钮
 - icon_sidebar_glow.png: 工具栏`打开助手侧边栏`快捷按钮（待回复提示状态）
+- zotero-addons_icon.png: Zotero插件市场图标
 - dashboard_home.png: Dashboard首页
 - dashboard_workflow-settings.png: Dashboard——Workflow选项页面
 - dashboard_products.png: Dashboard——产物存储区

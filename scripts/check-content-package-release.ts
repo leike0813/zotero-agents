@@ -78,7 +78,13 @@ function packageSignature(feed: ContentFeedDocument) {
 }
 
 function contentPackageAssetUrls(entry: ContentFeedPackage) {
-  return [entry.artifact.url, ...(entry.artifact.mirrors || [])]
+  return [entry.artifact.url]
+    .map((url) => String(url || "").trim())
+    .filter(Boolean);
+}
+
+function contentPackageMirrorAssetUrls(entry: ContentFeedPackage) {
+  return (entry.artifact.mirrors || [])
     .map((url) => String(url || "").trim())
     .filter(Boolean);
 }
@@ -221,6 +227,7 @@ function assertSameSignature(args: {
 async function verifyReleaseAssets(args: {
   fetchImpl: FetchLike;
   feed: ContentFeedDocument;
+  includeMirrors?: boolean;
 }) {
   const entry = args.feed.packages[0];
   if (!entry) {
@@ -228,7 +235,11 @@ async function verifyReleaseAssets(args: {
   }
   const expectedDigest = normalizeSha256(entry.artifact.sha256);
   const expectedSize = Number(entry.artifact.size || 0);
-  for (const assetUrl of contentPackageAssetUrls(entry)) {
+  const assetUrls = [
+    ...contentPackageAssetUrls(entry),
+    ...(args.includeMirrors ? contentPackageMirrorAssetUrls(entry) : []),
+  ];
+  for (const assetUrl of assetUrls) {
     const bytes = await fetchBytes(args.fetchImpl, assetUrl);
     const actualDigest = sha256(bytes);
     if (actualDigest !== expectedDigest) {
@@ -262,6 +273,7 @@ export async function verifyContentPackageRelease(args?: {
   giteeFeedBase?: string;
   versionFile?: string;
   keepOutRoot?: boolean;
+  checkMirror?: boolean;
 }) {
   const channels = args?.channels || DEFAULT_CHANNELS;
   const fetchImpl =
@@ -285,7 +297,7 @@ export async function verifyContentPackageRelease(args?: {
   try {
     const remoteFeeds = new Map<
       Channel,
-      { github: ContentFeedDocument; gitee: ContentFeedDocument }
+      { github: ContentFeedDocument; gitee?: ContentFeedDocument }
     >();
     let generatedAt = "";
     let revision = "";
@@ -296,12 +308,15 @@ export async function verifyContentPackageRelease(args?: {
         channel,
         githubFeedBase: args?.githubFeedBase,
       });
-      const giteeFeed = await fetchJson<ContentFeedDocument>(
-        fetchImpl,
-        `${args?.giteeFeedBase || GITEE_FEED_BASE}/${channel}/feed.json`,
-      );
-      if (packageSignature(githubFeed) !== packageSignature(giteeFeed)) {
-        throw new Error(`${channel} GitHub and Gitee feeds do not match`);
+      let giteeFeed: ContentFeedDocument | undefined;
+      if (args?.checkMirror) {
+        giteeFeed = await fetchJson<ContentFeedDocument>(
+          fetchImpl,
+          `${args?.giteeFeedBase || GITEE_FEED_BASE}/${channel}/feed.json`,
+        );
+        if (packageSignature(githubFeed) !== packageSignature(giteeFeed)) {
+          throw new Error(`${channel} GitHub and Gitee feeds do not match`);
+        }
       }
       const remotePackage = githubFeed.packages[0];
       if (!remotePackage) {
@@ -352,12 +367,18 @@ export async function verifyContentPackageRelease(args?: {
         localFeed,
         remoteFeed: remote.github,
       });
-      assertSameSignature({
-        label: `${channel} Gitee`,
-        localFeed,
-        remoteFeed: remote.gitee,
+      if (args?.checkMirror && remote.gitee) {
+        assertSameSignature({
+          label: `${channel} Gitee`,
+          localFeed,
+          remoteFeed: remote.gitee,
+        });
+      }
+      await verifyReleaseAssets({
+        fetchImpl,
+        feed: localFeed,
+        includeMirrors: args?.checkMirror === true,
       });
-      await verifyReleaseAssets({ fetchImpl, feed: localFeed });
     }
   } finally {
     if (shouldCleanup) {
@@ -367,7 +388,9 @@ export async function verifyContentPackageRelease(args?: {
 }
 
 async function main() {
-  await verifyContentPackageRelease();
+  await verifyContentPackageRelease({
+    checkMirror: process.argv.includes("--check-mirror"),
+  });
   console.log("[content-package] release verification passed");
 }
 

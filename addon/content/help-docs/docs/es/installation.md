@@ -17,6 +17,14 @@
 4. Haz clic en el icono de engranaje y selecciona **Install Add-on From File...**
 5. Selecciona el archivo `.xpi` descargado
 
+### A través del Zotero Plugin Marketplace
+
+Si tienes instalado el complemento [Zotero Plugin Marketplace](https://github.com/syt2/zotero-addons), puedes buscar e instalar Zotero Agents directamente desde el marketplace:
+
+1. Haz clic en el icono <img src="/img/zotero-addons_icon.png" alt="Zotero Plugin Marketplace" style="width:20px;vertical-align:middle"/> en la barra de herramientas de Zotero para abrir el marketplace
+2. Busca **Zotero Agents**
+3. Haz clic en instalar
+
 ### Compilación desde el código fuente
 
 ```bash

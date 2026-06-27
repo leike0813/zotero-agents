@@ -226,6 +226,14 @@ describe("suite governance constraints", function () {
       scripts["check:content-package-release"] || "",
       /check-content-package-release\.ts/i,
     );
+    assert.notInclude(
+      scripts["check:content-package-release"] || "",
+      "--check-mirror",
+    );
+    assert.match(
+      scripts["check:content-package-mirror"] || "",
+      /check-content-package-release\.ts\s+--check-mirror/i,
+    );
     assert.notInclude(gateSource, "check:content-package-release");
   });
 
@@ -258,5 +266,13 @@ describe("suite governance constraints", function () {
     assert.isAtLeast(giteeReleaseIndex, 0);
     assert.isBelow(githubReleaseIndex, githubFeedIndex);
     assert.isBelow(githubFeedIndex, giteeReleaseIndex);
+    assert.match(
+      workflowSource,
+      /name: Publish Gitee release assets[\s\S]*?continue-on-error: true/,
+    );
+    assert.match(
+      workflowSource,
+      /name: Publish content-feed branch to Gitee mirror[\s\S]*?continue-on-error: true/,
+    );
   });
 });

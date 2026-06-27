@@ -254,7 +254,7 @@ describe("content package subscription", function () {
     }
   });
 
-  it("fails closed when primary and mirror feeds disagree", async function () {
+  it("uses the primary feed when the mirror feed disagrees", async function () {
     const zip = makePackageZip();
     const primaryFeed = makeFeed({ zip, revision: "rev-1" });
     const mirrorFeed = makeFeed({ zip, revision: "rev-2" });
@@ -271,11 +271,23 @@ describe("content package subscription", function () {
 
     const result = await checkContentPackageUpdate({ channel: "stable" });
 
-    assert.isFalse(result.ok);
-    if (result.ok) {
+    assert.isTrue(result.ok);
+    if (!result.ok) {
       return;
     }
-    assert.equal(result.code, "feed_mirror_mismatch");
+    assert.equal(
+      result.selectedFeedUrl,
+      "https://primary.example/stable/feed.json",
+    );
+    assert.equal(result.feed.revision, "rev-1");
+    assert.deepEqual(result.artifactFeedUrls, [
+      "https://primary.example/stable/feed.json",
+    ]);
+    assert.deepInclude(result.failures, {
+      kind: "mirror",
+      url: "https://mirror.example/stable/feed.json",
+      error: "content feed mirror mismatch",
+    });
   });
 
   it("accepts mirror feeds with different artifact URLs when package semantics match", async function () {

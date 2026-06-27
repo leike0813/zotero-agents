@@ -315,7 +315,7 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("verifies matching GitHub and Gitee feeds and release assets", async function () {
+  it("verifies canonical GitHub feed and release assets by default", async function () {
     const channel = "stable" as const;
     const built = makeFeed({ channel });
     await fs.mkdir(path.join(tempRoot, channel), { recursive: true });
@@ -334,9 +334,6 @@ describe("content package release scripts", function () {
         return response(built.feed);
       }
       if (url === built.feed.packages[0].artifact.url) {
-        return response(built.bytes);
-      }
-      if (url === built.feed.packages[0].artifact.mirrors[0]) {
         return response(built.bytes);
       }
       if (url.endsWith(".zip.sha256")) {
@@ -526,7 +523,45 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("fails when GitHub and Gitee feeds disagree", async function () {
+  it("does not block canonical release verification when the Gitee mirror feed disagrees", async function () {
+    const channel = "stable" as const;
+    const built = makeFeed({ channel });
+    const gitee = makeFeed({
+      channel,
+      revision: "rev-2",
+    });
+    await fs.mkdir(path.join(tempRoot, channel), { recursive: true });
+    await fs.writeFile(
+      path.join(tempRoot, channel, "feed.json"),
+      JSON.stringify(built.feed),
+    );
+    const versionFile = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
+
+    await verifyContentPackageRelease({
+      channels: [channel],
+      outRoot: tempRoot,
+      versionFile,
+      fetchImpl: (async (url: string) => {
+        if (url.includes("api.github.com")) {
+          return response(githubContent(built.feed));
+        }
+        if (url.includes("gitee")) {
+          return response(gitee.feed);
+        }
+        if (url === built.feed.packages[0].artifact.url) {
+          return response(built.bytes);
+        }
+        if (url.endsWith(".zip.sha256")) {
+          return response(`${built.digest}  ${built.fileName}\n`);
+        }
+        return response(built.feed);
+      }) as typeof fetch,
+      buildContentFeeds: async () => {},
+    });
+  });
+
+  it("can run strict mirror verification when requested", async function () {
     const channel = "stable" as const;
     const built = makeFeed({ channel });
     const gitee = makeFeed({
@@ -546,6 +581,7 @@ describe("content package release scripts", function () {
         channels: [channel],
         outRoot: tempRoot,
         versionFile,
+        checkMirror: true,
         fetchImpl: (async (url: string) => {
           if (url.includes("api.github.com")) {
             return response(githubContent(built.feed));
@@ -560,7 +596,7 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("verifies public Gitee feeds without requiring a token", async function () {
+  it("does not require public Gitee feeds for canonical verification", async function () {
     const channel = "stable" as const;
     const built = makeFeed({ channel });
     await fs.mkdir(path.join(tempRoot, channel), { recursive: true });
@@ -575,13 +611,13 @@ describe("content package release scripts", function () {
       if (url.includes("api.github.com")) {
         return response(githubContent(built.feed));
       }
+      if (url.includes("gitee")) {
+        return response("unavailable", 503);
+      }
       if (url.endsWith("/stable/feed.json")) {
         return response(built.feed);
       }
       if (url === built.feed.packages[0].artifact.url) {
-        return response(built.bytes);
-      }
-      if (url === built.feed.packages[0].artifact.mirrors[0]) {
         return response(built.bytes);
       }
       if (url.endsWith(".zip.sha256")) {
