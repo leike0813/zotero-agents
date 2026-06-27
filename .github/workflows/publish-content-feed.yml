@@ -48,20 +48,6 @@ jobs:
           fi
           gh release upload "${TAG}" artifact/content-packages/*/packages/*.zip artifact/content-packages/*/packages/*.zip.sha256 --repo "${CONTENT_FEED_GITHUB_REPO}" --clobber
 
-      - name: Publish Gitee release assets
-        if: env.GITEE_TOKEN != ''
-        run: |
-          VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
-          TAG="official-workflows-v${VERSION}"
-          node --import tsx scripts/sync-gitee-release.ts \
-            --repo leike0813/zotero-agents-workflows \
-            --tag "${TAG}" \
-            --name "Official Workflow Package ${VERSION}" \
-            --body "Official Zotero Agents Workflow package ${VERSION}." \
-            --target content-feed \
-            artifact/content-packages/*/packages/*.zip \
-            artifact/content-packages/*/packages/*.zip.sha256
-
       - name: Publish content-feed branch to GitHub content repo
         run: |
           rm -rf content-feed-publish
@@ -96,6 +82,20 @@ jobs:
           git -C content-feed-publish config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C content-feed-publish commit -m "publish content feed ${GITHUB_SHA}" || exit 0
           git -C content-feed-publish push origin content-feed
+
+      - name: Publish Gitee release assets
+        if: env.GITEE_TOKEN != ''
+        run: |
+          VERSION="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('content-package.version.json','utf8')); console.log(process.env.CONTENT_PACKAGE_VERSION || d.version)")"
+          TAG="official-workflows-v${VERSION}"
+          node --import tsx scripts/sync-gitee-release.ts \
+            --repo leike0813/zotero-agents-workflows \
+            --tag "${TAG}" \
+            --name "Official Workflow Package ${VERSION}" \
+            --body "Official Zotero Agents Workflow package ${VERSION}." \
+            --target content-feed \
+            artifact/content-packages/*/packages/*.zip \
+            artifact/content-packages/*/packages/*.zip.sha256
 
       - name: Publish content-feed branch to Gitee mirror
         if: env.GITEE_TOKEN != ''

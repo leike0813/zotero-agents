@@ -237,4 +237,26 @@ describe("suite governance constraints", function () {
       /prepare-content-package-release\.ts/i,
     );
   });
+
+  it("Risk: content feed publishing updates GitHub feed before slow Gitee release assets", function () {
+    const workflowSource = readFileSync(
+      join(process.cwd(), ".github", "workflows", "publish-content-feed.yml"),
+      "utf8",
+    );
+    const githubReleaseIndex = workflowSource.indexOf(
+      "name: Publish GitHub release assets",
+    );
+    const githubFeedIndex = workflowSource.indexOf(
+      "name: Publish content-feed branch to GitHub content repo",
+    );
+    const giteeReleaseIndex = workflowSource.indexOf(
+      "name: Publish Gitee release assets",
+    );
+
+    assert.isAtLeast(githubReleaseIndex, 0);
+    assert.isAtLeast(githubFeedIndex, 0);
+    assert.isAtLeast(giteeReleaseIndex, 0);
+    assert.isBelow(githubReleaseIndex, githubFeedIndex);
+    assert.isBelow(githubFeedIndex, giteeReleaseIndex);
+  });
 });
