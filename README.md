@@ -8,8 +8,8 @@ This branch is generated from the zotero-agents repository and contains only:
 - install.ps1 and install.sh for installing or upgrading the current-platform CLI
 - manifest.json with source commit, platform list, sizes, and checksums
 
-Source commit: 2598528e063108b2eb729f8305dc645081c68721
-Published at: 2026-06-22T07:47:54.336Z
+Source commit: 4642642891645e2ebc39e4a1c9e214b3d0684513
+Published at: 2026-06-27T08:19:09.190Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin
