@@ -215,6 +215,20 @@ describe("suite governance constraints", function () {
     );
   });
 
+  it("Risk: main CI release gate stays decoupled from remote content feed publication", function () {
+    const scripts = getScripts();
+    const gateSource = readFileSync(
+      join(process.cwd(), "scripts", "run-ci-gate.ts"),
+      "utf8",
+    );
+
+    assert.match(
+      scripts["check:content-package-release"] || "",
+      /check-content-package-release\.ts/i,
+    );
+    assert.notInclude(gateSource, "check:content-package-release");
+  });
+
   it("Risk: content package release helper keeps the publish workflow entry explicit", function () {
     const scripts = getScripts();
 

@@ -123,6 +123,8 @@ Blocking gates:
 
 - PR -> `test:gate:pr` (`lite`)
 - release/main -> `test:gate:release` (`full`)
+- plugin tag release -> `test:gate:release` (`full`) plus
+  `check:content-package-release`
 
 Reporting:
 
@@ -131,6 +133,11 @@ Reporting:
 Execution topology:
 
 - `test:gate:release` still uses `full`
+- `test:gate:release` is a code/runtime gate and does not check whether the
+  remote official workflow feed has already been published. That remote feed
+  check is a separate plugin-release precondition because a content package
+  version bump must first land on `main`, then the content feed workflow can
+  publish the matching assets.
 - Zotero `full` now runs as three sequential real-host processes:
   - `test:zotero:core:full`
   - `test:zotero:ui:full`

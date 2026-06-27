@@ -71,6 +71,9 @@ jobs:
       - name: Run release gate
         run: npm run test:gate:release
 
+      - name: Verify content package release
+        run: npm run check:content-package-release
+
       - name: Build plugin
         run: npm run build
 
