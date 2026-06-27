@@ -8,7 +8,10 @@ import {
   bumpContentPackageVersion,
   resolveContentPackageVersionBump,
 } from "../../../scripts/bump-content-package-version";
-import { isTrackedContentSourceFile } from "../../../scripts/build-content-package-feed";
+import {
+  isTrackedContentSourceFile,
+  normalizeContentPackageFileBytes,
+} from "../../../scripts/build-content-package-feed";
 import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
 import {
   parseContentPackageReleaseArgs,
@@ -105,6 +108,13 @@ function makeFeed(args: {
     bytes,
     digest,
     fileName,
+  };
+}
+
+function githubContent(value: unknown) {
+  return {
+    encoding: "base64",
+    content: Buffer.from(JSON.stringify(value), "utf8").toString("base64"),
   };
 }
 
@@ -317,6 +327,9 @@ describe("content package release scripts", function () {
     await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
 
     const fetchImpl = (async (url: string) => {
+      if (url.includes("api.github.com")) {
+        return response(githubContent(built.feed));
+      }
       if (url.endsWith("/stable/feed.json")) {
         return response(built.feed);
       }
@@ -357,6 +370,63 @@ describe("content package release scripts", function () {
     });
   });
 
+  it("reads GitHub feeds through the contents API to avoid stale raw branch cache", async function () {
+    const channel = "stable" as const;
+    const built = makeFeed({ channel, version: "1.2.3" });
+    const stale = makeFeed({ channel, version: "1.2.2" });
+    await fs.mkdir(path.join(tempRoot, channel), { recursive: true });
+    await fs.writeFile(
+      path.join(tempRoot, channel, "feed.json"),
+      JSON.stringify(built.feed),
+    );
+    const versionFile = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
+
+    const requestedUrls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      requestedUrls.push(url);
+      if (
+        url ===
+        "https://api.github.com/repos/leike0813/zotero-agents-workflows/contents/stable/feed.json?ref=content-feed"
+      ) {
+        return response(githubContent(built.feed));
+      }
+      if (url.includes("raw.githubusercontent.com")) {
+        return response(stale.feed);
+      }
+      if (url.endsWith("/stable/feed.json")) {
+        return response(built.feed);
+      }
+      if (url === built.feed.packages[0].artifact.url) {
+        return response(built.bytes);
+      }
+      if (url === built.feed.packages[0].artifact.mirrors[0]) {
+        return response(built.bytes);
+      }
+      if (url.endsWith(".zip.sha256")) {
+        return response(`${built.digest}  ${built.fileName}\n`);
+      }
+      return response("missing", 404);
+    }) as typeof fetch;
+
+    await verifyContentPackageRelease({
+      channels: [channel],
+      outRoot: tempRoot,
+      versionFile,
+      fetchImpl,
+      buildContentFeeds: async () => {},
+    });
+
+    assert.include(
+      requestedUrls,
+      "https://api.github.com/repos/leike0813/zotero-agents-workflows/contents/stable/feed.json?ref=content-feed",
+    );
+    assert.notInclude(
+      requestedUrls,
+      "https://raw.githubusercontent.com/leike0813/zotero-agents-workflows/content-feed/stable/feed.json",
+    );
+  });
+
   it("keeps submodule tracked files eligible while excluding local git metadata", function () {
     const trackedFiles = new Set([
       "skills_builtin/literature-analysis/SKILL.md",
@@ -385,6 +455,20 @@ describe("content package release scripts", function () {
         trackedFiles,
       }),
     );
+  });
+
+  it("normalizes text package file line endings without rewriting binary files", function () {
+    assert.deepEqual(
+      Array.from(
+        normalizeContentPackageFileBytes(
+          new TextEncoder().encode("line 1\r\nline 2\r\n"),
+        ),
+      ),
+      Array.from(new TextEncoder().encode("line 1\nline 2\n")),
+    );
+
+    const binary = new Uint8Array([0, 13, 10, 255]);
+    assert.strictEqual(normalizeContentPackageFileBytes(binary), binary);
   });
 
   it("fails when the remote feed is missing", async function () {
@@ -431,9 +515,11 @@ describe("content package release scripts", function () {
         outRoot: tempRoot,
         versionFile,
         fetchImpl: (async (url: string) =>
-          url.endsWith("/stable/feed.json")
-            ? response(remote.feed)
-            : response("missing", 404)) as typeof fetch,
+          url.includes("api.github.com")
+            ? response(githubContent(remote.feed))
+            : url.endsWith("/stable/feed.json")
+              ? response(remote.feed)
+              : response("missing", 404)) as typeof fetch,
         buildContentFeeds: async () => {},
       }),
       /does not match local generated package semantics/,
@@ -460,10 +546,14 @@ describe("content package release scripts", function () {
         channels: [channel],
         outRoot: tempRoot,
         versionFile,
-        fetchImpl: (async (url: string) =>
-          url.includes("gitee")
+        fetchImpl: (async (url: string) => {
+          if (url.includes("api.github.com")) {
+            return response(githubContent(built.feed));
+          }
+          return url.includes("gitee")
             ? response(gitee.feed)
-            : response(built.feed)) as typeof fetch,
+            : response(built.feed);
+        }) as typeof fetch,
         buildContentFeeds: async () => {},
       }),
       /GitHub and Gitee feeds do not match/,
@@ -482,6 +572,9 @@ describe("content package release scripts", function () {
     await fs.writeFile(versionFile, JSON.stringify({ version: "1.2.3" }));
 
     const fetchImpl = (async (url: string) => {
+      if (url.includes("api.github.com")) {
+        return response(githubContent(built.feed));
+      }
       if (url.endsWith("/stable/feed.json")) {
         return response(built.feed);
       }

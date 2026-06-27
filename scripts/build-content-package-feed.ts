@@ -81,6 +81,20 @@ export function isTrackedContentSourceFile(args: {
   );
 }
 
+export function normalizeContentPackageFileBytes(bytes: Uint8Array) {
+  if (!bytes.includes(13) || bytes.includes(0)) {
+    return bytes;
+  }
+  const normalized: number[] = [];
+  for (let index = 0; index < bytes.length; index++) {
+    if (bytes[index] === 13 && bytes[index + 1] === 10) {
+      continue;
+    }
+    normalized.push(bytes[index]);
+  }
+  return new Uint8Array(normalized);
+}
+
 async function pathExists(targetPath: string) {
   try {
     await fs.stat(targetPath);
@@ -88,6 +102,12 @@ async function pathExists(targetPath: string) {
   } catch {
     return false;
   }
+}
+
+async function readContentPackageFileData(filePath: string) {
+  return normalizeContentPackageFileBytes(
+    new Uint8Array(await fs.readFile(filePath)),
+  );
 }
 
 async function readJsonFile(filePath: string) {
@@ -292,7 +312,7 @@ async function collectWorkflowPackageEntries(args: {
           ? new TextEncoder().encode(
               `${JSON.stringify(rewrittenPackageManifest, null, 2)}\n`,
             )
-          : new Uint8Array(await fs.readFile(filePath)),
+          : await readContentPackageFileData(filePath),
     });
   }
   return entries;
@@ -316,7 +336,7 @@ async function collectSingleWorkflowEntries(args: {
     );
     entries.push({
       name: `workflows/${args.workflowDir}/${relativePath}`,
-      data: new Uint8Array(await fs.readFile(filePath)),
+      data: await readContentPackageFileData(filePath),
     });
   }
   return entries;
@@ -380,7 +400,7 @@ async function collectSkillEntries(args: {
       const relativePath = normalizeZipPath(path.relative(skillRoot, filePath));
       entries.push({
         name: `skills/${entry.name}/${relativePath}`,
-        data: new Uint8Array(await fs.readFile(filePath)),
+        data: await readContentPackageFileData(filePath),
       });
     }
   }

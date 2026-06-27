@@ -35,6 +35,11 @@ type ContentFeedDocument = {
   packages: ContentFeedPackage[];
 };
 
+type GitHubContentResponse = {
+  content?: string;
+  encoding?: string;
+};
+
 type FetchLike = (
   url: string,
   init?: RequestInit,
@@ -44,7 +49,7 @@ const DEFAULT_CHANNELS: Channel[] = ["stable", "beta", "dev"];
 const CONTENT_VERSION_FILE = "content-package.version.json";
 const CONTENT_REPO = "leike0813/zotero-agents-workflows";
 const CONTENT_BRANCH = "content-feed";
-const GITHUB_FEED_BASE = `https://raw.githubusercontent.com/${CONTENT_REPO}/${CONTENT_BRANCH}`;
+const GITHUB_API_CONTENT_BASE = `https://api.github.com/repos/${CONTENT_REPO}/contents`;
 const GITEE_FEED_BASE = `https://gitee.com/${CONTENT_REPO}/raw/${CONTENT_BRANCH}`;
 
 function normalizeSha256(value: string) {
@@ -104,6 +109,47 @@ async function fetchText(fetchImpl: FetchLike, url: string) {
     throw new Error(`GET ${url} failed: HTTP ${response.status}`);
   }
   return response.text();
+}
+
+async function fetchGitHubContentJson<T>(
+  fetchImpl: FetchLike,
+  pathName: string,
+): Promise<T> {
+  const response = await fetchImpl(
+    `${GITHUB_API_CONTENT_BASE}/${pathName}?ref=${CONTENT_BRANCH}`,
+    {
+      cache: "no-store",
+      headers: { Accept: "application/vnd.github+json" },
+    } as RequestInit,
+  );
+  if (!response.ok) {
+    throw new Error(
+      `GET ${GITHUB_API_CONTENT_BASE}/${pathName}?ref=${CONTENT_BRANCH} failed: HTTP ${response.status}`,
+    );
+  }
+  const payload = (await response.json()) as GitHubContentResponse;
+  if (payload.encoding !== "base64" || !payload.content) {
+    throw new Error(`GitHub content ${pathName} is not base64 encoded`);
+  }
+  const text = Buffer.from(payload.content, "base64").toString("utf8");
+  return JSON.parse(text) as T;
+}
+
+async function fetchGitHubFeed(args: {
+  fetchImpl: FetchLike;
+  channel: Channel;
+  githubFeedBase?: string;
+}) {
+  if (args.githubFeedBase) {
+    return fetchJson<ContentFeedDocument>(
+      args.fetchImpl,
+      `${args.githubFeedBase}/${args.channel}/feed.json`,
+    );
+  }
+  return fetchGitHubContentJson<ContentFeedDocument>(
+    args.fetchImpl,
+    `${args.channel}/feed.json`,
+  );
 }
 
 async function runBuildContentFeeds(args: {
@@ -245,10 +291,11 @@ export async function verifyContentPackageRelease(args?: {
     let revision = "";
 
     for (const channel of channels) {
-      const githubFeed = await fetchJson<ContentFeedDocument>(
+      const githubFeed = await fetchGitHubFeed({
         fetchImpl,
-        `${args?.githubFeedBase || GITHUB_FEED_BASE}/${channel}/feed.json`,
-      );
+        channel,
+        githubFeedBase: args?.githubFeedBase,
+      });
       const giteeFeed = await fetchJson<ContentFeedDocument>(
         fetchImpl,
         `${args?.giteeFeedBase || GITEE_FEED_BASE}/${channel}/feed.json`,
