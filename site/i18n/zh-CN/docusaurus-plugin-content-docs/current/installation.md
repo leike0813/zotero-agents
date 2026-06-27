@@ -21,7 +21,7 @@
 
 如果您已安装 [Zotero 插件市场](https://github.com/syt2/zotero-addons) 插件，可以直接在市场中搜索并安装 Zotero Agents：
 
-1. 点击 Zotero 工具栏中的 <img src="/img/zotero-addons_icon.png" alt="Zotero 插件市场" style="width:20px;vertical-align:middle"/> 图标打开插件市场
+1. 点击 Zotero 工具栏中的 ![](/img/zotero-addons_icon.png) 图标打开插件市场
 2. 搜索 **Zotero Agents**
 3. 点击安装即可
 

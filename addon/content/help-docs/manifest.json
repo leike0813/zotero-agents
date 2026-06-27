@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-06-27T09:33:26.078Z",
+  "generated_at": "2026-06-27T09:48:21.148Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -4950,6 +4950,7 @@
     "assets/img/icon_sidebar_glow.webp",
     "assets/img/icon_sidebar.webp",
     "assets/img/icon_workbench.webp",
-    "assets/img/poster.webp"
+    "assets/img/poster.webp",
+    "assets/img/zotero-addons_icon.webp"
   ]
 }

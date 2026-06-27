@@ -21,7 +21,7 @@
 
 [Zotero 플러그인 마켓플레이스](https://github.com/syt2/zotero-addons) 플러그인이 설치되어 있다면, 마켓플레이스에서 직접 Zotero Agents를 검색하여 설치할 수 있습니다:
 
-1. Zotero 도구모음에서 <img src="/img/zotero-addons_icon.png" alt="Zotero 플러그인 마켓플레이스" style="width:20px;vertical-align:middle"/> 아이콘을 클릭하여 마켓플레이스 열기
+1. Zotero 도구모음에서 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/zotero-addons_icon.webp" alt="" title="" loading="lazy" /></figure> 아이콘을 클릭하여 마켓플레이스 열기
 2. **Zotero Agents** 검색
 3. 설치 클릭
 

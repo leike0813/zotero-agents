@@ -21,7 +21,7 @@
 
 Wenn Sie das [Zotero Plugin Marketplace](https://github.com/syt2/zotero-addons)-Plugin installiert haben, können Sie Zotero Agents direkt über den Marketplace suchen und installieren:
 
-1. Klicken Sie auf das <img src="/img/zotero-addons_icon.png" alt="Zotero Plugin Marketplace" style="width:20px;vertical-align:middle"/>-Symbol in der Zotero-Werkzeugleiste, um den Marketplace zu öffnen
+1. Klicken Sie auf das <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/zotero-addons_icon.webp" alt="" title="" loading="lazy" /></figure>-Symbol in der Zotero-Werkzeugleiste, um den Marketplace zu öffnen
 2. Suchen Sie nach **Zotero Agents**
 3. Klicken Sie auf Installieren
 

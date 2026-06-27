@@ -21,7 +21,7 @@
 
 [Zotero プラグインマーケットプレイス](https://github.com/syt2/zotero-addons)プラグインをインストールしている場合、マーケットプレイスから直接 Zotero Agents を検索してインストールできます：
 
-1. Zotero ツールバーの <img src="/img/zotero-addons_icon.png" alt="Zotero プラグインマーケットプレイス" style="width:20px;vertical-align:middle"/> アイコンをクリックしてマーケットプレイスを開く
+1. Zotero ツールバーの ![](/img/zotero-addons_icon.png) アイコンをクリックしてマーケットプレイスを開く
 2. **Zotero Agents** を検索
 3. インストールをクリック
 
