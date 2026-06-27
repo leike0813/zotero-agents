@@ -24,6 +24,9 @@ jobs:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
 
+      - name: Initialize content submodules
+        run: git submodule update --init --recursive
+
       - name: Download Host Bridge CLI prebuilds
         run: |
           mkdir -p .scaffold/host-bridge-cli-prebuilds

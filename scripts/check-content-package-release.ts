@@ -110,6 +110,7 @@ async function runBuildContentFeeds(args: {
   outRoot: string;
   channels: Channel[];
   generatedAt: string;
+  revision: string;
 }) {
   const command = process.platform === "win32" ? "cmd.exe" : "npm";
   const npmArgs =
@@ -143,6 +144,7 @@ async function runBuildContentFeeds(args: {
       env: {
         ...process.env,
         CONTENT_PACKAGE_GENERATED_AT: args.generatedAt,
+        CONTENT_PACKAGE_REVISION: args.revision,
       },
     });
     child.on("error", reject);
@@ -208,6 +210,7 @@ export async function verifyContentPackageRelease(args?: {
     outRoot: string;
     channels: Channel[];
     generatedAt: string;
+    revision: string;
   }) => Promise<void>;
   githubFeedBase?: string;
   giteeFeedBase?: string;
@@ -239,6 +242,7 @@ export async function verifyContentPackageRelease(args?: {
       { github: ContentFeedDocument; gitee: ContentFeedDocument }
     >();
     let generatedAt = "";
+    let revision = "";
 
     for (const channel of channels) {
       const githubFeed = await fetchJson<ContentFeedDocument>(
@@ -262,16 +266,21 @@ export async function verifyContentPackageRelease(args?: {
         );
       }
       generatedAt ||= String(githubFeed.updated_at || "").trim();
+      revision ||= String(githubFeed.revision || "").trim();
       remoteFeeds.set(channel, { github: githubFeed, gitee: giteeFeed });
     }
     if (!generatedAt) {
       throw new Error("remote content feed updated_at is required");
+    }
+    if (!revision) {
+      throw new Error("remote content feed revision is required");
     }
 
     await (args?.buildContentFeeds || runBuildContentFeeds)({
       outRoot,
       channels,
       generatedAt,
+      revision,
     });
 
     for (const channel of channels) {

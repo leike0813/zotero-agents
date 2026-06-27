@@ -18,6 +18,9 @@ jobs:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
 
+      - name: Initialize content submodules
+        run: git submodule update --init --recursive
+
       - name: Build content feeds
         run: npm run build:content-feed -- --channels stable,beta,dev
 

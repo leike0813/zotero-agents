@@ -53,5 +53,7 @@ jobs:
     steps:
       - name: Setup JS
         uses: zotero-plugin-dev/workflows/setup-js@main
+      - name: Initialize content submodules
+        run: git submodule update --init --recursive
       - name: Run release gate (blocking)
         run: npm run test:gate:release

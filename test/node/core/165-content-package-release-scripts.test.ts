@@ -8,6 +8,7 @@ import {
   bumpContentPackageVersion,
   resolveContentPackageVersionBump,
 } from "../../../scripts/bump-content-package-version";
+import { isTrackedContentSourceFile } from "../../../scripts/build-content-package-feed";
 import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
 import {
   parseContentPackageReleaseArgs,
@@ -330,14 +331,60 @@ describe("content package release scripts", function () {
       }
       return response("missing", 404);
     }) as typeof fetch;
+    let buildArgs:
+      | {
+          generatedAt: string;
+          revision: string;
+        }
+      | undefined;
 
     await verifyContentPackageRelease({
       channels: [channel],
       outRoot: tempRoot,
       versionFile,
       fetchImpl,
-      buildContentFeeds: async () => {},
+      buildContentFeeds: async (args) => {
+        buildArgs = {
+          generatedAt: args.generatedAt,
+          revision: args.revision,
+        };
+      },
     });
+
+    assert.deepEqual(buildArgs, {
+      generatedAt: "2026-06-26T00:00:00.000Z",
+      revision: "rev-1",
+    });
+  });
+
+  it("keeps submodule tracked files eligible while excluding local git metadata", function () {
+    const trackedFiles = new Set([
+      "skills_builtin/literature-analysis/SKILL.md",
+      "skills_builtin/literature-analysis/assets/runner.json",
+    ]);
+
+    assert.isTrue(
+      isTrackedContentSourceFile({
+        filePath: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-analysis",
+          "SKILL.md",
+        ),
+        trackedFiles,
+      }),
+    );
+    assert.isFalse(
+      isTrackedContentSourceFile({
+        filePath: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-analysis",
+          ".git",
+        ),
+        trackedFiles,
+      }),
+    );
   });
 
   it("fails when the remote feed is missing", async function () {

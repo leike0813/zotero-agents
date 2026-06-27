@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import pkg from "../package.json" with { type: "json" };
@@ -20,6 +21,7 @@ const DEFAULT_CHANNELS: Channel[] = ["stable", "dev"];
 const DEBUG_CHANNELS = new Set<Channel>(["dev"]);
 const CONTENT_VERSION_FILE = "content-package.version.json";
 const DEFAULT_RELEASE_REPO = "leike0813/zotero-agents-workflows";
+let trackedContentSourceFiles: Promise<Set<string> | null> | undefined;
 
 function argValue(name: string) {
   const prefix = `${name}=`;
@@ -59,6 +61,26 @@ function normalizeZipPath(value: string) {
   return value.replace(/\\/g, "/").replace(/^\/+/g, "");
 }
 
+export function normalizeRepoRelativePath(
+  value: string,
+  repoRoot = process.cwd(),
+) {
+  return normalizeZipPath(path.relative(repoRoot, value));
+}
+
+export function isTrackedContentSourceFile(args: {
+  filePath: string;
+  trackedFiles: Set<string> | null;
+  repoRoot?: string;
+}) {
+  if (!args.trackedFiles) {
+    return true;
+  }
+  return args.trackedFiles.has(
+    normalizeRepoRelativePath(args.filePath, args.repoRoot),
+  );
+}
+
 async function pathExists(targetPath: string) {
   try {
     await fs.stat(targetPath);
@@ -76,6 +98,12 @@ async function readJsonFile(filePath: string) {
 }
 
 async function readGitRevision() {
+  const contentPackageRevision = String(
+    process.env.CONTENT_PACKAGE_REVISION || "",
+  ).trim();
+  if (contentPackageRevision) {
+    return contentPackageRevision;
+  }
   const fromEnv = String(process.env.GITHUB_SHA || "").trim();
   if (fromEnv) {
     return fromEnv;
@@ -86,6 +114,34 @@ async function readGitRevision() {
   } catch {
     return "unknown";
   }
+}
+
+async function readTrackedContentSourceFiles() {
+  try {
+    const result = await execFileAsync("git", [
+      "ls-files",
+      "--recurse-submodules",
+      "--",
+      "workflows_builtin",
+      "skills_builtin",
+    ]);
+    return new Set(
+      result.stdout
+        .split(/\r?\n/g)
+        .map((entry) => normalizeZipPath(entry.trim()))
+        .filter(Boolean),
+    );
+  } catch {
+    console.warn(
+      "[content-package] unable to read tracked source files; using filesystem contents",
+    );
+    return null;
+  }
+}
+
+function getTrackedContentSourceFiles() {
+  trackedContentSourceFiles ||= readTrackedContentSourceFiles();
+  return trackedContentSourceFiles;
 }
 
 async function readContentVersionDescriptor() {
@@ -152,6 +208,7 @@ function releaseMirrorBaseUrl(version: string) {
 }
 
 async function collectFiles(root: string): Promise<string[]> {
+  const trackedFiles = await getTrackedContentSourceFiles();
   const entries = await fs.readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -159,6 +216,9 @@ async function collectFiles(root: string): Promise<string[]> {
     if (entry.isDirectory()) {
       files.push(...(await collectFiles(child)));
     } else if (entry.isFile()) {
+      if (!isTrackedContentSourceFile({ filePath: child, trackedFiles })) {
+        continue;
+      }
       files.push(child);
     }
   }
@@ -426,7 +486,11 @@ async function main() {
   }
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exit(1);
-});
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  void main().catch((error) => {
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
+    process.exit(1);
+  });
+}
