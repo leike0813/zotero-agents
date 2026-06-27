@@ -55,6 +55,7 @@ jobs:
             --tag "${TAG}" \
             --name "Official Workflow Package ${VERSION}" \
             --body "Official Zotero Agents Workflow package ${VERSION}." \
+            --target content-feed \
             artifact/content-packages/*/packages/*.zip \
             artifact/content-packages/*/packages/*.zip.sha256
 
