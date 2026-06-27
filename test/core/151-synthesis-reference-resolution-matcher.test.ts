@@ -222,6 +222,28 @@ describe("Synthesis reference resolution matcher", function () {
           candidate.paperRef === "1:YOLACT" && candidate.itemKey === "YOLACT",
       ),
     );
+
+    const incompatibleYear = resolveReferenceWithPolicy(
+      {
+        title: "YOLACT++: Better real-time instance segmentation",
+        year: "2028",
+        authors: ["Daniel Bolya", "Chong Zhou"],
+      },
+      index,
+      "policy-d",
+    );
+    assert.equal(incompatibleYear.status, "unmatched");
+    assert.isEmpty(incompatibleYear.suggestedCandidates);
+
+    const missingYear = resolveReferenceWithPolicy(
+      {
+        title: "YOLACT++: Better real-time instance segmentation",
+        authors: ["Daniel Bolya", "Chong Zhou"],
+      },
+      index,
+      "policy-d",
+    );
+    assert.equal(missingYear.status, "suggested");
   });
 
   it("uses strong compact title exact matches without treating year or authors as negative evidence", function () {

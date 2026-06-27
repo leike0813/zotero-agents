@@ -203,6 +203,15 @@ export type ReferenceMatcherIndex = {
   title: Map<string, ReferenceMatcherPaperInput[]>;
   compactTitle: Map<string, ReferenceMatcherPaperInput[]>;
   strongCompactTitle: Map<string, ReferenceMatcherPaperInput[]>;
+  paperFeatures: Map<string, ReferenceMatcherPaperFeature>;
+  authorTokenIndex: Map<string, ReferenceMatcherPaperInput[]>;
+};
+
+export type ReferenceMatcherPaperFeature = {
+  paperRef: string;
+  normalizedTitle: string;
+  authorTokens: Set<string>;
+  yearNumber: number | null;
 };
 
 type PolicyConfig = {
@@ -562,10 +571,30 @@ function authorTokens(authors: unknown) {
   );
 }
 
+function numericYear(value: unknown) {
+  const text = cleanString(value);
+  if (!text) {
+    return null;
+  }
+  const year = Number(text);
+  return Number.isFinite(year) ? year : null;
+}
+
 function yearDelta(left: unknown, right: unknown) {
-  const a = Number(cleanString(left));
-  const b = Number(cleanString(right));
-  return Number.isFinite(a) && Number.isFinite(b) ? Math.abs(a - b) : 999;
+  const a = numericYear(left);
+  const b = numericYear(right);
+  return a !== null && b !== null ? Math.abs(a - b) : 999;
+}
+
+function compatibleYearEvidence(
+  leftYear: number | null,
+  rightYear: number | null,
+) {
+  return (
+    leftYear === null ||
+    rightYear === null ||
+    Math.abs(leftYear - rightYear) <= 2
+  );
 }
 
 function yearEvidenceReasons(left: unknown, right: unknown) {
@@ -582,30 +611,38 @@ function yearEvidenceReasons(left: unknown, right: unknown) {
   return [];
 }
 
-function titleSimilarity(left: string, right: string) {
+function titleSimilarity(left: string, right: string, minimumScore = 0) {
   if (!left || !right) {
     return 0;
   }
-  const n = left.length;
-  const m = right.length;
-  const dp = Array.from({ length: n + 1 }, () => new Array<number>(m + 1));
-  for (let i = 0; i <= n; i += 1) {
-    dp[i]![0] = i;
+  let source = left;
+  let target = right;
+  if (target.length > source.length) {
+    [source, target] = [target, source];
   }
-  for (let j = 0; j <= m; j += 1) {
-    dp[0]![j] = j;
+  const n = source.length;
+  const m = target.length;
+  const maxLength = Math.max(n, m);
+  const maxDistance =
+    minimumScore > 0 ? Math.floor((1 - minimumScore) * maxLength) : maxLength;
+  if (minimumScore > 0 && Math.abs(n - m) > maxDistance) {
+    return 0;
   }
+  let previous = Array.from({ length: m + 1 }, (_, index) => index);
+  let current = new Array<number>(m + 1);
   for (let i = 1; i <= n; i += 1) {
+    current[0] = i;
     for (let j = 1; j <= m; j += 1) {
-      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-      dp[i]![j] = Math.min(
-        dp[i - 1]![j]! + 1,
-        dp[i]![j - 1]! + 1,
-        dp[i - 1]![j - 1]! + cost,
+      const cost = source[i - 1] === target[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        previous[j]! + 1,
+        current[j - 1]! + 1,
+        previous[j - 1]! + cost,
       );
     }
+    [previous, current] = [current, previous];
   }
-  return 1 - dp[n]![m]! / Math.max(n, m);
+  return 1 - previous[m]! / maxLength;
 }
 
 function tokenDice(left: Set<string>, right: Set<string>) {
@@ -2406,6 +2443,22 @@ function addToMap(
   }
 }
 
+function appendToMap(
+  map: Map<string, ReferenceMatcherPaperInput[]>,
+  key: string,
+  paper: ReferenceMatcherPaperInput,
+) {
+  if (!key) {
+    return;
+  }
+  const existing = map.get(key);
+  if (existing) {
+    existing.push(paper);
+  } else {
+    map.set(key, [paper]);
+  }
+}
+
 export function buildReferenceMatcherIndex(
   papers: ReferenceMatcherPaperInput[],
 ): ReferenceMatcherIndex {
@@ -2413,6 +2466,8 @@ export function buildReferenceMatcherIndex(
   const title = new Map<string, ReferenceMatcherPaperInput[]>();
   const compactTitle = new Map<string, ReferenceMatcherPaperInput[]>();
   const strongCompactTitle = new Map<string, ReferenceMatcherPaperInput[]>();
+  const paperFeatures = new Map<string, ReferenceMatcherPaperFeature>();
+  const authorTokenIndex = new Map<string, ReferenceMatcherPaperInput[]>();
   const normalizedPapers = papers.map((paper) => ({
     ...paper,
     paperRef: paperRefOf(paper),
@@ -2427,6 +2482,16 @@ export function buildReferenceMatcherIndex(
     identifiers: paperIdentifiers(paper),
   }));
   for (const paper of normalizedPapers) {
+    const feature = {
+      paperRef: paper.paperRef,
+      normalizedTitle: cleanString(paper.normalizedTitle),
+      authorTokens: authorTokens(paper.authors),
+      yearNumber: numericYear(paper.year),
+    };
+    paperFeatures.set(paper.paperRef, feature);
+    for (const token of feature.authorTokens) {
+      appendToMap(authorTokenIndex, token, paper);
+    }
     for (const identifier of paper.identifiers || []) {
       addToMap(identifiers, identityKey(identifier), paper);
     }
@@ -2440,13 +2505,34 @@ export function buildReferenceMatcherIndex(
       addToMap(strongCompactTitle, variant.strongCompact, paper);
     }
   }
+  for (const candidates of authorTokenIndex.values()) {
+    candidates.sort((left, right) =>
+      left.paperRef.localeCompare(right.paperRef),
+    );
+  }
   return {
     papers: normalizedPapers,
     identifiers,
     title,
     compactTitle,
     strongCompactTitle,
+    paperFeatures,
+    authorTokenIndex,
   };
+}
+
+function paperFeatureFor(
+  index: ReferenceMatcherIndex,
+  paper: ReferenceMatcherPaperInput,
+) {
+  return (
+    index.paperFeatures.get(paper.paperRef) || {
+      paperRef: paper.paperRef,
+      normalizedTitle: cleanString(paper.normalizedTitle),
+      authorTokens: authorTokens(paper.authors),
+      yearNumber: numericYear(paper.year),
+    }
+  );
 }
 
 function uniqueCandidate(candidates: ReferenceMatcherPaperInput[]) {
@@ -2454,14 +2540,22 @@ function uniqueCandidate(candidates: ReferenceMatcherPaperInput[]) {
   return unique.size === 1 ? Array.from(unique.values())[0] : null;
 }
 
+type CandidateEvidenceInput = {
+  refAuthorTokens?: Set<string>;
+  paperAuthorTokens?: Set<string>;
+};
+
 function candidateFor(
   paper: ReferenceMatcherPaperInput,
   reference: ReferenceMatcherReferenceInput,
   reasons: string[],
   score: number,
+  evidenceInput: CandidateEvidenceInput = {},
 ): ReferenceMatcherCandidate {
-  const refTokens = authorTokens(reference.authors);
-  const paperTokens = authorTokens(paper.authors);
+  const refTokens =
+    evidenceInput.refAuthorTokens || authorTokens(reference.authors);
+  const paperTokens =
+    evidenceInput.paperAuthorTokens || authorTokens(paper.authors);
   const overlap = Array.from(refTokens)
     .filter((token) => paperTokens.has(token))
     .sort();
@@ -2510,6 +2604,7 @@ function titleCandidates(
   const refTitle = normalizedTitle(reference);
   const refVariants = titleVariants(reference);
   const refTokens = authorTokens(reference.authors);
+  const refYear = numericYear(reference.year);
   const candidates = new Map<string, ReferenceMatcherCandidate>();
   const consider = (
     paper: ReferenceMatcherPaperInput,
@@ -2517,11 +2612,19 @@ function titleCandidates(
     score: number,
     options: { requireAuthorOverlap?: boolean } = {},
   ) => {
-    const paperTokens = authorTokens(paper.authors);
+    const paperFeature = paperFeatureFor(index, paper);
+    const paperTokens = paperFeature.authorTokens;
     const overlap = Array.from(refTokens).filter((token) =>
       paperTokens.has(token),
     ).length;
     if (options.requireAuthorOverlap !== false && overlap <= 0) {
+      return;
+    }
+    if (
+      options.requireAuthorOverlap !== false &&
+      config.yearDelta &&
+      !compatibleYearEvidence(refYear, paperFeature.yearNumber)
+    ) {
       return;
     }
     const existing = candidates.get(paper.paperRef);
@@ -2531,7 +2634,10 @@ function titleCandidates(
     const nextScore = Math.max(existing?.score || 0, score);
     candidates.set(
       paper.paperRef,
-      candidateFor(paper, reference, nextReasons, nextScore),
+      candidateFor(paper, reference, nextReasons, nextScore, {
+        refAuthorTokens: refTokens,
+        paperAuthorTokens: paperTokens,
+      }),
     );
   };
 
@@ -2579,28 +2685,65 @@ function titleCandidates(
     }
   }
 
-  if (config.guardedFuzzy) {
-    for (const paper of index.papers) {
-      if (candidates.has(paper.paperRef)) {
-        continue;
+  if (config.guardedFuzzy && refTokens.size >= 2 && refTitle) {
+    const overlapCounts = new Map<
+      string,
+      {
+        paper: ReferenceMatcherPaperInput;
+        feature: ReferenceMatcherPaperFeature;
+        count: number;
       }
+    >();
+    for (const token of refTokens) {
+      for (const paper of index.authorTokenIndex.get(token) || []) {
+        if (candidates.has(paper.paperRef)) {
+          continue;
+        }
+        const paperFeature = paperFeatureFor(index, paper);
+        if (
+          config.yearDelta &&
+          !compatibleYearEvidence(refYear, paperFeature.yearNumber)
+        ) {
+          continue;
+        }
+        const existing = overlapCounts.get(paper.paperRef);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          overlapCounts.set(paper.paperRef, {
+            paper,
+            feature: paperFeature,
+            count: 1,
+          });
+        }
+      }
+    }
+    const fuzzyCandidates = Array.from(overlapCounts.values())
+      .filter((entry) => entry.count >= 2)
+      .sort((left, right) =>
+        left.paper.paperRef.localeCompare(right.paper.paperRef),
+      );
+    for (const { paper, feature: paperFeature } of fuzzyCandidates) {
       const score = titleSimilarity(
         refTitle,
-        cleanString(paper.normalizedTitle),
+        paperFeature.normalizedTitle,
+        0.82,
       );
-      const paperTokens = authorTokens(paper.authors);
-      const overlap = Array.from(refTokens).filter((token) =>
-        paperTokens.has(token),
-      ).length;
-      if (score >= 0.97 && overlap >= 2) {
+      if (score >= 0.97) {
         candidates.set(
           paper.paperRef,
-          candidateFor(paper, reference, ["guarded_fuzzy_title"], score),
+          candidateFor(paper, reference, ["guarded_fuzzy_title"], score, {
+            refAuthorTokens: refTokens,
+            paperAuthorTokens: paperFeature.authorTokens,
+          }),
         );
-      } else if (score >= 0.82 && overlap >= 2) {
+      } else if (score >= 0.82) {
         candidates.set(
           paper.paperRef,
-          candidateFor(paper, reference, ["suggested_fuzzy_title"], score),
+          candidateFor(paper, reference, ["suggested_fuzzy_title"], score, {
+            refAuthorTokens: refTokens,
+            paperAuthorTokens: paperFeature.authorTokens,
+          }),
         );
       }
     }
