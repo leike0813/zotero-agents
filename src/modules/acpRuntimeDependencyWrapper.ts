@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
+  buildRuntimeCommandNestedArgs,
   buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
   getPrimaryPythonCommand,
@@ -116,15 +117,16 @@ export function wrapAcpBackendWithUv(args: {
   if (dependencies.length === 0) {
     return { ...args.backend };
   }
-  const backendCommand =
-    normalizeString(args.resolvedCommand) ||
-    normalizeString(args.backend.command);
+  const backendLaunchArgs = buildRuntimeCommandNestedArgs({
+    command: normalizeString(args.backend.command),
+    resolvedCommand: args.resolvedCommand,
+    commandArgs: args.backend.args || [],
+  });
   const uvArgs = ["run", "--isolated"];
   for (const dependency of dependencies) {
     uvArgs.push("--with", dependency);
   }
-  uvArgs.push("--", backendCommand);
-  uvArgs.push(...(args.backend.args || []));
+  uvArgs.push("--", ...backendLaunchArgs);
   return {
     ...args.backend,
     command: "uv",

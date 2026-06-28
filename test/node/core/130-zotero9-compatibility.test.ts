@@ -76,6 +76,20 @@ async function createMinimalWorkflowPackage(root: string) {
   );
 }
 
+async function removeTempRootWithRetry(tempRoot: string) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 function installZotero9SandboxFileRuntime(tempRoot: string) {
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: unknown;
@@ -312,7 +326,7 @@ describe("Zotero 9 compatibility baseline", function () {
       (Zotero as unknown as { DataDirectory?: unknown }).DataDirectory =
         previousDataDirectory;
       restore();
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await removeTempRootWithRetry(tempRoot);
     }
   });
 
@@ -342,7 +356,7 @@ describe("Zotero 9 compatibility baseline", function () {
       assert.deepEqual(loaded.warnings, []);
     } finally {
       restoreRuntime();
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await removeTempRootWithRetry(tempRoot);
     }
   });
 
@@ -392,7 +406,7 @@ describe("Zotero 9 compatibility baseline", function () {
     } finally {
       (Zotero as unknown as { DataDirectory?: unknown }).DataDirectory =
         previousDataDirectory;
-      await fs.rm(tempRoot, { recursive: true, force: true });
+      await removeTempRootWithRetry(tempRoot);
     }
   });
 

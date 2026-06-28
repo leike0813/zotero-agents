@@ -3463,7 +3463,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       dependencies: ["pandas", "numpy==2.0.0"],
     });
     assert.equal(wrapped.command, "uv");
-    assert.deepEqual(wrapped.args, [
+    assert.deepEqual(wrapped.args?.slice(0, 7), [
       "run",
       "--isolated",
       "--with",
@@ -3471,11 +3471,49 @@ describe("ACP SkillRunner-compatible runner", function () {
       "--with",
       "numpy==2.0.0",
       "--",
-      "npx",
-      "codex",
-      "acp",
     ]);
+    const nestedArgs = wrapped.args?.slice(7) || [];
+    if (process.platform === "win32") {
+      assert.match(
+        nestedArgs[0] || "",
+        /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i,
+      );
+      assert.include(nestedArgs, "-Command");
+      assert.include(nestedArgs.at(-1) || "", "'npx'");
+      assert.include(nestedArgs.at(-1) || "", "'codex'");
+      assert.include(nestedArgs.at(-1) || "", "'acp'");
+    } else {
+      assert.deepEqual(nestedArgs, ["npx", "codex", "acp"]);
+    }
     assert.deepEqual(wrapped.env, { FOO: "bar" });
+    const wrappedPs1Resolution = wrapAcpBackendWithUv({
+      backend,
+      dependencies: ["pandas"],
+      resolvedCommand: "C:\\Program Files\\nodejs\\npx.ps1",
+    });
+    assert.deepEqual(wrappedPs1Resolution.args?.slice(0, 5), [
+      "run",
+      "--isolated",
+      "--with",
+      "pandas",
+      "--",
+    ]);
+    const ps1NestedArgs = wrappedPs1Resolution.args?.slice(5) || [];
+    if (process.platform === "win32") {
+      assert.match(
+        ps1NestedArgs[0] || "",
+        /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i,
+      );
+      assert.include(ps1NestedArgs, "-File");
+      assert.include(ps1NestedArgs, "C:\\Program Files\\nodejs\\npx.ps1");
+      assert.deepEqual(ps1NestedArgs.slice(-2), ["codex", "acp"]);
+    } else {
+      assert.deepEqual(ps1NestedArgs, [
+        "C:\\Program Files\\nodejs\\npx.ps1",
+        "codex",
+        "acp",
+      ]);
+    }
   });
 
   it("does not wrap dependency plan by default when ACP uv wrapper is disabled", async function () {
@@ -4305,11 +4343,16 @@ describe("ACP SkillRunner-compatible runner", function () {
         "pandas",
         "--",
       ]);
-      assert.equal(
-        plan.wrappedBackend.args?.[5],
-        "C:\\Program Files\\nodejs\\npx.cmd",
-      );
-      assert.deepEqual(plan.wrappedBackend.args?.slice(6), ["codex", "acp"]);
+      assert.match(plan.wrappedBackend.args?.[5] || "", /cmd\.exe$/i);
+      assert.deepEqual(plan.wrappedBackend.args?.slice(6, 9), [
+        "/d",
+        "/s",
+        "/c",
+      ]);
+      const nestedCommandLine = plan.wrappedBackend.args?.[9] || "";
+      assert.include(nestedCommandLine, "C:\\Program Files\\nodejs\\npx.cmd");
+      assert.include(nestedCommandLine, "codex");
+      assert.include(nestedCommandLine, "acp");
     } finally {
       restoreGlobalProperty("IOUtils", previousIOUtils);
       restoreGlobalProperty("Zotero", previousZotero);
@@ -4377,11 +4420,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.lengthOf(calls, 1);
       if (process.platform === "win32") {
         assert.match(calls[0].command, /cmd\.exe$/i);
-        assert.deepEqual(calls[0].arguments?.slice(0, 3), [
-          "/d",
-          "/s",
-          "/c",
-        ]);
+        assert.deepEqual(calls[0].arguments?.slice(0, 3), ["/d", "/s", "/c"]);
         const commandLine = calls[0].arguments?.[3] || "";
         for (const token of [
           resolvedUvPath,
@@ -7667,11 +7706,22 @@ describe("ACP SkillRunner-compatible runner", function () {
       "pandas",
       "--",
     ]);
-    assert.match(
-      String(launchedBackend?.args?.[5] || ""),
-      /(?:^npx$|[\\/]npx(?:\.(cmd|exe|bat))?$)/i,
-    );
-    assert.deepEqual(launchedBackend?.args?.slice(6), ["codex", "acp"]);
+    const launchedNestedArgs = launchedBackend?.args?.slice(5) || [];
+    const launchedNestedText = launchedNestedArgs.join("\n");
+    assert.match(launchedNestedText, /npx/i);
+    assert.include(launchedNestedText, "codex");
+    assert.include(launchedNestedText, "acp");
+    if (
+      process.platform === "win32" &&
+      /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(
+        launchedNestedArgs[0] || "",
+      )
+    ) {
+      assert.isTrue(
+        launchedNestedArgs.includes("-File") ||
+          launchedNestedArgs.includes("-Command"),
+      );
+    }
     const response = result.responseJson as {
       skillRoots?: string[];
       runtimeDependencies?: string[];

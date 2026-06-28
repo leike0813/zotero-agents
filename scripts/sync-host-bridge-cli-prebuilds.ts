@@ -72,9 +72,7 @@ function extractArchive(archive: string) {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-      archive,
-      process.cwd(),
+      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${process.cwd()}' -Force`,
     ]);
     return;
   }

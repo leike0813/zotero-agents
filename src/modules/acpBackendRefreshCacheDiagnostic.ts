@@ -34,7 +34,10 @@ import {
   summarizeSubprocessEnvironment,
 } from "../platform/env";
 import { listRuntimeLogs } from "./runtimeLogManager";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getMozillaSubprocessModule,
+  probeMozillaRuntimeModules,
+} from "../utils/runtimeCompatibility";
 import {
   appendAcpSkillRunTransportAuditEvent,
   resolveAcpSkillRunAuditTrailFiles,
@@ -3431,31 +3434,21 @@ function probeProcessUtilsForDiagnostic() {
   const result: Record<string, unknown> = {
     candidates: [],
   };
-  const runtime = globalThis as {
-    ChromeUtils?: {
-      importESModule?: (specifier: string) => unknown;
-      import?: (specifier: string) => unknown;
-    };
-  };
   const candidates = [
     "resource://gre/modules/ProcessUtils.sys.mjs",
     "resource://gre/modules/ProcessUtils.jsm",
   ];
-  for (const specifier of candidates) {
-    const entry: Record<string, unknown> = { specifier };
-    try {
-      const imported =
-        specifier.endsWith(".sys.mjs") &&
-        typeof runtime.ChromeUtils?.importESModule === "function"
-          ? runtime.ChromeUtils.importESModule(specifier)
-          : typeof runtime.ChromeUtils?.import === "function"
-            ? runtime.ChromeUtils.import(specifier)
-            : null;
-      entry.ok = Boolean(imported);
-      entry.keys = listObjectKeysSafe(imported);
-    } catch (error) {
+  for (const probe of probeMozillaRuntimeModules({
+    specifiers: candidates,
+    useESModule: (specifier) => specifier.endsWith(".sys.mjs"),
+  })) {
+    const entry: Record<string, unknown> = { specifier: probe.specifier };
+    if (probe.error) {
       entry.ok = false;
-      entry.error = compactSerializedError(serializeError(error));
+      entry.error = compactSerializedError(serializeError(probe.error));
+    } else {
+      entry.ok = Boolean(probe.imported);
+      entry.keys = listObjectKeysSafe(probe.imported);
     }
     (result.candidates as unknown[]).push(entry);
   }

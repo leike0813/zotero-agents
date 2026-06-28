@@ -15,6 +15,7 @@ import {
   summarizeSubprocessEnvironment,
 } from "../../src/platform/env";
 import {
+  buildRuntimeCommandNestedArgs,
   buildPathCommandCandidates,
   buildNonInteractiveCommandCandidates,
   getCachedRuntimeCommand,
@@ -233,7 +234,10 @@ describe("runtime platform services", function () {
       resolved.launch?.args[3] || "",
       "C:\\nvm4w\\nodejs\\npx.cmd",
     );
-    assert.notInclude(resolved.launch?.args.join("\n") || "", "$nativeCommandLine");
+    assert.notInclude(
+      resolved.launch?.args.join("\n") || "",
+      "$nativeCommandLine",
+    );
   });
 
   it("prefers Windows ps1 shims over cmd and bat candidates when exe is absent", async function () {
@@ -255,6 +259,48 @@ describe("runtime platform services", function () {
       "C:\\Tools\\npx.ps1",
     ]);
     assert.notInclude(checked, "C:\\Tools\\npx.cmd");
+  });
+
+  it("builds nested Windows launch args for uv-wrapped backend commands", function () {
+    const ps1Nested = buildRuntimeCommandNestedArgs({
+      command: "npx",
+      resolvedCommand: "C:\\Program Files\\nodejs\\npx.ps1",
+      commandArgs: ["codex", "acp"],
+      platform: "win32",
+    });
+    assert.match(
+      ps1Nested[0] || "",
+      /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i,
+    );
+    assert.include(ps1Nested, "-File");
+    assert.include(ps1Nested, "C:\\Program Files\\nodejs\\npx.ps1");
+    assert.deepEqual(ps1Nested.slice(-2), ["codex", "acp"]);
+
+    const cmdNested = buildRuntimeCommandNestedArgs({
+      command: "npx",
+      resolvedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+      commandArgs: ["codex", "acp"],
+      platform: "win32",
+    });
+    assert.match(cmdNested[0] || "", /(?:^|[\\/])cmd(?:\.exe)?$/i);
+    assert.deepEqual(cmdNested.slice(1, 4), ["/d", "/s", "/c"]);
+    assert.include(cmdNested[4] || "", "C:\\Program Files\\nodejs\\npx.cmd");
+    assert.include(cmdNested[4] || "", "codex");
+    assert.include(cmdNested[4] || "", "acp");
+
+    const bareNested = buildRuntimeCommandNestedArgs({
+      command: "npx",
+      commandArgs: ["codex", "acp"],
+      platform: "win32",
+    });
+    assert.match(
+      bareNested[0] || "",
+      /(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i,
+    );
+    assert.include(bareNested, "-Command");
+    assert.include(bareNested.at(-1) || "", "'npx'");
+    assert.include(bareNested.at(-1) || "", "'codex'");
+    assert.include(bareNested.at(-1) || "", "'acp'");
   });
 
   it("promotes resolved Windows shims to verified sibling executables", async function () {
@@ -306,10 +352,7 @@ describe("runtime platform services", function () {
     assert.equal(resolved.available, true);
     assert.equal(resolved.resolvedPath, "C:\\Tools\\agent.cmd");
     assert.equal(resolved.launch?.mode, "cmd");
-    assert.notInclude(
-      resolved.checkedCandidates.join("\n"),
-      "agent-core.exe",
-    );
+    assert.notInclude(resolved.checkedCandidates.join("\n"), "agent-core.exe");
   });
 
   it("builds PowerShell -File launch specs for Windows ps1 commands", async function () {

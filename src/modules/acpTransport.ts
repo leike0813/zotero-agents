@@ -1176,10 +1176,7 @@ async function launchWebSocketBridgeAcpTransport(
   lifecycle.bridgePid = bridge.pid;
   lifecycle.bridgeUrl = bridgeSnapshot?.url;
   lifecycle.spawnId = randomTransportId();
-  const emitAudit = (
-    event: string,
-    details: Record<string, unknown> = {},
-  ) => {
+  const emitAudit = (event: string, details: Record<string, unknown> = {}) => {
     dispatchTransportAuditEvent(args.diagnosticCapture, {
       schema: "zotero-skills.acp.transport-audit.v1",
       ts: nowIso(),

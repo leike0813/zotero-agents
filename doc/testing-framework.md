@@ -223,6 +223,7 @@ lite 模式下：
   - `test/workflow-tag-regulator/64a-workflow-tag-regulator-request-building.test.ts`
   - `test/workflow-tag-regulator/64b-workflow-tag-regulator-apply-intake.test.ts`
 - `test/core/11-selection-context-rebuild.test.ts` 仅运行 `selection-context-mix-all-top3-parents` 子夹具
+- `selection-context-mix-all` 子夹具仅进入 Node full 集，Zotero 环境下通过 `isZoteroRuntime()` 过滤跳过
 - 在 workflow/ui 的高复杂度测试文件内，部分边界/兼容性用例通过 `itFullOnly` 下沉到 `full`
   - 代表性文件：`test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`
 - `selection-context` 的 lite 子夹具执行后保留重建产物（不清理）

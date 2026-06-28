@@ -1153,10 +1153,7 @@ describe("acp transport", function () {
       }
 
       assert.instanceOf(thrown, Error);
-      assert.match(
-        String((thrown as Error).message),
-        /unsupported data type/i,
-      );
+      assert.match(String((thrown as Error).message), /unsupported data type/i);
       assert.match(transport.getLifecycle().readError || "", /unsupported/i);
 
       socket.emitClose();

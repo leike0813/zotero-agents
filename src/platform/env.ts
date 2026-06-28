@@ -3,7 +3,10 @@ import {
   runtimePathExists,
 } from "../modules/runtimePersistence";
 import { getWindowsPowerShellAbsoluteCandidates } from "../modules/windowsCommandResolution";
-import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getMozillaSubprocessModule,
+  runtimeRemoveFile,
+} from "../utils/runtimeCompatibility";
 import { getPathDelimiter } from "./path";
 import { detectRuntimePlatform } from "./runtimePlatform";
 
@@ -587,18 +590,8 @@ async function removeRuntimeFileIfExists(path: string) {
   if (!path || !(await runtimePathExists(path))) {
     return;
   }
-  const runtime = globalThis as {
-    IOUtils?: { remove?: (path: string) => Promise<void> };
-    OS?: { File?: { remove?: (path: string) => Promise<void> } };
-  };
   try {
-    if (typeof runtime.IOUtils?.remove === "function") {
-      await runtime.IOUtils.remove(path);
-      return;
-    }
-    if (typeof runtime.OS?.File?.remove === "function") {
-      await runtime.OS.File.remove(path);
-    }
+    await runtimeRemoveFile(path);
   } catch {
     // Best-effort cleanup only. The file path is unique per preflight attempt.
   }
@@ -947,9 +940,7 @@ export function summarizeSubprocessEnvironment(
   const normalizedOverrides = normalizeEnvRecord(overrides);
   const explicitKeys = Object.keys(normalizedOverrides).sort();
   const injectedKeys = Object.keys(env)
-    .filter(
-      (key) => !findEnvironmentKey(normalizedOverrides, key, isWindows),
-    )
+    .filter((key) => !findEnvironmentKey(normalizedOverrides, key, isWindows))
     .sort();
   const pathValue =
     getRecordValueCaseInsensitive(env, "PATH") ||

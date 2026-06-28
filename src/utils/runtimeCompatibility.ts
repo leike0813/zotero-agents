@@ -31,6 +31,12 @@ export type MozillaSubprocessModule = {
   }>;
 };
 
+export type MozillaRuntimeModuleProbeResult = {
+  specifier: string;
+  imported?: unknown;
+  error?: unknown;
+};
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -94,6 +100,38 @@ export function getMozillaSubprocessModule() {
   return null;
 }
 
+export function probeMozillaRuntimeModules(args: {
+  specifiers: string[];
+  useESModule?: (specifier: string) => boolean;
+}): MozillaRuntimeModuleProbeResult[] {
+  const runtime = globalThis as {
+    ChromeUtils?: {
+      importESModule?: (url: string) => unknown;
+      import?: (url: string) => unknown;
+    };
+  };
+  const results: MozillaRuntimeModuleProbeResult[] = [];
+  for (const specifierRaw of args.specifiers) {
+    const specifier = normalizeString(specifierRaw);
+    if (!specifier) {
+      continue;
+    }
+    try {
+      const imported =
+        args.useESModule?.(specifier) === true &&
+        typeof runtime.ChromeUtils?.importESModule === "function"
+          ? runtime.ChromeUtils.importESModule(specifier)
+          : typeof runtime.ChromeUtils?.import === "function"
+            ? runtime.ChromeUtils.import(specifier)
+            : null;
+      results.push({ specifier, imported });
+    } catch (error) {
+      results.push({ specifier, error });
+    }
+  }
+  return results;
+}
+
 export async function runtimeFileExists(pathRaw: string) {
   const targetPath = normalizeString(pathRaw);
   if (!targetPath) {
@@ -152,6 +190,56 @@ export async function runtimeFileExists(pathRaw: string) {
     }
   }
   return false;
+}
+
+export async function runtimeReadTextFile(pathRaw: string) {
+  const targetPath = normalizeString(pathRaw);
+  if (!targetPath) {
+    return "";
+  }
+  const runtime = globalThis as {
+    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
+    OS?: { File?: { read?: (path: string) => Promise<Uint8Array> } };
+    TextDecoder?: new (encoding?: string) => {
+      decode: (input: Uint8Array) => string;
+    };
+  };
+  try {
+    if (typeof runtime.IOUtils?.readUTF8 === "function") {
+      return await runtime.IOUtils.readUTF8(targetPath);
+    }
+    if (typeof runtime.OS?.File?.read === "function") {
+      const Decoder = runtime.TextDecoder || TextDecoder;
+      return new Decoder("utf-8").decode(
+        await runtime.OS.File.read(targetPath),
+      );
+    }
+    const fs = await tryNodeFs();
+    if (fs) {
+      return await fs.readFile(targetPath, "utf8");
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+export async function runtimeRemoveFile(pathRaw: string) {
+  const targetPath = normalizeString(pathRaw);
+  if (!targetPath) {
+    return;
+  }
+  const runtime = globalThis as {
+    IOUtils?: { remove?: (path: string) => Promise<void> };
+    OS?: { File?: { remove?: (path: string) => Promise<void> } };
+  };
+  if (typeof runtime.IOUtils?.remove === "function") {
+    await runtime.IOUtils.remove(targetPath);
+    return;
+  }
+  if (typeof runtime.OS?.File?.remove === "function") {
+    await runtime.OS.File.remove(targetPath);
+  }
 }
 
 async function tryNodeFs() {

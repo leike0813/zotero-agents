@@ -9,6 +9,7 @@ import {
 import {
   getMozillaSubprocessModule,
   runtimeFileExists,
+  runtimeReadTextFile,
 } from "../utils/runtimeCompatibility";
 import { readRuntimeEnv, readRuntimePathEnv, splitPathEntries } from "./env";
 import { joinNativePath, isAbsolutePathLike } from "./path";
@@ -149,28 +150,7 @@ async function defaultReadTextFile(pathRaw: string) {
   if (!path) {
     return "";
   }
-  const runtime = globalThis as {
-    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
-    OS?: { File?: { read?: (path: string) => Promise<Uint8Array> } };
-    TextDecoder?: new (encoding?: string) => { decode: (input: Uint8Array) => string };
-    process?: unknown;
-  };
-  try {
-    if (typeof runtime.IOUtils?.readUTF8 === "function") {
-      return await runtime.IOUtils.readUTF8(path);
-    }
-    if (typeof runtime.OS?.File?.read === "function") {
-      const Decoder = runtime.TextDecoder || TextDecoder;
-      return new Decoder("utf-8").decode(await runtime.OS.File.read(path));
-    }
-    if (runtime.process) {
-      const fs = await import("node:fs/promises");
-      return await fs.readFile(path, "utf8");
-    }
-  } catch {
-    return "";
-  }
-  return "";
+  return runtimeReadTextFile(path);
 }
 
 function getWindowsCommandExtension(pathRaw: string) {
@@ -239,8 +219,12 @@ function parseDirectExecutableFromWindowsShim(args: {
     return "";
   }
   const ps1Match =
-    shimText.match(/&\s+"\$(?:basedir|PSScriptRoot)[\\/]+([^"]+?\.exe)"\s+(?:\$args|@args)/iu) ||
-    shimText.match(/&\s+'\$(?:basedir|PSScriptRoot)[\\/]+([^']+?\.exe)'\s+(?:\$args|@args)/iu);
+    shimText.match(
+      /&\s+"\$(?:basedir|PSScriptRoot)[\\/]+([^"]+?\.exe)"\s+(?:\$args|@args)/iu,
+    ) ||
+    shimText.match(
+      /&\s+'\$(?:basedir|PSScriptRoot)[\\/]+([^']+?\.exe)'\s+(?:\$args|@args)/iu,
+    );
   if (ps1Match?.[1]) {
     return joinWindowsPathFromBase(baseDir, ps1Match[1]);
   }
@@ -340,7 +324,9 @@ async function normalizeWindowsResolvedCommandPath(args: {
     readText: args.readText,
   });
   if (resolvedExe) {
-    args.checkedCandidates.push(`windows-shim-exe:${candidate}->${resolvedExe}`);
+    args.checkedCandidates.push(
+      `windows-shim-exe:${candidate}->${resolvedExe}`,
+    );
     return resolvedExe;
   }
   return candidate;
@@ -540,6 +526,25 @@ export function buildRuntimeCommandLaunchPlan(args: {
       commandArgs,
     ),
   };
+}
+
+export function buildRuntimeCommandNestedArgs(args: {
+  command: string;
+  resolvedCommand?: string;
+  commandArgs?: string[];
+  platform?: string;
+  resolution?: RuntimeCommandResolution;
+  preferWindowsBareCommandPowerShell?: boolean;
+}) {
+  const resolvedCommand =
+    normalizeString(args.resolution?.resolvedPath) ||
+    normalizeString(args.resolvedCommand);
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    ...args,
+    preferWindowsBareCommandPowerShell:
+      args.preferWindowsBareCommandPowerShell ?? !resolvedCommand,
+  });
+  return [launchPlan.command, ...launchPlan.args];
 }
 
 function withLaunchSpec(

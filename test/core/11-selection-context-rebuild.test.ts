@@ -18,6 +18,7 @@ import singlePdf from "../fixtures/selection-context/selection-context-single-pd
 import variousTypeAttachDiffParents from "../fixtures/selection-context/selection-context-various-type-attach-diff-parents.json";
 import variousTypeAttachSameParent from "../fixtures/selection-context/selection-context-various-type-attach-same-parent.json";
 import { isFullTestMode } from "./testMode";
+import { isZoteroRuntime } from "./workflow-test-utils";
 
 type ItemBase = {
   id: number;
@@ -561,12 +562,16 @@ describe("selection-context rebuild", function () {
     { name: "selection-context-mix-all.json", data: mixAll },
   ];
 
-  const selectedFixtures = isFullTestMode()
+  const base = isFullTestMode()
     ? fixtures
     : fixtures.filter(
         (fixture) =>
           fixture.name === "selection-context-mix-all-top3-parents.json",
       );
+  const selectedFixtures = base.filter(
+    (fixture) =>
+      !(isZoteroRuntime() && fixture.name === "selection-context-mix-all.json"),
+  );
 
   selectedFixtures.forEach((fixture) => {
     it(`rebuilds ${fixture.name}`, async function () {
