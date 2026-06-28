@@ -5,16 +5,23 @@ import os from "node:os";
 import path from "node:path";
 import {
   __contentPackageSubscriptionTestOnly,
+  clearContentPackageInstallProgress,
   getOfficialContentRoot,
   getContentPackageStatus,
   getConfiguredContentFeedChannel,
   installContentPackageFromFeed,
   checkContentPackageUpdate,
+  resetContentPackageInstallProgressForTests,
 } from "../../src/modules/contentPackageSubscription";
 import { promptOfficialWorkflowPackageUpdateOnStartup } from "../../src/hooks";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { setPref } from "../../src/utils/prefs";
+import {
+  installRuntimeBridgeOverrideForTests,
+  resetRuntimeBridgeOverrideForTests,
+} from "../../src/utils/runtimeBridge";
+import { resetWorkflowToastStateForTests } from "../../src/modules/workflowExecution/feedbackSeam";
 
 const encoder = new TextEncoder();
 
@@ -146,6 +153,9 @@ describe("content package subscription", function () {
     setPref("contentDevFeedUrl", "https://primary.example/dev/feed.json");
     setPref("contentDevFeedMirrorUrl", "https://mirror.example/dev/feed.json");
     setDebugModeOverrideForTests(false);
+    resetContentPackageInstallProgressForTests();
+    resetRuntimeBridgeOverrideForTests();
+    resetWorkflowToastStateForTests();
   });
 
   afterEach(async function () {
@@ -156,6 +166,10 @@ describe("content package subscription", function () {
     }
     globalThis.fetch = previousFetch as typeof fetch;
     setDebugModeOverrideForTests();
+    clearContentPackageInstallProgress();
+    resetContentPackageInstallProgressForTests();
+    resetRuntimeBridgeOverrideForTests();
+    resetWorkflowToastStateForTests();
     if (tempRoot) {
       await fs.rm(tempRoot, { recursive: true, force: true });
     }
@@ -217,6 +231,58 @@ describe("content package subscription", function () {
         .then(() => true)
         .catch(() => false),
     );
+  });
+
+  it("reports coarse official package install progress stages", async function () {
+    const zip = makePackageZip();
+    const feed = makeFeed({ zip });
+    const progress: Array<{ stage: string; current: number; total: number }> =
+      [];
+    globalThis.fetch = (async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (href.endsWith("/stable/feed.json")) {
+        return jsonResponse(feed);
+      }
+      if (href.endsWith("/packages/official-content.zip")) {
+        return bytesResponse(zip);
+      }
+      return bytesResponse(utf8("not found"), 404);
+    }) as typeof fetch;
+
+    const result = await installContentPackageFromFeed({
+      channel: "stable",
+      onProgress: (entry) => {
+        progress.push({
+          stage: entry.stage,
+          current: entry.current,
+          total: entry.total,
+        });
+      },
+    });
+
+    assert.isTrue(result.ok);
+    assert.deepEqual(
+      progress.map((entry) => entry.stage),
+      [
+        "check-feed",
+        "download-package",
+        "verify-package",
+        "extract-package",
+        "stage-content",
+        "promote-content",
+        "write-state",
+      ],
+    );
+    assert.deepInclude(progress[0], {
+      stage: "check-feed",
+      current: 1,
+      total: 9,
+    });
+    assert.deepInclude(progress.at(-1), {
+      stage: "write-state",
+      current: 7,
+      total: 9,
+    });
   });
 
   it("treats install state as stale when official workflow files are missing", async function () {
@@ -596,6 +662,105 @@ describe("content package subscription", function () {
     assert.equal(installCalls, 1);
     assert.equal(afterInstallCalls, 1);
     assert.deepEqual(alerts, []);
+  });
+
+  it("shows startup official Workflow package install progress before install completes", async function () {
+    const toastEvents: Array<Record<string, unknown>> = [];
+    class MockProgressWindow {
+      static setIconURI() {}
+
+      createLine(args: Record<string, unknown>) {
+        toastEvents.push({ event: "create", ...args });
+        return this;
+      }
+
+      show(closeTime?: number) {
+        toastEvents.push({ event: "show", closeTime });
+        return this;
+      }
+
+      changeLine(args: Record<string, unknown>) {
+        toastEvents.push({ event: "change", ...args });
+      }
+
+      updateIcons() {}
+
+      close() {
+        toastEvents.push({ event: "close" });
+      }
+    }
+    installRuntimeBridgeOverrideForTests({
+      addon: {
+        data: {
+          config: {
+            addonName: "Zotero Agents",
+            addonRef: "zotero-agents",
+          },
+          ztoolkit: {
+            ProgressWindow: MockProgressWindow,
+          },
+        },
+      },
+      ztoolkit: {
+        ProgressWindow: MockProgressWindow,
+      },
+    });
+
+    let installCalls = 0;
+    const result = await promptOfficialWorkflowPackageUpdateOnStartup({
+      win: {
+        confirm: () => true,
+        alert: () => {},
+      } as unknown as _ZoteroTypes.MainWindow,
+      check: async () =>
+        ({
+          ok: true,
+          status: {
+            channel: "stable",
+            installed: {
+              feed_revision: "rev-1",
+              package: {
+                id: "official-content",
+                version: "1.0.0",
+                artifact: { sha256: "sha256:old" },
+              },
+            },
+          },
+          feed: { channel: "stable", revision: "rev-2" },
+          package: {
+            id: "official-content",
+            version: "1.1.0",
+            artifact: { sha256: "sha256:new" },
+          },
+          updateAvailable: true,
+          compatible: true,
+          selectedFeedUrl: "https://primary.example/stable/feed.json",
+          failures: [],
+          artifactFeedUrls: ["https://primary.example/stable/feed.json"],
+        }) as any,
+      install: async () => {
+        installCalls += 1;
+        assert.equal(toastEvents[0]?.event, "create");
+        assert.include(String(toastEvents[0]?.text || ""), "[11%]");
+        return {
+          ok: true,
+          status: {} as any,
+          installed: {} as any,
+        };
+      },
+      onInstalled: () => {},
+    });
+
+    assert.isTrue(result.installed);
+    assert.equal(installCalls, 1);
+    assert.isTrue(
+      toastEvents.some(
+        (entry) =>
+          entry.event === "change" &&
+          String(entry.text || "").includes("[100%]"),
+      ),
+    );
+    assert.isTrue(toastEvents.some((entry) => entry.event === "close"));
   });
 
   it("does not show startup upgrade prompt before official Workflow package is installed", async function () {

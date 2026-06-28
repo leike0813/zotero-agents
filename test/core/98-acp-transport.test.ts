@@ -23,6 +23,30 @@ function assertCommandLineContains(
   }
 }
 
+function assertPowerShellLaunch(args: {
+  command: string;
+  argv: string[];
+  expectedCommand: string;
+  expectedArgs: string[];
+}) {
+  assert.match(args.command, /(^|\\)(powershell|pwsh)\.exe$/i);
+  assert.deepEqual(args.argv.slice(0, 6), [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+  ]);
+  const script = args.argv[6] || "";
+  assert.include(script, `& '${args.expectedCommand.replace(/'/g, "''")}'`);
+  for (const expectedArg of args.expectedArgs) {
+    assert.include(script, `'${expectedArg.replace(/'/g, "''")}'`);
+  }
+  assert.notInclude(script, "cmd.exe");
+  assert.notInclude(script, '"""');
+}
+
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
   const previous = Object.getOwnPropertyDescriptor(runtime, key);
@@ -78,48 +102,67 @@ describe("acp transport", function () {
     resetRuntimeCommandRegistryForTests();
   });
 
-  it("wraps host-global Windows commands through cmd.exe", function () {
+  it("wraps host-global Windows command shims through PowerShell", function () {
     const plan = buildAcpLaunchPlanForTests({
       command: "npx",
       resolvedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
       args: ["opencode-ai@latest", "acp"],
       platform: "win32",
-      comspec: "C:\\Windows\\System32\\cmd.exe",
     });
 
-    assert.equal(plan.command, "C:\\Windows\\System32\\cmd.exe");
-    assert.deepEqual(plan.args.slice(0, 2), ["/d", "/c"]);
-    assert.equal(plan.args[2], "npx opencode-ai@latest acp");
-    assert.equal(
-      plan.environment?.PATH,
-      "C:\\Users\\tester\\AppData\\Roaming\\npm",
-    );
+    assert.equal(plan.mode, "powershell");
+    assertPowerShellLaunch({
+      command: plan.command,
+      argv: plan.args,
+      expectedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
+      expectedArgs: ["opencode-ai@latest", "acp"],
+    });
+    assert.isUndefined(plan.environment);
     assert.equal(plan.commandLabel, "npx opencode-ai@latest acp");
-    assert.notInclude(plan.commandLine, '"""');
-    assert.notInclude(plan.commandLine, '"" opencode-ai');
     assertCommandLineContains(plan, [
-      "cmd.exe",
-      "npx",
+      "powershell",
+      "npx.cmd",
       "opencode-ai@latest",
       "acp",
     ]);
   });
 
-  it("quotes Windows command shim paths with spaces without cmd triple quotes", function () {
+  it("quotes Windows command shim paths with spaces through PowerShell", function () {
     const plan = buildAcpLaunchPlanForTests({
       command: "npx",
       resolvedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
       args: ["opencode-ai@latest", "acp"],
       platform: "win32",
-      comspec: "C:\\Windows\\System32\\cmd.exe",
     });
 
-    assert.equal(plan.command, "C:\\Windows\\System32\\cmd.exe");
-    assert.deepEqual(plan.args.slice(0, 2), ["/d", "/c"]);
-    assert.equal(plan.args[2], "npx opencode-ai@latest acp");
-    assert.equal(plan.environment?.PATH, "C:\\Program Files\\nodejs");
+    assert.equal(plan.mode, "powershell");
+    assertPowerShellLaunch({
+      command: plan.command,
+      argv: plan.args,
+      expectedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+      expectedArgs: ["opencode-ai@latest", "acp"],
+    });
+    assert.isUndefined(plan.environment);
     assert.notInclude(plan.commandLine, '"""');
-    assert.notInclude(plan.commandLine, '"" opencode-ai');
+  });
+
+  it("escapes single quotes in PowerShell shim launch arguments", function () {
+    const plan = buildAcpLaunchPlanForTests({
+      command: "npx",
+      resolvedCommand: "C:\\Tools\\O'Node\\npx.cmd",
+      args: ["agent's-cli", "acp"],
+      platform: "win32",
+    });
+
+    assert.equal(plan.mode, "powershell");
+    assertPowerShellLaunch({
+      command: plan.command,
+      argv: plan.args,
+      expectedCommand: "C:\\Tools\\O'Node\\npx.cmd",
+      expectedArgs: ["agent's-cli", "acp"],
+    });
+    assert.include(plan.args[6] || "", "'C:\\Tools\\O''Node\\npx.cmd'");
+    assert.include(plan.args[6] || "", "'agent''s-cli'");
   });
 
   it("keeps direct execution for non-Windows commands", function () {
@@ -130,6 +173,7 @@ describe("acp transport", function () {
       platform: "linux",
     });
 
+    assert.equal(plan.mode, "direct");
     assert.equal(plan.command, "/usr/local/bin/npx");
     assert.deepEqual(plan.args, ["opencode-ai@latest", "acp"]);
     assert.equal(plan.commandLabel, "npx opencode-ai@latest acp");
@@ -148,9 +192,9 @@ describe("acp transport", function () {
         "@agentclientprotocol/claude-agent-acp@latest",
       ],
       platform: "win32",
-      comspec: "C:\\Windows\\System32\\cmd.exe",
     });
 
+    assert.equal(plan.mode, "direct");
     assert.equal(plan.command, "C:\\Users\\tester\\.local\\bin\\uv.exe");
     assert.deepEqual(plan.args, [
       "run",
@@ -303,20 +347,16 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.deepEqual(callInvocations[0].arguments.slice(0, 2), ["/d", "/c"]);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.include(
-        callInvocations[0].arguments[2] || "",
-        "opencode-ai@latest",
-      );
-      assert.include(callInvocations[0].arguments[2] || "", "acp");
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
-      assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
+      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
         powerShellCalls.some((entry) =>
           entry.command.toLowerCase().includes("powershell"),
@@ -422,18 +462,16 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.equal(
-        callInvocations[0].environment?.PATH,
-        "C:\\Program Files\\nodejs",
-      );
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
-      assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
+      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
         powerShellCalls.some((entry) =>
           entry.command.toLowerCase().includes("powershell"),
@@ -514,18 +552,16 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.equal(
-        callInvocations[0].environment?.PATH,
-        "C:\\Program Files\\nodejs",
-      );
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
-      assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
+      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.include(transport.getCommandLine(), "opencode-ai@latest");
       assert.isTrue(
         powerShellCalls.some((entry) =>
           entry.command.toLowerCase().includes("powershell"),
@@ -611,23 +647,16 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.equal(
-        callInvocations[0].environment?.PATH,
-        "C:\\Users\\tester\\AppData\\Roaming\\npm",
-      );
-      assert.include(
-        callInvocations[0].arguments[2] || "",
-        "opencode-ai@latest",
-      );
-      assert.include(callInvocations[0].arguments[2] || "", "acp");
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
-      assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
+      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.include(transport.getCommandLine(), "opencode-ai@latest");
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
@@ -733,23 +762,16 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.equal(
-        callInvocations[0].environment?.PATH,
-        "C:\\Program Files\\nodejs",
-      );
-      assert.include(
-        callInvocations[0].arguments[2] || "",
-        "opencode-ai@latest",
-      );
-      assert.include(callInvocations[0].arguments[2] || "", "acp");
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       assert.equal(transport.getCommandLabel(), "npx opencode-ai@latest acp");
-      assert.include(transport.getCommandLine(), "npx opencode-ai@latest acp");
+      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.include(transport.getCommandLine(), "opencode-ai@latest");
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
@@ -856,16 +878,13 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assert.match(callInvocations[0].command, /(^|\\)(cmd\.exe)$/i);
-      assert.equal(
-        callInvocations[0].arguments[2] || "",
-        "npx opencode-ai@latest acp",
-      );
-      assert.equal(
-        callInvocations[0].environment?.PATH,
-        "C:\\Program Files\\nodejs",
-      );
-      assert.notInclude(callInvocations[0].arguments[2] || "", '"""');
+      assertPowerShellLaunch({
+        command: callInvocations[0].command,
+        argv: callInvocations[0].arguments,
+        expectedCommand: "C:\\Program Files\\nodejs\\npx.cmd",
+        expectedArgs: ["opencode-ai@latest", "acp"],
+      });
+      assert.isUndefined(callInvocations[0].environment?.PATH);
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);

@@ -29,6 +29,11 @@ import {
 import { isFullTestMode } from "../zotero/testMode";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
+import {
+  clearContentPackageInstallProgress,
+  resetContentPackageInstallProgressForTests,
+  setContentPackageInstallProgress,
+} from "../../src/modules/contentPackageSubscription";
 
 type Listener = (event: Record<string, unknown>) => void;
 
@@ -461,6 +466,46 @@ function createPrefsWindow(args?: {
   if (contentPackageInstallButton) {
     contentPackageInstallButton.id = `zotero-prefpane-${config.addonRef}-content-package-install`;
   }
+  const contentPackageProgressRow = args?.includeContentPackageControls
+    ? document.createXULElement("hbox")
+    : null;
+  const contentPackageProgressmeterContainer =
+    args?.includeContentPackageControls
+      ? document.createXULElement("div")
+      : null;
+  const contentPackageProgressmeter = args?.includeContentPackageControls
+    ? document.createXULElement("div")
+    : null;
+  const contentPackageProgressText = args?.includeContentPackageControls
+    ? document.createXULElement("span")
+    : null;
+  if (contentPackageProgressRow) {
+    contentPackageProgressRow.id = `zotero-prefpane-${config.addonRef}-content-package-progress-row`;
+  }
+  if (contentPackageProgressmeterContainer) {
+    contentPackageProgressmeterContainer.className =
+      "custom-progress-container";
+  }
+  if (contentPackageProgressmeter) {
+    contentPackageProgressmeter.id = `zotero-prefpane-${config.addonRef}-content-package-progressmeter`;
+    contentPackageProgressmeter.className = "custom-progress-bar";
+    contentPackageProgressmeter.style.width = "0%";
+  }
+  if (contentPackageProgressText) {
+    contentPackageProgressText.id = `zotero-prefpane-${config.addonRef}-content-package-progress-text`;
+  }
+  if (
+    contentPackageProgressRow &&
+    contentPackageProgressmeterContainer &&
+    contentPackageProgressmeter &&
+    contentPackageProgressText
+  ) {
+    contentPackageProgressmeterContainer.appendChild(
+      contentPackageProgressmeter,
+    );
+    contentPackageProgressRow.appendChild(contentPackageProgressmeterContainer);
+    contentPackageProgressRow.appendChild(contentPackageProgressText);
+  }
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
@@ -815,6 +860,9 @@ function createPrefsWindow(args?: {
     contentPackageChannelPopup,
     contentPackageCheckButton,
     contentPackageInstallButton,
+    contentPackageProgressRow,
+    contentPackageProgressmeter,
+    contentPackageProgressText,
     backendManageButton,
     assistantStreamingRenderEnabledCheckbox,
     hostBridgeDisableWriteApprovalCheckbox,
@@ -939,6 +987,7 @@ describe("gui: preference scripts", function () {
     Zotero.Prefs.clear(workflowDirPrefKey, true);
     Zotero.Prefs.clear(skillDirPrefKey, true);
     resetManagedLocalRuntimeStateChangeListenersForTests();
+    resetContentPackageInstallProgressForTests();
   });
 
   afterEach(function () {
@@ -974,6 +1023,7 @@ describe("gui: preference scripts", function () {
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
     resetManagedLocalRuntimeStateChangeListenersForTests();
+    resetContentPackageInstallProgressForTests();
     restorePrefs?.();
     restorePrefs = undefined;
   });
@@ -1341,6 +1391,69 @@ describe("gui: preference scripts", function () {
       "stateContentPackage",
       "checkContentPackageUpdate",
     ]);
+  });
+
+  it("renders shared official Workflow package install progress in preferences", async function () {
+    const calls: string[] = [];
+    (
+      globalThis as {
+        addon: {
+          hooks: {
+            onPrefsEvent: (type: string, data: unknown) => Promise<unknown>;
+          };
+        };
+      }
+    ).addon.hooks.onPrefsEvent = async (type) => {
+      calls.push(type);
+      if (type === "stateContentPackage") {
+        return {
+          channel: "stable",
+          installed: null,
+          debugMode: false,
+        };
+      }
+      return undefined;
+    };
+
+    const {
+      window,
+      contentPackageCheckButton,
+      contentPackageInstallButton,
+      contentPackageProgressRow,
+      contentPackageProgressmeter,
+      contentPackageProgressText,
+    } = createPrefsWindow({ includeContentPackageControls: true });
+
+    await registerPrefsScripts(window);
+    await flushTasks();
+
+    assert.isFalse(
+      contentPackageProgressRow?.classList.contains("is-visible") || false,
+    );
+
+    setContentPackageInstallProgress("download-package");
+    await flushTasks();
+
+    assert.isTrue(
+      contentPackageProgressRow?.classList.contains("is-visible") || false,
+    );
+    assert.equal(contentPackageProgressmeter?.style.width, "22%");
+    assert.match(contentPackageProgressText?.textContent || "", /2\/9/);
+    assert.equal(contentPackageCheckButton?.getAttribute("disabled"), "true");
+    assert.equal(contentPackageInstallButton?.getAttribute("disabled"), "true");
+
+    clearContentPackageInstallProgress();
+    await flushTasks();
+    await flushTasks();
+
+    assert.isFalse(
+      contentPackageProgressRow?.classList.contains("is-visible") || false,
+    );
+    assert.equal(contentPackageProgressmeter?.style.width, "0%");
+    assert.isAtLeast(
+      calls.filter((entry) => entry === "stateContentPackage").length,
+      2,
+    );
   });
 
   it("switches official Workflow package channels and exposes rollback actions", async function () {
@@ -2420,6 +2533,8 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "runtime-data-toggle-issues");
     assert.include(xhtml, "runtime-data-issues-panel");
     assert.include(xhtml, "runtime-data-state-db-info");
+    assert.include(xhtml, "content-package-progress-row");
+    assert.include(xhtml, "content-package-progressmeter");
     assert.include(xhtml, "runtime-data-progress-row");
     assert.include(xhtml, "runtime-data-progressmeter");
     assert.include(xhtml, "host-bridge-led");

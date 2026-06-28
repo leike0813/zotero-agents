@@ -778,11 +778,27 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isString(files.readme);
       assert.isString(files.run);
       assert.isString(files.prompt);
+      assert.include(
+        formatPortablePathForTest(files.run),
+        "/.acp/demo-skill.1/run.json",
+      );
+      assert.include(
+        formatPortablePathForTest(files.prompt),
+        "/.acp/demo-skill.1/prompt.md",
+      );
+      assert.include(
+        formatPortablePathForTest(files.finalState),
+        "/.acp/demo-skill.1/final-state.json",
+      );
 
       const runJson = JSON.parse(await waitForTextFile(files.run));
       assert.equal(runJson.schema, "zotero-skills.acp.run-audit.v1");
       assert.equal(runJson.requestId, result.requestId);
       assert.equal(runJson.providerOptions.apiKey, "<redacted>");
+      assert.include(
+        formatPortablePathForTest(runJson.paths.runtimeDir),
+        "/.acp/demo-skill.1",
+      );
 
       const prompt = await waitForTextFile(files.prompt, /visible/);
       assert.include(prompt, "visible");
@@ -815,6 +831,93 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(runtimeLogs, result.requestId);
     } finally {
       await flushAcpSkillRunAuditTrailWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("namespaces ACP audit runtime dirs in reused workspaces", async function () {
+    const root = await mkTempRoot();
+    const workflowRunId = "workflow-run-acp-audit-namespace";
+    try {
+      const prepare = await createAcpSkillRunnerWorkspace({
+        rootDir: root,
+        backendId: "backend-acp",
+        skillId: "prepare-skill",
+        workflowId: "workflow",
+        jobId: "job",
+        workflowWorkspace: {
+          mode: "new",
+          workflowRunId,
+        },
+      });
+      const core = await createAcpSkillRunnerWorkspace({
+        rootDir: root,
+        backendId: "backend-acp",
+        skillId: "core-skill",
+        workflowId: "workflow",
+        jobId: "job",
+        workflowWorkspace: {
+          mode: "reuse",
+          workflowRunId,
+        },
+      });
+      const finalize = await createAcpSkillRunnerWorkspace({
+        rootDir: root,
+        backendId: "backend-acp",
+        skillId: "finalize-skill",
+        workflowId: "workflow",
+        jobId: "job",
+        workflowWorkspace: {
+          mode: "reuse",
+          workflowRunId,
+        },
+      });
+      const repeatedCore = await createAcpSkillRunnerWorkspace({
+        rootDir: root,
+        backendId: "backend-acp",
+        skillId: "core-skill",
+        workflowId: "workflow",
+        jobId: "job",
+        workflowWorkspace: {
+          mode: "reuse",
+          workflowRunId,
+        },
+      });
+
+      assert.equal(core.workspaceDir, prepare.workspaceDir);
+      assert.equal(finalize.workspaceDir, prepare.workspaceDir);
+      assert.equal(repeatedCore.workspaceDir, prepare.workspaceDir);
+
+      assert.include(
+        formatPortablePathForTest(prepare.resultJsonPath),
+        "/result/prepare-skill.1/result.json",
+      );
+      assert.include(
+        formatPortablePathForTest(prepare.inputManifestPath),
+        "/.audit/prepare-skill.1/input_manifest.json",
+      );
+      assert.include(
+        formatPortablePathForTest(prepare.runtimeDir),
+        "/.acp/prepare-skill.1",
+      );
+      assert.include(
+        formatPortablePathForTest(core.runtimeDir),
+        "/.acp/core-skill.1",
+      );
+      assert.include(
+        formatPortablePathForTest(finalize.runtimeDir),
+        "/.acp/finalize-skill.1",
+      );
+      assert.include(
+        formatPortablePathForTest(repeatedCore.runtimeDir),
+        "/.acp/core-skill.2",
+      );
+      assert.notEqual(core.runtimeDir, repeatedCore.runtimeDir);
+
+      await fs.stat(path.join(prepare.workspaceDir, ".acp", "prepare-skill.1"));
+      await fs.stat(path.join(prepare.workspaceDir, ".acp", "core-skill.1"));
+      await fs.stat(path.join(prepare.workspaceDir, ".acp", "core-skill.2"));
+    } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
@@ -6585,6 +6688,32 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(finalizeRun?.workflowId, recoveryWorkflow.workflowId);
       assert.equal(coreRun?.sequenceFinalStepId, "finalize");
       assert.equal(finalizeRun?.skillId, "finalize-skill");
+      assert.include(
+        formatPortablePathForTest(coreRun?.runtimeDir || ""),
+        "/.acp/core-skill.1",
+      );
+      assert.include(
+        formatPortablePathForTest(finalizeRun?.runtimeDir || ""),
+        "/.acp/finalize-skill.1",
+      );
+      assert.notEqual(coreRun?.runtimeDir, finalizeRun?.runtimeDir);
+      await flushAcpSkillRunAuditTrailWritesForTests();
+      const coreRunJson = JSON.parse(
+        await waitForTextFile(coreRun?.auditTrail?.files.run || ""),
+      );
+      const finalizeRunJson = JSON.parse(
+        await waitForTextFile(finalizeRun?.auditTrail?.files.run || ""),
+      );
+      assert.equal(coreRunJson.requestId, coreRun?.requestId);
+      assert.equal(finalizeRunJson.requestId, finalizeRun?.requestId);
+      assert.include(
+        formatPortablePathForTest(coreRun?.auditTrail?.files.run || ""),
+        "/.acp/core-skill.1/run.json",
+      );
+      assert.include(
+        formatPortablePathForTest(finalizeRun?.auditTrail?.files.run || ""),
+        "/.acp/finalize-skill.1/run.json",
+      );
       assert.equal(
         listWorkflowTasks().find(
           (task) => task.requestId === workspace.requestId,

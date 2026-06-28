@@ -1,7 +1,7 @@
 import type { BackendInstance } from "../backends/types";
-import { buildAcpLaunchPlanForTests } from "./acpTransport";
 import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
+  buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
   getPrimaryPythonCommand,
   getRuntimeCommandRegistrySnapshot,
@@ -209,7 +209,7 @@ async function waitMozillaProcessExit(proc: {
 }
 
 async function runUvProbeWithMozillaSubprocess(args: {
-  uvCommand: string;
+  uvCommand: RuntimeCommandResolution;
   uvArgs: string[];
   cwd: string;
   env: Record<string, string>;
@@ -223,13 +223,14 @@ async function runUvProbeWithMozillaSubprocess(args: {
     };
   }
   let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
-  let commandLine = args.uvCommand + " " + args.uvArgs.join(" ");
+  let commandLine =
+    normalizeString(args.uvCommand.resolvedPath) + " " + args.uvArgs.join(" ");
   try {
-    const launchPlan = buildAcpLaunchPlanForTests({
+    const launchPlan = buildRuntimeCommandLaunchPlan({
       command: "uv",
-      resolvedCommand: args.uvCommand,
-      args: args.uvArgs,
-      comspec: normalizeString(args.env.ComSpec || args.env.COMSPEC),
+      resolvedCommand: args.uvCommand.resolvedPath,
+      commandArgs: args.uvArgs,
+      resolution: args.uvCommand,
     });
     commandLine = launchPlan.commandLine;
     proc = await args.subprocess.call({
@@ -302,18 +303,28 @@ async function runUvProbeWithMozillaSubprocess(args: {
 }
 
 async function runUvProbeWithNodeChildProcess(args: {
-  uvCommand: string;
+  uvCommand: RuntimeCommandResolution;
   uvArgs: string[];
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
 }): Promise<{ ok: boolean; summary?: string }> {
   const childProcess = await dynamicImport("node:child_process");
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command: "uv",
+    resolvedCommand: args.uvCommand.resolvedPath,
+    commandArgs: args.uvArgs,
+    resolution: args.uvCommand,
+  });
   return await new Promise((resolve) => {
     let settled = false;
-    const child = childProcess.spawn(args.uvCommand, args.uvArgs, {
+    const child = childProcess.spawn(launchPlan.command, launchPlan.args, {
       cwd: args.cwd,
-      env: { ...(process.env as Record<string, string>), ...args.env },
+      env: {
+        ...(process.env as Record<string, string>),
+        ...(launchPlan.environment || {}),
+        ...args.env,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: string[] = [];
@@ -469,7 +480,7 @@ async function probeDependenciesWithUv(args: {
   const subprocess = getMozillaSubprocessModule();
   if (subprocess) {
     return runUvProbeWithMozillaSubprocess({
-      uvCommand,
+      uvCommand: args.uvCommand,
       uvArgs,
       cwd: args.cwd,
       env: args.env,
@@ -478,7 +489,7 @@ async function probeDependenciesWithUv(args: {
     });
   }
   return runUvProbeWithNodeChildProcess({
-    uvCommand,
+    uvCommand: args.uvCommand,
     uvArgs,
     cwd: args.cwd,
     env: args.env,
@@ -530,7 +541,7 @@ function buildPythonDependencyProbeScript(dependencies: string[]) {
 }
 
 async function runPythonProbeWithMozillaSubprocess(args: {
-  pythonCommand: string;
+  pythonCommand: RuntimeCommandResolution;
   pythonArgs: string[];
   cwd: string;
   env: Record<string, string>;
@@ -545,13 +556,16 @@ async function runPythonProbeWithMozillaSubprocess(args: {
     };
   }
   let proc: Awaited<ReturnType<NonNullable<MozillaSubprocessModule["call"]>>>;
-  let commandLine = args.pythonCommand + " " + args.pythonArgs.join(" ");
+  let commandLine =
+    normalizeString(args.pythonCommand.resolvedPath) +
+    " " +
+    args.pythonArgs.join(" ");
   try {
-    const launchPlan = buildAcpLaunchPlanForTests({
+    const launchPlan = buildRuntimeCommandLaunchPlan({
       command: "python",
-      resolvedCommand: args.pythonCommand,
-      args: args.pythonArgs,
-      comspec: normalizeString(args.env.ComSpec || args.env.COMSPEC),
+      resolvedCommand: args.pythonCommand.resolvedPath,
+      commandArgs: args.pythonArgs,
+      resolution: args.pythonCommand,
     });
     commandLine = launchPlan.commandLine;
     proc = await args.subprocess.call({
@@ -624,18 +638,28 @@ async function runPythonProbeWithMozillaSubprocess(args: {
 }
 
 async function runPythonProbeWithNodeChildProcess(args: {
-  pythonCommand: string;
+  pythonCommand: RuntimeCommandResolution;
   pythonArgs: string[];
   cwd: string;
   env: Record<string, string>;
   timeoutMs: number;
 }): Promise<{ ok: boolean; summary?: string }> {
   const childProcess = await dynamicImport("node:child_process");
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command: "python",
+    resolvedCommand: args.pythonCommand.resolvedPath,
+    commandArgs: args.pythonArgs,
+    resolution: args.pythonCommand,
+  });
   return await new Promise((resolve) => {
     let settled = false;
-    const child = childProcess.spawn(args.pythonCommand, args.pythonArgs, {
+    const child = childProcess.spawn(launchPlan.command, launchPlan.args, {
       cwd: args.cwd,
-      env: { ...(process.env as Record<string, string>), ...args.env },
+      env: {
+        ...(process.env as Record<string, string>),
+        ...(launchPlan.environment || {}),
+        ...args.env,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: string[] = [];
@@ -725,7 +749,7 @@ async function probeDependenciesWithSystemPython(args: {
   const subprocess = getMozillaSubprocessModule();
   if (subprocess) {
     return runPythonProbeWithMozillaSubprocess({
-      pythonCommand,
+      pythonCommand: args.pythonCommand,
       pythonArgs,
       cwd: args.cwd,
       env: args.env,
@@ -734,7 +758,7 @@ async function probeDependenciesWithSystemPython(args: {
     });
   }
   return runPythonProbeWithNodeChildProcess({
-    pythonCommand,
+    pythonCommand: args.pythonCommand,
     pythonArgs,
     cwd: args.cwd,
     env: args.env,

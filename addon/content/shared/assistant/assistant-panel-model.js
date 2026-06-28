@@ -538,11 +538,17 @@
       !source ||
       !Object.prototype.hasOwnProperty.call(source, "streamingRenderEnabled") ||
       source.streamingRenderEnabled !== false;
+    const baseLabel = labelFrom(source, "actions.streamingRender", "Streaming");
+    const stateLabel = enabled
+      ? labelFrom(source, "actions.streamingRenderOn", "Streaming on")
+      : labelFrom(source, "actions.streamingRenderOff", "Streaming off");
     return {
       kind: "switch",
       align: "end",
       action: "set-streaming-render-enabled",
-      label: labelFrom(source, "actions.streamingRender", "Streaming"),
+      label: stateLabel,
+      baseLabel,
+      stateLabel,
       checked: enabled,
       payload: { enabled: !enabled },
     };

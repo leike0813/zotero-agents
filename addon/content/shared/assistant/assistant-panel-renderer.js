@@ -474,6 +474,13 @@
 
   function renderActionSwitch(container, action, options) {
     const checked = action.checked === true || action.value === true;
+    const labelText =
+      safeText(action.stateLabel) ||
+      safeText(action.label) ||
+      safeText(action.action) ||
+      "Switch";
+    const baseLabel =
+      safeText(action.baseLabel) || safeText(action.label) || labelText;
     const button = el(
       "button",
       "assistant-panel-switch-action assistant-panel-action assistant-panel-action-" +
@@ -483,20 +490,17 @@
     button.disabled = action.enabled === false || action.disabled === true;
     button.setAttribute("role", "switch");
     button.setAttribute("aria-checked", checked ? "true" : "false");
-    button.setAttribute(
-      "aria-label",
-      action.label || action.action || "Switch",
-    );
+    button.setAttribute("aria-label", labelText);
+    button.setAttribute("title", labelText);
     button.setAttribute("data-assistant-switch-state", checked ? "on" : "off");
+    button.setAttribute("data-assistant-switch-fallback", "label");
+    button.setAttribute("data-assistant-switch-label", baseLabel);
     if (safeText(action.align) === "end") {
       button.setAttribute("data-assistant-action-align", "end");
     }
-    const label = el(
-      "span",
-      "assistant-panel-switch-label",
-      action.label || action.action || "Switch",
-    );
+    const label = el("span", "assistant-panel-switch-label", labelText);
     const track = el("span", "assistant-panel-switch-track");
+    track.setAttribute("aria-hidden", "true");
     track.appendChild(el("span", "assistant-panel-switch-thumb"));
     button.appendChild(label);
     button.appendChild(track);
@@ -756,9 +760,23 @@
       panel.actions && Array.isArray(panel.actions.toolbar)
         ? panel.actions.toolbar
         : [];
+    const startGroup = el(
+      "div",
+      "assistant-panel-toolbar-group assistant-panel-toolbar-group-start",
+    );
+    const endGroup = el(
+      "div",
+      "assistant-panel-toolbar-group assistant-panel-toolbar-group-end",
+    );
     actions.forEach(function (action) {
-      renderActionButton(target, action, options || {});
+      if (safeText(action && action.align) === "end") {
+        renderActionButton(endGroup, action, options || {});
+      } else {
+        renderActionButton(startGroup, action, options || {});
+      }
     });
+    if (startGroup.firstChild) target.appendChild(startGroup);
+    if (endGroup.firstChild) target.appendChild(endGroup);
   }
 
   function renderAssistantBanner(container, snapshot, options) {

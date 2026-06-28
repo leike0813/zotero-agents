@@ -1,10 +1,11 @@
 import type { BackendInstance } from "../backends/types";
 import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
-  getWindowsShellCommandForLaunch,
+  buildRuntimeCommandLaunchPlan,
   resolveRuntimeCommand,
+  type RuntimeCommandLaunchSpec,
+  type RuntimeCommandResolution,
 } from "../platform/command";
-import { isAbsolutePathLike } from "../platform/path";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -77,12 +78,8 @@ export type AcpTransport = {
   getCommandLine: () => string;
 };
 
-export type AcpLaunchPlan = {
-  command: string;
-  args: string[];
-  environment?: Record<string, string>;
+export type AcpLaunchPlan = RuntimeCommandLaunchSpec & {
   commandLabel: string;
-  commandLine: string;
 };
 
 const ACP_STDERR_MAX_CHARS = 64 * 1024;
@@ -92,84 +89,13 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function detectWindowsPlatform(platform?: string) {
-  const runtime = globalThis as {
-    Zotero?: { isWin?: boolean };
-    process?: { platform?: string };
-  };
-  if (typeof platform === "string" && platform.trim()) {
-    return platform.trim().toLowerCase() === "win32";
-  }
-  if (typeof runtime.Zotero?.isWin === "boolean") {
-    return runtime.Zotero.isWin;
-  }
-  return String(runtime.process?.platform || "").toLowerCase() === "win32";
-}
-
-function isPathLikeCommand(commandRaw: string) {
-  const command = normalizeString(commandRaw);
-  return /[\\/]/.test(command) || isAbsolutePathLike(command);
-}
-
-function quoteShellToken(value: string) {
-  const normalized = String(value || "");
-  if (!/[\s"&()^|<>]/.test(normalized)) {
-    return normalized;
-  }
-  return `"${normalized.replace(/(["^&|<>])/g, "^$1")}"`;
-}
-
-function formatCommandLine(command: string, args: string[]) {
-  return [command, ...args].map((entry) => quoteShellToken(entry)).join(" ");
-}
-
-function buildWindowsShellCommandLine(command: string, args: string[]) {
-  return [command, ...args].map((entry) => quoteShellToken(entry)).join(" ");
-}
-
-function dirnameWindowsPath(pathRaw: string) {
-  const path = normalizeString(pathRaw);
-  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
-  return index > 0 ? path.slice(0, index) : "";
-}
-
-function prependPathEntry(pathValue: string | undefined, entryRaw: string) {
-  const entry = normalizeString(entryRaw);
-  if (!entry) {
-    return pathValue;
-  }
-  const current = String(pathValue || "");
-  const parts = current
-    .split(";")
-    .map((part) => normalizeString(part).toLowerCase())
-    .filter(Boolean);
-  if (parts.includes(entry.toLowerCase())) {
-    return current;
-  }
-  return current ? `${entry};${current}` : entry;
-}
-
-function resolveWindowsShellCommand(commandRaw: string, platform?: string) {
-  return getWindowsShellCommandForLaunch(commandRaw, platform);
-}
-
-function shouldWrapWindowsLaunch(args: {
-  command: string;
-  resolvedCommand: string;
-  platform?: string;
-}) {
-  if (!detectWindowsPlatform(args.platform)) {
-    return false;
-  }
-  return /\.(cmd|bat)$/i.test(normalizeString(args.resolvedCommand));
-}
-
 export function buildAcpLaunchPlanForTests(args: {
   command: string;
   resolvedCommand: string;
   args?: string[];
   platform?: string;
   comspec?: string;
+  resolution?: RuntimeCommandResolution;
 }): AcpLaunchPlan {
   const command = normalizeString(args.command);
   const resolvedCommand = normalizeString(args.resolvedCommand) || command;
@@ -177,47 +103,16 @@ export function buildAcpLaunchPlanForTests(args: {
   const commandLabel = [command || resolvedCommand, ...commandArgs]
     .filter(Boolean)
     .join(" ");
-  if (
-    shouldWrapWindowsLaunch({
-      command,
-      resolvedCommand,
-      platform: args.platform,
-    })
-  ) {
-    const shellCommand = resolveWindowsShellCommand(
-      normalizeString(args.comspec) || "cmd.exe",
-      args.platform,
-    );
-    const commandForShell = isPathLikeCommand(command)
-      ? resolvedCommand
-      : command;
-    const resolvedCommandDir = dirnameWindowsPath(resolvedCommand);
-    const environment =
-      resolvedCommandDir && !isPathLikeCommand(command)
-        ? {
-            PATH:
-              prependPathEntry(undefined, resolvedCommandDir) ||
-              resolvedCommandDir,
-          }
-        : undefined;
-    const shellArgs = [
-      "/d",
-      "/c",
-      buildWindowsShellCommandLine(commandForShell, commandArgs),
-    ];
-    return {
-      command: shellCommand,
-      args: shellArgs,
-      environment,
-      commandLabel,
-      commandLine: formatCommandLine(shellCommand, shellArgs),
-    };
-  }
+  const launchPlan = buildRuntimeCommandLaunchPlan({
+    command,
+    resolvedCommand,
+    commandArgs,
+    platform: args.platform,
+    resolution: args.resolution,
+  });
   return {
-    command: resolvedCommand,
-    args: commandArgs,
+    ...launchPlan,
     commandLabel,
-    commandLine: formatCommandLine(resolvedCommand, commandArgs),
   };
 }
 
@@ -375,7 +270,7 @@ async function resolveMozillaCommand(
     pathSearch: subprocess.pathSearch,
   });
   if (resolved.available && resolved.resolvedPath) {
-    return resolved.resolvedPath;
+    return resolved;
   }
   throw new Error(resolved.diagnostic || `Command "${command}" was not found`);
 }
@@ -387,17 +282,16 @@ async function launchMozillaAcpTransport(
   if (!subprocess?.call) {
     throw new Error("mozilla subprocess unavailable");
   }
-  const resolvedCommand = await resolveMozillaCommand(
+  const resolved = await resolveMozillaCommand(
     subprocess,
     normalizeString(args.backend.command),
   );
   const launchPlan = buildAcpLaunchPlanForTests({
     command: normalizeString(args.backend.command),
-    resolvedCommand,
+    resolvedCommand:
+      resolved.resolvedPath || normalizeString(args.backend.command),
     args: args.backend.args || [],
-    comspec: normalizeString(
-      args.backend.env?.ComSpec || args.backend.env?.COMSPEC,
-    ),
+    resolution: resolved,
   });
   const proc = await subprocess.call({
     command: launchPlan.command,
@@ -445,7 +339,7 @@ async function resolveNodeCommand(commandRaw: string) {
   }
   const resolved = await resolveRuntimeCommand(command);
   if (resolved.available && resolved.resolvedPath) {
-    return resolved.resolvedPath;
+    return resolved;
   }
   throw new Error(resolved.diagnostic || `Command "${command}" was not found`);
 }
@@ -489,27 +383,19 @@ async function launchNodeAcpTransport(
     kill: () => void;
   };
   const command = normalizeString(args.backend.command);
-  const resolvedCommand = await resolveNodeCommand(command);
+  const resolved = await resolveNodeCommand(command);
   const launchPlan = buildAcpLaunchPlanForTests({
     command,
-    resolvedCommand,
+    resolvedCommand: resolved.resolvedPath || command,
     args: args.backend.args || [],
     platform: String(processModule.platform || "").trim(),
-    comspec: normalizeString(
-      processModule.env?.ComSpec || processModule.env?.COMSPEC,
-    ),
+    resolution: resolved,
   });
   const env = {
     ...(processModule.env as Record<string, string | undefined>),
     ...(launchPlan.environment || {}),
     ...(args.backend.env || {}),
   };
-  if (launchPlan.environment?.PATH && !args.backend.env?.PATH) {
-    env.PATH = prependPathEntry(
-      String(processModule.env?.PATH || ""),
-      launchPlan.environment.PATH,
-    );
-  }
   const child = spawn(launchPlan.command, launchPlan.args, {
     cwd: args.cwd,
     env,

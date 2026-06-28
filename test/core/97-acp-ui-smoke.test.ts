@@ -4065,7 +4065,9 @@ describe("acp ui smoke", function () {
               kind: "switch",
               align: "end",
               action: "set-streaming-render-enabled",
-              label: "Streaming",
+              label: "Streaming off",
+              baseLabel: "Streaming",
+              stateLabel: "Streaming off",
               checked: false,
               payload: { enabled: true },
             },
@@ -4088,10 +4090,26 @@ describe("acp ui smoke", function () {
     assert.ok(switchButton);
     assert.equal(switchButton?.getAttribute("role"), "switch");
     assert.equal(switchButton?.getAttribute("aria-checked"), "false");
+    assert.equal(switchButton?.getAttribute("aria-label"), "Streaming off");
+    assert.equal(
+      switchButton
+        ?.querySelector(".assistant-panel-switch-label")
+        ?.textContent?.trim(),
+      "Streaming off",
+    );
     assert.equal(
       switchButton?.getAttribute("data-assistant-action-align"),
       "end",
     );
+    assert.equal(
+      switchButton?.getAttribute("data-assistant-switch-fallback"),
+      "label",
+    );
+    const endGroup = toolbarRegion.querySelector(
+      ".assistant-panel-toolbar-group-end",
+    );
+    assert.ok(endGroup);
+    assert.ok(endGroup?.querySelector(".assistant-panel-switch-action"));
     switchButton?.click();
     assert.deepEqual(actions, [
       {
@@ -4123,8 +4141,31 @@ describe("acp ui smoke", function () {
     );
     assert.equal(action?.kind, "switch");
     assert.equal(action?.align, "end");
+    assert.equal(action?.label, "Streaming off");
+    assert.equal(action?.baseLabel, "Streaming");
     assert.equal(action?.checked, false);
     assert.deepEqual(action?.payload, { enabled: true });
+
+    const enabledPanel = model.projectSkillRunnerPanelSnapshot({
+      streamingRenderEnabled: true,
+      session: {
+        requestId: "req-skillrunner-switch-enabled",
+        status: "running",
+      },
+      workspace: {
+        selectedTaskKey: "",
+        groups: [],
+      },
+      drawer: {
+        sections: [],
+      },
+    });
+    const enabledAction = enabledPanel.actions.toolbar.find(
+      (entry: any) => entry.action === "set-streaming-render-enabled",
+    );
+    assert.equal(enabledAction?.label, "Streaming on");
+    assert.equal(enabledAction?.checked, true);
+    assert.deepEqual(enabledAction?.payload, { enabled: false });
   });
 
   it("gates transcript rendering with revisions in all Assistant Workspace child panels", async function () {

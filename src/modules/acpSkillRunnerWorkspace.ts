@@ -89,6 +89,7 @@ async function scanRunnerFileNamespaces(args: { workspaceDir: string }) {
   for (const parent of [
     joinPath(args.workspaceDir, "result"),
     joinPath(args.workspaceDir, ".audit"),
+    joinPath(args.workspaceDir, ".acp"),
   ]) {
     const parentStat = await statRuntimePath(parent);
     if (!parentStat.exists || !parentStat.isDir) {
@@ -112,7 +113,7 @@ function resolveWorkspacePaths(args: {
   workspaceDir: string;
   fileNamespace: string;
 }) {
-  const runtimeDir = joinPath(args.workspaceDir, ".acp");
+  const runtimeDir = joinPath(args.workspaceDir, ".acp", args.fileNamespace);
   const resultDir = joinPath(args.workspaceDir, "result", args.fileNamespace);
   const auditDir = joinPath(args.workspaceDir, ".audit", args.fileNamespace);
   return {

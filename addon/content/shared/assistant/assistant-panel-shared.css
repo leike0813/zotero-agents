@@ -719,6 +719,22 @@ summary,
   min-width: 0;
 }
 
+.assistant-panel-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.assistant-panel-toolbar-group-start {
+  flex: 0 1 auto;
+}
+
+.assistant-panel-toolbar-group-end {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .assistant-panel-action[data-assistant-action-align="end"] {
   margin-left: auto;
 }
@@ -747,12 +763,17 @@ summary,
 }
 
 .assistant-panel-switch-label {
+  display: inline-block;
+  min-width: 0;
   white-space: nowrap;
 }
 
 .assistant-panel-switch-track {
+  display: inline-block;
+  flex: 0 0 32px;
   position: relative;
   width: 32px;
+  min-width: 32px;
   height: 16px;
   border-radius: 999px;
   background: #b91c1c;
@@ -763,6 +784,7 @@ summary,
 }
 
 .assistant-panel-switch-thumb {
+  display: block;
   position: absolute;
   top: 2px;
   left: 2px;
@@ -781,7 +803,8 @@ summary,
 
 .assistant-panel-switch-action[data-assistant-switch-state="on"]
   .assistant-panel-switch-thumb {
-  transform: translateX(16px);
+  left: 18px;
+  transform: translateX(0);
 }
 
 .assistant-panel-banner {

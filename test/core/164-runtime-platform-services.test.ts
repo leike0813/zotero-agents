@@ -122,6 +122,73 @@ describe("runtime platform services", function () {
     assert.include(checked, "/home/leike/.local/bin/npx");
   });
 
+  it("caches PowerShell launch specs for Windows npm command shims", async function () {
+    const snapshot = await preflightRuntimeCommandsOnStartup({
+      commands: ["npx"],
+      platform: "win32",
+      resolver: async (command) => ({
+        command,
+        available: true,
+        resolvedPath: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
+        source: "path",
+        checkedCandidates: ["checked:npx"],
+      }),
+    });
+
+    const launch = snapshot.commands.npx?.launch;
+    assert.equal(launch?.mode, "powershell");
+    assert.match(launch?.command || "", /(^|\\)(powershell|pwsh)\.exe$/i);
+    assert.deepEqual(launch?.args.slice(0, 6), [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+    ]);
+    assert.include(
+      launch?.args[6] || "",
+      "& 'C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd'",
+    );
+  });
+
+  it("builds PowerShell launch specs for nvm-windows symlink npm commands", async function () {
+    const resolved = await resolveRuntimeCommand("npx", {
+      platform: "win32",
+      pathValue: "C:\\Users\\tester\\AppData\\Roaming\\nvm;C:\\nvm4w\\nodejs",
+      exists: async (candidate) => candidate === "C:\\nvm4w\\nodejs\\npx.cmd",
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\nvm4w\\nodejs\\npx.cmd");
+    assert.equal(resolved.launch?.mode, "powershell");
+    assert.include(
+      resolved.launch?.args[6] || "",
+      "& 'C:\\nvm4w\\nodejs\\npx.cmd'",
+    );
+  });
+
+  it("keeps Windows executables on direct launch specs", async function () {
+    const resolved = await resolveRuntimeCommand("uv", {
+      platform: "win32",
+      pathValue: "C:\\Users\\tester\\.local\\bin",
+      exists: async (candidate) =>
+        candidate === "C:\\Users\\tester\\.local\\bin\\uv.exe",
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(
+      resolved.resolvedPath,
+      "C:\\Users\\tester\\.local\\bin\\uv.exe",
+    );
+    assert.equal(resolved.launch?.mode, "direct");
+    assert.equal(
+      resolved.launch?.command,
+      "C:\\Users\\tester\\.local\\bin\\uv.exe",
+    );
+    assert.deepEqual(resolved.launch?.args, []);
+  });
+
   it("preflights startup commands once and reuses the in-memory snapshot", async function () {
     let calls = 0;
     const snapshot = await preflightRuntimeCommandsOnStartup({

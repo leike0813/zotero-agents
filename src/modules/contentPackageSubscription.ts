@@ -170,6 +170,26 @@ export type ContentPackageInstallResult =
       failures?: FeedFetchFailure[];
     };
 
+export type ContentPackageInstallProgressStage =
+  | "check-feed"
+  | "download-package"
+  | "verify-package"
+  | "extract-package"
+  | "stage-content"
+  | "promote-content"
+  | "write-state"
+  | "refresh-registry"
+  | "complete";
+
+export type ContentPackageInstallProgress = {
+  active: boolean;
+  stage: ContentPackageInstallProgressStage;
+  label: string;
+  current: number;
+  total: number;
+  percent: number;
+};
+
 type ZipEntry = {
   name: string;
   data: Uint8Array;
@@ -184,6 +204,114 @@ const CONTENT_INSTALL_SCHEMA = "zotero-agents.content-install-state.v1";
 const CONTENT_FEED_SCHEMA = "zotero-agents.content-feed.v1";
 const CONTENT_PACKAGE_SCHEMA = "zotero-agents.content-package.v1";
 export const CONTENT_API_VERSION = "1.0.0";
+
+const CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS: Array<{
+  stage: ContentPackageInstallProgressStage;
+  label: string;
+}> = [
+  { stage: "check-feed", label: "Checking feed" },
+  { stage: "download-package", label: "Downloading package" },
+  { stage: "verify-package", label: "Verifying package" },
+  { stage: "extract-package", label: "Extracting package" },
+  { stage: "stage-content", label: "Staging content" },
+  { stage: "promote-content", label: "Installing content" },
+  { stage: "write-state", label: "Saving install state" },
+  { stage: "refresh-registry", label: "Refreshing workflows" },
+  { stage: "complete", label: "Installation complete" },
+];
+
+type ContentPackageInstallProgressListener = (
+  progress: ContentPackageInstallProgress | null,
+) => void;
+
+let contentPackageInstallProgress: ContentPackageInstallProgress | null = null;
+const contentPackageInstallProgressListeners =
+  new Set<ContentPackageInstallProgressListener>();
+
+function cloneContentPackageInstallProgress(
+  progress: ContentPackageInstallProgress | null,
+) {
+  return progress ? { ...progress } : null;
+}
+
+function notifyContentPackageInstallProgress() {
+  const snapshot = cloneContentPackageInstallProgress(
+    contentPackageInstallProgress,
+  );
+  for (const listener of Array.from(contentPackageInstallProgressListeners)) {
+    try {
+      listener(snapshot);
+    } catch {
+      // Progress notifications are best-effort UI hints.
+    }
+  }
+}
+
+export function buildContentPackageInstallProgress(
+  stage: ContentPackageInstallProgressStage,
+  options?: {
+    active?: boolean;
+  },
+): ContentPackageInstallProgress {
+  const total = CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS.length;
+  const index = Math.max(
+    0,
+    CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS.findIndex(
+      (entry) => entry.stage === stage,
+    ),
+  );
+  const current = Math.min(total, index + 1);
+  return {
+    active: options?.active !== false,
+    stage,
+    label:
+      CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS[index]?.label ||
+      CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS[0].label,
+    current,
+    total,
+    percent: Math.floor((current / total) * 100),
+  };
+}
+
+export function setContentPackageInstallProgress(
+  stage: ContentPackageInstallProgressStage,
+  options?: {
+    active?: boolean;
+  },
+) {
+  contentPackageInstallProgress = buildContentPackageInstallProgress(
+    stage,
+    options,
+  );
+  notifyContentPackageInstallProgress();
+  return cloneContentPackageInstallProgress(contentPackageInstallProgress);
+}
+
+export function clearContentPackageInstallProgress() {
+  if (!contentPackageInstallProgress) {
+    return;
+  }
+  contentPackageInstallProgress = null;
+  notifyContentPackageInstallProgress();
+}
+
+export function getContentPackageInstallProgressSnapshot() {
+  return cloneContentPackageInstallProgress(contentPackageInstallProgress);
+}
+
+export function subscribeContentPackageInstallProgress(
+  listener: ContentPackageInstallProgressListener,
+) {
+  contentPackageInstallProgressListeners.add(listener);
+  return () => {
+    contentPackageInstallProgressListeners.delete(listener);
+  };
+}
+
+export function resetContentPackageInstallProgressForTests() {
+  contentPackageInstallProgress = null;
+  contentPackageInstallProgressListeners.clear();
+}
 
 export type ContentPackageIncompatibility = {
   code:
@@ -1046,9 +1174,20 @@ async function fetchPackageBytesWithFallback(args: {
 
 export async function installContentPackageFromFeed(args?: {
   channel?: ContentFeedChannel;
+  onProgress?: (progress: ContentPackageInstallProgress) => void;
 }): Promise<ContentPackageInstallResult> {
   const channel = args?.channel || getConfiguredContentFeedChannel();
+  const emitProgress = (stage: ContentPackageInstallProgressStage) => {
+    const progress = buildContentPackageInstallProgress(stage);
+    try {
+      args?.onProgress?.(progress);
+    } catch {
+      // Progress callbacks must not affect install correctness.
+    }
+    return progress;
+  };
   const previousStatus = await getContentPackageStatus(channel);
+  emitProgress("check-feed");
   const check = await checkContentPackageUpdate({ channel });
   if (!check.ok) {
     return {
@@ -1086,11 +1225,13 @@ export async function installContentPackageFromFeed(args?: {
       check.selectedFeedUrl,
       ...check.artifactFeedUrls.filter((url) => url !== check.selectedFeedUrl),
     ];
+    emitProgress("download-package");
     const artifact = await fetchPackageBytesWithFallback({
       feedUrls,
       artifact: check.package.artifact,
     });
     const bytes = artifact.bytes;
+    emitProgress("verify-package");
     const entries = readStoredZipEntries(bytes);
     const manifest = findContentPackageManifest(entries);
     validatePackageManifestAgainstFeed({
@@ -1098,12 +1239,15 @@ export async function installContentPackageFromFeed(args?: {
       feed: check.feed,
       entry: check.package,
     });
+    emitProgress("extract-package");
     const stagingRoot = joinPath(
       getRuntimePersistencePaths().tmpDir,
       `content-package-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     );
+    emitProgress("stage-content");
     await writeEntriesToStagingRoot({ stagingRoot, entries });
     try {
+      emitProgress("promote-content");
       await copyRuntimeTreeTransactional({
         sourceRoot: stagingRoot,
         targetRoot: getOfficialContentRoot(),
@@ -1122,6 +1266,7 @@ export async function installContentPackageFromFeed(args?: {
       workflows_root: getOfficialWorkflowDir(),
       skills_root: getOfficialSkillDir(),
     };
+    emitProgress("write-state");
     await writeContentPackageInstallState(state);
     return {
       ok: true,
@@ -1145,4 +1290,5 @@ export const __contentPackageSubscriptionTestOnly = {
   readStoredZipEntries,
   sha256,
   defaultFeedUrl,
+  buildContentPackageInstallProgress,
 };

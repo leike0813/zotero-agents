@@ -27,6 +27,14 @@ export type RuntimeCommandName =
   | "npm"
   | "npx";
 
+export type RuntimeCommandLaunchSpec = {
+  mode: "direct" | "powershell";
+  command: string;
+  args: string[];
+  environment?: Record<string, string>;
+  commandLine: string;
+};
+
 export type RuntimeCommandResolution = {
   command: string;
   available: boolean;
@@ -42,6 +50,7 @@ export type RuntimeCommandResolution = {
     | "posix-non-interactive";
   checkedCandidates: string[];
   diagnostic?: string;
+  launch?: RuntimeCommandLaunchSpec;
 };
 
 export type RuntimeCommandRegistrySnapshot = {
@@ -118,6 +127,146 @@ async function defaultPathExists(path: string) {
   return runtimeFileExists(path);
 }
 
+function quoteCommandLineToken(value: string) {
+  const normalized = String(value || "");
+  if (!/[\s"&()^|<>]/.test(normalized)) {
+    return normalized;
+  }
+  return `"${normalized.replace(/(["^&|<>])/g, "^$1")}"`;
+}
+
+function formatCommandLine(command: string, args: string[]) {
+  return [command, ...args]
+    .map((entry) => quoteCommandLineToken(entry))
+    .join(" ");
+}
+
+function quotePowerShellSingleQuoted(value: string) {
+  return `'${String(value || "").replace(/'/g, "''")}'`;
+}
+
+function buildPowerShellInvokeScript(command: string, args: string[]) {
+  return [
+    "&",
+    quotePowerShellSingleQuoted(command),
+    ...args.map((entry) => quotePowerShellSingleQuoted(entry)),
+  ].join(" ");
+}
+
+function isWindowsCommandShim(command: string) {
+  return /\.(cmd|bat)$/i.test(normalizeString(command));
+}
+
+export function buildRuntimeCommandLaunchSpec(args: {
+  command: string;
+  resolvedCommand?: string;
+  commandArgs?: string[];
+  platform?: string;
+}): RuntimeCommandLaunchSpec {
+  const command =
+    normalizeString(args.resolvedCommand) || normalizeString(args.command);
+  const commandArgs = Array.isArray(args.commandArgs)
+    ? [...args.commandArgs]
+    : [];
+  const platform = normalizeString(args.platform) || detectRuntimePlatform();
+  if (platform === "win32" && isWindowsCommandShim(command)) {
+    const shellCommand = getWindowsShellCommandForLaunch(
+      "powershell.exe",
+      platform,
+    );
+    const shellArgs = [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      buildPowerShellInvokeScript(command, commandArgs),
+    ];
+    return {
+      mode: "powershell",
+      command: shellCommand,
+      args: shellArgs,
+      commandLine: formatCommandLine(shellCommand, shellArgs),
+    };
+  }
+  return {
+    mode: "direct",
+    command,
+    args: commandArgs,
+    commandLine: formatCommandLine(command, commandArgs),
+  };
+}
+
+export function buildRuntimeCommandLaunchPlan(args: {
+  command: string;
+  resolvedCommand?: string;
+  commandArgs?: string[];
+  platform?: string;
+  resolution?: RuntimeCommandResolution;
+}): RuntimeCommandLaunchSpec {
+  const commandArgs = Array.isArray(args.commandArgs)
+    ? [...args.commandArgs]
+    : [];
+  const resolution = args.resolution;
+  const resolvedCommand =
+    normalizeString(resolution?.resolvedPath) ||
+    normalizeString(args.resolvedCommand) ||
+    normalizeString(args.command);
+  const launch =
+    resolution?.launch ||
+    buildRuntimeCommandLaunchSpec({
+      command: args.command,
+      resolvedCommand,
+      platform: args.platform,
+    });
+  if (launch.mode === "powershell") {
+    const shellArgs = [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      buildPowerShellInvokeScript(resolvedCommand, commandArgs),
+    ];
+    return {
+      mode: launch.mode,
+      command: launch.command,
+      args: shellArgs,
+      environment: launch.environment ? { ...launch.environment } : undefined,
+      commandLine: formatCommandLine(launch.command, shellArgs),
+    };
+  }
+  return {
+    mode: launch.mode,
+    command: launch.command || resolvedCommand,
+    args: commandArgs,
+    environment: launch.environment ? { ...launch.environment } : undefined,
+    commandLine: formatCommandLine(
+      launch.command || resolvedCommand,
+      commandArgs,
+    ),
+  };
+}
+
+function withLaunchSpec(
+  resolution: RuntimeCommandResolution,
+  platform?: string,
+): RuntimeCommandResolution {
+  if (!resolution.available || !resolution.resolvedPath || resolution.launch) {
+    return resolution;
+  }
+  return {
+    ...resolution,
+    launch: buildRuntimeCommandLaunchSpec({
+      command: resolution.command,
+      resolvedCommand: resolution.resolvedPath,
+      platform,
+    }),
+  };
+}
+
 export function buildNonInteractiveCommandCandidates(args: {
   command: string;
   platform?: string;
@@ -170,13 +319,16 @@ export async function resolveRuntimeCommand(
   if (isPathLikeCommand(command)) {
     checkedCandidates.push(command);
     if (await exists(command)) {
-      return {
-        command,
-        available: true,
-        resolvedPath: command,
-        source: "path-like",
-        checkedCandidates,
-      };
+      return withLaunchSpec(
+        {
+          command,
+          available: true,
+          resolvedPath: command,
+          source: "path-like",
+          checkedCandidates,
+        },
+        platform,
+      );
     }
     return {
       command,
@@ -195,13 +347,16 @@ export async function resolveRuntimeCommand(
   });
   if (resolvedFromPathSearch) {
     checkedCandidates.push(`pathSearch:${command}`);
-    return {
-      command,
-      available: true,
-      resolvedPath: resolvedFromPathSearch,
-      source: "pathSearch",
-      checkedCandidates,
-    };
+    return withLaunchSpec(
+      {
+        command,
+        available: true,
+        resolvedPath: resolvedFromPathSearch,
+        source: "pathSearch",
+        checkedCandidates,
+      },
+      platform,
+    );
   }
 
   for (const candidate of buildPathCommandCandidates({
@@ -211,13 +366,16 @@ export async function resolveRuntimeCommand(
   })) {
     checkedCandidates.push(candidate);
     if (await exists(candidate)) {
-      return {
-        command,
-        available: true,
-        resolvedPath: candidate,
-        source: "path",
-        checkedCandidates,
-      };
+      return withLaunchSpec(
+        {
+          command,
+          available: true,
+          resolvedPath: candidate,
+          source: "path",
+          checkedCandidates,
+        },
+        platform,
+      );
     }
   }
 
@@ -251,13 +409,16 @@ export async function resolveRuntimeCommand(
         ...resolved.map((entry) => `${source.source}:${entry}`),
       );
       if (resolved.length > 0) {
-        return {
-          command,
-          available: true,
-          resolvedPath: normalizeString(resolved[0]),
-          source: source.source,
-          checkedCandidates,
-        };
+        return withLaunchSpec(
+          {
+            command,
+            available: true,
+            resolvedPath: normalizeString(resolved[0]),
+            source: source.source,
+            checkedCandidates,
+          },
+          platform,
+        );
       }
     }
   } else {
@@ -268,13 +429,16 @@ export async function resolveRuntimeCommand(
     })) {
       checkedCandidates.push(candidate);
       if (await exists(candidate)) {
-        return {
-          command,
-          available: true,
-          resolvedPath: candidate,
-          source: "posix-non-interactive",
-          checkedCandidates,
-        };
+        return withLaunchSpec(
+          {
+            command,
+            available: true,
+            resolvedPath: candidate,
+            source: "posix-non-interactive",
+            checkedCandidates,
+          },
+          platform,
+        );
       }
     }
   }
@@ -291,20 +455,33 @@ function cloneResolution(value: RuntimeCommandResolution) {
   return {
     ...value,
     checkedCandidates: [...value.checkedCandidates],
+    launch: value.launch
+      ? {
+          ...value.launch,
+          args: [...value.launch.args],
+          environment: value.launch.environment
+            ? { ...value.launch.environment }
+            : undefined,
+        }
+      : undefined,
   };
 }
 
 export async function preflightRuntimeCommandsOnStartup(options?: {
   commands?: RuntimeCommandName[];
   resolver?: (command: RuntimeCommandName) => Promise<RuntimeCommandResolution>;
+  platform?: string;
 }) {
   const commands = options?.commands || STARTUP_COMMANDS;
+  const platform =
+    normalizeString(options?.platform) || detectRuntimePlatform();
   const entries = await Promise.all(
     commands.map(async (command) => {
       try {
-        const resolved = options?.resolver
+        const resolvedRaw = options?.resolver
           ? await options.resolver(command)
           : await resolveRuntimeCommand(command);
+        const resolved = withLaunchSpec(resolvedRaw, platform);
         return [command, resolved] as const;
       } catch (error) {
         return [

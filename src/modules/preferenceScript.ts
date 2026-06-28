@@ -13,9 +13,14 @@ import {
 import { getString, getStringOrFallback } from "../utils/locale";
 import { isDebugModeEnabled } from "./debugMode";
 import { subscribeManagedLocalRuntimeStateChange } from "./skillRunnerLocalRuntimeManager";
+import {
+  subscribeContentPackageInstallProgress,
+  type ContentPackageInstallProgress,
+} from "./contentPackageSubscription";
 import { runtimeFileExists } from "../utils/runtimeCompatibility";
 
 let unbindManagedLocalRuntimeStateChange: (() => void) | null = null;
+let unbindContentPackageInstallProgress: (() => void) | null = null;
 const SYNTHESIS_DB_RESET_CONFIRMATION_TEXT = "RESET SYNTHESIS DATABASE";
 
 export async function registerPrefsScripts(window: Window) {
@@ -57,6 +62,10 @@ function bindPrefEvents() {
     unbindManagedLocalRuntimeStateChange();
     unbindManagedLocalRuntimeStateChange = null;
   }
+  if (unbindContentPackageInstallProgress) {
+    unbindContentPackageInstallProgress();
+    unbindContentPackageInstallProgress = null;
+  }
 
   const workflowDirInput = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-workflow-dir`,
@@ -94,6 +103,15 @@ function bindPrefEvents() {
   const contentPackageInstallButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-content-package-install`,
   ) as XUL.Button | null;
+  const contentPackageProgressRow = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-progress-row`,
+  ) as HTMLElement | null;
+  const contentPackageProgressmeter = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-progressmeter`,
+  ) as (HTMLElement & { value?: string | number }) | null;
+  const contentPackageProgressText = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-content-package-progress-text`,
+  ) as HTMLElement | null;
   const collectSkillRunFeedbackCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-collect-skill-run-feedback`,
   ) as HTMLInputElement | null;
@@ -2449,6 +2467,54 @@ function bindPrefEvents() {
     result?.compatible === true &&
     isInstallAction(effectiveContentAction(result));
 
+  const setContentPackageProgress = (
+    progress: ContentPackageInstallProgress | null,
+  ) => {
+    const visible = progress?.active === true;
+    if (contentPackageProgressRow) {
+      if (visible) {
+        contentPackageProgressRow.classList.add("is-visible");
+      } else {
+        contentPackageProgressRow.classList.remove("is-visible");
+      }
+    }
+    const percent = visible
+      ? Math.max(0, Math.min(100, Math.floor(Number(progress?.percent || 0))))
+      : 0;
+    if (contentPackageProgressmeter) {
+      contentPackageProgressmeter.style.width = `${percent}%`;
+    }
+    if (!contentPackageProgressText) {
+      return;
+    }
+    if (!visible || !progress) {
+      contentPackageProgressText.textContent = "";
+      return;
+    }
+    const stageKeyByStage: Record<string, string> = {
+      "check-feed": "pref-content-package-progress-check-feed",
+      "download-package": "pref-content-package-progress-download-package",
+      "verify-package": "pref-content-package-progress-verify-package",
+      "extract-package": "pref-content-package-progress-extract-package",
+      "stage-content": "pref-content-package-progress-stage-content",
+      "promote-content": "pref-content-package-progress-promote-content",
+      "write-state": "pref-content-package-progress-write-state",
+      "refresh-registry": "pref-content-package-progress-refresh-registry",
+      complete: "pref-content-package-progress-complete",
+    };
+    const stageLabel = getStringOrFallback(
+      stageKeyByStage[String(progress.stage || "")] ||
+        "pref-content-package-progress-installing",
+      String(progress.label || ""),
+    );
+    const title = getStringOrFallback(
+      "pref-content-package-progress-title",
+      "Install progress",
+    );
+    contentPackageProgressText.textContent =
+      `${title} ${progress.current}/${progress.total} · ${stageLabel}`.trim();
+  };
+
   const formatContentPackageStatus = (status: any) => {
     const installed = status?.installed;
     const channel = String(status?.channel || "stable");
@@ -2515,12 +2581,20 @@ function bindPrefEvents() {
 
   const refreshContentPackageStatus = () => {
     void (async () => {
-      const status = await addon.hooks.onPrefsEvent("stateContentPackage", {
-        window: addon.data.prefs?.window,
-      });
+      const status: any = await addon.hooks.onPrefsEvent(
+        "stateContentPackage",
+        {
+          window: addon.data.prefs?.window,
+        },
+      );
       syncContentPackageChannelSelect(status);
+      setContentPackageProgress(status?.actionProgress || null);
       setContentPackageStatus(formatContentPackageStatus(status));
-      setContentPackageInstallEnabled(canInstallFromStatus(status));
+      const installing = status?.actionProgress?.active === true;
+      setButtonDisabled(contentPackageCheckButton, installing);
+      setContentPackageInstallEnabled(
+        !installing && canInstallFromStatus(status),
+      );
       setContentPackageInstallLabel(
         canInstallFromStatus(status) ? "install" : undefined,
       );
@@ -2667,7 +2741,7 @@ function bindPrefEvents() {
         try {
           const result: any = await addon.hooks.onPrefsEvent(
             "installContentPackage",
-            { window: addon.data.prefs?.window },
+            { window: addon.data.prefs?.window, source: "preferences" },
           );
           setContentPackageStatus(
             result?.ok
@@ -2690,8 +2764,24 @@ function bindPrefEvents() {
     contentPackageChannelSelect ||
     contentPackageStatusText ||
     contentPackageCheckButton ||
-    contentPackageInstallButton
+    contentPackageInstallButton ||
+    contentPackageProgressRow
   ) {
+    let contentPackageInstallWasActive = false;
+    unbindContentPackageInstallProgress =
+      subscribeContentPackageInstallProgress((progress) => {
+        const active = progress?.active === true;
+        if (active) {
+          contentPackageInstallWasActive = true;
+          setButtonDisabled(contentPackageCheckButton, true);
+          setButtonDisabled(contentPackageInstallButton, true);
+        }
+        setContentPackageProgress(progress);
+        if (!active && contentPackageInstallWasActive) {
+          contentPackageInstallWasActive = false;
+          refreshContentPackageStatus();
+        }
+      });
     refreshContentPackageStatus();
   }
 

@@ -50,9 +50,12 @@
     font-size: 13px; font-weight: 700; line-height: 1; color: #dc2626;
     user-select: none; } .zs-autostart-icon.is-green { color: #16a34a; }
     .zs-autostart-icon.is-red { color: #dc2626; }
+    #zotero-prefpane-__addonRef__-content-package-progress-row,
     #zotero-prefpane-__addonRef__-skillrunner-local-progress-row,
     #zotero-prefpane-__addonRef__-runtime-data-progress-row { display: none;
     align-items: center; gap: 8px; margin-top: 4px; }
+    #zotero-prefpane-__addonRef__-content-package-progress-row.is-visible {
+    display: flex; }
     #zotero-prefpane-__addonRef__-skillrunner-local-progress-row.is-visible {
     display: flex; }
     #zotero-prefpane-__addonRef__-runtime-data-progress-row.is-visible {
@@ -200,6 +203,17 @@
         id="zotero-prefpane-__addonRef__-content-package-status"
         class="zs-content-package-status"
       ></html:div>
+      <html:div id="zotero-prefpane-__addonRef__-content-package-progress-row">
+        <html:div class="custom-progress-container">
+          <html:div
+            id="zotero-prefpane-__addonRef__-content-package-progressmeter"
+            class="custom-progress-bar"
+          ></html:div>
+        </html:div>
+        <html:span
+          id="zotero-prefpane-__addonRef__-content-package-progress-text"
+        ></html:span>
+      </html:div>
       <hbox class="zs-pref-actions-row">
         <button
           id="zotero-prefpane-__addonRef__-content-package-check"

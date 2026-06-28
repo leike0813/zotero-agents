@@ -24,6 +24,14 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-streaming-render",
         "Streaming",
       ),
+      streamingRenderOn: l(
+        "assistant-panel-action-streaming-render-on",
+        "Streaming on",
+      ),
+      streamingRenderOff: l(
+        "assistant-panel-action-streaming-render-off",
+        "Streaming off",
+      ),
       copyId: l("assistant-panel-action-copy-id", "Copy ID"),
       copyDiagnostics: l(
         "assistant-panel-action-copy-diagnostics",

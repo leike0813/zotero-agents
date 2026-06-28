@@ -21,6 +21,7 @@ type ProgressWindowInstance = {
     progress?: number;
   }) => ProgressWindowInstance;
   show: (closeTime?: number) => ProgressWindowInstance;
+  changeLine?: (args: { progress?: number; text?: string }) => void;
   startCloseTimer?: (delayMs: number) => unknown;
   updateIcons?: () => unknown;
   close?: () => unknown;
@@ -41,6 +42,11 @@ type WorkflowToastOptions = {
   sticky?: boolean;
   bounded?: boolean;
   maxVisible?: number;
+};
+
+export type WorkflowProgressToastController = {
+  update: (args: { text?: string; progress?: number }) => void;
+  close: () => void;
 };
 
 const visibleWorkflowToasts: ProgressWindowInstance[] = [];
@@ -234,6 +240,60 @@ export function showWorkflowToast(
     return shown;
   } catch {
     // ignore toast failures
+    return undefined;
+  }
+}
+
+export function showWorkflowProgressToast(args: {
+  text: string;
+  type?: string;
+  progress?: number;
+}): WorkflowProgressToastController | undefined {
+  const ProgressWindow = resolveProgressWindowCtor();
+  if (!ProgressWindow) {
+    return undefined;
+  }
+  const addonName = resolveAddonName("Zotero Agents");
+  const iconURI = resolveWorkflowToastIconURI();
+  try {
+    enforceVisibleWorkflowToastLimit(MAX_VISIBLE_WORKFLOW_TOASTS);
+    configureWorkflowToastIcon(ProgressWindow, iconURI);
+    const shown = new ProgressWindow(addonName, {
+      closeOnClick: true,
+      closeTime: -1,
+    })
+      .createLine({
+        text: args.text,
+        type: args.type || "default",
+        icon: iconURI,
+        progress: Math.max(0, Math.min(100, Number(args.progress || 0))),
+      })
+      .show(0);
+    refreshWorkflowToastIcons(shown);
+    visibleWorkflowToasts.push(shown);
+    return {
+      update: (update) => {
+        shown.changeLine?.({
+          ...(typeof update.text === "string" ? { text: update.text } : {}),
+          ...(typeof update.progress === "number"
+            ? {
+                progress: Math.max(
+                  0,
+                  Math.min(100, Math.floor(update.progress)),
+                ),
+              }
+            : {}),
+        });
+      },
+      close: () => {
+        const index = visibleWorkflowToasts.indexOf(shown);
+        if (index >= 0) {
+          visibleWorkflowToasts.splice(index, 1);
+        }
+        closeProgressWindow(shown);
+      },
+    };
+  } catch {
     return undefined;
   }
 }

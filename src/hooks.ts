@@ -1,5 +1,8 @@
 import { getString, initLocale } from "./utils/locale";
-import { alertWindow } from "./modules/workflowExecution/feedbackSeam";
+import {
+  alertWindow,
+  showWorkflowProgressToast,
+} from "./modules/workflowExecution/feedbackSeam";
 import { registerPrefsScripts } from "./modules/preferenceScript";
 import { getPref, setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
@@ -15,10 +18,15 @@ import {
 import { setPluginSkillRegistryRuntimeRootURI } from "./modules/pluginSkillRegistry";
 import {
   checkContentPackageUpdate,
+  clearContentPackageInstallProgress,
+  type ContentPackageInstallProgress,
+  type ContentPackageInstallProgressStage,
   type ContentPackageCheckResult,
+  getContentPackageInstallProgressSnapshot,
   getContentPackageStatus,
   installContentPackageFromFeed,
   type ContentPackageInstallResult,
+  setContentPackageInstallProgress,
 } from "./modules/contentPackageSubscription";
 import { openBackendManagerDialog } from "./modules/backendManager";
 import { openTaskManagerDialog } from "./modules/taskManagerDialog";
@@ -231,6 +239,89 @@ function localizedMessage(
   }
 }
 
+function contentPackageProgressMessage(
+  progress: ContentPackageInstallProgress,
+) {
+  const fallback = progress.label || "Installing official Workflow package";
+  const label = localizedMessage(
+    `content-package-install-progress-${progress.stage}`,
+    fallback,
+  );
+  return `[${progress.percent}%] ${label}`;
+}
+
+function beginContentPackageInstallProgressToast(args?: {
+  showToast?: boolean;
+}) {
+  const initial = setContentPackageInstallProgress("check-feed");
+  const toast =
+    args?.showToast === false || !initial
+      ? undefined
+      : showWorkflowProgressToast({
+          text: contentPackageProgressMessage(initial),
+          progress: initial.percent,
+        });
+  const publishProgress = (progress: ContentPackageInstallProgress) => {
+    const snapshot = setContentPackageInstallProgress(progress.stage);
+    if (!snapshot) {
+      return;
+    }
+    toast?.update({
+      text: contentPackageProgressMessage(snapshot),
+      progress: snapshot.percent,
+    });
+  };
+  const publishStage = (stage: ContentPackageInstallProgressStage) => {
+    const snapshot = setContentPackageInstallProgress(stage);
+    if (!snapshot) {
+      return;
+    }
+    toast?.update({
+      text: contentPackageProgressMessage(snapshot),
+      progress: snapshot.percent,
+    });
+  };
+  const close = () => {
+    toast?.close();
+    clearContentPackageInstallProgress();
+  };
+  return {
+    publishProgress,
+    publishStage,
+    close,
+  };
+}
+
+async function installOfficialWorkflowPackageWithProgress(args?: {
+  install?: () => Promise<ContentPackageInstallResult>;
+  onInstalled?: () => Promise<void> | void;
+  showToast?: boolean;
+}) {
+  const progress = beginContentPackageInstallProgressToast({
+    showToast: args?.showToast !== false,
+  });
+  try {
+    const install = await (args?.install
+      ? args.install()
+      : installContentPackageFromFeed({
+          onProgress: progress.publishProgress,
+        }));
+    if (install.ok) {
+      progress.publishStage("refresh-registry");
+      if (args?.onInstalled) {
+        await args.onInstalled();
+      } else {
+        await rescanWorkflowRegistry();
+        refreshWorkflowMenus();
+      }
+      progress.publishStage("complete");
+    }
+    return install;
+  } finally {
+    progress.close();
+  }
+}
+
 export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
   win: _ZoteroTypes.MainWindow;
   check?: () => Promise<ContentPackageCheckResult>;
@@ -298,14 +389,12 @@ export async function promptOfficialWorkflowPackageUpdateOnStartup(args: {
     };
   }
 
-  const install = await (args.install || installContentPackageFromFeed)();
+  const install = await installOfficialWorkflowPackageWithProgress({
+    install: args.install,
+    onInstalled: args.onInstalled,
+    showToast: true,
+  });
   if (install.ok) {
-    if (args.onInstalled) {
-      await args.onInstalled();
-    } else {
-      await rescanWorkflowRegistry();
-      refreshWorkflowMenus();
-    }
     alertWindow(
       args.win,
       localizedMessage(
@@ -709,16 +798,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       break;
     }
     case "stateContentPackage":
-      return getContentPackageStatus();
+      return {
+        ...(await getContentPackageStatus()),
+        actionProgress: getContentPackageInstallProgressSnapshot(),
+      };
     case "checkContentPackageUpdate":
       return checkContentPackageUpdate();
     case "installContentPackage": {
-      const result = await installContentPackageFromFeed();
-      if (result.ok) {
-        await rescanWorkflowRegistry();
-        refreshWorkflowMenus();
-      }
-      return result;
+      return installOfficialWorkflowPackageWithProgress({
+        showToast: data.source !== "preferences",
+      });
     }
     case "openBackendManager":
       await openBackendManagerDialog({

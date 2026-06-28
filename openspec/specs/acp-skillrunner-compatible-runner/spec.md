@@ -675,7 +675,11 @@ file namespaces inside the run workspace.
 - **THEN** the runner result path SHALL end with
   `result/prepare-skill.1/result.json`
 - **AND** the input manifest path SHALL end with
-  `.audit/prepare-skill.1/input_manifest.json`.
+  `.audit/prepare-skill.1/input_manifest.json`
+- **AND** the run-specific runtime audit directory SHALL end with
+  `.acp/prepare-skill.1`
+- **AND** the run audit metadata path SHALL end with
+  `.acp/prepare-skill.1/run.json`.
 
 #### Scenario: Reused workflow workspace isolates runner files
 
@@ -683,6 +687,8 @@ file namespaces inside the run workspace.
 - **WHEN** downstream steps are prepared in that workspace
 - **THEN** each step SHALL receive its own `resultJsonPath` and
   `inputManifestPath`
+- **AND** each step SHALL receive its own `.acp/<skillId>.<n>` runtime audit
+  directory
 - **AND** the namespace allocation SHALL NOT require additional host/workflow
   request fields.
 
@@ -690,7 +696,9 @@ file namespaces inside the run workspace.
 
 - **GIVEN** one workspace has already allocated `core-skill.1`
 - **WHEN** another run for `core-skill` is prepared in the same workspace
-- **THEN** the second run SHALL allocate `core-skill.2`.
+- **THEN** the second run SHALL allocate `core-skill.2`
+- **AND** the second run SHALL write audit files under `.acp/core-skill.2`
+  without overwriting `.acp/core-skill.1`.
 
 ### Requirement: ACP Skills detached running runs SHALL be recoverable by explicit connect
 
