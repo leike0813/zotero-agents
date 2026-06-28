@@ -68,7 +68,7 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 | Field | Required | Description |
 |-------|----------|-------------|
 | **Display Name** | Yes | Display name for the backend, used to identify it in the Dashboard and sidebar |
-| **Command** | Yes | Command to start the ACP backend (e.g., `npx opencode-ai@latest acp`) |
+| **Command** | Yes | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`) |
 | **Arguments** | No | Additional arguments for the command, added one by one through the arguments editor |
 | **Environment Variables** | No | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
@@ -88,8 +88,8 @@ ACP 탭 상단에 **프리셋에서 추가** 버튼이 있습니다. 클릭하�
 | 프리셋 | 기본 명령 | 설명 |
 |------|------|------|
 | **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 모드 |
 | **Hermes** | `hermes acp` | Hermes Agent ACP 백엔드 |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 모드 |

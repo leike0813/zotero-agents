@@ -68,7 +68,7 @@ ACP backends are locally running agent subprocesses. The configuration specifies
 | Field | Required | Description |
 |-------|----------|-------------|
 | **Display Name** | Yes | Display name for the backend, used to identify it in the Dashboard and sidebar |
-| **Command** | Yes | Command to start the ACP backend (e.g., `npx opencode-ai@latest acp`) |
+| **Command** | Yes | Command to start the ACP backend (e.g., `npx -y opencode-ai@latest acp`) |
 | **Arguments** | No | Additional arguments for the command, added one by one through the arguments editor |
 | **Environment Variables** | No | Additional environment variables, added one by one through the environment variable editor (key-value pairs) |
 
@@ -80,11 +80,11 @@ Built-in presets:
 
 | Preset | Command |
 |--------|---------|
-| **OpenCode** | `npx opencode-ai@latest acp` |
-| **Codex** | `npx codex acp` |
-| **Claude Code** | `npx @anthropic-ai/claude-code acp` |
-| **Gemini CLI** | `npx @google/gemini-cli acp` |
-| **Qwen Code** | `qwen-code acp` |
+| **OpenCode** | `opencode acp` |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` |
+| **Gemini CLI** | `gemini --experimental-acp` |
+| **Qwen Code** | `qwen --acp --experimental-skills` |
 
 You can still manually modify any field after selecting a preset.
 

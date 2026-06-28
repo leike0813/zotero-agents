@@ -490,7 +490,7 @@ describe("backend manager risk regression", function () {
       type: "acp",
       baseUrl: "local://acp-codex-npx",
       command: "npx",
-      args: ["@zed-industries/codex-acp@latest"],
+      args: ["-y", "@agentclientprotocol/codex-acp@latest"],
       auth: { kind: "none" },
       acp: {
         agentFamily: "codex",
@@ -507,6 +507,7 @@ describe("backend manager risk regression", function () {
     assert.equal(claude.id, "acp-claude-code-npx");
     assert.equal(claude.command, "npx");
     assert.deepEqual(claude.args, [
+      "-y",
       "@agentclientprotocol/claude-agent-acp@latest",
     ]);
     assert.equal(claude.acp?.agentFamily, "claude-code");
@@ -828,7 +829,7 @@ describe("backend manager risk regression", function () {
         type: "acp",
         baseUrl: "local://acp-codex-npx-isolated",
         command: "npx",
-        args: ["@zed-industries/codex-acp@latest"],
+        args: ["-y", "@agentclientprotocol/codex-acp@latest"],
         env: {
           CODEX_HOME: getAcpBackendIsolatedEnvironmentPath(
             "acp-codex-npx-isolated",

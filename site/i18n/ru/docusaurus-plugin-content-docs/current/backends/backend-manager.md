@@ -68,7 +68,7 @@
 | Поле | Обязательно | Описание |
 |-------|----------|-------------|
 | **Отображаемое имя** | Да | Отображаемое имя для бэкенда, используется для идентификации в Панели мониторинга и боковой панели |
-| **Команда** | Да | Команда для запуска бэкенда ACP (например, `npx opencode-ai@latest acp`) |
+| **Команда** | Да | Команда для запуска бэкенда ACP (например, `npx -y opencode-ai@latest acp`) |
 | **Аргументы** | Нет | Дополнительные аргументы для команды, добавляются по одному через редактор аргументов |
 | **Переменные окружения** | Нет | Дополнительные переменные окружения, добавляются по одной через редактор переменных окружения (пары ключ-значение) |
 
@@ -88,8 +88,8 @@
 | Пресет | Команда по умолчанию | Описание |
 |------|------|------|
 | **OpenCode** | `opencode acp` | ACP-бэкенд OpenCode; поддерживает изоляцию каталога конфигурации через `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | ACP-адаптер для OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP-адаптер для Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Режим ACP Gemini CLI |
 | **Hermes** | `hermes acp` | ACP-бэкенд Hermes Agent |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Режим ACP Qwen Code |

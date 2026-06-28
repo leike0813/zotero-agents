@@ -68,7 +68,7 @@ I backend ACP sono sottoprocessi agent in esecuzione locale. La configurazione s
 | Campo | Obbligatorio | Descrizione |
 |-------|-------------|-------------|
 | **Nome visualizzato** | Sì | Nome visualizzato per il backend, usato per identificarlo nella Dashboard e nella barra laterale |
-| **Comando** | Sì | Comando per avviare il backend ACP (es. `npx opencode-ai@latest acp`) |
+| **Comando** | Sì | Comando per avviare il backend ACP (es. `npx -y opencode-ai@latest acp`) |
 | **Argomenti** | No | Argomenti aggiuntivi per il comando, aggiunti uno alla volta tramite l'editor degli argomenti |
 | **Variabili d'ambiente** | No | Variabili d'ambiente aggiuntive, aggiunte una alla volta tramite l'editor delle variabili d'ambiente (coppie chiave-valore) |
 
@@ -88,8 +88,8 @@ Comandi predefiniti dei preset integrati:
 | Preset | Comando predefinito | Descrizione |
 |------|------|------|
 | **OpenCode** | `opencode acp` | Backend ACP OpenCode; supporta l'isolamento della directory di configurazione tramite `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | Adapter ACP per OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adapter ACP per OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Modalità ACP di Gemini CLI |
 | **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Modalità ACP di Qwen Code |

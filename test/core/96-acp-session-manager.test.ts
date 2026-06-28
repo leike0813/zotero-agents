@@ -145,13 +145,13 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
       kind: "command_check",
       level: "info",
       message: "validated npx command",
-      detail: "npx opencode-ai@latest acp",
+      detail: "npx -y opencode-ai@latest acp",
     });
     this.emitDiagnostic({
       kind: "spawned",
       level: "info",
       message: "spawned npx process",
-      detail: "npx opencode-ai@latest acp",
+      detail: "npx -y opencode-ai@latest acp",
     });
     this.emitDiagnostic({
       kind: "initialized",
@@ -168,8 +168,8 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
           description: "Authenticate via browser",
         },
       ],
-      commandLabel: "npx opencode-ai@latest acp",
-      commandLine: "npx opencode-ai@latest acp",
+      commandLabel: "npx -y opencode-ai@latest acp",
+      commandLine: "npx -y opencode-ai@latest acp",
       canLoadSession: this.canLoadSession,
       canResumeSession: this.canResumeSession,
       canUseHttpMcp: this.canUseHttpMcp,
@@ -1480,8 +1480,8 @@ describe("acp session manager", function () {
       const snapshot = getAcpConversationSnapshot();
       assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
       assert.equal(snapshot.status, "connected");
-      assert.equal(snapshot.commandLabel, "npx opencode-ai@latest acp");
-      assert.equal(snapshot.commandLine, "npx opencode-ai@latest acp");
+      assert.equal(snapshot.commandLabel, "npx -y opencode-ai@latest acp");
+      assert.equal(snapshot.commandLine, "npx -y opencode-ai@latest acp");
       assert.equal(snapshot.agentLabel, "OpenCode");
       assert.equal(snapshot.agentVersion, "1.2.3");
       const expectedStoragePaths = resolveAcpChatRuntimePaths(
@@ -1615,11 +1615,11 @@ describe("acp session manager", function () {
       assert.equal(persisted.snapshot.remoteSessionId, "session-1");
       assert.equal(
         persisted.snapshot.commandLabel,
-        "npx opencode-ai@latest acp",
+        "npx -y opencode-ai@latest acp",
       );
       assert.equal(
         persisted.snapshot.commandLine,
-        "npx opencode-ai@latest acp",
+        "npx -y opencode-ai@latest acp",
       );
       assert.equal(persisted.snapshot.agentLabel, "OpenCode");
       assert.equal(persisted.snapshot.currentMode?.id, "code");

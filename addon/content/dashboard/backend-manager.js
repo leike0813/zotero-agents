@@ -388,6 +388,15 @@
     }, []);
   }
 
+  function buildAcpPresetNpxArgs(preset, isolationArgs) {
+    const rest = [preset.npxPackage]
+      .concat(preset.npxArgs || [], isolationArgs)
+      .filter(Boolean);
+    return rest.some((entry) => entry === "-y" || entry === "--yes")
+      ? rest
+      : ["-y"].concat(rest);
+  }
+
   function buildAcpPresetPreview() {
     const dialog = state.acpPresetDialog || {};
     const preset = findAcpPreset(dialog.selectedPresetId) || acpPresetList()[0];
@@ -424,9 +433,7 @@
       displayName: buildAcpPresetDisplayName(preset, useNpx, isolated),
       command: useNpx ? "npx" : preset.bareCommand,
       args: useNpx
-        ? [preset.npxPackage]
-            .concat(preset.npxArgs || [], isolationArgs)
-            .filter(Boolean)
+        ? buildAcpPresetNpxArgs(preset, isolationArgs)
         : (preset.bareArgs || []).concat(isolationArgs),
       env: env,
       agentFamily: preset.agentFamily,
