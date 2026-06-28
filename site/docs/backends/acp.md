@@ -53,8 +53,8 @@ When **Use npx** is enabled, the preset switches to the `npx <package>` launch f
 | Preset | Default command | Description |
 |--------|-----------------|-------------|
 | **OpenCode** | `opencode acp` | OpenCode ACP backend; supports documented configuration-directory isolation through `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | Codex ACP adapter for OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | ACP adapter for Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Codex ACP adapter for OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP adapter for Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP mode |
 | **Hermes** | `hermes acp` | Hermes Agent ACP backend |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP mode |

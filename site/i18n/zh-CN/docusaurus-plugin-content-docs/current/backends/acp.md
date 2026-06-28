@@ -55,8 +55,8 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | 预设 | 默认命令 | 说明 |
 |------|------|------|
 | **OpenCode** | `opencode acp` | OpenCode ACP 后端，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 模式 |
 | **Hermes** | `hermes acp` | Hermes Agent ACP 后端 |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 模式 |

@@ -55,8 +55,8 @@ Il plugin fornisce diversi preset integrati. Dopo aver cliccato **Aggiungi da pr
 | Preset | Comando predefinito | Descrizione |
 |------|------|------|
 | **OpenCode** | `opencode acp` | Backend ACP OpenCode; supporta l'isolamento della directory di configurazione tramite `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | Adapter ACP per OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adapter ACP per OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adapter ACP per Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Modalità ACP di Gemini CLI |
 | **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Modalità ACP di Qwen Code |

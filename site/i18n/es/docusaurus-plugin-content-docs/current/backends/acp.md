@@ -55,8 +55,8 @@ El complemento proporciona varios preajustes integrados. Tras hacer clic en **A�
 | Preajuste | Comando predeterminado | Descripción |
 |------|------|------|
 | **OpenCode** | `opencode acp` | Backend ACP de OpenCode; admite aislamiento del directorio de configuración mediante `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | Adaptador ACP para OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adaptador ACP para Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adaptador ACP para OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adaptador ACP para Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Modo ACP de Gemini CLI |
 | **Hermes** | `hermes acp` | Backend ACP de Hermes Agent |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Modo ACP de Qwen Code |

@@ -52,16 +52,16 @@ export type AcpBackendPreset = {
 
 | id | backendId | displayName | agentFamily | command | args | env | builtIn |
 |----|-----------|-------------|-------------|---------|------|-----|---------|
-| `opencode` | `acp-opencode` | OpenCode ACP | `opencode` | `npx` | `["opencode-ai@latest", "acp"]` | — | ✅ |
-| `codex` | `acp-codex` | Codex ACP | `codex` | `npx` | `["@zed-industries/codex-acp@latest"]` | — | — |
-| `codex-isolated` | `acp-codex-isolated` | Codex ACP (Isolated Environment) | `codex` | `npx` | `["@zed-industries/codex-acp@latest"]` | `CODEX_HOME` | — |
-| `claude-code` | `acp-claude-code` | Claude Code ACP | `claude-code` | `npx` | `["@agentclientprotocol/claude-agent-acp@latest"]` | — | — |
-| `claude-code-isolated` | `acp-claude-code-isolated` | Claude Code ACP (Isolated Environment) | `claude-code` | `npx` | `["@agentclientprotocol/claude-agent-acp@latest"]` | `CLAUDE_CONFIG_DIR` | — |
-| `gemini-cli` | `acp-gemini-cli` | Gemini CLI ACP | `gemini-cli` | `npx` | `["@google/gemini-cli@latest", "--experimental-acp"]` | — | — |
-| `gemini-cli-isolated` | `acp-gemini-cli-isolated` | Gemini CLI ACP (Isolated Environment) | `gemini-cli` | `npx` | `["@google/gemini-cli@latest", "--experimental-acp"]` | `GEMINI_CLI_HOME` | — |
+| `opencode` | `acp-opencode` | OpenCode ACP | `opencode` | `npx` | `["-y", "opencode-ai@latest", "acp"]` | — | ✅ |
+| `codex` | `acp-codex` | Codex ACP | `codex` | `npx` | `["-y", "@agentclientprotocol/codex-acp@latest"]` | — | — |
+| `codex-isolated` | `acp-codex-isolated` | Codex ACP (Isolated Environment) | `codex` | `npx` | `["-y", "@agentclientprotocol/codex-acp@latest"]` | `CODEX_HOME` | — |
+| `claude-code` | `acp-claude-code` | Claude Code ACP | `claude-code` | `npx` | `["-y", "@agentclientprotocol/claude-agent-acp@latest"]` | — | — |
+| `claude-code-isolated` | `acp-claude-code-isolated` | Claude Code ACP (Isolated Environment) | `claude-code` | `npx` | `["-y", "@agentclientprotocol/claude-agent-acp@latest"]` | `CLAUDE_CONFIG_DIR` | — |
+| `gemini-cli` | `acp-gemini-cli` | Gemini CLI ACP | `gemini-cli` | `npx` | `["-y", "@google/gemini-cli@latest", "--experimental-acp"]` | — | — |
+| `gemini-cli-isolated` | `acp-gemini-cli-isolated` | Gemini CLI ACP (Isolated Environment) | `gemini-cli` | `npx` | `["-y", "@google/gemini-cli@latest", "--experimental-acp"]` | `GEMINI_CLI_HOME` | — |
 | `hermes` | `acp-hermes` | Hermes ACP | `hermes` | `hermes` | `["acp"]` | — | — |
 | `hermes-isolated` | `acp-hermes-isolated` | Hermes ACP (Isolated Environment) | `hermes` | `hermes` | `["acp"]` | `HERMES_HOME` | — |
-| `qwen-code` | `acp-qwen-code` | Qwen Code ACP | `qwen-code` | `npx` | `["@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"]` | — | — |
+| `qwen-code` | `acp-qwen-code` | Qwen Code ACP | `qwen-code` | `npx` | `["-y", "@qwen-code/qwen-code@latest", "--acp", "--experimental-skills"]` | — | — |
 
 ## Isolated Environment Layout
 

@@ -55,8 +55,8 @@ If detection fails, verify that the agent CLI is installed correctly and the com
 | 프리셋 | 기본 명령 | 설명 |
 |------|------|------|
 | **OpenCode** | `opencode acp` | OpenCode ACP 백엔드; `OPENCODE_CONFIG_DIR`를 통한 구성 디렉토리 격리 지원 |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex용 ACP 어댑터 |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code용 ACP 어댑터 |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 모드 |
 | **Hermes** | `hermes acp` | Hermes Agent ACP 백엔드 |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP 모드 |

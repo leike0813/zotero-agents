@@ -56,8 +56,8 @@ Agentツールを初めて使用する方で、どれを選べばよいか、ど
 | プリセット | デフォルトコマンド | 説明 |
 |------|------|------|
 | **OpenCode** | `opencode acp` | OpenCode ACP バックエンド。`OPENCODE_CONFIG_DIR` による設定ディレクトリの隔離をサポート |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | OpenAI Codex 向け ACP adapter |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Claude Code 向け ACP adapter |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | OpenAI Codex 向け ACP adapter |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Claude Code 向け ACP adapter |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP モード |
 | **Hermes** | `hermes acp` | Hermes Agent ACP バックエンド |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Qwen Code ACP モード |

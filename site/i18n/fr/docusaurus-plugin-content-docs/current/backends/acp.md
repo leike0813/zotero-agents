@@ -55,8 +55,8 @@ Le plugin fournit plusieurs préréglages intégrés. Après avoir cliqué sur *
 | Préréglage | Commande par défaut | Description |
 |------|------|------|
 | **OpenCode** | `opencode acp` | Backend ACP OpenCode ; prend en charge l'isolation du répertoire de configuration via `OPENCODE_CONFIG_DIR` |
-| **Codex** | `npx @zed-industries/codex-acp@latest` | Adaptateur ACP pour OpenAI Codex |
-| **Claude Code** | `npx @agentclientprotocol/claude-agent-acp@latest` | Adaptateur ACP pour Claude Code |
+| **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Adaptateur ACP pour OpenAI Codex |
+| **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | Adaptateur ACP pour Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Mode ACP de Gemini CLI |
 | **Hermes** | `hermes acp` | Backend ACP Hermes Agent |
 | **Qwen Code** | `qwen --acp --experimental-skills` | Mode ACP de Qwen Code |
