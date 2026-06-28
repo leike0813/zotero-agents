@@ -44,6 +44,8 @@
     "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
     "prebuild:zotero-bridge-cli": "node scripts/build-zotero-bridge-cli.mjs",
     "sync:host-bridge-cli-prebuilds": "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
+    "package:acp-ws-bridge": "node scripts/package-acp-ws-bridge.mjs",
+    "prebuild:acp-ws-bridge": "node scripts/build-acp-ws-bridge.mjs",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",

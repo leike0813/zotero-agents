@@ -2,6 +2,7 @@ import type { BackendInstance } from "../backends/types";
 import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
+  type AcpConnectionTransportSnapshot,
 } from "./acpConnectionAdapter";
 import type {
   AcpSessionConfigOption,
@@ -18,6 +19,11 @@ import {
   hasAcpRuntimeOptionSelectors,
 } from "./acpSessionConfigOptions";
 import {
+  appendAcpSkillRunTransportAuditEvent,
+  resolveAcpSkillRunAuditTrailFiles,
+  shouldWriteDetailedAcpAuditArtifacts,
+} from "./acpSkillRunAuditTrail";
+import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
 } from "./runtimePersistence";
@@ -29,6 +35,10 @@ export type AcpBackendProbeResult = {
   backend: BackendInstance;
   error?: string;
 };
+
+const ACP_BACKEND_RUNTIME_OPTIONS_PROBE_TIMEOUT_MS = 180_000;
+const ACP_BACKEND_PROBE_DIAGNOSTIC_LIMIT = 12;
+const ACP_BACKEND_PROBE_TEXT_TAIL_CHARS = 4_000;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -239,13 +249,112 @@ function appendAcpProbeLog(args: {
   });
 }
 
+function tailProbeText(value: unknown) {
+  const text = normalizeString(value);
+  return text.length > ACP_BACKEND_PROBE_TEXT_TAIL_CHARS
+    ? text.slice(text.length - ACP_BACKEND_PROBE_TEXT_TAIL_CHARS)
+    : text;
+}
+
+function compactTransportSnapshot(
+  snapshot?: AcpConnectionTransportSnapshot | null,
+) {
+  if (!snapshot) {
+    return null;
+  }
+  const lifecycle = snapshot.transportLifecycle || null;
+  const lifecycleRecord =
+    lifecycle && typeof lifecycle === "object"
+      ? (lifecycle as Record<string, unknown>)
+      : {};
+  return {
+    commandLabel: snapshot.commandLabel,
+    commandLine: snapshot.commandLine,
+    exitCode: snapshot.exitCode,
+    stdoutTail: tailProbeText(snapshot.stdoutText),
+    stderrTail: tailProbeText(snapshot.stderrText),
+    stdoutChars: normalizeString(snapshot.stdoutText).length,
+    stderrChars: normalizeString(snapshot.stderrText).length,
+    transportKind: lifecycleRecord.transportKind,
+    lifecycleExitCode: lifecycleRecord.exitCode,
+    lifecycleExitSource: lifecycleRecord.exitSource,
+    lifecycleClosedAt: lifecycleRecord.closedAt,
+    bridgePid: lifecycleRecord.bridgePid,
+    childPid: lifecycleRecord.childPid,
+    webSocketError: lifecycleRecord.webSocketError,
+    webSocketClose: lifecycleRecord.webSocketClose,
+    readError: lifecycleRecord.readError,
+    lifecycle,
+  };
+}
+
+function compactAdapterDiagnostic(entry: unknown) {
+  if (!entry || typeof entry !== "object") {
+    return entry || null;
+  }
+  const record = entry as Record<string, unknown>;
+  return {
+    ts: record.ts,
+    kind: record.kind,
+    level: record.level,
+    stage: record.stage,
+    message: record.message,
+    detailTail: tailProbeText(record.detail),
+    errorName: record.errorName,
+    code: record.code,
+    data: record.data,
+    raw: compactTransportSnapshot(
+      (record.raw || null) as AcpConnectionTransportSnapshot | null,
+    ),
+  };
+}
+
+function compactCloseEvent(event: unknown) {
+  if (!event || typeof event !== "object") {
+    return event || null;
+  }
+  const record = event as Record<string, unknown>;
+  return {
+    message: record.message,
+    exitCode: record.exitCode,
+    stdoutTail: tailProbeText(record.stdoutText),
+    stderrTail: tailProbeText(record.stderrText),
+    stdoutChars: normalizeString(record.stdoutText).length,
+    stderrChars: normalizeString(record.stderrText).length,
+    lifecycle: record.transportLifecycle || null,
+  };
+}
+
+function withProbeTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+}
+
 export async function probeAcpBackendRuntimeOptions(args: {
   backend: BackendInstance;
   createAdapter?: typeof createAcpConnectionAdapter;
   now?: () => string;
+  timeoutMs?: number;
 }): Promise<AcpBackendProbeResult> {
   const createAdapter = args.createAdapter || createAcpConnectionAdapter;
   const timestamp = args.now?.() || new Date().toISOString();
+  const timeoutMs =
+    args.timeoutMs || ACP_BACKEND_RUNTIME_OPTIONS_PROBE_TIMEOUT_MS;
   const fingerprint = computeAcpBackendConfigFingerprint(args.backend);
   const paths = getRuntimePersistencePaths();
   const safeBackendId = normalizeString(args.backend.id).replace(
@@ -259,7 +368,19 @@ export async function probeAcpBackendRuntimeOptions(args: {
   );
   const workspaceDir = joinPath(root, "workspace");
   const runtimeDir = joinPath(root, "runtime");
+  const auditRuntimeDir = joinPath(runtimeDir, ".acp");
+  const auditFiles = resolveAcpSkillRunAuditTrailFiles(auditRuntimeDir);
+  const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
   let adapter: AcpConnectionAdapter | null = null;
+  const adapterDiagnostics: unknown[] = [];
+  const adapterCloseEvents: unknown[] = [];
+  const unsubscribers: Array<() => void> = [];
+  const pushLimited = (target: unknown[], value: unknown) => {
+    target.push(value);
+    while (target.length > ACP_BACKEND_PROBE_DIAGNOSTIC_LIMIT) {
+      target.shift();
+    }
+  };
   appendAcpProbeLog({
     backend: args.backend,
     level: "info",
@@ -271,6 +392,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
       envKeys: Object.keys(normalizeStringMap(args.backend.env)).sort(),
       workspaceDir,
       runtimeDir,
+      auditFiles,
       configFingerprint: fingerprint,
     },
   });
@@ -284,9 +406,37 @@ export async function probeAcpBackendRuntimeOptions(args: {
       sessionCwd: workspaceDir,
       workspaceDir,
       runtimeDir,
+      diagnosticCapture: detailedAuditEnabled
+        ? {
+            bridgeAuditFile: auditFiles.bridge,
+            onAuditEvent: (event) =>
+              appendAcpSkillRunTransportAuditEvent({
+                requestId:
+                  normalizeString(args.backend.id) || "acp-backend-probe",
+                runtimeDir: auditRuntimeDir,
+                event,
+              }),
+          }
+        : undefined,
     });
-    await adapter.initialize();
-    const session = await adapter.newSession();
+    unsubscribers.push(
+      adapter.onDiagnostics((entry) => {
+        pushLimited(adapterDiagnostics, compactAdapterDiagnostic(entry));
+      }),
+      adapter.onClose((event) => {
+        pushLimited(adapterCloseEvents, compactCloseEvent(event));
+      }),
+    );
+    await withProbeTimeout(
+      adapter.initialize(),
+      timeoutMs,
+      "ACP backend initialize",
+    );
+    const session = await withProbeTimeout(
+      adapter.newSession(),
+      timeoutMs,
+      "ACP backend session/new",
+    );
     const cache = buildAcpRuntimeOptionsCache({
       configOptions: session.configOptions,
       modes: session.modes,
@@ -336,7 +486,16 @@ export async function probeAcpBackendRuntimeOptions(args: {
       details: {
         workspaceDir,
         runtimeDir,
+        auditFiles,
         configFingerprint: fingerprint,
+        adapterDiagnostics,
+        adapterCloseEvents,
+        transportSnapshot: compactTransportSnapshot(
+          adapter?.getTransportSnapshot?.() ||
+            ((error as { transportSnapshot?: AcpConnectionTransportSnapshot })
+              ?.transportSnapshot ??
+              null),
+        ),
       },
       error,
     });
@@ -360,6 +519,13 @@ export async function probeAcpBackendRuntimeOptions(args: {
       },
     };
   } finally {
+    for (const unsubscribe of unsubscribers.splice(0)) {
+      try {
+        unsubscribe();
+      } catch {
+        // ignore listener cleanup errors
+      }
+    }
     await adapter?.close().catch(() => undefined);
   }
 }

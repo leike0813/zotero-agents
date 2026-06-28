@@ -16,6 +16,7 @@ tsconfig.tsbuildinfo
 
 # Rust
 cli/zotero-bridge/target/
+native/acp-ws-bridge/target/
 
 # Scaffold
 .env

@@ -15,6 +15,7 @@ import {
   summarizeSubprocessEnvironment,
 } from "../../src/platform/env";
 import {
+  buildPathCommandCandidates,
   buildNonInteractiveCommandCandidates,
   getCachedRuntimeCommand,
   getPreferredWindowsShellCommandsFromRegistry,
@@ -140,6 +141,26 @@ describe("runtime platform services", function () {
     );
   });
 
+  it("orders Windows PATH command candidates by executable preference", function () {
+    assert.deepEqual(
+      buildPathCommandCandidates({
+        command: "npx",
+        platform: "win32",
+        pathValue: "C:\\A;C:\\B",
+      }).slice(0, 8),
+      [
+        "C:\\A\\npx.exe",
+        "C:\\B\\npx.exe",
+        "C:\\A\\npx.ps1",
+        "C:\\B\\npx.ps1",
+        "C:\\A\\npx.cmd",
+        "C:\\B\\npx.cmd",
+        "C:\\A\\npx.bat",
+        "C:\\B\\npx.bat",
+      ],
+    );
+  });
+
   it("resolves commands through PATH and POSIX non-interactive candidates", async function () {
     const checked: string[] = [];
     const resolved = await resolveRuntimeCommand("npx", {
@@ -213,6 +234,82 @@ describe("runtime platform services", function () {
       "C:\\nvm4w\\nodejs\\npx.cmd",
     );
     assert.notInclude(resolved.launch?.args.join("\n") || "", "$nativeCommandLine");
+  });
+
+  it("prefers Windows ps1 shims over cmd and bat candidates when exe is absent", async function () {
+    const checked: string[] = [];
+    const resolved = await resolveRuntimeCommand("npx", {
+      platform: "win32",
+      pathValue: "C:\\Tools",
+      exists: async (candidate) => {
+        checked.push(candidate);
+        return candidate === "C:\\Tools\\npx.ps1";
+      },
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\Tools\\npx.ps1");
+    assert.equal(resolved.launch?.mode, "powershell");
+    assert.deepEqual(checked.slice(0, 2), [
+      "C:\\Tools\\npx.exe",
+      "C:\\Tools\\npx.ps1",
+    ]);
+    assert.notInclude(checked, "C:\\Tools\\npx.cmd");
+  });
+
+  it("promotes resolved Windows shims to verified sibling executables", async function () {
+    const checked: string[] = [];
+    const resolved = await resolveRuntimeCommand("agent", {
+      platform: "win32",
+      pathSearch: async () => "C:\\Tools\\agent.cmd",
+      exists: async (candidate) => {
+        checked.push(candidate);
+        return candidate === "C:\\Tools\\agent.exe";
+      },
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\Tools\\agent.exe");
+    assert.equal(resolved.launch?.mode, "direct");
+    assert.include(
+      resolved.checkedCandidates,
+      "windows-shim-exe:C:\\Tools\\agent.cmd->C:\\Tools\\agent.exe",
+    );
+    assert.include(checked, "C:\\Tools\\agent.exe");
+  });
+
+  it("parses direct executable references from Windows ps1 shims", async function () {
+    const resolved = await resolveRuntimeCommand("C:\\Tools\\agent.ps1", {
+      platform: "win32",
+      exists: async (candidate) =>
+        candidate === "C:\\Tools\\agent.ps1" ||
+        candidate === "C:\\Tools\\agent-core.exe",
+      readText: async () => '& "$PSScriptRoot/agent-core.exe" $args',
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\Tools\\agent-core.exe");
+    assert.equal(resolved.launch?.mode, "direct");
+    assert.include(
+      resolved.checkedCandidates,
+      "windows-shim-exe:C:\\Tools\\agent.ps1->C:\\Tools\\agent-core.exe",
+    );
+  });
+
+  it("keeps Windows shims when parsed executable targets do not exist", async function () {
+    const resolved = await resolveRuntimeCommand("C:\\Tools\\agent.cmd", {
+      platform: "win32",
+      exists: async (candidate) => candidate === "C:\\Tools\\agent.cmd",
+      readText: async () => '"%~dp0\\agent-core.exe" %*',
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\Tools\\agent.cmd");
+    assert.equal(resolved.launch?.mode, "cmd");
+    assert.notInclude(
+      resolved.checkedCandidates.join("\n"),
+      "agent-core.exe",
+    );
   });
 
   it("builds PowerShell -File launch specs for Windows ps1 commands", async function () {

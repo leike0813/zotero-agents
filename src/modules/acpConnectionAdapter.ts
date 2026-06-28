@@ -14,6 +14,7 @@ import {
 import { createAcpNdJsonMessageStream } from "./acpMessageStream";
 import {
   launchAcpTransport,
+  type AcpTransportDiagnosticCaptureOptions,
   type AcpTransportLifecycle,
 } from "./acpTransport";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
@@ -70,6 +71,7 @@ export type AcpConnectionAdapterFactoryArgs = {
   workspaceDir: string;
   runtimeDir: string;
   mcpCompatibilityMode?: AcpMcpCompatibilityMode;
+  diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
 };
 
 export type AcpMcpCompatibilityMode =
@@ -121,6 +123,10 @@ export type AcpPromptBackendError = {
   code?: string | number;
   data?: unknown;
   source?: "request_error" | "session_update" | "connection";
+};
+
+export type AcpConnectionError = Error & {
+  transportSnapshot?: AcpConnectionTransportSnapshot | null;
 };
 
 export type AcpPromptResult = {
@@ -180,6 +186,20 @@ function isRequestError(value: unknown): value is RequestError {
 
 function compactError(error: unknown) {
   return describeAcpError(error, "unknown error").replace(/\s+/g, " ").trim();
+}
+
+function attachTransportSnapshotToError(
+  error: unknown,
+  snapshot: AcpConnectionTransportSnapshot | null,
+) {
+  if (!error || typeof error !== "object") {
+    return;
+  }
+  try {
+    (error as AcpConnectionError).transportSnapshot = snapshot;
+  } catch {
+    // Some platform errors are not extensible.
+  }
 }
 
 function normalizeString(value: unknown) {
@@ -1020,6 +1040,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       this.transport = await launchAcpTransport({
         backend: this.args.backend,
         cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
+        diagnosticCapture: this.args.diagnosticCapture,
       });
       this.commandLabel = this.transport.getCommandLabel();
       this.commandLine = this.transport.getCommandLine();
@@ -1147,6 +1168,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       };
     } catch (error) {
       const transportSnapshot = this.getTransportSnapshot();
+      attachTransportSnapshotToError(error, transportSnapshot);
       this.emitErrorDiagnostic({
         kind: "initialized",
         message: "Failed to initialize ACP connection",

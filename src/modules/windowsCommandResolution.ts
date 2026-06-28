@@ -96,23 +96,6 @@ function joinWindowsPath(...segments: string[]) {
   return joined;
 }
 
-function expandResolvedWindowsCommandCandidate(candidateRaw: string) {
-  const candidate = normalizeString(candidateRaw);
-  if (!candidate) {
-    return [] as string[];
-  }
-  if (/\.ps1$/i.test(candidate)) {
-    const withoutExt = candidate.replace(/\.ps1$/i, "");
-    return [
-      `${withoutExt}.cmd`,
-      `${withoutExt}.exe`,
-      `${withoutExt}.bat`,
-      candidate,
-    ].map((entry) => normalizeString(entry));
-  }
-  return [candidate];
-}
-
 async function pathExists(targetPath: string) {
   const normalized = normalizeString(targetPath);
   if (!normalized) {
@@ -214,9 +197,10 @@ export function getWindowsExecutableCandidates(
     normalizeString(env.SystemRoot) ||
     normalizeString(env.WINDIR) ||
     "C:\\Windows";
-  const withoutExt = normalized.replace(/\.(exe|cmd|bat)$/i, "");
+  const withoutExt = normalized.replace(/\.(exe|ps1|cmd|bat)$/i, "");
   const commandVariants = [
     `${withoutExt}.exe`,
+    `${withoutExt}.ps1`,
     `${withoutExt}.cmd`,
     `${withoutExt}.bat`,
     normalized,
@@ -343,10 +327,10 @@ function buildWindowsCommandCandidates(command: string) {
     "",
   );
   return [
-    `${withoutExt}.cmd`,
     `${withoutExt}.exe`,
-    `${withoutExt}.bat`,
     `${withoutExt}.ps1`,
+    `${withoutExt}.cmd`,
+    `${withoutExt}.bat`,
     withoutExt,
   ];
 }
@@ -363,8 +347,9 @@ export async function resolveWindowsCommandFromUserLocalBin(
     return [] as string[];
   }
   const variants = buildWindowsCommandCandidates(normalized);
-  const candidates = getWindowsUserLocalBinRoots(platform).flatMap((root) =>
-    variants.map((variant) => joinWindowsPath(root, variant)),
+  const roots = getWindowsUserLocalBinRoots(platform);
+  const candidates = variants.flatMap((variant) =>
+    roots.map((root) => joinWindowsPath(root, variant)),
   );
   const resolved: string[] = [];
   for (const candidate of candidates) {
@@ -389,8 +374,9 @@ export async function resolveWindowsCommandFromGlobalNpmRoot(
     return [] as string[];
   }
   const variants = buildWindowsCommandCandidates(normalized);
-  const candidates = getWindowsGlobalNpmRoots(platform).flatMap((root) =>
-    variants.map((variant) => joinWindowsPath(root, variant)),
+  const roots = getWindowsGlobalNpmRoots(platform);
+  const candidates = variants.flatMap((variant) =>
+    roots.map((root) => joinWindowsPath(root, variant)),
   );
   const resolved: string[] = [];
   for (const candidate of candidates) {
@@ -415,8 +401,9 @@ export async function resolveWindowsCommandFromNodeInstallRoot(
     return [] as string[];
   }
   const variants = buildWindowsCommandCandidates(normalized);
-  const candidates = getWindowsNodeInstallRoots(platform).flatMap((root) =>
-    variants.map((variant) => joinWindowsPath(root, variant)),
+  const roots = getWindowsNodeInstallRoots(platform);
+  const candidates = variants.flatMap((variant) =>
+    roots.map((root) => joinWindowsPath(root, variant)),
   );
   const resolved: string[] = [];
   for (const candidate of candidates) {
@@ -487,7 +474,7 @@ export async function resolveWindowsCommandFromPowerShell(
       ]);
       const lines = String(output || "")
         .split(/\r?\n/)
-        .flatMap((entry) => expandResolvedWindowsCommandCandidate(entry))
+        .map((entry) => normalizeString(entry))
         .filter(Boolean);
       if (lines.length > 0) {
         return Array.from(new Set(lines));

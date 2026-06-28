@@ -12,11 +12,14 @@ import type { SessionNotification } from "./acpProtocol";
 import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
 import type { AcpDiagnosticsEntry } from "./acpTypes";
 import type { AcpSkillRunnerWorkspace } from "./acpSkillRunnerWorkspace";
+import { isDebugModeEnabled } from "./debugMode";
 
 export const ACP_RUN_AUDIT_SCHEMA = "zotero-skills.acp.run-audit.v1";
 export const ACP_TIMELINE_EVENT_SCHEMA = "zotero-skills.acp.timeline-event.v1";
 export const ACP_UPDATE_SUMMARY_SCHEMA = "zotero-skills.acp.update-summary.v1";
 export const ACP_FINAL_STATE_SCHEMA = "zotero-skills.acp.final-state.v1";
+export const ACP_TRANSPORT_AUDIT_SCHEMA =
+  "zotero-skills.acp.transport-audit.v1";
 
 const REDACTED = "<redacted>";
 const MAX_STRING_LENGTH = 4000;
@@ -34,6 +37,8 @@ type AuditTrailFiles = Record<
   | "run"
   | "timeline"
   | "acpUpdates"
+  | "bridge"
+  | "transport"
   | "stderr"
   | "runtimeLogs"
   | "prompt"
@@ -62,6 +67,8 @@ function auditFiles(runtimeDir: string): AuditTrailFiles {
     run: joinPath(runtimeDir, "run.json"),
     timeline: joinPath(runtimeDir, "timeline.ndjson"),
     acpUpdates: joinPath(runtimeDir, "acp-updates.ndjson"),
+    bridge: joinPath(runtimeDir, "bridge.ndjson"),
+    transport: joinPath(runtimeDir, "transport.ndjson"),
     stderr: joinPath(runtimeDir, "stderr.log"),
     runtimeLogs: joinPath(runtimeDir, "runtime-logs.ndjson"),
     prompt: joinPath(runtimeDir, "prompt.md"),
@@ -75,6 +82,10 @@ function publicFiles(files: AuditTrailFiles): Record<string, string> {
 
 export function resolveAcpSkillRunAuditTrailFiles(runtimeDir: string) {
   return publicFiles(auditFiles(runtimeDir));
+}
+
+export function shouldWriteDetailedAcpAuditArtifacts() {
+  return isDebugModeEnabled();
 }
 
 function truncateString(value: string, limit = MAX_STRING_LENGTH) {
@@ -229,8 +240,10 @@ function renderReadme() {
     "Files:",
     "",
     "- `run.json`: run metadata and path index.",
-    "- `timeline.ndjson`: lifecycle events, diagnostics, permissions, and workspace activity.",
-    "- `acp-updates.ndjson`: sanitized ACP session/update summaries.",
+    "- `timeline.ndjson`: debug-only lifecycle events, diagnostics, permissions, and workspace activity.",
+    "- `acp-updates.ndjson`: debug-only sanitized ACP session/update summaries.",
+    "- `bridge.ndjson`: debug-only Rust WebSocket bridge child process and stdio/WebSocket forwarding audit.",
+    "- `transport.ndjson`: debug-only plugin transport, WebSocket, and frame-level audit.",
     "- `stderr.log`: truncated ACP backend stderr tail.",
     "- `runtime-logs.ndjson`: sanitized runtime logs filtered by request id.",
     "- `prompt.md`: sanitized prompt sent to the ACP backend.",
@@ -332,6 +345,9 @@ export function appendAcpSkillRunAuditEvent(args: {
   runtimeDir?: string;
   event: AcpSkillRunEvent;
 }) {
+  if (!shouldWriteDetailedAcpAuditArtifacts()) {
+    return Promise.resolve();
+  }
   const runtimeDir = normalizeString(args.runtimeDir);
   if (!runtimeDir) {
     return Promise.resolve();
@@ -363,6 +379,9 @@ export function appendAcpSkillRunAuditDiagnostic(args: {
   runtimeDir?: string;
   entry: AcpDiagnosticsEntry;
 }) {
+  if (!shouldWriteDetailedAcpAuditArtifacts()) {
+    return Promise.resolve();
+  }
   const runtimeDir = normalizeString(args.runtimeDir);
   if (!runtimeDir) {
     return Promise.resolve();
@@ -384,6 +403,35 @@ export function appendAcpSkillRunAuditDiagnostic(args: {
           detail: args.entry.detail,
           errorName: args.entry.errorName,
           code: args.entry.code,
+        }),
+      );
+    },
+  });
+}
+
+export function appendAcpSkillRunTransportAuditEvent(args: {
+  requestId: string;
+  runtimeDir?: string;
+  event: Record<string, unknown>;
+}) {
+  if (!shouldWriteDetailedAcpAuditArtifacts()) {
+    return Promise.resolve();
+  }
+  const runtimeDir = normalizeString(args.runtimeDir);
+  if (!runtimeDir) {
+    return Promise.resolve();
+  }
+  return bestEffort({
+    requestId: args.requestId,
+    stage: "audit-append-transport-failed",
+    run: async () => {
+      await appendRuntimeTextFile(
+        auditFiles(runtimeDir).transport,
+        jsonLine({
+          schema: ACP_TRANSPORT_AUDIT_SCHEMA,
+          requestId: args.requestId,
+          ...args.event,
+          ts: safeIso(args.event.ts),
         }),
       );
     },
@@ -465,6 +513,9 @@ export function appendAcpSkillRunAuditUpdate(args: {
   runtimeDir?: string;
   event: SessionNotification;
 }) {
+  if (!shouldWriteDetailedAcpAuditArtifacts()) {
+    return Promise.resolve();
+  }
   const runtimeDir = normalizeString(args.runtimeDir);
   if (!runtimeDir) {
     return Promise.resolve();
@@ -562,6 +613,7 @@ export function writeAcpSkillRunAuditFinalState(args: {
   status?: string;
   error?: string;
   stderrText?: string;
+  transportLifecycle?: unknown;
 }) {
   const runtimeDir = normalizeString(
     args.runtimeDir || args.record?.runtimeDir,
@@ -594,6 +646,7 @@ export function writeAcpSkillRunAuditFinalState(args: {
             lastPromptStopReason: record?.lastPromptStopReason,
             error: args.error || record?.error,
             stderr: previewText(args.stderrText || ""),
+            transportLifecycle: args.transportLifecycle,
             updatedAt: record?.updatedAt,
           }),
           null,

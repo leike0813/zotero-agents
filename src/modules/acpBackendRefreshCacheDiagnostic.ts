@@ -35,6 +35,11 @@ import {
 } from "../platform/env";
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  appendAcpSkillRunTransportAuditEvent,
+  resolveAcpSkillRunAuditTrailFiles,
+  shouldWriteDetailedAcpAuditArtifacts,
+} from "./acpSkillRunAuditTrail";
 
 const ACP_REFRESH_DIAGNOSTIC_STAGE_TIMEOUT_MS = 60_000;
 const ACP_REFRESH_DIAGNOSTIC_TOAST_CLOSE_MS = 5_000;
@@ -150,7 +155,10 @@ function normalizeStringMap(value: unknown) {
   );
 }
 
-function tailText(value: unknown, maxLength = ACP_REFRESH_DIAGNOSTIC_TAIL_CHARS) {
+function tailText(
+  value: unknown,
+  maxLength = ACP_REFRESH_DIAGNOSTIC_TAIL_CHARS,
+) {
   const text = String(value || "");
   return text.length > maxLength ? text.slice(-maxLength) : text;
 }
@@ -261,7 +269,9 @@ function serializeError(error: unknown): SerializedError {
       message: stringifyErrorMessage(error.message) || error.name,
       stack: error.stack || "",
       code: readErrorProperty(error, "code") as string | number | undefined,
-      fileName: stringifyErrorMessage(readErrorProperty(error, "fileName")) || undefined,
+      fileName:
+        stringifyErrorMessage(readErrorProperty(error, "fileName")) ||
+        undefined,
       lineNumber:
         typeof readErrorProperty(error, "lineNumber") === "number"
           ? (readErrorProperty(error, "lineNumber") as number)
@@ -287,7 +297,8 @@ function serializeError(error: unknown): SerializedError {
       (error === undefined ? "undefined" : "unknown error"),
     stack,
     code: readErrorProperty(error, "code") as string | number | undefined,
-    fileName: stringifyErrorMessage(readErrorProperty(error, "fileName")) || undefined,
+    fileName:
+      stringifyErrorMessage(readErrorProperty(error, "fileName")) || undefined,
     lineNumber: typeof lineNumber === "number" ? lineNumber : undefined,
     errorCode: readErrorProperty(error, "errorCode") as
       | string
@@ -332,6 +343,14 @@ function compactLifecycle(value: unknown) {
     killedByClose: record.killedByClose,
     stdoutChars: record.stdoutChars,
     stderrChars: record.stderrChars,
+    transportKind: record.transportKind,
+    bridgePid: record.bridgePid,
+    childPid: record.childPid,
+    bridgeUrl: record.bridgeUrl,
+    spawnId: record.spawnId,
+    webSocketError: record.webSocketError,
+    webSocketClose: record.webSocketClose,
+    readError: record.readError,
     closeRequestedAt: record.closeRequestedAt,
     cleanupKillRequestedAt: record.cleanupKillRequestedAt,
   };
@@ -425,9 +444,7 @@ function compactRawTransportProbe(value: unknown) {
     commandLabel: record.commandLabel,
     commandLine: record.commandLine,
     environmentSummary: record.environmentSummary,
-    stages: Array.isArray(record.stages)
-      ? record.stages.map(compactStage)
-      : [],
+    stages: Array.isArray(record.stages) ? record.stages.map(compactStage) : [],
     exitedAfterSpawn: record.exitedAfterSpawn,
     exitedAfterInitializeWrite: record.exitedAfterInitializeWrite,
     initializeWrite: initializeWrite
@@ -541,9 +558,7 @@ function compactResolvedExeProbe(value: unknown) {
     outputFiles: record.outputFiles,
     resolution: record.resolution,
     parsedLaunch: record.parsedLaunch,
-    stages: Array.isArray(record.stages)
-      ? record.stages.map(compactStage)
-      : [],
+    stages: Array.isArray(record.stages) ? record.stages.map(compactStage) : [],
     initialize: initialize
       ? {
           ok: initialize.ok,
@@ -585,9 +600,7 @@ function compactNodeBridgeProbe(value: unknown) {
     targetResolution: record.targetResolution,
     parsedTargetLaunch: record.parsedTargetLaunch,
     bridgeCommandLine: record.bridgeCommandLine,
-    stages: Array.isArray(record.stages)
-      ? record.stages.map(compactStage)
-      : [],
+    stages: Array.isArray(record.stages) ? record.stages.map(compactStage) : [],
     initialize: initialize
       ? {
           ok: initialize.ok,
@@ -632,9 +645,7 @@ function compactWebSocketBridgeProbe(value: unknown) {
     bridgeCommandLine: record.bridgeCommandLine,
     bridgeReady: record.bridgeReady,
     bridgeUrl: record.bridgeUrl,
-    stages: Array.isArray(record.stages)
-      ? record.stages.map(compactStage)
-      : [],
+    stages: Array.isArray(record.stages) ? record.stages.map(compactStage) : [],
     initialize: initialize
       ? {
           ok: initialize.ok,
@@ -667,7 +678,9 @@ function compactStdinCapabilityMatrixProbe(value: unknown) {
   const cases = Array.isArray(record.cases)
     ? record.cases.map((entry) => {
         const probeCase = (entry || {}) as Record<string, unknown>;
-        const writeResult = probeCase.write as Record<string, unknown> | undefined;
+        const writeResult = probeCase.write as
+          | Record<string, unknown>
+          | undefined;
         return {
           id: probeCase.id,
           description: probeCase.description,
@@ -866,9 +879,7 @@ function compactBackendDiagnosticResult(value: unknown) {
     finishedAt: record.finishedAt,
     ok: record.ok,
     error: compactSerializedError(record.error),
-    stages: Array.isArray(record.stages)
-      ? record.stages.map(compactStage)
-      : [],
+    stages: Array.isArray(record.stages) ? record.stages.map(compactStage) : [],
     fileCaptureProbe: compactFileCaptureProbe(record.fileCaptureProbe),
     resolvedExeProbe: compactResolvedExeProbe(record.resolvedExeProbe),
     nodeBridgeProbe: compactNodeBridgeProbe(record.nodeBridgeProbe),
@@ -1332,9 +1343,8 @@ async function runPowerShellFileCaptureProbe(args: {
     workspaceDir: args.workspaceDir,
     files,
   });
-  let proc:
-    | Awaited<ReturnType<NonNullable<typeof subprocess.call>>>
-    | null = null;
+  let proc: Awaited<ReturnType<NonNullable<typeof subprocess.call>>> | null =
+    null;
   try {
     proc = await subprocess.call({
       command: shellCommand,
@@ -1411,7 +1421,9 @@ function getWindowsDirName(pathRaw: string) {
 }
 
 function joinWindowsPathFromBase(baseRaw: string, relativeRaw: string) {
-  const base = normalizeString(baseRaw).replace(/\//g, "\\").replace(/\\+$/, "");
+  const base = normalizeString(baseRaw)
+    .replace(/\//g, "\\")
+    .replace(/\\+$/, "");
   const relative = normalizeString(relativeRaw)
     .replace(/\//g, "\\")
     .replace(/^\\+/, "");
@@ -1526,7 +1538,9 @@ async function readMozillaPipeOnce(
   }
   const timeout = { timeout: true, text: "" };
   return await Promise.race([
-    pipe.readString().then((text) => ({ timeout: false, text: String(text || "") })),
+    pipe
+      .readString()
+      .then((text) => ({ timeout: false, text: String(text || "") })),
     new Promise<typeof timeout>((resolve) => {
       setTimeout(() => resolve(timeout), timeoutMs);
     }),
@@ -1641,7 +1655,9 @@ async function waitForRuntimeJsonFile(args: {
     }
     await delay(100);
   }
-  const error = new Error(`${args.label} was not ready within ${args.timeoutMs}ms`);
+  const error = new Error(
+    `${args.label} was not ready within ${args.timeoutMs}ms`,
+  );
   (error as { cause?: unknown }).cause = {
     lastText: tailText(lastText),
     lastError: lastError ? serializeError(lastError) : null,
@@ -1649,7 +1665,10 @@ async function waitForRuntimeJsonFile(args: {
   throw error;
 }
 
-function requestInitializeOverWebSocket(args: { url: string; timeoutMs: number }) {
+function requestInitializeOverWebSocket(args: {
+  url: string;
+  timeoutMs: number;
+}) {
   const WebSocketCtor = getDiagnosticWebSocketConstructor();
   const payload = `${JSON.stringify({
     jsonrpc: "2.0",
@@ -1809,15 +1828,16 @@ async function runResolvedExeSpikeProbe(args: {
   const commandArgs = Array.isArray(args.backend.args)
     ? args.backend.args.map(String)
     : [];
-  let proc:
-    | Awaited<ReturnType<NonNullable<typeof subprocess.call>>>
-    | null = null;
+  let proc: Awaited<ReturnType<NonNullable<typeof subprocess.call>>> | null =
+    null;
   let stdoutText = "";
   let stderrText = "";
 
   try {
     pushStage("resolve:start");
-    const env = buildSubprocessEnvironment(normalizeStringMap(args.backend.env));
+    const env = buildSubprocessEnvironment(
+      normalizeStringMap(args.backend.env),
+    );
     const resolution = await resolveRuntimeCommand(command, {
       pathValue: pickPathValue(env),
       pathSearch: null,
@@ -1849,7 +1869,9 @@ async function runResolvedExeSpikeProbe(args: {
       return result;
     }
     const parsedCommand = normalizeString(parsed.command);
-    const parsedArgs = Array.isArray(parsed.args) ? parsed.args.map(String) : [];
+    const parsedArgs = Array.isArray(parsed.args)
+      ? parsed.args.map(String)
+      : [];
     if (!parsedCommand) {
       result.ok = false;
       result.skipped = "parsed-command-empty";
@@ -1943,7 +1965,9 @@ async function runResolvedExeSpikeProbe(args: {
       try {
         const waitResult = await Promise.race([
           proc.wait ? proc.wait() : Promise.resolve(null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_000)),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 1_000),
+          ),
         ]);
         result.exitCode = extractSubprocessExitCode(proc, waitResult);
       } catch (error) {
@@ -2066,7 +2090,10 @@ async function runNodeBridgeSpikeProbe(args: {
 }) {
   const stdoutFile = joinPath(args.outputDir, "node-bridge-stdout.log");
   const stderrFile = joinPath(args.outputDir, "node-bridge-stderr.log");
-  const bridgeScript = joinPath(args.outputDir, "acp-node-stdio-bridge-spike.cjs");
+  const bridgeScript = joinPath(
+    args.outputDir,
+    "acp-node-stdio-bridge-spike.cjs",
+  );
   const result: Record<string, unknown> = {
     kind: "node-bridge-spike-probe",
     startedAt: new Date().toISOString(),
@@ -2093,14 +2120,15 @@ async function runNodeBridgeSpikeProbe(args: {
     return result;
   }
 
-  let proc:
-    | Awaited<ReturnType<NonNullable<typeof subprocess.call>>>
-    | null = null;
+  let proc: Awaited<ReturnType<NonNullable<typeof subprocess.call>>> | null =
+    null;
   let stdoutText = "";
   let stderrText = "";
 
   try {
-    const env = buildSubprocessEnvironment(normalizeStringMap(args.backend.env));
+    const env = buildSubprocessEnvironment(
+      normalizeStringMap(args.backend.env),
+    );
     pushStage("resolve-node:start");
     const nodeResolution = await resolveRuntimeCommand("node", {
       pathValue: pickPathValue(env),
@@ -2237,7 +2265,9 @@ async function runNodeBridgeSpikeProbe(args: {
       try {
         const waitResult = await Promise.race([
           proc.wait ? proc.wait() : Promise.resolve(null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_000)),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 1_000),
+          ),
         ]);
         result.exitCode = extractSubprocessExitCode(proc, waitResult);
       } catch (error) {
@@ -2531,12 +2561,13 @@ async function runWebSocketBridgeSpikeProbe(args: {
     return result;
   }
 
-  let proc:
-    | Awaited<ReturnType<NonNullable<typeof subprocess.call>>>
-    | null = null;
+  let proc: Awaited<ReturnType<NonNullable<typeof subprocess.call>>> | null =
+    null;
 
   try {
-    const env = buildSubprocessEnvironment(normalizeStringMap(args.backend.env));
+    const env = buildSubprocessEnvironment(
+      normalizeStringMap(args.backend.env),
+    );
     pushStage("resolve-node:start");
     const nodeResolution = await resolveRuntimeCommand("node", {
       pathValue: pickPathValue(env),
@@ -2661,7 +2692,9 @@ async function runWebSocketBridgeSpikeProbe(args: {
       try {
         const waitResult = await Promise.race([
           proc.wait ? proc.wait() : Promise.resolve(null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_000)),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 1_000),
+          ),
         ]);
         result.exitCode = extractSubprocessExitCode(proc, waitResult);
       } catch (error) {
@@ -2759,9 +2792,11 @@ type StdinCapabilityMatrixCase = {
 };
 
 function buildPowerShellCommandInvocation(command: string, args: string[]) {
-  return ["&", quotePowerShellSingleQuoted(command), ...args.map(quotePowerShellSingleQuoted)].join(
-    " ",
-  );
+  return [
+    "&",
+    quotePowerShellSingleQuoted(command),
+    ...args.map(quotePowerShellSingleQuoted),
+  ].join(" ");
 }
 
 async function runSingleStdinCapabilityCase(args: {
@@ -2793,9 +2828,9 @@ async function runSingleStdinCapabilityCase(args: {
   if (!subprocess?.call) {
     throw new Error("mozilla subprocess unavailable");
   }
-  let proc:
-    | Awaited<ReturnType<NonNullable<NonNullable<typeof subprocess>["call"]>>>
-    | null = null;
+  let proc: Awaited<
+    ReturnType<NonNullable<NonNullable<typeof subprocess>["call"]>>
+  > | null = null;
 
   try {
     await writeRuntimeTextFile(args.readyFile, "");
@@ -2867,7 +2902,9 @@ async function runSingleStdinCapabilityCase(args: {
     result.inputText = await readRuntimeTextFile(args.inputFile);
     result.outputText = await readRuntimeTextFile(args.outputFile);
     result.stderrText = await readRuntimeTextFile(args.stderrFile);
-    result.inputReceived = String(result.inputText || "").includes(payload.trim());
+    result.inputReceived = String(result.inputText || "").includes(
+      payload.trim(),
+    );
     result.outputObserved =
       String(result.stdoutText || "").includes(payload.trim()) ||
       String(result.outputText || "").includes(payload.trim());
@@ -2888,14 +2925,17 @@ async function runSingleStdinCapabilityCase(args: {
       try {
         const waitResult = await Promise.race([
           proc.wait ? proc.wait() : Promise.resolve(null),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_000)),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), 1_000),
+          ),
         ]);
         result.exitCode = extractSubprocessExitCode(proc, waitResult);
       } catch (error) {
         result.cleanupError = serializeError(error);
       }
     }
-    result.inputText = result.inputText || (await readRuntimeTextFile(args.inputFile));
+    result.inputText =
+      result.inputText || (await readRuntimeTextFile(args.inputFile));
     result.outputText =
       result.outputText || (await readRuntimeTextFile(args.outputFile));
     result.stderrText =
@@ -2924,7 +2964,9 @@ async function runStdinCapabilityMatrixProbe(args: {
   }
 
   try {
-    const env = buildSubprocessEnvironment(normalizeStringMap(args.backend.env));
+    const env = buildSubprocessEnvironment(
+      normalizeStringMap(args.backend.env),
+    );
     const nodeResolution = await resolveRuntimeCommand("node", {
       pathValue: pickPathValue(env),
       pathSearch: null,
@@ -2997,7 +3039,10 @@ async function runStdinCapabilityMatrixProbe(args: {
 
     const nodeCommand = nodeResolution.resolvedPath;
     const cmdCommand =
-      env.ComSpec || env.COMSPEC || env.ComSpec || "C:\\Windows\\System32\\cmd.exe";
+      env.ComSpec ||
+      env.COMSPEC ||
+      env.ComSpec ||
+      "C:\\Windows\\System32\\cmd.exe";
     const powershellCommand =
       getPreferredWindowsShellCommandsFromRegistry()[0] || "powershell.exe";
     const cmdScriptArgs = baseScriptArgs("cmd-ready");
@@ -3005,7 +3050,8 @@ async function runStdinCapabilityMatrixProbe(args: {
     const cases = [
       makeCase({
         id: "node-immediate-string",
-        description: "Direct node, immediate string write, hydrated env and current workspace",
+        description:
+          "Direct node, immediate string write, hydrated env and current workspace",
         command: nodeCommand,
         args: baseScriptArgs("node-immediate-string"),
         workdir: args.workspaceDir,
@@ -3083,7 +3129,12 @@ async function runStdinCapabilityMatrixProbe(args: {
         id: "cmd-ready",
         description: "cmd.exe wrapper around node echo script",
         command: cmdCommand,
-        args: ["/d", "/s", "/c", buildDiagnosticCommandLine(nodeCommand, cmdScriptArgs)],
+        args: [
+          "/d",
+          "/s",
+          "/c",
+          buildDiagnosticCommandLine(nodeCommand, cmdScriptArgs),
+        ],
         workdir: args.workspaceDir,
         environment: env,
         waitReady: true,
@@ -3188,7 +3239,11 @@ async function runZoteroInternalSubprocessProbe(args: {
   try {
     const output = await withTimeout(
       "Zotero.Utilities.Internal.subprocess one-shot probe",
-      subprocess(args.nodeCommand, ["-e", script, "zotero-internal-subprocess"]),
+      subprocess(args.nodeCommand, [
+        "-e",
+        script,
+        "zotero-internal-subprocess",
+      ]),
       ACP_REFRESH_DIAGNOSTIC_STDIN_MATRIX_TIMEOUT_MS,
     );
     const text = String(output || "");
@@ -3250,9 +3305,9 @@ async function runNsIProcessProbe(args: {
   const result: Record<string, unknown> = {
     available: Boolean(
       factories.localFileFactory?.createInstance &&
-        factories.processFactory?.createInstance &&
-        factories.nsIFile &&
-        factories.nsIProcess,
+      factories.processFactory?.createInstance &&
+      factories.nsIFile &&
+      factories.nsIProcess,
     ),
     hasLocalFileFactory: Boolean(factories.localFileFactory?.createInstance),
     hasProcessFactory: Boolean(factories.processFactory?.createInstance),
@@ -3279,7 +3334,11 @@ async function runNsIProcessProbe(args: {
     ) as
       | {
           init?: (file: unknown) => void;
-          runwAsync?: (args: string[], count: number, observer: unknown) => void;
+          runwAsync?: (
+            args: string[],
+            count: number,
+            observer: unknown,
+          ) => void;
           runAsync?: (args: string[], count: number, observer: unknown) => void;
           runw?: (blocking: boolean, args: string[], count: number) => void;
           run?: (blocking: boolean, args: string[], count: number) => void;
@@ -3418,7 +3477,9 @@ async function runAlternativeSubprocessProbe(args: {
     startedAt: new Date().toISOString(),
   };
   try {
-    const env = buildSubprocessEnvironment(normalizeStringMap(args.backend.env));
+    const env = buildSubprocessEnvironment(
+      normalizeStringMap(args.backend.env),
+    );
     const nodeResolution = await resolveRuntimeCommand("node", {
       pathValue: pickPathValue(env),
       pathSearch: null,
@@ -3441,12 +3502,15 @@ async function runAlternativeSubprocessProbe(args: {
     });
     result.nsIProcess = await runNsIProcessProbe({
       nodeCommand: nodeResolution.resolvedPath,
-      outputFile: joinPath(args.outputDir, "alternative-nsiprocess-output.json"),
+      outputFile: joinPath(
+        args.outputDir,
+        "alternative-nsiprocess-output.json",
+      ),
     });
     result.processUtils = probeProcessUtilsForDiagnostic();
     result.ok = Boolean(
       (result.zoteroInternalSubprocess as { ok?: unknown }).ok === true ||
-        (result.nsIProcess as { ok?: unknown }).ok === true,
+      (result.nsIProcess as { ok?: unknown }).ok === true,
     );
   } catch (error) {
     result.ok = false;
@@ -3464,6 +3528,9 @@ async function runRawAcpTransportProbe(args: {
 }) {
   const stdoutFile = joinPath(args.outputDir, "raw-transport-stdout.log");
   const stderrFile = joinPath(args.outputDir, "raw-transport-stderr.log");
+  const auditRuntimeDir = joinPath(args.outputDir, ".acp");
+  const auditFiles = resolveAcpSkillRunAuditTrailFiles(auditRuntimeDir);
+  const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
   let stdoutCaptureText = "";
   let stderrCaptureText = "";
   const result: Record<string, unknown> = {
@@ -3472,6 +3539,8 @@ async function runRawAcpTransportProbe(args: {
     outputFiles: {
       stdout: stdoutFile,
       stderr: stderrFile,
+      bridge: auditFiles.bridge,
+      transport: auditFiles.transport,
     },
     environmentSummary: summarizeSubprocessEnvironment(
       normalizeStringMap(args.backend.env),
@@ -3486,8 +3555,10 @@ async function runRawAcpTransportProbe(args: {
     });
   };
   let transport: Awaited<ReturnType<typeof launchAcpTransport>> | null = null;
-  let writer: { write: (chunk: Uint8Array) => Promise<void>; releaseLock: () => void } | null =
-    null;
+  let writer: {
+    write: (chunk: Uint8Array) => Promise<void>;
+    releaseLock: () => void;
+  } | null = null;
 
   try {
     pushStage("spawn:start");
@@ -3496,6 +3567,18 @@ async function runRawAcpTransportProbe(args: {
       cwd: args.workspaceDir,
       diagnosticCapture: {
         captureStdout: true,
+        ...(detailedAuditEnabled
+          ? {
+              bridgeAuditFile: auditFiles.bridge,
+              onAuditEvent: (event) =>
+                appendAcpSkillRunTransportAuditEvent({
+                  requestId:
+                    normalizeString(args.backend.id) || "raw-acp-probe",
+                  runtimeDir: auditRuntimeDir,
+                  event,
+                }),
+            }
+          : {}),
         onStdoutChunk: (chunk) => {
           stdoutCaptureText += chunk;
         },
@@ -3630,6 +3713,9 @@ async function runSingleBackendDiagnostic(args: {
   const startedAt = new Date().toISOString();
   const fingerprint = computeAcpBackendConfigFingerprint(backend);
   const dirs = buildProbeDirectories(backend);
+  const auditRuntimeDir = joinPath(dirs.runtimeDir, ".acp");
+  const auditFiles = resolveAcpSkillRunAuditTrailFiles(auditRuntimeDir);
+  const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
   const diagnostics: unknown[] = [];
   const closeEvents: unknown[] = [];
   const result: Record<string, unknown> = {
@@ -3642,6 +3728,7 @@ async function runSingleBackendDiagnostic(args: {
       normalizeStringMap(backend.env),
     ),
     configFingerprint: fingerprint,
+    auditFiles,
     startedAt,
     directories: dirs,
     stages: [],
@@ -3840,6 +3927,18 @@ async function runSingleBackendDiagnostic(args: {
       sessionCwd: dirs.workspaceDir,
       workspaceDir: dirs.workspaceDir,
       runtimeDir: dirs.runtimeDir,
+      diagnosticCapture: detailedAuditEnabled
+        ? {
+            bridgeAuditFile: auditFiles.bridge,
+            onAuditEvent: (event) =>
+              appendAcpSkillRunTransportAuditEvent({
+                requestId:
+                  normalizeString(backend.id) || "acp-refresh-diagnostic",
+                runtimeDir: auditRuntimeDir,
+                event,
+              }),
+          }
+        : undefined,
     });
     adapter.onDiagnostics((entry) => {
       diagnostics.push(entry);

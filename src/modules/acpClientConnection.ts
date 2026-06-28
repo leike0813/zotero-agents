@@ -87,13 +87,21 @@ export class AcpClientConnection {
     void this.receiveLoop();
   }
 
-  private resolveClosed() {
+  private resolveClosed(reason?: unknown) {
     if (this.closedResolved) {
       return;
     }
     this.closedResolved = true;
+    const closeError =
+      reason instanceof Error
+        ? reason
+        : new Error(
+            reason
+              ? String(reason || "ACP connection closed")
+              : "ACP connection closed",
+          );
     for (const [, pending] of this.pendingResponses) {
-      pending.reject(new Error("ACP connection closed"));
+      pending.reject(closeError);
     }
     this.pendingResponses.clear();
     this.closedResolver();
@@ -101,6 +109,7 @@ export class AcpClientConnection {
 
   private async receiveLoop() {
     const reader = this.stream.readable.getReader();
+    let failure: unknown = null;
     try {
       while (true) {
         const { value, done } = await reader.read();
@@ -112,9 +121,11 @@ export class AcpClientConnection {
         }
         await this.processMessage(value as JsonRpcMessage);
       }
+    } catch (error) {
+      failure = error;
     } finally {
       reader.releaseLock();
-      this.resolveClosed();
+      this.resolveClosed(failure || undefined);
     }
   }
 

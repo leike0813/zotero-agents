@@ -286,6 +286,54 @@ describe("acp client connection", function () {
     await connection.closed;
   });
 
+  it("rejects pending requests with the underlying stream read error", async function () {
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      {
+        readable: {
+          getReader() {
+            return {
+              async read() {
+                throw new Error("stdout frame decode failed");
+              },
+              releaseLock() {
+                return;
+              },
+            };
+          },
+        },
+        writable: {
+          getWriter() {
+            return {
+              async write() {
+                return;
+              },
+              releaseLock() {
+                return;
+              },
+            };
+          },
+        },
+      },
+    );
+
+    try {
+      await connection.initialize({
+        protocolVersion: ACP_PROTOCOL_VERSION,
+        clientCapabilities: {},
+      });
+      assert.fail("expected initialize to fail");
+    } catch (error) {
+      assert.match(
+        String((error as Error)?.message || error),
+        /stdout frame decode failed/,
+      );
+    }
+  });
+
   it("handles session/request_permission and responds with the selected outcome", async function () {
     const harness = createMessageHarness();
     let capturedRequest: RequestPermissionRequest | null = null;

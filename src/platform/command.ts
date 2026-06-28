@@ -68,6 +68,7 @@ type RuntimeCommandResolverOptions = {
   platform?: string;
   homeDir?: string;
   exists?: (path: string) => Promise<boolean>;
+  readText?: (path: string) => Promise<string> | string;
 };
 
 const STARTUP_COMMANDS: RuntimeCommandName[] = [
@@ -86,6 +87,14 @@ const STARTUP_COMMAND_SET = new Set<string>(STARTUP_COMMANDS);
 const WINDOWS_SHELL_COMMAND_PREFERENCE: RuntimeCommandName[] = [
   "pwsh",
   "powershell",
+];
+const WINDOWS_COMMAND_EXTENSION_PRIORITY = [
+  ".exe",
+  ".ps1",
+  ".cmd",
+  ".bat",
+  ".com",
+  "",
 ];
 
 let commandRegistry: RuntimeCommandRegistrySnapshot = {
@@ -113,11 +122,11 @@ export function buildPathCommandCandidates(args: {
   const extensions = isWindows
     ? /\.[A-Za-z0-9]+$/.test(command)
       ? [""]
-      : [".cmd", ".exe", ".bat", ".com"]
+      : WINDOWS_COMMAND_EXTENSION_PRIORITY
     : [""];
   const candidates: string[] = [];
-  for (const entry of pathEntries) {
-    for (const extension of extensions) {
+  for (const extension of extensions) {
+    for (const entry of pathEntries) {
       candidates.push(joinNativePath(entry, `${command}${extension}`));
     }
   }
@@ -133,6 +142,208 @@ function summarizeMissingCommand(command: string, checkedCandidates: string[]) {
 
 async function defaultPathExists(path: string) {
   return runtimeFileExists(path);
+}
+
+async function defaultReadTextFile(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    return "";
+  }
+  const runtime = globalThis as {
+    IOUtils?: { readUTF8?: (path: string) => Promise<string> };
+    OS?: { File?: { read?: (path: string) => Promise<Uint8Array> } };
+    TextDecoder?: new (encoding?: string) => { decode: (input: Uint8Array) => string };
+    process?: unknown;
+  };
+  try {
+    if (typeof runtime.IOUtils?.readUTF8 === "function") {
+      return await runtime.IOUtils.readUTF8(path);
+    }
+    if (typeof runtime.OS?.File?.read === "function") {
+      const Decoder = runtime.TextDecoder || TextDecoder;
+      return new Decoder("utf-8").decode(await runtime.OS.File.read(path));
+    }
+    if (runtime.process) {
+      const fs = await import("node:fs/promises");
+      return await fs.readFile(path, "utf8");
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function getWindowsCommandExtension(pathRaw: string) {
+  const match = normalizeString(pathRaw).match(/(\.[^.\\/]+)$/);
+  return (match?.[1] || "").toLowerCase();
+}
+
+function replaceWindowsCommandExtension(pathRaw: string, extension: string) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    return "";
+  }
+  if (/\.[^.\\/]+$/.test(path)) {
+    return path.replace(/\.[^.\\/]+$/, extension);
+  }
+  return `${path}${extension}`;
+}
+
+function isWindowsCommandExecutable(pathRaw: string) {
+  return /\.exe$/i.test(normalizeString(pathRaw));
+}
+
+function isWindowsCommandLaunchShim(pathRaw: string) {
+  return /\.(ps1|cmd|bat)$/i.test(normalizeString(pathRaw));
+}
+
+function buildWindowsCommandFamily(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path || !/\.(exe|ps1|cmd|bat|com)$/i.test(path)) {
+    return [path].filter(Boolean);
+  }
+  const candidates = WINDOWS_COMMAND_EXTENSION_PRIORITY.map((extension) =>
+    replaceWindowsCommandExtension(path, extension),
+  );
+  return Array.from(new Set(candidates.filter(Boolean)));
+}
+
+function rankWindowsCommandPath(pathRaw: string) {
+  const extension = getWindowsCommandExtension(pathRaw);
+  const index = WINDOWS_COMMAND_EXTENSION_PRIORITY.indexOf(extension);
+  return index >= 0 ? index : WINDOWS_COMMAND_EXTENSION_PRIORITY.length;
+}
+
+function joinWindowsPathFromBase(baseDir: string, relativePath: string) {
+  const cleanedRelative = normalizeString(relativePath).replace(/^[/\\]+/, "");
+  if (!cleanedRelative) {
+    return "";
+  }
+  return `${baseDir.replace(/[\\/]+$/, "")}\\${cleanedRelative.replace(/[\\/]+/g, "\\")}`;
+}
+
+function getWindowsDirName(pathRaw: string) {
+  const path = normalizeString(pathRaw).replace(/[\\/]+$/, "");
+  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return index > 0 ? path.slice(0, index) : "";
+}
+
+function parseDirectExecutableFromWindowsShim(args: {
+  shimPath: string;
+  shimText: string;
+}) {
+  const shimPath = normalizeString(args.shimPath);
+  const shimText = String(args.shimText || "");
+  const baseDir = getWindowsDirName(shimPath);
+  if (!shimPath || !shimText || !baseDir) {
+    return "";
+  }
+  const ps1Match =
+    shimText.match(/&\s+"\$(?:basedir|PSScriptRoot)[\\/]+([^"]+?\.exe)"\s+(?:\$args|@args)/iu) ||
+    shimText.match(/&\s+'\$(?:basedir|PSScriptRoot)[\\/]+([^']+?\.exe)'\s+(?:\$args|@args)/iu);
+  if (ps1Match?.[1]) {
+    return joinWindowsPathFromBase(baseDir, ps1Match[1]);
+  }
+  const cmdMatch =
+    shimText.match(/"%~?dp0[\\/]+([^"]+?\.exe)"\s+%[*0-9]/iu) ||
+    shimText.match(/"%~?dp0%[\\/]+([^"]+?\.exe)"\s+%[*0-9]/iu);
+  if (cmdMatch?.[1]) {
+    return joinWindowsPathFromBase(baseDir, cmdMatch[1]);
+  }
+  return "";
+}
+
+async function resolveWindowsShimExecutable(args: {
+  shimPath: string;
+  exists: (path: string) => Promise<boolean>;
+  readText: (path: string) => Promise<string> | string;
+}) {
+  const shimPath = normalizeString(args.shimPath);
+  if (!isWindowsCommandLaunchShim(shimPath)) {
+    return "";
+  }
+  const sameStemExe = replaceWindowsCommandExtension(shimPath, ".exe");
+  if (
+    sameStemExe &&
+    sameStemExe.toLowerCase() !== shimPath.toLowerCase() &&
+    (await args.exists(sameStemExe))
+  ) {
+    return sameStemExe;
+  }
+  let shimText = "";
+  try {
+    shimText = await args.readText(shimPath);
+  } catch {
+    shimText = "";
+  }
+  const parsedExe = parseDirectExecutableFromWindowsShim({
+    shimPath,
+    shimText,
+  });
+  if (parsedExe && (await args.exists(parsedExe))) {
+    return parsedExe;
+  }
+  return "";
+}
+
+async function normalizeWindowsResolvedCommandPath(args: {
+  candidate: string;
+  exists: (path: string) => Promise<boolean>;
+  readText: (path: string) => Promise<string> | string;
+  checkedCandidates: string[];
+}) {
+  const candidate = normalizeString(args.candidate);
+  if (!candidate || !/\.(exe|ps1|cmd|bat)$/i.test(candidate)) {
+    return candidate;
+  }
+  if (isWindowsCommandExecutable(candidate)) {
+    return candidate;
+  }
+  const candidateRank = rankWindowsCommandPath(candidate);
+  const family = buildWindowsCommandFamily(candidate);
+  for (const familyCandidate of family) {
+    if (familyCandidate.toLowerCase() === candidate.toLowerCase()) {
+      break;
+    }
+    if (rankWindowsCommandPath(familyCandidate) >= candidateRank) {
+      continue;
+    }
+    if (!(await args.exists(familyCandidate))) {
+      continue;
+    }
+    if (
+      isWindowsCommandLaunchShim(candidate) &&
+      isWindowsCommandExecutable(familyCandidate)
+    ) {
+      args.checkedCandidates.push(
+        `windows-shim-exe:${candidate}->${familyCandidate}`,
+      );
+      return familyCandidate;
+    }
+    const resolvedExe = await resolveWindowsShimExecutable({
+      shimPath: familyCandidate,
+      exists: args.exists,
+      readText: args.readText,
+    });
+    if (resolvedExe) {
+      args.checkedCandidates.push(
+        `windows-shim-exe:${familyCandidate}->${resolvedExe}`,
+      );
+      return resolvedExe;
+    }
+    args.checkedCandidates.push(`windows-priority:${familyCandidate}`);
+    return familyCandidate;
+  }
+  const resolvedExe = await resolveWindowsShimExecutable({
+    shimPath: candidate,
+    exists: args.exists,
+    readText: args.readText,
+  });
+  if (resolvedExe) {
+    args.checkedCandidates.push(`windows-shim-exe:${candidate}->${resolvedExe}`);
+    return resolvedExe;
+  }
+  return candidate;
 }
 
 function quoteCommandLineToken(value: string) {
@@ -154,11 +365,14 @@ function quotePowerShellSingleQuoted(value: string) {
 }
 
 function quoteCmdToken(value: string) {
-  return `"${String(value || "").replace(/"/g, '\\"')}"`;
+  return `"${String(value || "").replace(/"/g, '""')}"`;
 }
 
 function buildCmdInvokeScript(command: string, args: string[]) {
-  return [command, ...args].map((entry) => quoteCmdToken(entry)).join(" ");
+  const commandLine = [command, ...args]
+    .map((entry) => quoteCmdToken(entry))
+    .join(" ");
+  return `"${commandLine}"`;
 }
 
 function buildCmdShimArgs(command: string, args: string[]) {
@@ -421,6 +635,7 @@ export async function resolveRuntimeCommand(
   const platform =
     normalizeString(options?.platform) || detectRuntimePlatform();
   const exists = options?.exists || defaultPathExists;
+  const readText = options?.readText || defaultReadTextFile;
   if (!command) {
     return {
       command,
@@ -432,11 +647,20 @@ export async function resolveRuntimeCommand(
   if (isPathLikeCommand(command)) {
     checkedCandidates.push(command);
     if (await exists(command)) {
+      const resolvedPath =
+        platform === "win32"
+          ? await normalizeWindowsResolvedCommandPath({
+              candidate: command,
+              exists,
+              readText,
+              checkedCandidates,
+            })
+          : command;
       return withLaunchSpec(
         {
           command,
           available: true,
-          resolvedPath: command,
+          resolvedPath,
           source: "path-like",
           checkedCandidates,
         },
@@ -460,11 +684,20 @@ export async function resolveRuntimeCommand(
   });
   if (resolvedFromPathSearch) {
     checkedCandidates.push(`pathSearch:${command}`);
+    const resolvedPath =
+      platform === "win32"
+        ? await normalizeWindowsResolvedCommandPath({
+            candidate: resolvedFromPathSearch,
+            exists,
+            readText,
+            checkedCandidates,
+          })
+        : resolvedFromPathSearch;
     return withLaunchSpec(
       {
         command,
         available: true,
-        resolvedPath: resolvedFromPathSearch,
+        resolvedPath,
         source: "pathSearch",
         checkedCandidates,
       },
@@ -479,11 +712,20 @@ export async function resolveRuntimeCommand(
   })) {
     checkedCandidates.push(candidate);
     if (await exists(candidate)) {
+      const resolvedPath =
+        platform === "win32"
+          ? await normalizeWindowsResolvedCommandPath({
+              candidate,
+              exists,
+              readText,
+              checkedCandidates,
+            })
+          : candidate;
       return withLaunchSpec(
         {
           command,
           available: true,
-          resolvedPath: candidate,
+          resolvedPath,
           source: "path",
           checkedCandidates,
         },
@@ -522,11 +764,17 @@ export async function resolveRuntimeCommand(
         ...resolved.map((entry) => `${source.source}:${entry}`),
       );
       if (resolved.length > 0) {
+        const resolvedPath = await normalizeWindowsResolvedCommandPath({
+          candidate: normalizeString(resolved[0]),
+          exists,
+          readText,
+          checkedCandidates,
+        });
         return withLaunchSpec(
           {
             command,
             available: true,
-            resolvedPath: normalizeString(resolved[0]),
+            resolvedPath,
             source: source.source,
             checkedCandidates,
           },

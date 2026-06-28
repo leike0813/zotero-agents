@@ -8,6 +8,14 @@ import {
   type RuntimeCommandResolution,
 } from "../platform/command";
 import { buildSubprocessEnvironment } from "../platform/env";
+import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import {
+  ensureAcpWebSocketBridgeService,
+  getAcpWebSocketBridgeSnapshot,
+  getAcpWebSocketConstructor,
+  shouldUseAcpWebSocketBridgeTransport,
+  type AcpWebSocketLike,
+} from "./acpWebSocketBridgeService";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -98,6 +106,7 @@ export type AcpTransportExitSource =
   | "unknown";
 
 export type AcpTransportLifecycle = {
+  transportKind?: "mozilla-subprocess" | "node-subprocess" | "websocket-bridge";
   startedAt: string;
   closedAt?: string;
   closeRequestedAt?: string;
@@ -107,6 +116,13 @@ export type AcpTransportLifecycle = {
   killedByClose: boolean;
   stdoutChars: number;
   stderrChars: number;
+  bridgePid?: number | null;
+  childPid?: number | null;
+  bridgeUrl?: string;
+  spawnId?: string;
+  webSocketError?: string;
+  webSocketClose?: string;
+  readError?: string;
 };
 
 export type AcpTransportCloseOptions = {
@@ -114,8 +130,19 @@ export type AcpTransportCloseOptions = {
   kill?: boolean;
 };
 
+export type AcpTransportAuditEvent = {
+  schema: "zotero-skills.acp.transport-audit.v1";
+  ts: string;
+  event: string;
+  spawnId?: string;
+  transportKind?: AcpTransportLifecycle["transportKind"];
+  [key: string]: unknown;
+};
+
 export type AcpTransportDiagnosticCaptureOptions = {
   captureStdout?: boolean;
+  bridgeAuditFile?: string;
+  onAuditEvent?: (event: AcpTransportAuditEvent) => void | Promise<void>;
   onStdoutChunk?: (chunk: string) => void;
   onStderrChunk?: (chunk: string) => void;
 };
@@ -158,6 +185,53 @@ function extractExitCode(value: unknown) {
   );
 }
 
+function stringifyEventValue(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return "";
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  if (value instanceof Error) {
+    return value.message || value.name;
+  }
+  return "";
+}
+
+function describeWebSocketEvent(event: unknown) {
+  if (!event) {
+    return "";
+  }
+  if (typeof event !== "object") {
+    return String(event);
+  }
+  const record = event as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ["type", "message", "code", "reason", "wasClean"]) {
+    const value = stringifyEventValue(record[key]);
+    if (value) {
+      parts.push(`${key}=${value}`);
+    }
+  }
+  const errorText = stringifyEventValue(record.error);
+  if (errorText) {
+    parts.push(`error=${errorText}`);
+  }
+  const target = record.target;
+  if (target && typeof target === "object") {
+    const targetRecord = target as Record<string, unknown>;
+    const readyState = stringifyEventValue(targetRecord.readyState);
+    if (readyState) {
+      parts.push(`readyState=${readyState}`);
+    }
+  }
+  return parts.join(" ") || Object.prototype.toString.call(event);
+}
+
 function isNpxCommand(command: string) {
   return /(^|[\\/])npx(?:\.(?:cmd|bat|ps1|exe|com))?$/i.test(
     normalizeString(command),
@@ -198,8 +272,7 @@ export function buildAcpLaunchPlanForTests(args: {
     commandArgs,
     platform: args.platform,
     resolution: args.resolution,
-    preferWindowsBareCommandPowerShell:
-      args.preferWindowsBareCommandPowerShell,
+    preferWindowsBareCommandPowerShell: args.preferWindowsBareCommandPowerShell,
   });
   return {
     ...launchPlan,
@@ -246,6 +319,154 @@ function encodeUint8Chunk(
     }
   }
   return encoder.encode(String(value || ""));
+}
+
+function describeBinaryFrameValue(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (value === undefined) {
+    return "undefined";
+  }
+  if (typeof value !== "object") {
+    return typeof value;
+  }
+  return Object.prototype.toString.call(value);
+}
+
+function readBlobLikeWithFileReader(value: {
+  size?: number;
+  type?: string;
+}): Promise<ArrayBuffer> | null {
+  const runtime = globalThis as {
+    FileReader?: new () => {
+      result: string | ArrayBuffer | null;
+      error: unknown;
+      onload: (() => void) | null;
+      onerror: (() => void) | null;
+      readAsArrayBuffer: (blob: unknown) => void;
+    };
+  };
+  const Reader = runtime.FileReader;
+  if (typeof Reader !== "function") {
+    return null;
+  }
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new Reader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("FileReader did not return an ArrayBuffer"));
+    };
+    reader.onerror = () =>
+      reject(reader.error || new Error("FileReader failed"));
+    reader.readAsArrayBuffer(value);
+  });
+}
+
+async function decodeBinaryMessage(value: unknown) {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (typeof ArrayBuffer.isView === "function" && ArrayBuffer.isView(value)) {
+    const view = value as ArrayBufferView;
+    return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  }
+  if (value && typeof value === "object") {
+    const runtime = globalThis as {
+      Buffer?: {
+        isBuffer?: (value: unknown) => boolean;
+      };
+    };
+    if (runtime.Buffer?.isBuffer?.(value)) {
+      return new Uint8Array(value as ArrayBufferLike);
+    }
+    if (Object.prototype.toString.call(value) === "[object ArrayBuffer]") {
+      return new Uint8Array(value as ArrayBuffer);
+    }
+    const record = value as {
+      buffer?: ArrayBuffer;
+      byteOffset?: number;
+      byteLength?: number;
+    };
+    const buffer = record.buffer;
+    if (
+      buffer &&
+      (buffer instanceof ArrayBuffer ||
+        Object.prototype.toString.call(buffer) === "[object ArrayBuffer]")
+    ) {
+      return new Uint8Array(buffer, record.byteOffset || 0, record.byteLength);
+    }
+    const blobLike = value as {
+      arrayBuffer?: () => Promise<ArrayBuffer>;
+      size?: number;
+      type?: string;
+    };
+    if (typeof blobLike.arrayBuffer === "function") {
+      return new Uint8Array(await blobLike.arrayBuffer());
+    }
+    if (
+      typeof blobLike.size === "number" &&
+      typeof blobLike.type === "string"
+    ) {
+      const buffer = await readBlobLikeWithFileReader(blobLike);
+      if (buffer) {
+        return new Uint8Array(buffer);
+      }
+    }
+  }
+  return null;
+}
+
+function decodeBase64Text(value: unknown) {
+  const text = normalizeString(value);
+  if (!text) {
+    return "";
+  }
+  const runtime = globalThis as {
+    atob?: (value: string) => string;
+    Buffer?: {
+      from?: (
+        value: string,
+        encoding: string,
+      ) => { toString: (encoding: string) => string };
+    };
+  };
+  if (typeof runtime.atob === "function") {
+    const binary = runtime.atob(text);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const TextDecoderCtor = resolveTextDecoderCtor();
+    return new TextDecoderCtor("utf-8").decode(bytes);
+  }
+  if (typeof runtime.Buffer?.from === "function") {
+    return runtime.Buffer.from(text, "base64").toString("utf-8");
+  }
+  return "";
+}
+
+function randomTransportId() {
+  const runtime = globalThis as {
+    crypto?: { getRandomValues?: (array: Uint8Array) => Uint8Array };
+  };
+  const bytes = new Uint8Array(16);
+  if (typeof runtime.crypto?.getRandomValues === "function") {
+    runtime.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function getMozillaSubprocessModule() {
@@ -357,6 +578,20 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function dispatchTransportAuditEvent(
+  options: AcpTransportDiagnosticCaptureOptions | undefined,
+  event: AcpTransportAuditEvent,
+) {
+  try {
+    const result = options?.onAuditEvent?.(event);
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      void (result as Promise<void>).catch(() => undefined);
+    }
+  } catch {
+    // Audit callbacks must not affect transport flow.
+  }
+}
+
 function createLifecycleState(): AcpTransportLifecycle {
   return {
     startedAt: nowIso(),
@@ -438,10 +673,7 @@ async function launchMozillaAcpTransport(
     throw new Error("mozilla subprocess unavailable");
   }
   const backendCommand = normalizeString(args.backend.command);
-  const resolved = await resolveMozillaCommand(
-    subprocess,
-    backendCommand,
-  );
+  const resolved = await resolveMozillaCommand(subprocess, backendCommand);
   const registryResolution = getCachedRuntimeCommand(backendCommand);
   const launchPlan = buildAcpLaunchPlanForTests({
     command: backendCommand,
@@ -463,6 +695,7 @@ async function launchMozillaAcpTransport(
   let stderrText = "";
   let stdoutText = "";
   const lifecycle = createLifecycleState();
+  lifecycle.transportKind = "mozilla-subprocess";
   const stderrCapture = captureMozillaPipeTail(proc.stderr, (chunk) => {
     stderrText = appendTail(stderrText, chunk);
     lifecycle.stderrChars += String(chunk || "").length;
@@ -619,6 +852,7 @@ async function launchNodeAcpTransport(
   let stderrText = "";
   let stdoutText = "";
   const lifecycle = createLifecycleState();
+  lifecycle.transportKind = "node-subprocess";
   child.stderr.on("data", (chunk: Buffer | string) => {
     stderrText = appendTail(stderrText, chunk);
     lifecycle.stderrChars += String(chunk || "").length;
@@ -808,8 +1042,446 @@ async function launchNodeAcpTransport(
   };
 }
 
+function createWebSocketStdoutReadable(args: {
+  queue: Uint8Array[];
+  waiting: Array<{
+    resolve: (result: AcpReadResult<Uint8Array>) => void;
+    reject: (error: unknown) => void;
+  }>;
+  getEnded: () => boolean;
+  getError: () => unknown;
+}) {
+  return {
+    getReader() {
+      let released = false;
+      return {
+        async read() {
+          if (released) {
+            return { done: true, value: undefined };
+          }
+          const error = args.getError();
+          if (error) {
+            throw error;
+          }
+          if (args.queue.length > 0) {
+            return {
+              done: false,
+              value: args.queue.shift(),
+            };
+          }
+          if (args.getEnded()) {
+            return { done: true, value: undefined };
+          }
+          return new Promise<AcpReadResult<Uint8Array>>((resolve, reject) => {
+            args.waiting.push({ resolve, reject });
+          });
+        },
+        releaseLock() {
+          released = true;
+        },
+      };
+    },
+  } satisfies AcpReadableLike<Uint8Array>;
+}
+
+function createWebSocketStdinWritable(args: {
+  socket: AcpWebSocketLike;
+  getClosed: () => boolean;
+  getError: () => unknown;
+  onWrite?: (chunk: Uint8Array) => void;
+  onClose?: (reason: "close" | "abort") => void;
+}) {
+  return {
+    getWriter() {
+      let released = false;
+      return {
+        async write(chunk: Uint8Array) {
+          if (released) {
+            throw new Error("websocket bridge stdin writer lock released");
+          }
+          const error = args.getError();
+          if (error) {
+            throw error;
+          }
+          if (args.getClosed()) {
+            throw new Error("websocket bridge transport is closed");
+          }
+          args.onWrite?.(chunk);
+          args.socket.send(chunk);
+        },
+        async close() {
+          try {
+            args.onClose?.("close");
+            args.socket.close();
+          } catch {
+            // ignore close errors
+          }
+        },
+        async abort() {
+          try {
+            args.onClose?.("abort");
+            args.socket.close();
+          } catch {
+            // ignore close errors
+          }
+        },
+        releaseLock() {
+          released = true;
+        },
+      };
+    },
+  } satisfies AcpWritableLike<Uint8Array>;
+}
+
+async function launchWebSocketBridgeAcpTransport(
+  args: AcpTransportLaunchArgs,
+  subprocess: MozillaSubprocessModule,
+): Promise<AcpTransport> {
+  const backendCommand = normalizeString(args.backend.command);
+  const resolved = await resolveMozillaCommand(subprocess, backendCommand);
+  const registryResolution = getCachedRuntimeCommand(backendCommand);
+  const launchPlan = buildAcpLaunchPlanForTests({
+    command: backendCommand,
+    resolvedCommand: resolved.resolvedPath || backendCommand,
+    args: args.backend.args || [],
+    resolution: resolved,
+    preferWindowsBareCommandPowerShell: !registryResolution,
+  });
+  const env = buildSubprocessEnvironment({
+    ...(launchPlan.environment || {}),
+    ...(args.backend.env || {}),
+  });
+  const bridge = await ensureAcpWebSocketBridgeService();
+  const bridgeSnapshot = getAcpWebSocketBridgeSnapshot();
+  const WebSocketCtor = getAcpWebSocketConstructor();
+  const socket = new WebSocketCtor(bridge.url);
+  socket.binaryType = "arraybuffer";
+
+  let stderrText = "";
+  let stdoutText = "";
+  let ended = false;
+  let closed = false;
+  let pendingError: unknown = null;
+  let closeResolve: (() => void) | null = null;
+  let spawnResolve: (() => void) | null = null;
+  let spawnReject: ((error: unknown) => void) | null = null;
+  let messageQueue = Promise.resolve();
+  const stdoutQueue: Uint8Array[] = [];
+  const stdoutWaiting: Array<{
+    resolve: (result: AcpReadResult<Uint8Array>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  const lifecycle = createLifecycleState();
+  lifecycle.transportKind = "websocket-bridge";
+  lifecycle.bridgePid = bridge.pid;
+  lifecycle.bridgeUrl = bridgeSnapshot?.url;
+  lifecycle.spawnId = randomTransportId();
+  const emitAudit = (
+    event: string,
+    details: Record<string, unknown> = {},
+  ) => {
+    dispatchTransportAuditEvent(args.diagnosticCapture, {
+      schema: "zotero-skills.acp.transport-audit.v1",
+      ts: nowIso(),
+      event,
+      spawnId: lifecycle.spawnId,
+      transportKind: lifecycle.transportKind,
+      ...details,
+    });
+  };
+  emitAudit("launch_plan_built", {
+    commandLabel: launchPlan.commandLabel,
+    commandLine: launchPlan.commandLine,
+    mode: launchPlan.mode,
+    command: launchPlan.command,
+    argCount: launchPlan.args.length,
+    envKeys: Object.keys(env).sort(),
+    bridgePid: bridge.pid,
+    bridgeUrl: bridgeSnapshot?.url,
+    bridgeAuditFile: normalizeString(args.diagnosticCapture?.bridgeAuditFile),
+  });
+  emitAudit("websocket_connecting", {
+    bridgePid: bridge.pid,
+  });
+
+  const flushStdout = () => {
+    while (stdoutWaiting.length > 0) {
+      if (pendingError) {
+        stdoutWaiting.shift()?.reject(pendingError);
+        continue;
+      }
+      if (stdoutQueue.length > 0) {
+        stdoutWaiting.shift()?.resolve({
+          done: false,
+          value: stdoutQueue.shift(),
+        });
+        continue;
+      }
+      if (ended) {
+        stdoutWaiting.shift()?.resolve({ done: true, value: undefined });
+        continue;
+      }
+      break;
+    }
+  };
+
+  const fail = (error: unknown) => {
+    pendingError = error;
+    spawnReject?.(error);
+    flushStdout();
+  };
+
+  const closedPromise = new Promise<void>((resolve) => {
+    closeResolve = resolve;
+  });
+
+  const spawnedPromise = new Promise<void>((resolve, reject) => {
+    spawnResolve = resolve;
+    spawnReject = reject;
+  });
+
+  socket.onopen = () => {
+    emitAudit("websocket_open", {
+      bridgePid: bridge.pid,
+    });
+    const spawnRequest: Record<string, unknown> = {
+      type: "spawn",
+      id: lifecycle.spawnId,
+      command: launchPlan.command,
+      args: launchPlan.args,
+      cwd: args.cwd,
+      env,
+    };
+    const bridgeAuditFile = normalizeString(
+      args.diagnosticCapture?.bridgeAuditFile,
+    );
+    if (bridgeAuditFile) {
+      spawnRequest.auditFile = bridgeAuditFile;
+    }
+    socket.send(JSON.stringify(spawnRequest));
+    emitAudit("spawn_request_sent", {
+      command: launchPlan.command,
+      argCount: launchPlan.args.length,
+      cwd: args.cwd,
+      envKeys: Object.keys(env).sort(),
+      bridgeAuditFile,
+    });
+  };
+  const handleMessage = async (event: { data?: unknown }) => {
+    if (typeof event.data === "string") {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
+        fail(error);
+        return;
+      }
+      const type = normalizeString(message.type);
+      if (type === "spawned") {
+        lifecycle.childPid = toFiniteExitCode(message.pid);
+        emitAudit("spawned_received", {
+          childPid: lifecycle.childPid,
+        });
+        spawnResolve?.();
+        return;
+      }
+      if (type === "stderr") {
+        const chunk = decodeBase64Text(message.dataBase64);
+        stderrText = appendTail(stderrText, chunk);
+        lifecycle.stderrChars += chunk.length;
+        args.diagnosticCapture?.onStderrChunk?.(chunk);
+        emitAudit("stderr_control_received", {
+          bytes: chunk.length,
+          stderrChars: lifecycle.stderrChars,
+        });
+        return;
+      }
+      if (type === "exit") {
+        lifecycle.exitCode = toFiniteExitCode(message.code);
+        lifecycle.exitSource = lifecycle.killedByClose
+          ? "cleanup-kill"
+          : lifecycle.exitCode === null
+            ? "unknown"
+            : "natural-exit";
+        ended = true;
+        emitAudit("exit_received", {
+          exitCode: lifecycle.exitCode,
+          exitSource: lifecycle.exitSource,
+        });
+        flushStdout();
+        return;
+      }
+      if (type === "error") {
+        emitAudit("bridge_error_received", {
+          message: normalizeString(message.message) || "ACP bridge error",
+        });
+        fail(new Error(normalizeString(message.message) || "ACP bridge error"));
+      }
+      return;
+    }
+    const bytes = await decodeBinaryMessage(event.data);
+    if (!bytes) {
+      const error = new Error(
+        `ACP bridge stdout frame has unsupported data type: ${describeBinaryFrameValue(
+          event.data,
+        )}`,
+      );
+      lifecycle.readError = error.message;
+      fail(error);
+      return;
+    }
+    const TextDecoderCtor = resolveTextDecoderCtor();
+    const chunkText = new TextDecoderCtor("utf-8").decode(bytes);
+    stdoutText = appendTail(stdoutText, chunkText);
+    lifecycle.stdoutChars += bytes.byteLength;
+    args.diagnosticCapture?.onStdoutChunk?.(chunkText);
+    emitAudit("stdout_frame_received", {
+      bytes: bytes.byteLength,
+      stdoutChars: lifecycle.stdoutChars,
+    });
+    if (!args.diagnosticCapture?.captureStdout) {
+      stdoutQueue.push(bytes);
+      flushStdout();
+    }
+  };
+  socket.onmessage = (event: { data?: unknown }) => {
+    messageQueue = messageQueue
+      .then(() => handleMessage(event))
+      .catch((error) => fail(error));
+  };
+  socket.onerror = (event: unknown) => {
+    const detail = describeWebSocketEvent(event);
+    lifecycle.webSocketError = detail;
+    emitAudit("websocket_error", {
+      detail,
+    });
+    fail(new Error(`ACP bridge WebSocket error${detail ? `: ${detail}` : ""}`));
+  };
+  const handleClose = (event: unknown) => {
+    const detail = describeWebSocketEvent(event);
+    lifecycle.webSocketClose = detail;
+    closed = true;
+    ended = true;
+    lifecycle.closedAt ||= nowIso();
+    if (lifecycle.exitSource === "running") {
+      lifecycle.exitSource = lifecycle.killedByClose
+        ? "cleanup-kill"
+        : lifecycle.exitCode === null
+          ? "unknown"
+          : "natural-exit";
+    }
+    if (
+      !lifecycle.killedByClose &&
+      lifecycle.exitCode === null &&
+      !pendingError
+    ) {
+      pendingError = new Error(
+        `ACP bridge WebSocket closed before exit frame${
+          detail ? `: ${detail}` : ""
+        }`,
+      );
+    }
+    emitAudit("websocket_close", {
+      detail,
+      exitCode: lifecycle.exitCode,
+      exitSource: lifecycle.exitSource,
+      killedByClose: lifecycle.killedByClose,
+    });
+    spawnReject?.(
+      pendingError || new Error("ACP bridge WebSocket closed before spawn"),
+    );
+    flushStdout();
+    closeResolve?.();
+  };
+  socket.onclose = (event: unknown) => {
+    messageQueue = messageQueue
+      .catch((error) => {
+        fail(error);
+      })
+      .then(() => handleClose(event));
+  };
+
+  await spawnedPromise;
+
+  const waitForExit = (timeoutMs: number) =>
+    waitForPromiseWithTimeout(closedPromise, timeoutMs);
+
+  return {
+    stdin: createWebSocketStdinWritable({
+      socket,
+      getClosed: () => closed,
+      getError: () => pendingError,
+      onWrite: (chunk) => {
+        emitAudit("stdin_write", {
+          bytes: chunk.byteLength,
+        });
+      },
+      onClose: (reason) => {
+        emitAudit("stdin_close", {
+          reason,
+        });
+      },
+    }),
+    stdout: createWebSocketStdoutReadable({
+      queue: stdoutQueue,
+      waiting: stdoutWaiting,
+      getEnded: () => ended,
+      getError: () => pendingError,
+    }),
+    close: async (options?: AcpTransportCloseOptions) => {
+      lifecycle.closeRequestedAt ||= nowIso();
+      emitAudit("transport_close_requested", {
+        graceMs: options?.graceMs ?? ACP_TRANSPORT_CLOSE_GRACE_MS,
+        kill: options?.kill !== false,
+      });
+      const graceMs = options?.graceMs ?? ACP_TRANSPORT_CLOSE_GRACE_MS;
+      if (await waitForExit(graceMs)) {
+        emitAudit("transport_close_completed", {
+          exitCode: lifecycle.exitCode,
+          exitSource: lifecycle.exitSource,
+        });
+        return;
+      }
+      if (options?.kill === false) {
+        emitAudit("transport_close_deferred", {
+          reason: "kill-disabled",
+        });
+        return;
+      }
+      lifecycle.cleanupKillRequestedAt ||= nowIso();
+      lifecycle.killedByClose = true;
+      emitAudit("transport_cleanup_kill_requested", {});
+      try {
+        socket.close();
+      } catch {
+        // ignore close errors
+      }
+      await closedPromise;
+      emitAudit("transport_close_completed", {
+        exitCode: lifecycle.exitCode,
+        exitSource: lifecycle.exitSource,
+      });
+    },
+    closed: closedPromise,
+    waitForExit,
+    getExitCode: () => lifecycle.exitCode,
+    getStdoutText: () => stdoutText,
+    getStderrText: () => stderrText,
+    getLifecycle: () => cloneLifecycleState(lifecycle),
+    getCommandLabel: () => launchPlan.commandLabel,
+    getCommandLine: () => launchPlan.commandLine,
+  };
+}
+
 export async function launchAcpTransport(args: AcpTransportLaunchArgs) {
-  if (getMozillaSubprocessModule()) {
+  const subprocess = getMozillaSubprocessModule();
+  if (subprocess) {
+    if (
+      detectRuntimePlatform() === "win32" &&
+      shouldUseAcpWebSocketBridgeTransport()
+    ) {
+      return launchWebSocketBridgeAcpTransport(args, subprocess);
+    }
     return launchMozillaAcpTransport(args);
   }
   return launchNodeAcpTransport(args);

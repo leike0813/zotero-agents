@@ -113,8 +113,11 @@ import {
 import {
   appendAcpSkillRunAuditDiagnostic,
   appendAcpSkillRunAuditEvent,
+  appendAcpSkillRunTransportAuditEvent,
   appendAcpSkillRunAuditUpdate,
   initializeAcpSkillRunAuditTrail,
+  resolveAcpSkillRunAuditTrailFiles,
+  shouldWriteDetailedAcpAuditArtifacts,
   writeAcpSkillRunAuditFinalState,
   writeAcpSkillRunAuditPrompt,
   writeAcpSkillRunAuditRuntimeLogs,
@@ -195,6 +198,7 @@ type AcpPromptOutcome = {
 
 const DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS = 1200;
 const ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS = 250;
+const ACP_SKILL_OUTPUT_DIAGNOSTIC_TEXT_TAIL_CHARS = 2000;
 
 const ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS = new Set([
   "no_cache",
@@ -205,6 +209,14 @@ const ACP_SKILL_RUNTIME_DEFAULT_OPTION_KEYS = new Set([
   "workspace",
   "env",
   "collect_skill_run_feedback",
+]);
+
+const ACP_OBSERVABLE_PROMPT_OUTPUT_UPDATE_KINDS = new Set([
+  "agent_message_chunk",
+  "agent_thought_chunk",
+  "tool_call",
+  "tool_call_update",
+  "plan",
 ]);
 
 type AcpHardTimeoutSource = "request" | "runner" | "default";
@@ -234,6 +246,18 @@ class AcpPromptFailureError extends Error {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function isObservableAcpPromptOutputUpdateKind(value: unknown) {
+  return ACP_OBSERVABLE_PROMPT_OUTPUT_UPDATE_KINDS.has(normalizeString(value));
+}
+
+function tailDiagnosticText(value: unknown) {
+  const text = String(value || "");
+  if (text.length <= ACP_SKILL_OUTPUT_DIAGNOSTIC_TEXT_TAIL_CHARS) {
+    return text;
+  }
+  return text.slice(-ACP_SKILL_OUTPUT_DIAGNOSTIC_TEXT_TAIL_CHARS);
 }
 
 function toPositiveInteger(value: unknown) {
@@ -343,6 +367,78 @@ function classifyAcpPromptError(error: unknown): AcpPromptFailureDiagnostic {
       data: maybeRequestError.data,
     },
   };
+}
+
+type InvalidAcpSkillOutputConvergence = Extract<
+  AcpSkillOutputConvergenceResult,
+  { kind: "invalid" }
+>;
+
+function buildAcpSkillOutputValidationFailureDetails(args: {
+  convergence: InvalidAcpSkillOutputConvergence;
+  promptOutcome?: AcpPromptOutcome;
+  repairRound: number;
+  maxRepairRounds: number;
+  detachedReply?: boolean;
+  recovered?: boolean;
+}) {
+  const assistantText = String(args.promptOutcome?.assistantText || "");
+  const candidateText = String(args.convergence.candidateText || "");
+  const details: Record<string, unknown> = {
+    errors: args.convergence.errors,
+    repairRound: args.repairRound,
+    maxRepairRounds: args.maxRepairRounds,
+    stopReason: normalizeString(args.promptOutcome?.stopReason),
+    sessionId: normalizeString(args.promptOutcome?.sessionId),
+    observedAcpActivity: args.promptOutcome?.observedAcpActivity === true,
+    standardAssistantTextSeen:
+      args.promptOutcome?.standardAssistantTextSeen === true,
+    assistantTextChars: assistantText.length,
+    assistantTextTail: tailDiagnosticText(assistantText),
+    candidateTextChars: candidateText.length,
+  };
+  const candidateTail = tailDiagnosticText(candidateText);
+  if (candidateTail && candidateTail !== details.assistantTextTail) {
+    details.candidateTextTail = candidateTail;
+  }
+  if (args.detachedReply === true) {
+    details.detachedReply = true;
+  }
+  if (args.recovered === true) {
+    details.recovered = true;
+  }
+  return details;
+}
+
+function appendAcpSkillOutputValidationFailureRuntimeLog(args: {
+  backend: BackendInstance;
+  requestId: string;
+  workflowId?: string;
+  runId?: string;
+  jobId?: string;
+  stage: string;
+  message: string;
+  phase: "running" | "terminal";
+  level: "warn" | "error";
+  details: Record<string, unknown>;
+}) {
+  appendRuntimeLog({
+    level: args.level,
+    scope: "provider",
+    workflowId: normalizeString(args.workflowId),
+    runId: normalizeString(args.runId),
+    jobId: normalizeString(args.jobId),
+    backendId: args.backend.id,
+    backendType: args.backend.type,
+    providerId: "acp",
+    requestId: args.requestId,
+    component: "acp-skillrunner",
+    operation: "execute",
+    phase: args.phase,
+    stage: args.stage,
+    message: args.message,
+    details: args.details,
+  });
 }
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
@@ -2159,12 +2255,25 @@ export async function recoverAcpSkillRunConversation(args: {
   }
   const createAdapter =
     args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const auditFiles = resolveAcpSkillRunAuditTrailFiles(runtimeDir);
+  const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
   const adapter = await createAdapter({
     backend: dependencyPlan.wrappedBackend,
     agentWorkspaceDir: workspaceDir,
     sessionCwd: workspaceDir,
     workspaceDir,
     runtimeDir,
+    diagnosticCapture: detailedAuditEnabled
+      ? {
+          bridgeAuditFile: normalizeString(auditFiles.bridge),
+          onAuditEvent: (event) =>
+            appendAcpSkillRunTransportAuditEvent({
+              requestId,
+              runtimeDir,
+              event,
+            }),
+        }
+      : undefined,
   });
   let cleanupDone = false;
   let captureAssistantText = false;
@@ -2666,6 +2775,14 @@ export async function recoverAcpSkillRunConversation(args: {
         repairRound,
         errors: convergence.errors,
       });
+      const outputValidationFailureDetails =
+        buildAcpSkillOutputValidationFailureDetails({
+          convergence,
+          promptOutcome,
+          repairRound,
+          maxRepairRounds,
+          recovered: true,
+        });
       upsertAcpSkillRun({
         requestId,
         status: repairRound < maxRepairRounds ? "repairing" : "failed",
@@ -2682,12 +2799,20 @@ export async function recoverAcpSkillRunConversation(args: {
           stage: "recovered-output-validation-failed",
           message: "Recovered ACP skill output validation failed.",
           level: repairRound < maxRepairRounds ? "warn" : "error",
-          details: {
-            errors: convergence.errors,
-            repairRound,
-            maxRepairRounds,
-          },
+          details: outputValidationFailureDetails,
         },
+      });
+      appendAcpSkillOutputValidationFailureRuntimeLog({
+        backend,
+        requestId,
+        workflowId: latest.workflowId,
+        runId: latest.runId,
+        jobId: latest.jobId,
+        stage: "recovered-output-validation-failed",
+        message: "Recovered ACP skill output validation failed.",
+        phase: repairRound < maxRepairRounds ? "running" : "terminal",
+        level: repairRound < maxRepairRounds ? "warn" : "error",
+        details: outputValidationFailureDetails,
       });
       if (repairRound >= maxRepairRounds) {
         throw new Error(
@@ -2749,7 +2874,10 @@ export async function recoverAcpSkillRunConversation(args: {
       runtimeDir: record.runtimeDir,
       event,
     });
-    if (captureAssistantText && normalizeString(update.sessionUpdate)) {
+    if (
+      captureAssistantText &&
+      isObservableAcpPromptOutputUpdateKind(update.sessionUpdate)
+    ) {
       currentTurnObservedAcpActivity = true;
     }
     if (
@@ -2822,6 +2950,7 @@ export async function recoverAcpSkillRunConversation(args: {
       runtimeDir: record.runtimeDir,
       record: getAcpSkillRunRecord(requestId),
       stderrText,
+      transportLifecycle: event?.transportLifecycle,
     });
     registerAcpSkillRunController(requestId, null);
   });
@@ -3371,12 +3500,25 @@ export async function executeAcpSkillRunnerJob(args: {
     args.dependencies?.createAdapter || createAcpConnectionAdapter;
   let adapter: AcpConnectionAdapter;
   try {
+    const bridgeAuditFile = normalizeString(auditTrail.files.bridge);
+    const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
     adapter = await createAdapter({
       backend: dependencyPlan.wrappedBackend,
       agentWorkspaceDir: workspace.workspaceDir,
       sessionCwd: workspace.workspaceDir,
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
+      diagnosticCapture: detailedAuditEnabled
+        ? {
+            bridgeAuditFile,
+            onAuditEvent: (event) =>
+              appendAcpSkillRunTransportAuditEvent({
+                requestId: workspace.requestId,
+                runtimeDir: workspace.runtimeDir,
+                event,
+              }),
+          }
+        : undefined,
     });
   } catch (error) {
     const message =
@@ -3994,7 +4136,10 @@ export async function executeAcpSkillRunnerJob(args: {
       runtimeDir: workspace.runtimeDir,
       event,
     });
-    if (captureAssistantText && normalizeString(update.sessionUpdate)) {
+    if (
+      captureAssistantText &&
+      isObservableAcpPromptOutputUpdateKind(update.sessionUpdate)
+    ) {
       currentTurnObservedAcpActivity = true;
     }
     if (
@@ -4070,6 +4215,7 @@ export async function executeAcpSkillRunnerJob(args: {
       runtimeDir: workspace.runtimeDir,
       record: getAcpSkillRunRecord(workspace.requestId),
       stderrText,
+      transportLifecycle: event?.transportLifecycle,
     });
     if (keepConversationAlive) {
       void cleanupLiveSession({
@@ -4399,6 +4545,14 @@ export async function executeAcpSkillRunnerJob(args: {
           repairRound: detachedRepairRound,
           errors: detachedConvergence.errors,
         });
+        const outputValidationFailureDetails =
+          buildAcpSkillOutputValidationFailureDetails({
+            convergence: detachedConvergence,
+            promptOutcome,
+            repairRound: detachedRepairRound,
+            maxRepairRounds,
+            detachedReply: true,
+          });
         upsertAcpSkillRun({
           requestId: workspace.requestId,
           status:
@@ -4417,12 +4571,20 @@ export async function executeAcpSkillRunnerJob(args: {
             stage: "detached-reply-output-validation-failed",
             message: "Detached reply output validation failed.",
             level: detachedRepairRound < maxRepairRounds ? "warn" : "error",
-            details: {
-              errors: detachedConvergence.errors,
-              repairRound: detachedRepairRound,
-              maxRepairRounds,
-            },
+            details: outputValidationFailureDetails,
           },
+        });
+        appendAcpSkillOutputValidationFailureRuntimeLog({
+          backend: args.backend,
+          requestId: workspace.requestId,
+          workflowId,
+          runId,
+          jobId,
+          stage: "detached-reply-output-validation-failed",
+          message: "Detached reply output validation failed.",
+          phase: detachedRepairRound < maxRepairRounds ? "running" : "terminal",
+          level: detachedRepairRound < maxRepairRounds ? "warn" : "error",
+          details: outputValidationFailureDetails,
         });
         if (detachedRepairRound >= maxRepairRounds) {
           throw new Error(
@@ -4707,6 +4869,13 @@ export async function executeAcpSkillRunnerJob(args: {
         repairRound,
         errors: convergence.errors,
       });
+      const outputValidationFailureDetails =
+        buildAcpSkillOutputValidationFailureDetails({
+          convergence,
+          promptOutcome: promptResult,
+          repairRound,
+          maxRepairRounds,
+        });
       if (repairRound >= maxRepairRounds) {
         upsertAcpSkillRun({
           requestId: workspace.requestId,
@@ -4717,10 +4886,20 @@ export async function executeAcpSkillRunnerJob(args: {
             stage: "failed",
             message: "ACP skill run failed output validation.",
             level: "error",
-            details: {
-              errors: convergence.errors,
-            },
+            details: outputValidationFailureDetails,
           },
+        });
+        appendAcpSkillOutputValidationFailureRuntimeLog({
+          backend: args.backend,
+          requestId: workspace.requestId,
+          workflowId,
+          runId,
+          jobId,
+          stage: "output-validation-failed",
+          message: "ACP SkillRunner-compatible output validation failed.",
+          phase: "terminal",
+          level: "error",
+          details: outputValidationFailureDetails,
         });
         throw new Error(
           `ACP SkillRunner-compatible output validation failed: ${convergence.errors.join("; ")}`,

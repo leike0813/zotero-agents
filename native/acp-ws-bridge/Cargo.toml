@@ -1,0 +1,16 @@
+[package]
+name = "zotero-acp-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Windows WebSocket bridge for Zotero Agents ACP transports"
+license = "AGPL-3.0-or-later"
+
+[[bin]]
+name = "zotero-acp-bridge"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"

@@ -292,4 +292,105 @@ describe("ACP backend probe", function () {
       "openai/gpt-5",
     );
   });
+
+  it("fails runtime options probe instead of hanging when ACP initialize stalls", async function () {
+    const result = await probeAcpBackendRuntimeOptions({
+      backend: {
+        id: "acp-timeout",
+        displayName: "ACP Timeout",
+        type: "acp",
+        baseUrl: "local://acp-timeout",
+        command: "fake-acp",
+      },
+      timeoutMs: 5,
+      createAdapter: async () =>
+        makeProbeAdapter({
+          initialize: async () => new Promise(() => undefined),
+        }),
+    });
+
+    assert.isFalse(result.ok);
+    assert.equal(result.backend.acp?.connectionTest?.status, "failed");
+    assert.include(result.error || "", "ACP backend initialize timed out");
+  });
+
+  it("logs adapter transport diagnostics when runtime options probe fails", async function () {
+    const snapshot = {
+      commandLabel: "fake-acp",
+      commandLine: "fake-acp --acp",
+      exitCode: 7,
+      stdoutText: '{"jsonrpc":"2.0"}\n',
+      stderrText: "backend failed\n",
+      transportLifecycle: {
+        transportKind: "websocket-bridge" as const,
+        startedAt: "2026-06-28T00:00:00.000Z",
+        closedAt: "2026-06-28T00:00:01.000Z",
+        exitCode: 7,
+        exitSource: "natural-exit" as const,
+        killedByClose: false,
+        stdoutChars: 18,
+        stderrChars: 15,
+        bridgePid: 100,
+        childPid: 101,
+        spawnId: "spawn-1",
+      },
+    };
+
+    await probeAcpBackendRuntimeOptions({
+      backend: {
+        id: "acp-diagnostics",
+        displayName: "ACP Diagnostics",
+        type: "acp",
+        baseUrl: "local://acp-diagnostics",
+        command: "fake-acp",
+      },
+      createAdapter: async () =>
+        makeProbeAdapter({
+          initialize: async () => {
+            const error = new Error("initialize broke") as Error & {
+              transportSnapshot?: typeof snapshot;
+            };
+            error.transportSnapshot = snapshot;
+            throw error;
+          },
+          onDiagnostics: (listener) => {
+            void listener({
+              id: "diag-1",
+              ts: "2026-06-28T00:00:00.500Z",
+              kind: "initialize_transport_snapshot",
+              level: "error",
+              message: "ACP transport state after initialize failure",
+              detail: JSON.stringify(snapshot),
+              raw: snapshot,
+            });
+            return () => undefined;
+          },
+          onClose: (listener) => {
+            void listener({
+              message: "ACP connection closed",
+              stdoutText: snapshot.stdoutText,
+              stderrText: snapshot.stderrText,
+              exitCode: snapshot.exitCode,
+              transportLifecycle: snapshot.transportLifecycle,
+            });
+            return () => undefined;
+          },
+          getTransportSnapshot: () => snapshot,
+        }),
+    });
+
+    const failedLog = listRuntimeLogs({
+      backendId: "acp-diagnostics",
+      operation: "probe-acp-runtime-options",
+    }).find((entry) => entry.stage === "acp-runtime-options-probe-failed");
+    const details = failedLog?.details as any;
+
+    assert.equal(details?.transportSnapshot?.transportKind, "websocket-bridge");
+    assert.equal(details?.transportSnapshot?.stderrTail, "backend failed");
+    assert.equal(
+      details?.adapterDiagnostics?.[0]?.kind,
+      "initialize_transport_snapshot",
+    );
+    assert.equal(details?.adapterCloseEvents?.[0]?.exitCode, 7);
+  });
 });
