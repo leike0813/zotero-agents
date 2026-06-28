@@ -1,8 +1,17 @@
 startup-begin = Addon is loading
 startup-finish = Addon is ready
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = Addon Template: Helper Examples
 menuitem-sample-selection = Sample Selection Context
 menuitem-validate-selection = Validate Selection Context
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = No workflows loaded
 menu-workflows-install-official-package = 📦 Install Official Workflow Package

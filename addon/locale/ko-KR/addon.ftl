@@ -1,8 +1,17 @@
 startup-begin = 애드온을 불러오는 중입니다
 startup-finish = 애드온이 준비되었습니다
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = 애드온 템플릿: 도우미 예제
 menuitem-sample-selection = 샘플 선택 컨텍스트
 menuitem-validate-selection = 선택 컨텍스트 유효성 검사
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = 불러온 워크플로가 없습니다
 menu-workflows-install-official-package = 📦 공식 워크플로 패키지 설치

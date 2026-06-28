@@ -12,7 +12,10 @@ import {
   type AcpClientHandler,
 } from "./acpClientConnection";
 import { createAcpNdJsonMessageStream } from "./acpMessageStream";
-import { launchAcpTransport } from "./acpTransport";
+import {
+  launchAcpTransport,
+  type AcpTransportLifecycle,
+} from "./acpTransport";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
   ACP_PROTOCOL_VERSION,
@@ -47,6 +50,9 @@ export type AcpConnectionUpdateListener = (
 export type AcpConnectionCloseListener = (event?: {
   message?: string;
   stderrText?: string;
+  stdoutText?: string;
+  exitCode?: number | null;
+  transportLifecycle?: AcpTransportLifecycle;
 }) => void | Promise<void>;
 export type AcpConnectionDiagnosticsListener = (
   entry: AcpDiagnosticsEntry,
@@ -100,6 +106,15 @@ export type AcpConnectionAttachSessionResult = {
   models?: SessionModelState | null;
 };
 
+export type AcpConnectionTransportSnapshot = {
+  commandLabel: string;
+  commandLine: string;
+  exitCode: number | null;
+  stdoutText: string;
+  stderrText: string;
+  transportLifecycle?: AcpTransportLifecycle;
+};
+
 export type AcpPromptBackendError = {
   message: string;
   name?: string;
@@ -144,6 +159,8 @@ export type AcpConnectionAdapter = {
   setMode: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel: (args: { sessionId: string; modelId: string }) => Promise<void>;
   authenticate: (args: { methodId: string }) => Promise<void>;
+  waitForTransportExit?: (timeoutMs: number) => Promise<boolean>;
+  getTransportSnapshot?: () => AcpConnectionTransportSnapshot | null;
   close: () => Promise<void>;
 };
 
@@ -857,10 +874,34 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     };
   }
 
-  private emitClose(event?: { message?: string; stderrText?: string }) {
+  private emitClose(event?: {
+    message?: string;
+    stderrText?: string;
+    stdoutText?: string;
+    exitCode?: number | null;
+    transportLifecycle?: AcpTransportLifecycle;
+  }) {
     for (const listener of this.closeListeners) {
       void listener(event);
     }
+  }
+
+  getTransportSnapshot(): AcpConnectionTransportSnapshot | null {
+    if (!this.transport) {
+      return null;
+    }
+    return {
+      commandLabel: this.transport.getCommandLabel(),
+      commandLine: this.transport.getCommandLine(),
+      exitCode: this.transport.getExitCode(),
+      stdoutText: this.transport.getStdoutText(),
+      stderrText: this.transport.getStderrText(),
+      transportLifecycle: this.transport.getLifecycle(),
+    };
+  }
+
+  async waitForTransportExit(timeoutMs: number) {
+    return (await this.transport?.waitForExit(timeoutMs)) === true;
   }
 
   private buildClient(): AcpClientHandler {
@@ -999,26 +1040,46 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         },
       );
       void this.connection.closed
-        .then(() => {
+        .then(async () => {
           if (this.closing) {
             return;
           }
+          await this.transport?.closed.catch(() => undefined);
           const stderrText = this.transport?.getStderrText() || "";
+          const stdoutText = this.transport?.getStdoutText() || "";
+          const exitCode = this.transport?.getExitCode() ?? null;
+          const transportLifecycle = this.transport?.getLifecycle();
           this.emitDiagnostic({
             kind: "exited",
-            level: stderrText ? "warn" : "info",
+            level:
+              stderrText || stdoutText || exitCode !== null ? "warn" : "info",
             message: "ACP connection closed",
-            detail: stderrText,
+            detail: JSON.stringify({
+              exitCode,
+              stderrText,
+              stdoutText,
+              transportLifecycle,
+            }),
+            raw: {
+              exitCode,
+              stderrText,
+              stdoutText,
+              transportLifecycle,
+            },
           });
           this.emitClose({
             message: "ACP connection closed",
             stderrText,
+            stdoutText,
+            exitCode,
+            transportLifecycle,
           });
         })
-        .catch((error) => {
+        .catch(async (error) => {
           if (this.closing) {
             return;
           }
+          await this.transport?.closed.catch(() => undefined);
           const detail = compactError(error);
           this.emitErrorDiagnostic({
             kind: "exited",
@@ -1029,6 +1090,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           this.emitClose({
             message: detail,
             stderrText: this.transport?.getStderrText() || "",
+            stdoutText: this.transport?.getStdoutText() || "",
+            exitCode: this.transport?.getExitCode() ?? null,
+            transportLifecycle: this.transport?.getLifecycle(),
           });
         });
       const response = await this.connection.initialize({
@@ -1082,12 +1146,23 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         canUseSseMcp: this.canUseSseMcp,
       };
     } catch (error) {
+      const transportSnapshot = this.getTransportSnapshot();
       this.emitErrorDiagnostic({
         kind: "initialized",
         message: "Failed to initialize ACP connection",
         error,
         stage: "initialize",
       });
+      if (transportSnapshot) {
+        this.emitDiagnostic({
+          kind: "initialize_transport_snapshot",
+          level: "error",
+          message: "ACP transport state after initialize failure",
+          detail: JSON.stringify(transportSnapshot),
+          stage: "initialize",
+          raw: transportSnapshot,
+        });
+      }
       throw error;
     }
   }
@@ -1542,7 +1617,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     try {
       this.unsubscribeZoteroMcpDiagnostics();
       this.unsubscribeZoteroMcpDiagnostics = () => undefined;
-      await this.transport?.close();
+      await this.transport?.close({ graceMs: 1_000 });
     } finally {
       this.transport = null;
       this.connection = null;

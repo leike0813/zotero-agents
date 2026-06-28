@@ -3,6 +3,8 @@
 /* eslint-disable */
 // @ts-nocheck
 export type FluentMessageId =
+  | 'acp-refresh-cache-diagnostic-copied'
+  | 'acp-refresh-cache-diagnostic-running'
   | 'assistant-panel-action-approve'
   | 'assistant-panel-action-archive'
   | 'assistant-panel-action-authenticate'
@@ -375,6 +377,7 @@ export type FluentMessageId =
   | 'menu-workflows-root'
   | 'menu-workflows-settings'
   | 'menu-workflows-task-manager'
+  | 'menuitem-diagnose-acp-refresh-cache'
   | 'menuitem-filemenulabel'
   | 'menuitem-label'
   | 'menuitem-sample-selection'
@@ -651,7 +654,13 @@ export type FluentMessageId =
   | 'skillrunner-local-runtime-toast-down'
   | 'skillrunner-local-runtime-toast-up'
   | 'startup-begin'
+  | 'startup-failed'
   | 'startup-finish'
+  | 'startup-stage-assistant-sidebar'
+  | 'startup-stage-debug-menu'
+  | 'startup-stage-runtime-environment'
+  | 'startup-stage-toolbar'
+  | 'startup-stage-workflows'
   | 'synthesis-action-accept'
   | 'synthesis-action-accept-all'
   | 'synthesis-action-accept-selected'

@@ -19,6 +19,8 @@ function normalizeString(value: unknown) {
 }
 
 export type RuntimeCommandName =
+  | "powershell"
+  | "pwsh"
   | "uv"
   | "python"
   | "python3"
@@ -28,7 +30,7 @@ export type RuntimeCommandName =
   | "npx";
 
 export type RuntimeCommandLaunchSpec = {
-  mode: "direct" | "powershell";
+  mode: "direct" | "cmd" | "powershell";
   command: string;
   args: string[];
   environment?: Record<string, string>;
@@ -69,6 +71,8 @@ type RuntimeCommandResolverOptions = {
 };
 
 const STARTUP_COMMANDS: RuntimeCommandName[] = [
+  "pwsh",
+  "powershell",
   "uv",
   "python",
   "python3",
@@ -79,6 +83,10 @@ const STARTUP_COMMANDS: RuntimeCommandName[] = [
 ];
 
 const STARTUP_COMMAND_SET = new Set<string>(STARTUP_COMMANDS);
+const WINDOWS_SHELL_COMMAND_PREFERENCE: RuntimeCommandName[] = [
+  "pwsh",
+  "powershell",
+];
 
 let commandRegistry: RuntimeCommandRegistrySnapshot = {
   initialized: false,
@@ -145,16 +153,62 @@ function quotePowerShellSingleQuoted(value: string) {
   return `'${String(value || "").replace(/'/g, "''")}'`;
 }
 
-function buildPowerShellInvokeScript(command: string, args: string[]) {
+function quoteCmdToken(value: string) {
+  return `"${String(value || "").replace(/"/g, '\\"')}"`;
+}
+
+function buildCmdInvokeScript(command: string, args: string[]) {
+  return [command, ...args].map((entry) => quoteCmdToken(entry)).join(" ");
+}
+
+function buildCmdShimArgs(command: string, args: string[]) {
+  return ["/d", "/s", "/c", buildCmdInvokeScript(command, args)];
+}
+
+function buildPowerShellScriptArgs(command: string, args: string[]) {
   return [
-    "&",
-    quotePowerShellSingleQuoted(command),
-    ...args.map((entry) => quotePowerShellSingleQuoted(entry)),
-  ].join(" ");
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    command,
+    ...args,
+  ];
+}
+
+function buildPowerShellBareCommandArgs(command: string, args: string[]) {
+  return [
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    [
+      "&",
+      quotePowerShellSingleQuoted(command),
+      ...args.map((entry) => quotePowerShellSingleQuoted(entry)),
+    ].join(" "),
+  ];
 }
 
 function isWindowsCommandShim(command: string) {
   return /\.(cmd|bat)$/i.test(normalizeString(command));
+}
+
+function isWindowsPowerShellScript(command: string) {
+  return /\.ps1$/i.test(normalizeString(command));
+}
+
+function isWindowsBareCommand(command: string) {
+  const normalized = normalizeString(command);
+  return (
+    !!normalized &&
+    !isPathLikeCommand(normalized) &&
+    !/\.(cmd|bat|ps1|exe|com)$/i.test(normalized)
+  );
 }
 
 export function buildRuntimeCommandLaunchSpec(args: {
@@ -170,19 +224,18 @@ export function buildRuntimeCommandLaunchSpec(args: {
     : [];
   const platform = normalizeString(args.platform) || detectRuntimePlatform();
   if (platform === "win32" && isWindowsCommandShim(command)) {
-    const shellCommand = getWindowsShellCommandForLaunch(
-      "powershell.exe",
-      platform,
-    );
-    const shellArgs = [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      buildPowerShellInvokeScript(command, commandArgs),
-    ];
+    const shellCommand = getWindowsCmdShellCommandForLaunch(platform);
+    const shellArgs = buildCmdShimArgs(command, commandArgs);
+    return {
+      mode: "cmd",
+      command: shellCommand,
+      args: shellArgs,
+      commandLine: formatCommandLine(shellCommand, shellArgs),
+    };
+  }
+  if (platform === "win32" && isWindowsPowerShellScript(command)) {
+    const shellCommand = getWindowsPowerShellCommandForLaunch(platform);
+    const shellArgs = buildPowerShellScriptArgs(command, commandArgs);
     return {
       mode: "powershell",
       command: shellCommand,
@@ -204,15 +257,38 @@ export function buildRuntimeCommandLaunchPlan(args: {
   commandArgs?: string[];
   platform?: string;
   resolution?: RuntimeCommandResolution;
+  preferWindowsBareCommandPowerShell?: boolean;
 }): RuntimeCommandLaunchSpec {
   const commandArgs = Array.isArray(args.commandArgs)
     ? [...args.commandArgs]
     : [];
   const resolution = args.resolution;
+  const requestedCommand = normalizeString(args.command);
+  const platform = normalizeString(args.platform) || detectRuntimePlatform();
+  if (
+    args.preferWindowsBareCommandPowerShell === true &&
+    platform === "win32" &&
+    isWindowsBareCommand(requestedCommand)
+  ) {
+    const shellCommand = getWindowsPowerShellCommandForLaunch(platform);
+    const shellArgs = buildPowerShellBareCommandArgs(
+      requestedCommand,
+      commandArgs,
+    );
+    return {
+      mode: "powershell",
+      command: shellCommand,
+      args: shellArgs,
+      environment: resolution?.launch?.environment
+        ? { ...resolution.launch.environment }
+        : undefined,
+      commandLine: formatCommandLine(shellCommand, shellArgs),
+    };
+  }
   const resolvedCommand =
     normalizeString(resolution?.resolvedPath) ||
     normalizeString(args.resolvedCommand) ||
-    normalizeString(args.command);
+    requestedCommand;
   const launch =
     resolution?.launch ||
     buildRuntimeCommandLaunchSpec({
@@ -220,16 +296,18 @@ export function buildRuntimeCommandLaunchPlan(args: {
       resolvedCommand,
       platform: args.platform,
     });
+  if (launch.mode === "cmd") {
+    const shellArgs = buildCmdShimArgs(resolvedCommand, commandArgs);
+    return {
+      mode: launch.mode,
+      command: launch.command,
+      args: shellArgs,
+      environment: launch.environment ? { ...launch.environment } : undefined,
+      commandLine: formatCommandLine(launch.command, shellArgs),
+    };
+  }
   if (launch.mode === "powershell") {
-    const shellArgs = [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      buildPowerShellInvokeScript(resolvedCommand, commandArgs),
-    ];
+    const shellArgs = buildPowerShellScriptArgs(resolvedCommand, commandArgs);
     return {
       mode: launch.mode,
       command: launch.command,
@@ -293,6 +371,41 @@ export function getWindowsShellCommandForLaunch(
 ) {
   const candidates = getWindowsShellCommandCandidates(commandRaw, platform);
   return normalizeString(candidates[0]) || normalizeString(commandRaw);
+}
+
+function getWindowsCmdShellCommandForLaunch(platform?: string) {
+  return getWindowsShellCommandForLaunch("cmd.exe", platform);
+}
+
+function getWindowsPowerShellCommandForLaunch(platform?: string) {
+  return (
+    getPreferredWindowsShellCommandsFromRegistry()[0] ||
+    getWindowsShellCommandForLaunch("powershell.exe", platform)
+  );
+}
+
+export function getPreferredWindowsShellCommandsFromRegistry(
+  snapshot: RuntimeCommandRegistrySnapshot = commandRegistry,
+) {
+  const commands: string[] = [];
+  for (const command of WINDOWS_SHELL_COMMAND_PREFERENCE) {
+    const resolved = snapshot.commands[command];
+    if (resolved?.available !== true) {
+      continue;
+    }
+    const shellCommand = normalizeString(
+      resolved.resolvedPath || resolved.launch?.command,
+    );
+    if (
+      shellCommand &&
+      !commands.some(
+        (entry) => entry.toLowerCase() === shellCommand.toLowerCase(),
+      )
+    ) {
+      commands.push(shellCommand);
+    }
+  }
+  return commands;
 }
 
 export async function resolveRuntimeCommand(

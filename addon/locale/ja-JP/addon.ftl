@@ -1,8 +1,17 @@
 startup-begin = アドオンを読み込み中
 startup-finish = アドオン準備完了
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = Zotero Agents
 menuitem-sample-selection = 選択コンテキストをサンプル出力
 menuitem-validate-selection = 選択コンテキストを検証
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = ワークフローが読み込まれていません
 menu-workflows-install-official-package = 📦 公式 Workflow パッケージをインストール

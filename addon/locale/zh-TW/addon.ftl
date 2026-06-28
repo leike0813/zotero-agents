@@ -1,8 +1,17 @@
 startup-begin = 附加元件正在載入
 startup-finish = 附加元件已就緒
+startup-stage-runtime-environment = 正在載入執行環境
+startup-stage-workflows = 正在載入 Workflow 選單
+startup-stage-toolbar = 正在安裝工具列按鈕
+startup-stage-assistant-sidebar = 正在安裝 Assistant 側邊欄
+startup-stage-debug-menu = 正在註冊除錯選單
+startup-failed = 附加元件啟動失敗
 menuitem-label = 附加元件範本：輔助範例
 menuitem-sample-selection = 選取內容範例
 menuitem-validate-selection = 驗證選取內容
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = 尚未載入任何工作流程
 menu-workflows-install-official-package = 📦 安裝官方工作流程套件

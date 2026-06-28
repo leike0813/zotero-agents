@@ -8,6 +8,7 @@ import {
   resolveRuntimeCommandForLaunch,
   type RuntimeCommandResolution,
 } from "../platform/command";
+import { buildSubprocessEnvironment } from "../platform/env";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -236,10 +237,10 @@ async function runUvProbeWithMozillaSubprocess(args: {
     proc = await args.subprocess.call({
       command: launchPlan.command,
       arguments: launchPlan.args,
-      environment: {
+      environment: buildSubprocessEnvironment({
         ...(launchPlan.environment || {}),
         ...args.env,
-      },
+      }),
       environmentAppend: true,
       workdir: args.cwd,
     });
@@ -571,10 +572,10 @@ async function runPythonProbeWithMozillaSubprocess(args: {
     proc = await args.subprocess.call({
       command: launchPlan.command,
       arguments: launchPlan.args,
-      environment: {
+      environment: buildSubprocessEnvironment({
         ...(launchPlan.environment || {}),
         ...args.env,
-      },
+      }),
       environmentAppend: true,
       workdir: args.cwd,
     });

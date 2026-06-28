@@ -5,27 +5,63 @@ import {
   joinNativePath,
   normalizeNativeLocalPath,
 } from "../../src/platform/path";
-import { mergePathEntries, splitPathEntries } from "../../src/platform/env";
+import {
+  buildSubprocessEnvironment,
+  mergePathEntries,
+  preflightRuntimeEnvironmentOnStartup,
+  resetRuntimeEnvironmentSnapshotForTests,
+  seedRuntimeEnvironmentSnapshotForTests,
+  splitPathEntries,
+  summarizeSubprocessEnvironment,
+} from "../../src/platform/env";
 import {
   buildNonInteractiveCommandCandidates,
   getCachedRuntimeCommand,
+  getPreferredWindowsShellCommandsFromRegistry,
   getRuntimeCommandRegistrySnapshot,
   preflightRuntimeCommandsOnStartup,
   resetRuntimeCommandRegistryForTests,
   resolveRuntimeCommand,
+  seedRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
 import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
 
+function redefineGlobalProperty(key: string, value: unknown) {
+  const runtime = globalThis as Record<string, unknown>;
+  const previous = Object.getOwnPropertyDescriptor(runtime, key);
+  Object.defineProperty(runtime, key, {
+    value,
+    writable: true,
+    configurable: true,
+  });
+  return previous;
+}
+
+function restoreGlobalProperty(key: string, descriptor?: PropertyDescriptor) {
+  const runtime = globalThis as Record<string, unknown>;
+  if (!descriptor) {
+    delete runtime[key];
+    return;
+  }
+  Object.defineProperty(runtime, key, descriptor);
+}
+
+function decodeUtf16LeBase64(value: string) {
+  return Buffer.from(value, "base64").toString("utf16le");
+}
+
 describe("runtime platform services", function () {
   beforeEach(function () {
     resetRuntimeCommandRegistryForTests();
+    resetRuntimeEnvironmentSnapshotForTests();
   });
 
   afterEach(function () {
     resetRuntimeCommandRegistryForTests();
+    resetRuntimeEnvironmentSnapshotForTests();
   });
 
   it("preserves Windows path style when joining from a Windows root", function () {
@@ -122,7 +158,21 @@ describe("runtime platform services", function () {
     assert.include(checked, "/home/leike/.local/bin/npx");
   });
 
-  it("caches PowerShell launch specs for Windows npm command shims", async function () {
+  it("caches cmd.exe launch specs for Windows npm command shims", async function () {
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      initializedAt: "2026-06-28T00:00:00.000Z",
+      commands: {
+        powershell: {
+          command: "powershell",
+          available: true,
+          resolvedPath:
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          source: "path",
+          checkedCandidates: [],
+        },
+      },
+    });
     const snapshot = await preflightRuntimeCommandsOnStartup({
       commands: ["npx"],
       platform: "win32",
@@ -136,23 +186,17 @@ describe("runtime platform services", function () {
     });
 
     const launch = snapshot.commands.npx?.launch;
-    assert.equal(launch?.mode, "powershell");
-    assert.match(launch?.command || "", /(^|\\)(powershell|pwsh)\.exe$/i);
-    assert.deepEqual(launch?.args.slice(0, 6), [
-      "-NoLogo",
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-    ]);
+    assert.equal(launch?.mode, "cmd");
+    assert.match(launch?.command || "", /(^|\\)cmd\.exe$/i);
+    assert.deepEqual(launch?.args.slice(0, 3), ["/d", "/s", "/c"]);
     assert.include(
-      launch?.args[6] || "",
-      "& 'C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd'",
+      launch?.args[3] || "",
+      "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
     );
+    assert.notInclude(launch?.args.join("\n") || "", "$nativeCommandLine");
   });
 
-  it("builds PowerShell launch specs for nvm-windows symlink npm commands", async function () {
+  it("builds cmd.exe launch specs for nvm-windows symlink npm commands", async function () {
     const resolved = await resolveRuntimeCommand("npx", {
       platform: "win32",
       pathValue: "C:\\Users\\tester\\AppData\\Roaming\\nvm;C:\\nvm4w\\nodejs",
@@ -161,11 +205,50 @@ describe("runtime platform services", function () {
 
     assert.equal(resolved.available, true);
     assert.equal(resolved.resolvedPath, "C:\\nvm4w\\nodejs\\npx.cmd");
-    assert.equal(resolved.launch?.mode, "powershell");
+    assert.equal(resolved.launch?.mode, "cmd");
+    assert.match(resolved.launch?.command || "", /(^|\\)cmd\.exe$/i);
+    assert.deepEqual(resolved.launch?.args.slice(0, 3), ["/d", "/s", "/c"]);
     assert.include(
-      resolved.launch?.args[6] || "",
-      "& 'C:\\nvm4w\\nodejs\\npx.cmd'",
+      resolved.launch?.args[3] || "",
+      "C:\\nvm4w\\nodejs\\npx.cmd",
     );
+    assert.notInclude(resolved.launch?.args.join("\n") || "", "$nativeCommandLine");
+  });
+
+  it("builds PowerShell -File launch specs for Windows ps1 commands", async function () {
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      initializedAt: "2026-06-28T00:00:00.000Z",
+      commands: {
+        powershell: {
+          command: "powershell",
+          available: true,
+          resolvedPath:
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          source: "path",
+          checkedCandidates: [],
+        },
+      },
+    });
+    const resolved = await resolveRuntimeCommand("agent.ps1", {
+      platform: "win32",
+      pathValue: "C:\\Tools\\Agent",
+      exists: async (candidate) => candidate === "C:\\Tools\\Agent\\agent.ps1",
+    });
+
+    assert.equal(resolved.available, true);
+    assert.equal(resolved.resolvedPath, "C:\\Tools\\Agent\\agent.ps1");
+    assert.equal(resolved.launch?.mode, "powershell");
+    assert.match(resolved.launch?.command || "", /(^|\\)powershell\.exe$/i);
+    assert.deepEqual(resolved.launch?.args.slice(0, 6), [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+    ]);
+    assert.equal(resolved.launch?.args[6], "C:\\Tools\\Agent\\agent.ps1");
   });
 
   it("keeps Windows executables on direct launch specs", async function () {
@@ -219,5 +302,477 @@ describe("runtime platform services", function () {
       "mutated",
     );
     assert.equal(calls, 3);
+  });
+
+  it("includes PowerShell commands in the startup command preflight", async function () {
+    const snapshot = await preflightRuntimeCommandsOnStartup({
+      platform: "win32",
+      resolver: async (command) => ({
+        command,
+        available: command !== "pwsh",
+        resolvedPath:
+          command === "powershell"
+            ? "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+            : command === "pwsh"
+              ? undefined
+              : `C:\\Tools\\${command}.exe`,
+        source: command === "pwsh" ? undefined : "path",
+        checkedCandidates: [`checked:${command}`],
+      }),
+    });
+
+    assert.equal(snapshot.commands.powershell?.available, true);
+    assert.equal(
+      snapshot.commands.powershell?.resolvedPath,
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    );
+    assert.equal(snapshot.commands.pwsh?.available, false);
+  });
+
+  it("prefers pwsh over Windows PowerShell from the command registry", function () {
+    const commands = getPreferredWindowsShellCommandsFromRegistry({
+      initialized: true,
+      initializedAt: "2026-06-28T00:00:00.000Z",
+      commands: {
+        powershell: {
+          command: "powershell",
+          available: true,
+          resolvedPath:
+            "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          source: "path",
+          checkedCandidates: [],
+        },
+        pwsh: {
+          command: "pwsh",
+          available: true,
+          resolvedPath: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          source: "path",
+          checkedCandidates: [],
+        },
+      },
+    });
+
+    assert.deepEqual(commands, [
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ]);
+  });
+
+  it("hydrates Windows subprocess PATH from the login environment", async function () {
+    const snapshot = await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero;C:\\Windows\\System32",
+        USERPROFILE: "C:\\Users\\tester",
+      },
+      powershellRunner: async () =>
+        JSON.stringify({
+          Machine: {
+            Path: "C:\\Windows\\System32;C:\\Program Files\\nodejs",
+          },
+          User: {
+            Path: "C:\\Users\\tester\\AppData\\Roaming\\npm",
+            OPENAI_API_KEY: "secret",
+          },
+        }),
+      now: () => "2026-06-28T00:00:00.000Z",
+    });
+
+    const env = buildSubprocessEnvironment();
+
+    assert.equal(snapshot.source, "windows-login");
+    assert.equal(env.HOME, "C:\\Users\\tester");
+    const pathEntries = splitPathEntries(env.Path);
+    assert.include(pathEntries, "C:\\Program Files\\Zotero");
+    assert.include(pathEntries, "C:\\Windows\\System32");
+    assert.include(pathEntries, "C:\\Program Files\\nodejs");
+    assert.include(pathEntries, "C:\\Users\\tester\\AppData\\Roaming\\npm");
+    assert.equal(env.OPENAI_API_KEY, "secret");
+  });
+
+  it("keeps existing Windows HOME above synthesized user profile home", async function () {
+    await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+        HOME: "D:\\ShellHome",
+        USERPROFILE: "C:\\Users\\tester",
+      },
+      powershellRunner: async () =>
+        JSON.stringify({
+          Machine: { Path: "C:\\Program Files\\nodejs" },
+          User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
+        }),
+    });
+
+    const env = buildSubprocessEnvironment();
+
+    assert.equal(env.HOME, "D:\\ShellHome");
+  });
+
+  it("uses preflight-resolved PowerShell command for Windows login env", async function () {
+    const calls: string[] = [];
+    const snapshot = await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+      },
+      powershellCommands: [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ],
+      powershellRunner: async (command) => {
+        calls.push(command);
+        return JSON.stringify({
+          Machine: { Path: "C:\\Program Files\\nodejs" },
+          User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
+        });
+      },
+    });
+
+    assert.equal(snapshot.source, "windows-login");
+    assert.deepEqual(calls, [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ]);
+  });
+
+  it("tries only preflight-resolved shell commands for Windows login env", async function () {
+    const calls: string[] = [];
+    const snapshot = await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+      },
+      powershellCommands: [
+        "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ],
+      powershellRunner: async (command) => {
+        calls.push(command);
+        if (/pwsh\.exe$/i.test(command)) {
+          throw new Error("pwsh failed");
+        }
+        return JSON.stringify({
+          Machine: { Path: "C:\\Program Files\\nodejs" },
+          User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
+        });
+      },
+    });
+
+    assert.equal(snapshot.source, "windows-login");
+    assert.deepEqual(calls, [
+      "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ]);
+  });
+
+  it("does not enumerate fallback PowerShell candidates after a resolved command fails", async function () {
+    const calls: string[] = [];
+    const snapshot = await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+      },
+      powershellCommands: [
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      ],
+      powershellRunner: async (command) => {
+        calls.push(command);
+        throw new Error("resolved shell failed");
+      },
+    });
+
+    assert.equal(snapshot.source, "fallback");
+    assert.include(snapshot.error || "", "resolved shell failed");
+    assert.deepEqual(calls, [
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    ]);
+  });
+
+  it("keeps sanitized stdout and stderr diagnostics when Windows login env preflight fails", async function () {
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          call: async () => {
+            let stdoutRead = false;
+            let stderrRead = false;
+            return {
+              stdout: {
+                readString: async () => {
+                  if (stdoutRead) {
+                    return "";
+                  }
+                  stdoutRead = true;
+                  return JSON.stringify({
+                    OPENAI_API_KEY: "secret-value",
+                    note: "partial output",
+                  });
+                },
+              },
+              stderr: {
+                readString: async () => {
+                  if (stderrRead) {
+                    return "";
+                  }
+                  stderrRead = true;
+                  return "failure ANTHROPIC_API_KEY=secret-token";
+                },
+              },
+              wait: async () => 1,
+            };
+          },
+        },
+      }),
+    });
+
+    try {
+      const snapshot = await preflightRuntimeEnvironmentOnStartup({
+        platform: "win32",
+        currentEnv: {
+          Path: "C:\\Program Files\\Zotero",
+        },
+        powershellCommands: [
+          "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        ],
+      });
+      const diagnostic = snapshot.diagnostics?.[0];
+
+      assert.equal(snapshot.source, "fallback");
+      assert.equal(diagnostic?.ok, false);
+      assert.equal(diagnostic?.exitCode, 1);
+      assert.include(diagnostic?.stdoutTail || "", "partial output");
+      assert.include(diagnostic?.stderrTail || "", "failure");
+      assert.notInclude(JSON.stringify(diagnostic), "secret-value");
+      assert.notInclude(JSON.stringify(diagnostic), "secret-token");
+      assert.include(JSON.stringify(diagnostic), "<redacted>");
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("keeps explicit subprocess environment overrides above hydrated values", async function () {
+    await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+      },
+      powershellRunner: async () =>
+        JSON.stringify({
+          Machine: { Path: "C:\\Program Files\\nodejs" },
+          User: {
+            Path: "C:\\Users\\tester\\AppData\\Roaming\\npm",
+            CODEX_HOME: "C:\\Users\\tester\\.codex",
+          },
+        }),
+    });
+
+    const env = buildSubprocessEnvironment({
+      Path: "D:\\CustomBin",
+      CODEX_HOME: "D:\\CustomCodex",
+    });
+
+    assert.equal(env.Path, "D:\\CustomBin");
+    assert.equal(env.CODEX_HOME, "D:\\CustomCodex");
+  });
+
+  it("falls back to current environment when Windows login environment preflight fails", async function () {
+    const snapshot = await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+        ANTHROPIC_API_KEY: "secret",
+      },
+      powershellRunner: async () => {
+        throw new Error("powershell unavailable");
+      },
+    });
+
+    const env = buildSubprocessEnvironment();
+
+    assert.equal(snapshot.source, "fallback");
+    assert.include(snapshot.error || "", "powershell unavailable");
+    assert.equal(env.Path, "C:\\Program Files\\Zotero");
+    assert.equal(env.ANTHROPIC_API_KEY, "secret");
+  });
+
+  it("adds common Windows user PATH entries when login environment preflight fails", async function () {
+    await preflightRuntimeEnvironmentOnStartup({
+      platform: "win32",
+      currentEnv: {
+        Path: "C:\\Program Files\\Zotero",
+        USERPROFILE: "C:\\Users\\tester",
+        APPDATA: "C:\\Users\\tester\\AppData\\Roaming",
+        LOCALAPPDATA: "C:\\Users\\tester\\AppData\\Local",
+      },
+      powershellRunner: async () => {
+        throw new Error("powershell unavailable");
+      },
+    });
+
+    const env = buildSubprocessEnvironment();
+    const pathEntries = splitPathEntries(env.Path);
+
+    assert.include(pathEntries, "C:\\Users\\tester\\.local\\bin");
+    assert.include(pathEntries, "C:\\Users\\tester\\AppData\\Roaming\\npm");
+    assert.include(
+      pathEntries,
+      "C:\\Users\\tester\\AppData\\Local\\Microsoft\\WindowsApps",
+    );
+  });
+
+  it("uses Mozilla Subprocess before Zotero internal subprocess for Windows login env", async function () {
+    const calls: string[] = [];
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          call: async (args: { command: string; arguments?: string[] }) => {
+            calls.push(args.command);
+            assert.include(args.arguments || [], "-EncodedCommand");
+            assert.notInclude(args.arguments || [], "-Command");
+            const encodedCommand =
+              args.arguments?.[
+                (args.arguments || []).indexOf("-EncodedCommand") + 1
+              ] || "";
+            assert.equal(
+              args.arguments?.[(args.arguments || []).length - 1],
+              encodedCommand,
+            );
+            const script = decodeUtf16LeBase64(encodedCommand);
+            assert.include(script, "| ConvertFrom-Json\n$outputPath");
+            assert.match(
+              script,
+              /\$outputPath = '.*zotero-agents-env-.*\.json'/,
+            );
+            assert.include(script, "\nfunction Convert-EnvDict");
+            assert.notInclude(script, "ConvertFrom-Json function");
+            let stdoutRead = false;
+            return {
+              stdout: {
+                readString: async () => {
+                  if (stdoutRead) {
+                    return "";
+                  }
+                  stdoutRead = true;
+                  return JSON.stringify({
+                    Machine: { Path: "C:\\Program Files\\nodejs" },
+                    User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
+                  });
+                },
+              },
+              stderr: { readString: async () => "" },
+              wait: async () => 0,
+            };
+          },
+        },
+      }),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      Utilities: {
+        Internal: {
+          subprocess: async () => {
+            throw new Error("internal subprocess should not be used");
+          },
+        },
+      },
+    });
+
+    try {
+      const snapshot = await preflightRuntimeEnvironmentOnStartup({
+        platform: "win32",
+        currentEnv: { Path: "C:\\Program Files\\Zotero" },
+      });
+
+      assert.equal(snapshot.source, "windows-login");
+      assert.isAtLeast(calls.length, 1);
+      assert.include(buildSubprocessEnvironment().Path, "Roaming\\npm");
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("reads Windows login env output from the PowerShell output file", async function () {
+    const files = new Map<string, string>();
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          call: async (args: { arguments?: string[] }) => ({
+            stdout: {
+              readString: async () => "",
+            },
+            stderr: { readString: async () => "" },
+            wait: async () => {
+              const encodedCommand =
+                args.arguments?.[
+                  (args.arguments || []).indexOf("-EncodedCommand") + 1
+                ] || "";
+              const script = decodeUtf16LeBase64(encodedCommand);
+              const outputPath =
+                script.match(/\$outputPath = '([^']+)'/)?.[1] || "";
+              assert.match(outputPath, /zotero-agents-env-.+\.json$/);
+              files.set(
+                outputPath,
+                JSON.stringify({
+                  Machine: { Path: "C:\\Program Files\\nodejs" },
+                  User: { Path: "C:\\Users\\tester\\AppData\\Roaming\\npm" },
+                }),
+              );
+              return 0;
+            },
+          }),
+        },
+      }),
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", {
+      exists: async (path: string) => files.has(path),
+      readUTF8: async (path: string) => files.get(path) || "",
+      remove: async (path: string) => {
+        files.delete(path);
+      },
+    });
+
+    try {
+      const snapshot = await preflightRuntimeEnvironmentOnStartup({
+        platform: "win32",
+        currentEnv: { Path: "C:\\Program Files\\Zotero" },
+        powershellCommands: ["C:\\Program Files\\PowerShell\\7\\pwsh.exe"],
+      });
+
+      assert.equal(snapshot.source, "windows-login");
+      assert.include(buildSubprocessEnvironment().Path, "Roaming\\npm");
+      assert.equal(files.size, 0);
+    } finally {
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("summarizes subprocess environment without exposing secret values", function () {
+    seedRuntimeEnvironmentSnapshotForTests({
+      initialized: true,
+      initializedAt: "2026-06-28T00:00:00.000Z",
+      platform: "win32",
+      source: "windows-login",
+      env: {
+        HOME: "C:\\Users\\tester",
+        Path: "C:\\Program Files\\nodejs",
+        OPENAI_API_KEY: "secret",
+      },
+      pathKey: "Path",
+      pathEntryCount: 1,
+    });
+
+    const summary = summarizeSubprocessEnvironment({
+      CODEX_HOME: "D:\\CustomCodex",
+    });
+
+    assert.deepEqual(summary.explicitKeys, ["CODEX_HOME"]);
+    assert.include(summary.injectedKeys, "OPENAI_API_KEY");
+    assert.equal(summary.pathValue, "C:\\Program Files\\nodejs");
+    assert.deepEqual(summary.pathEntries, ["C:\\Program Files\\nodejs"]);
+    assert.equal(summary.selectedValues.HOME, "C:\\Users\\tester");
+    assert.equal(summary.snapshotSelectedValues.HOME, "C:\\Users\\tester");
+    assert.equal(summary.explicitValues.CODEX_HOME, "D:\\CustomCodex");
+    assert.equal(summary.selectedValues.OPENAI_API_KEY, "<redacted>");
+    assert.notInclude(JSON.stringify(summary), "secret");
   });
 });

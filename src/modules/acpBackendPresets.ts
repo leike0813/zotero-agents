@@ -83,7 +83,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     displayName: "Codex ACP",
     bareCommand: "codex-acp",
     bareArgs: [],
-    npxPackage: "@zed-industries/codex-acp@latest",
+    npxPackage: "@agentclientprotocol/codex-acp@latest",
     npxArgs: [],
     defaultUseNpx: true,
     supportsNpx: true,
@@ -360,6 +360,20 @@ function buildAcpBackendPresetIsolationArgs(
   });
 }
 
+function buildAcpBackendPresetNpxArgs(
+  preset: AcpBackendPreset,
+  isolationArgs: string[],
+) {
+  const rest = [
+    String(preset.npxPackage || ""),
+    ...(preset.npxArgs || []),
+    ...isolationArgs,
+  ].filter(Boolean);
+  return rest.some((entry) => entry === "-y" || entry === "--yes")
+    ? rest
+    : ["-y", ...rest];
+}
+
 export function createAcpBackendFromPresetOptions(
   presetOrId: AcpBackendPreset | string,
   options: AcpBackendPresetOptions = {},
@@ -384,11 +398,7 @@ export function createAcpBackendFromPresetOptions(
     normalized.isolated,
   );
   const args = normalized.useNpx
-    ? [
-        String(preset.npxPackage || ""),
-        ...(preset.npxArgs || []),
-        ...isolationArgs,
-      ].filter(Boolean)
+    ? buildAcpBackendPresetNpxArgs(preset, isolationArgs)
     : [...preset.bareArgs, ...isolationArgs];
   return {
     id,

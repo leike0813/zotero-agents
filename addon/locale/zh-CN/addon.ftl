@@ -1,8 +1,17 @@
 startup-begin = 插件加载中
 startup-finish = 插件已就绪
+startup-stage-runtime-environment = 正在加载运行环境
+startup-stage-workflows = 正在加载 Workflow 菜单
+startup-stage-toolbar = 正在安装工具栏按钮
+startup-stage-assistant-sidebar = 正在安装 Assistant 侧边栏
+startup-stage-debug-menu = 正在注册调试菜单
+startup-failed = 插件启动失败
 menuitem-label = 插件模板: 帮助工具样例
 menuitem-sample-selection = 采样选区上下文
 menuitem-validate-selection = 校验选区上下文
+menuitem-diagnose-acp-refresh-cache = 诊断 ACP 后端缓存刷新
+acp-refresh-cache-diagnostic-running = 正在运行 ACP 刷新诊断...
+acp-refresh-cache-diagnostic-copied = 已复制 { $count } 个后端的 ACP 刷新诊断结果。
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = 未加载任何 Workflow
 menu-workflows-install-official-package = 📦 安装官方 Workflow 包

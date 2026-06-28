@@ -1,8 +1,17 @@
 startup-begin = El complemento se está cargando
 startup-finish = El complemento está listo
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = Plantilla del complemento: Ejemplos de ayuda
 menuitem-sample-selection = Contexto de selección de ejemplo
 menuitem-validate-selection = Validar contexto de selección
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = No hay flujos de trabajo cargados
 menu-workflows-install-official-package = 📦 Instalar paquete oficial de flujos de trabajo

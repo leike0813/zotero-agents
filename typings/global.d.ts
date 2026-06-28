@@ -18,3 +18,4 @@ declare const rootPath: string;
 declare const addon: import("../src/addon").default;
 
 declare const __env__: "production" | "development";
+declare const __debug_mode__: boolean;

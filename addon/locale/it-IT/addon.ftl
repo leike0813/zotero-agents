@@ -1,8 +1,17 @@
 startup-begin = Il componente aggiuntivo è in caricamento
 startup-finish = Il componente aggiuntivo è pronto
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = Componente aggiuntivo Template: esempi di aiuto
 menuitem-sample-selection = Contesto di selezione di esempio
 menuitem-validate-selection = Valida contesto di selezione
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = Nessun flusso di lavoro caricato
 menu-workflows-install-official-package = 📦 Installa pacchetto ufficiale dei flussi di lavoro

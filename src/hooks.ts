@@ -7,6 +7,7 @@ import { registerPrefsScripts } from "./modules/preferenceScript";
 import { getPref, setPref } from "./utils/prefs";
 import { createZToolkit } from "./utils/ztoolkit";
 import { registerSelectionSampleMenu } from "./modules/selectionSample";
+import { registerAcpBackendRefreshCacheDiagnosticMenu } from "./modules/acpBackendRefreshCacheDiagnostic";
 import {
   ensureWorkflowMenuForWindow,
   refreshWorkflowMenus,
@@ -148,13 +149,20 @@ import {
 } from "./modules/synthesis/itemObserver";
 import { reconcileWorkflowTaskProjectionsOnStartup } from "./modules/taskRuntime";
 import { closeVisibleWorkflowToasts } from "./modules/workflowExecution/feedbackSeam";
-import { preflightRuntimeCommandsOnStartup } from "./platform/command";
+import {
+  getPreferredWindowsShellCommandsFromRegistry,
+  preflightRuntimeCommandsOnStartup,
+  type RuntimeCommandName,
+} from "./platform/command";
+import { preflightRuntimeEnvironmentOnStartup } from "./platform/env";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
 const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 let startupOfficialWorkflowPackageUpdateCheckStarted = false;
+let startupRuntimePreflightPromise: Promise<void> | null = null;
+const STARTUP_SHELL_COMMANDS: RuntimeCommandName[] = ["pwsh", "powershell"];
 
 let registeredZoteroPaneStylesheet:
   | {
@@ -237,6 +245,27 @@ function localizedMessage(
   } catch {
     return fallback;
   }
+}
+
+async function ensureStartupRuntimePreflight() {
+  if (!startupRuntimePreflightPromise) {
+    startupRuntimePreflightPromise = (async () => {
+      const shellSnapshot = await preflightRuntimeCommandsOnStartup({
+        commands: STARTUP_SHELL_COMMANDS,
+      });
+      await preflightRuntimeEnvironmentOnStartup({
+        powershellCommands:
+          getPreferredWindowsShellCommandsFromRegistry(shellSnapshot),
+      });
+      await preflightRuntimeCommandsOnStartup();
+    })().catch((error) => {
+      if (typeof console !== "undefined") {
+        console.warn("[runtime-preflight] startup preflight failed", error);
+      }
+      throw error;
+    });
+  }
+  await startupRuntimePreflightPromise;
 }
 
 function contentPackageProgressMessage(
@@ -533,6 +562,40 @@ function getRuntimeToolkit() {
     | undefined;
 }
 
+type StartupProgressToast = {
+  update: (args: { text: string; progress: number }) => void;
+  close: () => void;
+};
+
+function createStartupProgressToast(): StartupProgressToast | null {
+  const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
+  if (!ProgressWindow) {
+    return null;
+  }
+  const popupWin = new ProgressWindow(addon.data.config.addonName, {
+    closeOnClick: true,
+    closeTime: -1,
+  })
+    .createLine({
+      text: getString("startup-begin"),
+      type: "default",
+      progress: 0,
+    })
+    .show();
+  return {
+    update: (args) => {
+      const progress = Math.max(0, Math.min(100, Math.round(args.progress)));
+      popupWin.changeLine({
+        progress,
+        text: `[${progress}%] ${args.text}`,
+      });
+    },
+    close: () => {
+      popupWin.startCloseTimer(5000);
+    },
+  };
+}
+
 function unregisterToolkitSafely() {
   getRuntimeToolkit()?.unregisterAll?.();
 }
@@ -588,7 +651,7 @@ async function onStartup() {
 
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
-  await preflightRuntimeCommandsOnStartup();
+  await ensureStartupRuntimePreflight();
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -632,44 +695,79 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   // Create ztoolkit for every window
   addon.data.ztoolkit = createZToolkit();
 
-  await ensureWorkflowRegistryAndMenu(win);
-  ensureDashboardToolbarButton(win);
-  installAssistantWorkspaceSidebarShell(win);
-
-  const ProgressWindow = getRuntimeToolkit()?.ProgressWindow;
-  const popupWin = ProgressWindow
-    ? new ProgressWindow(addon.data.config.addonName, {
-        closeOnClick: true,
-        closeTime: -1,
-      })
-        .createLine({
-          text: getString("startup-begin"),
-          type: "default",
-          progress: 0,
-        })
-        .show()
-    : null;
-
-  if (popupWin) {
-    await delay(1000);
-    popupWin.changeLine({
-      progress: 30,
-      text: `[30%] ${getString("startup-begin")}`,
-    });
-  }
+  const progressToast = createStartupProgressToast();
+  const startupSteps: Array<{
+    label: string;
+    run: () => Promise<void> | void;
+  }> = [
+    {
+      label: localizedMessage(
+        "startup-stage-runtime-environment",
+        "Loading runtime environment",
+      ),
+      run: () => ensureStartupRuntimePreflight(),
+    },
+    {
+      label: localizedMessage(
+        "startup-stage-workflows",
+        "Loading workflow menu",
+      ),
+      run: () => ensureWorkflowRegistryAndMenu(win),
+    },
+    {
+      label: localizedMessage(
+        "startup-stage-toolbar",
+        "Installing toolbar actions",
+      ),
+      run: () => ensureDashboardToolbarButton(win),
+    },
+    {
+      label: localizedMessage(
+        "startup-stage-assistant-sidebar",
+        "Installing assistant sidebar",
+      ),
+      run: () => installAssistantWorkspaceSidebarShell(win),
+    },
+  ];
 
   if (isDebugModeEnabled()) {
-    registerSelectionSampleMenu();
+    startupSteps.push({
+      label: localizedMessage(
+        "startup-stage-debug-menu",
+        "Registering debug menu actions",
+      ),
+      run: () => {
+        registerSelectionSampleMenu();
+        registerAcpBackendRefreshCacheDiagnosticMenu();
+      },
+    });
   }
 
-  if (popupWin) {
-    await delay(1000);
-
-    popupWin.changeLine({
+  const progressUnit = 100 / Math.max(startupSteps.length, 1);
+  try {
+    for (const [index, step] of startupSteps.entries()) {
+      progressToast?.update({
+        progress: index * progressUnit,
+        text: step.label,
+      });
+      await step.run();
+      progressToast?.update({
+        progress: (index + 1) * progressUnit,
+        text: step.label,
+      });
+    }
+    progressToast?.update({
       progress: 100,
-      text: `[100%] ${getString("startup-finish")}`,
+      text: getString("startup-finish"),
     });
-    popupWin.startCloseTimer(5000);
+    progressToast?.close();
+  } catch (error) {
+    progressToast?.update({
+      progress: 100,
+      text: localizedMessage("startup-failed", "Startup failed"),
+    });
+    progressToast?.close();
+    throw error;
   }
 }
 

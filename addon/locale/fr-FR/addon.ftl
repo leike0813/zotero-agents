@@ -1,8 +1,17 @@
 startup-begin = Chargement de l'extension
 startup-finish = Extension prête
+startup-stage-runtime-environment = Loading runtime environment
+startup-stage-workflows = Loading workflow menu
+startup-stage-toolbar = Installing toolbar actions
+startup-stage-assistant-sidebar = Installing assistant sidebar
+startup-stage-debug-menu = Registering debug menu actions
+startup-failed = Startup failed
 menuitem-label = Zotero Agents
 menuitem-sample-selection = Exemple de contexte de sélection
 menuitem-validate-selection = Valider le contexte de sélection
+menuitem-diagnose-acp-refresh-cache = Diagnose ACP Runtime Options Refresh
+acp-refresh-cache-diagnostic-running = Running ACP refresh diagnostic...
+acp-refresh-cache-diagnostic-copied = ACP refresh diagnostic copied to clipboard for { $count } backend(s).
 menu-workflows-root = Zotero Agents
 menu-workflows-empty = Aucun workflow chargé
 menu-workflows-install-official-package = 📦 Installer le package Workflow officiel

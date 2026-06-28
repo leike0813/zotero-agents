@@ -63,6 +63,24 @@ const TEST_ENTRIES = resolveTestEntries(TEST_DOMAIN, TEST_MODE);
 const RELEASE_REPO = "leike0813/zotero-agents";
 const RELEASE_UPLOAD_REPO = process.env.GITHUB_REPOSITORY || RELEASE_REPO;
 
+async function resolveGitBranch(): Promise<string> {
+  try {
+    // @ts-ignore
+    const { createRequire } = await import("node:module");
+    // @ts-ignore
+    const { execSync } = createRequire(import.meta.url)("node:child_process");
+    return execSync("git rev-parse --abbrev-ref HEAD", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5000,
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+const DEBUG_MODE = (await resolveGitBranch()) === "dev";
+
 export default defineConfig({
   source: ["src", "addon"],
   // 关闭开发模式下的热重载，避免大文件变更导致频繁 rebuild + reload
@@ -100,6 +118,7 @@ export default defineConfig({
         entryPoints: ["src/index.ts"],
         define: {
           __env__: `"${process.env.NODE_ENV}"`,
+          __debug_mode__: String(DEBUG_MODE),
         },
         bundle: true,
         target: "firefox115",
