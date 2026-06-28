@@ -820,6 +820,10 @@ describe("host bridge cli packaging and install", function () {
     }
     assert.include(workflow, "cargo install cargo-zigbuild --locked");
     assert.include(workflow, "mlugg/setup-zig@v2");
+    assert.include(workflow, "Publish Host Bridge CLI bundle branch");
+    assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
+    assert.include(workflow, "-AllowDirty -Push");
+    assert.include(workflow, "actions/download-artifact@v4");
     const packageScript = await fs.readFile(
       "scripts/package-zotero-bridge-cli.mjs",
       "utf8",
@@ -844,6 +848,31 @@ describe("host bridge cli packaging and install", function () {
     assert.include(publishScript, "zotero-agents");
     assert.include(publishScript, "ZOTERO_BRIDGE_CONNECTION_MODE");
     assert.include(publishScript, "profileTemplate");
+    assert.notInclude(publishScript, "[switch]$BuildLinux");
+    assert.notInclude(publishScript, "scripts\\build-zotero-bridge-cli.mjs");
+    const syncScript = await fs.readFile(
+      "scripts/sync-host-bridge-cli-prebuilds.ts",
+      "utf8",
+    );
+    assert.include(syncScript, "host-bridge-cli-prebuilds");
+    assert.include(syncScript, "gh");
+    assert.include(syncScript, "zotero-bridge-*.zip");
+    assert.include(syncScript, "addon/bin");
+    const packageJson = JSON.parse(await fs.readFile("package.json", "utf8"));
+    assert.strictEqual(
+      packageJson.scripts["sync:host-bridge-cli-prebuilds"],
+      "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
+    );
+    const releaseSkill = await fs.readFile(
+      ".agents/skills/host-bridge-release-pipeline/SKILL.md",
+      "utf8",
+    );
+    assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
+    assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
+    assert.notInclude(
+      releaseSkill,
+      "publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push",
+    );
     const profileTemplate = JSON.parse(
       await fs.readFile(
         "skills_builtin/zotero-bridge-cli/assets/profile.template.json",

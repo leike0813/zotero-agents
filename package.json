@@ -2,7 +2,7 @@
   "name": "zotero-agents",
   "type": "module",
   "version": "0.5.2",
-  "description": "A Zotero plugin for running agent workflows from Zotero",
+  "description": "An all-in-one agentic workbench for your Zotero library",
   "config": {
     "addonName": "Zotero Agents",
     "addonID": "zotero-skills@leike0813@gmail.com",
@@ -43,6 +43,7 @@
     "render:host-bridge-surface": "tsx scripts/render-host-bridge-surface.ts",
     "package:zotero-bridge-cli": "node scripts/package-zotero-bridge-cli.mjs",
     "prebuild:zotero-bridge-cli": "node scripts/build-zotero-bridge-cli.mjs",
+    "sync:host-bridge-cli-prebuilds": "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
     "lint:check": "prettier --check . && eslint .",
     "lint:fix": "prettier --write . && eslint . --fix",
     "release": "zotero-plugin release",

@@ -5,14 +5,18 @@ on:
   push:
     paths:
       - "cli/zotero-bridge/**"
+      - "skills_builtin/zotero-bridge-cli/**"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
+      - "scripts/publish-host-bridge-cli-bundle.ps1"
       - ".github/workflows/build-zotero-bridge-cli.yml"
   pull_request:
     paths:
       - "cli/zotero-bridge/**"
+      - "skills_builtin/zotero-bridge-cli/**"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
+      - "scripts/publish-host-bridge-cli-bundle.ps1"
       - ".github/workflows/build-zotero-bridge-cli.yml"
 
 permissions:
@@ -182,3 +186,12 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --clobber \
             .scaffold/host-bridge-cli-prebuilds/zotero-bridge-*.zip
+
+      - name: Publish Host Bridge CLI bundle branch
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $remoteUrl = "https://x-access-token:{0}@github.com/{1}.git" -f $env:GH_TOKEN, $env:GITHUB_REPOSITORY
+          git remote set-url origin $remoteUrl
+          ./scripts/publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push

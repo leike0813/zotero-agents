@@ -1,6 +1,6 @@
 ---
 name: host-bridge-release-pipeline
-description: Execute the zotero-agents project Host Bridge release steps after Host Bridge CLI, wrapper skill, broker capability, profile, or documentation changes. Use when Codex needs the exact commands for rendering Host Bridge surfaces, rebuilding local prebuilt CLI bundles, publishing the host-bridge/zotero-bridge-cli-bundle branch, and pushing it to the remote.
+description: Execute the zotero-agents project Host Bridge release steps after Host Bridge CLI, wrapper skill, broker capability, profile, or documentation changes. Use when Codex needs the exact commands for rendering Host Bridge surfaces, triggering the GitHub-hosted CLI prebuild workflow, publishing the host-bridge/zotero-bridge-cli-bundle branch, and syncing GitHub-built prebuilds back to the local checkout.
 ---
 
 # Host Bridge Release Pipeline
@@ -8,62 +8,51 @@ description: Execute the zotero-agents project Host Bridge release steps after H
 Run this project-local workflow from the repository root:
 
 ```powershell
-D:\Workspace\Code\JavaScript\Zotero-Skills
+D:\Workspace\Code\JavaScript\zotero-agents
 ```
 
-This is not the full CI gate. It is only the operational sequence for updating
-the generated Host Bridge surface, local prebuilt CLI artifacts, and publish
-branch after Host Bridge changes.
+This is the operational sequence for updating the generated Host Bridge
+surface and releasing GitHub-built Host Bridge CLI prebuilds. GitHub Actions is
+the build and publish authority for the Host Bridge CLI bundle branch.
 
 ## Commands
 
-1. Render Host Bridge surfaces:
+1. Render Host Bridge surfaces after capability, CLI, wrapper skill, profile,
+   or documentation changes:
 
 ```powershell
 npm run render:host-bridge-surface
 ```
 
-2. Rebuild local prebuilt CLI bundles.
-
-Build the current host platform:
-
-```powershell
-npm run prebuild:zotero-bridge-cli
-```
-
-On Windows, also build Linux cross-target bundles:
+2. Run the relevant local checks for the changed files. For Host Bridge CLI
+   packaging surface changes, use:
 
 ```powershell
-npm run prebuild:zotero-bridge-cli -- --platform=linux-x86
-npm run prebuild:zotero-bridge-cli -- --platform=linux-x64
-npm run prebuild:zotero-bridge-cli -- --platform=linux-arm
-npm run prebuild:zotero-bridge-cli -- --platform=linux-arm64
+npx tsx node_modules/mocha/bin/mocha "test/core/139-host-bridge-cli-packaging.test.ts" --require test/setup/zotero-mock.ts
 ```
 
-Do not try to build macOS bundles locally on Windows. macOS bundles are produced
-by GitHub CI macOS runners.
-
-3. Dry-run the bundle publish:
+3. Publish the source changes to the repository branch that should feed the
+   release workflow, then trigger the GitHub workflow when a manual release is
+   needed:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-host-bridge-cli-bundle.ps1 -AllowDirty -DryRun
+gh workflow run build-zotero-bridge-cli.yml --ref main
 ```
 
-4. Publish and push the bundle branch when the user explicitly asked to publish
-or push:
+The workflow builds all supported platforms, publishes the mutable
+`host-bridge-cli-prebuilds` GitHub release assets, and publishes the
+`host-bridge/zotero-bridge-cli-bundle` branch.
+
+4. After the GitHub workflow succeeds, sync the GitHub-built prebuilds back to
+   the local checkout when local `addon/bin` artifacts are needed:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push
-```
-
-Use `pwsh`, not Windows PowerShell. The publish branch is:
-
-```text
-host-bridge/zotero-bridge-cli-bundle
+npm run sync:host-bridge-cli-prebuilds
 ```
 
 ## Report
 
-After running, report which commands ran, which platforms were rebuilt, the
-published commit id printed by the publish script, and whether the branch was
-pushed.
+After running, report which local commands ran, the GitHub workflow run used for
+publication, whether `host-bridge-cli-prebuilds` was updated, whether
+`host-bridge/zotero-bridge-cli-bundle` was updated, and whether local
+`addon/bin` artifacts were synced.

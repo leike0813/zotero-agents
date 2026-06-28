@@ -2,10 +2,12 @@
 .SYNOPSIS
     Publish the Host Bridge CLI binaries and wrapper skill as an isolated branch.
 .DESCRIPTION
-    Creates a temporary worktree, materializes only the Host Bridge CLI bundle
-    files, appends a normal commit to the target branch, and optionally pushes
-    it to the configured remote. Pass -ReplaceHistory only when intentionally
-    replacing the branch with a new orphan snapshot.
+    Creates a temporary worktree, materializes the current Host Bridge CLI
+    bundle files from addon\bin, appends a normal commit to the target branch,
+    and optionally pushes it to the configured remote. GitHub Actions builds
+    and restores the CLI binaries before invoking this script for release.
+    Pass -ReplaceHistory only when intentionally replacing the branch with a
+    new orphan snapshot.
 .EXAMPLE
     .\scripts\publish-host-bridge-cli-bundle.ps1 -DryRun
 .EXAMPLE
@@ -18,7 +20,6 @@ param(
     [string]$Branch = 'host-bridge/zotero-bridge-cli-bundle',
     [string]$BaseRef = 'HEAD',
     [string]$Remote = 'origin',
-    [switch]$BuildLinux,
     [switch]$Push,
     [switch]$DryRun,
     [switch]$AllowDirty,
@@ -124,21 +125,6 @@ if (-not (Test-Path -LiteralPath $InstallShPath)) {
 }
 if (-not (Test-Path -LiteralPath $BinRoot)) {
     Log-Error "Bundled CLI bin root not found at addon\bin"
-}
-
-if ($BuildLinux) {
-    foreach ($target in @(
-            @{ platform = 'linux-x86'; target = 'i686-unknown-linux-gnu' },
-            @{ platform = 'linux-x64'; target = 'x86_64-unknown-linux-gnu' },
-            @{ platform = 'linux-arm'; target = 'armv7-unknown-linux-gnueabihf' },
-            @{ platform = 'linux-arm64'; target = 'aarch64-unknown-linux-gnu' }
-        )) {
-        Log-Info "Building $($target.platform)"
-        node (Join-Path $DevRoot 'scripts\build-zotero-bridge-cli.mjs') "--platform=$($target.platform)" "--target=$($target.target)"
-        if ($LASTEXITCODE -ne 0) {
-            Log-Error "Build failed for $($target.platform)"
-        }
-    }
 }
 
 $porcelain = git -C $DevRoot status --porcelain
