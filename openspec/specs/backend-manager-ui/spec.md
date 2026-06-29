@@ -53,6 +53,14 @@ agent-family metadata.
 - **AND** other agent presets SHALL default `use npx` to disabled
 - **AND** `isolated environment` SHALL default to disabled for every preset.
 
+#### Scenario: Kilo preset supports npx launch
+
+- **WHEN** the user selects the Kilo ACP preset
+- **THEN** Backend Manager SHALL allow the `use npx` option
+- **AND** enabling `use npx` SHALL preview command `npx`
+- **AND** the preview args SHALL include `-y`, `@kilocode/cli@latest`, and
+  `acp`.
+
 #### Scenario: Npx launch warning is visible
 
 - **WHEN** the user enables `use npx`

@@ -566,7 +566,15 @@ describe("backend manager risk regression", function () {
     assert.equal(kilo.id, "acp-kilo");
     assert.equal(kilo.command, "kilo");
     assert.deepEqual(kilo.args, ["acp"]);
-    assert.isFalse(presets.find((preset) => preset.id === "kilo")?.supportsNpx);
+    assert.isTrue(presets.find((preset) => preset.id === "kilo")?.supportsNpx);
+
+    const kiloNpx = createAcpBackendFromPresetOptions("kilo", {
+      useNpx: true,
+    });
+    assert.equal(kiloNpx.id, "acp-kilo-npx");
+    assert.equal(kiloNpx.displayName, "Kilo ACP (npm)");
+    assert.equal(kiloNpx.command, "npx");
+    assert.deepEqual(kiloNpx.args, ["-y", "@kilocode/cli@latest", "acp"]);
 
     const cline = createAcpBackendFromPreset("cline");
     assert.equal(cline.id, "acp-cline");

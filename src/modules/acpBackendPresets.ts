@@ -209,8 +209,10 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     displayName: "Kilo ACP",
     bareCommand: "kilo",
     bareArgs: ["acp"],
+    npxPackage: "@kilocode/cli@latest",
+    npxArgs: ["acp"],
     defaultUseNpx: false,
-    supportsNpx: false,
+    supportsNpx: true,
     agentFamily: "unknown",
   },
   {

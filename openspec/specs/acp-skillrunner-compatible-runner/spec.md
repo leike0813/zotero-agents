@@ -70,7 +70,8 @@ the materialized skill declares runtime Python dependencies and startup command
 resolution found uv available. If startup command resolution did not find uv but
 did find Python, the runner MAY use the original backend command only after
 verifying the declared dependencies are already available in that Python
-environment.
+environment. ACP backends resolved as `hermes` SHALL keep the configured backend
+command unchanged because Hermes owns its own Python runtime.
 
 #### Scenario: Chat launch is unaffected
 - **GIVEN** a skill declares `runtime.dependencies`
@@ -82,8 +83,18 @@ environment.
 - **GIVEN** a skill declares `runtime.dependencies`
 - **AND** startup command resolution found uv available
 - **AND** the per-job uv dependency probe succeeds
+- **AND** the ACP backend is not resolved as `hermes`
 - **WHEN** the workflow runner launches the ACP process
 - **THEN** it SHALL wrap the command with `uv run --with ... --`.
+
+#### Scenario: Hermes workflow launch bypasses uv backend wrapping
+- **GIVEN** a skill declares `runtime.dependencies`
+- **AND** startup command resolution found uv available
+- **AND** the per-job uv dependency probe succeeds
+- **AND** the ACP backend resolves as `hermes`
+- **WHEN** the workflow runner launches the ACP process
+- **THEN** it SHALL use the configured Hermes backend command unchanged
+- **AND** it SHALL report that runtime dependency backend wrapping was bypassed for Hermes.
 
 #### Scenario: uv dependency preparation failure does not fall back
 - **GIVEN** a skill declares `runtime.dependencies`
@@ -458,21 +469,27 @@ ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
 ACP Skill runs SHALL automatically resolve ACP backend tool-call permission
 requests only when the run's frozen ACP provider options enable permission
-auto-approval.
+auto-approval. Auto-approved ACP tool-call permission requests SHALL preserve
+the normal permission audit trail without publishing a pending user-action
+state.
 
 #### Scenario: Approve option is selected
 
 - **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
 - **WHEN** the backend requests permission with an `approve` option
 - **THEN** the run SHALL resolve the permission with that option
-- **AND** the transcript SHALL retain the normal permission audit item.
+- **AND** the transcript SHALL retain the normal permission audit item
+- **AND** the run SHALL NOT publish `pendingPermission` for that request
+- **AND** the workspace UI SHALL NOT emit a waiting-user toast for that
+  permission request.
 
 #### Scenario: Allow option is selected
 
 - **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
 - **WHEN** the backend requests permission with an allow-style option
 - **THEN** the run SHALL resolve the permission with the first compatible
-  allow-style option.
+  allow-style option
+- **AND** the run SHALL NOT publish `pendingPermission` for that request.
 
 #### Scenario: Non-allow requests remain manual
 

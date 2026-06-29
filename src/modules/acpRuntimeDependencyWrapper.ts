@@ -1,4 +1,5 @@
 import type { BackendInstance } from "../backends/types";
+import { resolveAcpAgentFamily } from "./acpAgentFamilyResolver";
 import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import {
   buildRuntimeCommandNestedArgs,
@@ -849,6 +850,27 @@ export async function buildAcpRuntimeDependencyPlan(args: {
         details: {
           readiness: result.readiness,
           strategy: result.strategy,
+          ...(result.details || {}),
+        },
+      },
+    };
+  }
+  const agentFamily = resolveAcpAgentFamily(args.backend);
+  if (agentFamily === "hermes") {
+    return {
+      dependencies,
+      probeRequired: true,
+      wrapperMode,
+      wrappedBackend: { ...args.backend },
+      diagnostic: {
+        level: "info",
+        code: "runtime_dependencies_backend_wrapper_bypassed",
+        message:
+          "ACP workflow launch will use the configured Hermes backend command; uv backend wrapping is bypassed because Hermes owns its Python runtime",
+        details: {
+          readiness: result.readiness || "uv_dependency_environment_ready",
+          strategy: result.strategy || "uv",
+          agentFamily,
           ...(result.details || {}),
         },
       },
