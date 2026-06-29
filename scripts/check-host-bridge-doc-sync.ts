@@ -20,10 +20,23 @@ const GENERATED_TARGETS = [
   ],
 ] as const;
 
+const ZOTERO_LIBRARIAN_GENERATED_TARGETS = [
+  [
+    "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+    "zotero-librarian:host-bridge",
+  ],
+  [
+    "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflows.md",
+    "zotero-librarian:workflow-catalog",
+  ],
+] as const;
+
 const DOCS = [
   "doc/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/SKILL.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflows.md",
   "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
   "openspec/specs/host-bridge-cli-interface/spec.md",
   "openspec/specs/host-bridge-cli-synthesis-subcommands/spec.md",
@@ -123,6 +136,10 @@ function hasMarker(text: string, section: string, kind: "start" | "end") {
   return text.includes(`<!-- host-bridge-surface:${section}:${kind} -->`);
 }
 
+function hasLiteralMarker(text: string, marker: string, kind: "start" | "end") {
+  return text.includes(`<!-- ${marker}:${kind} -->`);
+}
+
 const catalog = buildHostBridgeSurfaceCatalog(ROOT);
 const errors = validateHostBridgeSurfaceCatalog(catalog);
 for (const error of errors) {
@@ -138,6 +155,16 @@ for (const [path, section] of GENERATED_TARGETS) {
   const text = read(path);
   if (!hasMarker(text, section, "start") || !hasMarker(text, section, "end")) {
     fail(`${path} is missing generated section markers for ${section}`);
+  }
+}
+
+for (const [path, marker] of ZOTERO_LIBRARIAN_GENERATED_TARGETS) {
+  const text = read(path);
+  if (
+    !hasLiteralMarker(text, marker, "start") ||
+    !hasLiteralMarker(text, marker, "end")
+  ) {
+    fail(`${path} is missing generated section markers for ${marker}`);
   }
 }
 
@@ -163,6 +190,19 @@ for (const docPath of DOCS) {
         `${docPath} contains stale Host Bridge surface text (${label}): ${match[0]}`,
       );
     }
+  }
+}
+
+const zoteroLibrarianHostBridge = read(
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+);
+for (const required of [
+  "library.sync_snapshot",
+  "zotero-bridge library snapshot",
+  "zotero-bridge library list",
+]) {
+  if (!zoteroLibrarianHostBridge.includes(required)) {
+    fail(`zotero-librarian Host Bridge reference missing ${required}`);
   }
 }
 

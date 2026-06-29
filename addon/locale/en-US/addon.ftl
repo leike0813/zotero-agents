@@ -479,7 +479,7 @@ workflow-settings-provider-option-acp-reasoning-effort-description = Reasoning e
 workflow-settings-provider-option-acp-auto-approve-permissions-title = Auto-approve ACP permission requests
 workflow-settings-provider-option-acp-auto-approve-permissions-description = Automatically approve ACP backend tool permission requests for this ACP Skill run.
 workflow-settings-run-option-auto-approve-zotero-writes-title = Auto-approve Zotero writes
-workflow-settings-run-option-auto-approve-zotero-writes-description = Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval and this option is not saved as a default parameter.
+workflow-settings-run-option-auto-approve-zotero-writes-description = Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval unless Host Bridge write approval is globally disabled, and this option is not saved as a default parameter.
 
 workflow-execute-summary = Workflow { $workflowLabel } finished. succeeded={ $succeeded }, failed={ $failed }
 workflow-execute-summary-with-skipped = Workflow { $workflowLabel } finished. succeeded={ $succeeded }, failed={ $failed }, skipped={ $skipped }

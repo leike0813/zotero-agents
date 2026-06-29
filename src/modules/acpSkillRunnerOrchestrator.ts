@@ -81,6 +81,7 @@ import {
 import { ensureZoteroMcpServer } from "./zoteroMcpServer";
 import { listZoteroMcpTools } from "./zoteroMcpProtocol";
 import {
+  autoApproveAcpSkillRunPermissionRequest,
   appendAcpSkillRunUserReply,
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
@@ -1113,20 +1114,20 @@ function handleAcpSkillRunPermissionRequest(args: {
   request: PermissionRequestWithResolver;
   runtimeOptions?: FrozenAcpRuntimeOptions;
 }) {
+  if (args.runtimeOptions?.autoApproveAcpPermissions === true) {
+    const optionId = resolveAutoApproveAcpPermissionOption(args.request);
+    if (
+      optionId &&
+      autoApproveAcpSkillRunPermissionRequest({
+        runRequestId: args.requestId,
+        request: args.request,
+        optionId,
+      })
+    ) {
+      return;
+    }
+  }
   setAcpSkillRunPermissionRequest(args.requestId, args.request);
-  if (args.runtimeOptions?.autoApproveAcpPermissions !== true) {
-    return;
-  }
-  const optionId = resolveAutoApproveAcpPermissionOption(args.request);
-  if (!optionId) {
-    return;
-  }
-  resolveAcpSkillRunPermissionRequest({
-    runRequestId: args.requestId,
-    permissionRequestId: args.request.requestId,
-    outcome: "selected",
-    optionId,
-  });
 }
 
 function wrapAcpSkillRunPermissionRequestForTimeoutPause(args: {

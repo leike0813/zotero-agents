@@ -2787,11 +2787,53 @@ export function setAcpSkillRunRuntimeOptions(
   scheduleChangedEmit();
 }
 
+type AcpSkillRunPermissionRequestWithResolver = AcpPendingPermissionRequest & {
+  resolve: (outcome: RequestPermissionOutcome) => void;
+};
+
+function normalizeAcpSkillRunPermissionRequestDetails(
+  request: AcpSkillRunPermissionRequestWithResolver,
+  permissionRequestId: string,
+) {
+  return {
+    permissionRequestId,
+    toolCallId: normalizeString(request.toolCallId),
+    toolTitle: normalizeString(request.toolTitle),
+    source: normalizeString(request.source) || undefined,
+    summary:
+      normalizeString(request.summary) || normalizeString(request.toolTitle),
+  };
+}
+
+function normalizeAcpSkillRunPendingPermission(
+  request: AcpSkillRunPermissionRequestWithResolver,
+  permissionRequestId: string,
+) {
+  return {
+    requestId: permissionRequestId,
+    sessionId: normalizeString(request.sessionId),
+    toolCallId: normalizeString(request.toolCallId),
+    toolTitle: normalizeString(request.toolTitle),
+    source: normalizeString(request.source) || undefined,
+    summary: normalizeString(request.summary) || undefined,
+    detail: normalizeString(request.detail) || undefined,
+    requestedAt: normalizeString(request.requestedAt) || nowIso(),
+    options: Array.isArray(request.options)
+      ? request.options.map((option) => ({ ...option }))
+      : [],
+  };
+}
+
+function acpSkillRunPermissionRequestedMessage(
+  request: AcpSkillRunPermissionRequestWithResolver,
+  permissionRequestId: string,
+) {
+  return `Permission requested: ${normalizeString(request.toolTitle) || permissionRequestId}`;
+}
+
 export function setAcpSkillRunPermissionRequest(
   runRequestIdRaw: string,
-  request: AcpPendingPermissionRequest & {
-    resolve: (outcome: RequestPermissionOutcome) => void;
-  },
+  request: AcpSkillRunPermissionRequestWithResolver,
 ) {
   const runRequestId = normalizeString(runRequestIdRaw);
   const permissionRequestId = normalizeString(request.requestId);
@@ -2805,34 +2847,74 @@ export function setAcpSkillRunPermissionRequest(
   upsertAcpSkillRun({
     requestId: runRequestId,
     status: "running",
-    pendingPermission: {
-      requestId: permissionRequestId,
-      sessionId: normalizeString(request.sessionId),
-      toolCallId: normalizeString(request.toolCallId),
-      toolTitle: normalizeString(request.toolTitle),
-      source: normalizeString(request.source) || undefined,
-      summary: normalizeString(request.summary) || undefined,
-      detail: normalizeString(request.detail) || undefined,
-      requestedAt: normalizeString(request.requestedAt) || nowIso(),
-      options: Array.isArray(request.options)
-        ? request.options.map((option) => ({ ...option }))
-        : [],
-    },
+    pendingPermission: normalizeAcpSkillRunPendingPermission(
+      request,
+      permissionRequestId,
+    ),
     event: {
       stage: "permission-requested",
-      message: `Permission requested: ${normalizeString(request.toolTitle) || permissionRequestId}`,
-      level: "warn",
-      details: {
+      message: acpSkillRunPermissionRequestedMessage(
+        request,
         permissionRequestId,
-        toolCallId: normalizeString(request.toolCallId),
-        toolTitle: normalizeString(request.toolTitle),
-        source: normalizeString(request.source) || undefined,
-        summary:
-          normalizeString(request.summary) ||
-          normalizeString(request.toolTitle),
+      ),
+      level: "warn",
+      details: normalizeAcpSkillRunPermissionRequestDetails(
+        request,
+        permissionRequestId,
+      ),
+    },
+  });
+}
+
+export function autoApproveAcpSkillRunPermissionRequest(args: {
+  runRequestId: string;
+  request: AcpSkillRunPermissionRequestWithResolver;
+  optionId: string;
+}) {
+  const runRequestId = normalizeString(args.runRequestId);
+  const permissionRequestId = normalizeString(args.request.requestId);
+  const optionId = normalizeString(args.optionId);
+  if (!runRequestId || !permissionRequestId || !optionId) {
+    return false;
+  }
+  const details = normalizeAcpSkillRunPermissionRequestDetails(
+    args.request,
+    permissionRequestId,
+  );
+  args.request.resolve({
+    outcome: "selected",
+    optionId,
+  });
+  upsertAcpSkillRun({
+    requestId: runRequestId,
+    status: "running",
+    pendingPermission: null,
+    event: {
+      stage: "permission-requested",
+      message: acpSkillRunPermissionRequestedMessage(
+        args.request,
+        permissionRequestId,
+      ),
+      level: "info",
+      details,
+    },
+  });
+  upsertAcpSkillRun({
+    requestId: runRequestId,
+    status: "running",
+    pendingPermission: null,
+    event: {
+      stage: "permission-resolved",
+      message: `Permission option selected: ${optionId}`,
+      level: "info",
+      details: {
+        ...details,
+        outcome: "selected",
+        optionId,
       },
     },
   });
+  return true;
 }
 
 function findStaleAcpSkillRunPermissionRequest(args: {

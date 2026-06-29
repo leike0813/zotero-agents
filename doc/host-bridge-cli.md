@@ -36,9 +36,10 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `library.get_item_notes` | library | `none` | `object required` | `item notes` | mcp-mirror |
 | `library.get_note_detail` | library | `none` | `object required` | `note get` | mcp-mirror |
 | `library.get_note_payload` | library | `none` | `object required` | `note payload` | mcp-mirror |
-| `library.list_items` | library | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
+| `library.list_items` | library | `none` | `object` | `library list` | mcp-mirror |
 | `library.list_note_payloads` | library | `none` | `item-ref required` | `note payloads` | mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `item search` | mcp-mirror |
+| `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `topics find-by-paper-ref` | mcp-mirror |
 | `topics.get_context` | topics | `none` | `object` | `topics get-context` | mcp-mirror |
 | `topics.get_report` | topics | `none` | `object` | `topics get-report` | mcp-mirror |
@@ -72,6 +73,8 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | --- | --- | --- | --- |
 | `status` | `GET /bridge/v1/health` | endpoint | - |
 | `manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `library list` | `library.list_items` | capability | - |
+| `library snapshot` | `library.sync_snapshot` | capability | - |
 | `item attachments` | `library.get_item_attachments` | capability | - |
 | `item get` | `library.get_item_detail` | capability | - |
 | `item notes` | `library.get_item_notes` | capability | - |
@@ -115,6 +118,14 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug status` | `debug.status` | capability | - |
 | `debug synthesis diff` | `debug.synthesis.diff` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
+
+#### Library guidance
+
+- Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
+- Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 #### Resolver payloads
 
@@ -254,8 +265,9 @@ token 明文，而是通过 `auth.tokenEnv` 引用 `ZOTERO_BRIDGE_TOKEN`：
 部分 workflow 可以声明允许跳过写库审批。只有在 workflow 声明该能力、用户
 在提交任务时勾选“自动批准写库”、且 ACP run profile 由插件注册后，scope
 才会额外包含 `autoApproveWrites: true`。该标记只影响当前 run 内的 Host
-Bridge 写库 mutation；workflow submit 仍需要原审批，手工伪造 scope 不会
-绕过审批。
+Bridge 写库 mutation；该 per-run 标记不影响 workflow submit。workflow submit
+只有在 Zotero 端全局开启 `hostBridgeDisableWriteApproval` 时才会一起跳过审批；
+手工伪造 scope 不会绕过审批。
 
 ### 3.2 Well-known profile
 
@@ -421,6 +433,8 @@ prompt、产物或脚本。run workspace profile 不保存 token 明文；token 
 zotero-bridge status
 zotero-bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
+zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'
+zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 zotero-bridge item search --query <text> [--limit <n>] [--library-id <id>]
 zotero-bridge item get (--key <key> | --id <id>) [--library-id <id>]
 zotero-bridge item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
@@ -441,6 +455,9 @@ zotero-bridge workflow run <runId>
 zotero-bridge task list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
 zotero-bridge file download <fileId> --output <path> [--force]
 ```
+
+`library snapshot` 返回 `nextCursor`、`hasMore`、`returned` 和 `totalScanned`，
+适合本地索引服务分页同步 Zotero 元数据。
 
 `zotero-bridge --help` 和各级 subcommand `--help` 是 CLI 自探索入口。
 逐命令的可复现实现规格见本文末尾“命令级实现参考”。
@@ -480,6 +497,8 @@ zotero-bridge file download <fileId> --output <path> [--force]
 - `item get` -> `library.get_item_detail`
 - `item notes` -> `library.get_item_notes`
 - `item attachments` -> `library.get_item_attachments`
+- `library list` -> `library.list_items`
+- `library snapshot` -> `library.sync_snapshot`
 - `note get` -> `library.get_note_detail`
 - `note payloads` -> `library.list_note_payloads`
 - `note payload` -> `library.get_note_payload`
@@ -537,6 +556,7 @@ name。
 - `context.get_selected_items`
 - `library.search_items`
 - `library.list_items`
+- `library.sync_snapshot`
 - `library.get_item_detail`
 - `library.get_item_notes`
 - `library.get_note_detail`
@@ -585,10 +605,11 @@ endpoint，不会提交 workflow。
 `backendId` 和 `providerOptions`；不得保存 bearer token、backend auth、
 baseUrl 或本地路径。
 
-`workflow submit` 会请求 Zotero UI 审批。审批通过后，Host Bridge 复用现有
-workflow preparation、duplicate guard、execution 和 apply seam。submit 不等待
-完整 workflow 结束，而是返回 runId、jobIds、初始 task 状态和 permission
-结果。
+`workflow submit` 默认会请求 Zotero UI 审批；如果 Zotero 端全局开启
+`hostBridgeDisableWriteApproval`，则会跳过该审批。审批通过或被全局跳过后，
+Host Bridge 复用现有 workflow preparation、duplicate guard、execution 和 apply
+seam。submit 不等待完整 workflow 结束，而是返回 runId、jobIds、初始 task
+状态和 permission 结果。
 
 `workflow run <runId>` 查询单个 run 的当前/历史状态。
 
@@ -709,11 +730,15 @@ Host Bridge 根据 capability 或 operation metadata 决定是否需要审批，
 - `task list`
 - `file download`
 
-需要 Zotero UI 审批：
+默认需要 Zotero UI 审批：
 
 - `workflow submit`
 - `mutation.execute`
 - `literature ingest`
+
+当 Zotero 端全局开启 `hostBridgeDisableWriteApproval` 时，Host Bridge 写入、
+workflow submit 和危险能力审批会被跳过。该选项只应在可信、临时调试会话中
+开启。
 
 当请求来自 ACP run scope 时，审批进入 ACP Skills UI。当请求来自 ACP Chat
 scope 时，审批进入 ACP Chat panel。当请求来自 SkillRunner run scope 时，

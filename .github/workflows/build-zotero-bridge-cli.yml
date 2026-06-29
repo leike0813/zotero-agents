@@ -6,17 +6,31 @@ on:
     paths:
       - "cli/zotero-bridge/**"
       - "skills_builtin/zotero-bridge-cli/**"
+      - "profiles/hermes/zotero-librarian/**"
+      - "src/modules/hostBridgeCapabilityRegistry.ts"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "scripts/host-bridge-surface-catalog.ts"
+      - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/check-zotero-librarian-profile.ts"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
       - "scripts/publish-host-bridge-cli-bundle.ps1"
+      - "scripts/publish-zotero-librarian-profile.ps1"
       - ".github/workflows/build-zotero-bridge-cli.yml"
   pull_request:
     paths:
       - "cli/zotero-bridge/**"
       - "skills_builtin/zotero-bridge-cli/**"
+      - "profiles/hermes/zotero-librarian/**"
+      - "src/modules/hostBridgeCapabilityRegistry.ts"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "scripts/host-bridge-surface-catalog.ts"
+      - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/check-zotero-librarian-profile.ts"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
       - "scripts/publish-host-bridge-cli-bundle.ps1"
+      - "scripts/publish-zotero-librarian-profile.ps1"
       - ".github/workflows/build-zotero-bridge-cli.yml"
 
 permissions:
@@ -195,3 +209,8 @@ jobs:
           $remoteUrl = "https://x-access-token:{0}@github.com/{1}.git" -f $env:GH_TOKEN, $env:GITHUB_REPOSITORY
           git remote set-url origin $remoteUrl
           ./scripts/publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push
+
+      - name: Publish zotero-librarian profile branch
+        shell: pwsh
+        run: |
+          ./scripts/publish-zotero-librarian-profile.ps1 -AllowDirty -Push

@@ -100,6 +100,8 @@ zotero-bridge item attachments --key <key>
 zotero-bridge note get --key <key>
 zotero-bridge note payloads --key <key>
 zotero-bridge note payload --key <key>
+zotero-bridge library list --input '{"limit":50}'
+zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 zotero-bridge topics list
 zotero-bridge topics get-context --input <JSON>
 zotero-bridge topics get-report --input <JSON>
@@ -115,8 +117,11 @@ zotero-bridge paper-artifacts read --input <JSON>
 zotero-bridge insights get-attention-queue
 zotero-bridge literature ingest --input <JSON>
 zotero-bridge workflow list
-zotero-bridge workflow submit --workflow <id> --input <JSON>
+zotero-bridge workflow describe --workflow <id>
+zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
+zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
 zotero-bridge workflow run <runId>
+zotero-bridge task list [--workflow <id>] [--active-only]
 zotero-bridge file download <fileId> --output <path>
 ```
 
@@ -204,6 +209,7 @@ stdout всегда выдаёт ровно один JSON-объект:
 | `library.search_items` | Поиск элементов |
 | `library.get_item_detail` | Получение деталей элемента |
 | `library.list_items` | Список элементов с пагинацией |
+| `library.sync_snapshot` | Paginated metadata snapshot for local indexing |
 | `library.get_item_notes` | Список заметок |
 | `library.get_note_detail` | Чтение содержимого заметки |
 | `library.list_note_payloads` | Список полезных нагрузок заметок |
@@ -291,5 +297,6 @@ stdout всегда выдаёт ровно один JSON-объект:
 ## Следующие шаги
 
 - [MCP-сервер](mcp-server) — Стандартизированный интерфейс протокола для клиентов, совместимых с MCP (Claude Desktop и т.д.)
+- [Hermes Profiles](hermes-profiles) — Устанавливаемый профиль для управления библиотекой Zotero с помощью ИИ-агентов
 - [Настройки](../preferences) — Просмотр всех настроек Host Bridge
 - [Бэкенд ACP](acp) — Узнайте о конфигурации агента ACP

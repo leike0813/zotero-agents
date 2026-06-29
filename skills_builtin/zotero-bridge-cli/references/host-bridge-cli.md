@@ -37,6 +37,7 @@ This section is generated from the Host Bridge surface catalog.
 zotero-bridge status
 zotero-bridge manifest
 zotero-bridge --help
+zotero-bridge library --help
 zotero-bridge item --help
 zotero-bridge note --help
 zotero-bridge topics --help
@@ -60,6 +61,8 @@ zotero-bridge file --help
 | --- | --- | --- | --- |
 | `status` | `GET /bridge/v1/health` | endpoint | - |
 | `manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `library list` | `library.list_items` | capability | - |
+| `library snapshot` | `library.sync_snapshot` | capability | - |
 | `item attachments` | `library.get_item_attachments` | capability | - |
 | `item get` | `library.get_item_detail` | capability | - |
 | `item notes` | `library.get_item_notes` | capability | - |
@@ -99,6 +102,14 @@ zotero-bridge file --help
 | `task list` | `GET /bridge/v1/tasks` | endpoint | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
 
+### Library guidance
+
+- Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
+- Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- Use `nextCursor` with `hasMore` to page library and snapshot results.
+
 ### Topic context payloads
 
 - `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
@@ -131,7 +142,6 @@ zotero-bridge file --help
 | --- | --- | --- | --- | --- | --- |
 | `context.get_current_view` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `context.get_selected_items` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `library.list_items` | library | `none` | `object` | `raw call only` | raw-only, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `citation-graph refresh-metrics` | dangerous, mcp-mirror |
 | `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `literature ingest` | raw-only, mcp-mirror |
 | `mutation.preview` | mutation | `none` | `mutation-preview required` | `raw call only` | raw-only, mcp-mirror |

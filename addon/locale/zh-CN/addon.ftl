@@ -479,7 +479,7 @@ workflow-settings-provider-option-acp-reasoning-effort-description = 从 ACP 模
 workflow-settings-provider-option-acp-auto-approve-permissions-title = 自动批准 ACP 权限请求
 workflow-settings-provider-option-acp-auto-approve-permissions-description = 自动批准本次 ACP Skill run 中的 ACP 后端工具权限请求。
 workflow-settings-run-option-auto-approve-zotero-writes-title = 自动批准 Zotero 写入
-workflow-settings-run-option-auto-approve-zotero-writes-description = 仅对当前 Workflow run 的 Zotero 写入动作生效；Workflow 提交本身仍需要审批，且不会保存为默认参数。
+workflow-settings-run-option-auto-approve-zotero-writes-description = 仅对当前 Workflow run 的 Zotero 写入动作生效；除非已全局关闭 Host Bridge 写入审批，否则 Workflow 提交本身仍需要审批；此选项不会保存为默认参数。
 
 workflow-execute-summary = Workflow { $workflowLabel } 执行完成。成功={ $succeeded }，失败={ $failed }
 workflow-execute-summary-with-skipped = Workflow { $workflowLabel } 执行完成。成功={ $succeeded }，失败={ $failed }，跳过={ $skipped }

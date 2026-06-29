@@ -5,6 +5,7 @@ import type {
   ZoteroHostItemRefInput,
   ZoteroHostLibraryListArgs,
   ZoteroHostLibraryListResponse,
+  ZoteroHostLibrarySyncSnapshotResponse,
   ZoteroHostItemSearchArgs,
   ZoteroHostItemSummaryDto,
   ZoteroHostMutationExecuteResponse,
@@ -327,6 +328,9 @@ export type WorkflowHostApi = {
     listItems: (
       args: ZoteroHostLibraryListArgs,
     ) => Promise<ZoteroHostLibraryListResponse>;
+    syncSnapshot: (
+      args: ZoteroHostLibraryListArgs,
+    ) => Promise<ZoteroHostLibrarySyncSnapshotResponse>;
     searchItems: (
       args: ZoteroHostItemSearchArgs,
     ) => Promise<ZoteroHostItemSummaryDto[]>;

@@ -11,6 +11,7 @@ import {
 } from "./taskDashboardHistory";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
+  getHostBridgeApprovalRequirement,
   requestHostBridgePermission,
   type HostBridgePermissionDecision,
   type HostBridgePermissionScope,
@@ -37,7 +38,7 @@ export type HostBridgeWorkflowControlManifest = {
   supported: true;
   endpoints: string[];
   explicitInputRequired: true;
-  submitRequiresApproval: true;
+  submitRequiresApproval: boolean;
 };
 
 export type HostBridgeWorkflowSummary = {
@@ -252,7 +253,8 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "GET /bridge/v1/tasks",
     ],
     explicitInputRequired: true,
-    submitRequiresApproval: true,
+    submitRequiresApproval:
+      getHostBridgeApprovalRequirement("workflow.submit") !== "none",
   };
 }
 
@@ -1011,6 +1013,28 @@ function buildWorkflowApprovalRequest(
   };
 }
 
+async function resolveWorkflowSubmitPermission(args: {
+  approvalRequest: ReturnType<typeof buildWorkflowApprovalRequest>;
+  scope?: HostBridgePermissionScope | null;
+  timeoutMs?: number;
+}): Promise<HostBridgePermissionDecision> {
+  if (
+    getHostBridgeApprovalRequirement(args.approvalRequest.action) === "none"
+  ) {
+    return {
+      outcome: "approved",
+      requestId: "host-bridge-workflow-submit-approval-disabled",
+      channel: "global",
+    };
+  }
+  return requestHostBridgePermission({
+    ...args.approvalRequest,
+    source: "host-bridge-cli",
+    scope: args.scope,
+    timeoutMs: args.timeoutMs,
+  });
+}
+
 export async function submitHostBridgeWorkflow(args: {
   payload: HostBridgeWorkflowSubmitRequest;
   scope?: HostBridgePermissionScope | null;
@@ -1020,9 +1044,8 @@ export async function submitHostBridgeWorkflow(args: {
     args.payload,
   );
   const approvalRequest = buildWorkflowApprovalRequest(workflow, plan);
-  const permission = await requestHostBridgePermission({
-    ...approvalRequest,
-    source: "host-bridge-cli",
+  const permission = await resolveWorkflowSubmitPermission({
+    approvalRequest,
     scope: args.scope,
     timeoutMs: args.timeoutMs,
   });

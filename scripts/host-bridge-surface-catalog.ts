@@ -39,6 +39,7 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "context.get_selected_items",
   "library.search_items",
   "library.list_items",
+  "library.sync_snapshot",
   "library.get_item_detail",
   "library.get_item_notes",
   "library.get_note_detail",
@@ -75,7 +76,6 @@ const CACHE_VIEW_CAPABILITIES = new Set([
 const RAW_ONLY_CAPABILITIES = new Set([
   "context.get_current_view",
   "context.get_selected_items",
-  "library.list_items",
   "mutation.preview",
   "mutation.execute",
   "diagnostic.get_status",
@@ -238,6 +238,8 @@ function parseDebugMappings(source: string): HostBridgeCliMapping[] {
 
 function coreCliMappings(): HostBridgeCliMapping[] {
   return [
+    ["library list", "library.list_items"],
+    ["library snapshot", "library.sync_snapshot"],
     ["item search", "library.search_items"],
     ["item get", "library.get_item_detail"],
     ["item notes", "library.get_item_notes"],

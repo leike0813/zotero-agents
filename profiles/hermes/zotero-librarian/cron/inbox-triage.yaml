@@ -1,0 +1,14 @@
+schema: hermes.cron.v1
+name: inbox-triage
+schedule:
+  time: "09:00"
+command:
+  - scripts/zotero_librarian_index_service.py
+  - search
+  - "status:0-inbox"
+behavior:
+  unchanged: "[SILENT]"
+  mutation: never
+notes:
+  - Report status:0-inbox, no tag, no collection, missing DOI or URL, missing attachment, and missing summary candidates.
+  - Suggest workflows without writing to Zotero.

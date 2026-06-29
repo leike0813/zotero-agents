@@ -48,6 +48,7 @@ Run these commands first when the available surface is unclear:
 zotero-bridge status
 zotero-bridge manifest
 zotero-bridge --help
+zotero-bridge library --help
 zotero-bridge item --help
 zotero-bridge note --help
 zotero-bridge topics --help
@@ -76,7 +77,7 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Command families
 
-- Prefer semantic CLI command families: item (attachments, get, notes, search); note (get, payload, payloads); topics (find-by-paper-ref, get-context, get-report, get-review-input, list); schemas (get); concepts (query); citation-graph (get-layout, get-metrics, get-slice, overview, query-cluster, rank-external-references, rank-library-papers, refresh-metrics); library-index (get); resolvers (resolve); reference-index (get); paper-artifacts (export-filtered, manifest, read, resolve-topic-digest); insights (attention-queue); literature (ingest); workflow (agent-run, describe, list, run, submit); task (list); file (download).
+- Prefer semantic CLI command families: library (list, snapshot); item (attachments, get, notes, search); note (get, payload, payloads); topics (find-by-paper-ref, get-context, get-report, get-review-input, list); schemas (get); concepts (query); citation-graph (get-layout, get-metrics, get-slice, overview, query-cluster, rank-external-references, rank-library-papers, refresh-metrics); library-index (get); resolvers (resolve); reference-index (get); paper-artifacts (export-filtered, manifest, read, resolve-topic-digest); insights (attention-queue); literature (ingest); workflow (agent-run, describe, list, run, submit); task (list); file (download).
 - Current graph/insight commands: citation-graph get-layout, citation-graph get-metrics, citation-graph get-slice, citation-graph overview, citation-graph query-cluster, citation-graph rank-external-references, citation-graph rank-library-papers, citation-graph refresh-metrics, insights attention-queue.
 - Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.
 - MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.

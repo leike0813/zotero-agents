@@ -16,6 +16,7 @@ const sidebars: SidebarsConfig = {
         "backends/acp",
         "backends/skill-runner",
         "backends/host-bridge",
+        "backends/hermes-profiles",
         "backends/mcp-server",
         "backends/generic-http",
       ],

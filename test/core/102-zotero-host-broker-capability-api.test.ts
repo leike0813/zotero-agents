@@ -127,6 +127,41 @@ describe("zotero host broker capability api", function () {
     assert.notStrictEqual(firstPage.items[0].key, note.key);
   });
 
+  it("syncs a metadata snapshot page for local librarian indexes", async function () {
+    const hostApi = createWorkflowHostApi();
+    const collection = await createCollection("Broker Snapshot Collection");
+    const included = await createParentItem("Broker Snapshot Included");
+    included.setField("DOI", "10.5555/snapshot");
+    included.setField("ISBN", "978-1-4028-9462-6");
+    included.setField("ISSN", "1234-5678");
+    included.setField("url", "https://example.test/snapshot");
+    await handlers.tag.add(included, ["snapshot:index"]);
+    await handlers.collection.add([included], collection.id);
+    await createParentItem("Broker Snapshot Excluded");
+
+    assert.isFunction(hostApi.library.syncSnapshot);
+    const snapshot = await hostApi.library.syncSnapshot({
+      collectionKey: collection.key,
+      tag: "snapshot:index",
+      limit: 10,
+    });
+
+    assert.strictEqual(snapshot.schema, "zotero.library.snapshot.v1");
+    assert.isString(snapshot.generatedAt);
+    assert.isString(snapshot.snapshotId);
+    assert.lengthOf(snapshot.items, 1);
+    assert.strictEqual(snapshot.returned, 1);
+    assert.isFalse(snapshot.hasMore);
+    assert.strictEqual(snapshot.items[0].key, included.key);
+    assert.strictEqual(snapshot.items[0].DOI, "10.5555/snapshot");
+    assert.strictEqual(snapshot.items[0].ISBN, "978-1-4028-9462-6");
+    assert.strictEqual(snapshot.items[0].ISSN, "1234-5678");
+    assert.strictEqual(snapshot.items[0].url, "https://example.test/snapshot");
+    assert.deepEqual(snapshot.items[0].tags, ["snapshot:index"]);
+    assert.include(snapshot.items[0].collections, collection.id);
+    assert.doesNotThrow(() => JSON.stringify(snapshot));
+  });
+
   it("enumerates library items through Zotero.Items.getAll(libraryId) without sparse ID fallback", async function () {
     const hostApi = createWorkflowHostApi();
     const highIdItem = new Zotero.Item("journalArticle");

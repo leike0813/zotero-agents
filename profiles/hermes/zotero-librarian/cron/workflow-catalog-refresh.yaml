@@ -1,0 +1,16 @@
+schema: hermes.cron.v1
+name: workflow-catalog-refresh
+schedule:
+  time: "03:00"
+command:
+  - scripts/zotero_librarian_index_service.py
+  - workflow-refresh
+behavior:
+  unchanged: "[SILENT]"
+  reportOn:
+    - new workflow
+    - schema hash change
+    - error
+notes:
+  - Call workflow list.
+  - Call workflow describe only for new workflows or schema hash changes.

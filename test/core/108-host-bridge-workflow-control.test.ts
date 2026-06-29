@@ -42,6 +42,7 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { JobRecord } from "../../src/jobQueue/manager";
+import { setPref } from "../../src/utils/prefs";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -164,6 +165,7 @@ describe("host bridge workflow control", function () {
     resetHostBridgeFileRegistryForTests();
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
+    setPref("hostBridgeDisableWriteApproval", false);
   });
 
   it("lists loaded workflows without exposing implementation paths", async function () {
@@ -776,6 +778,56 @@ describe("host bridge workflow control", function () {
     assert.include(approvalRequest.detail, "Source: zotero-bridge CLI");
     assert.notInclude(approvalRequest.detail, '"workflowId"');
     assert.notInclude(approvalRequest.detail, "{");
+  });
+
+  it("can disable workflow submit approval from the Host Bridge preference switch", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    setPref("hostBridgeDisableWriteApproval", true);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-no-approval-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Workflow Submit Without Approval");
+    await parent.saveTx();
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalRequest = request;
+      return {
+        outcome: "denied",
+        requestId: request.requestId,
+        channel: "global",
+        reason: "approval should not be requested",
+      };
+    });
+
+    const manifest = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/manifest",
+    });
+    assert.strictEqual(
+      manifest.json.result.workflowControl.submitRequiresApproval,
+      false,
+    );
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/submit",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+    assert.strictEqual(parsed.json.result.permission.outcome, "approved");
+    assert.strictEqual(parsed.json.result.permission.channel, "global");
+    assert.isNull(approvalRequest);
   });
 
   it("redacts path-like task fields from Host Bridge task and run responses", async function () {

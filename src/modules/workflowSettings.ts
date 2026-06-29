@@ -704,7 +704,7 @@ function toRunSchemaEntries(
         optionKey: AUTO_APPROVE_ZOTERO_WRITES_PARAM,
         title: "Auto-approve Zotero writes",
         description:
-          "Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval and this option is not saved as a default parameter.",
+          "Applies only to Zotero write actions in the current workflow run. Workflow submission still requires approval unless Host Bridge write approval is globally disabled, and this option is not saved as a default parameter.",
       }),
       defaultValue: false,
     },

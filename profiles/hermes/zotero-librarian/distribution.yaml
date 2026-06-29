@@ -1,0 +1,21 @@
+schema: hermes.profile.distribution.v1
+name: zotero-librarian
+title: Zotero Librarian
+version: 0.1.0
+summary: Hermes profile for maintaining a Zotero literature library through zotero-bridge.
+entrypoint: SOUL.md
+state:
+  defaultDir: "$HERMES_HOME/zotero-librarian"
+  overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR
+assets:
+  hostBridgeProfileExample: assets/host-bridge/profile.example.json
+  zoteroBridgeBinaries: assets/zotero-bridge/bin
+skills:
+  - skills/zotero-librarian
+cron:
+  - cron/index-refresh.yaml
+  - cron/workflow-catalog-refresh.yaml
+  - cron/run-monitor.yaml
+  - cron/inbox-triage.yaml
+  - cron/library-hygiene.yaml
+  - cron/attention-queue.yaml

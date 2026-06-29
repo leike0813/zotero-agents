@@ -4310,6 +4310,43 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.wrappedBackend.command, "uv");
   });
 
+  it("keeps Hermes backend command unchanged when runtime dependency probe succeeds", async function () {
+    const backend = createBackend({
+      id: "acp-hermes",
+      displayName: "Hermes ACP",
+      command: "hermes",
+      args: ["acp"],
+      acp: {
+        agentFamily: "hermes",
+      },
+    });
+    const plan = await buildAcpRuntimeDependencyPlan({
+      backend,
+      cwd: await mkTempRoot(),
+      mode: "probe-and-wrap",
+      runnerJson: {
+        runtime: {
+          dependencies: ["pymupdf4llm"],
+        },
+      },
+      probe: async () => ({
+        ok: true,
+        readiness: "uv_dependency_environment_ready",
+        strategy: "uv",
+      }),
+    });
+    assert.deepEqual(plan.dependencies, ["pymupdf4llm"]);
+    assert.isTrue(plan.probeRequired);
+    assert.equal(plan.wrapperMode, "probe-and-wrap");
+    assert.deepEqual(plan.wrappedBackend, backend);
+    assert.equal(
+      plan.diagnostic?.code,
+      "runtime_dependencies_backend_wrapper_bypassed",
+    );
+    assert.equal(plan.diagnostic?.details?.strategy, "uv");
+    assert.equal(plan.diagnostic?.details?.agentFamily, "hermes");
+  });
+
   it("resolves the original ACP command before passing it to uv", async function () {
     const root = await mkTempRoot();
     const previousZotero = redefineGlobalProperty("Zotero", {
@@ -4629,6 +4666,15 @@ describe("ACP SkillRunner-compatible runner", function () {
         let requestId = "";
         let resolvedOutcome: unknown = null;
         let pendingBeforeManualCancel: unknown = null;
+        let pendingSnapshotCount = 0;
+        const unsubscribeSnapshots = subscribeAcpSkillRunSnapshots(() => {
+          if (!requestId) {
+            return;
+          }
+          if (getAcpSkillRunRecord(requestId)?.pendingPermission) {
+            pendingSnapshotCount += 1;
+          }
+        });
         const fakeAdapter: AcpConnectionAdapter = {
           initialize: async () => ({
             authMethods: [],
@@ -4711,41 +4757,46 @@ describe("ACP SkillRunner-compatible runner", function () {
           close: async () => undefined,
         };
 
-        await executeAcpSkillRunnerJob({
-          requestKind: ACP_SKILL_RUN_REQUEST_KIND,
-          backend: createBackend(),
-          request: {
-            kind: ACP_SKILL_RUN_REQUEST_KIND,
-            skill_id: "demo-skill",
-            fetch_type: "bundle",
-          },
-          providerOptions: {
-            autoApproveAcpPermissions: true,
-          },
-          dependencies: {
-            scanRegistry: async () => ({
-              entries: [entry],
-              entriesById: { "demo-skill": entry },
-              diagnostics: [],
-            }),
-            createWorkspace: async (workspaceArgs) => {
-              const workspace = await createAcpSkillRunnerWorkspace({
-                ...workspaceArgs,
-                rootDir: root,
-              });
-              requestId = workspace.requestId;
-              return workspace;
+        try {
+          await executeAcpSkillRunnerJob({
+            requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+            backend: createBackend(),
+            request: {
+              kind: ACP_SKILL_RUN_REQUEST_KIND,
+              skill_id: "demo-skill",
+              fetch_type: "bundle",
             },
-            createAdapter: async () => fakeAdapter,
-            sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
-          },
-        });
+            providerOptions: {
+              autoApproveAcpPermissions: true,
+            },
+            dependencies: {
+              scanRegistry: async () => ({
+                entries: [entry],
+                entriesById: { "demo-skill": entry },
+                diagnostics: [],
+              }),
+              createWorkspace: async (workspaceArgs) => {
+                const workspace = await createAcpSkillRunnerWorkspace({
+                  ...workspaceArgs,
+                  rootDir: root,
+                });
+                requestId = workspace.requestId;
+                return workspace;
+              },
+              createAdapter: async () => fakeAdapter,
+              sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+            },
+          });
+        } finally {
+          unsubscribeSnapshots();
+        }
 
         if (args.expectedAutoOptionId) {
           assert.deepEqual(resolvedOutcome, {
             outcome: "selected",
             optionId: args.expectedAutoOptionId,
           });
+          assert.equal(pendingSnapshotCount, 0);
           const permissionItems = (
             buildAcpSkillRunPanelSnapshot({ selectedRequestId: requestId })
               .selectedRun?.transcriptItems || []
@@ -4756,6 +4807,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           );
         } else {
           assert.isOk(pendingBeforeManualCancel);
+          assert.isAbove(pendingSnapshotCount, 0);
           assert.deepEqual(resolvedOutcome, { outcome: "cancelled" });
         }
       }

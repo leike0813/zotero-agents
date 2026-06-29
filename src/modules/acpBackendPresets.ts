@@ -36,6 +36,10 @@ export type AcpBackendPresetOptions = {
 
 export type AcpBackendPresetIsolation = {
   envKey?: string;
+  env?: Array<{
+    key: string;
+    pathSuffix?: string;
+  }>;
   args?: Array<{
     flag: string;
     pathSuffix?: string;
@@ -209,9 +213,18 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     displayName: "Kilo ACP",
     bareCommand: "kilo",
     bareArgs: ["acp"],
+    npxPackage: "@kilocode/cli@latest",
+    npxArgs: ["acp"],
     defaultUseNpx: false,
-    supportsNpx: false,
+    supportsNpx: true,
     agentFamily: "unknown",
+    isolation: {
+      env: [
+        { key: "XDG_CONFIG_HOME", pathSuffix: "config" },
+        { key: "XDG_DATA_HOME", pathSuffix: "data" },
+        { key: "XDG_CACHE_HOME", pathSuffix: "cache" },
+      ],
+    },
   },
   {
     id: "cline",
@@ -251,6 +264,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
 function hasIsolationRule(preset: AcpBackendPreset) {
   return (
     typeof preset.isolation?.envKey === "string" ||
+    (Array.isArray(preset.isolation?.env) && preset.isolation.env.length > 0) ||
     (Array.isArray(preset.isolation?.args) && preset.isolation.args.length > 0)
   );
 }
@@ -333,12 +347,22 @@ function buildAcpBackendPresetIsolationEnv(
   backendId: string,
   isolated: boolean,
 ) {
-  if (!isolated || !preset.isolation?.envKey) {
+  if (!isolated || !preset.isolation) {
     return {};
   }
-  return {
-    [preset.isolation.envKey]: getAcpBackendIsolatedEnvironmentPath(backendId),
-  };
+  const root = getAcpBackendIsolatedEnvironmentPath(backendId);
+  const env: Record<string, string> = {};
+  if (preset.isolation.envKey) {
+    env[preset.isolation.envKey] = root;
+  }
+  for (const entry of preset.isolation.env || []) {
+    const key = String(entry.key || "").trim();
+    if (!key) {
+      continue;
+    }
+    env[key] = entry.pathSuffix ? joinPath(root, entry.pathSuffix) : root;
+  }
+  return env;
 }
 
 function buildAcpBackendPresetIsolationArgs(
@@ -434,12 +458,26 @@ export async function ensureManagedAcpBackendEnvironmentDirectories(
     if (!preset) {
       continue;
     }
-    const expectedPath = getAcpBackendIsolatedEnvironmentPath(backend.id);
-    const envKey = preset.isolation?.envKey;
-    const hasExpectedEnv = !!envKey && backend.env?.[envKey] === expectedPath;
-    const hasExpectedArg = (backend.args || []).includes(expectedPath);
-    if (hasExpectedEnv || hasExpectedArg) {
-      await ensureRuntimeDirectory(expectedPath);
+    const expectedEnv = buildAcpBackendPresetIsolationEnv(
+      preset,
+      backend.id,
+      true,
+    );
+    for (const [key, path] of Object.entries(expectedEnv)) {
+      if (backend.env?.[key] === path) {
+        await ensureRuntimeDirectory(path);
+      }
+    }
+    const expectedArgs = buildAcpBackendPresetIsolationArgs(
+      preset,
+      backend.id,
+      true,
+    );
+    for (let index = 1; index < expectedArgs.length; index += 2) {
+      const path = expectedArgs[index];
+      if ((backend.args || []).includes(path)) {
+        await ensureRuntimeDirectory(path);
+      }
     }
   }
 }

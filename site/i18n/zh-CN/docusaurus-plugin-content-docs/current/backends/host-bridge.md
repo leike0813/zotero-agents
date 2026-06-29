@@ -52,11 +52,11 @@ Zotero → Settings → Zotero Agents → Host Bridge
 
 ### Write Approval
 
-Write operations require Zotero UI approval:
+Host Bridge writes, workflow submission, and dangerous capabilities require Zotero UI approval by default:
 
 | Level | Description |
 |-------|-------------|
-| **Approval required** | `mutation.execute`, `workflow submit`, `debug.zotero.eval`, `citation_graph.refresh_metrics` |
+| **Approval required by default** | `mutation.execute`, `workflow submit`, `debug.zotero.eval`, `citation_graph.refresh_metrics` |
 | **Auto-approved** | All read-only operations, `diagnostic.get_status`, `mutation.preview` |
 
 **Double-gate auto-approval:**
@@ -64,6 +64,8 @@ Write operations require Zotero UI approval:
 2. User explicitly checks auto-approve in the submit dialog
 
 Both must be satisfied for auto-approval to take effect.
+
+The global Host Bridge danger-zone preference can disable these approvals for trusted temporary debugging sessions.
 
 ### LAN / Remote Security
 
@@ -100,6 +102,8 @@ zotero-bridge item attachments --key <key>
 zotero-bridge note get --key <key>
 zotero-bridge note payloads --key <key>
 zotero-bridge note payload --key <key>
+zotero-bridge library list --input '{"limit":50}'
+zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 zotero-bridge topics list
 zotero-bridge topics get-context --input <JSON>
 zotero-bridge topics get-report --input <JSON>
@@ -115,8 +119,11 @@ zotero-bridge paper-artifacts read --input <JSON>
 zotero-bridge insights get-attention-queue
 zotero-bridge literature ingest --input <JSON>
 zotero-bridge workflow list
-zotero-bridge workflow submit --workflow <id> --input <JSON>
+zotero-bridge workflow describe --workflow <id>
+zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
+zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
 zotero-bridge workflow run <runId>
+zotero-bridge task list [--workflow <id>] [--active-only]
 zotero-bridge file download <fileId> --output <path>
 ```
 
@@ -204,6 +211,7 @@ Injected environment variables:
 | `library.search_items` | Search items |
 | `library.get_item_detail` | Get item details |
 | `library.list_items` | Paginated item listing |
+| `library.sync_snapshot` | Paginated metadata snapshot for local indexing |
 | `library.get_item_notes` | List notes |
 | `library.get_note_detail` | Read note content |
 | `library.list_note_payloads` | List note payloads |
@@ -291,5 +299,6 @@ Scope routing:
 ## Next Steps
 
 - [MCP Server](mcp-server) — standardized protocol interface for MCP-compatible clients (Claude Desktop, etc.)
+- [Hermes Profiles](hermes-profiles) — ready-to-install profile for managing your Zotero library with AI agents
 - [Preferences](../preferences) — view all Host Bridge settings
 - [ACP Backend](acp) — learn about ACP Agent configuration
