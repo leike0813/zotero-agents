@@ -106,11 +106,11 @@ if (-not $DevRoot) {
 }
 $DevRoot = (Resolve-Path -LiteralPath $DevRoot).Path
 
-$SkillDir = Join-Path $DevRoot 'skills_builtin\zotero-bridge-cli'
-$ProfileTemplatePath = Join-Path $SkillDir 'assets\profile.template.json'
-$InstallPs1Path = Join-Path $DevRoot 'cli\zotero-bridge\scripts\install.ps1'
-$InstallShPath = Join-Path $DevRoot 'cli\zotero-bridge\scripts\install.sh'
-$BinRoot = Join-Path $DevRoot 'addon\bin'
+$SkillDir = Join-Path $DevRoot 'skills_builtin' 'zotero-bridge-cli'
+$ProfileTemplatePath = Join-Path $SkillDir 'assets' 'profile.template.json'
+$InstallPs1Path = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.ps1'
+$InstallShPath = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.sh'
+$BinRoot = Join-Path $DevRoot 'addon' 'bin'
 if (-not (Test-Path -LiteralPath (Join-Path $SkillDir 'SKILL.md'))) {
     Log-Error "Wrapper skill not found at skills_builtin\zotero-bridge-cli"
 }
@@ -256,14 +256,14 @@ try {
 
     New-Item -ItemType Directory -Path (Join-Path $Worktree 'bin') -Force | Out-Null
     foreach ($entry in $platformEntries) {
-        $platformOut = Join-Path $Worktree "bin\$($entry.platform)"
+        $platformOut = Join-Path $Worktree "bin" "$($entry.platform)"
         New-Item -ItemType Directory -Path $platformOut -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $entry.sourceDir $entry.binary) -Destination (Join-Path $platformOut $entry.binary) -Force
         Copy-Item -LiteralPath (Join-Path $entry.sourceDir "$($entry.binary).sha256") -Destination (Join-Path $platformOut "$($entry.binary).sha256") -Force
     }
-    Copy-DirectoryContents -Source $SkillDir -Destination (Join-Path $Worktree 'skills\zotero-bridge-cli')
+    Copy-DirectoryContents -Source $SkillDir -Destination (Join-Path $Worktree 'skills' 'zotero-bridge-cli')
     New-Item -ItemType Directory -Path (Join-Path $Worktree 'assets') -Force | Out-Null
-    Copy-Item -LiteralPath $ProfileTemplatePath -Destination (Join-Path $Worktree 'assets\profile.template.json') -Force
+    Copy-Item -LiteralPath $ProfileTemplatePath -Destination (Join-Path $Worktree 'assets' 'profile.template.json') -Force
     Copy-Item -LiteralPath $InstallPs1Path -Destination (Join-Path $Worktree 'install.ps1') -Force
     Copy-Item -LiteralPath $InstallShPath -Destination (Join-Path $Worktree 'install.sh') -Force
 

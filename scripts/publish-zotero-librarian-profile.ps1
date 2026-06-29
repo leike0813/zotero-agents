@@ -9,8 +9,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$profileRoot = Join-Path $repoRoot "profiles\hermes\zotero-librarian"
-$addonBin = Join-Path $repoRoot "addon\bin"
+$profileRoot = Join-Path $repoRoot "profiles" "hermes" "zotero-librarian"
+$addonBin = Join-Path $repoRoot "addon" "bin"
 $addonBinManifestPath = "addon/bin"
 $platforms = @(
   @{ platform = "win32-x64"; binary = "zotero-bridge.exe" },
@@ -81,7 +81,7 @@ try {
 
   Copy-Item -LiteralPath (Join-Path $profileRoot "*") -Destination $WorktreePath -Recurse -Force
 
-  $targetBinRoot = Join-Path $WorktreePath "assets\zotero-bridge\bin"
+  $targetBinRoot = Join-Path $WorktreePath "assets" "zotero-bridge" "bin"
   New-Item -ItemType Directory -Force -Path $targetBinRoot | Out-Null
   $binaryManifest = @()
   foreach ($entry in $platforms) {
@@ -107,7 +107,7 @@ try {
     dirty = [bool]$dirty
     generatedAt = (Get-Date).ToUniversalTime().ToString("o")
     binaries = $binaryManifest
-    generatedCatalogChecksum = Get-FileSha256 (Join-Path $WorktreePath "assets\profile-manifest-source.json")
+    generatedCatalogChecksum = Get-FileSha256 (Join-Path $WorktreePath "assets" "profile-manifest-source.json")
   }
   $manifestJson = $manifest | ConvertTo-Json -Depth 10
   Set-Content -LiteralPath (Join-Path $WorktreePath "manifest.json") -Value ($manifestJson + "`n") -Encoding UTF8
