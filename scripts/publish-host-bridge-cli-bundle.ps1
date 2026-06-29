@@ -211,9 +211,14 @@ if ($DryRun) {
 }
 
 # Create temp dir on the same drive as the repo to avoid cross-drive relative
-# path resolution failures in git worktree (Windows).
-$devDriveRoot = (Get-Item -LiteralPath $DevRoot).PSDrive.Root
-$TempDir = Join-Path $devDriveRoot ".tmp-zotero-bridge-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+# path resolution failures in git worktree (Windows). On non-Windows, use the
+# system temp directory to avoid permission issues at the filesystem root.
+if ($IsWindows) {
+    $tempBase = (Get-Item -LiteralPath $DevRoot).PSDrive.Root
+} else {
+    $tempBase = [System.IO.Path]::GetTempPath()
+}
+$TempDir = Join-Path $tempBase ".tmp-zotero-bridge-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 $Worktree = Join-Path $TempDir 'worktree'
 $TempBranch = "publish-host-bridge-cli-bundle-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
 
