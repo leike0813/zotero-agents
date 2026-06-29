@@ -214,6 +214,16 @@ function topicContextGuidance() {
   ].join("\n");
 }
 
+function libraryGuidance() {
+  return [
+    "- Use `zotero-bridge library list --input '{\"limit\":50,\"collectionKey\":\"COLL\"}'` for bounded library pages.",
+    "- Use `zotero-bridge library snapshot --input '{\"limit\":200,\"cursor\":\"0\"}'` for local metadata indexes.",
+    "- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
+  ].join("\n");
+}
+
 function resolverGuidance() {
   return [
     "- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
@@ -248,6 +258,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "#### CLI mappings",
     "",
     mappingTable(sortedMappings(catalog)),
+    "",
+    "#### Library guidance",
+    "",
+    libraryGuidance(),
     "",
     "#### Resolver payloads",
     "",
@@ -324,6 +338,10 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
           mapping.kind !== "capability" || !mapping.target.startsWith("debug."),
       ),
     ),
+    "",
+    "### Library guidance",
+    "",
+    libraryGuidance(),
     "",
     "### Topic context payloads",
     "",

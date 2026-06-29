@@ -37,13 +37,13 @@ This section is generated from the Host Bridge surface catalog.
 zotero-bridge status
 zotero-bridge manifest
 zotero-bridge --help
+zotero-bridge library --help
 zotero-bridge item --help
 zotero-bridge note --help
 zotero-bridge topics --help
 zotero-bridge schemas --help
 zotero-bridge concepts --help
 zotero-bridge citation-graph --help
-zotero-bridge library --help
 zotero-bridge library-index --help
 zotero-bridge resolvers --help
 zotero-bridge reference-index --help
@@ -102,7 +102,13 @@ zotero-bridge file --help
 | `task list` | `GET /bridge/v1/tasks` | endpoint | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
 
-Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages. Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes. `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`; use `nextCursor` with `hasMore` to page the local index.
+### Library guidance
+
+- Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
+- Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 ### Topic context payloads
 
