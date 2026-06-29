@@ -2,10 +2,10 @@
   "schema": "zotero-bridge-cli-bundle.v1",
   "source": {
     "repository": "zotero-agents",
-    "commit": "c70a0933aba5c6b28ac19bbc432cb470383bf6e5",
+    "commit": "0112a185b241ecb2eb6edcd0ee16943c05e5911f",
     "dirty": true
   },
-  "publishedAt": "2026-06-29T11:08:16.276Z",
+  "publishedAt": "2026-06-29T11:12:10.923Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -55,7 +55,7 @@
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "5299ee021b208699c0901720df8a5dba6b63cd24128f03c7b1ccd38cd19d6fa8",
+        "sha256": "6cca601413bb0599c353f88c6f0783cc6d3eb9ccd0a35f312b8626705f3c582a",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
         "size": 1329152
       }
