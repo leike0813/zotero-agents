@@ -65,9 +65,9 @@ const RELEASE_UPLOAD_REPO = process.env.GITHUB_REPOSITORY || RELEASE_REPO;
 
 async function resolveGitBranch(): Promise<string> {
   try {
-    // @ts-ignore
+    // @ts-expect-error -- dynamic import for ESM/CJS compatibility
     const { createRequire } = await import("node:module");
-    // @ts-ignore
+    // @ts-expect-error -- createRequire result typed as any
     const { execSync } = createRequire(import.meta.url)("node:child_process");
     return execSync("git rev-parse --abbrev-ref HEAD", {
       encoding: "utf-8",

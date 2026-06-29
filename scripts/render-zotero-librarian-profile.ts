@@ -1,10 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
   buildHostBridgeSurfaceCatalog,
@@ -125,13 +120,21 @@ function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
     "task",
     "file",
   ];
-  return [...catalog.endpointMappings, ...catalog.cliMappings].sort((left, right) => {
-    const leftGroup = left.command.split(" ")[0] || "";
-    const rightGroup = right.command.split(" ")[0] || "";
-    const leftIndex = order.includes(leftGroup) ? order.indexOf(leftGroup) : 99;
-    const rightIndex = order.includes(rightGroup) ? order.indexOf(rightGroup) : 99;
-    return leftIndex - rightIndex || left.command.localeCompare(right.command);
-  });
+  return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
+    (left, right) => {
+      const leftGroup = left.command.split(" ")[0] || "";
+      const rightGroup = right.command.split(" ")[0] || "";
+      const leftIndex = order.includes(leftGroup)
+        ? order.indexOf(leftGroup)
+        : 99;
+      const rightIndex = order.includes(rightGroup)
+        ? order.indexOf(rightGroup)
+        : 99;
+      return (
+        leftIndex - rightIndex || left.command.localeCompare(right.command)
+      );
+    },
+  );
 }
 
 function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
@@ -160,7 +163,9 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
     .map(
       (entry) =>
         `| \`${entry.name}\` | ${markdownCell(entry.summary)} | ${markdownCell(
-          entry.cliCommands.map((command) => `zotero-bridge ${command}`).join(", ") || "raw call",
+          entry.cliCommands
+            .map((command) => `zotero-bridge ${command}`)
+            .join(", ") || "raw call",
         )} | ${entry.approval} |`,
     );
 
@@ -189,7 +194,10 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function isDebugWorkflow(relativePath: string, workflow: Record<string, unknown>) {
+function isDebugWorkflow(
+  relativePath: string,
+  workflow: Record<string, unknown>,
+) {
   const id = String(workflow.id || "");
   return (
     id.startsWith("debug-") ||
@@ -231,7 +239,9 @@ function loadWorkflowCatalog(): WorkflowCatalogEntry[] {
       provider: String(workflow.provider || ""),
       version: String(workflow.version || ""),
       path: file,
-      parameters: Object.keys((workflow.parameters as object | undefined) || {}),
+      parameters: Object.keys(
+        (workflow.parameters as object | undefined) || {},
+      ),
       inputMode: workflowInputMode(workflow),
     });
   }
@@ -270,7 +280,8 @@ function renderManifestSource(
     profile: "zotero-librarian",
     profileBranch: "host-bridge/zotero-librarian-profile",
     sourceFiles: {
-      hostBridgeCapabilityRegistry: "src/modules/hostBridgeCapabilityRegistry.ts",
+      hostBridgeCapabilityRegistry:
+        "src/modules/hostBridgeCapabilityRegistry.ts",
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
@@ -317,7 +328,12 @@ function render(check = false) {
     diffs,
   );
 
-  writeOrCheck(PROFILE_EXAMPLE_TARGET, read(PROFILE_EXAMPLE_SOURCE), check, diffs);
+  writeOrCheck(
+    PROFILE_EXAMPLE_TARGET,
+    read(PROFILE_EXAMPLE_SOURCE),
+    check,
+    diffs,
+  );
   writeOrCheck(
     MANIFEST_SOURCE_TARGET,
     renderManifestSource(catalog, workflows),

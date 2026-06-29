@@ -131,20 +131,17 @@ describe("zotero-librarian Hermes profile distribution", function () {
       ],
       [
         "cron/workflow-catalog-refresh.yaml",
-        ["time: \"03:00\"", "workflow-refresh"],
+        ['time: "03:00"', "workflow-refresh"],
       ],
       ["cron/run-monitor.yaml", ["every: 5m", "run-watch"]],
-      [
-        "cron/inbox-triage.yaml",
-        ["time: \"09:00\"", "status:0-inbox", "no tag"],
-      ],
+      ["cron/inbox-triage.yaml", ['time: "09:00"', "status:0-inbox", "no tag"]],
       [
         "cron/library-hygiene.yaml",
         ["weekly: monday", "duplicate DOI", "empty collection"],
       ],
       [
         "cron/attention-queue.yaml",
-        ["time: \"18:00\"", "insights attention-queue"],
+        ['time: "18:00"', "insights attention-queue"],
       ],
     ];
 

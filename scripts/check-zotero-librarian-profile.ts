@@ -102,14 +102,18 @@ function checkSecrets(errors: string[]) {
     }
   }
 
-  const profile = json(join(PROFILE_ROOT, "assets/host-bridge/profile.example.json"));
+  const profile = json(
+    join(PROFILE_ROOT, "assets/host-bridge/profile.example.json"),
+  );
   if (profile.auth?.tokenEnv !== "ZOTERO_BRIDGE_TOKEN") {
     fail(errors, "profile.example.json must use tokenEnv ZOTERO_BRIDGE_TOKEN");
   }
   if (profile.auth?.token !== undefined) {
     fail(errors, "profile.example.json must not contain auth.token");
   }
-  const template = json("skills_builtin/zotero-bridge-cli/assets/profile.template.json");
+  const template = json(
+    "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+  );
   if (JSON.stringify(profile) !== JSON.stringify(template)) {
     fail(errors, "profile example differs from Host Bridge template");
   }
@@ -118,18 +122,24 @@ function checkSecrets(errors: string[]) {
 function checkHostBridgeSurface(errors: string[]) {
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
   errors.push(...validateHostBridgeSurfaceCatalog(catalog));
-  const capabilityNames = new Set(catalog.capabilities.map((entry) => entry.name));
+  const capabilityNames = new Set(
+    catalog.capabilities.map((entry) => entry.name),
+  );
   if (!capabilityNames.has("library.sync_snapshot")) {
     fail(errors, "Host Bridge catalog missing library.sync_snapshot");
   }
-  const mappingNames = new Set(catalog.cliMappings.map((entry) => entry.command));
+  const mappingNames = new Set(
+    catalog.cliMappings.map((entry) => entry.command),
+  );
   for (const command of ["library list", "library snapshot"]) {
     if (!mappingNames.has(command)) {
       fail(errors, `Host Bridge catalog missing zotero-bridge ${command}`);
     }
   }
 
-  const hostReference = readProfile("skills/zotero-librarian/references/host-bridge.md");
+  const hostReference = readProfile(
+    "skills/zotero-librarian/references/host-bridge.md",
+  );
   for (const snippet of [
     "zotero-librarian:host-bridge:start",
     "zotero-librarian:host-bridge:end",
@@ -144,7 +154,9 @@ function checkHostBridgeSurface(errors: string[]) {
 }
 
 function checkWorkflowCatalog(errors: string[]) {
-  const workflowReference = readProfile("skills/zotero-librarian/references/workflows.md");
+  const workflowReference = readProfile(
+    "skills/zotero-librarian/references/workflows.md",
+  );
   for (const snippet of [
     "zotero-librarian:workflow-catalog:start",
     "zotero-librarian:workflow-catalog:end",
@@ -159,14 +171,24 @@ function checkWorkflowCatalog(errors: string[]) {
   const manifest = json("workflows_builtin/manifest.json");
   const files = Array.isArray(manifest.files) ? manifest.files : [];
   const expectedWorkflowIds = files
-    .filter((file: unknown) => typeof file === "string" && file.endsWith("workflow.json"))
+    .filter(
+      (file: unknown) =>
+        typeof file === "string" && file.endsWith("workflow.json"),
+    )
     .map((file: string) => ({
       file,
-      workflow: json(join("workflows_builtin", file)) as Record<string, unknown>,
+      workflow: json(join("workflows_builtin", file)) as Record<
+        string,
+        unknown
+      >,
     }))
     .filter(({ file, workflow }) => {
       const id = String(workflow.id || "");
-      return id && !id.startsWith("debug-") && !file.includes("workflow-debug-probe/");
+      return (
+        id &&
+        !id.startsWith("debug-") &&
+        !file.includes("workflow-debug-probe/")
+      );
     })
     .map(({ workflow }) => String(workflow.id));
   for (const id of expectedWorkflowIds.slice(0, 10)) {
@@ -199,11 +221,19 @@ function checkCronAndScripts(errors: string[]) {
 
   const cronExpectations: Record<string, string[]> = {
     "cron/index-refresh.yaml": ["every: 6h", "[SILENT]", "refresh"],
-    "cron/workflow-catalog-refresh.yaml": ["time: \"03:00\"", "[SILENT]", "workflow-refresh"],
+    "cron/workflow-catalog-refresh.yaml": [
+      'time: "03:00"',
+      "[SILENT]",
+      "workflow-refresh",
+    ],
     "cron/run-monitor.yaml": ["every: 5m", "[SILENT]", "run-watch"],
-    "cron/inbox-triage.yaml": ["time: \"09:00\"", "[SILENT]", "status:0-inbox"],
-    "cron/library-hygiene.yaml": ["weekly: monday", "[SILENT]", "duplicate DOI"],
-    "cron/attention-queue.yaml": ["time: \"18:00\"", "[SILENT]", "insights"],
+    "cron/inbox-triage.yaml": ['time: "09:00"', "[SILENT]", "status:0-inbox"],
+    "cron/library-hygiene.yaml": [
+      "weekly: monday",
+      "[SILENT]",
+      "duplicate DOI",
+    ],
+    "cron/attention-queue.yaml": ['time: "18:00"', "[SILENT]", "insights"],
   };
   for (const [file, snippets] of Object.entries(cronExpectations)) {
     const source = readProfile(file);

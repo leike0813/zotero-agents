@@ -216,8 +216,8 @@ function topicContextGuidance() {
 
 function libraryGuidance() {
   return [
-    "- Use `zotero-bridge library list --input '{\"limit\":50,\"collectionKey\":\"COLL\"}'` for bounded library pages.",
-    "- Use `zotero-bridge library snapshot --input '{\"limit\":200,\"cursor\":\"0\"}'` for local metadata indexes.",
+    '- Use `zotero-bridge library list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
+    '- Use `zotero-bridge library snapshot --input \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
     "- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
