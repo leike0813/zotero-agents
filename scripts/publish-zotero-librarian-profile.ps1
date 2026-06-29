@@ -79,7 +79,7 @@ try {
     Where-Object { $_.Name -ne ".git" } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
 
-  Copy-Item -LiteralPath (Join-Path $profileRoot "*") -Destination $WorktreePath -Recurse -Force
+  Copy-Item -Path (Join-Path $profileRoot "*") -Destination $WorktreePath -Recurse -Force
 
   $targetBinRoot = Join-Path $WorktreePath "assets" "zotero-bridge" "bin"
   New-Item -ItemType Directory -Force -Path $targetBinRoot | Out-Null
