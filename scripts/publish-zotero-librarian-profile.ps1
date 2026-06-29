@@ -23,10 +23,10 @@ $platforms = @(
 )
 
 function Invoke-Git {
-  param([string[]]$Args)
-  & git -C $repoRoot @Args
+  param([string[]]$GitArgs)
+  & git -C $repoRoot @GitArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "git $($Args -join ' ') failed"
+    throw "git $($GitArgs -join ' ') failed"
   }
 }
 
