@@ -81,8 +81,8 @@ function itemRefFromInput(input: unknown): ZoteroHostItemRefInput {
 function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   const args = { ...asObject(input) } as ZoteroHostLibraryListArgs;
   const limit = Number(args.limit);
-  if (Number.isFinite(limit) && limit > 50) {
-    args.limit = 50;
+  if (Number.isFinite(limit) && limit > 200) {
+    args.limit = 200;
   }
   return args;
 }
@@ -690,6 +690,31 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     },
     (input, context) =>
       resolveHostBridgeApis(context).library.listItems(
+        libraryListArgsFromInput(input),
+      ),
+  ),
+  capability(
+    "library.sync_snapshot",
+    "library",
+    "Return a paginated Zotero library metadata snapshot for local librarian indexes.",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        libraryId: { type: ["number", "string"] },
+        collection: {},
+        collectionId: { type: ["number", "string"] },
+        collectionKey: { type: "string" },
+        collectionLibraryId: { type: ["number", "string"] },
+        tag: { type: "string" },
+        itemType: { type: "string" },
+        query: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+        cursor: { type: ["number", "string"] },
+      },
+    },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.syncSnapshot(
         libraryListArgsFromInput(input),
       ),
   ),

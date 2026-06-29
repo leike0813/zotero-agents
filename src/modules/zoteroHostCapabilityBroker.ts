@@ -153,6 +153,26 @@ export type ZoteroHostLibraryListResponse = {
   };
 };
 
+export type ZoteroHostLibrarySyncSnapshotItemDto =
+  ZoteroHostLibraryItemSummaryDto & {
+    DOI: string;
+    ISBN: string;
+    ISSN: string;
+    url: string;
+  };
+
+export type ZoteroHostLibrarySyncSnapshotResponse = {
+  schema: "zotero.library.snapshot.v1";
+  generatedAt: string;
+  snapshotId: string;
+  items: ZoteroHostLibrarySyncSnapshotItemDto[];
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  totalScanned: number;
+  filters: ZoteroHostLibraryListResponse["filters"];
+};
+
 export type ZoteroHostNoteDetailArgs = {
   format?: "text" | "html" | string;
   offset?: number | string;
@@ -606,6 +626,18 @@ function serializeLibraryItemSummary(
     ...serializeZoteroItemSummary(item),
     noteCount: countChildItems(item, "getNotes"),
     attachmentCount: countChildItems(item, "getAttachments"),
+  };
+}
+
+function serializeLibrarySyncSnapshotItem(
+  item: Zotero.Item,
+): ZoteroHostLibrarySyncSnapshotItemDto {
+  return {
+    ...serializeLibraryItemSummary(item),
+    DOI: readField(item, "DOI"),
+    ISBN: readField(item, "ISBN"),
+    ISSN: readField(item, "ISSN"),
+    url: readField(item, "url"),
   };
 }
 
@@ -2221,9 +2253,7 @@ function searchMatch(item: Zotero.Item, query: string) {
   return haystack.includes(query);
 }
 
-async function listLibraryItems(
-  args: ZoteroHostLibraryListArgs = {},
-): Promise<ZoteroHostLibraryListResponse> {
+async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   const limit = Math.min(
     LIBRARY_LIST_LIMIT_MAX,
     Math.max(1, parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT),
@@ -2270,7 +2300,7 @@ async function listLibraryItems(
   const nextOffset = cursor + page.length;
   const hasMore = nextOffset < filtered.length;
   return {
-    items: page.map(serializeLibraryItemSummary),
+    page,
     nextCursor: hasMore ? String(nextOffset) : "",
     totalScanned: filtered.length,
     returned: page.length,
@@ -2282,6 +2312,42 @@ async function listLibraryItems(
       itemType: itemType || undefined,
       query: query || undefined,
     },
+  };
+}
+
+async function listLibraryItems(
+  args: ZoteroHostLibraryListArgs = {},
+): Promise<ZoteroHostLibraryListResponse> {
+  const selection = await selectLibraryItemPage(args);
+  const { page, ...response } = selection;
+  return {
+    ...response,
+    items: page.map(serializeLibraryItemSummary),
+  };
+}
+
+async function syncLibrarySnapshot(
+  args: ZoteroHostLibraryListArgs = {},
+): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
+  const selection = await selectLibraryItemPage(args);
+  const generatedAt = new Date().toISOString();
+  const cursorPart = trimText(args.cursor) || "0";
+  return {
+    schema: "zotero.library.snapshot.v1",
+    generatedAt,
+    snapshotId: [
+      "zotero-library",
+      generatedAt.replace(/[^0-9]/g, ""),
+      cursorPart,
+      selection.returned,
+      selection.totalScanned,
+    ].join("-"),
+    items: selection.page.map(serializeLibrarySyncSnapshotItem),
+    nextCursor: selection.nextCursor,
+    hasMore: selection.hasMore,
+    returned: selection.returned,
+    totalScanned: selection.totalScanned,
+    filters: selection.filters,
   };
 }
 
@@ -2321,6 +2387,7 @@ export function createZoteroHostCapabilityBrokerApis() {
     },
     library: {
       listItems: listLibraryItems,
+      syncSnapshot: syncLibrarySnapshot,
       async searchItems(args: ZoteroHostItemSearchArgs) {
         const query = trimText(args?.query, FIELD_TEXT_LIMIT).toLowerCase();
         if (!query) {

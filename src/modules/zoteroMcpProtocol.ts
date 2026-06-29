@@ -3260,6 +3260,16 @@ const HOST_BRIDGE_MCP_ALLOWED_ARGS: Record<string, string[]> = {
   "schemas.get": ["kind"],
 };
 
+function normalizeHostBridgeMcpInput(
+  capabilityName: string,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (capabilityName === "library.list_items") {
+    return buildLibraryListArgs(input) as Record<string, unknown>;
+  }
+  return input;
+}
+
 function summarizeHostBridgeCapabilityResult(
   capabilityName: string,
   data: unknown,
@@ -3496,9 +3506,10 @@ async function callHostBridgeCapabilityAsMcpTool(
       { capability: capabilityName },
     );
   }
+  const normalizedInput = normalizeHostBridgeMcpInput(capability.name, input);
   const approval = await requestCapabilityApprovalForMcp({
     capability,
-    input,
+    input: normalizedInput,
     context,
   });
   if (approval === "denied" || approval === "unavailable") {
@@ -3518,9 +3529,9 @@ async function callHostBridgeCapabilityAsMcpTool(
   }
   const allowedArgs = HOST_BRIDGE_MCP_ALLOWED_ARGS[capability.name];
   if (allowedArgs) {
-    assertKnownArgs(capability.name, input, allowedArgs);
+    assertKnownArgs(capability.name, normalizedInput, allowedArgs);
   }
-  const data = await capability.handler(input, {
+  const data = await capability.handler(normalizedInput, {
     getStatus:
       context.options.resolveHostBridgeStatus ||
       (() =>

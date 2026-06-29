@@ -35,6 +35,7 @@ fn run(cli: Cli) -> Result<serde_json::Value, CliError> {
         Command::Call(args) => commands::call(&config, args),
         Command::Item(args) => commands::item(&config, args),
         Command::Note(args) => commands::note(&config, args),
+        Command::Library(args) => commands::library(&config, args),
         Command::Topics(args) => commands::topics(&config, args),
         Command::Schemas(args) => commands::schemas(&config, args),
         Command::Concepts(args) => commands::concepts(&config, args),

@@ -47,6 +47,46 @@
   line-height: 1.85;
 }
 
+.githubBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1.4rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--ifm-color-emphasis-300), transparent 48%);
+  border-radius: 2rem;
+  color: var(--ifm-color-emphasis-800);
+  font-size: 0.85rem;
+  font-weight: 550;
+  text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.githubBadge:hover {
+  border-color: var(--ifm-color-emphasis-400);
+  background: color-mix(in srgb, var(--ifm-color-emphasis-100), transparent 60%);
+  color: var(--ifm-color-emphasis-900);
+  text-decoration: none;
+}
+
+.githubBadge svg {
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+.starCount {
+  color: var(--ifm-color-emphasis-900);
+  font-variant-numeric: tabular-nums;
+}
+
+.githubLabel {
+  color: var(--ifm-color-emphasis-600);
+}
+
+.githubBadge:hover .githubLabel {
+  color: var(--ifm-color-emphasis-800);
+}
+
 .buttons {
   display: flex;
   align-items: center;

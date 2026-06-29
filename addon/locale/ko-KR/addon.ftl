@@ -479,7 +479,7 @@ workflow-settings-provider-option-acp-reasoning-effort-description = ACP 모델 
 workflow-settings-provider-option-acp-auto-approve-permissions-title = ACP 권한 요청 자동 승인
 workflow-settings-provider-option-acp-auto-approve-permissions-description = 이 ACP Skill 실행에 대해 ACP 백엔드 도구 권한 요청을 자동으로 승인합니다.
 workflow-settings-run-option-auto-approve-zotero-writes-title = Zotero 쓰기 자동 승인
-workflow-settings-run-option-auto-approve-zotero-writes-description = 현재 워크플로 실행의 Zotero 쓰기 작업에만 적용됩니다. 워크플로 제출에는 여전히 승인이 필요하며 이 옵션은 기본 매개변수로 저장되지 않습니다.
+workflow-settings-run-option-auto-approve-zotero-writes-description = 현재 워크플로 실행의 Zotero 쓰기 작업에만 적용됩니다. Host Bridge 쓰기 승인이 전역으로 비활성화되지 않은 경우 워크플로 제출에는 여전히 승인이 필요하며 이 옵션은 기본 매개변수로 저장되지 않습니다.
 
 workflow-execute-summary = 워크플로 { $workflowLabel }이(가) 완료되었습니다. 성공={ $succeeded }, 실패={ $failed }
 workflow-execute-summary-with-skipped = 워크플로 { $workflowLabel }이(가) 완료되었습니다. 성공={ $succeeded }, 실패={ $failed }, 건너뜀={ $skipped }

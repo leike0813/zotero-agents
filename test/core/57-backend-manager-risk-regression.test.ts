@@ -26,6 +26,7 @@ import {
   listGenericHttpBackendPresets,
 } from "../../src/modules/genericHttpBackendPresets";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
+import { joinPath } from "../../src/utils/path";
 import {
   getSkillRunnerBackendHealthState,
   isSkillRunnerBackendAvailable,
@@ -753,6 +754,25 @@ describe("backend manager risk regression", function () {
       assert.include(expectedPath, "acp-backend-environments");
       assert.include(expectedPath, entry.backendId);
     }
+  });
+
+  it("builds isolated Kilo ACP preset backend profiles with XDG env roots", function () {
+    const backend = createAcpBackendFromPresetOptions("kilo", {
+      isolated: true,
+    });
+    const expectedPath =
+      getAcpBackendIsolatedEnvironmentPath("acp-kilo-isolated");
+
+    assert.equal(backend.id, "acp-kilo-isolated");
+    assert.equal(backend.displayName, "Kilo ACP (Isolated)");
+    assert.equal(backend.command, "kilo");
+    assert.deepEqual(backend.args, ["acp"]);
+    assert.deepEqual(backend.env, {
+      XDG_CONFIG_HOME: joinPath(expectedPath, "config"),
+      XDG_DATA_HOME: joinPath(expectedPath, "data"),
+      XDG_CACHE_HOME: joinPath(expectedPath, "cache"),
+    });
+    assert.equal(backend.acp?.agentFamily, "unknown");
   });
 
   it("builds isolated ACP preset backend profiles with managed session args", function () {

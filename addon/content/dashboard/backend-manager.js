@@ -367,8 +367,35 @@
       preset &&
       preset.isolation &&
       (preset.isolation.envKey ||
+        (Array.isArray(preset.isolation.env) && preset.isolation.env.length) ||
         (Array.isArray(preset.isolation.args) && preset.isolation.args.length))
     );
+  }
+
+  function buildAcpPresetIsolationEnv(preset, isolatedPath) {
+    if (!preset || !preset.isolation) {
+      return [];
+    }
+    const entries = [];
+    if (preset.isolation.envKey) {
+      entries.push({
+        key: preset.isolation.envKey,
+        value: isolatedPath,
+      });
+    }
+    if (Array.isArray(preset.isolation.env)) {
+      preset.isolation.env.forEach(function (rule) {
+        const key = String((rule && rule.key) || "").trim();
+        if (!key) return;
+        entries.push({
+          key: key,
+          value: rule.pathSuffix
+            ? joinPreviewPath(isolatedPath, rule.pathSuffix)
+            : isolatedPath,
+        });
+      });
+    }
+    return entries;
   }
 
   function buildAcpPresetIsolationArgs(preset, isolatedPath) {
@@ -415,14 +442,7 @@
         )
       : "";
     const env = isolated
-      ? [
-          preset.isolation.envKey
-            ? {
-                key: preset.isolation.envKey,
-                value: isolatedPath,
-              }
-            : null,
-        ].filter(Boolean)
+      ? buildAcpPresetIsolationEnv(preset, isolatedPath)
       : [];
     const isolationArgs = isolated
       ? buildAcpPresetIsolationArgs(preset, isolatedPath)

@@ -1,0 +1,17 @@
+schema: hermes.cron.v1
+name: run-monitor
+schedule:
+  every: 5m
+command:
+  - scripts/zotero_librarian_index_service.py
+  - run-watch
+behavior:
+  unchanged: "[SILENT]"
+  reportOn:
+    - waiting
+    - succeeded
+    - failed
+    - canceled
+notes:
+  - Read active runs from local SQLite.
+  - Call zotero-bridge workflow run for each active run id.

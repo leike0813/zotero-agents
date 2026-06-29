@@ -1,0 +1,17 @@
+schema: hermes.cron.v1
+name: attention-queue
+schedule:
+  time: "18:00"
+command:
+  - zotero-bridge
+  - insights
+  - attention-queue
+behavior:
+  unchanged: "[SILENT]"
+  reportOn:
+    - high priority reading
+    - metadata completion
+    - analysis candidates
+notes:
+  - Combine insights attention-queue with the local index.
+  - Output [SILENT] when there are no high priority items.

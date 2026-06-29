@@ -208,6 +208,31 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
   });
 
+  it("routes library sync snapshots without write approval", async function () {
+    const token = configureHostBridgeServerForTests({ token: "snapshot-token" });
+    const item = await createParentItem("Bridge Snapshot DTO Paper");
+    item.setField("DOI", "10.5555/bridge-snapshot");
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.sync_snapshot",
+      input: {
+        query: "Bridge Snapshot",
+        limit: 10,
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.status, "ok");
+    assert.strictEqual(parsed.json.result.capability, "library.sync_snapshot");
+    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(parsed.json.result.data.schema, "zotero.library.snapshot.v1");
+    assert.lengthOf(parsed.json.result.data.items, 1);
+    assert.strictEqual(parsed.json.result.data.items[0].key, item.key);
+    assert.strictEqual(parsed.json.result.data.items[0].DOI, "10.5555/bridge-snapshot");
+    assert.isString(parsed.json.result.data.nextCursor);
+  });
+
   it("passes connection mode headers into synthesis capability context", async function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",

@@ -1,0 +1,10 @@
+index.sqlite
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+runs/
+logs/
+tmp/
+.zotero-bridge/
+workflow-catalog.json
+run-monitor.json

@@ -88,15 +88,53 @@ describe("host bridge cli packaging and install", function () {
     for (const commandGroup of [
       "schemas",
       "concepts",
+      "library",
       "library-index",
       "resolvers",
       "reference-index",
     ]) {
       assert.include(wrapperReference, `zotero-bridge ${commandGroup} --help`);
     }
+    assert.include(wrapperReference, "`library list`");
+    assert.include(wrapperReference, "`library snapshot`");
     assert.include(wrapperReference, "`library-index get`");
     assert.include(wrapperReference, "`reference-index get`");
     assert.include(wrapperReference, "`resolvers resolve`");
+  });
+
+  it("documents library snapshot/list semantic CLI commands for Zotero library indexes", async function () {
+    const cliArgs = await fs.readFile(
+      path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
+      "utf8",
+    );
+    const commands = await fs.readFile(
+      path.join(process.cwd(), "cli/zotero-bridge/src/commands.rs"),
+      "utf8",
+    );
+    const wrapperReference = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      ),
+      "utf8",
+    );
+    const docs = await fs.readFile(
+      path.join(process.cwd(), "doc/host-bridge-cli.md"),
+      "utf8",
+    );
+
+    for (const source of [cliArgs, commands, wrapperReference, docs]) {
+      assert.include(source, "library.sync_snapshot");
+      assert.include(source, "library.list_items");
+    }
+    for (const source of [wrapperReference, docs]) {
+      assert.include(source, "zotero-bridge library list");
+      assert.include(source, "zotero-bridge library snapshot");
+      assert.include(source, "collectionKey");
+      assert.include(source, "nextCursor");
+    }
+    assert.include(commands, "LibraryCommand::List");
+    assert.include(commands, "LibraryCommand::Snapshot");
   });
 
   it("documents topic get-context views and file output across CLI and wrapper surfaces", async function () {
@@ -821,8 +859,11 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "cargo install cargo-zigbuild --locked");
     assert.include(workflow, "mlugg/setup-zig@v2");
     assert.include(workflow, "Publish Host Bridge CLI bundle branch");
+    assert.include(workflow, "Publish zotero-librarian profile branch");
     assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
+    assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
     assert.include(workflow, "-AllowDirty -Push");
+    assert.include(workflow, "profiles/hermes/zotero-librarian/**");
     assert.include(workflow, "actions/download-artifact@v4");
     const packageScript = await fs.readFile(
       "scripts/package-zotero-bridge-cli.mjs",
@@ -867,6 +908,8 @@ describe("host bridge cli packaging and install", function () {
       ".agents/skills/host-bridge-release-pipeline/SKILL.md",
       "utf8",
     );
+    assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
+    assert.include(releaseSkill, "host-bridge/zotero-librarian-profile");
     assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
     assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
     assert.notInclude(

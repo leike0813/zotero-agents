@@ -1,0 +1,19 @@
+{
+  "schema": "zotero-librarian.profile.manifest-source.v1",
+  "profile": "zotero-librarian",
+  "profileBranch": "host-bridge/zotero-librarian-profile",
+  "sourceFiles": {
+    "hostBridgeCapabilityRegistry": "src/modules/hostBridgeCapabilityRegistry.ts",
+    "zoteroBridgeCliCommands": "cli/zotero-bridge/src/commands.rs",
+    "workflowManifest": "workflows_builtin/manifest.json",
+    "profileExample": "skills_builtin/zotero-bridge-cli/assets/profile.template.json"
+  },
+  "generated": {
+    "markers": [
+      "zotero-librarian:host-bridge:start",
+      "zotero-librarian:workflow-catalog:start"
+    ],
+    "catalogChecksum": "d75073e357325aacebf8220e0da3eaaf02bfb20942e20653d0d3b5616e13d7b5",
+    "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821"
+  }
+}

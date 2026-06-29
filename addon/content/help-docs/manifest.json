@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-06-28T19:16:00.536Z",
+  "generated_at": "2026-06-29T10:09:25.118Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -21,6 +21,12 @@
       "locale": "de",
       "title": "Generisches-HTTP-Backend-Konfiguration",
       "path": "docs/de/backends/generic-http.md"
+    },
+    {
+      "id": "backends/hermes-profiles",
+      "locale": "de",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/de/backends/hermes-profiles.md"
     },
     {
       "id": "backends/host-bridge",
@@ -317,6 +323,12 @@
       "path": "docs/en/backends/generic-http.md"
     },
     {
+      "id": "backends/hermes-profiles",
+      "locale": "en",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/en/backends/hermes-profiles.md"
+    },
+    {
       "id": "backends/host-bridge",
       "locale": "en",
       "title": "Host Bridge",
@@ -609,6 +621,12 @@
       "locale": "es",
       "title": "Configuración del backend HTTP genérico",
       "path": "docs/es/backends/generic-http.md"
+    },
+    {
+      "id": "backends/hermes-profiles",
+      "locale": "es",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/es/backends/hermes-profiles.md"
     },
     {
       "id": "backends/host-bridge",
@@ -905,6 +923,12 @@
       "path": "docs/fr/backends/generic-http.md"
     },
     {
+      "id": "backends/hermes-profiles",
+      "locale": "fr",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/fr/backends/hermes-profiles.md"
+    },
+    {
       "id": "backends/host-bridge",
       "locale": "fr",
       "title": "Host Bridge",
@@ -1197,6 +1221,12 @@
       "locale": "it",
       "title": "Configurazione del backend Generic HTTP",
       "path": "docs/it/backends/generic-http.md"
+    },
+    {
+      "id": "backends/hermes-profiles",
+      "locale": "it",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/it/backends/hermes-profiles.md"
     },
     {
       "id": "backends/host-bridge",
@@ -1493,6 +1523,12 @@
       "path": "docs/ja/backends/generic-http.md"
     },
     {
+      "id": "backends/hermes-profiles",
+      "locale": "ja",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/ja/backends/hermes-profiles.md"
+    },
+    {
       "id": "backends/host-bridge",
       "locale": "ja",
       "title": "Host Bridge",
@@ -1785,6 +1821,12 @@
       "locale": "ko",
       "title": "Generic HTTP Backend Configuration",
       "path": "docs/ko/backends/generic-http.md"
+    },
+    {
+      "id": "backends/hermes-profiles",
+      "locale": "ko",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/ko/backends/hermes-profiles.md"
     },
     {
       "id": "backends/host-bridge",
@@ -2081,6 +2123,12 @@
       "path": "docs/ru/backends/generic-http.md"
     },
     {
+      "id": "backends/hermes-profiles",
+      "locale": "ru",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/ru/backends/hermes-profiles.md"
+    },
+    {
       "id": "backends/host-bridge",
       "locale": "ru",
       "title": "Host Bridge",
@@ -2373,6 +2421,12 @@
       "locale": "zh-CN",
       "title": "Generic HTTP 后端配置",
       "path": "docs/zh-CN/backends/generic-http.md"
+    },
+    {
+      "id": "backends/hermes-profiles",
+      "locale": "zh-CN",
+      "title": "Zotero Librarian Hermes Profile",
+      "path": "docs/zh-CN/backends/hermes-profiles.md"
     },
     {
       "id": "backends/host-bridge",
@@ -2704,6 +2758,11 @@
             "id": "backends/host-bridge",
             "label": "Host Bridge"
           },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
+          },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {
             "type": "doc",
@@ -2948,6 +3007,11 @@
             "type": "doc",
             "id": "backends/host-bridge",
             "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP-Server" },
           {
@@ -3201,6 +3265,11 @@
             "type": "doc",
             "id": "backends/host-bridge",
             "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {
@@ -3458,6 +3527,11 @@
             "type": "doc",
             "id": "backends/host-bridge",
             "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
           },
           {
             "type": "doc",
@@ -3728,6 +3802,11 @@
             "id": "backends/host-bridge",
             "label": "Host Bridge"
           },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
+          },
           { "type": "doc", "id": "backends/mcp-server", "label": "Server MCP" },
           {
             "type": "doc",
@@ -3987,6 +4066,11 @@
           },
           {
             "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
+          },
+          {
+            "type": "doc",
             "id": "backends/mcp-server",
             "label": "MCPサーバー"
           },
@@ -4230,6 +4314,11 @@
             "id": "backends/host-bridge",
             "label": "Host Bridge"
           },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
+          },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {
             "type": "doc",
@@ -4471,6 +4560,11 @@
             "id": "backends/host-bridge",
             "label": "Host Bridge"
           },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
+          },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP-сервер" },
           {
             "type": "doc",
@@ -4711,6 +4805,11 @@
             "type": "doc",
             "id": "backends/host-bridge",
             "label": "Host Bridge"
+          },
+          {
+            "type": "doc",
+            "id": "backends/hermes-profiles",
+            "label": "Zotero Librarian Hermes Profile"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {

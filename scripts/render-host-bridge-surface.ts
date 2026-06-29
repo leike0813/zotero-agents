@@ -32,6 +32,7 @@ function commandForSort(mapping: HostBridgeCliMapping) {
   const groupOrder = [
     "status",
     "manifest",
+    "library",
     "item",
     "note",
     "topics",
@@ -349,6 +350,7 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
 
 function renderTopicSynthesisFragment(catalog: HostBridgeSurfaceCatalog) {
   const topicCommandGroups = [
+    "library",
     "topics",
     "library-index",
     "resolvers",

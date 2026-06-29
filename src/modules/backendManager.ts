@@ -156,6 +156,10 @@ type BackendManagerSnapshot = {
     agentFamily: string;
     isolation?: {
       envKey?: string;
+      env?: Array<{
+        key: string;
+        pathSuffix?: string;
+      }>;
       args?: Array<{
         flag: string;
         pathSuffix?: string;
@@ -2531,6 +2535,12 @@ function buildBackendManagerSnapshot(
       isolation: preset.isolation
         ? {
             envKey: preset.isolation.envKey,
+            env: preset.isolation.env
+              ? preset.isolation.env.map((entry) => ({
+                  key: entry.key,
+                  pathSuffix: entry.pathSuffix,
+                }))
+              : undefined,
             args: preset.isolation.args
               ? preset.isolation.args.map((entry) => ({
                   flag: entry.flag,

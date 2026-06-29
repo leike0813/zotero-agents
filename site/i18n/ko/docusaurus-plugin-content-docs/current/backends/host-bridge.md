@@ -100,6 +100,8 @@ zotero-bridge item attachments --key <key>
 zotero-bridge note get --key <key>
 zotero-bridge note payloads --key <key>
 zotero-bridge note payload --key <key>
+zotero-bridge library list --input '{"limit":50}'
+zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 zotero-bridge topics list
 zotero-bridge topics get-context --input <JSON>
 zotero-bridge topics get-report --input <JSON>
@@ -115,8 +117,11 @@ zotero-bridge paper-artifacts read --input <JSON>
 zotero-bridge insights get-attention-queue
 zotero-bridge literature ingest --input <JSON>
 zotero-bridge workflow list
-zotero-bridge workflow submit --workflow <id> --input <JSON>
+zotero-bridge workflow describe --workflow <id>
+zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
+zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
 zotero-bridge workflow run <runId>
+zotero-bridge task list [--workflow <id>] [--active-only]
 zotero-bridge file download <fileId> --output <path>
 ```
 
@@ -204,6 +209,7 @@ Injected environment variables:
 | `library.search_items` | Search items |
 | `library.get_item_detail` | Get item details |
 | `library.list_items` | Paginated item listing |
+| `library.sync_snapshot` | Paginated metadata snapshot for local indexing |
 | `library.get_item_notes` | List notes |
 | `library.get_note_detail` | Read note content |
 | `library.list_note_payloads` | List note payloads |
@@ -291,5 +297,6 @@ Scope routing:
 ## Next Steps
 
 - [MCP Server](mcp-server) — standardized protocol interface for MCP-compatible clients (Claude Desktop, etc.)
+- [Hermes Profiles](hermes-profiles) — ready-to-install profile for managing your Zotero library with AI agents
 - [Preferences](../preferences) — view all Host Bridge settings
 - [ACP Backend](acp) — learn about ACP Agent configuration

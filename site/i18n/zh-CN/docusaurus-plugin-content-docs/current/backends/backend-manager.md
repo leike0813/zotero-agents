@@ -100,7 +100,7 @@ ACP Tab 上方有一个 **从预设中添加** 按钮。点击后会打开预设
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter，支持通过 `--session-dir` 隔离 session 目录 |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP 模式 |
-| **Kilo** | `kilo acp` | Kilo Code ACP 模式 |
+| **Kilo** | `kilo acp` | Kilo Code ACP 模式；已实测核心 XDG 路径可隔离 config、data/session/auth/log 和 cache 状态 |
 | **Cline** | `cline --acp` | Cline ACP 模式 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 模式 |

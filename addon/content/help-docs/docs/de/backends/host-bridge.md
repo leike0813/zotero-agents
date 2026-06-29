@@ -100,6 +100,8 @@ zotero-bridge item attachments --key <key>
 zotero-bridge note get --key <key>
 zotero-bridge note payloads --key <key>
 zotero-bridge note payload --key <key>
+zotero-bridge library list --input '{"limit":50}'
+zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 zotero-bridge topics list
 zotero-bridge topics get-context --input <JSON>
 zotero-bridge topics get-report --input <JSON>
@@ -115,8 +117,11 @@ zotero-bridge paper-artifacts read --input <JSON>
 zotero-bridge insights get-attention-queue
 zotero-bridge literature ingest --input <JSON>
 zotero-bridge workflow list
-zotero-bridge workflow submit --workflow <id> --input <JSON>
+zotero-bridge workflow describe --workflow <id>
+zotero-bridge workflow submit --workflow <id> (--input <JSON> | --none)
+zotero-bridge workflow agent-run --workflow <id> (--input <JSON> | --none) --output-dir <DIR>
 zotero-bridge workflow run <runId>
+zotero-bridge task list [--workflow <id>] [--active-only]
 zotero-bridge file download <fileId> --output <path>
 ```
 
@@ -204,6 +209,7 @@ Injizierte Umgebungsvariablen:
 | `library.search_items` | Elemente suchen |
 | `library.get_item_detail` | Elementdetails abrufen |
 | `library.list_items` | Paginierte Elementauflistung |
+| `library.sync_snapshot` | Paginated metadata snapshot for local indexing |
 | `library.get_item_notes` | Notizen auflisten |
 | `library.get_note_detail` | Notizinhalt lesen |
 | `library.list_note_payloads` | Notiz-Payloads auflisten |
@@ -291,5 +297,6 @@ Bereichsweiterleitung:
 ## Nächste Schritte
 
 - [MCP-Server](#doc/backends%2Fmcp-server) — Standardisierte Protokollschnittstelle für MCP-kompatible Clients (Claude Desktop usw.)
+- [Hermes Profiles](#doc/backends%2Fhermes-profiles) — Installierbares Profil zur Verwaltung Ihrer Zotero-Bibliothek mit KI-Agenten
 - [Einstellungen](#doc/preferences) — Alle Host-Bridge-Einstellungen anzeigen
 - [ACP-Backend](#doc/backends%2Facp) — ACP-Agent-Konfiguration kennenlernen

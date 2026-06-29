@@ -12,12 +12,12 @@ use crate::{
         ConceptsCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
         DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, InsightsArgs,
         InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs,
-        LibraryIndexArgs, LibraryIndexCommand, LiteratureArgs, LiteratureCommand,
-        LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs, NotePayloadArgs,
-        PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs, ReferenceIndexCommand,
-        ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs, WorkflowArgs,
-        WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        LibraryArgs, LibraryCommand, LibraryIndexArgs, LibraryIndexCommand, LiteratureArgs,
+        LiteratureCommand, LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs,
+        NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs,
+        ReferenceIndexCommand, ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand,
+        TaskArgs, TaskCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs,
+        WorkflowArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -71,6 +71,17 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
             "library.get_note_payload",
             note_payload_input(args)?,
         ),
+    }
+}
+
+pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliError> {
+    match args.command {
+        LibraryCommand::List(input) => {
+            call_capability(config, "library.list_items", bridge_input(input)?)
+        }
+        LibraryCommand::Snapshot(input) => {
+            call_capability(config, "library.sync_snapshot", bridge_input(input)?)
+        }
     }
 }
 

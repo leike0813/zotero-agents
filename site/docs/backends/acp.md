@@ -63,7 +63,7 @@ When **Use npx** is enabled, the preset switches to the `npx <package>` launch f
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter; supports documented session-directory isolation through `--session-dir` |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP mode |
-| **Kilo** | `kilo acp` | Kilo Code ACP mode |
+| **Kilo** | `kilo acp` | Kilo Code ACP mode; core XDG path isolation has been observed for config, data/session/auth/log, and cache state |
 | **Cline** | `cline --acp` | Cline ACP mode |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP mode |
 | **Grok** | `grok agent stdio` | Grok agent stdio mode |
@@ -85,6 +85,7 @@ Some agents support configuration isolation and session persistence through envi
 | `HERMES_HOME` | Hermes Agent | Specify an independent home/configuration directory |
 | `QODER_CONFIG_DIR` | Qoder CLI | Specify an independent configuration directory |
 | `--session-dir <path>` | Cursor Agent ACP | Specify an independent session persistence directory |
+| `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME` | Kilo | Specify independent XDG roots for configuration, data/session/auth/log, and cache state. This covers the observed core state paths, but does not prove every Kilo subcommand or plugin avoids global directories. |
 
 ## Request Types
 

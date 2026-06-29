@@ -49,7 +49,7 @@ pub enum Command {
 
     #[command(
         about = "Advanced diagnostic raw capability call",
-        long_about = "Send a raw capability request to POST /bridge/v1/call. This is an advanced diagnostic interface; prefer semantic item, note, topic, citation-graph, paper-artifacts, literature, workflow, task, and file commands for normal operations."
+        long_about = "Send a raw capability request to POST /bridge/v1/call. This is an advanced diagnostic interface; prefer semantic library, item, note, topic, citation-graph, paper-artifacts, literature, workflow, task, and file commands for normal operations."
     )]
     Call(CallArgs),
 
@@ -58,6 +58,9 @@ pub enum Command {
 
     #[command(about = "Read Zotero note data and embedded note payloads")]
     Note(NoteArgs),
+
+    #[command(about = "Read Zotero library pages and snapshot metadata")]
+    Library(LibraryArgs),
 
     #[command(about = "Read topic synthesis topic data through semantic commands")]
     Topics(TopicsArgs),
@@ -243,6 +246,27 @@ pub struct NotePayloadArgs {
 
     #[arg(long, help = "Maximum characters")]
     pub max_chars: Option<u32>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct LibraryArgs {
+    #[command(subcommand)]
+    pub command: LibraryCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum LibraryCommand {
+    #[command(
+        about = "List compact Zotero library item summaries",
+        long_about = "Map to Host Bridge capability library.list_items. Use --input for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
+    )]
+    List(BridgeInputArgs),
+
+    #[command(
+        about = "Sync a Zotero library metadata snapshot page",
+        long_about = "Map to Host Bridge capability library.sync_snapshot. Use --input for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
+    )]
+    Snapshot(BridgeInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -517,7 +541,7 @@ pub enum WorkflowCommand {
 
     #[command(
         about = "Submit a workflow with explicit JSON input",
-        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --items or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval."
+        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --items or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval unless Host Bridge approvals are globally disabled in Zotero."
     )]
     Submit(WorkflowSubmitArgs),
 
@@ -785,7 +809,9 @@ mod tests {
 
     use clap::{CommandFactory, Parser};
 
-    use super::{Cli, Command, LiteratureCommand, TopicsCommand, WorkflowCommand};
+    use super::{
+        Cli, Command, LibraryCommand, LiteratureCommand, TopicsCommand, WorkflowCommand,
+    };
 
     #[test]
     fn top_level_help_exposes_agent_discovery_cues() {
@@ -796,6 +822,7 @@ mod tests {
         assert!(help.contains("Output contract"));
         assert!(help.contains("status"));
         assert!(help.contains("manifest"));
+        assert!(help.contains("library"));
         assert!(help.contains("item"));
         assert!(help.contains("note"));
         assert!(help.contains("topics"));
@@ -872,6 +899,12 @@ mod tests {
             assert!(topics_help.contains(name), "missing {name}");
         }
 
+        let library = command.find_subcommand_mut("library").unwrap();
+        let library_help = library.render_long_help().to_string();
+        for name in ["list", "snapshot"] {
+            assert!(library_help.contains(name), "missing {name}");
+        }
+
         let graph = command.find_subcommand_mut("citation-graph").unwrap();
         let graph_help = graph.render_long_help().to_string();
         for name in [
@@ -936,6 +969,30 @@ mod tests {
                 _ => panic!("expected topics list"),
             },
             _ => panic!("expected topics command"),
+        }
+    }
+
+    #[test]
+    fn parses_library_snapshot_with_json_input() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "library",
+            "snapshot",
+            "--input",
+            "{\"limit\":200,\"collectionKey\":\"COLL\"}",
+        ]);
+
+        match cli.command {
+            Command::Library(args) => match args.command {
+                LibraryCommand::Snapshot(input) => {
+                    assert_eq!(
+                        input.input.as_deref(),
+                        Some("{\"limit\":200,\"collectionKey\":\"COLL\"}")
+                    );
+                }
+                _ => panic!("expected library snapshot"),
+            },
+            _ => panic!("expected library command"),
         }
     }
 
