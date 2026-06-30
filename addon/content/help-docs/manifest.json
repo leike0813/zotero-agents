@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-06-30T07:24:10.654Z",
+  "generated_at": "2026-06-30T10:01:08.692Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -25,7 +25,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "de",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Zotero Librarian Hermes-Profil",
       "path": "docs/de/backends/hermes-profiles.md"
     },
     {
@@ -625,7 +625,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "es",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Perfil Hermes Zotero Librarian",
       "path": "docs/es/backends/hermes-profiles.md"
     },
     {
@@ -925,7 +925,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "fr",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Profil Hermes Zotero Librarian",
       "path": "docs/fr/backends/hermes-profiles.md"
     },
     {
@@ -1225,7 +1225,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "it",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Profilo Hermes Zotero Librarian",
       "path": "docs/it/backends/hermes-profiles.md"
     },
     {
@@ -1825,7 +1825,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "ko",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Zotero Librarian Hermes 프로필",
       "path": "docs/ko/backends/hermes-profiles.md"
     },
     {
@@ -2125,7 +2125,7 @@
     {
       "id": "backends/hermes-profiles",
       "locale": "ru",
-      "title": "Zotero Librarian Hermes Profile",
+      "title": "Профиль Hermes Zotero Librarian",
       "path": "docs/ru/backends/hermes-profiles.md"
     },
     {
@@ -3011,7 +3011,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Zotero Librarian Hermes-Profil"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP-Server" },
           {
@@ -3269,7 +3269,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Perfil Hermes Zotero Librarian"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {
@@ -3531,7 +3531,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Profil Hermes Zotero Librarian"
           },
           {
             "type": "doc",
@@ -3805,7 +3805,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Profilo Hermes Zotero Librarian"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "Server MCP" },
           {
@@ -4317,7 +4317,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Zotero Librarian Hermes 프로필"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
           {
@@ -4563,7 +4563,7 @@
           {
             "type": "doc",
             "id": "backends/hermes-profiles",
-            "label": "Zotero Librarian Hermes Profile"
+            "label": "Профиль Hermes Zotero Librarian"
           },
           { "type": "doc", "id": "backends/mcp-server", "label": "MCP-сервер" },
           {

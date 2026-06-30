@@ -89,6 +89,30 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | `--session-dir <path>` | Cursor Agent ACP | 指定独立 session 持久化目录 |
 | `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` | Kilo | 分别指定独立的 XDG 配置、数据/session/auth/log 和缓存根目录。该结论覆盖已实测的核心状态路径，但不等于证明所有 Kilo 子命令或插件都不会访问全局目录。 |
 
+## 免费模型方案
+
+部分引擎提供 **免费模型访问** — 适合无需任何付费即可开始：
+
+| 引擎 | 免费方案 | 说明 |
+|------|---------|------|
+| **Kilo Code** | Auto Free 模式 | Kilo Code 内置 Auto Free 模式，自动将每个请求路由到合适的免费模型。在 Kilo Code 设置中启用即可 — 无需 API key |
+| **OpenCode Zen** | 内置免费模型 | [OpenCode Zen](https://opencode.ai/zen) 版本内置免费模型，无需 API 订阅 |
+| **OpenCode + OpenRouter** | OpenRouter 免费模型 | 配置 OpenCode 使用 [OpenRouter](https://openrouter.ai/) 并选择免费层模型（如 Gemini 2.5 Flash、DeepSeek V3）。需要免费注册 OpenRouter 账号 |
+
+### 免费方案的局限性
+
+免费模型对于日常使用足够，但请注意以下限制：
+
+| 限制 | 说明 |
+|------|------|
+| **速率限制** | 请求可能被限流 — 通常每分钟 5–20 次请求，取决于提供商负载。批量处理会明显变慢 |
+| **并发限制** | 通常限制为单个并发请求。同时运行多个工作流可能排队或失败 |
+| **模型可用性** | 免费模型池在高峰期可能耗尽。可能遇到"模型不可用"或"容量已满"的错误 |
+| **模型轮换** | 提供商可能不提前通知就更换免费模型（升级或降级）。不同运行之间输出质量可能有所波动 |
+| **无 SLA / 可靠性** | 免费层不提供服务可用性保证。服务可能临时不可用或停止提供 |
+
+> 如果需要可靠的批量处理或正式使用，建议考虑付费方案如 [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)（$10/月）或 Coding Plan（百炼、智谱等）。单篇论文的成本与节省的时间相比微不足道。
+
 ## 请求类型
 
 ACP 后端支持两种请求类型：

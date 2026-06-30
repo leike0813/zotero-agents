@@ -10,9 +10,9 @@ const SKILLRUNNER_RUNTIME_FEED_CACHE_SCHEMA =
   "zotero-agents.skillrunner-runtime-feed-cache.v1";
 
 export const DEFAULT_SKILLRUNNER_RUNTIME_FEED_URL =
-  "https://raw.githubusercontent.com/leike0813/zotero-agents/skillrunner-runtime-feed/feed.json";
+  "https://raw.githubusercontent.com/leike0813/zotero-agents/main/feeds/skillrunner-runtime/feed.json";
 export const DEFAULT_SKILLRUNNER_RUNTIME_FEED_FALLBACK_URL =
-  "https://gitee.com/leike0813/zotero-agents/raw/skillrunner-runtime-feed/feed.json";
+  "https://gitee.com/leike0813/zotero-agents/raw/main/feeds/skillrunner-runtime/feed.json";
 
 export const BUILTIN_SKILLRUNNER_RUNTIME_VERSION = "v0.7.2";
 

@@ -72,6 +72,30 @@ Only OpenCode, Codex, Claude Code, Gemini CLI, Qwen Code, and Hermes Agent have 
 
 You can still manually modify any field after selecting a preset.
 
+## Free Model Options
+
+Several engines offer **free model access** — ideal for getting started without any payment:
+
+| Engine | Free Option | How It Works |
+|--------|------------|--------------|
+| **Kilo Code** | Auto Free mode | Kilo Code's built-in Auto Free mode automatically routes each request to a suitable free model. Enable it in Kilo Code settings — no API key required |
+| **OpenCode Zen** | Built-in free models | The [OpenCode Zen](https://opencode.ai/zen) edition includes built-in free model access without requiring an API subscription |
+| **OpenCode + OpenRouter** | OpenRouter free models | Configure OpenCode to use [OpenRouter](https://openrouter.ai/) and select free-tier models (e.g., Gemini 2.5 Flash, DeepSeek V3). Requires a free OpenRouter account |
+
+### Free Tier Limitations
+
+Free models are sufficient for casual use, but be aware of the following constraints:
+
+| Limitation | What to Expect |
+|------------|---------------|
+| **Rate Limiting** | Requests may be throttled — typically 5–20 requests per minute depending on provider load. Batch processing slows down significantly |
+| **Concurrency** | Usually limited to a single concurrent request. Running multiple workflows simultaneously may queue or fail |
+| **Model Availability** | Free model pools can be exhausted during peak hours. You may see "model unavailable" or "capacity exceeded" errors |
+| **Model Rotation** | Providers may silently swap free models (upgrade or downgrade) without notice. Output quality may vary between runs |
+| **No SLA / Reliability** | Free tiers offer no uptime guarantee. Services may be temporarily unavailable or discontinued |
+
+> If you need reliable batch processing or production use, consider a paid plan such as [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) ($10/month) or a Coding Plan (Bailian, Zhipu, etc.). The per-paper cost is negligible compared to the time saved.
+
 ## Environment Variable Configuration Recommendations
 
 Some agents support configuration isolation and session persistence through environment variables or command arguments. Presets with **Isolated environment** enabled inject the documented values automatically; for manual profiles, add the relevant values yourself:

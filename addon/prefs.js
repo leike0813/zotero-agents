@@ -7,11 +7,11 @@ pref("skillRunnerRequestLedgerJson", "");
 pref("skillRunnerSkillDisplayRegistryJson", "");
 pref(
   "skillRunnerRuntimeFeedUrl",
-  "https://raw.githubusercontent.com/leike0813/zotero-agents/skillrunner-runtime-feed/feed.json",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents/main/feeds/skillrunner-runtime/feed.json",
 );
 pref(
   "skillRunnerRuntimeFeedFallbackUrl",
-  "https://gitee.com/leike0813/zotero-agents/raw/skillrunner-runtime-feed/feed.json",
+  "https://gitee.com/leike0813/zotero-agents/raw/main/feeds/skillrunner-runtime/feed.json",
 );
 pref("skillRunnerRuntimeFeedCacheJson", "");
 pref("skillRunnerLocalRuntimeVersion", "");

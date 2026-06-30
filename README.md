@@ -467,17 +467,33 @@ Good news: every Skill in this project has been carefully designed so that **eve
 
 | Option | Cost | Description |
 |--------|------|-------------|
+| **Kilo Code Auto Free** | Free | Built-in Auto Free mode automatically routes each request to a suitable free model. No API key or account required |
+| **OpenCode Zen / OpenRouter Free** | Free | OpenCode Zen provides built-in free models; OpenRouter also offers free-tier models (e.g., Gemini 2.5 Flash, DeepSeek V3). Rate-limited but zero cost |
 | **DeepSeek V4 Flash** | ~￥2/paper | Pay-as-you-go. Literature Analysis for each paper costs less than ￥2 |
 | **Coding Plan** | Fixed monthly price | If you're lucky enough to grab a usage-based Coding Plan (Bailian, Zhipu, etc.), you can process literature cheaply and in bulk — we call through Coding Agents, **fully compliant** |
 | **[OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)** | $10/month ($5 first month) | Nearly unlimited DeepSeek V4 Flash quota. Subscribe via [this link](https://opencode.ai/go?ref=SZDFT9GZKW) — both you and the author get $5 credit |
-| **Codex Free** | Free | Limited models, but still delivers great results |
+
+### Free Tier Limitations
+
+Free models are a great way to get started, but they come with trade-offs:
+
+| Limitation | What to Expect |
+|------------|---------------|
+| **Rate Limiting** | Requests may be throttled — expect 5–20 requests per minute depending on provider load. Running multiple papers in batch might slow down significantly |
+| **Concurrency** | Usually single concurrent request. Submitting multiple workflows simultaneously may queue or fail |
+| **Model Availability** | Free model pools can be depleted during peak hours. You may see "model unavailable" or "capacity exceeded" errors |
+| **Model Rotation** | Providers may silently swap free models (e.g., upgrade or downgrade) without advance notice. Output quality may vary between runs |
+| **No SLA** | Free tiers offer no uptime guarantee. Services may be temporarily unavailable or discontinued |
+
+> If you need reliability for batch processing or production use, consider a paid plan (OpenCode Go or a Coding Plan) — the cost per paper is negligible compared to the time saved.
 
 ### Engine Comparison
 
 | Engine | Best For | Cost | Recommendation |
 |--------|----------|------|----------------|
 | **Codex** | Best overall — speed and quality combined. Supports thinking-stream display | Free tier available (limited models) | ⭐⭐⭐ First choice |
-| **Opencode** | Paired with Coding Plan or [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW); Qwen3.5-Plus / Kimi-K2.5 / GLM-5 and other models excel at literature tasks | Low cost | ⭐⭐⭐ Strongly recommended |
+| **Kilo Code** | Built-in Auto Free mode — automatically routes to available free models with zero setup. Supports configuration isolation via XDG env vars. Also works with paid API keys | **Free** (Auto Free mode) | ⭐⭐⭐ Excellent free option |
+| **Opencode** | Qwen3.5-Plus / Kimi-K2.5 / GLM-5 and other models excel at literature tasks. [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) offers cheap quota; Zen edition includes built-in free models; can also use OpenRouter's free models | Free (Zen / OpenRouter) or low cost (Go) | ⭐⭐⭐ Strongly recommended |
 | **Qwen Code** | Alibaba ecosystem users, paired with Bailian Coding Plan | Included quota ended; depends on Plan | ⭐⭐ Optional |
 | **Gemini CLI** | Simple tasks | Free tier available | ⭐ Average |
 | **Claude Code** | High instruction-following quality, but less efficient | Paid | As needed |

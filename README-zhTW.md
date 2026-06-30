@@ -470,14 +470,30 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支援 Windows / macOS 
 | **DeepSeek V4 Flash** | 約 ￥2/篇 | 按量付費。每篇文獻的 Literature Analysis 大約只需不到 ￥2 |
 | **Coding Plan** | 包月固定價 | 如果你有幸搶購到按次計費的 Coding Plan（百煉、智譜等），完全可以低價、批次處理文獻 — 我們透過 Coding Agent 呼叫，**完全合規** |
 | **[OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)** | \$10/月（首月 \$5） | 幾乎不限量的 DeepSeek V4 Flash 額度。透過[此連結](https://opencode.ai/go?ref=SZDFT9GZKW)訂閱，你與作者各獲 $5 抵扣 |
-| **Codex 免費版** | 免費 | 模型受限，但依然能跑出很好的結果 |
+| **Kilo Code Auto Free** | 免費 | 內建 Auto Free 模式，自動路由到合適的免費模型。無需 API key 或帳號 |
+| **OpenCode Zen / OpenRouter 免費模型** | 免費 | OpenCode Zen 內建免費模型；OpenRouter 也提供免費層模型（如 Gemini 2.5 Flash、DeepSeek V3）。有速率限制但零費用 |
+
+### 免費方案的局限性
+
+免費模型是入門的好選擇，但需要了解以下限制：
+
+| 限制 | 說明 |
+|------|------|
+| **速率限制** | 請求可能被限流 — 視提供商負載而定，通常每分鐘 5–20 次請求。批量處理多篇論文時可能明顯變慢 |
+| **並發限制** | 通常為單並發請求。同時提交多個工作流可能排隊或失敗 |
+| **模型可用性** | 免費模型池在高峰期可能耗盡。可能遇到「模型不可用」或「容量已滿」的錯誤 |
+| **模型輪換** | 提供商可能在不通知的情況下靜默更換免費模型（升級或降級）。輸出品質在不同運行間可能有所波動 |
+| **無 SLA** | 免費層不提供服務等級保證。服務可能暫時不可用或停止提供 |
+
+> 如果需要可靠的批量處理或生產環境使用，請考慮付費方案（OpenCode Go 或 Coding Plan）——單篇論文的成本與節省的時間相比微不足道。
 
 ### 引擎比較
 
 | 引擎 | 適合情境 | 費用 | 推薦度 |
 |------|---------|------|--------|
 | **Codex** | 綜合最佳，速度與品質兼得。支援思維流式展示 | 免費版可用（模型受限） | ⭐⭐⭐ 首選 |
-| **Opencode** | 配合 Coding Plan 或 [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)，Qwen3.5-Plus / Kimi-K2.5 / GLM-5 等模型在文獻任務上表現優秀 | 低成本 | ⭐⭐⭐ 強推 |
+| **Kilo Code** | 內建 Auto Free 模式 — 零配置自動路由到可用免費模型。支援透過 XDG 環境變數隔離配置。也可使用付費 API key | **免費** (Auto Free) | ⭐⭐⭐ 優秀免費方案 |
+| **Opencode** | Qwen3.5-Plus / Kimi-K2.5 / GLM-5 等模型在文獻任務上表現優秀。 [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) 提供廉價額度；Zen 版本內建免費模型；也可使用 OpenRouter 的免費模型 | 免費 (Zen / OpenRouter) 或低成本 (Go) | ⭐⭐⭐ 強推 |
 | **Qwen Code** | 阿里生態使用者，配合百煉 Coding Plan | 自帶額度已結束，依賴 Plan | ⭐⭐ 可選 |
 | **Gemini CLI** | 簡單任務 | 免費版可用 | ⭐ 一般 |
 | **Claude Code** | 指令執行品質高，但效率較低 | 付費 | 按需選 |

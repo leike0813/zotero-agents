@@ -1,148 +1,148 @@
-# Zotero Librarian Hermes Profile
+# Zotero Librarian Hermes-Profil
 
-## Overview
+## Überblick
 
-**zotero-librarian** is a ready-to-install [Hermes](https://github.com/anomalyco/hermes) profile that enables AI agents to manage your Zotero library through the [Host Bridge](#doc/backends%2Fhost-bridge). It bundles everything an agent needs: the `zotero-bridge` CLI, a Host Bridge connection profile template, a local SQLite metadata index, a workflow catalog cache, run monitoring scripts, and scheduled maintenance cron jobs.
+**zotero-librarian** ist ein sofort installierbares [Hermes](https://github.com/anomalyco/hermes)-Profil, das KI-Agenten die Verwaltung Ihrer Zotero-Bibliothek über die [Host Bridge](#doc/backends%2Fhost-bridge) ermöglicht. Es enthält alles, was ein Agent benötigt: die `zotero-bridge`-CLI, eine Host Bridge-Verbindungsprofilvorlage, einen lokalen SQLite-Metadatenindex, einen Workflow-Katalogcache, Überwachungsskripte und geplante Wartungs-Cronjobs.
 
-The profile is distributed from the standalone [leike0813/zotero-librarian-profile](https://github.com/leike0813/zotero-librarian-profile) repository. Source development lives in [leike0813/zotero-agents](https://github.com/leike0813/zotero-agents).
+Das Profil wird als eigenständiges Paket aus dem `host-bridge/zotero-librarian-profile`-Zweig des Zotero Agents-Repository verteilt.
 
-## What It Can Do
+## Funktionen
 
-| Feature | Description |
-|---------|-------------|
-| **Local Metadata Index** | Maintains a searchable SQLite snapshot of your Zotero library — titles, creators, tags, collections, DOIs, note/attachment counts — for fast, offline-able queries |
-| **Workflow Catalog Cache** | Caches all built-in workflow payload contracts locally so agents can submit known workflows without re-querying schemas on every run |
-| **Scheduled Maintenance** | Six built-in cron templates: index refresh, workflow catalog refresh, run monitoring, inbox triage, library hygiene, and attention queue summaries |
-| **Run Monitoring** | Tracks submitted workflow runs and reports state changes, terminal states, or attention-required items |
-| **Attention Queue** | Combines Host Bridge `insights.get_attention_queue` with local index metadata to surface high-priority reading and analysis tasks |
+| Funktion | Beschreibung |
+|----------|-------------|
+| **Lokaler Metadatenindex** | Pflegt einen durchsuchbaren SQLite-Schnappschuss Ihrer Zotero-Bibliothek — Titel, Ersteller, Tags, Sammlungen, DOIs, Notiz-/Anhangszahlen — für schnelle, offline-fähige Abfragen |
+| **Workflow-Katalogcache** | Cacht alle integrierten Workflow-Payload-Verträge lokal, sodass Agenten bekannte Workflows einreichen können, ohne bei jedem Lauf die Schemas erneut abfragen zu müssen |
+| **Geplante Wartung** | Sechs integrierte Cron-Vorlagen: Indexaktualisierung, Workflow-Katalogaktualisierung, Ausführungsüberwachung, Posteingangstriage, Bibliothekshygiene und Aufmerksamkeitswarteschlangen-Zusammenfassungen |
+| **Ausführungsüberwachung** | Verfolgt eingereichte Workflow-Ausführungen und meldet Zustandsänderungen, Endzustände oder aufmerksamkeitsbedürftige Elemente |
+| **Aufmerksamkeitswarteschlange** | Kombiniert Host Bridge `insights.get_attention_queue` mit lokalen Indexmetadaten, um priorisierte Lese- und Analyseaufgaben anzuzeigen |
 
 ## Installation
 
-### Prerequisites
+### Voraussetzungen
 
-- [Zotero](https://www.zotero.org/) 7+ with the **Zotero Agents** plugin installed
-- Host Bridge running (check: Zotero → Settings → Zotero Agents → Host Bridge → **Start / Show Endpoint**)
-- [Hermes](https://github.com/anomalyco/hermes) installed on your system
-- `zotero-bridge` CLI available (install via the **Install CLI** button in the Host Bridge preferences panel)
+- [Zotero](https://www.zotero.org/) 7+ mit installiertem **Zotero Agents**-Plugin
+- Host Bridge läuft (Prüfung: Zotero → Einstellungen → Zotero Agents → Host Bridge → **Starten / Endpunkt anzeigen**)
+- [Hermes](https://github.com/anomalyco/hermes) auf Ihrem System installiert
+- `zotero-bridge`-CLI verfügbar (Installation über die Schaltfläche **CLI installieren** im Host Bridge-Einstellungsbereich)
 
-### Install the Profile
+### Profil installieren
 
 ```bash
-hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>
+hermes profile install zotero-librarian
 ```
 
-This downloads the profile package and extracts it into your Hermes profiles directory.
+Dies lädt das Profilpaket herunter und entpackt es in Ihr Hermes-Profile-Verzeichnis.
 
-### Configure Hermes
+### Hermes konfigurieren
 
-Edit the profile's `config.yaml` to set up your preferred model provider:
+Bearbeiten Sie die `config.yaml` des Profils, um Ihren bevorzugten Modellanbieter einzurichten:
 
 ```yaml
-# Inside the installed profile directory
+# Im installierten Profilverzeichnis
 provider:
-  type: anthropic    # or openai, local, etc.
+  type: anthropic    # oder openai, local, etc.
   model: claude-sonnet-4-20250514
-  # ... API key and other provider settings
+  # ... API-Schlüssel und weitere Anbietereinstellungen
 ```
 
-Refer to the [Hermes documentation](https://github.com/anomalyco/hermes) for full provider configuration options.
+Vollständige Anbieterkonfigurationsoptionen finden Sie in der [Hermes-Dokumentation](https://github.com/anomalyco/hermes).
 
-### Configure Zotero Bridge Connection
+### Zotero Bridge-Verbindung konfigurieren
 
-The profile ships with a Host Bridge connection template at `assets/host-bridge/profile.example.json`. You need to provide the actual endpoint and token:
+Das Profil enthält eine Host Bridge-Verbindungsvorlage unter `assets/host-bridge/profile.example.json`. Sie müssen den tatsächlichen Endpunkt und Token angeben:
 
-1. Open Zotero → Settings → Zotero Agents → Host Bridge
-2. Click **Start / Show Endpoint** to ensure the bridge is running and note the endpoint URL (e.g., `http://127.0.0.1:26570/bridge/v1`)
-3. Click **Copy Master Token** (or use the session token shown in the panel)
-4. Set the token as an environment variable:
+1. Öffnen Sie Zotero → Einstellungen → Zotero Agents → Host Bridge
+2. Klicken Sie auf **Starten / Endpunkt anzeigen**, um sicherzustellen, dass die Bridge läuft, und notieren Sie die Endpunkt-URL (z. B. `http://127.0.0.1:26570/bridge/v1`)
+3. Klicken Sie auf **Master-Token kopieren** (oder verwenden Sie das im Panel angezeigte Sitzungstoken)
+4. Setzen Sie das Token als Umgebungsvariable:
 
 ```bash
 # Linux / macOS
-export ZOTERO_BRIDGE_TOKEN="<your-token>"
+export ZOTERO_BRIDGE_TOKEN="<Ihr-Token>"
 
 # Windows PowerShell
-$env:ZOTERO_BRIDGE_TOKEN = "<your-token>"
+$env:ZOTERO_BRIDGE_TOKEN = "<Ihr-Token>"
 ```
 
-5. For remote/LAN access, include the endpoint directly:
+5. Bei Fern-/LAN-Zugriff geben Sie auch den Endpunkt direkt an:
 
 ```bash
 export ZOTERO_BRIDGE_ENDPOINT="http://127.0.0.1:26570/bridge/v1"
 ```
 
-The profile template uses `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`, so the CLI picks up the token from the environment automatically. See [Host Bridge Configuration](#doc/backends%2Fhost-bridge) for detailed endpoint, token, and profile file documentation.
+Die Profilvorlage verwendet `auth.tokenEnv: "ZOTERO_BRIDGE_TOKEN"`, sodass die CLI das Token automatisch aus der Umgebung übernimmt. Siehe [Host Bridge-Konfiguration](#doc/backends%2Fhost-bridge) für detaillierte Dokumentation zu Endpunkt, Token und Profildateien.
 
-### Verify the Setup
+### Einrichtung überprüfen
 
 ```bash
-# Check Host Bridge connectivity
+# Host Bridge-Konnektivität prüfen
 zotero-bridge status
 
-# Install CLI binaries into the profile (first time only)
+# CLI-Binärdateien ins Profil installieren (nur beim ersten Mal)
 python scripts/install_zotero_bridge_cli.py
 
-# Initial index refresh (pulls all library metadata into local SQLite)
+# Erste Indexaktualisierung (zieht alle Bibliotheksmetadaten in lokales SQLite)
 python scripts/zotero_librarian_index_service.py refresh
 
-# Test a search against the local index
+# Suche im lokalen Index testen
 python scripts/zotero_librarian_index_service.py search "machine learning"
 ```
 
-## Index Service Commands
+## Indexdienst-Befehle
 
-The profile's core utility is `zotero_librarian_index_service.py`. It maintains a local SQLite database for fast, repeated library queries without calling Zotero on every request.
+Das Kernwerkzeug des Profils ist `zotero_librarian_index_service.py`. Es pflegt eine lokale SQLite-Datenbank für schnelle, wiederholte Bibliotheksabfragen ohne Zotero bei jeder Anfrage aufzurufen.
 
-| Command | Description |
-|---------|-------------|
-| `refresh` | Pages through `zotero-bridge library snapshot` and atomically updates the SQLite index. Items missing from the latest refresh are marked as deleted. |
-| `search "<query>"` | Full-text search across titles, creators, identifiers, tags, collections, and publication fields |
-| `item <key-or-id>` | Return a single indexed record by Zotero item key or numeric ID |
-| `stats` | Report live/deleted item counts, tag counts, collection counts, and workflow catalog status |
-| `workflow-refresh` | Call `workflow list` and `workflow describe` to update the local workflow catalog cache |
-| `workflow-show <id>` | Display the cached payload contract for a known workflow |
-| `run-register --run-id <id> --workflow-id <id>` | Register a submitted workflow run for monitoring |
-| `run-watch` | Check all active registered runs and report state changes or terminal states |
+| Befehl | Beschreibung |
+|--------|-------------|
+| `refresh` | Durchläuft `zotero-bridge library snapshot` und aktualisiert den SQLite-Index atomar. In der letzten Aktualisierung fehlende Elemente werden als gelöscht markiert. |
+| `search "<Suchtext>"` | Volltextsuche in Titeln, Erstellern, Identifikatoren, Tags, Sammlungen und Publikationsfeldern |
+| `item <key-or-id>` | Gibt einen einzelnen indexierten Datensatz nach Zotero-Elementschlüssel oder numerischer ID zurück |
+| `stats` | Meldet Anzahl aktiver/gelöschter Elemente, Tags, Sammlungen und Workflow-Katalogstatus |
+| `workflow-refresh` | Ruft `workflow list` und `workflow describe` auf, um den lokalen Workflow-Katalogcache zu aktualisieren |
+| `workflow-show <id>` | Zeigt den zwischengespeicherten Payload-Vertrag für einen bekannten Workflow an |
+| `run-register --run-id <id> --workflow-id <id>` | Registriert eine eingereichte Workflow-Ausführung zur Überwachung |
+| `run-watch` | Prüft alle aktiven registrierten Ausführungen und meldet Zustandsänderungen oder Endzustände |
 
-## Use Cases
+## Anwendungsfälle
 
-### Library Management
+### Bibliotheksverwaltung
 
-**Daily Inbox Triage** (`cron/inbox-triage.yaml`)
+**Tägliche Posteingangstriage** (`cron/inbox-triage.yaml`)
 
-The profile's inbox triage cron runs daily and checks new items in your library for completeness:
+Der Posteingangstriage-Cron des Profils läuft täglich und prüft neue Elemente in Ihrer Bibliothek auf Vollständigkeit:
 
-- Items with status `0-inbox` (unprocessed)
-- Missing tags or collection assignments
-- Missing DOI, URL, or attachment files
-- Missing summary or digest artifacts
+- Elemente mit Status `0-inbox` (unbearbeitet)
+- Fehlende Tags oder Sammlungszuweisungen
+- Fehlende DOI, URL oder Anhangsdateien
+- Fehlende Zusammenfassungs- oder Digest-Artefakte
 
-It produces a report of suggested actions but does not make any Zotero mutations without your approval.
+Er erstellt einen Bericht mit Handlungsvorschlägen, nimmt jedoch ohne Ihre Zustimmung keine Zotero-Änderungen vor.
 
-**Weekly Library Hygiene** (`cron/library-hygiene.yaml`)
+**Wöchentliche Bibliothekshygiene** (`cron/library-hygiene.yaml`)
 
-Runs weekly on Monday and scans the library for data quality issues:
+Läuft wöchentlich montags und durchsucht die Bibliothek nach Datenqualitätsproblemen:
 
-- Duplicate entries (by DOI, title, or ISBN)
-- Suspicious mojibake (garbled) titles
-- Orphaned items (no parent collection)
-- Empty collections
-- Excessive tag counts on single items
-- Items with unusual Zotero item types
+- Doppelte Einträge (nach DOI, Titel oder ISBN)
+- Verdächtige Zeichensalat-Titel
+- Verwaiste Elemente (keine übergeordnete Sammlung)
+- Leere Sammlungen
+- Übermäßige Tag-Anzahl bei einzelnen Elementen
+- Elemente mit ungewöhnlichen Zotero-Elementtypen
 
-All suggestions are read-only until you explicitly approve corrective actions.
+Alle Vorschläge sind schreibgeschützt, bis Sie Korrekturmaßnahmen ausdrücklich genehmigen.
 
-**Attention Queue** (`cron/attention-queue.yaml`)
+**Aufmerksamkeitswarteschlange** (`cron/attention-queue.yaml`)
 
-Combines Host Bridge `insights.get_attention_queue` with local index metadata to surface a ranked list of high-priority tasks — papers to read, metadata gaps to fill, workflows to run.
+Kombiniert Host Bridge `insights.get_attention_queue` mit lokalen Indexmetadaten, um eine priorisierte Liste von Aufgaben anzuzeigen — zu lesende Artikel, zu vervollständigende Metadaten, auszuführende Workflows.
 
-### Literature Search and Import
+### Literatursuche und -import
 
-1. Search your local index first to avoid re-adding papers you already own:
+1. Durchsuchen Sie zuerst Ihren lokalen Index, um das erneute Hinzufügen bereits vorhandener Artikel zu vermeiden:
    ```bash
    python scripts/zotero_librarian_index_service.py search "attention mechanism survey"
    ```
 
-2. If a paper is not found, use the `literature-search-ingest` workflow to search external sources and add it to Zotero:
+2. Wenn ein Artikel nicht gefunden wird, verwenden Sie den `literature-search-ingest`-Workflow, um externe Quellen zu durchsuchen und ihn zu Zotero hinzuzufügen:
    ```bash
    zotero-bridge workflow submit \
      --workflow literature-search-ingest \
@@ -150,97 +150,97 @@ Combines Host Bridge `insights.get_attention_queue` with local index metadata to
      --workflow-options '{"query":"attention mechanism survey","searchMode":"arxiv-and-doi"}'
    ```
 
-3. After importing, run the tag-bootstrapper or tag-regulator workflows to normalize tags on the new items.
+3. Führen Sie nach dem Import die Workflows tag-bootstrapper oder tag-regulator aus, um Tags für die neuen Elemente zu normalisieren.
 
-### Automated Literature Analysis Workflows
+### Automatisierte Literaturanalyse-Workflows
 
-The profile catalogs all built-in workflows from the Zotero Agents plugin. Once the catalog is refreshed, you can submit any workflow directly without re-querying its schema.
+Das Profil katalogisiert alle integrierten Workflows des Zotero Agents-Plugins. Sobald der Katalog aktualisiert ist, können Sie jeden Workflow direkt einreichen, ohne sein Schema erneut abzufragen.
 
-**Batch Literature Analysis**
+**Batch-Literaturanalyse**
 
-Submit the `literature-analysis` workflow on a collection of papers to generate structured digests:
+Reichen Sie den `literature-analysis`-Workflow für eine Sammlung von Artikeln ein, um strukturierte Zusammenfassungen zu generieren:
 
 ```bash
 zotero-bridge workflow submit \
   --workflow literature-analysis \
   --items @items.json \
-  --workflow-options '{"language":"zh-CN"}'
+  --workflow-options '{"language":"de"}'
 ```
 
-Register and monitor the run:
+Ausführung registrieren und überwachen:
 
 ```bash
 python scripts/zotero_librarian_index_service.py run-register --run-id <run-id> --workflow-id literature-analysis
 python scripts/zotero_librarian_index_service.py run-watch
 ```
 
-**Deep Reading a Single Paper**
+**Tiefenlektüre eines einzelnen Artikels**
 
-For in-depth analysis of a specific paper:
+Für eine gründliche Analyse eines bestimmten Artikels:
 
 ```bash
 zotero-bridge workflow submit \
   --workflow literature-deep-reading \
   --items '[{"key":"ABCD1234","libraryId":1}]' \
-  --workflow-options '{"target_language":"en","mode":"comprehensive"}'
+  --workflow-options '{"target_language":"de","mode":"comprehensive"}'
 ```
 
-**Cross-Paper Topic Synthesis**
+**Themenübergreifende Synthese**
 
-Synthesize themes across a collection of papers:
+Themen über eine Sammlung von Artikeln hinweg synthetisieren:
 
 ```bash
 zotero-bridge workflow submit \
   --workflow create-topic-synthesis \
   --items @collection-items.json \
-  --workflow-options '{"topicSeed":"self-supervised learning","language":"en"}'
+  --workflow-options '{"topicSeed":"self-supervised learning","language":"de"}'
 ```
 
-**Translation Assistance**
+**Übersetzungsunterstützung**
 
-Translate paper metadata or abstracts:
+Übersetzen Sie Artikelmetadaten oder Zusammenfassungen:
 
 ```bash
 zotero-bridge workflow submit \
   --workflow literature-translator \
   --items '[{"key":"ABCD1234","libraryId":1}]' \
-  --workflow-options '{"target_language":"zh-CN","mode":"metadata"}'
+  --workflow-options '{"target_language":"de","mode":"metadata"}'
 ```
 
-**Q&A on Papers**
+**Fragen zu Artikeln**
 
-Ask questions about a paper's content:
+Stellen Sie Fragen zum Inhalt eines Artikels:
 
 ```bash
 zotero-bridge workflow submit \
   --workflow literature-explainer \
   --items '[{"key":"ABCD1234","libraryId":1}]' \
-  --workflow-options '{"language":"zh-CN"}'
+  --workflow-options '{"language":"de"}'
 ```
 
-## Scheduled Maintenance Jobs
+## Geplante Wartungsjobs
 
-The profile includes six pre-configured cron templates in the `cron/` directory:
+Das Profil enthält sechs vorkonfigurierte Cron-Vorlagen im Verzeichnis `cron/`:
 
-| Cron Job | Schedule | Behavior |
-|----------|----------|----------|
-| `index-refresh` | Every 6 hours | Pages through `library snapshot` to keep the local SQLite index current. Reports `[SILENT]` when no changes are detected. |
-| `workflow-catalog-refresh` | Daily at 03:00 | Calls `workflow list` + `workflow describe` to update the workflow catalog cache. Reports `[SILENT]` when no changes. |
-| `run-monitor` | Every 5 minutes | Calls `run-watch` to check active registered runs. Reports only state changes, terminal states, or attention-required items. |
-| `inbox-triage` | Daily at 09:00 | Searches for items with `status:0-inbox`, missing tags, missing collections, missing metadata. Generates a read-only report. |
-| `library-hygiene` | Weekly on Monday | Scans for duplicate entries, orphaned items, empty collections, and data quality issues. |
-| `attention-queue` | Daily at 18:00 | Combines attention queue insights with local index data to rank high-priority tasks. |
+| Cron-Job | Zeitplan | Verhalten |
+|----------|---------|-----------|
+| `index-refresh` | Alle 6 Stunden | Durchläuft `library snapshot`, um den lokalen SQLite-Index aktuell zu halten. Meldet `[SILENT]`, wenn keine Änderungen erkannt werden. |
+| `workflow-catalog-refresh` | Täglich um 03:00 | Ruft `workflow list` + `workflow describe` auf, um den Workflow-Katalogcache zu aktualisieren. Meldet `[SILENT]` bei keinen Änderungen. |
+| `run-monitor` | Alle 5 Minuten | Ruft `run-watch` auf, um aktive registrierte Ausführungen zu prüfen. Meldet nur Zustandsänderungen, Endzustände oder aufmerksamkeitsbedürftige Elemente. |
+| `inbox-triage` | Täglich um 09:00 | Sucht nach Elementen mit `status:0-inbox`, fehlenden Tags, fehlenden Sammlungen, fehlenden Metadaten. Erstellt einen schreibgeschützten Bericht. |
+| `library-hygiene` | Wöchentlich montags | Durchsucht nach doppelten Einträgen, verwaisten Elementen, leeren Sammlungen und Datenqualitätsproblemen. |
+| `attention-queue` | Täglich um 18:00 | Kombiniert Aufmerksamkeitswarteschlangen-Erkenntnisse mit lokalen Indexdaten zur Priorisierung von Aufgaben. |
 
-All non-interactive maintenance jobs use `[SILENT]` markers to avoid spamming the user when no actionable results are found.
+Alle nicht-interaktiven Wartungsjobs verwenden `[SILENT]`-Marker, um den Benutzer nicht zu belästigen, wenn keine handlungsrelevanten Ergebnisse vorliegen.
 
-## Security Boundaries
+## Sicherheitsgrenzen
 
-- The profile template (`profile.example.json`) never contains real tokens. Always use `ZOTERO_BRIDGE_TOKEN` as an environment variable.
-- Maintenance cron jobs are read-only by default. Mutations require explicit user approval.
-- Never read Zotero database files directly. Always use Host Bridge, `zotero-bridge`, and the local index produced from `library.sync_snapshot`.
+- Die Profilvorlage (`profile.example.json`) enthält niemals echte Token. Verwenden Sie stets `ZOTERO_BRIDGE_TOKEN` als Umgebungsvariable.
+- Wartungs-Cronjobs sind standardmäßig schreibgeschützt. Änderungen erfordern eine ausdrückliche Benutzergenehmigung.
+- Lesen Sie niemals Zotero-Datenbankdateien direkt. Verwenden Sie stets Host Bridge, `zotero-bridge` und den aus `library.sync_snapshot` erstellten lokalen Index.
 
-## Next Steps
+## Nächste Schritte
 
-- [Host Bridge](#doc/backends%2Fhost-bridge) — complete reference for the `zotero-bridge` CLI and Host Bridge capabilities
-- [Workflows](#doc/workflows%2Findex) — overview of all built-in and custom workflows
-- [MCP Server](#doc/backends%2Fmcp-server) — alternative protocol interface for MCP-compatible clients
+- [Host Bridge](#doc/backends%2Fhost-bridge) — vollständige Referenz für die `zotero-bridge`-CLI und Host Bridge-Funktionen
+- [Workflows](#doc/workflows%2Findex) — Übersicht aller integrierten und benutzerdefinierten Workflows
+- [MCP-Server](#doc/backends%2Fmcp-server) — alternative Protokollschnittstelle für MCP-kompatible Clients

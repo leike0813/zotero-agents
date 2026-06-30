@@ -286,6 +286,8 @@ describe("skillrunner ctl bridge", function () {
       assert.equal(socketInitCount, 1);
       const checks = result.details?.checks as Record<string, unknown>;
       const port = checks?.port as Record<string, unknown>;
+      const dependencies = checks?.dependencies as Record<string, unknown>;
+      assert.equal(dependencies?.tar, true);
       assert.equal(Number(port?.selected_port || 0), 29813);
     } finally {
       if (typeof prevCc === "undefined") {
@@ -526,6 +528,121 @@ describe("skillrunner ctl bridge", function () {
     assert.equal(result.exitCode, 0);
   });
 
+  it("uses hidden nsIProcess wrapper first for windows release extraction command", async function () {
+    const runtime = globalThis as {
+      Zotero?: { isWin?: boolean };
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+      };
+      Cc?: Record<string, { createInstance?: (iface: unknown) => unknown }>;
+      Ci?: Record<string, unknown>;
+      Components?: {
+        classes?: Record<
+          string,
+          { createInstance?: (iface: unknown) => unknown }
+        >;
+        interfaces?: Record<string, unknown>;
+      };
+      ChromeUtils?: {
+        import?: (url: string) => { Subprocess?: unknown };
+      };
+    };
+    const previousIsWin = runtime.Zotero?.isWin;
+    const previousIOUtils = runtime.IOUtils;
+    const previousCc = runtime.Cc;
+    const previousCi = runtime.Ci;
+    const previousComponents = runtime.Components;
+    const previousComponentsDescriptor = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Components",
+    );
+    const previousChromeUtils = runtime.ChromeUtils;
+    let runCount = 0;
+    let executablePath = "";
+    runtime.IOUtils = {
+      exists: async (path: string) => /[\\/]tar\.exe$/i.test(path),
+    };
+    runtime.Cc = {
+      "@mozilla.org/file/local;1": {
+        createInstance: () => ({
+          initWithPath: (path: string) => {
+            executablePath = path;
+          },
+        }),
+      },
+      "@mozilla.org/process/util;1": {
+        createInstance: () => ({
+          exitValue: 0,
+          init: () => {
+            // no-op
+          },
+          runwAsync: (
+            _args: string[],
+            _count: number,
+            observer: { observe?: (subject: unknown, topic: string) => void },
+          ) => {
+            runCount += 1;
+            observer.observe?.(null, "process-finished");
+          },
+        }),
+      },
+    };
+    runtime.Ci = {
+      ...(previousCi || {}),
+      nsIFile: {},
+      nsIProcess: {},
+    };
+    redefineGlobalProperty("Components", {
+      ...(previousComponents || {}),
+      classes: runtime.Cc,
+      interfaces: runtime.Ci,
+    });
+    runtime.ChromeUtils = {
+      import: () => {
+        throw new Error("mozilla subprocess should not be used");
+      },
+    };
+    if (!runtime.Zotero) {
+      throw new Error("zotero runtime unavailable");
+    }
+    runtime.Zotero.isWin = true;
+    try {
+      const bridge = new SkillRunnerCtlBridge();
+      const result = await bridge.runSystemCommand({
+        command: "tar",
+        args: ["-xzf", "a.tar.gz", "-C", "C:\\tmp\\release"],
+      });
+      assert.isTrue(result.ok);
+      assert.equal(runCount, 1);
+      assert.match(executablePath, /[\\/]tar\.exe$/i);
+    } finally {
+      if (runtime.Zotero) {
+        runtime.Zotero.isWin = previousIsWin;
+      }
+      if (typeof previousIOUtils === "undefined") {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = previousIOUtils;
+      }
+      if (typeof previousCc === "undefined") {
+        delete runtime.Cc;
+      } else {
+        runtime.Cc = previousCc;
+      }
+      if (typeof previousCi === "undefined") {
+        delete runtime.Ci;
+      } else {
+        runtime.Ci = previousCi;
+      }
+      restoreGlobalProperty("Components", previousComponentsDescriptor);
+      if (typeof previousChromeUtils === "undefined") {
+        delete runtime.ChromeUtils;
+      } else {
+        runtime.ChromeUtils = previousChromeUtils;
+      }
+    }
+  });
+
   it("falls through to zotero subprocess when mozilla subprocess returns executable-not-found stderr", async function () {
     const runtime = globalThis as {
       Zotero?: {
@@ -550,6 +667,9 @@ describe("skillrunner ctl bridge", function () {
           };
         };
       };
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+      };
     };
     const zoteroRuntime = runtime.Zotero as {
       isWin?: boolean;
@@ -562,7 +682,11 @@ describe("skillrunner ctl bridge", function () {
     const prevIsWin = zoteroRuntime?.isWin;
     const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
     const prevChromeUtils = runtime.ChromeUtils;
+    const prevIOUtils = runtime.IOUtils;
     const calls: string[] = [];
+    runtime.IOUtils = {
+      exists: async () => false,
+    };
     runtime.ChromeUtils = {
       import: () => ({
         Subprocess: {
@@ -625,6 +749,11 @@ describe("skillrunner ctl bridge", function () {
       } else {
         runtime.ChromeUtils = prevChromeUtils;
       }
+      if (typeof prevIOUtils === "undefined") {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = prevIOUtils;
+      }
     }
   });
 
@@ -641,6 +770,9 @@ describe("skillrunner ctl bridge", function () {
       ChromeUtils?: {
         import?: (url: string) => { Subprocess?: unknown };
       };
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+      };
     };
     const zoteroRuntime = runtime.Zotero as {
       isWin?: boolean;
@@ -653,7 +785,11 @@ describe("skillrunner ctl bridge", function () {
     const prevIsWin = zoteroRuntime?.isWin;
     const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
     const prevChromeUtils = runtime.ChromeUtils;
+    const prevIOUtils = runtime.IOUtils;
     const calls: string[] = [];
+    runtime.IOUtils = {
+      exists: async () => false,
+    };
     runtime.ChromeUtils = {
       import: () => {
         throw new Error("mozilla subprocess unavailable");
@@ -707,6 +843,11 @@ describe("skillrunner ctl bridge", function () {
       } else {
         runtime.ChromeUtils = prevChromeUtils;
       }
+      if (typeof prevIOUtils === "undefined") {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = prevIOUtils;
+      }
     }
   });
 
@@ -723,6 +864,9 @@ describe("skillrunner ctl bridge", function () {
       ChromeUtils?: {
         import?: (url: string) => { Subprocess?: unknown };
       };
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+      };
     };
     const zoteroRuntime = runtime.Zotero as {
       isWin?: boolean;
@@ -735,7 +879,11 @@ describe("skillrunner ctl bridge", function () {
     const prevIsWin = zoteroRuntime?.isWin;
     const prevSubprocess = zoteroRuntime?.Utilities?.Internal?.subprocess;
     const prevChromeUtils = runtime.ChromeUtils;
+    const prevIOUtils = runtime.IOUtils;
     const calls: string[] = [];
+    runtime.IOUtils = {
+      exists: async () => false,
+    };
     runtime.ChromeUtils = {
       import: () => {
         throw new Error("mozilla subprocess unavailable");
@@ -793,6 +941,11 @@ describe("skillrunner ctl bridge", function () {
         delete runtime.ChromeUtils;
       } else {
         runtime.ChromeUtils = prevChromeUtils;
+      }
+      if (typeof prevIOUtils === "undefined") {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = prevIOUtils;
       }
     }
   });

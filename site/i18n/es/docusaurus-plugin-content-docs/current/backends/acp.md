@@ -84,6 +84,30 @@ Algunos agentes permiten el aislamiento de configuración y la persistencia de s
 | `OPENCODE_SESSION_DIR` | OpenCode | Especificar un directorio de persistencia de sesiones |
 | `CODEX_CONFIG_DIR` | Codex | Especificar un directorio de configuración independiente |
 
+## Opciones de modelos gratuitos
+
+Varios motores ofrecen **acceso gratuito a modelos** — ideal para empezar sin pagar:
+
+| Motor | Opción gratuita | Cómo funciona |
+|-------|----------------|---------------|
+| **Kilo Code** | Modo Auto Free | El modo Auto Free integrado de Kilo Code enruta automáticamente cada solicitud a un modelo gratuito adecuado. Actívelo en la configuración de Kilo Code — no se requiere clave API |
+| **OpenCode Zen** | Modelos gratuitos integrados | La edición [OpenCode Zen](https://opencode.ai/zen) incluye acceso gratuito a modelos sin necesidad de suscripción API |
+| **OpenCode + OpenRouter** | Modelos gratuitos de OpenRouter | Configure OpenCode para usar [OpenRouter](https://openrouter.ai/) y seleccione modelos gratuitos (p. ej., Gemini 2.5 Flash, DeepSeek V3). Requiere una cuenta gratuita de OpenRouter |
+
+### Limitaciones de la versión gratuita
+
+Los modelos gratuitos son suficientes para un uso ocasional, pero tenga en cuenta las siguientes restricciones:
+
+| Limitación | Qué esperar |
+|-----------|-------------|
+| **Límite de velocidad** | Las solicitudes pueden ser limitadas — típicamente 5–20 solicitudes por minuto según la carga del proveedor. El procesamiento por lotes se ralentiza considerablemente |
+| **Concurrencia** | Generalmente limitado a una sola solicitud simultánea. Ejecutar varios flujos de trabajo a la vez puede ponerlos en cola o fallar |
+| **Disponibilidad del modelo** | Los grupos de modelos gratuitos pueden agotarse en horas pico. Pueden aparecer errores de «modelo no disponible» o «capacidad excedida» |
+| **Rotación de modelos** | Los proveedores pueden cambiar silenciosamente los modelos gratuitos (mejora o degradación) sin previo aviso. La calidad de salida puede variar entre ejecuciones |
+| **Sin SLA / Fiabilidad** | Los niveles gratuitos no ofrecen garantía de disponibilidad. Los servicios pueden estar temporalmente no disponibles o ser descontinuados |
+
+> Si necesita procesamiento por lotes fiable o uso en producción, considere un plan de pago como [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) ($10/mes) o un Coding Plan (Bailian, Zhipu, etc.). El costo por artículo es insignificante comparado con el tiempo ahorrado.
+
 ## Tipos de solicitud
 
 El backend ACP admite dos tipos de solicitud:

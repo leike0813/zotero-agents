@@ -84,6 +84,30 @@ Some agents support configuration isolation and session persistence through envi
 | `OPENCODE_SESSION_DIR` | OpenCode | Specify a session persistence directory |
 | `CODEX_CONFIG_DIR` | Codex | Specify an independent configuration directory |
 
+## 무료 모델 옵션
+
+여러 엔진이 **무료 모델 액세스**를 제공합니다 — 비용 없이 시작하기에 이상적입니다：
+
+| 엔진 | 무료 옵션 | 작동 방식 |
+|------|---------|----------|
+| **Kilo Code** | Auto Free 모드 | Kilo Code의 내장 Auto Free 모드는 각 요청을 적절한 무료 모델로 자동 라우팅합니다. Kilo Code 설정에서 활성화 — API 키 불필요 |
+| **OpenCode Zen** | 내장 무료 모델 | [OpenCode Zen](https://opencode.ai/zen) 에디션은 API 구독 없이 내장 무료 모델 액세스를 포함합니다 |
+| **OpenCode + OpenRouter** | OpenRouter 무료 모델 | OpenCode에서 [OpenRouter](https://openrouter.ai/)를 사용하도록 설정하고 무료 등급 모델(예: Gemini 2.5 Flash, DeepSeek V3)을 선택합니다. 무료 OpenRouter 계정이 필요합니다 |
+
+### 무료 등급 제한 사항
+
+무료 모델은 가벼운 사용에는 충분하지만, 다음 제약 사항을 인지하세요：
+
+| 제한 사항 | 예상되는 영향 |
+|----------|--------------|
+| **속도 제한** | 제공업체 부하에 따라 분당 5~20회 요청으로 제한될 수 있습니다. 일괄 처리가 크게 느려집니다 |
+| **동시성** | 일반적으로 단일 동시 요청으로 제한됩니다. 여러 워크플로를 동시에 실행하면 대기열에 쌓이거나 실패할 수 있습니다 |
+| **모델 가용성** | 피크 시간대에 무료 모델 풀이 소진될 수 있습니다. 「모델 사용 불가」또는 「용량 초과」오류가 발생할 수 있습니다 |
+| **모델 교체** | 제공업체가 사전 통지 없이 무료 모델을 조용히 교체(업그레이드 또는 다운그레이드)할 수 있습니다. 실행 간 출력 품질이 달라질 수 있습니다 |
+| **SLA / 신뢰성 없음** | 무료 등급은 가동 시간을 보장하지 않습니다. 서비스가 일시적으로 중단되거나 종료될 수 있습니다 |
+
+> 안정적인 일괄 처리나 프로덕션 사용이 필요한 경우, [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)(월 $10) 또는 Coding Plan(Bailian, Zhipu 등)과 같은 유료 플랜을 고려하세요. 논문 한 편당 비용은 절약되는 시간에 비하면 미미합니다.
+
 ## Request Types
 
 The ACP backend supports two request types:

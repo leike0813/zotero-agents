@@ -470,14 +470,30 @@ Buenas noticias: todas las habilidades de este proyecto se han diseñado cuidado
 | **DeepSeek V4 Flash** | Aprox. ￥2/artículo | Pago por uso. Cada análisis de literatura cuesta menos de ￥2 |
 | **Coding Plan** | Precio fijo mensual | Si consigue un Coding Plan por uso (Bailian, Zhipu, etc.), podrá procesar literatura de forma económica y en lote — lo hacemos a través de Coding Agent, **totalmente conforme** |
 | **[OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW)** | \$10/mes (primer mes \$5) | Cuota de DeepSeek V4 Flash prácticamente ilimitada. Suscríbase a través de [este enlace](https://opencode.ai/go?ref=SZDFT9GZKW) y tanto usted como el autor recibirán \$5 de descuento |
-| **Versión gratuita de Codex** | Gratuita | Modelo limitado, pero sigue produciendo muy buenos resultados |
+| **Kilo Code Auto Free** | Gratuito | El modo Auto Free integrado enruta automáticamente cada solicitud a un modelo gratuito adecuado. No requiere clave API ni cuenta |
+| **OpenCode Zen / OpenRouter Free** | Gratuito | OpenCode Zen incluye modelos gratuitos integrados; OpenRouter también ofrece modelos gratuitos (Gemini 2.5 Flash, DeepSeek V3). Con límite de velocidad pero sin costo |
+
+### Limitaciones de la versión gratuita
+
+Los modelos gratuitos son una excelente forma de empezar, pero tienen limitaciones:
+
+| Limitación | Qué esperar |
+|------------|-------------|
+| **Límite de velocidad** | Las solicitudes pueden ser limitadas — 5–20 solicitudes por minuto según la carga del proveedor. El procesamiento por lotes se ralentiza considerablemente |
+| **Concurrencia** | Generalmente una sola solicitud simultánea. Enviar varios flujos de trabajo a la vez puede ponerlos en cola o fallar |
+| **Disponibilidad del modelo** | El grupo de modelos gratuitos puede agotarse en horas pico. Pueden aparecer errores de "modelo no disponible" o "capacidad excedida" |
+| **Rotación de modelos** | Los proveedores pueden cambiar silenciosamente los modelos gratuitos sin previo aviso. La calidad de salida puede variar entre ejecuciones |
+| **Sin SLA** | Los niveles gratuitos no ofrecen garantía de disponibilidad. Los servicios pueden estar temporalmente no disponibles o ser descontinuados |
+
+> Si necesita procesamiento por lotes fiable o uso en producción, considere un plan de pago (OpenCode Go o Coding Plan): el costo por artículo es insignificante en comparación con el tiempo ahorrado.
 
 ### Comparación de motores
 
 | Motor | Escenario adecuado | Coste | Recomendación |
 |-------|-------------------|-------|---------------|
 | **Codex** | Mejor equilibrio general, velocidad y calidad. Admite visualización del flujo de pensamiento | Disponible en versión gratuita (modelo limitado) | ⭐⭐⭐ Preferido |
-| **Opencode** | Con Coding Plan o [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW), modelos como Qwen3.5-Plus / Kimi-K2.5 / GLM-5 ofrecen un excelente rendimiento en tareas de literatura | Bajo coste | ⭐⭐⭐ Muy recomendado |
+| **Kilo Code** | Modo Auto Free integrado — enruta automáticamente a los modelos gratuitos disponibles sin configuración. Soporta aislamiento de configuración vía variables XDG. También funciona con claves API de pago | **Gratuito** (Auto Free) | ⭐⭐⭐ Excelente opción gratuita |
+| **Opencode** | Qwen3.5-Plus / Kimi-K2.5 / GLM-5 y otros modelos destacan en tareas de literatura. [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) ofrece cuota económica; la edición Zen incluye modelos gratuitos integrados; también puede usar modelos gratuitos de OpenRouter | Gratuito (Zen / OpenRouter) o bajo coste (Go) | ⭐⭐⭐ Muy recomendado |
 | **Qwen Code** | Para usuarios del ecosistema Alibaba, con Coding Plan de Bailian | Las cuotas gratuitas se han agotado; depende del Plan | ⭐⭐ Opcional |
 | **Gemini CLI** | Tareas sencillas | Disponible en versión gratuita | ⭐ Normal |
 | **Claude Code** | Alta calidad de ejecución de instrucciones, pero menor eficiencia | De pago | Según necesidad |

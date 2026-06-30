@@ -899,10 +899,11 @@ async function runCommand(args: {
   cwd?: string;
   timeoutMs?: number;
 }) {
+  const isWindows = detectWindows();
   const isWindowsPowerShellCommand =
-    detectWindows() &&
+    isWindows &&
     /(^|[\\/])(powershell|pwsh)(\.exe)?$/i.test(normalizeString(args.command));
-  if (isWindowsPowerShellCommand) {
+  if (isWindows && (!args.cwd || isWindowsPowerShellCommand)) {
     try {
       return await runWithWindowsNsIProcessHidden({
         command: args.command,
@@ -1972,11 +1973,19 @@ export class SkillRunnerCtlBridge {
     const uvExists = await this.commandExists("uv");
     const nodeExists = await this.commandExists("node");
     const npmExists = await this.commandExists("npm");
+    const tarExists = await this.commandExists("tar");
     if (!uvExists) {
       blockingIssues.push({
         code: "missing_dependency",
         message: "Missing required dependency: uv.",
         component: "uv",
+      });
+    }
+    if (!tarExists) {
+      blockingIssues.push({
+        code: "missing_dependency",
+        message: "Missing required dependency: tar.",
+        component: "tar",
       });
     }
     const requiredFiles = [
@@ -2081,6 +2090,7 @@ export class SkillRunnerCtlBridge {
             uv: uvExists,
             node: nodeExists,
             npm: npmExists,
+            tar: tarExists,
           },
           required_files: requiredFileChecks,
           integrity: {
@@ -2620,6 +2630,7 @@ export class SkillRunnerCtlBridge {
       uv: await this.commandExists("uv"),
       node: await this.commandExists("node"),
       npm: await this.commandExists("npm"),
+      tar: await this.commandExists("tar"),
       docker: await this.commandExists("docker"),
       ttyd: await this.commandExists("ttyd"),
     };

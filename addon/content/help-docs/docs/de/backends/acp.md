@@ -84,6 +84,30 @@ Einige Agenten unterstützen Konfigurationsisolierung und Sitzungsperistenz übe
 | `OPENCODE_SESSION_DIR` | OpenCode | Ein Sitzungsperistenzverzeichnis festlegen |
 | `CODEX_CONFIG_DIR` | Codex | Ein unabhängiges Konfigurationsverzeichnis festlegen |
 
+## Kostenlose Modelloptionen
+
+Mehrere Engines bieten **kostenlosen Modellzugriff** — ideal für den Einstieg ohne Bezahlung:
+
+| Engine | Kostenlose Option | Funktionsweise |
+|--------|-------------------|----------------|
+| **Kilo Code** | Auto Free-Modus | Der integrierte Auto Free-Modus von Kilo Code leitet jede Anfrage automatisch an ein geeignetes kostenloses Modell weiter. In den Kilo Code-Einstellungen aktivieren — kein API-Key erforderlich |
+| **OpenCode Zen** | Integrierte kostenlose Modelle | Die [OpenCode Zen](https://opencode.ai/zen)-Edition enthält kostenlosen Modellzugriff ohne API-Abonnement |
+| **OpenCode + OpenRouter** | Kostenlose OpenRouter-Modelle | Konfigurieren Sie OpenCode zur Nutzung von [OpenRouter](https://openrouter.ai/) und wählen Sie kostenlose Modelle (z. B. Gemini 2.5 Flash, DeepSeek V3). Ein kostenloses OpenRouter-Konto ist erforderlich |
+
+### Einschränkungen der kostenlosen Stufe
+
+Kostenlose Modelle sind für die gelegentliche Nutzung ausreichend, beachten Sie jedoch folgende Einschränkungen:
+
+| Einschränkung | Auswirkung |
+|--------------|------------|
+| **Ratenbegrenzung** | Anfragen können gedrosselt werden — je nach Anbieterlast 5–20 Anfragen pro Minute. Stapelverarbeitung wird deutlich verlangsamt |
+| **Gleichzeitigkeit** | In der Regel auf eine gleichzeitige Anfrage beschränkt. Mehrere gleichzeitige Workflows können in die Warteschlange gestellt werden oder fehlschlagen |
+| **Modellverfügbarkeit** | Kostenlose Modellpools können zu Spitzenzeiten erschöpft sein. Fehler wie „Modell nicht verfügbar" oder „Kapazität überschritten" können auftreten |
+| **Modellwechsel** | Anbieter können kostenlose Modelle ohne Vorankündigung austauschen (Upgrade oder Downgrade). Die Ausgabequalität kann zwischen Durchläufen variieren |
+| **Keine SLA / Zuverlässigkeit** | Kostenlose Stufen bieten keine Verfügbarkeitsgarantie. Dienste können vorübergehend nicht verfügbar sein oder eingestellt werden |
+
+> Wenn Sie zuverlässige Stapelverarbeitung oder produktive Nutzung benötigen, ziehen Sie einen kostenpflichtigen Plan wie [OpenCode Go](https://opencode.ai/go?ref=SZDFT9GZKW) (10 $/Monat) oder einen Coding Plan (Bailian, Zhipu usw.) in Betracht. Die Kosten pro Artikel sind im Vergleich zur Zeitersparnis vernachlässigbar.
+
 ## Anfragetypen
 
 Das ACP-Backend unterstützt zwei Anfragetypen:
