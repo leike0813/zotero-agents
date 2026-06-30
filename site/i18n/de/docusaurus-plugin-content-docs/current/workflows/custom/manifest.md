@@ -92,7 +92,7 @@
 
 Wenn `unit: "workflow"`, sind keine benutzerausgewählten Elemente zum Auslösen erforderlich (z. B. "Topic Synthesis erstellen").
 
-### <a id="selection-validation"></a>validateSelection — Auswahlvalidierung
+### validateSelection — Auswahlvalidierung {#selection-validation}
 
 `validateSelection` ist deklarative Auswahlvalidierung. Sie deckt häufige Szenarien ab wie "Elemente überspringen, die bereits Ergebnisse haben" oder "nur Auswahlen bestimmter Typen akzeptieren" — ohne JavaScript zu schreiben.
 

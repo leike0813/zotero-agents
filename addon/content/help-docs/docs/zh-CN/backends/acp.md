@@ -65,7 +65,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter，支持通过 `--session-dir` 隔离 session 目录 |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP 模式 |
-| **Kilo** | `kilo acp` | Kilo Code ACP 模式 |
+| **Kilo** | `kilo acp` | Kilo Code ACP 模式；已实测核心 XDG 路径可隔离 config、data/session/auth/log 和 cache 状态 |
 | **Cline** | `cline --acp` | Cline ACP 模式 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 模式 |
@@ -87,6 +87,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | `HERMES_HOME` | Hermes Agent | 指定独立 home/config 目录 |
 | `QODER_CONFIG_DIR` | Qoder CLI | 指定独立配置目录 |
 | `--session-dir <path>` | Cursor Agent ACP | 指定独立 session 持久化目录 |
+| `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` | Kilo | 分别指定独立的 XDG 配置、数据/session/auth/log 和缓存根目录。该结论覆盖已实测的核心状态路径，但不等于证明所有 Kilo 子命令或插件都不会访问全局目录。 |
 
 ## 请求类型
 

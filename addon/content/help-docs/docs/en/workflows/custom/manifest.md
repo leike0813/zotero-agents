@@ -92,7 +92,7 @@
 
 When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "Create Topic Synthesis").
 
-### <a id="selection-validation"></a>validateSelection — Selection Validation
+### validateSelection — Selection Validation {#selection-validation}
 
 `validateSelection` is declarative selection validation. It covers common scenarios like "skip items that already have results" or "only accept selections of specific types" — without writing any JavaScript.
 

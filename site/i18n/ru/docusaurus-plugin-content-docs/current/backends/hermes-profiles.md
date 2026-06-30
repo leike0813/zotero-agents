@@ -242,5 +242,5 @@ All non-interactive maintenance jobs use `[SILENT]` markers to avoid spamming th
 ## Next Steps
 
 - [Host Bridge](host-bridge) — complete reference for the `zotero-bridge` CLI and Host Bridge capabilities
-- [Workflows](../workflows/index) — overview of all built-in and custom workflows
+- [Workflows](../workflows) — overview of all built-in and custom workflows
 - [MCP Server](mcp-server) — alternative protocol interface for MCP-compatible clients

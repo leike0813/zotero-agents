@@ -17,7 +17,7 @@ Convient pour :
 - Le partage d'une seule instance Skill-Runner entre plusieurs appareils sur un réseau local
 - Les utilisateurs ayant de l'expérience avec Docker
 
-#### docker compose (recommandé)
+#### docker compose (recommandé) {#recommended-docker-persistent-deployment}
 
 ```yaml
 version: "3"

@@ -17,7 +17,7 @@ Skill-Runner, развёрнутый в Docker, работает как неза
 - Общего доступа к одному экземпляру Skill-Runner с нескольких устройств в локальной сети
 - Пользователей с опытом работы с Docker
 
-#### docker compose (рекомендуется)
+#### docker compose (рекомендуется) {#recommended-docker-persistent-deployment}
 
 ```yaml
 version: "3"

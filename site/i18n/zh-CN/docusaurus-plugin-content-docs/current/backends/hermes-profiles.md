@@ -242,5 +242,5 @@ Profile 在 `cron/` 目录中包含六项预配置的 cron 模板：
 ## 下一步
 
 - [Host Bridge](host-bridge) — `zotero-bridge` CLI 和 Host Bridge 能力的完整参考
-- [工作流](../workflows/index) — 所有内置和自定义工作流概览
+- [工作流](../workflows) — 所有内置和自定义工作流概览
 - [MCP Server](mcp-server) — 面向 MCP 兼容客户端的替代协议接口

@@ -92,7 +92,7 @@
 
 当 `unit: "workflow"` 时，不需要用户选中任何条目即可触发（如"创建 Topic 综合"）。
 
-### validateSelection — 选择验证
+### validateSelection — 选择验证 {#selection-validation}
 
 `validateSelection` 是声明式的选择验证，覆盖常见的"跳过已有结果的条目"或"只接受特定类型的选择"等场景——无需编写任何 JavaScript。
 
