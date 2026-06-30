@@ -9,7 +9,7 @@ This branch is generated from the zotero-agents repository and contains only:
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: 4ebfea8f9c034f646a777ad274371ab134cd9400
-Published at: 2026-06-30T07:35:06.059Z
+Published at: 2026-06-30T07:35:12.080Z
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin

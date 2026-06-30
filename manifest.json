@@ -5,7 +5,7 @@
     "commit": "4ebfea8f9c034f646a777ad274371ab134cd9400",
     "dirty": true
   },
-  "publishedAt": "2026-06-30T07:35:06.059Z",
+  "publishedAt": "2026-06-30T07:35:12.080Z",
   "branch": "host-bridge/zotero-bridge-cli-bundle",
   "cli": {
     "name": "zotero-bridge",
@@ -13,7 +13,7 @@
       {
         "platform": "darwin-arm64",
         "binary": "bin/darwin-arm64/zotero-bridge",
-        "sha256": "8c8b0f531b45e1663cf76ec999af2cf32a64283700e75550f3fe64bfc01660f8",
+        "sha256": "184fc3ae3841f9803a2c7d7fbaed9aaf8189f302d6f334ce63ed289aa56c65a4",
         "sha256File": "bin/darwin-arm64/zotero-bridge.sha256",
         "size": 1426128
       },
@@ -55,7 +55,7 @@
       {
         "platform": "win32-x64",
         "binary": "bin/win32-x64/zotero-bridge.exe",
-        "sha256": "7fc3d3dc65f35e2b1fff7b749951fd41429360a2cc8498b0eb1a7696dfbedf10",
+        "sha256": "d2a49241bf985a6f10bdf894e3f8e267ec53996e01d81da9b558f32f98228db5",
         "sha256File": "bin/win32-x64/zotero-bridge.exe.sha256",
         "size": 1329152
       }
