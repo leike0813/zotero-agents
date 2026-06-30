@@ -26,6 +26,17 @@ content-package-startup-update-confirm = Un nouveau package Workflow officiel es
     Installer la mise à jour maintenant ?
 content-package-startup-update-failed = Échec de la mise à jour du package Workflow officiel : { $reason }
 content-package-startup-update-incompatible = Un nouveau package Workflow officiel est disponible, mais il ne peut pas être installé : { $reason }
+host-bridge-cli-startup-install-status-missing = non installé
+host-bridge-cli-startup-install-status-stale = obsolète
+host-bridge-cli-startup-install-confirm = Le Host Bridge CLI est { $status }.
+
+    Cible : { $targetPath }
+    Version CLI intégrée : { $bundledVersion }
+    SHA-256 CLI intégrée : { $bundledSha256 }
+
+    Installer la CLI intégrée maintenant ?
+host-bridge-cli-startup-install-success = Host Bridge CLI installé.
+host-bridge-cli-startup-install-failed = Échec de l'installation du Host Bridge CLI : { $reason }
 content-package-install-progress-check-feed = Vérification du flux du package Workflow officiel
 content-package-install-progress-download-package = Téléchargement du package Workflow officiel
 content-package-install-progress-verify-package = Vérification de l'intégrité du package

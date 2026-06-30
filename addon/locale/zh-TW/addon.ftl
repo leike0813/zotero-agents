@@ -26,6 +26,17 @@ content-package-startup-update-confirm = 有新的官方工作流程套件可用
     是否立即安裝更新？
 content-package-startup-update-failed = 官方工作流程套件更新失敗：{ $reason }
 content-package-startup-update-incompatible = 有新的官方工作流程套件可用，但無法安裝：{ $reason }
+host-bridge-cli-startup-install-status-missing = 尚未安裝
+host-bridge-cli-startup-install-status-stale = 版本過舊
+host-bridge-cli-startup-install-confirm = Host Bridge CLI { $status }。
+
+    目標：{ $targetPath }
+    內建 CLI 版本：{ $bundledVersion }
+    內建 CLI SHA-256：{ $bundledSha256 }
+
+    現在安裝內建的 CLI 嗎？
+host-bridge-cli-startup-install-success = Host Bridge CLI 已安裝。
+host-bridge-cli-startup-install-failed = Host Bridge CLI 安裝失敗：{ $reason }
 content-package-install-progress-check-feed = 正在檢查官方工作流程套件訂閱源
 content-package-install-progress-download-package = 正在下載官方工作流程套件
 content-package-install-progress-verify-package = 正在驗證套件完整性

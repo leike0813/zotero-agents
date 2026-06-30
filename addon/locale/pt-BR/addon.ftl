@@ -26,6 +26,17 @@ content-package-startup-update-confirm = Um novo pacote oficial de Fluxos de Tra
     Instalar a atualização agora?
 content-package-startup-update-failed = Falha na atualização do pacote oficial de Fluxos de Trabalho: { $reason }
 content-package-startup-update-incompatible = Um novo pacote oficial de Fluxos de Trabalho está disponível, mas não pode ser instalado: { $reason }
+host-bridge-cli-startup-install-status-missing = não instalado
+host-bridge-cli-startup-install-status-stale = desatualizado
+host-bridge-cli-startup-install-confirm = O Host Bridge CLI está { $status }.
+
+    Destino: { $targetPath }
+    Versão do CLI empacotado: { $bundledVersion }
+    SHA-256 do CLI empacotado: { $bundledSha256 }
+
+    Instalar o CLI empacotado agora?
+host-bridge-cli-startup-install-success = Host Bridge CLI instalado.
+host-bridge-cli-startup-install-failed = Falha ao instalar o Host Bridge CLI: { $reason }
 content-package-install-progress-check-feed = Verificando o feed do pacote oficial de fluxos de trabalho
 content-package-install-progress-download-package = Baixando o pacote oficial de fluxos de trabalho
 content-package-install-progress-verify-package = Verificando a integridade do pacote

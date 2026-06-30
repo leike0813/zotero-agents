@@ -26,6 +26,17 @@ content-package-startup-update-confirm = 새로운 공식 워크플로 패키지
     지금 업데이트를 설치하시겠습니까?
 content-package-startup-update-failed = 공식 워크플로 패키지 업데이트 실패: { $reason }
 content-package-startup-update-incompatible = 새로운 공식 워크플로 패키지를 사용할 수 있지만 설치할 수 없습니다: { $reason }
+host-bridge-cli-startup-install-status-missing = 설치되지 않음
+host-bridge-cli-startup-install-status-stale = 오래된 버전
+host-bridge-cli-startup-install-confirm = Host Bridge CLI이 { $status } 상태입니다.
+
+    대상: { $targetPath }
+    번들 CLI 버전: { $bundledVersion }
+    번들 CLI SHA-256: { $bundledSha256 }
+
+    번들 CLI를 지금 설치하시겠습니까?
+host-bridge-cli-startup-install-success = Host Bridge CLI가 설치되었습니다.
+host-bridge-cli-startup-install-failed = Host Bridge CLI 설치 실패: { $reason }
 content-package-install-progress-check-feed = 공식 워크플로 패키지 피드를 확인하는 중
 content-package-install-progress-download-package = 공식 워크플로 패키지를 다운로드하는 중
 content-package-install-progress-verify-package = 패키지 무결성을 확인하는 중
