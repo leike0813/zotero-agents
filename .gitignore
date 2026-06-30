@@ -37,6 +37,8 @@ logs
 !.agents/skills/synthesis-reference-resolution-harness/**
 !.agents/skills/host-bridge-release-pipeline/
 !.agents/skills/host-bridge-release-pipeline/**
+!.agents/skills/zotero-agents-release-coordinator/
+!.agents/skills/zotero-agents-release-coordinator/**
 
 .pnpmfile.cjs
 
