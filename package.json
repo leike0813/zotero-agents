@@ -1,7 +1,7 @@
 {
   "name": "zotero-agents",
   "type": "module",
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "An all-in-one agentic workbench for your Zotero library",
   "config": {
     "addonName": "Zotero Agents",
