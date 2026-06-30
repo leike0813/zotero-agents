@@ -181,7 +181,7 @@ describe("skillrunner sidebar host runtime", function () {
     );
     const resolverBody = runDialog.slice(resolverStart, resolverEnd);
 
-    assert.include(resolverBody, "record.submitPhase === \"request_ready\"");
+    assert.include(resolverBody, 'record.submitPhase === "request_ready"');
     assert.include(resolverBody, "recordRequestId &&");
     assert.include(resolverBody, "recordRequestId !== currentRequestId");
     assert.include(resolverBody, 'return "boundary"');
