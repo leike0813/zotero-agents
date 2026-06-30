@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path, { dirname } from "node:path";
+import zlib from "node:zlib";
 
 const PREBUILD_TAG = "host-bridge-cli-prebuilds";
 const DOWNLOAD_DIR = path.join(".scaffold", "host-bridge-cli-prebuilds-sync");
@@ -76,7 +77,83 @@ function extractArchive(archive: string) {
     ]);
     return;
   }
-  run("unzip", ["-o", archive, "-d", process.cwd()]);
+  extractZipWithNode(archive, process.cwd());
+}
+
+function extractZipWithNode(archive: string, destination: string) {
+  // Pure Node.js ZIP extraction using zlib.inflateRawSync for DEFLATE.
+  // Reads the central directory to locate each entry's data via local headers.
+  const buffer = readFileSync(archive);
+
+  // Find End of Central Directory record (signature 0x06054b50)
+  let eocdOffset = -1;
+  for (let i = buffer.length - 22; i >= 0; i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+  if (eocdOffset === -1) {
+    throw new Error(`Invalid ZIP archive: ${archive}`);
+  }
+
+  const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
+  const cdOffset = buffer.readUInt32LE(eocdOffset + 16);
+
+  let cdPos = cdOffset;
+  for (let i = 0; i < totalEntries; i++) {
+    if (buffer.readUInt32LE(cdPos) !== 0x02014b50) {
+      throw new Error(`Invalid central directory entry ${i}`);
+    }
+    const compressionMethod = buffer.readUInt16LE(cdPos + 10);
+    const compressedSize = buffer.readUInt32LE(cdPos + 20);
+    const uncompressedSize = buffer.readUInt32LE(cdPos + 24);
+    const fileNameLength = buffer.readUInt16LE(cdPos + 28);
+    const extraLength = buffer.readUInt16LE(cdPos + 30);
+    const commentLength = buffer.readUInt16LE(cdPos + 32);
+    const localHeaderOffset = buffer.readUInt32LE(cdPos + 42);
+    const fileName = buffer
+      .subarray(cdPos + 46, cdPos + 46 + fileNameLength)
+      .toString("utf8");
+    cdPos += 46 + fileNameLength + extraLength + commentLength;
+
+    // Read local file header to find the start of compressed data
+    const localPos = localHeaderOffset;
+    const localFileNameLength = buffer.readUInt16LE(localPos + 26);
+    const localExtraLength = buffer.readUInt16LE(localPos + 28);
+    const dataStart = localPos + 30 + localFileNameLength + localExtraLength;
+    const compressedData = buffer.subarray(
+      dataStart,
+      dataStart + compressedSize,
+    );
+
+    const targetPath = path.join(destination, fileName);
+    if (fileName.endsWith("/")) {
+      mkdirSync(targetPath, { recursive: true });
+      continue;
+    }
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+
+    let data: Buffer;
+    if (compressionMethod === 8) {
+      data = zlib.inflateRawSync(compressedData);
+    } else if (compressionMethod === 0) {
+      data = compressedData;
+    } else {
+      throw new Error(
+        `Unsupported ZIP compression method ${compressionMethod} for ${fileName}`,
+      );
+    }
+
+    if (data.length !== uncompressedSize) {
+      throw new Error(
+        `Size mismatch for ${fileName}: expected ${uncompressedSize}, got ${data.length}`,
+      );
+    }
+
+    writeFileSync(targetPath, data);
+  }
 }
 
 async function verifyPrebuilds() {
@@ -110,9 +187,6 @@ async function main() {
   }
 
   requireCommand("gh");
-  if (process.platform !== "win32") {
-    requireCommand("unzip");
-  }
 
   await rm(DOWNLOAD_DIR, { recursive: true, force: true });
   await mkdir(DOWNLOAD_DIR, { recursive: true });

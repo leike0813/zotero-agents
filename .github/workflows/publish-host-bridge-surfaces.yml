@@ -53,9 +53,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install unzip
-        run: sudo apt-get update -qq && sudo apt-get install -y unzip
-
       - name: Sync latest Host Bridge CLI prebuilds
         run: npm run sync:host-bridge-cli-prebuilds
 

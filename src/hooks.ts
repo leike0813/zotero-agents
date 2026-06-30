@@ -518,6 +518,12 @@ function scheduleHostBridgeCliInstallPrompt() {
     return;
   }
   startupHostBridgeCliInstallPromptStarted = true;
+  // The confirm dialog blocks the event loop in headless test environments,
+  // causing unrelated tests to time out during addon startup. Skip the prompt
+  // when the addon is built for the test environment.
+  if ((__env__ as string) === "test") {
+    return;
+  }
   const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;
   if (!win) {
     return;
