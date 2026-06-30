@@ -1,3 +1,5 @@
+import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
+
 export const ACP_PROTOCOL_VERSION = 1;
 
 export const ACP_AGENT_METHODS = {
@@ -165,7 +167,7 @@ export type SessionAttachResponse = {
 
 export type AcpPermissionOption = {
   optionId: string;
-  kind: string;
+  kind: AcpPermissionOptionKind;
   name: string;
   description?: string | null;
 };

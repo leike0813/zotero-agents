@@ -97,6 +97,7 @@ import {
   setAcpSkillRunRuntimeOptions,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import { isAcpAllowPermissionKind } from "./acpPermissionOptions";
 import {
   requestAcpSkillRunForeground,
   type AcpSkillRunForegroundDeps,
@@ -1090,23 +1091,14 @@ function resolveAutoApproveAcpPermissionOption(
     return "";
   }
   const options = Array.isArray(request.options) ? request.options : [];
-  const approve = options.find(
-    (option) => normalizeString(option.optionId) === "approve",
+  const allowOptions = options.filter(
+    (option) =>
+      isAcpAllowPermissionKind(option.kind) && normalizeString(option.optionId),
   );
-  if (approve) {
-    return normalizeString(approve.optionId);
-  }
-  const allowByKind = options.find((option) => {
-    const kind = normalizeString(option.kind);
-    return kind === "allow" || kind === "allow_once" || kind === "allow_always";
-  });
-  if (allowByKind) {
-    return normalizeString(allowByKind.optionId);
-  }
-  const allowById = options.find((option) =>
-    normalizeString(option.optionId).startsWith("allow"),
-  );
-  return allowById ? normalizeString(allowById.optionId) : "";
+  const selected =
+    allowOptions.find((option) => option.kind === "allow_once") ||
+    allowOptions.find((option) => option.kind === "allow_always");
+  return selected ? normalizeString(selected.optionId) : "";
 }
 
 function handleAcpSkillRunPermissionRequest(args: {

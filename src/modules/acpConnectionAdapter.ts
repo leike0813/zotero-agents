@@ -34,6 +34,7 @@ import {
   findAcpSessionConfigOptionByCategory,
   normalizeAcpSessionConfigOptions,
 } from "./acpSessionConfigOptions";
+import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import {
   ensureZoteroMcpServer,
   markZoteroMcpServerDescriptorInjected,
@@ -869,7 +870,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           },
           {
             optionId: "deny",
-            kind: "deny",
+            kind: "reject_once",
             name: "Deny",
             description: "Do not write to Zotero.",
           },
@@ -935,9 +936,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
                 if (!optionId || !name) {
                   return acc;
                 }
+                const kind = normalizeAcpPermissionOptionKind(entry?.kind);
                 acc.push({
                   optionId,
-                  kind: String(entry?.kind || "").trim(),
+                  ...(kind ? { kind } : {}),
                   name,
                   description:
                     String(entry?.description || "").trim() || undefined,

@@ -49,6 +49,7 @@ import {
   resolveAcpRawModelIdForSelection,
   type AcpSelectableOption,
 } from "./acpModelOptionFolding";
+import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 
 export type AcpSkillRunStatus =
@@ -1351,12 +1352,7 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
                   name: normalizeString(option.name),
                   description: normalizeString(option.description) || undefined,
                   kind:
-                    option.kind === "allow_once" ||
-                    option.kind === "allow_always" ||
-                    option.kind === "reject_once" ||
-                    option.kind === "reject_always"
-                      ? option.kind
-                      : undefined,
+                    normalizeAcpPermissionOptionKind(option.kind) || undefined,
                 }))
                 .filter((option) => option.optionId)
             : [],

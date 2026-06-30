@@ -4813,17 +4813,44 @@ describe("ACP SkillRunner-compatible runner", function () {
       }
 
       await runScenario({
-        options: [{ optionId: "approve", kind: "allow_once", name: "Approve" }],
-        expectedAutoOptionId: "approve",
+        options: [
+          { optionId: "backend-id-1", kind: "allow_once", name: "Allow" },
+        ],
+        expectedAutoOptionId: "backend-id-1",
       });
       await runScenario({
         options: [
-          { optionId: "allow-once", kind: "allow_once", name: "Allow Once" },
+          {
+            optionId: "always-session",
+            kind: "allow_always",
+            name: "Always Allow Bash(python script.py)",
+          },
+          { optionId: "once-session", kind: "allow_once", name: "Allow" },
         ],
-        expectedAutoOptionId: "allow-once",
+        expectedAutoOptionId: "once-session",
+      });
+      await runScenario({
+        options: [
+          {
+            optionId: "always-session",
+            kind: "allow_always",
+            name: "Always Allow Bash(python script.py)",
+          },
+        ],
+        expectedAutoOptionId: "always-session",
       });
       await runScenario({
         options: [{ optionId: "deny", kind: "deny", name: "Deny" }],
+      });
+      await runScenario({
+        options: [
+          { optionId: "approve", kind: "reject_once", name: "Allow" },
+          {
+            optionId: "always_allow",
+            kind: "always_allow",
+            name: "Always Allow Bash(python script.py)",
+          },
+        ],
       });
       await runScenario({
         source: "zotero-mcp-write",

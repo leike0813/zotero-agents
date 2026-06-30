@@ -51,6 +51,7 @@ import {
   type AcpDiagnosticsEntry,
   type AcpFrontendSnapshot,
   type AcpHostContext,
+  type AcpPendingPermissionRequest,
   type AcpSelectableOption,
 } from "./acpTypes";
 import type { RequestPermissionOutcome } from "./acpProtocol";
@@ -367,21 +368,7 @@ function getOrCreateSlot(backendIdRaw?: string) {
 
 function setSlotPendingPermissionRequest(
   slot: AcpSessionSlot,
-  request: {
-    requestId: string;
-    sessionId: string;
-    toolCallId: string;
-    toolTitle: string;
-    source?: string;
-    summary?: string;
-    detail?: string;
-    requestedAt: string;
-    options: Array<{
-      optionId: string;
-      kind: string;
-      name: string;
-      description?: string;
-    }>;
+  request: AcpPendingPermissionRequest & {
     resolve: (outcome: RequestPermissionOutcome) => void;
   },
 ) {

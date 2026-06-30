@@ -119,7 +119,7 @@ function permissionOptions(): AcpPendingPermissionRequest["options"] {
     },
     {
       optionId: "deny",
-      kind: "reject",
+      kind: "reject_once",
       name: "Deny",
       description: "Reject this Host Bridge operation.",
     },

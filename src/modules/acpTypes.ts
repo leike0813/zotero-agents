@@ -1,5 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
+import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
 
 export type AcpConnectionStatus =
   | "idle"
@@ -192,7 +193,7 @@ export type AcpDiagnosticsEntry = {
 
 export type AcpPermissionOption = {
   optionId: string;
-  kind: string;
+  kind?: AcpPermissionOptionKind;
   name: string;
   description?: string;
 };
