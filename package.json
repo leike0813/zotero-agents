@@ -1,7 +1,7 @@
 {
   "name": "zotero-agents",
   "type": "module",
-  "version": "0.5.4",
+  "version": "0.5.3",
   "description": "An all-in-one agentic workbench for your Zotero library",
   "config": {
     "addonName": "Zotero Agents",
@@ -39,7 +39,6 @@
     "check:content-package-release": "tsx scripts/check-content-package-release.ts",
     "check:content-package-mirror": "tsx scripts/check-content-package-release.ts --check-mirror",
     "build:content-feed": "tsx scripts/build-content-package-feed.ts",
-    "update:skillrunner-runtime-feed": "tsx scripts/update-skillrunner-runtime-feed.ts",
     "bump:content-package": "tsx scripts/bump-content-package-version.ts",
     "release:content-package": "tsx scripts/prepare-content-package-release.ts",
     "render:host-bridge-surface": "tsx scripts/render-host-bridge-surface.ts && tsx scripts/render-zotero-librarian-profile.ts",
