@@ -168,6 +168,25 @@ describe("skillrunner sidebar host runtime", function () {
     assert.notInclude(runDialog, "subscribeAssistantStreamingRenderPreference");
   });
 
+  it("treats selected SkillRunner request readiness as a boundary refresh", async function () {
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+    const resolverStart = runDialog.indexOf(
+      "function resolveRunStoreRefreshReason",
+    );
+    const resolverEnd = runDialog.indexOf(
+      "function clearRunWorkspaceHostState",
+      resolverStart,
+    );
+    const resolverBody = runDialog.slice(resolverStart, resolverEnd);
+
+    assert.include(resolverBody, "record.submitPhase === \"request_ready\"");
+    assert.include(resolverBody, "recordRequestId &&");
+    assert.include(resolverBody, "recordRequestId !== currentRequestId");
+    assert.include(resolverBody, 'return "boundary"');
+  });
+
   it("queues sidebar frontend rendering and keeps streaming transcript rows plain", async function () {
     const acpChat = await readProjectFile("addon/content/sidebar/acp-chat.js");
     const acpSkill = await readProjectFile(

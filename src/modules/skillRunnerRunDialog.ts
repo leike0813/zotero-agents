@@ -2920,6 +2920,16 @@ function resolveRunStoreRefreshReason(): AssistantWorkspacePublishReason {
   if (record.error) {
     return "critical";
   }
+  const recordRequestId = String(record.requestId || "").trim();
+  const currentRequestId = String(
+    runWorkspaceState.currentEntry?.requestId || "",
+  ).trim();
+  if (
+    record.submitPhase === "request_ready" ||
+    (recordRequestId && recordRequestId !== currentRequestId)
+  ) {
+    return "boundary";
+  }
   if (isTerminal(record.status) || isWaiting(record.status)) {
     return "boundary";
   }
