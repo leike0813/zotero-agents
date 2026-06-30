@@ -105,10 +105,14 @@ if ($Push) {
   if ($LASTEXITCODE -ne 0) {
     throw "git clone failed for $RepositoryUrl"
   }
+  & git -C $WorktreePath config user.name "github-actions[bot]"
+  & git -C $WorktreePath config user.email "41898282+github-actions[bot]@users.noreply.github.com"
   Invoke-ProfileGit @("checkout", "-B", $Branch)
 } else {
   New-Item -ItemType Directory -Force -Path $WorktreePath | Out-Null
   Invoke-ProfileGit @("init")
+  & git -C $WorktreePath config user.name "github-actions[bot]"
+  & git -C $WorktreePath config user.email "41898282+github-actions[bot]@users.noreply.github.com"
   Invoke-ProfileGit @("checkout", "-B", $Branch)
   Invoke-ProfileGit @("remote", "add", $Remote, $RepositoryUrl)
 }
