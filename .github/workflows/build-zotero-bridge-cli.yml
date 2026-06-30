@@ -213,5 +213,7 @@ jobs:
       - name: Publish zotero-librarian profile repository
         shell: pwsh
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           $profileRepoUrl = "https://x-access-token:{0}@github.com/leike0813/zotero-librarian-profile.git" -f $env:GH_TOKEN
           ./scripts/publish-zotero-librarian-profile.ps1 -RepositoryUrl $profileRepoUrl -AllowDirty -Push
