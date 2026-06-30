@@ -163,6 +163,62 @@ describe("skillrunner management client", function () {
     assert.deepEqual(methods, ["HEAD", "GET"]);
   });
 
+  it("posts handshake requests with the stable schema and requested protocols", async function () {
+    const requests: Array<{ url: string; method: string; body: unknown }> = [];
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url, init) => {
+        requests.push({
+          url,
+          method: String(init?.method || "GET"),
+          body: JSON.parse(String(init?.body || "{}")),
+        });
+        return new Response(
+          JSON.stringify({
+            schema: "zotero-agents.skillrunner-handshake.response.v1",
+            backend: {
+              name: "Skill-Runner",
+              version: "0.7.3",
+            },
+            protocols: {
+              "skillrunner.job.v1": {
+                supported: true,
+              },
+              "skillrunner.sequence.v1": {
+                supported: false,
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      },
+    });
+
+    const capabilities = await client.handshake({
+      requestedProtocols: ["skillrunner.job.v1", "skillrunner.sequence.v1"],
+    });
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].url, "http://127.0.0.1:8030/v1/system/handshake");
+    assert.equal(requests[0].method, "POST");
+    assert.deepInclude(requests[0].body as Record<string, unknown>, {
+      schema: "zotero-agents.skillrunner-handshake.request.v1",
+    });
+    assert.deepEqual(
+      (requests[0].body as { requested_protocols?: unknown })
+        .requested_protocols,
+      ["skillrunner.job.v1", "skillrunner.sequence.v1"],
+    );
+    assert.equal(capabilities.source, "remote");
+    assert.equal(capabilities.backend?.version, "0.7.3");
+    assert.equal(capabilities.protocols["skillrunner.job.v1"]?.supported, true);
+  });
+
   it("parses SSE chat frames", async function () {
     const frames: SkillRunnerManagementSseFrame[] = [];
     const urls: string[] = [];

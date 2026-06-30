@@ -82,11 +82,19 @@ export type MockSkillRunnerServer = {
   getTraffic: () => TrafficRecord[];
 };
 
+type MockHandshakeConfig =
+  | false
+  | {
+      status?: number;
+      body?: unknown;
+    };
+
 export async function startMockSkillRunnerServer(args: {
   bundlePath: string;
   pollDelayMs?: number;
   host?: string;
   port?: number;
+  handshake?: MockHandshakeConfig;
 }) {
   const httpMod = await dynamicImport("http");
   const fsMod = await dynamicImport("fs/promises");
@@ -124,6 +132,26 @@ export async function startMockSkillRunnerServer(args: {
     // keep fallback result template when fixture result JSON is unavailable
   }
   const pollDelayMs = Math.max(0, args.pollDelayMs ?? 50);
+  const handshakeConfig =
+    args.handshake === undefined
+      ? {
+          body: {
+            schema: "zotero-agents.skillrunner-handshake.response.v1",
+            backend: {
+              name: "Skill-Runner",
+              version: "0.7.3",
+            },
+            protocols: {
+              "skillrunner.job.v1": {
+                supported: true,
+              },
+              "skillrunner.sequence.v1": {
+                supported: false,
+              },
+            },
+          },
+        }
+      : args.handshake;
 
   const server = createServer((req, res) => {
     const method = req.method || "GET";
@@ -256,6 +284,36 @@ export async function startMockSkillRunnerServer(args: {
             provider: "generic-http",
             echo: payload,
           }),
+        );
+        return;
+      }
+
+      if (
+        method === "POST" &&
+        url === "/v1/system/handshake" &&
+        handshakeConfig !== false
+      ) {
+        const status = Math.floor(Number(handshakeConfig.status || 200));
+        res.statusCode = Number.isFinite(status) ? status : 200;
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify(
+            handshakeConfig.body || {
+              schema: "zotero-agents.skillrunner-handshake.response.v1",
+              backend: {
+                name: "Skill-Runner",
+                version: "0.7.3",
+              },
+              protocols: {
+                "skillrunner.job.v1": {
+                  supported: true,
+                },
+                "skillrunner.sequence.v1": {
+                  supported: false,
+                },
+              },
+            },
+          ),
         );
         return;
       }

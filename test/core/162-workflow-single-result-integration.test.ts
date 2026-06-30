@@ -6,6 +6,7 @@ import type { ProviderExecutionResult } from "../../src/providers/contracts";
 import type { ProviderProgressEvent } from "../../src/providers/types";
 import { SkillRunnerPollingTimeoutError } from "../../src/providers/skillrunner/errors";
 import { SkillRunnerManagementClient } from "../../src/providers/skillrunner/managementClient";
+import { resetSkillRunnerHandshakeCacheForTests } from "../../src/modules/skillRunnerHandshake";
 import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
 import { clearRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
@@ -615,6 +616,7 @@ describe("workflow single-result behavior integration", function () {
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
     resetWorkflowHostApiForTests();
+    resetSkillRunnerHandshakeCacheForTests();
     setDebugModeOverrideForTests(true);
     await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
   });
@@ -637,6 +639,7 @@ describe("workflow single-result behavior integration", function () {
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
     resetWorkflowHostApiForTests();
+    resetSkillRunnerHandshakeCacheForTests();
     setPref("skillDir", previousSkillDirPref);
     setDebugModeOverrideForTests();
   });
@@ -1209,6 +1212,23 @@ describe("workflow single-result behavior integration", function () {
     await withMockedFetch(
       async (url, init) => {
         const method = normalizeString(init?.method).toUpperCase() || "GET";
+        if (method === "POST" && url.endsWith("/v1/system/handshake")) {
+          return createJsonResponse({
+            schema: "zotero-agents.skillrunner-handshake.response.v1",
+            backend: {
+              name: "Skill-Runner",
+              version: "0.7.3",
+            },
+            protocols: {
+              "skillrunner.job.v1": {
+                supported: true,
+              },
+              "skillrunner.sequence.v1": {
+                supported: false,
+              },
+            },
+          });
+        }
         if (
           method === "POST" &&
           url.endsWith(`/v1/jobs/${interactiveRequestId}/interaction/reply`)

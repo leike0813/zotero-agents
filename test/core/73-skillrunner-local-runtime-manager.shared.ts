@@ -46,10 +46,12 @@ const itFullOnly = isFullTestMode() ? it : it.skip;
 const backendsConfigPrefKey = `${config.prefsPrefix}.backendsConfigJson`;
 const localRuntimeStatePrefKey = `${config.prefsPrefix}.skillRunnerLocalRuntimeStateJson`;
 const localRuntimeVersionPrefKey = `${config.prefsPrefix}.skillRunnerLocalRuntimeVersion`;
+const runtimeFeedCachePrefKey = `${config.prefsPrefix}.skillRunnerRuntimeFeedCacheJson`;
 
 let prevBackendsConfigPref: unknown;
 let prevStatePref: unknown;
 let prevVersionPref: unknown;
+let prevRuntimeFeedCachePref: unknown;
 let prevFetch: unknown;
 let prevIOUtils: unknown;
 
@@ -112,6 +114,7 @@ function setupSkillRunnerLocalRuntimeManagerSuite() {
     prevBackendsConfigPref = Zotero.Prefs.get(backendsConfigPrefKey, true);
     prevStatePref = Zotero.Prefs.get(localRuntimeStatePrefKey, true);
     prevVersionPref = Zotero.Prefs.get(localRuntimeVersionPrefKey, true);
+    prevRuntimeFeedCachePref = Zotero.Prefs.get(runtimeFeedCachePrefKey, true);
     prevFetch = (globalThis as { fetch?: unknown }).fetch;
     prevIOUtils = (globalThis as { IOUtils?: unknown }).IOUtils;
     Zotero.Prefs.set(
@@ -129,11 +132,8 @@ function setupSkillRunnerLocalRuntimeManagerSuite() {
       true,
     );
     Zotero.Prefs.clear(localRuntimeStatePrefKey, true);
-    Zotero.Prefs.set(
-      localRuntimeVersionPrefKey,
-      DEFAULT_LOCAL_RUNTIME_VERSION,
-      true,
-    );
+    Zotero.Prefs.clear(localRuntimeVersionPrefKey, true);
+    Zotero.Prefs.clear(runtimeFeedCachePrefKey, true);
     (globalThis as { fetch?: unknown }).fetch = undefined;
     (globalThis as { IOUtils?: unknown }).IOUtils = {
       exists: async () => true,
@@ -186,6 +186,11 @@ function setupSkillRunnerLocalRuntimeManagerSuite() {
       Zotero.Prefs.clear(localRuntimeVersionPrefKey, true);
     } else {
       Zotero.Prefs.set(localRuntimeVersionPrefKey, prevVersionPref, true);
+    }
+    if (typeof prevRuntimeFeedCachePref === "undefined") {
+      Zotero.Prefs.clear(runtimeFeedCachePrefKey, true);
+    } else {
+      Zotero.Prefs.set(runtimeFeedCachePrefKey, prevRuntimeFeedCachePref, true);
     }
     if (typeof prevFetch === "undefined") {
       delete (globalThis as { fetch?: unknown }).fetch;
@@ -363,6 +368,7 @@ function registerSkillRunnerOneclickSegmentOne() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
+        versionTag: DEFAULT_LOCAL_RUNTIME_VERSION,
         installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
         ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
         runtimeState: "stopped",
@@ -465,6 +471,7 @@ function registerSkillRunnerOneclickSegmentOne() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
+        versionTag: DEFAULT_LOCAL_RUNTIME_VERSION,
         installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
         ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
         runtimeState: "stopped",
@@ -537,6 +544,7 @@ function registerSkillRunnerOneclickSegmentOne() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
+        versionTag: DEFAULT_LOCAL_RUNTIME_VERSION,
         installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
         ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
         runtimeState: "stopped",
@@ -606,6 +614,7 @@ function registerSkillRunnerOneclickSegmentOne() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
+        versionTag: DEFAULT_LOCAL_RUNTIME_VERSION,
         installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
         ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
         runtimeState: "stopped",
@@ -690,6 +699,7 @@ function registerSkillRunnerOneclickSegmentOne() {
       localRuntimeStatePrefKey,
       JSON.stringify({
         managedBackendId: "local-skillrunner-backend",
+        versionTag: DEFAULT_LOCAL_RUNTIME_VERSION,
         installDir: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}`,
         ctlPath: `C:\\SkillRunner\\releases\\${DEFAULT_LOCAL_RUNTIME_VERSION}\\scripts\\skill-runnerctl.ps1`,
         runtimeState: "stopped",
@@ -720,6 +730,35 @@ function registerSkillRunnerOneclickSegmentOne() {
     assert.equal(result.stage, "oneclick-plan-start");
     assert.equal(result.details?.plannedAction, "start");
     assert.deepEqual(commandTrail, ["preflight"]);
+  });
+
+  it("plans one-click deploy when runtime version differs", async function () {
+    Zotero.Prefs.set(
+      localRuntimeStatePrefKey,
+      JSON.stringify({
+        managedBackendId: "local-skillrunner-backend",
+        versionTag: "v0.7.1",
+        installDir: "C:\\SkillRunner\\releases\\v0.7.1",
+        ctlPath:
+          "C:\\SkillRunner\\releases\\v0.7.1\\scripts\\skill-runnerctl.ps1",
+        runtimeState: "stopped",
+        runtimeHost: "127.0.0.1",
+        runtimePort: 29813,
+        requestedPort: 29813,
+        portFallbackSpan: 10,
+      }),
+      true,
+    );
+
+    const result = await planLocalRuntimeOneclick({
+      version: DEFAULT_LOCAL_RUNTIME_VERSION,
+    });
+
+    assert.isTrue(result.ok);
+    assert.equal(result.stage, "oneclick-plan-deploy");
+    assert.equal(result.details?.plannedAction, "deploy");
+    assert.equal(result.details?.reason, "version-mismatch");
+    assert.equal(result.details?.currentVersion, "v0.7.1");
   });
 }
 
