@@ -125,6 +125,7 @@ import {
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
 import {
   promptHostBridgeCliInstallOnStartup,
+  shouldRunHostBridgeCliStartupPrompt,
   type HostBridgeCliInstallPromptState,
 } from "./modules/hostBridgeCliInstallPrompt";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
@@ -518,13 +519,7 @@ function scheduleHostBridgeCliInstallPrompt() {
     return;
   }
   startupHostBridgeCliInstallPromptStarted = true;
-  // The synchronous win.confirm dialog blocks the event loop and causes
-  // unrelated tests to time out in headless test environments. The scaffold's
-  // test bundler does not inherit the production esbuild `define` options, so
-  // __env__ is not replaced in the test build. Use typeof to safely skip the
-  // prompt when __env__ is unresolved, mirroring the natural early-return
-  // pattern used by promptOfficialWorkflowPackageUpdateOnStartup.
-  if (typeof __env__ === "undefined" || __env__ !== "production") {
+  if (!shouldRunHostBridgeCliStartupPrompt()) {
     return;
   }
   const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;

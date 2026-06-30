@@ -7,6 +7,7 @@ import {
 import { resolveHostBridgeCliPlatform } from "./hostBridgeCliResolver";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
+import { readRuntimeEnv } from "../platform/env";
 import { readRuntimeBytes, runtimePathExists } from "./runtimePersistence";
 import { getPref, setPref } from "../utils/prefs";
 
@@ -15,6 +16,23 @@ const dynamicImport: DynamicImport = new Function(
   "specifier",
   "return import(specifier)",
 ) as DynamicImport;
+
+const STARTUP_PROMPT_DISABLE_ENV_KEYS = [
+  "ZOTERO_AGENTS_DISABLE_HOST_BRIDGE_CLI_STARTUP_PROMPT",
+  "ZOTERO_AGENTS_DISABLE_HOST_BRIDGE_CLI_PROMPT",
+];
+
+const AUTOMATED_BOOLEAN_ENV_KEYS = [
+  "CI",
+  "GITHUB_ACTIONS",
+  "ZOTERO_PLUGIN_TEST",
+];
+
+const AUTOMATED_VALUE_ENV_KEYS = [
+  "ZOTERO_TEST_MODE",
+  "ZOTERO_TEST_DOMAIN",
+  "ZOTERO_TEST_TARGET_SCRIPT",
+];
 
 export type HostBridgeCliInstallPromptStatus =
   | "missing"
@@ -66,8 +84,48 @@ export type HostBridgeCliInstallPromptDeps = Pick<
   ) => Promise<HostBridgeCliInstallResult>;
 };
 
+export type HostBridgeCliStartupPromptPolicyDeps = {
+  runtimeEnv?: () => "development" | "production";
+  readEnv?: (name: string) => string;
+};
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function resolveBuildRuntimeEnv() {
+  return typeof __env__ === "undefined" ? "development" : __env__;
+}
+
+function isTruthyEnvFlag(value: unknown) {
+  const normalized = normalizeString(value).toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
+export function shouldRunHostBridgeCliStartupPrompt(
+  deps: HostBridgeCliStartupPromptPolicyDeps = {},
+) {
+  if ((deps.runtimeEnv || resolveBuildRuntimeEnv)() !== "production") {
+    return false;
+  }
+  const readEnv = deps.readEnv || readRuntimeEnv;
+  if (
+    STARTUP_PROMPT_DISABLE_ENV_KEYS.some((key) => isTruthyEnvFlag(readEnv(key)))
+  ) {
+    return false;
+  }
+  if (AUTOMATED_BOOLEAN_ENV_KEYS.some((key) => isTruthyEnvFlag(readEnv(key)))) {
+    return false;
+  }
+  if (AUTOMATED_VALUE_ENV_KEYS.some((key) => normalizeString(readEnv(key)))) {
+    return false;
+  }
+  return true;
 }
 
 function resolveArch() {

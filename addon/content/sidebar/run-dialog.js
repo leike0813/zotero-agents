@@ -768,6 +768,21 @@
     });
   }
 
+  function scheduleTranscriptMicrotask(callback) {
+    if (typeof window.queueMicrotask === "function") {
+      window.queueMicrotask(callback);
+      return;
+    }
+    if (
+      typeof window.Promise === "function" &&
+      typeof window.Promise.resolve === "function"
+    ) {
+      window.Promise.resolve().then(callback);
+      return;
+    }
+    callback();
+  }
+
   function scheduleTranscriptRender(panelSnapshot) {
     const raw = panelSnapshot && panelSnapshot.raw ? panelSnapshot.raw : {};
     const revision = Number(raw && raw.transcriptRevision) || 0;
@@ -788,13 +803,7 @@
       state.transcriptRevision = revision;
       state.transcriptRenderedMode = state.chatDisplayMode;
     };
-    if (typeof window.requestAnimationFrame === "function") {
-      window.requestAnimationFrame(function () {
-        setTimeout(run, 0);
-      });
-      return;
-    }
-    setTimeout(run, 0);
+    scheduleTranscriptMicrotask(run);
   }
 
   function render(envelope) {

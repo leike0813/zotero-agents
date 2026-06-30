@@ -25,6 +25,7 @@ import {
   promptHostBridgeCliInstallOnStartup,
   resolveHostBridgeCliInstallPromptState,
   shouldPromptHostBridgeCliInstall,
+  shouldRunHostBridgeCliStartupPrompt,
 } from "../../src/modules/hostBridgeCliInstallPrompt";
 
 const execFileAsync = promisify(execFile);
@@ -1415,6 +1416,54 @@ describe("host bridge cli packaging and install", function () {
     assert.isTrue(promptedAgain.installed);
     assert.strictEqual(installCount, 1);
     assert.lengthOf(messages, 1);
+  });
+
+  it("suppresses startup CLI prompts in non-interactive runtimes", async function () {
+    const production = () => "production" as const;
+    const development = () => "development" as const;
+    const emptyEnv = () => "";
+
+    assert.isFalse(
+      shouldRunHostBridgeCliStartupPrompt({
+        runtimeEnv: development,
+        readEnv: emptyEnv,
+      }),
+    );
+    assert.isTrue(
+      shouldRunHostBridgeCliStartupPrompt({
+        runtimeEnv: production,
+        readEnv: emptyEnv,
+      }),
+    );
+    assert.isFalse(
+      shouldRunHostBridgeCliStartupPrompt({
+        runtimeEnv: production,
+        readEnv: (name) => (name === "CI" ? "true" : ""),
+      }),
+    );
+    assert.isFalse(
+      shouldRunHostBridgeCliStartupPrompt({
+        runtimeEnv: production,
+        readEnv: (name) => (name === "ZOTERO_TEST_MODE" ? "lite" : ""),
+      }),
+    );
+    assert.isFalse(
+      shouldRunHostBridgeCliStartupPrompt({
+        runtimeEnv: production,
+        readEnv: (name) =>
+          name === "ZOTERO_AGENTS_DISABLE_HOST_BRIDGE_CLI_STARTUP_PROMPT"
+            ? "1"
+            : "",
+      }),
+    );
+  });
+
+  it("keeps startup CLI prompt environment policy out of hooks", async function () {
+    const hooks = await fs.readFile("src/hooks.ts", "utf8");
+
+    assert.include(hooks, "shouldRunHostBridgeCliStartupPrompt()");
+    assert.notInclude(hooks, "typeof __env__");
+    assert.notInclude(hooks, "__env__ !==");
   });
 
   it("ignores PATH-resolved CLI state for startup install prompts", async function () {
