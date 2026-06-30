@@ -144,6 +144,30 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(runDialog, 'conversationEntry.kind !== "assistant_message"');
   });
 
+  it("publishes SkillRunner disabled live transcript at complete message boundaries without polling", async function () {
+    const runDialog = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
+
+    assert.include(runDialog, "isSkillRunnerDisabledLivePublishBoundary");
+    assert.include(runDialog, 'entry.kind === "assistant_message"');
+    assert.include(runDialog, 'entry.kind === "assistant_final"');
+    assert.include(runDialog, 'entry.kind !== "assistant_process"');
+    assert.include(runDialog, 'processType === "tool_call"');
+    assert.include(runDialog, 'processType === "command_execution"');
+    assert.include(runDialog, "const disabledLiveBoundary =");
+    assert.include(runDialog, "!canPublishAssistantWorkspaceLiveUpdates()");
+    assert.include(
+      runDialog,
+      "isSkillRunnerDisabledLivePublishBoundary(conversationEntry)",
+    );
+    assert.include(runDialog, 'disabledLiveBoundary\n        ? "boundary"');
+    assert.include(runDialog, "await client.streamRunChat({");
+    assert.notInclude(runDialog, "SKILLRUNNER_DISABLED_LIVE_POLL_INTERVAL_MS");
+    assert.notInclude(runDialog, "pollRunState");
+    assert.notInclude(runDialog, "subscribeAssistantStreamingRenderPreference");
+  });
+
   it("queues sidebar frontend rendering and keeps streaming transcript rows plain", async function () {
     const acpChat = await readProjectFile("addon/content/sidebar/acp-chat.js");
     const acpSkill = await readProjectFile(

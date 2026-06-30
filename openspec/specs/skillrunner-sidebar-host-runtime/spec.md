@@ -232,8 +232,9 @@ SkillRunner canonical run state SHALL continue to update from run store, task,
 backend health, permission, auto-reply, and observer events. Assistant/process
 text transcript updates SHALL stream naturally when streaming render is enabled.
 Metadata live updates SHALL publish at the shared cadence only when streaming
-render is enabled. When streaming render is disabled, text live updates SHALL
-not publish transcript text until a boundary or critical state.
+render is enabled. When streaming render is disabled, SkillRunner SHALL publish
+visible transcript snapshots only at critical states or SkillRunner message
+boundaries.
 
 #### Scenario: high-frequency SkillRunner updates are bounded
 
@@ -249,12 +250,37 @@ not publish transcript text until a boundary or critical state.
 - **THEN** the visible transcript advances with those updates without waiting
   for the metadata live cadence.
 
-#### Scenario: SkillRunner disabled streaming is boundary-only
+#### Scenario: SkillRunner disabled streaming publishes assistant message boundary
 
 - **GIVEN** streaming render is disabled
-- **WHEN** SkillRunner receives running assistant or process transcript updates
-- **THEN** canonical run state records the updates
-- **AND** visible transcript does not update until a boundary or terminal state.
+- **WHEN** SkillRunner receives an `assistant_message` or `assistant_final`
+  conversation entry
+- **THEN** canonical run state records the entry
+- **AND** the visible transcript publishes immediately with accumulated entries.
+
+#### Scenario: SkillRunner disabled streaming publishes thinking boundary
+
+- **GIVEN** streaming render is disabled
+- **WHEN** SkillRunner receives an `assistant_process` entry whose process type
+  is not `tool_call` or `command_execution`
+- **THEN** canonical run state records the entry
+- **AND** the visible transcript publishes immediately with accumulated entries.
+
+#### Scenario: SkillRunner tool process waits for message boundary
+
+- **GIVEN** streaming render is disabled
+- **WHEN** SkillRunner receives an `assistant_process` entry whose process type
+  is `tool_call` or `command_execution`
+- **THEN** canonical run state records the entry
+- **AND** the visible transcript does not publish until the next message,
+  thinking, critical, or terminal boundary.
+
+#### Scenario: SkillRunner foreground observation stays on SSE
+
+- **GIVEN** streaming render is disabled
+- **WHEN** the SkillRunner panel observes a running foreground run
+- **THEN** it SHALL continue using foreground chat SSE
+- **AND** it SHALL NOT switch to chat history polling.
 
 #### Scenario: SkillRunner critical states remain immediate
 

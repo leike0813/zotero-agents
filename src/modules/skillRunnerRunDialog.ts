@@ -1050,6 +1050,28 @@ function isAssistantFinalEntry(entry: SkillRunnerConversationEntry) {
   return entry.role === "assistant" && entry.kind === "assistant_final";
 }
 
+function isSkillRunnerToolProcessType(value: unknown) {
+  const processType = normalizeDisplayText(value).toLowerCase();
+  return processType === "tool_call" || processType === "command_execution";
+}
+
+export function isSkillRunnerDisabledLivePublishBoundary(
+  entry: SkillRunnerConversationEntry,
+) {
+  if (entry.role !== "assistant") {
+    return false;
+  }
+  if (entry.kind === "assistant_message" || entry.kind === "assistant_final") {
+    return true;
+  }
+  if (entry.kind !== "assistant_process") {
+    return false;
+  }
+  return !isSkillRunnerToolProcessType(
+    entry.processType || entryCorrelation(entry).process_type,
+  );
+}
+
 function removePromotedIntermediateEntry(
   output: SkillRunnerConversationEntry[],
   finalEntry: SkillRunnerConversationEntry,
@@ -3441,15 +3463,20 @@ async function startRunObserver(entry: RunDialogEntry) {
     if (entry.session.messages.length > 500) {
       entry.session.messages = entry.session.messages.slice(-500);
     }
+    const disabledLiveBoundary =
+      !canPublishAssistantWorkspaceLiveUpdates() &&
+      isSkillRunnerDisabledLivePublishBoundary(conversationEntry);
     scheduleSnapshotFlushForRunDialogEntry(entry, {
       immediate:
-        conversationEntry.kind !== "assistant_message" &&
-        conversationEntry.kind !== "assistant_process"
+        disabledLiveBoundary ||
+        (conversationEntry.kind !== "assistant_message" &&
+          conversationEntry.kind !== "assistant_process")
           ? true
           : canPublishAssistantWorkspaceLiveUpdates(),
-      reason:
-        conversationEntry.kind === "assistant_message" ||
-        conversationEntry.kind === "assistant_process"
+      reason: disabledLiveBoundary
+        ? "boundary"
+        : conversationEntry.kind === "assistant_message" ||
+            conversationEntry.kind === "assistant_process"
           ? "live"
           : "boundary",
     });

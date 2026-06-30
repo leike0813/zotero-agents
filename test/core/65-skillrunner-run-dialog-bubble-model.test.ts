@@ -5,6 +5,7 @@ import {
   normalizeRunDialogMessageKind,
   normalizeRunDialogMessageRole,
   normalizeRunDialogChoiceOptions,
+  isSkillRunnerDisabledLivePublishBoundary,
   resolveRunDialogInteractionResponse,
   shouldClearRunDialogPendingForStatus,
   shouldRefreshRunDialogLocalMessages,
@@ -176,6 +177,86 @@ describe("skillrunner run dialog bubble message model", function () {
     assert.equal(entry?.kind, "assistant_revision");
     assert.equal(entry?.messageId, "f-1");
     assert.equal(entry?.messageFamilyId, "family-1");
+  });
+
+  it("classifies SkillRunner disabled-live publish boundaries by complete assistant events", function () {
+    const assistantMessage = toRunDialogConversationEntry({
+      event: {
+        seq: 12,
+        role: "assistant",
+        kind: "assistant_message",
+        text: "Complete assistant message.",
+      },
+      lastSeq: 0,
+    });
+    const assistantFinal = toRunDialogConversationEntry({
+      event: {
+        seq: 13,
+        role: "assistant",
+        kind: "assistant_final",
+        text: "Final assistant message.",
+      },
+      lastSeq: 12,
+    });
+    const thinkingProcess = toRunDialogConversationEntry({
+      event: {
+        seq: 14,
+        role: "assistant",
+        kind: "assistant_process",
+        text: "Thinking step.",
+        correlation: {
+          process_type: "reasoning",
+        },
+      },
+      lastSeq: 13,
+    });
+    const toolProcess = toRunDialogConversationEntry({
+      event: {
+        seq: 15,
+        role: "assistant",
+        kind: "assistant_process",
+        text: "Tool call.",
+        correlation: {
+          process_type: "tool_call",
+        },
+      },
+      lastSeq: 14,
+    });
+    const commandProcess = toRunDialogConversationEntry({
+      event: {
+        seq: 16,
+        role: "assistant",
+        kind: "assistant_process",
+        text: "Command execution.",
+        correlation: {
+          process_type: "command_execution",
+        },
+      },
+      lastSeq: 15,
+    });
+
+    assert.isOk(assistantMessage);
+    assert.isOk(assistantFinal);
+    assert.isOk(thinkingProcess);
+    assert.isOk(toolProcess);
+    assert.isOk(commandProcess);
+    assert.equal(
+      isSkillRunnerDisabledLivePublishBoundary(assistantMessage!),
+      true,
+    );
+    assert.equal(
+      isSkillRunnerDisabledLivePublishBoundary(assistantFinal!),
+      true,
+    );
+    assert.equal(
+      isSkillRunnerDisabledLivePublishBoundary(thinkingProcess!),
+      true,
+    );
+    assert.equal(isSkillRunnerDisabledLivePublishBoundary(toolProcess!), false);
+    assert.equal(
+      isSkillRunnerDisabledLivePublishBoundary(commandProcess!),
+      false,
+    );
   });
 
   it("normalizes choice options from object and string forms", function () {

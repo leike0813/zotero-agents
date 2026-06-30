@@ -1413,7 +1413,9 @@ describe("acp ui smoke", function () {
     assert.include(runDialogJs, "function closeAllDrawers()");
     assert.include(runDialogJs, "function withOptimisticSelectedTask");
     assert.include(runDialogJs, "function scheduleTranscriptRender");
-    assert.include(runDialogJs, "requestAnimationFrame");
+    assert.include(runDialogJs, "function scheduleTranscriptMicrotask");
+    assert.include(runDialogJs, "window.queueMicrotask");
+    assert.include(runDialogJs, "window.Promise.resolve().then(callback)");
     assert.include(runDialogJs, "state.transcriptRenderToken");
     assert.include(
       acpSkillRunHtml,
