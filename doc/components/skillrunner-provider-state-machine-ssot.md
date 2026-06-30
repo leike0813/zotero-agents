@@ -67,7 +67,7 @@ stateDiagram-v2
 
   request_ready --> polling_terminal: store running projection and poll
   polling_terminal --> terminal_fetch: succeeded
-  polling_terminal --> dispatch_failed: failed, canceled, or poll timeout
+  polling_terminal --> dispatch_failed: failed or canceled
   terminal_fetch --> [*]: result or bundle provider result
   dispatch_failed --> [*]: log and notify terminal/local failure
 ```
@@ -83,8 +83,6 @@ Rules:
   `/result` or `/bundle` for terminal success.
 - Backend `failed` and `canceled` terminal states return local terminal
   provider results without foreground apply.
-- `poll.timeout_ms` is the plugin-side foreground wait boundary. Poll timeout
-  settles the workflow job as failed and does not enter deferred settlement.
 - Sequence steps use the foreground step loop for terminal settlement.
   Recovery may only hand stored runs back to foreground continuation.
 

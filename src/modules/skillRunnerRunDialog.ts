@@ -3120,6 +3120,37 @@ async function startRunObserver(entry: RunDialogEntry) {
       }
       entry.session.engine = String(run.engine || "").trim() || undefined;
       entry.session.model = String(run.model || "").trim() || undefined;
+      const normalizedStatus = normalizeStatus(entry.session.status, "running");
+      const responseSemantic = resolveSkillRunnerManagementResponseSemantic({
+        response: run,
+        fallbackStatus: normalizedStatus,
+      });
+      const observedStatus = responseSemantic.status;
+      const observedMessage =
+        String(responseSemantic.message || "").trim() || undefined;
+      const currentError =
+        String(entry.session.error || "").trim() || undefined;
+      const shouldConverge =
+        (isTerminal(observedStatus) || isWaiting(observedStatus)) &&
+        (observedStatus !== normalizedStatus ||
+          (observedStatus === "failed" &&
+            !!observedMessage &&
+            observedMessage !== currentError));
+      if (shouldConverge) {
+        const status = applyManagementStatusToRunDialogEntry({
+          entry,
+          status: observedStatus,
+          source: "run-dialog-meta",
+          message: observedMessage,
+        });
+        if (isTerminal(status) || isWaiting(status)) {
+          abortCurrentChatStream();
+          stopSessionSync({
+            backendId: entry.backend.id,
+            requestId: entry.requestId,
+          });
+        }
+      }
     } catch (error) {
       if (settleObserverTerminalError(error, "run-dialog-meta")) {
         return;

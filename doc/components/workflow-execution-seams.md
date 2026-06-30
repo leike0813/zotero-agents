@@ -53,8 +53,8 @@ Apply summary inspects job outcomes and reports workflow-level completion.
 
 For single SkillRunner jobs, terminal provider success is final workflow
 business completion only after foreground `applyResult` succeeds. Backend
-terminal failure, cancellation, and poll timeout settle as local terminal job
-outcomes. Normal SkillRunner sequence work is foreground-owned; only
+terminal failure and cancellation settle as local terminal job outcomes. Normal
+SkillRunner sequence work is foreground-owned; only
 recovery-owned SkillRunner work is recorded as reconciler-owned pending work and
 reflected through deferred completion tracking.
 

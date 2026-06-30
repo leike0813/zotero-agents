@@ -4,7 +4,6 @@ import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import type { BackendInstance } from "../../src/backends/types";
 import type { ProviderExecutionResult } from "../../src/providers/contracts";
 import type { ProviderProgressEvent } from "../../src/providers/types";
-import { SkillRunnerPollingTimeoutError } from "../../src/providers/skillrunner/errors";
 import { SkillRunnerManagementClient } from "../../src/providers/skillrunner/managementClient";
 import { resetSkillRunnerHandshakeCacheForTests } from "../../src/modules/skillRunnerHandshake";
 import { continueSkillRunnerForegroundRun } from "../../src/modules/skillRunnerForegroundContinuation";
@@ -1358,6 +1357,7 @@ describe("workflow single-result behavior integration", function () {
       expectedState: "failed",
       expectRequestReady: false,
       expectedApplyFailed: 1,
+      expectedErrorPattern: /timeout|timed out/i,
     },
     {
       title: "fails when SkillRunner upload fails before request-ready",
@@ -1374,25 +1374,24 @@ describe("workflow single-result behavior integration", function () {
         });
         throw new Error("upload failed");
       },
-      expectedState: "running",
+      expectedState: "failed",
       expectRequestReady: false,
       expectedApplyFailed: 1,
+      expectedErrorPattern: /upload failed/i,
     },
     {
-      title: "fails when SkillRunner poll times out after request-ready",
+      title: "keeps SkillRunner request-ready observer failures recoverable",
       requestId: "sr-poll-timeout",
       scenario: async ({ onProgress }: Parameters<ProviderScenario>[0]) => {
         onProgress?.({ type: "request-creating" });
         onProgress?.({ type: "request-created", requestId: "sr-poll-timeout" });
         onProgress?.({ type: "request-ready", requestId: "sr-poll-timeout" });
-        throw new SkillRunnerPollingTimeoutError({
-          requestId: "sr-poll-timeout",
-          timeoutMs: 10,
-        });
+        throw new Error("observer transport failed after request-ready");
       },
       expectedState: "running",
       expectRequestReady: true,
       expectedApplyFailed: 0,
+      expectedErrorPattern: /observer transport failed/i,
     },
   ]) {
     it(entry.title, async function () {
@@ -1411,7 +1410,7 @@ describe("workflow single-result behavior integration", function () {
       } else {
         assert.isUndefined(findRequestReadyUpdate(run, entry.requestId));
       }
-      assert.match(latestTaskError(run), /timeout|upload failed|timed out/i);
+      assert.match(latestTaskError(run), entry.expectedErrorPattern);
     });
   }
 

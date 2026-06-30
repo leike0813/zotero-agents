@@ -11,6 +11,31 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("skillrunner run dialog managed ui alignment", function () {
+  it("converges jobs endpoint terminal and waiting states during metadata sync", async function () {
+    const source = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+
+    assert.match(
+      source,
+      /const run = await client\.getRun\(\{\s*requestId: entry\.requestId,\s*\}\)/,
+    );
+    assert.match(
+      source,
+      /resolveSkillRunnerManagementResponseSemantic\(\{\s*response: run,/,
+    );
+    assert.match(
+      source,
+      /isTerminal\(observedStatus\) \|\| isWaiting\(observedStatus\)/,
+    );
+    assert.match(
+      source,
+      /applyManagementStatusToRunDialogEntry\(\{\s*entry,\s*status: observedStatus,\s*source: "run-dialog-meta"/,
+    );
+    assert.match(
+      source,
+      /if \(isTerminal\(status\) \|\| isWaiting\(status\)\) \{\s*abortCurrentChatStream\(\);\s*stopSessionSync\(\{/,
+    );
+  });
+
   it("uses the shared managed six-region scaffold instead of the legacy card layout", async function () {
     const html = await readProjectFile("addon/content/sidebar/run-dialog.html");
 

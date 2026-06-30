@@ -51,22 +51,6 @@ export class SkillRunnerTerminalRunError extends Error {
   }
 }
 
-export class SkillRunnerPollingTimeoutError extends Error {
-  readonly name = "SkillRunnerPollingTimeoutError";
-
-  readonly requestId: string;
-
-  readonly timeoutMs: number;
-
-  constructor(args: { requestId: string; timeoutMs: number }) {
-    super(
-      `SkillRunner polling timeout after ${args.timeoutMs}ms: request_id=${args.requestId}`,
-    );
-    this.requestId = args.requestId;
-    this.timeoutMs = args.timeoutMs;
-  }
-}
-
 export function getSkillRunnerHttpStatus(error: unknown) {
   const status =
     error instanceof SkillRunnerHttpError
@@ -97,10 +81,6 @@ export function isSkillRunnerBackendRecoverableError(error: unknown) {
 
 export function isSkillRunnerTerminalRunError(error: unknown) {
   return error instanceof SkillRunnerTerminalRunError;
-}
-
-export function isSkillRunnerPollingTimeoutError(error: unknown) {
-  return error instanceof SkillRunnerPollingTimeoutError;
 }
 
 export function formatSkillRunnerHttpErrorMessage(args: {

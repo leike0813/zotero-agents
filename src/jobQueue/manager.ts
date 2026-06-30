@@ -553,10 +553,7 @@ export class JobQueueManager {
         });
         return;
       }
-      if (
-        hasRecoverableSkillRunnerRequest(job) ||
-        (isSkillRunnerJob && requestId)
-      ) {
+      if (hasRecoverableSkillRunnerRequest(job)) {
         job.state = coerceRecoverableSkillRunnerState(job.state);
         this.touch(job);
         this.emitJobUpdated(job);
@@ -597,6 +594,22 @@ export class JobQueueManager {
         job.state = "failed";
         this.touch(job);
         this.emitJobUpdated(job);
+        if (isSkillRunnerJob && requestId) {
+          settleSkillRunnerRunAsFailed({
+            backendId: String(job.meta.backendId || "").trim(),
+            backendType: String(job.meta.backendType || "").trim(),
+            providerId:
+              String(job.meta.providerId || "").trim() || "skillrunner",
+            workflowId: job.workflowId,
+            runId: String(job.meta.runId || "").trim(),
+            jobId: job.id,
+            requestId,
+            reason: job.error,
+            source: "job-queue-dispatch-pre-ready",
+            error,
+            updatedAt: job.updatedAt,
+          });
+        }
         appendRuntimeLog({
           level: "error",
           scope: "job",

@@ -189,31 +189,6 @@ SkillRunner provider/queue integration MUST treat post-create transport or backe
 - **THEN** foreground execution MUST preserve the terminal job result
 - **AND** job queue MUST NOT convert it into recoverable pending state
 
-### Requirement: SkillRunner provider polling MUST use absolute deadlines
-
-SkillRunner provider polling MUST enforce a fixed elapsed deadline for each poll operation. Non-terminal backend responses MUST NOT reset the operation deadline.
-
-#### Scenario: unchanged non-terminal responses do not reset timeout
-
-- **GIVEN** provider execution is polling a SkillRunner request
-- **WHEN** `/v1/jobs/{request_id}` repeatedly returns non-terminal `queued` or `running`
-- **THEN** provider polling MUST stop when the configured poll timeout elapses from the original poll start
-- **AND** provider polling MUST NOT extend the deadline merely because each response arrived successfully
-
-#### Scenario: poll timeout remains recoverable after request creation
-
-- **GIVEN** provider execution has already created a SkillRunner `requestId`
-- **WHEN** provider polling reaches its absolute timeout while the backend remains non-terminal
-- **THEN** foreground execution MUST preserve the request context for reconciler ownership
-- **AND** plugin MUST treat the timeout as recoverable communication/availability uncertainty
-- **AND** plugin MUST NOT fabricate terminal `failed` solely because of the timeout
-
-#### Scenario: terminal response still stops polling immediately
-
-- **WHEN** SkillRunner provider polling observes backend terminal `succeeded`, `failed`, or `canceled`
-- **THEN** provider polling MUST stop immediately
-- **AND** terminal ownership rules from existing SkillRunner provider requirements MUST remain unchanged
-
 ### Requirement: SkillRunner sequence terminal apply MUST be reconciler-owned
 
 SkillRunner sequence steps MUST use the same terminal apply ownership model as
@@ -490,12 +465,11 @@ settlement after `request-ready`.
 - **THEN** provider execution SHALL return the matching local terminal outcome
 - **AND** foreground apply SHALL NOT run.
 
-#### Scenario: Waiting detaches without timeout failure
+#### Scenario: Waiting detaches without terminal failure
 
 - **WHEN** polling observes `waiting_user` or `waiting_auth`
 - **THEN** provider execution SHALL return a foreground-owned deferred result
   with waiting metadata
-- **AND** `poll.timeout_ms` SHALL NOT convert that waiting state to failure.
 - **AND** the deferred result SHALL NOT include a separate `frontendStatus`
   request-ready marker.
 
@@ -653,3 +627,23 @@ A SkillRunner step inside a sequence workflow MUST use the same provider executi
 - **WHEN** sequence orchestration observes step failure or detachment
 - **THEN** the provider adapter MUST NOT delete or replace the SkillRunner run
   projection through a synthetic step job.
+
+## ADDED Requirements
+
+### Requirement: Pre-ready failures are terminal local failures
+
+Failures before `request-ready` SHALL fail the local workflow job instead of creating background reconciler ownership.
+
+#### Scenario: Submit or upload timeout happens before request-ready
+
+- **WHEN** create or upload fails before the projectable run is ready
+- **THEN** the job SHALL be marked failed locally
+- **AND** no missing-context reconciler scan SHALL be required to settle it.
+
+#### Scenario: Upload fails after request-created but before request-ready
+
+- **WHEN** a SkillRunner backend returns a request id
+- **AND** upload or initialization fails before `request-ready`
+- **THEN** the local workflow job and SkillRunner run store SHALL be marked failed
+- **AND** the request SHALL NOT be kept as a recoverable running or uploading task
+- **AND** plugin SHALL NOT start event history, chat stream, session sync, or apply for that pre-ready request
