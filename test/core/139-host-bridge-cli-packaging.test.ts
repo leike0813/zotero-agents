@@ -859,9 +859,10 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "cargo install cargo-zigbuild --locked");
     assert.include(workflow, "mlugg/setup-zig@v2");
     assert.include(workflow, "Publish Host Bridge CLI bundle branch");
-    assert.include(workflow, "Publish zotero-librarian profile branch");
+    assert.include(workflow, "Publish zotero-librarian profile repository");
     assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
     assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
+    assert.include(workflow, "leike0813/zotero-librarian-profile.git");
     assert.include(workflow, "-AllowDirty -Push");
     assert.include(workflow, "profiles/hermes/zotero-librarian/**");
     assert.include(workflow, "actions/download-artifact@v4");
@@ -909,7 +910,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
-    assert.include(releaseSkill, "host-bridge/zotero-librarian-profile");
+    assert.include(releaseSkill, "leike0813/zotero-librarian-profile");
     assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
     assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
     assert.notInclude(

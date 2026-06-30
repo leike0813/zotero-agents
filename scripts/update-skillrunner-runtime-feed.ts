@@ -16,7 +16,7 @@ type RuntimeFeedDocument = {
 };
 
 const FEED_SCHEMA = "zotero-agents.skillrunner-runtime-feed.v1" as const;
-const DEFAULT_OUT = "artifact/skillrunner-runtime-feed/feed.json";
+const DEFAULT_OUT = "feeds/skillrunner-runtime/feed.json";
 
 function argValue(name: string) {
   const prefix = `${name}=`;

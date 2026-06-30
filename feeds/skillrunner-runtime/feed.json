@@ -1,0 +1,11 @@
+{
+  "schema": "zotero-agents.skillrunner-runtime-feed.v1",
+  "revision": "20260630-071323",
+  "updated_at": "2026-06-30T07:13:23.952Z",
+  "matches": [
+    {
+      "plugin": ">=0.5.0 <0.6.0",
+      "skillrunner": "v0.7.3"
+    }
+  ]
+}

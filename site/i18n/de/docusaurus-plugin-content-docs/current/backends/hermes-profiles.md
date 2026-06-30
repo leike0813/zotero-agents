@@ -4,7 +4,7 @@
 
 **zotero-librarian** is a ready-to-install [Hermes](https://github.com/anomalyco/hermes) profile that enables AI agents to manage your Zotero library through the [Host Bridge](host-bridge). It bundles everything an agent needs: the `zotero-bridge` CLI, a Host Bridge connection profile template, a local SQLite metadata index, a workflow catalog cache, run monitoring scripts, and scheduled maintenance cron jobs.
 
-The profile is distributed as a standalone package from the `host-bridge/zotero-librarian-profile` branch of the Zotero Agents repository.
+The profile is distributed from the standalone [leike0813/zotero-librarian-profile](https://github.com/leike0813/zotero-librarian-profile) repository. Source development lives in [leike0813/zotero-agents](https://github.com/leike0813/zotero-agents).
 
 ## What It Can Do
 
@@ -28,7 +28,7 @@ The profile is distributed as a standalone package from the `host-bridge/zotero-
 ### Install the Profile
 
 ```bash
-hermes profile install zotero-librarian
+hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>
 ```
 
 This downloads the profile package and extracts it into your Hermes profiles directory.

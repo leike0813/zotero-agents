@@ -69,6 +69,22 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.notMatch(combined, /C:\\Users\\|\/Users\/|\/home\//);
   });
 
+  it("documents the standalone repository install path", async function () {
+    const readme = await readProfile("README.md");
+    const distribution = await readProfile("distribution.yaml");
+
+    assert.include(readme, "https://github.com/leike0813/zotero-agents");
+    assert.include(
+      readme,
+      "hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>",
+    );
+    assert.include(
+      distribution,
+      "repository: https://github.com/leike0813/zotero-librarian-profile",
+    );
+  });
+
+
   it("ships a tokenEnv based Host Bridge profile example", async function () {
     const sourceTemplate = JSON.parse(
       await fs.readFile(
@@ -185,7 +201,12 @@ describe("zotero-librarian Hermes profile distribution", function () {
       "scripts/publish-zotero-librarian-profile.ps1",
       "utf8",
     );
-    assert.include(publishScript, "host-bridge/zotero-librarian-profile");
+    assert.include(
+      publishScript,
+      "https://github.com/leike0813/zotero-librarian-profile.git",
+    );
+    assert.include(publishScript, "releaseRepository");
+    assert.include(publishScript, "installCommand");
     assert.include(publishScript, "addon/bin");
     assert.include(publishScript, "assets/zotero-bridge/bin");
     assert.include(publishScript, "manifest.json");
