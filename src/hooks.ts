@@ -123,6 +123,10 @@ import {
   shutdownZoteroMcpServer,
 } from "./modules/zoteroMcpServer";
 import { installHostBridgeCli } from "./modules/hostBridgeCliInstaller";
+import {
+  promptHostBridgeCliInstallOnStartup,
+  type HostBridgeCliInstallPromptState,
+} from "./modules/hostBridgeCliInstallPrompt";
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 import {
@@ -161,6 +165,7 @@ const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
 const LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID = "skillrunner-local";
 const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 let startupOfficialWorkflowPackageUpdateCheckStarted = false;
+let startupHostBridgeCliInstallPromptStarted = false;
 let startupRuntimePreflightPromise: Promise<void> | null = null;
 const STARTUP_SHELL_COMMANDS: RuntimeCommandName[] = ["pwsh", "powershell"];
 
@@ -475,6 +480,74 @@ function scheduleOfficialWorkflowPackageUpdateCheck() {
   });
 }
 
+function hostBridgeCliStartupPromptMessage(
+  state: HostBridgeCliInstallPromptState,
+) {
+  const statusLabel =
+    state.status === "missing"
+      ? localizedMessage(
+          "host-bridge-cli-startup-install-status-missing",
+          "not installed",
+        )
+      : localizedMessage(
+          "host-bridge-cli-startup-install-status-stale",
+          "outdated",
+        );
+  return localizedMessage(
+    "host-bridge-cli-startup-install-confirm",
+    [
+      `The Host Bridge CLI is ${statusLabel}.`,
+      "",
+      `Target: ${state.targetPath}`,
+      `Bundled CLI version: ${state.bundledVersion}`,
+      `Bundled CLI SHA-256: ${state.bundledSha256}`,
+      "",
+      "Install the bundled CLI now?",
+    ].join("\n"),
+    {
+      status: statusLabel,
+      targetPath: state.targetPath,
+      bundledVersion: state.bundledVersion,
+      bundledSha256: state.bundledSha256,
+    },
+  );
+}
+
+function scheduleHostBridgeCliInstallPrompt() {
+  if (startupHostBridgeCliInstallPromptStarted) {
+    return;
+  }
+  startupHostBridgeCliInstallPromptStarted = true;
+  const win = Zotero.getMainWindows?.()[0] as _ZoteroTypes.MainWindow | null;
+  if (!win) {
+    return;
+  }
+  void (async () => {
+    await delay(1500);
+    await promptHostBridgeCliInstallOnStartup({
+      win,
+      message: hostBridgeCliStartupPromptMessage,
+      successMessage: () =>
+        localizedMessage(
+          "host-bridge-cli-startup-install-success",
+          "Host Bridge CLI installed.",
+        ),
+      failureMessage: (install) =>
+        localizedMessage(
+          "host-bridge-cli-startup-install-failed",
+          `Host Bridge CLI install failed: ${install.message}`,
+          {
+            reason: install.message,
+          },
+        ),
+    });
+  })().catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn("[host-bridge-cli] startup install prompt failed", error);
+    }
+  });
+}
+
 function unregisterZoteroPaneStylesheet() {
   if (!registeredZoteroPaneStylesheet) {
     return;
@@ -689,6 +762,7 @@ async function onStartup() {
   addon.data.initialized = true;
   prewarmSynthesisWorkbenchAfterStartup();
   scheduleOfficialWorkflowPackageUpdateCheck();
+  scheduleHostBridgeCliInstallPrompt();
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {

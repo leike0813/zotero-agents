@@ -1,0 +1,66 @@
+{
+  "schema": "zotero-bridge-cli-release.v1",
+  "version": "0.1.0",
+  "buildFingerprint": "929977cf83d2c269193ec21fe839e96e7d1a8dbfc68cdf7f5caed9140327791c",
+  "fingerprintInputs": [
+    ".github/workflows/build-zotero-bridge-cli.yml",
+    "cli/zotero-bridge/Cargo.lock",
+    "cli/zotero-bridge/Cargo.toml",
+    "cli/zotero-bridge/src/args.rs",
+    "cli/zotero-bridge/src/client.rs",
+    "cli/zotero-bridge/src/commands.rs",
+    "cli/zotero-bridge/src/config.rs",
+    "cli/zotero-bridge/src/error.rs",
+    "cli/zotero-bridge/src/main.rs",
+    "cli/zotero-bridge/src/output.rs",
+    "scripts/build-zotero-bridge-cli.mjs",
+    "scripts/host-bridge-cli-release-governance.mjs",
+    "scripts/package-zotero-bridge-cli.mjs"
+  ],
+  "binaryAggregateSha256": "61b730ebcfed07212ab6e675aab8b3500d79564daa06fa017ac8e5f4652ec39e",
+  "binaries": [
+    {
+      "platform": "win32-x64",
+      "binary": "zotero-bridge.exe",
+      "sha256": "f67bb2cac51af88020796b1e818f8652de18855d620986ba48311a598abee614",
+      "bytes": 1329152
+    },
+    {
+      "platform": "darwin-x64",
+      "binary": "zotero-bridge",
+      "sha256": "99250dbc85268649925f972cc058790476a94823936a3b47dd5318f2a7e6fe0a",
+      "bytes": 1518760
+    },
+    {
+      "platform": "darwin-arm64",
+      "binary": "zotero-bridge",
+      "sha256": "184fc3ae3841f9803a2c7d7fbaed9aaf8189f302d6f334ce63ed289aa56c65a4",
+      "bytes": 1426128
+    },
+    {
+      "platform": "linux-x86",
+      "binary": "zotero-bridge",
+      "sha256": "b41db72568d7a3a9cfe5badf945241718ce6e0e480d0a7f164c0e3866a11f215",
+      "bytes": 1531476
+    },
+    {
+      "platform": "linux-x64",
+      "binary": "zotero-bridge",
+      "sha256": "bb349e3f5bcd643875df20bc64da53c5bc7007a4b66eeb7ee11dfadac0fb8ad1",
+      "bytes": 1379120
+    },
+    {
+      "platform": "linux-arm",
+      "binary": "zotero-bridge",
+      "sha256": "e7819988d147ad72e825402bce3daf1bdd0ce597ee6eac5c7188687c9b567ad9",
+      "bytes": 1126464
+    },
+    {
+      "platform": "linux-arm64",
+      "binary": "zotero-bridge",
+      "sha256": "2e902abfba77901422151bab0b5da52c58e4fb2d31193871336eceb0c1e9dea6",
+      "bytes": 1184712
+    }
+  ],
+  "dispatchReason": ""
+}

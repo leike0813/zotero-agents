@@ -1019,9 +1019,14 @@ export async function readRuntimeBytes(pathRaw: string) {
   throw new Error("No binary file read API is available");
 }
 
+export type RuntimeWriteBytesOptions = {
+  overwrite?: boolean;
+};
+
 export async function writeRuntimeBytes(
   pathRaw: string,
   bytes: Uint8Array | ArrayBuffer,
+  options: RuntimeWriteBytesOptions = {},
 ) {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -1031,7 +1036,13 @@ export async function writeRuntimeBytes(
   const data = toUint8Array(bytes);
   await ensureRuntimeDirectory(parentPath(path));
   const runtime = globalThis as {
-    IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<unknown> };
+    IOUtils?: {
+      write?: (
+        path: string,
+        data: Uint8Array,
+        options?: unknown,
+      ) => Promise<unknown>;
+    };
     OS?: {
       File?: {
         writeAtomic?: (
@@ -1043,7 +1054,20 @@ export async function writeRuntimeBytes(
     };
   };
   if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(path, data);
+    try {
+      await runtime.IOUtils.write(
+        path,
+        data,
+        options.overwrite ? { mode: "overwrite" } : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!options.overwrite) {
+        throw error;
+      }
+      await removeRuntimePath(path);
+      await runtime.IOUtils.write(path, data, { mode: "create" });
+    }
     return;
   }
   if (typeof runtime.OS?.File?.writeAtomic === "function") {
@@ -1054,10 +1078,65 @@ export async function writeRuntimeBytes(
   }
   const fs = await tryNodeFs();
   if (fs?.writeFile) {
-    await fs.writeFile(path, data);
+    if (options.overwrite) {
+      await fs.writeFile(path, data);
+    } else {
+      await fs.writeFile(path, data, { flag: "wx" });
+    }
     return;
   }
   throw new Error("No binary file write API is available");
+}
+
+export async function setRuntimeExecutablePermissions(
+  pathRaw: string,
+  mode = 0o755,
+) {
+  const path = normalizeString(pathRaw);
+  if (!path || getPlatform() === "win32") {
+    return false;
+  }
+  assertNativeRuntimeFsPath(path, "chmod runtime file");
+  const runtime = globalThis as {
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => { permissions?: number };
+      };
+    };
+    Components?: {
+      classes?: Record<
+        string,
+        {
+          createInstance?: (iface?: unknown) => {
+            initWithPath?: (path: string) => void;
+            permissions?: number;
+          };
+        }
+      >;
+      interfaces?: { nsIFile?: unknown };
+    };
+  };
+  const zoteroFile = runtime.Zotero?.File?.pathToFile?.(path);
+  if (zoteroFile && "permissions" in zoteroFile) {
+    zoteroFile.permissions = mode;
+    return true;
+  }
+  const fileFactory =
+    runtime.Components?.classes?.["@mozilla.org/file/local;1"];
+  const file = fileFactory?.createInstance?.(
+    runtime.Components?.interfaces?.nsIFile,
+  );
+  if (file && typeof file.initWithPath === "function") {
+    file.initWithPath(path);
+    file.permissions = mode;
+    return true;
+  }
+  const fs = await tryNodeFs();
+  if (fs?.chmod) {
+    await fs.chmod(path, mode);
+    return true;
+  }
+  return false;
 }
 
 function parentPath(pathRaw: string) {

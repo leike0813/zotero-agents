@@ -68,6 +68,9 @@ jobs:
           }
           NODE
 
+      - name: Check Host Bridge CLI prebuild freshness
+        run: npm run check:host-bridge-cli-prebuild-freshness
+
       - name: Run release gate
         run: npm run test:gate:release
 

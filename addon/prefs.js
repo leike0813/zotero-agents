@@ -61,6 +61,7 @@ pref("hostBridgeMasterTokenMasked", "");
 pref("hostBridgeMasterTokenUpdatedAt", "");
 pref("hostBridgeMasterTokenKeyMaterial", "");
 pref("hostBridgeDisableWriteApproval", false);
+pref("hostBridgeCli.installPrompt.dismissedIdentity", "");
 pref("mcpServer.enabled", true);
 // Deprecated hidden transport: Git Sync prefs are retained for existing
 // runtime state and service-level diagnostics, but no user-facing UI exposes

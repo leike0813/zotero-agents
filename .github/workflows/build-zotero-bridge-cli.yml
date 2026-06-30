@@ -5,32 +5,16 @@ on:
   push:
     paths:
       - "cli/zotero-bridge/**"
-      - "skills_builtin/zotero-bridge-cli/**"
-      - "profiles/hermes/zotero-librarian/**"
-      - "src/modules/hostBridgeCapabilityRegistry.ts"
-      - "src/modules/zoteroHostCapabilityBroker.ts"
-      - "scripts/host-bridge-surface-catalog.ts"
-      - "scripts/render-zotero-librarian-profile.ts"
-      - "scripts/check-zotero-librarian-profile.ts"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
-      - "scripts/publish-host-bridge-cli-bundle.ps1"
-      - "scripts/publish-zotero-librarian-profile.ps1"
+      - "scripts/host-bridge-cli-release-governance.mjs"
       - ".github/workflows/build-zotero-bridge-cli.yml"
   pull_request:
     paths:
       - "cli/zotero-bridge/**"
-      - "skills_builtin/zotero-bridge-cli/**"
-      - "profiles/hermes/zotero-librarian/**"
-      - "src/modules/hostBridgeCapabilityRegistry.ts"
-      - "src/modules/zoteroHostCapabilityBroker.ts"
-      - "scripts/host-bridge-surface-catalog.ts"
-      - "scripts/render-zotero-librarian-profile.ts"
-      - "scripts/check-zotero-librarian-profile.ts"
       - "scripts/build-zotero-bridge-cli.mjs"
       - "scripts/package-zotero-bridge-cli.mjs"
-      - "scripts/publish-host-bridge-cli-bundle.ps1"
-      - "scripts/publish-zotero-librarian-profile.ps1"
+      - "scripts/host-bridge-cli-release-governance.mjs"
       - ".github/workflows/build-zotero-bridge-cli.yml"
 
 permissions:
@@ -40,9 +24,42 @@ env:
   HOST_BRIDGE_CLI_PREBUILD_TAG: host-bridge-cli-prebuilds
 
 jobs:
+  detect:
+    name: Detect CLI build input changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.status.outputs.changed }}
+      should_build: ${{ steps.status.outputs.should_build }}
+      current_version: ${{ steps.status.outputs.current_version }}
+      fingerprint: ${{ steps.status.outputs.fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute Host Bridge CLI fingerprint
+        id: status
+        shell: bash
+        run: |
+          mkdir -p .scaffold
+          node scripts/host-bridge-cli-release-governance.mjs status --json > .scaffold/host-bridge-cli-status.json
+          changed="$(node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('.scaffold/host-bridge-cli-status.json','utf8')); process.stdout.write(String(Boolean(s.changed)));")"
+          current_version="$(node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('.scaffold/host-bridge-cli-status.json','utf8')); process.stdout.write(String(s.currentVersion || ''));")"
+          fingerprint="$(node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('.scaffold/host-bridge-cli-status.json','utf8')); process.stdout.write(String(s.fingerprint || ''));")"
+          should_build="${changed}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            should_build="true"
+          fi
+          echo "changed=${changed}" >> "${GITHUB_OUTPUT}"
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          echo "current_version=${current_version}" >> "${GITHUB_OUTPUT}"
+          echo "fingerprint=${fingerprint}" >> "${GITHUB_OUTPUT}"
+          cat .scaffold/host-bridge-cli-status.json
+
   build:
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    needs:
+      - detect
+    if: needs.detect.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +95,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Patch-bump CLI version for release builds
+        if: github.event_name != 'pull_request'
+        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}
 
       - name: Add Rust target
         run: rustup target add ${{ matrix.rust-target }}
@@ -115,13 +136,17 @@ jobs:
     name: Publish prebuilds
     runs-on: ubuntu-latest
     needs:
+      - detect
       - build
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: needs.detect.outputs.should_build == 'true' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
     env:
       GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
       GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Patch-bump CLI version for published artifacts
+        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}
 
       - name: Download packaged CLI artifacts
         uses: actions/download-artifact@v4
@@ -168,6 +193,20 @@ jobs:
           }
           NODE
 
+      - name: Record release manifest
+        run: node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=${{ github.event_name }}
+
+      - name: Commit CLI governance files
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cli/zotero-bridge/Cargo.toml cli/zotero-bridge/Cargo.lock cli/zotero-bridge/release.json addon/bin/zotero-bridge-release.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(host-bridge-cli): record prebuild release"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
       - name: Package prebuild release assets
         run: |
           mkdir -p .scaffold/host-bridge-cli-prebuilds
@@ -177,10 +216,11 @@ jobs:
 
       - name: Publish prebuild release
         run: |
+          source_commit="$(git rev-parse HEAD)"
           cat > .scaffold/host-bridge-cli-prebuilds/release-notes.md <<EOF
           Mutable Host Bridge CLI prebuild bundle for Zotero Agents releases.
 
-          Source commit: ${GITHUB_SHA}
+          Source commit: ${source_commit}
           Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
           if gh release view "${HOST_BRIDGE_CLI_PREBUILD_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then

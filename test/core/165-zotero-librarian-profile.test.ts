@@ -106,6 +106,35 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.deepEqual(profileExample, sourceTemplate);
   });
 
+  it("bootstraps the Host Bridge well-known profile without changing HOME", async function () {
+    const installer = await readProfile("scripts/install_zotero_bridge_cli.py");
+    const soul = await readProfile("SOUL.md");
+    const readme = await readProfile("README.md");
+    const config = await readProfile("config.yaml");
+
+    for (const snippet of [
+      "link_well_known_profile",
+      "current_well_known_profile",
+      "infer_host_home_from_hermes_home",
+      "ZOTERO_BRIDGE_HOST_PROFILE",
+      "ZOTERO_BRIDGE_HOST_HOME",
+      "bridge-profile.json",
+      ".hermes",
+      "symlink_to",
+      "--no-link-well-known-profile",
+      "--force-profile-link",
+    ]) {
+      assert.include(installer, snippet);
+    }
+
+    assert.include(config, "wellKnownProfileLink:");
+    assert.include(config, "hostProfileEnv: ZOTERO_BRIDGE_HOST_PROFILE");
+    assert.include(soul, "scripts/install_zotero_bridge_cli.py");
+    assert.include(soul, "do not change `HOME`");
+    assert.include(readme, "without changing `HOME`");
+    assert.include(readme, "ZOTERO_BRIDGE_HOST_PROFILE");
+  });
+
   it("renders Host Bridge and workflow references from generated sections", async function () {
     const hostBridgeReference = await readProfile(
       "skills/zotero-librarian/references/host-bridge.md",

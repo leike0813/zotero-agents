@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { execFile } from "child_process";
+import { createHash } from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
@@ -19,8 +20,123 @@ import {
   resolveHostBridgeWellKnownProfilePath,
   writeHostBridgeWellKnownProfile,
 } from "../../src/modules/hostBridgeProfileStore";
+import { setRuntimeExecutablePermissions } from "../../src/modules/runtimePersistence";
+import {
+  promptHostBridgeCliInstallOnStartup,
+  resolveHostBridgeCliInstallPromptState,
+  shouldPromptHostBridgeCliInstall,
+} from "../../src/modules/hostBridgeCliInstallPrompt";
 
 const execFileAsync = promisify(execFile);
+
+function encodeText(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function sha256Hex(bytes: Uint8Array) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function writeTextFile(
+  root: string,
+  relativePath: string,
+  content: string,
+) {
+  const target = path.join(root, ...relativePath.split("/"));
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, content, "utf8");
+}
+
+async function writeBinaryFixture(
+  root: string,
+  relativePath: string,
+  bytes: Uint8Array,
+) {
+  const target = path.join(root, ...relativePath.split("/"));
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, bytes);
+}
+
+async function createFreshnessFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-fresh-"));
+  await writeTextFile(
+    root,
+    ".github/workflows/build-zotero-bridge-cli.yml",
+    "name: build\n",
+  );
+  await writeTextFile(
+    root,
+    "scripts/build-zotero-bridge-cli.mjs",
+    "console.log('build');\n",
+  );
+  await writeTextFile(
+    root,
+    "scripts/package-zotero-bridge-cli.mjs",
+    "console.log('package');\n",
+  );
+  await writeTextFile(
+    root,
+    "scripts/host-bridge-cli-release-governance.mjs",
+    "console.log('govern');\n",
+  );
+  await writeTextFile(
+    root,
+    "cli/zotero-bridge/Cargo.toml",
+    '[package]\nname = "zotero-bridge"\nversion = "0.1.0"\n',
+  );
+  await writeTextFile(
+    root,
+    "cli/zotero-bridge/Cargo.lock",
+    '[[package]]\nname = "zotero-bridge"\nversion = "0.1.0"\n',
+  );
+  await writeTextFile(root, "cli/zotero-bridge/src/main.rs", "fn main() {}\n");
+  const governance =
+    await import("../../scripts/host-bridge-cli-release-governance.mjs");
+  const freshness =
+    await import("../../scripts/check-host-bridge-cli-prebuild-freshness.mjs");
+  const fingerprint = await governance.computeHostBridgeCliBuildFingerprint({
+    root,
+  });
+  const binaries = [];
+  for (const entry of governance.EXPECTED_PREBUILDS) {
+    const bytes = encodeText(`${entry.platform}:${entry.binary}`);
+    const sha256 = sha256Hex(bytes);
+    await writeBinaryFixture(
+      root,
+      `addon/bin/${entry.platform}/${entry.binary}`,
+      bytes,
+    );
+    await writeTextFile(
+      root,
+      `addon/bin/${entry.platform}/${entry.binary}.sha256`,
+      `${sha256}  ${entry.binary}\n`,
+    );
+    binaries.push({
+      platform: entry.platform,
+      binary: entry.binary,
+      sha256,
+      bytes: bytes.length,
+    });
+  }
+  const manifest = {
+    schema: "zotero-bridge-cli-release.v1",
+    version: "0.1.0",
+    buildFingerprint: fingerprint.fingerprint,
+    fingerprintInputs: fingerprint.files,
+    binaries,
+  };
+  await writeTextFile(
+    root,
+    "cli/zotero-bridge/release.json",
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+  await writeTextFile(
+    root,
+    "addon/bin/zotero-bridge-release.json",
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+  return { root, freshness };
+}
 
 describe("host bridge cli packaging and install", function () {
   it("documents resolve-resolver with the direct resolver payload contract", async function () {
@@ -710,6 +826,211 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
+  it("overwrites an existing CLI install target when bundled bytes differ", async function () {
+    const writes: Array<{
+      target: string;
+      content: string;
+      overwrite: boolean;
+    }> = [];
+    const sourceBytes = encodeText("new-binary");
+    const targetBytes = encodeText("old-binary");
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+        cliDir: "addon/bin/win32-x64",
+        source: "bundled",
+      }),
+      platform: () => "win32",
+      localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      pathIncludes: () => true,
+      readFile: async (target) =>
+        target.includes("addon/bin") ? sourceBytes : targetBytes,
+      pathExists: async () => true,
+      writeFile: async (target, bytes, options) => {
+        writes.push({
+          target,
+          content: new TextDecoder().decode(bytes),
+          overwrite: Boolean(options?.overwrite),
+        });
+      },
+      writeTextFile: async () => undefined,
+    });
+
+    assert.isTrue(result.ok);
+    assert.deepEqual(writes, [
+      {
+        target:
+          "C:\\Users\\A\\AppData\\Local\\zotero-agents\\bin\\zotero-bridge.exe",
+        content: "new-binary",
+        overwrite: true,
+      },
+    ]);
+    if (result.ok) {
+      assert.isTrue(result.changed);
+      assert.strictEqual(result.sourceSha256, sha256Hex(sourceBytes));
+      assert.strictEqual(result.targetSha256, sha256Hex(sourceBytes));
+    }
+  });
+
+  it("skips copying matching CLI bytes but still repairs POSIX executable permissions", async function () {
+    let writeCount = 0;
+    let chmodCount = 0;
+    const bytes = encodeText("same-binary");
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/linux-x64/zotero-bridge",
+        cliDir: "addon/bin/linux-x64",
+        source: "bundled",
+      }),
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathEnv: () => "",
+      pathIncludes: () => true,
+      readFile: async () => bytes,
+      pathExists: async () => true,
+      writeFile: async () => {
+        writeCount += 1;
+      },
+      chmodExecutable: async () => {
+        chmodCount += 1;
+        return true;
+      },
+    });
+
+    assert.isTrue(result.ok);
+    assert.strictEqual(writeCount, 0);
+    assert.strictEqual(chmodCount, 1);
+    if (result.ok) {
+      assert.isFalse(result.changed);
+      assert.isTrue(result.permissionFixed);
+      assert.strictEqual(result.sourceSha256, result.targetSha256);
+    }
+  });
+
+  it("sets executable permissions through XPCOM file objects when available", async function () {
+    if (process.platform === "win32") {
+      this.skip();
+    }
+    const runtime = globalThis as typeof globalThis & {
+      Components?: unknown;
+    };
+    const previousComponents = runtime.Components;
+    const file = {
+      path: "",
+      permissions: 0,
+      initWithPath(value: string) {
+        this.path = value;
+      },
+    };
+    runtime.Components = {
+      classes: {
+        "@mozilla.org/file/local;1": {
+          createInstance: () => file,
+        },
+      },
+      interfaces: {
+        nsIFile: {},
+      },
+    };
+    try {
+      const ok = await setRuntimeExecutablePermissions("/tmp/zotero-bridge");
+      assert.isTrue(ok);
+      assert.strictEqual(file.path, "/tmp/zotero-bridge");
+      assert.strictEqual(file.permissions, 0o755);
+    } finally {
+      if (previousComponents) {
+        runtime.Components = previousComponents;
+      } else {
+        delete runtime.Components;
+      }
+    }
+  });
+
+  it("does not use a PATH-resolved CLI binary as the install source", async function () {
+    const previousRootUri = (globalThis as { rootURI?: string }).rootURI;
+    const previousFetch = globalThis.fetch;
+    const packagedBytes = encodeText("packaged-current-binary");
+    (globalThis as { rootURI?: string }).rootURI =
+      "https://example.test/addon/";
+    globalThis.fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => packagedBytes.buffer,
+      }) as Response) as typeof fetch;
+    try {
+      let copiedPathBytes = false;
+      const result = await installHostBridgeCli({
+        resolveCli: async () => ({
+          available: true,
+          binaryPath: "C:\\stale\\zotero-bridge.exe",
+          cliDir: "C:\\stale",
+          source: "path",
+        }),
+        platform: () => "win32",
+        localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+        pathIncludes: () => true,
+        readFile: async () => {
+          copiedPathBytes = true;
+          return encodeText("stale-path-binary");
+        },
+        pathExists: async () => false,
+        writeFile: async (_target, bytes) => {
+          assert.strictEqual(
+            new TextDecoder().decode(bytes),
+            "packaged-current-binary",
+          );
+        },
+        writeTextFile: async () => undefined,
+      });
+
+      assert.isTrue(result.ok);
+      assert.isFalse(copiedPathBytes);
+      if (result.ok) {
+        assert.include(result.sourcePath, "https://example.test/addon/");
+      }
+    } finally {
+      if (typeof previousRootUri === "string") {
+        (globalThis as { rootURI?: string }).rootURI = previousRootUri;
+      } else {
+        delete (globalThis as { rootURI?: string }).rootURI;
+      }
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  it("returns a stable target-busy error when CLI overwrite fails", async function () {
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/win32-x64/zotero-bridge.exe",
+        cliDir: "addon/bin/win32-x64",
+        source: "bundled",
+      }),
+      platform: () => "win32",
+      localAppDataDir: () => "C:\\Users\\A\\AppData\\Local",
+      pathIncludes: () => true,
+      readFile: async (target) =>
+        target.includes("addon/bin")
+          ? encodeText("new-binary")
+          : encodeText("old-binary"),
+      pathExists: async () => true,
+      writeFile: async () => {
+        const error = new Error("target is busy") as Error & { code: string };
+        error.code = "EBUSY";
+        throw error;
+      },
+      writeTextFile: async () => undefined,
+    });
+
+    assert.isFalse(result.ok);
+    if (!result.ok) {
+      assert.strictEqual(result.code, "cli_install_target_busy");
+    }
+  });
+
   it("requires explicit Windows confirmation before user PATH update", async function () {
     let copyCount = 0;
     const declined = await installHostBridgeCli({
@@ -828,9 +1149,309 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
+  it("governs CLI release fingerprints and patch bumps from CLI build inputs", async function () {
+    const governance =
+      await import("../../scripts/host-bridge-cli-release-governance.mjs");
+
+    assert.isTrue(
+      governance.isHostBridgeCliBuildInputPath("cli/zotero-bridge/src/main.rs"),
+    );
+    assert.isTrue(
+      governance.isHostBridgeCliBuildInputPath(
+        ".github/workflows/build-zotero-bridge-cli.yml",
+      ),
+    );
+    assert.isFalse(
+      governance.isHostBridgeCliBuildInputPath(
+        "skills_builtin/zotero-bridge-cli/SKILL.md",
+      ),
+    );
+    assert.isFalse(
+      governance.isHostBridgeCliBuildInputPath(
+        "profiles/hermes/zotero-librarian/profile.json",
+      ),
+    );
+    assert.strictEqual(governance.bumpPatchVersion("0.1.0"), "0.1.1");
+    assert.include(
+      governance.replaceCargoPackageVersion(
+        '[package]\nname = "zotero-bridge"\nversion = "0.1.0"\n',
+        "0.1.1",
+      ),
+      'version = "0.1.1"',
+    );
+    assert.include(
+      governance.replaceCargoLockPackageVersion(
+        '[[package]]\nname = "zotero-bridge"\nversion = "0.1.0"\n',
+        "zotero-bridge",
+        "0.1.1",
+      ),
+      'version = "0.1.1"',
+    );
+  });
+
+  it("checks Host Bridge CLI prebuild freshness against release manifests", async function () {
+    const { root, freshness } = await createFreshnessFixture();
+    try {
+      const result = await freshness.checkHostBridgeCliPrebuildFreshness({
+        root,
+      });
+      assert.isTrue(result.ok);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails Host Bridge CLI freshness when the release fingerprint is stale", async function () {
+    const { root, freshness } = await createFreshnessFixture();
+    try {
+      const manifestPath = path.join(root, "cli/zotero-bridge/release.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      manifest.buildFingerprint = "stale";
+      await fs.writeFile(
+        manifestPath,
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
+      const result = await freshness.checkHostBridgeCliPrebuildFreshness({
+        root,
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(result.code, "host_bridge_cli_fingerprint_stale");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails Host Bridge CLI freshness when a binary checksum is stale", async function () {
+    const { root, freshness } = await createFreshnessFixture();
+    try {
+      await fs.writeFile(
+        path.join(root, "addon/bin/linux-x64/zotero-bridge"),
+        "tampered",
+      );
+      const result = await freshness.checkHostBridgeCliPrebuildFreshness({
+        root,
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(result.code, "host_bridge_cli_prebuilds_stale");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("detects missing, stale, and current managed CLI install targets", async function () {
+    const bundled = encodeText("bundled");
+    const stale = encodeText("stale");
+    const targetPath = "/home/a/.local/bin/zotero-bridge";
+    const baseDeps = {
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathEnv: () => "/usr/bin",
+      readBundledAsset: async (relativePath: string) =>
+        relativePath.endsWith("zotero-bridge-release.json")
+          ? encodeText('{"version":"0.1.0"}')
+          : bundled,
+      hashBytes: async (bytes: Uint8Array) => sha256Hex(bytes),
+    };
+
+    const missing = await resolveHostBridgeCliInstallPromptState({
+      ...baseDeps,
+      runtimePathExists: async () => false,
+      readRuntimeFile: async () => {
+        throw new Error("must not read missing target");
+      },
+    });
+    assert.strictEqual(missing.status, "missing");
+    assert.strictEqual(missing.targetPath, targetPath);
+    assert.strictEqual(missing.bundledVersion, "0.1.0");
+
+    const staleResult = await resolveHostBridgeCliInstallPromptState({
+      ...baseDeps,
+      runtimePathExists: async () => true,
+      readRuntimeFile: async () => stale,
+    });
+    assert.strictEqual(staleResult.status, "stale");
+
+    const current = await resolveHostBridgeCliInstallPromptState({
+      ...baseDeps,
+      runtimePathExists: async () => true,
+      readRuntimeFile: async () => bundled,
+    });
+    assert.strictEqual(current.status, "current");
+    assert.isFalse(
+      shouldPromptHostBridgeCliInstall({
+        state: current,
+        dismissedIdentity: "",
+      }),
+    );
+  });
+
+  it("deduplicates declined startup CLI prompts by bundled identity", async function () {
+    let dismissedIdentity = "";
+    let installCount = 0;
+    const confirms: boolean[] = [false, true];
+    const messages: string[] = [];
+    const result = await promptHostBridgeCliInstallOnStartup({
+      win: {
+        confirm: (message: string) => {
+          messages.push(message);
+          return confirms.shift() === true;
+        },
+        alert: () => undefined,
+      },
+      message: (state) => `install ${state.bundledIdentity}`,
+      successMessage: () => "installed",
+      failureMessage: () => "failed",
+      deps: {
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+        pathEnv: () => "/usr/bin",
+        readBundledAsset: async (relativePath) =>
+          relativePath.endsWith("zotero-bridge-release.json")
+            ? encodeText('{"version":"0.1.0"}')
+            : encodeText("bundled"),
+        runtimePathExists: async () => false,
+        readRuntimeFile: async () => encodeText(""),
+        hashBytes: async (bytes) => sha256Hex(bytes),
+        getDismissedIdentity: () => dismissedIdentity,
+        setDismissedIdentity: (identity) => {
+          dismissedIdentity = identity;
+        },
+        install: async () => {
+          installCount += 1;
+          return {
+            ok: true,
+            stage: "host-bridge-cli-install",
+            message: "installed",
+            sourcePath: "source",
+            targetPath: "target",
+            targetDir: "dir",
+            pathAlreadyConfigured: true,
+            pathUpdated: false,
+            terminalRestartRequired: false,
+            changed: true,
+            sourceSha256: "source",
+            targetSha256: "source",
+            permissionFixed: true,
+          };
+        },
+      },
+    });
+    assert.isTrue(result.prompted);
+    assert.isFalse(result.installed);
+    assert.strictEqual(installCount, 0);
+    assert.isNotEmpty(dismissedIdentity);
+
+    const suppressed = await promptHostBridgeCliInstallOnStartup({
+      win: {
+        confirm: () => {
+          throw new Error("prompt must be suppressed");
+        },
+        alert: () => undefined,
+      },
+      message: (state) => `install ${state.bundledIdentity}`,
+      successMessage: () => "installed",
+      failureMessage: () => "failed",
+      deps: {
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+        pathEnv: () => "/usr/bin",
+        readBundledAsset: async (relativePath) =>
+          relativePath.endsWith("zotero-bridge-release.json")
+            ? encodeText('{"version":"0.1.0"}')
+            : encodeText("bundled"),
+        runtimePathExists: async () => false,
+        readRuntimeFile: async () => encodeText(""),
+        hashBytes: async (bytes) => sha256Hex(bytes),
+        getDismissedIdentity: () => dismissedIdentity,
+      },
+    });
+    assert.isFalse(suppressed.prompted);
+
+    const promptedAgain = await promptHostBridgeCliInstallOnStartup({
+      win: {
+        confirm: () => true,
+        alert: () => undefined,
+      },
+      message: (state) => `install ${state.bundledIdentity}`,
+      successMessage: () => "installed",
+      failureMessage: () => "failed",
+      deps: {
+        platform: () => "linux",
+        homeDir: () => "/home/a",
+        pathEnv: () => "/usr/bin",
+        readBundledAsset: async (relativePath) =>
+          relativePath.endsWith("zotero-bridge-release.json")
+            ? encodeText('{"version":"0.1.1"}')
+            : encodeText("bundled-new"),
+        runtimePathExists: async () => false,
+        readRuntimeFile: async () => encodeText(""),
+        hashBytes: async (bytes) => sha256Hex(bytes),
+        getDismissedIdentity: () => dismissedIdentity,
+        install: async () => {
+          installCount += 1;
+          return {
+            ok: true,
+            stage: "host-bridge-cli-install",
+            message: "installed",
+            sourcePath: "source",
+            targetPath: "target",
+            targetDir: "dir",
+            pathAlreadyConfigured: true,
+            pathUpdated: false,
+            terminalRestartRequired: false,
+            changed: true,
+            sourceSha256: "source",
+            targetSha256: "source",
+            permissionFixed: true,
+          };
+        },
+      },
+    });
+    assert.isTrue(promptedAgain.prompted);
+    assert.isTrue(promptedAgain.installed);
+    assert.strictEqual(installCount, 1);
+    assert.lengthOf(messages, 1);
+  });
+
+  it("ignores PATH-resolved CLI state for startup install prompts", async function () {
+    const bundled = encodeText("bundled");
+    const state = await resolveHostBridgeCliInstallPromptState({
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathEnv: () => "/old/path/bin:/usr/bin",
+      readBundledAsset: async (relativePath) =>
+        relativePath.endsWith("zotero-bridge-release.json")
+          ? encodeText('{"version":"0.1.0"}')
+          : bundled,
+      runtimePathExists: async (target) =>
+        target === "/home/a/.local/bin/zotero-bridge",
+      readRuntimeFile: async () => bundled,
+      hashBytes: async (bytes) => sha256Hex(bytes),
+    });
+    assert.strictEqual(state.status, "current");
+    assert.isFalse(
+      shouldPromptHostBridgeCliInstall({
+        state,
+        dismissedIdentity: "",
+      }),
+    );
+  });
+
   it("declares CLI release packaging workflow and addon bin directories", async function () {
     const workflow = await fs.readFile(
       ".github/workflows/build-zotero-bridge-cli.yml",
+      "utf8",
+    );
+    const surfaceWorkflow = await fs.readFile(
+      ".github/workflows/publish-host-bridge-surfaces.yml",
+      "utf8",
+    );
+    const releaseWorkflow = await fs.readFile(
+      ".github/workflows/release.yml",
       "utf8",
     );
     for (const platform of [
@@ -858,14 +1479,39 @@ describe("host bridge cli packaging and install", function () {
     }
     assert.include(workflow, "cargo install cargo-zigbuild --locked");
     assert.include(workflow, "mlugg/setup-zig@v2");
+    assert.include(workflow, "Detect CLI build input changes");
+    assert.include(workflow, "host-bridge-cli-release-governance.mjs status");
+    assert.include(workflow, "bump-patch --write");
+    assert.include(workflow, "record-binaries --write");
     assert.include(workflow, "Publish Host Bridge CLI bundle branch");
     assert.include(workflow, "Publish zotero-librarian profile repository");
     assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
     assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
     assert.include(workflow, "leike0813/zotero-librarian-profile.git");
     assert.include(workflow, "-AllowDirty -Push");
-    assert.include(workflow, "profiles/hermes/zotero-librarian/**");
+    assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
+    assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
+    assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(surfaceWorkflow, "npm run render:host-bridge-surface");
+    assert.include(surfaceWorkflow, "Publish Host Bridge CLI bundle branch");
+    assert.include(
+      surfaceWorkflow,
+      "Publish zotero-librarian profile repository",
+    );
     assert.include(workflow, "actions/download-artifact@v4");
+    assert.include(
+      releaseWorkflow,
+      "npm run check:host-bridge-cli-prebuild-freshness",
+    );
+    assert.include(releaseWorkflow, "npm run test:gate:release");
+    assert.isBelow(
+      releaseWorkflow.indexOf(
+        "npm run check:host-bridge-cli-prebuild-freshness",
+      ),
+      releaseWorkflow.indexOf("npm run test:gate:release"),
+    );
+    const ciGate = await fs.readFile("scripts/run-ci-gate.ts", "utf8");
+    assert.notInclude(ciGate, "check:host-bridge-cli-prebuild-freshness");
     const packageScript = await fs.readFile(
       "scripts/package-zotero-bridge-cli.mjs",
       "utf8",
@@ -905,6 +1551,28 @@ describe("host bridge cli packaging and install", function () {
       packageJson.scripts["sync:host-bridge-cli-prebuilds"],
       "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
     );
+    assert.strictEqual(
+      packageJson.scripts["check:zotero-bridge-cli-governance"],
+      "node scripts/host-bridge-cli-release-governance.mjs status --json",
+    );
+    assert.strictEqual(
+      packageJson.scripts["check:host-bridge-cli-prebuild-freshness"],
+      "node scripts/check-host-bridge-cli-prebuild-freshness.mjs",
+    );
+    const releaseManifest = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/release.json", "utf8"),
+    );
+    const addonReleaseManifest = JSON.parse(
+      await fs.readFile("addon/bin/zotero-bridge-release.json", "utf8"),
+    );
+    assert.strictEqual(releaseManifest.schema, "zotero-bridge-cli-release.v1");
+    assert.strictEqual(
+      addonReleaseManifest.schema,
+      "zotero-bridge-cli-release.v1",
+    );
+    assert.strictEqual(addonReleaseManifest.version, releaseManifest.version);
+    assert.match(releaseManifest.buildFingerprint, /^[a-f0-9]{64}$/);
+    assert.isAtLeast(releaseManifest.binaries.length, 7);
     const releaseSkill = await fs.readFile(
       ".agents/skills/host-bridge-release-pipeline/SKILL.md",
       "utf8",
@@ -912,6 +1580,8 @@ describe("host bridge cli packaging and install", function () {
     assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
     assert.include(releaseSkill, "leike0813/zotero-librarian-profile");
     assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
+    assert.include(releaseSkill, "publish-host-bridge-surfaces.yml");
     assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
     assert.notInclude(
       releaseSkill,

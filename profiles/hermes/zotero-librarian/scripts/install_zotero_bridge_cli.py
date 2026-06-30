@@ -41,11 +41,134 @@ def default_install_dir() -> Path:
     return Path.cwd() / ".zotero-bridge" / "bin"
 
 
+def current_well_known_profile() -> Path:
+    system = platform.system().lower()
+    home = Path.home()
+    if system == "windows":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app_data).expanduser() if local_app_data else home / "AppData" / "Local"
+        return base / "zotero-agents" / "bridge-profile.json"
+    if system == "darwin":
+        return home / "Library" / "Application Support" / "zotero-agents" / "bridge-profile.json"
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    base = Path(xdg_data_home).expanduser() if xdg_data_home else home / ".local" / "share"
+    return base / "zotero-agents" / "bridge-profile.json"
+
+
+def infer_host_home_from_hermes_home(home: Path) -> Path | None:
+    resolved = home.expanduser().resolve()
+    parts = resolved.parts
+    if ".hermes" not in parts:
+        return None
+    index = parts.index(".hermes")
+    if index <= 0:
+        return None
+    return Path(*parts[:index])
+
+
+def host_well_known_profile(host_home: Path) -> Path:
+    system = platform.system().lower()
+    if system == "windows":
+        host_local_app_data = os.environ.get("ZOTERO_BRIDGE_HOST_LOCALAPPDATA")
+        base = (
+            Path(host_local_app_data).expanduser()
+            if host_local_app_data
+            else host_home / "AppData" / "Local"
+        )
+        return base / "zotero-agents" / "bridge-profile.json"
+    if system == "darwin":
+        return host_home / "Library" / "Application Support" / "zotero-agents" / "bridge-profile.json"
+    host_xdg_data_home = os.environ.get("ZOTERO_BRIDGE_HOST_XDG_DATA_HOME")
+    base = Path(host_xdg_data_home).expanduser() if host_xdg_data_home else host_home / ".local" / "share"
+    return base / "zotero-agents" / "bridge-profile.json"
+
+
+def resolve_host_profile(host_profile: str | None, host_home: str | None) -> Path | None:
+    explicit_profile = host_profile or os.environ.get("ZOTERO_BRIDGE_HOST_PROFILE")
+    if explicit_profile:
+        return Path(explicit_profile).expanduser()
+
+    explicit_home = host_home or os.environ.get("ZOTERO_BRIDGE_HOST_HOME")
+    if explicit_home:
+        return host_well_known_profile(Path(explicit_home).expanduser())
+
+    inferred_home = infer_host_home_from_hermes_home(Path.home())
+    if inferred_home:
+        return host_well_known_profile(inferred_home)
+    return None
+
+
+def link_well_known_profile(
+    host_profile: str | None,
+    host_home: str | None,
+    force: bool,
+) -> None:
+    target = current_well_known_profile()
+    source = resolve_host_profile(host_profile, host_home)
+    if source is None:
+        print(
+            "skipped Host Bridge profile link: set ZOTERO_BRIDGE_HOST_PROFILE "
+            "or ZOTERO_BRIDGE_HOST_HOME when Hermes home cannot be inferred"
+        )
+        return
+
+    source = source.resolve()
+    if not source.exists():
+        print(f"skipped Host Bridge profile link: source profile does not exist: {source}")
+        return
+
+    target_parent = target.parent
+    target_parent.mkdir(parents=True, exist_ok=True)
+
+    if target.exists() or target.is_symlink():
+        if target.is_symlink() and target.resolve() == source:
+            print(f"Host Bridge profile link already exists: {target}")
+            return
+        if not force:
+            print(
+                "skipped Host Bridge profile link: target already exists "
+                f"({target}); pass --force-profile-link to replace it"
+            )
+            return
+        target.unlink()
+
+    target.symlink_to(source)
+    print(f"linked Host Bridge profile: {target} -> {source}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install the packaged zotero-bridge binary")
     parser.add_argument("--source-root", default=Path(__file__).resolve().parents[1])
     parser.add_argument("--install-dir", default=None)
     parser.add_argument("--print-path", action="store_true")
+    parser.add_argument(
+        "--link-well-known-profile",
+        dest="link_well_known_profile",
+        action="store_true",
+        default=True,
+        help="Link the Hermes well-known Host Bridge profile to the host profile",
+    )
+    parser.add_argument(
+        "--no-link-well-known-profile",
+        dest="link_well_known_profile",
+        action="store_false",
+        help="Install only the binary and do not create the Host Bridge profile link",
+    )
+    parser.add_argument(
+        "--host-home",
+        default=None,
+        help="Host user home used to locate the Host Bridge well-known profile",
+    )
+    parser.add_argument(
+        "--host-profile",
+        default=None,
+        help="Explicit host bridge-profile.json path",
+    )
+    parser.add_argument(
+        "--force-profile-link",
+        action="store_true",
+        help="Replace an existing Hermes well-known profile path",
+    )
     args = parser.parse_args(argv)
 
     source_root = Path(args.source_root)
@@ -65,6 +188,13 @@ def main(argv: list[str] | None = None) -> int:
         print(str(target))
     else:
         print(f"installed {target}")
+
+    if args.link_well_known_profile:
+        link_well_known_profile(
+            args.host_profile,
+            args.host_home,
+            args.force_profile_link,
+        )
     return 0
 
 

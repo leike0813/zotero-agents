@@ -26,6 +26,17 @@ content-package-startup-update-confirm = A new official Workflow package is avai
     Install the update now?
 content-package-startup-update-failed = Official Workflow package update failed: { $reason }
 content-package-startup-update-incompatible = A new official Workflow package is available, but it cannot be installed: { $reason }
+host-bridge-cli-startup-install-status-missing = not installed
+host-bridge-cli-startup-install-status-stale = outdated
+host-bridge-cli-startup-install-confirm = The Host Bridge CLI is { $status }.
+
+    Target: { $targetPath }
+    Bundled CLI version: { $bundledVersion }
+    Bundled CLI SHA-256: { $bundledSha256 }
+
+    Install the bundled CLI now?
+host-bridge-cli-startup-install-success = Host Bridge CLI installed.
+host-bridge-cli-startup-install-failed = Host Bridge CLI install failed: { $reason }
 content-package-install-progress-check-feed = Checking official Workflow package feed
 content-package-install-progress-download-package = Downloading official Workflow package
 content-package-install-progress-verify-package = Verifying package integrity

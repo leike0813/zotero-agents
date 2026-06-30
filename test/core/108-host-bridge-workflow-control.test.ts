@@ -31,6 +31,11 @@ import {
   resolveSkillRunnerHostBridgePermissionRequest,
 } from "../../src/modules/skillRunnerHostBridgePermissionRegistry";
 import {
+  createSkillRunnerRun,
+  resetSkillRunnerRunStoreForTests,
+  updateSkillRunnerRunStateByRunKey,
+} from "../../src/modules/skillRunnerRunStore";
+import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
@@ -161,6 +166,7 @@ describe("host bridge workflow control", function () {
     resetHostBridgePermissionManagerForTests();
     resetWorkflowTasks();
     resetAcpSkillRunsForTests();
+    resetSkillRunnerRunStoreForTests();
     resetTaskDashboardHistory();
     resetHostBridgeFileRegistryForTests();
     resetRuntimeBridgeOverrideForTests();
@@ -1147,5 +1153,50 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(tasks.status, 200);
     assert.lengthOf(tasks.json.result.tasks, 1);
     assert.strictEqual(tasks.json.result.tasks[0].requestId, "request-1");
+  });
+
+  it("resolves sequence task monitoring from the submitted workflow run id", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    const run = createSkillRunnerRun({
+      backendId: "backend-1",
+      workflowId: "literature-analysis",
+      workflowRunId: "run-sequence-job-1",
+      jobId: "job-1:digest",
+      taskName: "Digest",
+      sequenceJobId: "job-1",
+      sequenceStepId: "digest",
+      createdAt: now,
+      updatedAt: now,
+    });
+    assert.isNotNull(run);
+    updateSkillRunnerRunStateByRunKey({
+      runKey: run!.runKey,
+      state: "running",
+      updatedAt: now,
+    });
+
+    const runStatus = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows/runs/run-sequence",
+    });
+    assert.strictEqual(runStatus.status, 200);
+    assert.strictEqual(runStatus.json.result.runId, "run-sequence");
+    assert.strictEqual(runStatus.json.result.state, "running");
+    assert.lengthOf(runStatus.json.result.tasks, 1);
+    assert.strictEqual(
+      runStatus.json.result.tasks[0].runId,
+      "run-sequence-job-1",
+    );
+
+    const tasks = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/tasks?runId=run-sequence",
+    });
+    assert.strictEqual(tasks.status, 200);
+    assert.lengthOf(tasks.json.result.tasks, 1);
+    assert.strictEqual(tasks.json.result.tasks[0].jobId, "job-1:digest");
   });
 });

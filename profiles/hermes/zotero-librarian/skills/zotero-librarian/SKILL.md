@@ -15,13 +15,22 @@ Use this skill when you need to inspect, organize, analyze, or maintain a Zotero
 
 ## Zotero Bridge Basics
 
-Use the packaged Host Bridge profile:
+Initialize the packaged CLI before the first Zotero action:
+
+```powershell
+scripts/install_zotero_bridge_cli.py
+zotero-bridge status
+zotero-bridge manifest
+scripts/zotero_librarian_index_service.py stats
+```
+
+The installer links the Hermes well-known Host Bridge profile path to the host `bridge-profile.json`. Do not change `HOME` for Zotero Bridge access. If the host profile cannot be inferred, set `ZOTERO_BRIDGE_HOST_PROFILE` or run the installer with `--host-profile`.
+
+Use the packaged Host Bridge profile template only when creating or repairing a host profile:
 
 ```powershell
 $env:ZOTERO_BRIDGE_PROFILE = "assets/host-bridge/profile.example.json"
 $env:ZOTERO_BRIDGE_TOKEN = "<set-by-runtime>"
-zotero-bridge status
-zotero-bridge manifest
 ```
 
 Use direct library commands for bounded reads:

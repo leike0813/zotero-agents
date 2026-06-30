@@ -1194,6 +1194,21 @@ function sanitizeExternalTaskError(value: unknown) {
     );
 }
 
+function matchesRunIdFilter(taskRunIdRaw: unknown, requestedRunIdRaw: unknown) {
+  const taskRunId = normalizeString(taskRunIdRaw);
+  const requestedRunId = normalizeString(requestedRunIdRaw);
+  if (!requestedRunId) {
+    return true;
+  }
+  if (taskRunId === requestedRunId) {
+    return true;
+  }
+  if (requestedRunId.includes("-job-")) {
+    return false;
+  }
+  return taskRunId.startsWith(`${requestedRunId}-job-`);
+}
+
 function matchesFilters(
   task: HostBridgeWorkflowTaskDto,
   filters: HostBridgeTaskFilters,
@@ -1210,7 +1225,7 @@ function matchesFilters(
   if (filters.requestId && task.requestId !== filters.requestId) {
     return false;
   }
-  if (filters.runId && task.runId !== filters.runId) {
+  if (!matchesRunIdFilter(task.runId, filters.runId)) {
     return false;
   }
   if (filters.state && task.state !== filters.state) {

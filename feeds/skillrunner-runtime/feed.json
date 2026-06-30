@@ -5,7 +5,7 @@
   "matches": [
     {
       "plugin": ">=0.5.0 <0.6.0",
-      "skillrunner": "v0.7.3"
+      "skillrunner": "v0.7.4"
     }
   ]
 }

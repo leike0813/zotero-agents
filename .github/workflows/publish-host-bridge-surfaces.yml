@@ -1,0 +1,83 @@
+name: Publish Host Bridge Surfaces
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "skills_builtin/zotero-bridge-cli/**"
+      - "profiles/hermes/zotero-librarian/**"
+      - "src/modules/hostBridgeCapabilityRegistry.ts"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "scripts/host-bridge-surface-catalog.ts"
+      - "scripts/render-host-bridge-surface.ts"
+      - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/check-host-bridge-doc-sync.ts"
+      - "scripts/check-zotero-librarian-profile.ts"
+      - "scripts/publish-host-bridge-cli-bundle.ps1"
+      - "scripts/publish-zotero-librarian-profile.ps1"
+      - ".github/workflows/publish-host-bridge-surfaces.yml"
+  pull_request:
+    paths:
+      - "skills_builtin/zotero-bridge-cli/**"
+      - "profiles/hermes/zotero-librarian/**"
+      - "src/modules/hostBridgeCapabilityRegistry.ts"
+      - "src/modules/zoteroHostCapabilityBroker.ts"
+      - "scripts/host-bridge-surface-catalog.ts"
+      - "scripts/render-host-bridge-surface.ts"
+      - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/check-host-bridge-doc-sync.ts"
+      - "scripts/check-zotero-librarian-profile.ts"
+      - ".github/workflows/publish-host-bridge-surfaces.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate surface publish inputs
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+      GH_TOKEN: ${{ secrets.RELEASE_PAT || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync latest Host Bridge CLI prebuilds
+        run: npm run sync:host-bridge-cli-prebuilds
+
+      - name: Render Host Bridge surfaces
+        run: npm run render:host-bridge-surface
+
+      - name: Check Host Bridge doc sync
+        run: npm run check:host-bridge-doc-sync
+
+      - name: Check zotero-librarian profile
+        run: npm run check:zotero-librarian-profile
+
+      - name: Publish Host Bridge CLI bundle branch
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          $remoteUrl = "https://x-access-token:{0}@github.com/{1}.git" -f $env:GH_TOKEN, $env:GITHUB_REPOSITORY
+          git remote set-url origin $remoteUrl
+          ./scripts/publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push
+
+      - name: Publish zotero-librarian profile repository
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $profileRepoUrl = "https://x-access-token:{0}@github.com/leike0813/zotero-librarian-profile.git" -f $env:GH_TOKEN
+          ./scripts/publish-zotero-librarian-profile.ps1 -RepositoryUrl $profileRepoUrl -AllowDirty -Push

@@ -4,6 +4,10 @@ zoteroBridge:
   profile: assets/host-bridge/profile.example.json
   installScript: scripts/install_zotero_bridge_cli.py
   binaryDir: assets/zotero-bridge/bin
+  wellKnownProfileLink:
+    enabled: true
+    hostProfileEnv: ZOTERO_BRIDGE_HOST_PROFILE
+    hostHomeEnv: ZOTERO_BRIDGE_HOST_HOME
 index:
   script: scripts/zotero_librarian_index_service.py
   defaultDatabase: "$HERMES_HOME/zotero-librarian/index.sqlite"

@@ -219,6 +219,31 @@ function checkCronAndScripts(errors: string[]) {
     assertIncludes(errors, indexService, snippet, "index service");
   }
 
+  const installer = readProfile("scripts/install_zotero_bridge_cli.py");
+  for (const snippet of [
+    "link_well_known_profile",
+    "current_well_known_profile",
+    "infer_host_home_from_hermes_home",
+    "ZOTERO_BRIDGE_HOST_PROFILE",
+    "ZOTERO_BRIDGE_HOST_HOME",
+    "bridge-profile.json",
+    ".hermes",
+    "symlink_to",
+    "--no-link-well-known-profile",
+    "--force-profile-link",
+  ]) {
+    assertIncludes(errors, installer, snippet, "zotero-bridge installer");
+  }
+
+  const soul = readProfile("SOUL.md");
+  for (const snippet of [
+    "scripts/install_zotero_bridge_cli.py",
+    "ZOTERO_BRIDGE_HOST_PROFILE",
+    "do not change `HOME`",
+  ]) {
+    assertIncludes(errors, soul, snippet, "SOUL.md");
+  }
+
   const cronExpectations: Record<string, string[]> = {
     "cron/index-refresh.yaml": ["every: 6h", "[SILENT]", "refresh"],
     "cron/workflow-catalog-refresh.yaml": [

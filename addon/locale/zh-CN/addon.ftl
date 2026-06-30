@@ -26,6 +26,17 @@ content-package-startup-update-confirm = 检测到新的官方 Workflow 包。
     是否现在安装更新？
 content-package-startup-update-failed = 官方 Workflow 包更新失败：{ $reason }
 content-package-startup-update-incompatible = 检测到新的官方 Workflow 包，但当前环境无法安装：{ $reason }
+host-bridge-cli-startup-install-status-missing = 尚未安装
+host-bridge-cli-startup-install-status-stale = 版本过旧
+host-bridge-cli-startup-install-confirm = Host Bridge CLI { $status }。
+
+    目标路径：{ $targetPath }
+    插件内置 CLI 版本：{ $bundledVersion }
+    插件内置 CLI SHA-256：{ $bundledSha256 }
+
+    是否现在安装插件内置的 CLI？
+host-bridge-cli-startup-install-success = Host Bridge CLI 已安装。
+host-bridge-cli-startup-install-failed = Host Bridge CLI 安装失败：{ $reason }
 content-package-install-progress-check-feed = 正在检查官方 Workflow 包订阅源
 content-package-install-progress-download-package = 正在下载官方 Workflow 包
 content-package-install-progress-verify-package = 正在校验包完整性

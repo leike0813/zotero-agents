@@ -2,9 +2,14 @@ import { joinPath } from "../utils/path";
 import {
   copyRuntimeFile,
   ensureRuntimeDirectory,
+  readRuntimeBytes,
+  runtimePathExists,
+  setRuntimeExecutablePermissions,
+  type RuntimeWriteBytesOptions,
+  writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { copyPackagedBinaryAsset } from "./packagedAssetResolver";
+import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getWindowsPowerShellAbsoluteCandidates } from "./windowsCommandResolution";
 import {
@@ -36,6 +41,10 @@ export type HostBridgeCliInstallResult =
       pathAlreadyConfigured: boolean;
       pathUpdated: boolean;
       terminalRestartRequired: boolean;
+      changed: boolean;
+      sourceSha256: string;
+      targetSha256: string;
+      permissionFixed: boolean;
     }
   | {
       ok: false;
@@ -43,6 +52,8 @@ export type HostBridgeCliInstallResult =
       code:
         | "cli_binary_unavailable"
         | "cli_install_failed"
+        | "cli_install_target_busy"
+        | "cli_permission_update_failed"
         | "cli_path_update_declined"
         | "cli_path_update_unavailable";
       message: string;
@@ -52,8 +63,16 @@ export type HostBridgeCliInstallResult =
 export type HostBridgeCliInstallerDeps = {
   resolveCli?: () => Promise<HostBridgeCliResolution>;
   copyFile?: (sourcePath: string, targetPath: string) => Promise<void>;
+  readFile?: (path: string) => Promise<Uint8Array>;
+  writeFile?: (
+    targetPath: string,
+    bytes: Uint8Array,
+    options?: RuntimeWriteBytesOptions,
+  ) => Promise<void>;
   writeTextFile?: (targetPath: string, content: string) => Promise<void>;
-  chmodExecutable?: (targetPath: string) => Promise<void>;
+  chmodExecutable?: (targetPath: string) => Promise<void | boolean>;
+  pathExists?: (targetPath: string) => Promise<boolean>;
+  hashBytes?: (bytes: Uint8Array) => Promise<string>;
   pathIncludes?: (dir: string) => boolean;
   setWindowsUserPath?: (dir: string) => Promise<boolean>;
   confirmAddToPath?: (dir: string) => Promise<boolean> | boolean;
@@ -403,20 +422,123 @@ async function defaultCopyFile(sourcePath: string, targetPath: string) {
   await copyRuntimeFile({ sourcePath, targetPath });
 }
 
+async function defaultReadFile(path: string) {
+  return readRuntimeBytes(path);
+}
+
+async function defaultWriteFile(
+  targetPath: string,
+  bytes: Uint8Array,
+  options?: RuntimeWriteBytesOptions,
+) {
+  await writeRuntimeBytes(targetPath, bytes, options);
+}
+
+async function defaultPathExists(targetPath: string) {
+  return runtimePathExists(targetPath);
+}
+
+async function sha256Bytes(bytes: Uint8Array) {
+  const runtime = globalThis as {
+    crypto?: {
+      subtle?: {
+        digest?: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer>;
+      };
+    };
+    process?: unknown;
+  };
+  if (typeof runtime.crypto?.subtle?.digest === "function") {
+    const digest = await runtime.crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((value) => value.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  if (runtime.process) {
+    const crypto = await dynamicImport("crypto").catch(() => null);
+    if (typeof crypto?.createHash === "function") {
+      return crypto.createHash("sha256").update(bytes).digest("hex");
+    }
+  }
+  throw new Error("No SHA-256 digest API is available");
+}
+
 async function defaultChmodExecutable(targetPath: string) {
   if (resolvePlatform() === "win32") {
-    return;
+    return false;
   }
-  const fs = await dynamicImport("fs/promises").catch(() => null);
-  if (fs?.chmod) {
-    await fs.chmod(targetPath, 0o755);
+  return setRuntimeExecutablePermissions(targetPath, 0o755);
+}
+
+async function ensureExecutablePermission(args: {
+  targetPath: string;
+  platform: string;
+  chmodExecutable?: (targetPath: string) => Promise<void | boolean>;
+}) {
+  if (args.platform === "win32") {
+    return false;
   }
+  if (args.chmodExecutable) {
+    const result = await args.chmodExecutable(args.targetPath);
+    return result === false ? false : true;
+  }
+  return defaultChmodExecutable(args.targetPath);
+}
+
+function isBusyInstallError(error: unknown) {
+  const code = normalizeString((error as { code?: unknown })?.code);
+  const message = normalizeString(
+    error instanceof Error ? error.message : String(error || ""),
+  ).toLowerCase();
+  return (
+    ["EBUSY", "EPERM", "EACCES"].includes(code) ||
+    message.includes("busy") ||
+    message.includes("locked") ||
+    message.includes("access") ||
+    message.includes("permission")
+  );
+}
+
+async function readBundledInstallSource(args: {
+  resolved: HostBridgeCliResolution;
+  readFile: (path: string) => Promise<Uint8Array>;
+}) {
+  if (args.resolved.available && args.resolved.source !== "path") {
+    return {
+      ok: true as const,
+      bytes: await args.readFile(args.resolved.binaryPath),
+      sourcePath: args.resolved.binaryPath,
+      diagnostics: {
+        checkedPaths: [] as string[],
+        checkedUris: [] as string[],
+        failures: [] as unknown[],
+      },
+    };
+  }
+  const read = await readPackagedBinaryAsset(packagedCliRelativePath());
+  if (read.ok) {
+    return {
+      ok: true as const,
+      bytes: read.bytes,
+      sourcePath: read.source.uri || read.source.path || read.source.source,
+      diagnostics: read.diagnostics,
+    };
+  }
+  const checkedPaths = args.resolved.available
+    ? [args.resolved.binaryPath, ...read.diagnostics.checkedPaths]
+    : [...args.resolved.checkedPaths, ...read.diagnostics.checkedPaths];
+  return {
+    ok: false as const,
+    diagnostics: {
+      ...read.diagnostics,
+      checkedPaths,
+    },
+  };
 }
 
 async function writeWindowsShellShim(args: {
   target: ReturnType<typeof resolveHostBridgeCliInstallTarget>;
   writeTextFile?: (targetPath: string, content: string) => Promise<void>;
-  chmodExecutable?: (targetPath: string) => Promise<void>;
+  chmodExecutable?: (targetPath: string) => Promise<void | boolean>;
 }) {
   const shimPath = resolveWindowsShellShimPath(args.target);
   if (!shimPath) {
@@ -460,46 +582,114 @@ export async function installHostBridgeCli(
   const resolved = await (deps.resolveCli || resolveHostBridgeCliBinary)();
   const target = resolveHostBridgeCliInstallTarget(deps);
   let sourcePath = "";
-  let sourceUri = "";
+  let sourceSha256 = "";
+  let targetSha256 = "";
+  let changed = false;
+  let permissionFixed = false;
   try {
-    if (resolved.available) {
+    const legacyInjectedCopy =
+      resolved.available &&
+      resolved.source !== "path" &&
+      !!deps.copyFile &&
+      !deps.readFile &&
+      !deps.writeFile &&
+      !deps.hashBytes;
+    if (legacyInjectedCopy) {
       sourcePath = resolved.binaryPath;
       await (deps.copyFile || defaultCopyFile)(
         resolved.binaryPath,
         target.targetPath,
       );
+      changed = true;
     } else {
-      const copied = await copyPackagedBinaryAsset({
-        relativePath: packagedCliRelativePath(),
-        targetPath: target.targetPath,
-      });
-      if (!copied.ok) {
+      const readFile = deps.readFile || defaultReadFile;
+      const writeFile = deps.writeFile || defaultWriteFile;
+      const pathExists = deps.pathExists || defaultPathExists;
+      const hashBytes = deps.hashBytes || sha256Bytes;
+      const source = await readBundledInstallSource({ resolved, readFile });
+      if (!source.ok) {
         return {
           ok: false,
           stage: "host-bridge-cli-install",
-          code: resolved.code,
-          message: resolved.message,
+          code: "cli_binary_unavailable",
+          message: resolved.available
+            ? "Bundled zotero-bridge CLI binary is unavailable for installation."
+            : resolved.message,
           details: {
-            checkedPaths: [
-              ...resolved.checkedPaths,
-              ...copied.diagnostics.checkedPaths,
-            ],
-            checkedAssetPaths: copied.diagnostics.checkedPaths,
-            checkedUris: copied.diagnostics.checkedUris,
-            assetFailures: copied.diagnostics.failures,
+            checkedPaths: source.diagnostics.checkedPaths,
+            checkedAssetPaths: source.diagnostics.checkedPaths,
+            checkedUris: source.diagnostics.checkedUris,
+            assetFailures: source.diagnostics.failures,
+            pathResolvedSource:
+              resolved.available && resolved.source === "path"
+                ? resolved.binaryPath
+                : "",
             runtime: {
-              rootURI: copied.diagnostics.rootURI,
-              resourceURI: copied.diagnostics.resourceURI,
-              rootPath: copied.diagnostics.rootPath,
-              cwd: copied.diagnostics.cwd,
+              rootURI: source.diagnostics.rootURI,
+              resourceURI: source.diagnostics.resourceURI,
+              rootPath: source.diagnostics.rootPath,
+              cwd: source.diagnostics.cwd,
             },
           },
         };
       }
-      sourceUri =
-        copied.source.uri || copied.source.path || copied.source.source;
+      sourcePath = source.sourcePath;
+      sourceSha256 = await hashBytes(source.bytes);
+      const targetExists = await pathExists(target.targetPath);
+      if (targetExists) {
+        try {
+          targetSha256 = await hashBytes(await readFile(target.targetPath));
+        } catch {
+          targetSha256 = "";
+        }
+      }
+      changed = sourceSha256 !== targetSha256;
+      if (changed) {
+        try {
+          await writeFile(target.targetPath, source.bytes, { overwrite: true });
+        } catch (error) {
+          return {
+            ok: false,
+            stage: "host-bridge-cli-install",
+            code: isBusyInstallError(error)
+              ? "cli_install_target_busy"
+              : "cli_install_failed",
+            message: isBusyInstallError(error)
+              ? "Failed to replace the existing zotero-bridge CLI binary because the target file is busy or locked."
+              : "Failed to install zotero-bridge CLI binary.",
+            details: {
+              sourcePath,
+              targetPath: target.targetPath,
+              sourceSha256,
+              targetSha256,
+              message:
+                error instanceof Error ? error.message : String(error || ""),
+            },
+          };
+        }
+        targetSha256 = sourceSha256;
+      }
     }
-    await (deps.chmodExecutable || defaultChmodExecutable)(target.targetPath);
+    permissionFixed = await ensureExecutablePermission({
+      targetPath: target.targetPath,
+      platform: target.platform,
+      chmodExecutable: deps.chmodExecutable,
+    });
+    if (target.platform !== "win32" && !permissionFixed) {
+      return {
+        ok: false,
+        stage: "host-bridge-cli-install",
+        code: "cli_permission_update_failed",
+        message:
+          "Failed to restore executable permissions on the installed zotero-bridge CLI binary.",
+        details: {
+          sourcePath,
+          targetPath: target.targetPath,
+          sourceSha256,
+          targetSha256,
+        },
+      };
+    }
     await writeWindowsShellShim({
       target,
       writeTextFile: deps.writeTextFile,
@@ -513,7 +703,6 @@ export async function installHostBridgeCli(
       message: "Failed to install zotero-bridge CLI binary.",
       details: {
         sourcePath,
-        sourceUri,
         targetPath: target.targetPath,
         message: error instanceof Error ? error.message : String(error || ""),
       },
@@ -566,12 +755,16 @@ export async function installHostBridgeCli(
       : pathUpdated
         ? "zotero-bridge CLI installed and user PATH updated. Restart terminals before using bare zotero-bridge."
         : "zotero-bridge CLI installed. Add the install directory to PATH if needed.",
-    sourcePath: sourcePath || sourceUri,
+    sourcePath,
     targetPath: target.targetPath,
     targetDir: target.targetDir,
     pathAlreadyConfigured,
     pathUpdated,
     terminalRestartRequired: pathUpdated,
+    changed,
+    sourceSha256,
+    targetSha256,
+    permissionFixed,
   };
 }
 

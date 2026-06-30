@@ -1,5 +1,6 @@
 import { joinPath } from "../utils/path";
 import {
+  type RuntimeWriteBytesOptions,
   readRuntimeBytes,
   runtimePathExists,
   writeRuntimeBytes,
@@ -241,8 +242,12 @@ async function readPathBinary(path: string) {
   return readRuntimeBytes(path);
 }
 
-export async function writeBinaryFile(targetPath: string, bytes: Uint8Array) {
-  await writeRuntimeBytes(targetPath, bytes);
+export async function writeBinaryFile(
+  targetPath: string,
+  bytes: Uint8Array,
+  options?: RuntimeWriteBytesOptions,
+) {
+  await writeRuntimeBytes(targetPath, bytes, options);
 }
 
 export async function readPackagedBinaryAsset(
@@ -293,12 +298,15 @@ export async function readPackagedBinaryAsset(
 export async function copyPackagedBinaryAsset(args: {
   relativePath: string;
   targetPath: string;
+  overwrite?: boolean;
 }) {
   const read = await readPackagedBinaryAsset(args.relativePath);
   if (!read.ok) {
     return read;
   }
-  await writeBinaryFile(args.targetPath, read.bytes);
+  await writeBinaryFile(args.targetPath, read.bytes, {
+    overwrite: args.overwrite,
+  });
   return {
     ok: true as const,
     source: read.source,
