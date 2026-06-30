@@ -92,7 +92,7 @@
 
 `unit: "workflow"`일 때, 트리거에 사용자 선택 항목이 필요하지 않습니다 (예: "주제 종합 생성").
 
-### <a id="selection-validation"></a>validateSelection — 선택 검증
+### validateSelection — 선택 검증 {#selection-validation}
 
 `validateSelection`은 선언적 선택 검증입니다. "이미 결과가 있는 항목 건너뛰기" 또는 "특정 타입의 선택만 허용"과 같은 일반적인 시나리오를 다룹니다 — JavaScript를 작성할 필요 없이.
 

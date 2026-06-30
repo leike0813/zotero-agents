@@ -4,6 +4,8 @@ title: Zotero Librarian
 version: 0.1.0
 summary: Hermes profile for maintaining a Zotero literature library through zotero-bridge.
 entrypoint: SOUL.md
+repository: https://github.com/leike0813/zotero-librarian-profile
+sourceRepository: https://github.com/leike0813/zotero-agents
 state:
   defaultDir: "$HERMES_HOME/zotero-librarian"
   overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR

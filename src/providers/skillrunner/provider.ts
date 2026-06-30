@@ -15,6 +15,13 @@ import type {
   ProviderSupportsArgs,
 } from "../types";
 import { appendRuntimeLog } from "../../modules/runtimeLogManager";
+import { resolveBackendManagementAuth } from "../../backends/managementAuth";
+import {
+  assertSkillRunnerBackendSupportsProtocol,
+  resolveRequiredSkillRunnerProtocolForExecution,
+  resolveSkillRunnerBackendCapabilities,
+} from "../../modules/skillRunnerHandshake";
+import { listSupportedSkillRunnerProtocols } from "../../modules/skillRunnerHandshakeProtocol";
 import {
   getDefaultSkillRunnerEngine,
   getSkillRunnerCanonicalProviderId,
@@ -32,6 +39,7 @@ import {
 } from "./modelCatalog";
 import { isSkillRunnerInteractiveAutoReplyEnabled } from "../../modules/skillRunnerInteractiveAutoReply";
 import { SkillRunnerClient } from "./client";
+import { SkillRunnerManagementClient } from "./managementClient";
 import { ensureManagedLocalRuntimeForBackend } from "../../modules/skillRunnerLocalRuntimeManager";
 
 function toBackendCatalogScope(backend?: BackendInstance) {
@@ -471,6 +479,41 @@ export class SkillRunnerProvider implements Provider {
           `managed local runtime ensure failed: ${ensureResult.message}`,
         );
       }
+      const requiredProtocol = resolveRequiredSkillRunnerProtocolForExecution({
+        requestKind: args.requestKind,
+      });
+      const managementClient = new SkillRunnerManagementClient({
+        baseUrl: backend.baseUrl,
+        backendId: backend.id,
+        getManagementAuth: () => resolveBackendManagementAuth(backend),
+      });
+      const capabilities = await resolveSkillRunnerBackendCapabilities({
+        backend,
+        client: managementClient,
+      });
+      appendRuntimeLog({
+        level: "info",
+        scope: "provider",
+        backendId,
+        backendType,
+        providerId: this.id,
+        component: "skillrunner-provider",
+        operation: "handshake",
+        phase: "terminal",
+        stage: "skillrunner-handshake-resolved",
+        message: "skillrunner handshake resolved",
+        details: {
+          source: capabilities.source,
+          backendVersion: capabilities.backend?.version,
+          supportedProtocols: listSupportedSkillRunnerProtocols(capabilities),
+          requiredProtocol,
+        },
+      });
+      assertSkillRunnerBackendSupportsProtocol({
+        backend,
+        capabilities,
+        protocolId: requiredProtocol,
+      });
     }
     appendRuntimeLog({
       level: "info",

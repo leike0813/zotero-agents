@@ -9,6 +9,11 @@ import {
   SkillRunnerHttpError,
   formatSkillRunnerHttpErrorMessage,
 } from "./errors";
+import {
+  buildSkillRunnerHandshakeRequest,
+  normalizeSkillRunnerHandshakeResponse,
+  type SkillRunnerBackendCapabilities,
+} from "../../modules/skillRunnerHandshakeProtocol";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -643,6 +648,29 @@ export class SkillRunnerManagementClient {
       }
     }
     throw lastError || new Error("skillrunner reachability probe failed");
+  }
+
+  async handshake(
+    args?: {
+      requestedProtocols?: readonly string[];
+    } & SkillRunnerManagementRequestOptions,
+  ): Promise<SkillRunnerBackendCapabilities> {
+    const body = await this.requestWithAuthRetry({
+      method: "POST",
+      path: "/v1/system/handshake",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(
+        buildSkillRunnerHandshakeRequest({
+          requestedProtocols: args?.requestedProtocols,
+        }),
+      ),
+      lane: args?.lane || "health",
+      timeoutMs: args?.timeoutMs || DEFAULT_MANAGEMENT_PROBE_TIMEOUT_MS,
+      signal: args?.signal,
+    });
+    return normalizeSkillRunnerHandshakeResponse(body);
   }
 
   async getRun(

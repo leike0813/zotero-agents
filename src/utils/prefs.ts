@@ -10,6 +10,9 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   skillRunnerDeferredTasksJson: string;
   skillRunnerRequestLedgerJson: string;
   skillRunnerSkillDisplayRegistryJson: string;
+  skillRunnerRuntimeFeedUrl: string;
+  skillRunnerRuntimeFeedFallbackUrl: string;
+  skillRunnerRuntimeFeedCacheJson: string;
   skillRunnerLocalRuntimeVersion: string;
   skillRunnerLocalRuntimeStateJson: string;
   tagVocabularyStagedJson: string;

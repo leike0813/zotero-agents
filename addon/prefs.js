@@ -5,7 +5,16 @@ pref("skillRunnerModelCacheJson", "");
 pref("skillRunnerDeferredTasksJson", "");
 pref("skillRunnerRequestLedgerJson", "");
 pref("skillRunnerSkillDisplayRegistryJson", "");
-pref("skillRunnerLocalRuntimeVersion", "v0.7.2");
+pref(
+  "skillRunnerRuntimeFeedUrl",
+  "https://raw.githubusercontent.com/leike0813/zotero-agents/skillrunner-runtime-feed/feed.json",
+);
+pref(
+  "skillRunnerRuntimeFeedFallbackUrl",
+  "https://gitee.com/leike0813/zotero-agents/raw/skillrunner-runtime-feed/feed.json",
+);
+pref("skillRunnerRuntimeFeedCacheJson", "");
+pref("skillRunnerLocalRuntimeVersion", "");
 pref("skillRunnerLocalRuntimeStateJson", "");
 pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);

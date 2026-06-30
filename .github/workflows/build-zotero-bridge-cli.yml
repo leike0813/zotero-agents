@@ -210,7 +210,8 @@ jobs:
           git remote set-url origin $remoteUrl
           ./scripts/publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push
 
-      - name: Publish zotero-librarian profile branch
+      - name: Publish zotero-librarian profile repository
         shell: pwsh
         run: |
-          ./scripts/publish-zotero-librarian-profile.ps1 -AllowDirty -Push
+          $profileRepoUrl = "https://x-access-token:{0}@github.com/leike0813/zotero-librarian-profile.git" -f $env:GH_TOKEN
+          ./scripts/publish-zotero-librarian-profile.ps1 -RepositoryUrl $profileRepoUrl -AllowDirty -Push

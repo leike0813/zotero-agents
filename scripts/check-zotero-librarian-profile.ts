@@ -252,13 +252,22 @@ function checkBinaries(errors: string[]) {
   }
   const publishScript = read("scripts/publish-zotero-librarian-profile.ps1");
   for (const snippet of [
-    "host-bridge/zotero-librarian-profile",
+    "https://github.com/leike0813/zotero-librarian-profile.git",
+    "releaseRepository",
+    "installCommand",
     "assets/zotero-bridge/bin",
     "manifest.json",
     "sourceCommit",
     "dirty",
   ]) {
     assertIncludes(errors, publishScript, snippet, "publish script");
+  }
+  const readme = readProfile("README.md");
+  for (const snippet of [
+    "https://github.com/leike0813/zotero-agents",
+    "hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>",
+  ]) {
+    assertIncludes(errors, readme, snippet, "profile README");
   }
 }
 

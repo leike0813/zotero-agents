@@ -32,6 +32,10 @@ import { resolveManagedLocalRuntimeToastText } from "../utils/localizationGovern
 import { appendRuntimeLog } from "./runtimeLogManager";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
+import {
+  BUILTIN_SKILLRUNNER_RUNTIME_VERSION,
+  resolveSkillRunnerRuntimeVersion,
+} from "./skillRunnerRuntimeFeed";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -44,7 +48,8 @@ const MANAGED_PROFILE_ID = MANAGED_LOCAL_BACKEND_ID;
 const DEFAULT_MANAGED_LOCAL_HOST = "127.0.0.1";
 const DEFAULT_MANAGED_LOCAL_PORT = 29813;
 const DEFAULT_MANAGED_LOCAL_PORT_FALLBACK_SPAN = 10;
-export const DEFAULT_LOCAL_RUNTIME_VERSION = "v0.7.2";
+export const DEFAULT_LOCAL_RUNTIME_VERSION =
+  BUILTIN_SKILLRUNNER_RUNTIME_VERSION;
 const DEFAULT_SKILL_RUNNER_RELEASE_REPO = "leike0813/Skill-Runner";
 const STATE_PREF_KEY = "skillRunnerLocalRuntimeStateJson";
 const VERSION_PREF_KEY = "skillRunnerLocalRuntimeVersion";
@@ -1555,13 +1560,27 @@ function clearManagedLocalRuntimeState() {
 }
 
 function getConfiguredVersionTag() {
-  return getPref(VERSION_PREF_KEY) || DEFAULT_LOCAL_RUNTIME_VERSION;
+  return normalizeString(getPref(VERSION_PREF_KEY));
 }
 
 function setConfiguredVersionTag(versionTag: string) {
-  const normalized =
-    normalizeString(versionTag) || DEFAULT_LOCAL_RUNTIME_VERSION;
-  setPref(VERSION_PREF_KEY, normalized);
+  setPref(VERSION_PREF_KEY, normalizeString(versionTag));
+}
+
+async function resolveManagedLocalRuntimeVersion(args?: {
+  explicitVersion?: string;
+}) {
+  return resolveSkillRunnerRuntimeVersion({
+    explicitVersion:
+      normalizeString(args?.explicitVersion) || getConfiguredVersionTag(),
+  });
+}
+
+function isRuntimeVersionCurrent(
+  state: ManagedLocalRuntimeState,
+  targetVersion: string,
+) {
+  return normalizeString(state.versionTag) === normalizeString(targetVersion);
 }
 
 function buildManagedSkillRunnerBackend(baseUrl: string): BackendInstance {
@@ -3090,8 +3109,14 @@ export async function planLocalRuntimeOneclick(args?: {
   version?: string;
 }): Promise<SkillRunnerLocalRuntimeActionResult> {
   return withRuntimeControlLock(async () => {
-    const version = normalizeString(args?.version) || getConfiguredVersionTag();
-    setConfiguredVersionTag(version);
+    const explicitVersion = normalizeString(args?.version);
+    const resolution = await resolveManagedLocalRuntimeVersion({
+      explicitVersion,
+    });
+    const version = resolution.version;
+    if (explicitVersion) {
+      setConfiguredVersionTag(explicitVersion);
+    }
     const installLayout = buildManagedInstallLayoutDetails();
     const state = readManagedLocalRuntimeState();
     if (!hasRuntimeInfo(state)) {
@@ -3105,6 +3130,24 @@ export async function planLocalRuntimeOneclick(args?: {
           plannedAction: "deploy",
           reason: "no-runtime-info",
           version,
+          versionSource: resolution.source,
+          installLayout,
+        },
+      };
+    }
+    if (!isRuntimeVersionCurrent(state, version)) {
+      setAutoStartEnabledInSession(false);
+      return {
+        ok: true,
+        stage: "oneclick-plan-deploy",
+        message:
+          "one-click plan selects deploy because runtime version differs",
+        details: {
+          plannedAction: "deploy",
+          reason: "version-mismatch",
+          version,
+          currentVersion: normalizeString(state.versionTag),
+          versionSource: resolution.source,
           installLayout,
         },
       };
@@ -3120,6 +3163,7 @@ export async function planLocalRuntimeOneclick(args?: {
           plannedAction: "deploy",
           reason: "missing-install-dir",
           version,
+          versionSource: resolution.source,
           installLayout,
         },
       };
@@ -3142,6 +3186,7 @@ export async function planLocalRuntimeOneclick(args?: {
         details: {
           plannedAction: "start",
           version,
+          versionSource: resolution.source,
           preflight: preflight.details,
         },
       };
@@ -3155,6 +3200,7 @@ export async function planLocalRuntimeOneclick(args?: {
         plannedAction: "deploy",
         reason: "preflight-failed",
         version,
+        versionSource: resolution.source,
         preflight: preflight.details,
         preflightMessage: preflight.message,
         installLayout,
@@ -3197,7 +3243,11 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
 }): Promise<SkillRunnerLocalRuntimeActionResult> {
   return withRuntimeActionMutex("oneclick-deploy-start", async () => {
     const bridge = getCtlBridge();
-    const version = normalizeString(args?.version) || getConfiguredVersionTag();
+    const explicitVersion = normalizeString(args?.version);
+    const resolution = await resolveManagedLocalRuntimeVersion({
+      explicitVersion,
+    });
+    const version = resolution.version;
     const forcedBranch = normalizeString(args?.forcedBranch).toLowerCase() as
       | OneclickPlannedAction
       | "";
@@ -3208,10 +3258,16 @@ export async function deployAndConfigureLocalSkillRunner(args?: {
       trigger: "deploy",
     });
     const installRoot = resolveDefaultInstallRoot();
-    setConfiguredVersionTag(version);
+    if (explicitVersion) {
+      setConfiguredVersionTag(explicitVersion);
+    }
     const stateBeforeOneClick = readManagedLocalRuntimeState();
     try {
-      if (!forceDeploy && hasRuntimeInfo(stateBeforeOneClick)) {
+      if (
+        !forceDeploy &&
+        hasRuntimeInfo(stateBeforeOneClick) &&
+        isRuntimeVersionCurrent(stateBeforeOneClick, version)
+      ) {
         const endpoint = resolveRuntimeEndpoint(stateBeforeOneClick);
         const preflight = await runLocalBridgePreflight({
           bridge,
@@ -3771,7 +3827,10 @@ export function buildManualDeployCommands(args?: {
   port?: number;
   portFallbackSpan?: number;
 }) {
-  const version = normalizeString(args?.version) || getConfiguredVersionTag();
+  const version =
+    normalizeString(args?.version) ||
+    getConfiguredVersionTag() ||
+    DEFAULT_LOCAL_RUNTIME_VERSION;
   const installRoot =
     normalizeString(args?.installRoot) || resolveDefaultInstallRoot();
   const host = normalizeString(args?.host) || DEFAULT_MANAGED_LOCAL_HOST;
@@ -3881,8 +3940,14 @@ export function buildManualDeployCommands(args?: {
 export async function getLocalRuntimeManualDeployCommands(args?: {
   version?: string;
 }): Promise<SkillRunnerLocalRuntimeActionResult> {
-  const version = normalizeString(args?.version) || getConfiguredVersionTag();
-  setConfiguredVersionTag(version);
+  const explicitVersion = normalizeString(args?.version);
+  const resolution = await resolveManagedLocalRuntimeVersion({
+    explicitVersion,
+  });
+  const version = resolution.version;
+  if (explicitVersion) {
+    setConfiguredVersionTag(explicitVersion);
+  }
   const installRoot = resolveDefaultInstallRoot();
   const commands = buildManualDeployCommands({
     version,
@@ -3897,6 +3962,7 @@ export async function getLocalRuntimeManualDeployCommands(args?: {
     message: "[manual-deploy-commands] generated manual deploy commands",
     details: {
       version,
+      versionSource: resolution.source,
       installRoot,
       commands,
     },

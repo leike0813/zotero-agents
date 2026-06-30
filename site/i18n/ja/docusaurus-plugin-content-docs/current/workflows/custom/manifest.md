@@ -92,7 +92,7 @@
 
 `unit: "workflow"` の場合、トリガーにユーザーのアイテム選択を必要としない（例：「トピック合成の作成」）。
 
-### <a id="selection-validation"></a>validateSelection — 選択の検証
+### validateSelection — 選択の検証 {#selection-validation}
 
 `validateSelection` は宣言的な選択検証である。「すでに結果を持つアイテムをスキップする」や「特定の種の選択のみを受け付ける」といった一般的なシナリオを、JavaScript を書かずにカバーする。
 

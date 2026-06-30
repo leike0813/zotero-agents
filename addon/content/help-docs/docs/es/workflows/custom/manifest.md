@@ -92,7 +92,7 @@
 
 Cuando `unit: "workflow"`, no se requieren elementos seleccionados por el usuario para activar (p. ej., "Crear síntesis de tema").
 
-### <a id="selection-validation"></a>validateSelection — Validación de selección
+### validateSelection — Validación de selección {#selection-validation}
 
 `validateSelection` es validación de selección declarativa. Cubre escenarios comunes como "omitir elementos que ya tienen resultados" o "aceptar solo selecciones de tipos específicos" — sin escribir JavaScript.
 

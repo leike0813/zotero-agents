@@ -278,7 +278,10 @@ function renderManifestSource(
   const source = {
     schema: "zotero-librarian.profile.manifest-source.v1",
     profile: "zotero-librarian",
-    profileBranch: "host-bridge/zotero-librarian-profile",
+    releaseRepository: "https://github.com/leike0813/zotero-librarian-profile",
+    sourceRepository: "https://github.com/leike0813/zotero-agents",
+    installCommand:
+      "hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>",
     sourceFiles: {
       hostBridgeCapabilityRegistry:
         "src/modules/hostBridgeCapabilityRegistry.ts",

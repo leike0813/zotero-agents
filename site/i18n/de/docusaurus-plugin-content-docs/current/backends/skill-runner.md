@@ -17,7 +17,7 @@ Geeignet für:
 - Freigabe einer einzelnen Skill-Runner-Instanz über mehrere Geräte in einem LAN
 - Benutzer mit Docker-Erfahrung
 
-#### docker compose (empfohlen)
+#### docker compose (empfohlen) {#recommended-docker-persistent-deployment}
 
 ```yaml
 version: "3"
