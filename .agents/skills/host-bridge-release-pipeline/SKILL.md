@@ -34,9 +34,15 @@ npm run check:zotero-librarian-profile
 npx tsx node_modules/mocha/bin/mocha "test/core/139-host-bridge-cli-packaging.test.ts" --require test/setup/zotero-mock.ts
 ```
 
-3. Publish the source changes to the repository branch that should feed the
-   release workflow, then trigger the GitHub workflow when a manual release is
-   needed:
+3. Publish the source changes to `main` through the normal repository flow.
+   When the committed changes match the Host Bridge release workflow paths,
+   use the automatically created `push` workflow run as the release run.
+
+   Do not manually dispatch the same workflow for `main` after an automatic
+   `push` run has already been created for the release commit. Manual dispatch
+   is only for recovery or explicit republish cases, such as a missing automatic
+   run, an automatic run that cannot be rerun, or a deliberate republish of the
+   current `main` artifacts:
 
 ```powershell
 gh workflow run build-zotero-bridge-cli.yml --ref main
@@ -56,9 +62,11 @@ npm run sync:host-bridge-cli-prebuilds
 
 ## Report
 
-After running, report which local commands ran, the GitHub workflow run used for
-publication, whether `host-bridge-cli-prebuilds` was updated, whether
+After running, report which local commands ran, whether publication used an
+automatic `push` run or a manual dispatch run, the GitHub workflow run used for
+publication, the reason for any manual dispatch, whether
+`host-bridge-cli-prebuilds` was updated, whether
 `host-bridge/zotero-bridge-cli-bundle` was updated, whether
 `leike0813/zotero-librarian-profile` was updated, the profile manifest path,
-whether profile binary checksums match `addon/bin`, and whether local `addon/bin`
-artifacts were synced.
+whether profile binary checksums match `addon/bin`, and whether local
+`addon/bin` artifacts were synced.

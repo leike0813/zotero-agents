@@ -26,3 +26,12 @@ catalog, or CLI prebuild inputs change.
   capability, CLI, workflow catalog, profile, or documentation changes
 - **AND** its report checklist SHALL include standalone profile repository publication and
   profile binary checksum synchronization.
+
+#### Scenario: Local release instructions avoid duplicate main dispatch
+
+- **WHEN** Host Bridge release changes are published to `main` and match the
+  Host Bridge CLI GitHub workflow paths
+- **THEN** the host bridge release-pipeline skill SHALL instruct agents to use
+  the automatic `push` workflow run as the release run
+- **AND** it SHALL reserve manual `workflow_dispatch` for recovery or explicit
+  republish cases.

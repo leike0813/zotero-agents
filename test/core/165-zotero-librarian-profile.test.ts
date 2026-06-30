@@ -84,7 +84,6 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
   });
 
-
   it("ships a tokenEnv based Host Bridge profile example", async function () {
     const sourceTemplate = JSON.parse(
       await fs.readFile(
