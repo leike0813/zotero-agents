@@ -47,19 +47,21 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
 
 3. 最终落库列表确认
    - 用户可选择任意数量候选；不要设置硬上限。
-   - 将确认候选规范化为单篇 `zotero-bridge mutation literature-ingest` 的 JSON 输入。每次 payload 顶层只能包含 `paper` 和可选 `collection`；`paper` 可包含 `title`、`authors`、`year`、`doi`、`arxiv`、`pmid`、`isbn`、`landingUrl`、`pdfUrl`、`abstract`、`venue`。
+   - 将确认候选规范化为单篇 `zotero-bridge mutation literature-ingest` 的 JSON 输入。每次 payload 顶层只能包含 `paper` 和可选 `collection`；`paper` 可包含 `title`、`authors`、`year`、`doi`、`arxiv`、`pmid`、`isbn`、`landingUrl`、`pdfUrl`、`attachLandingUrlOnMissingPdf`、`abstract`、`venue`。
    - 写入 payload 的 `pdfUrl` 必须是经过验证后的可达 URL。
+   - 每篇 payload 都必须设置 `paper.attachLandingUrlOnMissingPdf: true`，让入库阶段在缺 PDF 时为条目创建 landing page 网页链接附件。
    - 禁止生成包含 `papers` 或 `papers[]` 的入库 payload。后端只接受单篇 `paper`；如果用户选择多篇，必须在下一阶段逐篇调用。
    - 一旦用户确认了最终落库列表，本阶段结束；后续不得再让界面进入等待用户输入状态。
 
 4. 入库与最终输出
    - 入库必须逐篇执行。为每篇确认候选分别写入 payload，例如 `runtime/payloads/ingest-paper-001.json`、`runtime/payloads/ingest-paper-002.json`，然后逐个调用 `zotero-bridge mutation literature-ingest --input @runtime/payloads/ingest-paper-001.json`。
-   - 每个 payload 形如 `{ "paper": { ... }, "collection": ... }`。如果 `targetCollection` 存在，作为 payload 的 `collection` 传入。
+   - 每个 payload 形如 `{ "paper": { ..., "attachLandingUrlOnMissingPdf": true }, "collection": ... }`。如果 `targetCollection` 存在，作为 payload 的 `collection` 传入。
    - 入库调用是本阶段的第一动作；不要先输出 pending JSON，也不要等待用户再次确认。
    - 如果 `zotero-bridge mutation literature-ingest` 不可用、审批被拒绝或执行失败，输出合法的 `literature_search_ingest_canceled` 或失败结果，不要停留在 pending。
-   - 聚合每次单篇调用结果，汇总 `created`、`existing`、`failed`、`pdfAttached`、`pdfSkipped`、`pdfFailed`。
-   - 必须额外整理 `missing_pdf_references`：列出所有成功入库但未获得 PDF 的论文。这里的“成功入库”包括 `status` 为 `created` 或 `existing`；“未获得 PDF”包括 `attachmentStatus` 为 `skipped` 或 `failed`。
-   - `missing_pdf_references` 中应尽量保留可供用户手动查找 PDF 的线索，例如 DOI/arXiv/PMID/ISBN、landing page、publisher page、arXiv page、作者页、项目页，或 quoted title 搜索链接。不要放不确定、盗版或需要登录态的 PDF URL。
+   - 聚合每次单篇调用结果，只整理最终用户需要的 `ingested_references`、`missing_pdf_references`，以及非空时的 `ingest_failures`。
+   - `ingested_references` 只列出成功入库论文。这里的“成功入库”包括 `status` 为 `created` 或 `existing`。
+   - `missing_pdf_references` 只列出成功入库但 `hasPdfAttachment` 为 `false` 的论文，并保留 landing page、manual search links 等用于手动找 PDF 的网页线索。不要放不确定、盗版或需要登录态的 PDF URL。
+   - 只有存在入库失败时才输出 `ingest_failures`；不要为零失败输出空数组。
    - 最终只输出合法 JSON object，不要输出大段 Markdown 正文；不要手写或要求写入 `result/result.json`。
 
 ## 输出契约
@@ -71,34 +73,25 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
 完成时必须输出以下结构：
 
 - `kind: "literature_search_ingest"`
-- `query`: 原始用户查询。
-- `search_mode: "topic_expansion" | "paper_seed_expansion" | "targeted_ingest"`
-- `confirmed_references`: 用户确认落库的候选文献数组。每项尽量包含 `index`、`title`、`year`、`authors`、`venue`、`doi`、`arxiv`、`pmid`、`isbn`、`landingUrl`、`pdfUrl`。
-- `summary`: 统计对象，必须包含：
-  - `requested`: 用户确认尝试入库的论文数。
-  - `created`: 新建条目数。
-  - `existing`: 判定已存在且未重复创建的条目数。
-  - `failed`: 入库失败数。
-  - `pdf_attached`: PDF 成功附件数。
-  - `pdf_skipped`: 未提供或不应尝试 PDF 的数量。
-  - `pdf_failed`: 尝试 PDF 附件但失败的数量。
-- `results`: 逐篇落库结果数组。每项必须包含：
-  - `index`: 与候选/确认列表一致的序号。
-  - `title`
-  - `status: "created" | "existing" | "failed"`
-  - `attachmentStatus: "attached" | "skipped" | "failed"`
-  - `itemRef`: 可选，成功入库时尽量包含 `{ "key", "id", "libraryId" }`。
-  - `error`: 可选，失败或 PDF 附件失败时给出结构化错误。
-- `missing_pdf_references`: 必填数组。列出所有 `status` 为 `created` 或 `existing`，且 `attachmentStatus` 为 `skipped` 或 `failed` 的论文。没有则输出空数组 `[]`。每项必须包含：
+- `query`: 可选，原始用户查询。
+- `search_mode: "topic_expansion" | "paper_seed_expansion" | "targeted_ingest"`，可选。
+- `ingested_references`: 必填数组。列出所有成功入库论文，每项只保留：
   - `index`
   - `title`
   - `status: "created" | "existing"`
-  - `attachmentStatus: "skipped" | "failed"`
+  - `itemRef`: 可选，成功入库时尽量包含 `{ "key", "id", "libraryId" }`。
+  - `doi`、`arxiv`、`pmid`、`isbn`: 可选 identifier。
+  - `landingUrl`: 可选。
+- `missing_pdf_references`: 必填数组。列出所有成功入库但 `hasPdfAttachment` 为 `false` 的论文。没有则输出空数组 `[]`。每项必须包含：
+  - `index`
+  - `title`
+  - `status: "created" | "existing"`，可选。
   - `itemRef`: 可选。
   - `doi`、`arxiv`、`pmid`、`isbn`: 可选 identifier。
   - `landingUrl`: 可选，优先 DOI landing、publisher landing、arXiv abs、PMC/Europe PMC 或项目页。
   - `manualSearchLinks`: 可选字符串数组，用于给用户后续手动查找 PDF。可以包含 DOI landing、publisher page、arXiv abs、PMC/Europe PMC、作者主页、项目页、quoted title 搜索链接等；不得包含 Sci-Hub、LibGen、盗版来源、登录态代理 URL 或未确认匹配的 PDF URL。
   - `reason`: 可选，建议使用 `no_public_pdf_url`、`pdf_url_unreachable`、`login_required`、`metadata_uncertain`、`attachment_import_failed` 等简短原因。
+- `ingest_failures`: 可选数组。只有存在入库失败时输出，每项包含 `index`、`title`、`error`。
 
 完成分支示例：
 
@@ -107,27 +100,7 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
   "kind": "literature_search_ingest",
   "query": "polar-based segmentation",
   "search_mode": "topic_expansion",
-  "confirmed_references": [
-    {
-      "index": 1,
-      "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
-      "year": 2020,
-      "authors": ["Yang Zhang", "Zixiang Zhou"],
-      "venue": "CVPR",
-      "doi": "10.1109/CVPR42600.2020.00962",
-      "landingUrl": "https://doi.org/10.1109/CVPR42600.2020.00962"
-    }
-  ],
-  "summary": {
-    "requested": 1,
-    "created": 1,
-    "existing": 0,
-    "failed": 0,
-    "pdf_attached": 0,
-    "pdf_skipped": 1,
-    "pdf_failed": 0
-  },
-  "results": [
+  "ingested_references": [
     {
       "index": 1,
       "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
@@ -137,7 +110,8 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
         "id": 784,
         "libraryId": 1
       },
-      "attachmentStatus": "skipped"
+      "doi": "10.1109/CVPR42600.2020.00962",
+      "landingUrl": "https://doi.org/10.1109/CVPR42600.2020.00962"
     }
   ],
   "missing_pdf_references": [
@@ -145,7 +119,6 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
       "index": 1,
       "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
       "status": "created",
-      "attachmentStatus": "skipped",
       "itemRef": {
         "key": "CHPBJDLU",
         "id": 784,

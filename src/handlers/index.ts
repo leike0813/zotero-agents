@@ -25,6 +25,12 @@ type AttachmentPathOptions = {
   mimeType?: string | null;
   allowMissing?: boolean;
 };
+type AttachmentUrlOptions = {
+  parent: ItemRef;
+  url: string;
+  title?: string | null;
+  mimeType?: string | null;
+};
 
 function assertNonEmptyTags(tags: string[]) {
   for (const tag of tags) {
@@ -239,6 +245,47 @@ function extractFileNameFromPath(path?: string | null) {
   if (!path) return null;
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : null;
+}
+
+function normalizeComparableUrl(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function readItemField(item: Zotero.Item, field: string) {
+  try {
+    return String(item.getField?.(field as any) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function findChildAttachmentByUrl(parent: Zotero.Item, url: string) {
+  const target = normalizeComparableUrl(url);
+  if (!target) {
+    return null;
+  }
+  let attachmentIds: unknown[] = [];
+  try {
+    attachmentIds = parent.getAttachments?.() || [];
+  } catch {
+    attachmentIds = [];
+  }
+  for (const id of attachmentIds) {
+    const attachment = Zotero.Items?.get?.(id as number);
+    if (!attachment) {
+      continue;
+    }
+    if (normalizeComparableUrl(readItemField(attachment, "url")) === target) {
+      return attachment;
+    }
+  }
+  return null;
+}
+
+function assertHttpUrl(url: string) {
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error(`Attachment URL must be HTTP(S): ${url}`);
+  }
 }
 
 async function ensureFileFromPath(options: AttachmentPathOptions) {
@@ -472,6 +519,33 @@ export const handlers = {
           },
         });
       }
+      return attachment;
+    },
+    createFromUrl: async (options: AttachmentUrlOptions) => {
+      const url = String(options.url || "").trim();
+      assertHttpUrl(url);
+      const parent = resolveItem(options.parent);
+      const existing = findChildAttachmentByUrl(parent, url);
+      if (existing) {
+        return existing;
+      }
+      if (typeof Zotero.Attachments?.linkFromURL !== "function") {
+        throw new Error("Zotero.Attachments.linkFromURL is unavailable");
+      }
+      const attachment = await measureAsyncTestPerformanceSpan(
+        "handlers:attachment.createFromUrl:linkFromURL",
+        {
+          hasParent: true,
+          hasUrl: !!url,
+        },
+        () =>
+          Zotero.Attachments.linkFromURL({
+            url,
+            parentItemID: parent.id,
+            title: options.title || url,
+            contentType: options.mimeType || "text/html",
+          }),
+      );
       return attachment;
     },
     update: async (attachmentRef: ItemRef, patch: FieldPatch) => {

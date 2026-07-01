@@ -16,27 +16,13 @@ function completedPayload() {
     kind: "literature_search_ingest",
     query: "foundation models for visual inspection",
     search_mode: "topic_expansion",
-    confirmed_references: [
-      {
-        title: "A Survey of Visual Inspection Foundation Models",
-        doi: "10.5555/example",
-      },
-    ],
-    summary: {
-      requested: 1,
-      created: 1,
-      existing: 0,
-      failed: 0,
-      pdf_attached: 0,
-      pdf_skipped: 1,
-      pdf_failed: 0,
-    },
-    results: [
+    ingested_references: [
       {
         index: 1,
         title: "A Survey of Visual Inspection Foundation Models",
         status: "created",
-        attachmentStatus: "skipped",
+        doi: "10.5555/example",
+        landingUrl: "https://doi.org/10.5555/example",
       },
     ],
     missing_pdf_references: [
@@ -44,7 +30,6 @@ function completedPayload() {
         index: 1,
         title: "A Survey of Visual Inspection Foundation Models",
         status: "created",
-        attachmentStatus: "skipped",
         doi: "10.5555/example",
         landingUrl: "https://doi.org/10.5555/example",
         manualSearchLinks: [
@@ -581,6 +566,8 @@ describe("Literature Search Ingest workflow contract", function () {
       assert.include(text, "synthesis artifact read");
       assert.include(text, "best-effort");
       assert.include(text, "filetype:pdf");
+      assert.include(text, "attachLandingUrlOnMissingPdf");
+      assert.include(text, "ingested_references");
       assert.include(text, "missing_pdf_references");
       assert.include(text, "Connector");
       assert.include(text, "CDP");
@@ -591,11 +578,13 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "ingest-paper-001.json");
     assert.include(skill, "禁止生成包含 `papers`");
     assert.include(skill, "最终只输出合法 JSON object");
-    assert.include(skill, "成功入库但未获得 PDF");
+    assert.include(skill, "hasPdfAttachment");
     assert.include(skill, "manualSearchLinks");
+    assert.include(skill, '"ingested_references"');
     assert.include(skill, '"missing_pdf_references"');
     assert.include(skill, '"literature_search_ingest"');
     assert.include(skill, '"literature_search_ingest_canceled"');
+    assert.notInclude(skill, "confirmed_references");
     assert.notInclude(skill, "confirmed-papers.json");
     assert.notInclude(prompt, "confirmed-papers.json");
     assert.isUndefined(runner.mcp);

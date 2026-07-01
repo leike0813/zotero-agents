@@ -708,6 +708,8 @@ describe("host bridge capability calls", function () {
         operation: "literature.ingest",
         paper: {
           title: "Bridge Literature Ingest",
+          landingUrl: "https://example.test/bridge-literature-ingest",
+          attachLandingUrlOnMissingPdf: true,
         },
       },
     });
@@ -718,6 +720,7 @@ describe("host bridge capability calls", function () {
       "literature.ingest",
     );
     assert.include(canonical.json.result.data.summary, "one paper");
+    assert.include(canonical.json.result.data.summary, "landing link");
   });
 
   it("rejects legacy and batch literature ingest mutation inputs", async function () {
@@ -949,7 +952,9 @@ describe("host bridge capability calls", function () {
         paper: {
           title: "Bridge Ingest Approval",
           doi: "10.5555/bridge.approval",
+          landingUrl: "https://example.test/bridge-approval",
           pdfUrl: "https://example.test/bridge.pdf",
+          attachLandingUrlOnMissingPdf: true,
         },
       },
     });
@@ -963,6 +968,8 @@ describe("host bridge capability calls", function () {
     assert.include(approvalRequest.detail, "Paper: Bridge Ingest Approval");
     assert.include(approvalRequest.detail, "DOI: 10.5555/bridge.approval");
     assert.include(approvalRequest.detail, "PDF: best-effort");
+    assert.include(approvalRequest.detail, "Landing link:");
+    assert.include(approvalRequest.detail, "missing-PDF landing link");
     assert.notInclude(approvalRequest.detail, "Papers:");
     assert.notInclude(approvalRequest.summary, "paper(s)");
     assert.notInclude(approvalRequest.detail, '"operation"');

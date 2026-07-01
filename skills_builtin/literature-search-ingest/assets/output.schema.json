@@ -6,11 +6,7 @@
       "type": "object",
       "required": [
         "kind",
-        "query",
-        "search_mode",
-        "confirmed_references",
-        "summary",
-        "results",
+        "ingested_references",
         "missing_pdf_references"
       ],
       "properties": {
@@ -24,50 +20,24 @@
             "targeted_ingest"
           ]
         },
-        "confirmed_references": {
-          "type": "array",
-          "items": { "type": "object" }
-        },
-        "summary": {
-          "type": "object",
-          "required": [
-            "requested",
-            "created",
-            "existing",
-            "failed",
-            "pdf_attached",
-            "pdf_skipped",
-            "pdf_failed"
-          ],
-          "properties": {
-            "requested": { "type": "number" },
-            "created": { "type": "number" },
-            "existing": { "type": "number" },
-            "failed": { "type": "number" },
-            "pdf_attached": { "type": "number" },
-            "pdf_skipped": { "type": "number" },
-            "pdf_failed": { "type": "number" }
-          },
-          "additionalProperties": true
-        },
-        "results": {
+        "ingested_references": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["index", "title", "status", "attachmentStatus"],
+            "required": ["index", "title", "status"],
             "properties": {
               "index": { "type": "number" },
               "title": { "type": "string" },
               "status": {
                 "type": "string",
-                "enum": ["created", "existing", "failed"]
+                "enum": ["created", "existing"]
               },
               "itemRef": { "type": "object" },
-              "attachmentStatus": {
-                "type": "string",
-                "enum": ["attached", "skipped", "failed"]
-              },
-              "error": { "type": "object" }
+              "doi": { "type": "string" },
+              "arxiv": { "type": "string" },
+              "pmid": { "type": "string" },
+              "isbn": { "type": "string" },
+              "landingUrl": { "type": "string" }
             },
             "additionalProperties": true
           }
@@ -76,17 +46,13 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["index", "title", "status", "attachmentStatus"],
+            "required": ["index", "title"],
             "properties": {
               "index": { "type": "number" },
               "title": { "type": "string" },
               "status": {
                 "type": "string",
                 "enum": ["created", "existing"]
-              },
-              "attachmentStatus": {
-                "type": "string",
-                "enum": ["skipped", "failed"]
               },
               "itemRef": { "type": "object" },
               "doi": { "type": "string" },
@@ -99,6 +65,19 @@
                 "items": { "type": "string" }
               },
               "reason": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "ingest_failures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["index", "title", "error"],
+            "properties": {
+              "index": { "type": "number" },
+              "title": { "type": "string" },
+              "error": { "type": "object" }
             },
             "additionalProperties": true
           }

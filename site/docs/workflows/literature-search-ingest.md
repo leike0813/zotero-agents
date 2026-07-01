@@ -42,12 +42,12 @@ Search academic literature via AI and ingest the results directly into Zotero. S
 
 3. Ingest Phase
    └── Ingest papers one by one via zotero-bridge
-       └── Includes metadata import and PDF attachment import
+       └── Includes metadata import, PDF attachment import, and missing-PDF landing page link attachment
        └── Display ingest progress
 
 4. Completion
-   └── Output ingest result summary
-       └── Includes successful/failed item information
+   └── Output concise ingest result JSON
+       └── Includes successful items, missing-PDF links, and non-empty failures
 ```
 
 ### Interaction Details
@@ -66,6 +66,8 @@ Search academic literature via AI and ingest the results directly into Zotero. S
 
 - Search results are ingested directly as Zotero items
 - Automatically attempts to download PDF attachments (best-effort)
+- Adds a landing page URL attachment when no PDF is available and a landing URL is known
+- Final output lists ingested references and missing-PDF references without repeating full metadata
 - Can specify a target Collection for categorization
 
 ## Parameters

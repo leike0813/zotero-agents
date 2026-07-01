@@ -1480,6 +1480,7 @@ canonical mutation operation：
     "isbn": "9780000000000",
     "landingUrl": "https://example.org/paper",
     "pdfUrl": "https://example.org/paper.pdf",
+    "attachLandingUrlOnMissingPdf": true,
     "abstract": "Optional abstract",
     "venue": "Journal"
   },
@@ -1510,6 +1511,11 @@ Content-Type: application/json
 `literature.ingest` 是文献入库的 canonical mutation operation，只接受单篇
 `paper`。旧 `paper.ingest` operation 和 `papers` 批量 payload 不再支持；多篇
 候选必须由调用方逐篇调用。
+
+`paper.attachLandingUrlOnMissingPdf` 默认为 `false`。设为 `true` 时，如果入库后
+条目仍没有 PDF 附件且 `landingUrl` 可用，`literature.ingest` 会 best-effort 创建
+一个 linked URL child attachment 指向该网页。该网页链接附件失败不会回滚已创建或
+已复用的文献条目。
 
 `note.upsertPayload` 是 Zotero note workflow payload 的正式写入边界。
 它通过 v2 embedded image attachment 写入或替换同 note 下同 `payloadType`
@@ -1544,7 +1550,7 @@ Content-Type: application/json
   "data": {
     "ok": true,
     "operation": "literature.ingest",
-    "summary": "Ingest one paper with best-effort PDF attachment.",
+    "summary": "Ingest one paper with best-effort PDF attachment with missing-PDF landing link attachment.",
     "warnings": [],
     "requiresConfirmation": true,
     "result": {
@@ -1554,7 +1560,9 @@ Content-Type: application/json
         "status": "created",
         "title": "Paper title",
         "identifiers": { "doi": "10.1000/example" },
-        "attachmentStatus": "attached"
+        "attachmentStatus": "attached",
+        "hasPdfAttachment": true,
+        "landingAttachmentStatus": "skipped"
       }
     }
   }
@@ -1562,8 +1570,8 @@ Content-Type: application/json
 ```
 
 入库会触发 Zotero UI approval。用户拒绝、超时或 UI 不可用时返回
-`permission` category。PDF 附件是 best-effort：附件失败不会自动把已创建或
-已复用的 bibliographic item 变成失败。
+`permission` category。PDF 附件和 missing-PDF landing URL 附件都是
+best-effort：附件失败不会自动把已创建或已复用的 bibliographic item 变成失败。
 
 典型错误：
 

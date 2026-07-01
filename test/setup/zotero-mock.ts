@@ -57,6 +57,12 @@ type ZoteroMock = {
       title?: string;
       contentType?: string;
     }) => Promise<MockItem>;
+    linkFromURL?: (opts: {
+      url: string;
+      parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
+    }) => Promise<MockItem>;
     resolveRelativePath?: (dataPath: string) => string;
     getStorageDirectoryByLibraryAndKey?: (
       libraryID: number,
@@ -2488,6 +2494,35 @@ function createZoteroMock(): ZoteroMock {
             encodeURIComponent(url),
           ),
         );
+        await attachment.saveTx();
+        return attachment;
+      },
+      linkFromURL: async ({
+        url,
+        parentItemID,
+        title,
+        contentType,
+      }: {
+        url: string;
+        parentItemID?: number | null;
+        title?: string;
+        contentType?: string;
+      }) => {
+        if (
+          !/^https?:\/\//i.test(url) ||
+          /(?:^|[/?#&])fail(?:[=?&/#]|$)/i.test(url)
+        ) {
+          throw new Error(`Mock attachment URL link failed: ${url}`);
+        }
+        const attachment = new MockItem("attachment");
+        attachment.parentItemID = parentItemID ?? null;
+        attachment.setField("title", title || url);
+        attachment.setField("url", url);
+        attachment.setField("contentType", contentType || "text/html");
+        (attachment as any).attachmentLinkMode = 3;
+        (attachment as any).attachmentContentType =
+          contentType || "text/html";
+        (attachment as any).getAttachmentLinkMode = () => 3;
         await attachment.saveTx();
         return attachment;
       },

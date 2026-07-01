@@ -1302,18 +1302,17 @@ mod tests {
     #[test]
     fn builds_literature_ingest_mutation_input() {
         let input = literature_ingest_input(LiteratureIngestArgs {
-            input: "{\"papers\":[{\"title\":\"Bridge Paper\"}],\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
+            input: "{\"paper\":{\"title\":\"Bridge Paper\",\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
         })
         .unwrap();
         assert_eq!(
             input,
             json!({
                 "operation": "literature.ingest",
-                "papers": [
-                    {
-                        "title": "Bridge Paper"
-                    }
-                ],
+                "paper": {
+                    "title": "Bridge Paper",
+                    "attachLandingUrlOnMissingPdf": true
+                },
                 "collection": {
                     "key": "COLL",
                     "libraryId": 1
@@ -1328,7 +1327,7 @@ mod tests {
             "zotero-bridge-literature-ingest-input-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "{\"papers\":[{\"doi\":\"10.1000/example\"}]}").unwrap();
+        fs::write(&path, "{\"paper\":{\"doi\":\"10.1000/example\"}}").unwrap();
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: format!("@{}", path.display()),
         })
@@ -1337,11 +1336,9 @@ mod tests {
             input,
             json!({
                 "operation": "literature.ingest",
-                "papers": [
-                    {
-                        "doi": "10.1000/example"
-                    }
-                ]
+                "paper": {
+                    "doi": "10.1000/example"
+                }
             })
         );
         let _ = fs::remove_file(path);

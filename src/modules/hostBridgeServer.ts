@@ -878,6 +878,10 @@ function buildMutationApprovalPrompt(input: unknown) {
     const pdfLine = cleanPromptText(paper.pdfUrl)
       ? "PDF: best-effort attachment requested."
       : "PDF: no public PDF URL provided.";
+    const landingLinkLine =
+      paper.attachLandingUrlOnMissingPdf === true
+        ? "Landing link: missing-PDF landing link attachment requested."
+        : "";
     return {
       title: "Approve Zotero literature ingest?",
       summary: "Ingest one literature paper into Zotero.",
@@ -886,6 +890,7 @@ function buildMutationApprovalPrompt(input: unknown) {
         `Paper: ${title}.`,
         identifiers.length ? `Identifier: ${identifiers.join("; ")}.` : "",
         pdfLine,
+        landingLinkLine,
         sourceLine,
       ]
         .filter(Boolean)

@@ -3109,7 +3109,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_INGEST_PAPER,
     title: "Ingest one literature paper",
     description:
-      "Permission-gated single-paper ingest for literature search workflows. Creates or reuses one Zotero item from DOI/arXiv/PMID/ISBN or metadata, and attaches a public PDF URL on a best-effort basis.",
+      "Permission-gated single-paper ingest for literature search workflows. Creates or reuses one Zotero item from DOI/arXiv/PMID/ISBN or metadata, attaches a public PDF URL on a best-effort basis, and can attach a landing page URL when no PDF is available.",
     inputSchema: objectSchema(
       {
         paper: {
@@ -3430,6 +3430,20 @@ function summarizeHostBridgeCapabilityResult(
           payload.result.ingest.attachmentStatus,
         )}`,
       );
+      if ("hasPdfAttachment" in payload.result.ingest) {
+        parts.push(
+          `ingest.hasPdfAttachment=${compactText(
+            payload.result.ingest.hasPdfAttachment,
+          )}`,
+        );
+      }
+      if (payload.result.ingest.landingAttachmentStatus) {
+        parts.push(
+          `ingest.landingAttachmentStatus=${compactText(
+            payload.result.ingest.landingAttachmentStatus,
+          )}`,
+        );
+      }
     }
   }
   return parts.join(" ");

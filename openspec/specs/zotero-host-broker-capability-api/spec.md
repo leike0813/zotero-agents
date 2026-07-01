@@ -45,11 +45,12 @@ The system SHALL expose limited Zotero write operations through
 - **AND** successful preview and execute responses SHALL report
   `operation: "literature.ingest"`.
 
-#### Scenario: Legacy paper ingest alias is accepted
+#### Scenario: Legacy and batch literature ingest inputs are rejected
 
-- **WHEN** a legacy mutation request uses `operation: "paper.ingest"`
-- **THEN** the mutation SHALL remain accepted for compatibility
-- **AND** the response SHALL normalize the operation to `literature.ingest`.
+- **WHEN** a mutation request uses `operation: "paper.ingest"` or passes a
+  `papers` batch payload to `operation: "literature.ingest"`
+- **THEN** the system SHALL reject the mutation with a structured JSON-safe error
+- **AND** Zotero data SHALL NOT be changed.
 
 #### Scenario: Unsupported or invalid mutation
 
@@ -147,4 +148,32 @@ Host Bridge capability calls SHALL parse HTTP JSON request bodies from raw bytes
 - **WHEN** a Host Bridge request body is not valid UTF-8
 - **THEN** the request SHALL fail with a structured bad-request error
 - **AND** the bridge SHALL NOT pass mojibake text to a capability handler.
+
+### Requirement: Literature ingest may attach landing URL when PDF is missing
+
+`literature.ingest` SHALL support an optional `paper.attachLandingUrlOnMissingPdf`
+boolean. The default SHALL be false.
+
+#### Scenario: Missing PDF creates landing URL attachment when requested
+
+- **WHEN** `literature.ingest` successfully creates or reuses a literature item
+- **AND** `paper.attachLandingUrlOnMissingPdf` is true
+- **AND** the resulting item has no PDF attachment after PDF import handling
+- **AND** `paper.landingUrl` is a non-empty HTTP(S) URL
+- **THEN** the mutation SHALL create or reuse one linked URL child attachment
+  for that landing URL
+- **AND** the ingest result SHALL include `landingAttachmentStatus`.
+
+#### Scenario: Existing PDF suppresses landing URL attachment
+
+- **WHEN** `literature.ingest` successfully creates or reuses a literature item
+- **AND** the resulting item has a PDF attachment
+- **THEN** the mutation SHALL NOT create a landing URL attachment for missing-PDF recovery.
+
+#### Scenario: Landing URL attachment failure is non-fatal
+
+- **WHEN** landing URL attachment creation fails
+- **THEN** the literature item ingest SHALL remain successful
+- **AND** the result SHALL include `landingAttachmentStatus: "failed"` and a
+  structured `landingAttachmentError`.
 

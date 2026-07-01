@@ -1404,6 +1404,7 @@ describe("embedded Zotero MCP server protocol", function () {
               doi,
               landingUrl: "https://example.test/papers/zs-mcp-ingest",
               pdfUrl: "https://example.test/papers/zs-mcp-ingest.pdf",
+              attachLandingUrlOnMissingPdf: true,
               venue: "Journal of Agentic Libraries",
             },
           },
@@ -1418,10 +1419,14 @@ describe("embedded Zotero MCP server protocol", function () {
       .ingest;
     assert.strictEqual(firstIngest.status, "created");
     assert.strictEqual(firstIngest.attachmentStatus, "attached");
+    assert.strictEqual(firstIngest.hasPdfAttachment, true);
+    assert.strictEqual(firstIngest.landingAttachmentStatus, "skipped");
     assert.strictEqual(
       firstIngest.item.title,
       "Zotero Skills MCP Ingest Paper",
     );
+    const firstItem = Zotero.Items.get(firstIngest.item.id)!;
+    assert.lengthOf(firstItem.getAttachments(), 1);
 
     const duplicate = await handleZoteroMcpRequestForTests(
       {
@@ -1448,6 +1453,112 @@ describe("embedded Zotero MCP server protocol", function () {
       .result.ingest;
     assert.strictEqual(duplicateIngest.status, "existing");
     assert.strictEqual(duplicateIngest.attachmentStatus, "skipped");
+  });
+
+  it("attaches a landing URL when requested and no PDF is available", async function () {
+    const doi = "10.5555/zs.mcp.ingest.landing.001";
+    const landingUrl = "https://example.test/papers/zs-mcp-landing";
+    const first = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-landing-link",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              title: "Zotero Skills MCP Ingest Landing Link",
+              doi,
+              landingUrl,
+              attachLandingUrlOnMissingPdf: true,
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const firstIngest = (first as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(firstIngest.status, "created");
+    assert.strictEqual(firstIngest.attachmentStatus, "skipped");
+    assert.strictEqual(firstIngest.hasPdfAttachment, false);
+    assert.strictEqual(firstIngest.landingAttachmentStatus, "attached");
+    assert.isOk(firstIngest.landingAttachment);
+
+    const item = Zotero.Items.get(firstIngest.item.id)!;
+    const attachmentIds = item.getAttachments();
+    assert.lengthOf(attachmentIds, 1);
+    const landingAttachment = Zotero.Items.get(attachmentIds[0])!;
+    assert.strictEqual(landingAttachment.getField("url"), landingUrl);
+    assert.strictEqual(landingAttachment.getField("contentType"), "text/html");
+
+    const duplicate = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-landing-link-duplicate",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              title: "Zotero Skills MCP Ingest Landing Link",
+              doi,
+              landingUrl,
+              attachLandingUrlOnMissingPdf: true,
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const duplicateIngest = (duplicate as any).result.structuredContent.data
+      .result.ingest;
+    assert.strictEqual(duplicateIngest.status, "existing");
+    assert.strictEqual(duplicateIngest.landingAttachmentStatus, "attached");
+    assert.lengthOf(item.getAttachments(), 1);
+  });
+
+  it("keeps paper ingest successful when landing URL attachment fails", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-landing-link-fail",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              title: "Zotero Skills MCP Ingest Landing Failure",
+              doi: "10.5555/zs.mcp.ingest.landing.002",
+              landingUrl: "https://example.test/fail?paper=landing",
+              attachLandingUrlOnMissingPdf: true,
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => true,
+      },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    assert.strictEqual(ingest.attachmentStatus, "skipped");
+    assert.strictEqual(ingest.landingAttachmentStatus, "failed");
+    assert.strictEqual(
+      ingest.landingAttachmentError.code,
+      "landing_url_attachment_failed",
+    );
   });
 
   it("keeps paper ingest successful when PDF attachment import fails", async function () {

@@ -555,7 +555,7 @@ pub enum MutationCommand {
     #[command(
         name = "literature-ingest",
         about = "Ingest searched literature into Zotero",
-        long_about = "Execute the canonical literature.ingest mutation through Host Bridge approval. Input is a JSON object with papers[] and optional collection."
+        long_about = "Execute the canonical literature.ingest mutation through Host Bridge approval. Input is a JSON object with one paper and optional collection."
     )]
     LiteratureIngest(LiteratureIngestArgs),
 }
@@ -566,7 +566,7 @@ pub struct LiteratureIngestArgs {
         long,
         value_name = "JSON_OR_FILE",
         help = "Literature ingest payload as inline JSON, a file path, @file, or '-' for stdin",
-        long_help = "Literature ingest payload. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. The payload must be an object with papers[] and optional collection."
+        long_help = "Literature ingest payload. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. The payload must be an object with one paper and optional collection."
     )]
     pub input: String,
 }
@@ -1139,13 +1139,13 @@ mod tests {
             "mutation",
             "literature-ingest",
             "--input",
-            "{\"papers\":[{\"title\":\"A\"}]}",
+            "{\"paper\":{\"title\":\"A\"}}",
         ]);
 
         match cli.command {
             Command::Mutation(args) => match args.command {
                 MutationCommand::LiteratureIngest(input) => {
-                    assert_eq!(input.input, "{\"papers\":[{\"title\":\"A\"}]}");
+                    assert_eq!(input.input, "{\"paper\":{\"title\":\"A\"}}");
                 }
                 _ => panic!("expected mutation literature-ingest"),
             },

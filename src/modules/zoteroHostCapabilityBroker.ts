@@ -237,6 +237,7 @@ export type ZoteroHostIngestPaperInput = {
   landingUrl?: string;
   url?: string;
   pdfUrl?: string;
+  attachLandingUrlOnMissingPdf?: boolean;
   abstract?: string;
   venue?: string;
 };
@@ -254,6 +255,10 @@ export type ZoteroHostIngestPaperResult = {
   item?: ZoteroHostItemSummaryDto;
   attachmentStatus: "attached" | "skipped" | "failed";
   attachment?: ZoteroHostAttachmentDto;
+  hasPdfAttachment: boolean;
+  landingAttachmentStatus?: "attached" | "skipped" | "failed";
+  landingAttachment?: ZoteroHostAttachmentDto;
+  landingAttachmentError?: ZoteroHostMutationError;
   error?: ZoteroHostMutationError;
 };
 
@@ -1569,6 +1574,7 @@ function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
     isbn,
     landingUrl: normalizePaperText(input.landingUrl || input.url, 1000),
     pdfUrl: normalizePaperText(input.pdfUrl, 1000),
+    attachLandingUrlOnMissingPdf: input.attachLandingUrlOnMissingPdf === true,
     abstract: normalizePaperText(input.abstract, 4000),
     venue: normalizePaperText(input.venue, 500),
   };
@@ -1786,6 +1792,86 @@ async function attachPdfBestEffort(
   }
 }
 
+function isPdfAttachment(item: Zotero.Item) {
+  const contentType =
+    readField(item, "contentType", 200).toLowerCase() ||
+    String(
+      (item as unknown as { attachmentContentType?: unknown })
+        .attachmentContentType || "",
+    )
+      .trim()
+      .toLowerCase();
+  if (contentType === "application/pdf") {
+    return true;
+  }
+  const title = getItemTitle(item).toLowerCase();
+  if (title.endsWith(".pdf")) {
+    return true;
+  }
+  const path = String((item as unknown as { path?: unknown }).path || "")
+    .trim()
+    .toLowerCase();
+  return path.endsWith(".pdf");
+}
+
+function itemHasPdfAttachment(item: Zotero.Item) {
+  let attachmentIds: unknown[] = [];
+  try {
+    attachmentIds = item.getAttachments?.() || [];
+  } catch {
+    attachmentIds = [];
+  }
+  for (const id of attachmentIds) {
+    const attachment = resolveZotero().Items.get(id as number);
+    if (attachment && isPdfAttachment(attachment)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function attachLandingUrlWhenMissingPdf(
+  item: Zotero.Item,
+  paper: ReturnType<typeof normalizeIngestPaper>,
+  hasPdfAttachment: boolean,
+) {
+  if (!paper.attachLandingUrlOnMissingPdf) {
+    return {
+      status: undefined,
+      attachment: undefined,
+      error: undefined,
+    };
+  }
+  if (hasPdfAttachment || !paper.landingUrl) {
+    return {
+      status: "skipped" as const,
+      attachment: undefined,
+      error: undefined,
+    };
+  }
+  try {
+    const attachment = await handlers.attachment.createFromUrl({
+      parent: item,
+      url: paper.landingUrl,
+      title: paper.title
+        ? `${paper.title} Landing Page`
+        : "Literature Landing Page",
+      mimeType: "text/html",
+    });
+    return {
+      status: "attached" as const,
+      attachment: await serializeAttachment(attachment),
+      error: undefined,
+    };
+  } catch (error) {
+    return {
+      status: "failed" as const,
+      attachment: undefined,
+      error: childError("landing_url_attachment_failed", error),
+    };
+  }
+}
+
 async function ingestOnePaper(
   paper: ReturnType<typeof normalizeIngestPaper>,
   index: number,
@@ -1822,6 +1908,12 @@ async function ingestOnePaper(
       }
     }
     const attachment = await attachPdfBestEffort(item, paper);
+    const hasPdfAttachment = itemHasPdfAttachment(item);
+    const landingAttachment = await attachLandingUrlWhenMissingPdf(
+      item,
+      paper,
+      hasPdfAttachment,
+    );
     return {
       index,
       status,
@@ -1830,6 +1922,10 @@ async function ingestOnePaper(
       item: serializeZoteroItemSummary(item),
       attachmentStatus: attachment.status,
       attachment: attachment.attachment,
+      hasPdfAttachment,
+      landingAttachmentStatus: landingAttachment.status,
+      landingAttachment: landingAttachment.attachment,
+      landingAttachmentError: landingAttachment.error,
       error: attachment.error,
     };
   } catch (error) {
@@ -1839,6 +1935,7 @@ async function ingestOnePaper(
       title: paper.title,
       identifiers,
       attachmentStatus: paper.pdfUrl ? "failed" : "skipped",
+      hasPdfAttachment: false,
       error: childError("paper_ingest_failed", error),
     };
   }
@@ -2099,6 +2196,10 @@ function previewMutationOrThrow(
         targetRefs: [],
         summary: `Ingest one paper${
           paper.pdfUrl ? " with best-effort PDF attachment" : ""
+        }${
+          paper.attachLandingUrlOnMissingPdf
+            ? " with missing-PDF landing link attachment"
+            : ""
         }.`,
         collection: collection ? serializeCollection(collection) : undefined,
       });
