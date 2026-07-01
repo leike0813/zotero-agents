@@ -98,6 +98,9 @@ pub enum Command {
     #[command(about = "Inspect workflow task state")]
     Task(TaskArgs),
 
+    #[command(about = "Inspect and interact with concrete workflow skill runs")]
+    SkillRun(SkillRunArgs),
+
     #[command(about = "Download registered Host Bridge files")]
     File(FileArgs),
 
@@ -562,6 +565,12 @@ pub enum WorkflowCommand {
         long_about = "Call GET /bridge/v1/workflows/runs/{runId}. This read-only command returns current and recent task state for a workflow run."
     )]
     Run(WorkflowRunArgs),
+
+    #[command(
+        about = "Request cancellation of a workflow run",
+        long_about = "Call POST /bridge/v1/workflows/runs/{runId}/cancel. Cancellation is an intent and does not guarantee immediate terminal status."
+    )]
+    Cancel(WorkflowCancelArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -656,6 +665,18 @@ pub struct WorkflowRunArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct WorkflowCancelArgs {
+    #[arg(help = "Workflow run id")]
+    pub run_id: String,
+
+    #[arg(long, help = "Optional cancellation reason")]
+    pub reason: Option<String>,
+
+    #[arg(long, help = "Optional cancellation message")]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct TaskArgs {
     #[command(subcommand)]
     pub command: TaskCommand,
@@ -668,6 +689,12 @@ pub enum TaskCommand {
         long_about = "Call GET /bridge/v1/tasks. Optional filters: --workflow, --backend, --backend-type, --request, --run, --state, and --active-only."
     )]
     List(TaskListArgs),
+
+    #[command(
+        about = "List lightweight active workflow tasks",
+        long_about = "Call GET /bridge/v1/tasks/active. This returns running, waiting, and failed-retriable task handles without transcripts or local paths."
+    )]
+    Active,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -692,6 +719,48 @@ pub struct TaskListArgs {
 
     #[arg(long, help = "Only return active task runtime rows")]
     pub active_only: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SkillRunArgs {
+    #[command(subcommand)]
+    pub command: SkillRunCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum SkillRunCommand {
+    #[command(
+        about = "Read one concrete skill run",
+        long_about = "Call GET /bridge/v1/skill-runs/{skillRunId}. The skill run id is opaque and should be copied from workflow run status or task active output."
+    )]
+    Get(SkillRunIdArgs),
+
+    #[command(
+        about = "Reply to a waiting ACP skill run",
+        long_about = "Call POST /bridge/v1/skill-runs/{skillRunId}/reply with a message."
+    )]
+    Reply(SkillRunReplyArgs),
+
+    #[command(
+        about = "Connect a recoverable ACP skill run",
+        long_about = "Call POST /bridge/v1/skill-runs/{skillRunId}/connect. This reconnects only and does not send a continuation message."
+    )]
+    Connect(SkillRunIdArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SkillRunIdArgs {
+    #[arg(help = "Opaque skill run id")]
+    pub skill_run_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SkillRunReplyArgs {
+    #[arg(help = "Opaque skill run id")]
+    pub skill_run_id: String,
+
+    #[arg(long, help = "Reply message")]
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -810,7 +879,8 @@ mod tests {
     use clap::{CommandFactory, Parser};
 
     use super::{
-        Cli, Command, LibraryCommand, LiteratureCommand, TopicsCommand, WorkflowCommand,
+        Cli, Command, LibraryCommand, LiteratureCommand, SkillRunCommand, TaskCommand,
+        TopicsCommand, WorkflowCommand,
     };
 
     #[test]
@@ -832,6 +902,7 @@ mod tests {
         assert!(help.contains("literature"));
         assert!(help.contains("workflow"));
         assert!(help.contains("task"));
+        assert!(help.contains("skill-run"));
         assert!(help.contains("file"));
         assert!(help.contains("debug"));
     }
@@ -1111,6 +1182,80 @@ mod tests {
                 _ => panic!("expected workflow agent-run"),
             },
             _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_cancel() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "cancel",
+            "run-1",
+            "--reason",
+            "user-requested",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Cancel(input) => {
+                    assert_eq!(input.run_id, "run-1");
+                    assert_eq!(input.reason.as_deref(), Some("user-requested"));
+                }
+                _ => panic!("expected workflow cancel"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_task_active() {
+        let cli = Cli::parse_from(["zotero-bridge", "task", "active"]);
+
+        match cli.command {
+            Command::Task(args) => match args.command {
+                TaskCommand::Active => {}
+                _ => panic!("expected task active"),
+            },
+            _ => panic!("expected task command"),
+        }
+    }
+
+    #[test]
+    fn parses_skill_run_reply() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "skill-run",
+            "reply",
+            "skill-run-1",
+            "--message",
+            "continue",
+        ]);
+
+        match cli.command {
+            Command::SkillRun(args) => match args.command {
+                SkillRunCommand::Reply(input) => {
+                    assert_eq!(input.skill_run_id, "skill-run-1");
+                    assert_eq!(input.message, "continue");
+                }
+                _ => panic!("expected skill-run reply"),
+            },
+            _ => panic!("expected skill-run command"),
+        }
+    }
+
+    #[test]
+    fn parses_skill_run_connect() {
+        let cli = Cli::parse_from(["zotero-bridge", "skill-run", "connect", "skill-run-1"]);
+
+        match cli.command {
+            Command::SkillRun(args) => match args.command {
+                SkillRunCommand::Connect(input) => {
+                    assert_eq!(input.skill_run_id, "skill-run-1");
+                }
+                _ => panic!("expected skill-run connect"),
+            },
+            _ => panic!("expected skill-run command"),
         }
     }
 

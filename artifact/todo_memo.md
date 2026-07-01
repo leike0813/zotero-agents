@@ -91,7 +91,6 @@
 - [x] Review 页面中的其他选项卡需要测试
 - [x] reference artifact变化后，原来hash记录对应的raw应该标为stale，如果对应的canonical被redirect那么也应该级联stale，最后通过某种机制清除，否则references会无限膨胀
 - [x] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
-- [ ] **初次启动时的使用指导demo**
 - [x] **文献搜索入库 workflow**
 - [p] **文献综述撰写 workflow**
 - [x] Dashboard 的正在运行任务列表，点击无法直接打开侧栏并跳转至任务页面
@@ -100,18 +99,19 @@
 - [x] 用户回复框按向上箭头浏览历史的功能
 - [x] agent的输出，以及其他很多控件中的文本选择和复制等功能不完善，增加code fence完整复制功能
 - [x] 新 UI 稳定后，彻底 deprecate 旧的 Dashboard 和三个对话 panel 的页面代码
-- [ ] Dashboard 中已取消任务统计永远是0
+- [x] Dashboard 中已取消任务统计永远是0
 - [x] Dashboard 以及 Sidebar panels 与 synthesis workbench 的视觉风格统一（包括亮/暗主题切换）
 - [x] 执行失败时的弹窗信息太多太乱
 - [x] Dashboard 正在运行任务窗口似乎会频繁刷新导致scroll不正常
 - [x] **工具栏上的快捷任务观察窗（hover展开）**
-- [p] Tag 管理协议和功能内建化，支持用户自定义tag规则
+- [x] Tag 管理协议和功能内建化，支持用户自定义tag规则
 - [x] **ACP 本地已归档 transcript/Skill runner 本地账本/任务的清理/管理机制**
-- [ ] mock skillrunner 改为 mock acp backend，规避端口问题
-- [ ] **reconcile状态的显式化（例如转圈图标之类的）**
-- [p] **兼容 Zotero 9**
+- [x] **兼容 Zotero 9**
 - [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
+- [ ] host bridge 的取消 workflow 能力
+- [ ] **初次启动时的使用指导demo**
+- [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**
 - [ ] broad cache 治理，去除非必要的静态断言
 - [ ] 进一步抽出所有可复用的手搓 UI 控件（例如之前已经实现的下拉菜单等，统一搜索并抽出），尤其是带 scroll 的控件，每次加入新的该类控件都会遇到重置 scroll 位置的问题，最好直接抽成通用控件

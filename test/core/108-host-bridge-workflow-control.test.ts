@@ -22,6 +22,7 @@ import {
 } from "../../src/modules/taskDashboardHistory";
 import {
   getAcpSkillRunRecord,
+  registerAcpSkillRunController,
   resetAcpSkillRunsForTests,
   resolveAcpSkillRunPermissionRequest,
   upsertAcpSkillRun,
@@ -39,6 +40,7 @@ import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
+import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
@@ -1142,8 +1144,20 @@ describe("host bridge workflow control", function () {
     });
     assert.strictEqual(run.status, 200);
     assert.strictEqual(run.json.result.runId, "run-bridge-1");
+    assert.strictEqual(run.json.result.workflowRunId, "run-bridge-1");
     assert.strictEqual(run.json.result.state, "running");
+    assert.strictEqual(run.json.result.liveness, "active");
     assert.lengthOf(run.json.result.tasks, 1);
+    assert.lengthOf(run.json.result.skillRuns, 1);
+    assert.strictEqual(run.json.result.currentSkillRunId, "request-1");
+    assert.strictEqual(run.json.result.skillRuns[0].skillRunId, "request-1");
+    assert.strictEqual(run.json.result.skillRuns[0].sequenceRole, "single");
+    assert.deepInclude(run.json.result.skillRuns[0].actions, {
+      canReply: false,
+      canConnect: false,
+      canCancelWorkflow: true,
+      isFailedRetriable: false,
+    });
 
     const tasks = await bridgeRequest({
       token,
@@ -1158,12 +1172,34 @@ describe("host bridge workflow control", function () {
   it("resolves sequence task monitoring from the submitted workflow run id", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     const now = new Date().toISOString();
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "digest",
+            skill_id: "digest-skill",
+          },
+        ],
+        final_step_id: "digest",
+      },
+      backend: {
+        id: "backend-1",
+        type: "skillrunner",
+        baseUrl: "http://127.0.0.1:8030",
+      },
+      workflowId: "literature-analysis",
+      workflowLabel: "Literature Analysis",
+      workflowRunId: "run-sequence",
+      jobId: "job-1",
+    });
     const run = createSkillRunnerRun({
       backendId: "backend-1",
       workflowId: "literature-analysis",
       workflowRunId: "run-sequence-job-1",
       jobId: "job-1:digest",
       taskName: "Digest",
+      sequenceRunId: "run-sequence",
       sequenceJobId: "job-1",
       sequenceStepId: "digest",
       createdAt: now,
@@ -1184,10 +1220,25 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(runStatus.status, 200);
     assert.strictEqual(runStatus.json.result.runId, "run-sequence");
     assert.strictEqual(runStatus.json.result.state, "running");
+    assert.strictEqual(runStatus.json.result.currentSkillRunId, run!.runKey);
     assert.lengthOf(runStatus.json.result.tasks, 1);
+    assert.lengthOf(runStatus.json.result.skillRuns, 1);
     assert.strictEqual(
       runStatus.json.result.tasks[0].runId,
       "run-sequence-job-1",
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].skillRunId,
+      run!.runKey,
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].sequenceStepId,
+      "digest",
+    );
+    assert.strictEqual(runStatus.json.result.skillRuns[0].sequenceStepIndex, 0);
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].sequenceRole,
+      "sequence_step",
     );
 
     const tasks = await bridgeRequest({
@@ -1198,5 +1249,284 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(tasks.status, 200);
     assert.lengthOf(tasks.json.result.tasks, 1);
     assert.strictEqual(tasks.json.result.tasks[0].jobId, "job-1:digest");
+  });
+
+  it("lists lightweight active tasks without private payload fields", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    recordWorkflowTaskUpdate({
+      id: "job-running",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-active-1",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Running Task",
+        requestId: "request-running",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
+    recordWorkflowTaskUpdate({
+      id: "job-succeeded",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-terminal-1",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Done Task",
+        requestId: "request-done",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "succeeded",
+      createdAt: now,
+      updatedAt: now,
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-retriable-1",
+      status: "failed",
+      runId: "run-acp-retriable",
+      workflowId: "bridge-workflow",
+      taskName: "Recoverable ACP Task",
+      backendId: "backend-acp",
+      conversationRecoveryState: "available",
+      error: "Private backend error should not be exposed here",
+      workspaceDir: "D:/Workspace/private/run",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/tasks/active",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    const rows = parsed.json.result.tasks as Array<Record<string, unknown>>;
+    assert.sameMembers(
+      rows.map((row) => row.skillRunId),
+      ["request-running", "acp-retriable-1"],
+    );
+    for (const row of rows) {
+      assert.hasAllKeys(row, [
+        "workflowRunId",
+        "skillRunId",
+        "workflowId",
+        "taskName",
+        "state",
+        "liveness",
+        "updatedAt",
+        "actions",
+      ]);
+      assert.notProperty(row, "error");
+      assert.notProperty(row, "workspaceDir");
+      assert.notProperty(row, "transcript");
+    }
+    const retriable = rows.find((row) => row.skillRunId === "acp-retriable-1")!;
+    assert.strictEqual(retriable.liveness, "failed_retriable");
+    assert.deepInclude(retriable.actions as Record<string, unknown>, {
+      canConnect: true,
+      isFailedRetriable: true,
+    });
+  });
+
+  it("records workflow cancel as an intent against workflow-level handles", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    let cancelCalls = 0;
+    upsertAcpSkillRun({
+      requestId: "acp-cancel-1",
+      status: "running",
+      runId: "run-cancel-1",
+      workflowId: "bridge-workflow",
+      taskName: "Cancelable ACP Task",
+      backendId: "backend-acp",
+    });
+    registerAcpSkillRunController("acp-cancel-1", {
+      cancel: async () => {
+        cancelCalls += 1;
+      },
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/runs/run-cancel-1/cancel",
+      headers: {
+        "x-zotero-bridge-scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "acp-cancel-1",
+        }),
+      },
+      body: {
+        reason: "test",
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.accepted, true);
+    assert.strictEqual(parsed.json.result.workflowRunId, "run-cancel-1");
+    assert.strictEqual(parsed.json.result.permission.channel, "acp-skill-run");
+    assert.strictEqual(
+      parsed.json.result.affectedSkillRuns[0].skillRunId,
+      "acp-cancel-1",
+    );
+    assert.strictEqual(cancelCalls, 1);
+  });
+
+  it("targets skill-run reply by explicit skillRunId", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    let receivedMessage = "";
+    upsertAcpSkillRun({
+      requestId: "acp-reply-1",
+      status: "waiting_user",
+      runId: "run-reply-1",
+      workflowId: "bridge-workflow",
+      taskName: "Interactive ACP Task",
+      backendId: "backend-acp",
+      pendingInteraction: {
+        kind: "message",
+        message: "Need input",
+      },
+    });
+    registerAcpSkillRunController("acp-reply-1", {
+      cancel: async () => undefined,
+      reply: async (message: string) => {
+        receivedMessage = message;
+      },
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/acp-reply-1/reply",
+      body: {
+        message: "continue",
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.skillRunId, "acp-reply-1");
+    assert.strictEqual(receivedMessage, "continue");
+
+    const rejected = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/acp-reply-1/reply",
+      body: {
+        message: "",
+      },
+    });
+    assert.strictEqual(rejected.status, 400);
+    assert.strictEqual(rejected.json.error.code, "invalid_request_body");
+  });
+
+  it("returns stable errors for unsupported or non-waiting skill-run interactions", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    const skillRunnerRun = createSkillRunnerRun({
+      runKey: "skillrunner-run-1",
+      backendId: "backend-sr",
+      workflowId: "bridge-workflow",
+      workflowRunId: "run-skillrunner-1",
+      jobId: "job-skillrunner",
+      taskName: "SkillRunner Task",
+      createdAt: now,
+      updatedAt: now,
+    });
+    assert.isNotNull(skillRunnerRun);
+    updateSkillRunnerRunStateByRunKey({
+      runKey: "skillrunner-run-1",
+      state: "waiting_user",
+      updatedAt: now,
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-running-1",
+      status: "running",
+      runId: "run-acp-running",
+      workflowId: "bridge-workflow",
+      taskName: "Running ACP Task",
+      backendId: "backend-acp",
+    });
+
+    const unsupported = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/skillrunner-run-1/reply",
+      body: {
+        message: "continue",
+      },
+    });
+    assert.strictEqual(unsupported.status, 422);
+    assert.strictEqual(
+      unsupported.json.error.code,
+      "unsupported_interaction_backend",
+    );
+
+    const notWaiting = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/acp-running-1/reply",
+      body: {
+        message: "continue",
+      },
+    });
+    assert.strictEqual(notWaiting.status, 409);
+    assert.strictEqual(notWaiting.json.error.code, "skill_run_not_waiting");
+
+    const missing = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/skill-runs/missing-run",
+    });
+    assert.strictEqual(missing.status, 404);
+    assert.strictEqual(missing.json.error.code, "skill_run_not_found");
+  });
+
+  it("connects only ACP recoverable failed skill runs", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    upsertAcpSkillRun({
+      requestId: "acp-connect-1",
+      status: "failed",
+      runId: "run-connect-1",
+      workflowId: "bridge-workflow",
+      taskName: "Recoverable ACP Task",
+      backendId: "backend-acp",
+      conversationRecoveryState: "available",
+    });
+    registerAcpSkillRunController("acp-connect-1", {
+      cancel: async () => undefined,
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-connect-running-1",
+      status: "running",
+      runId: "run-connect-running-1",
+      workflowId: "bridge-workflow",
+      taskName: "Running ACP Task",
+      backendId: "backend-acp",
+    });
+
+    const connected = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/acp-connect-1/connect",
+    });
+    assert.strictEqual(connected.status, 200);
+    assert.strictEqual(connected.json.result.skillRunId, "acp-connect-1");
+    assert.strictEqual(connected.json.result.actions.canConnect, true);
+
+    const rejected = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/skill-runs/acp-connect-running-1/connect",
+    });
+    assert.strictEqual(rejected.status, 409);
+    assert.strictEqual(rejected.json.error.code, "skill_run_not_recoverable");
   });
 });

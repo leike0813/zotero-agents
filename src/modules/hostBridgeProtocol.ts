@@ -37,6 +37,8 @@ export type HostBridgeErrorCode =
   | "file_unavailable"
   | "invalid_capability_input"
   | "invalid_file_id"
+  | "invalid_request_body"
+  | "invalid_skill_run_id"
   | "invalid_workflow_agent_run_request"
   | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
@@ -51,6 +53,10 @@ export type HostBridgeErrorCode =
   | "unauthorized"
   | "workflow_not_found"
   | "workflow_run_not_found"
+  | "skill_run_not_found"
+  | "skill_run_not_waiting"
+  | "skill_run_not_recoverable"
+  | "unsupported_interaction_backend"
   | "workflow_submit_failed"
   | "workflow_submit_requires_approval";
 

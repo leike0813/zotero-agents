@@ -9,6 +9,14 @@ import {
   listTaskDashboardHistory,
   type TaskDashboardHistoryRecord,
 } from "./taskDashboardHistory";
+import {
+  cancelAcpSkillRun,
+  connectAcpSkillRun,
+  getAcpSkillRunRecord,
+  listAcpSkillRunSummaries,
+  replyAcpSkillRun,
+  type AcpSkillRunSummary,
+} from "./acpSkillRunStore";
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   getHostBridgeApprovalRequirement,
@@ -169,8 +177,14 @@ export type HostBridgeTaskFilters = {
 export type HostBridgeWorkflowTaskDto = {
   id: string;
   runId: string;
+  workflowRunId: string;
   jobId: string;
+  skillRunId?: string;
+  runKey?: string;
   requestId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  sequenceRole?: "single" | "sequence_step";
   engine?: string;
   targetParentID?: number;
   workflowId: string;
@@ -184,6 +198,8 @@ export type HostBridgeWorkflowTaskDto = {
   backendType?: string;
   backendBaseUrl?: string;
   state: WorkflowTaskRecord["state"];
+  canReply?: boolean;
+  canCancelBackendRun?: boolean;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -191,8 +207,61 @@ export type HostBridgeWorkflowTaskDto = {
   archivedAt?: string;
 };
 
+export type HostBridgeRunLiveness =
+  | "active"
+  | "waiting"
+  | "failed_retriable"
+  | "terminal"
+  | "unknown";
+
+export type HostBridgeSkillRunActions = {
+  canReply: boolean;
+  canConnect: boolean;
+  canCancelWorkflow: boolean;
+  isFailedRetriable: boolean;
+};
+
+export type HostBridgeSkillRunDto = {
+  skillRunId: string;
+  workflowRunId: string;
+  workflowId?: string;
+  workflowLabel?: string;
+  taskName: string;
+  state: WorkflowTaskRecord["state"];
+  liveness: HostBridgeRunLiveness;
+  updatedAt: string;
+  createdAt?: string;
+  jobId?: string;
+  requestId?: string;
+  backendId?: string;
+  backendType?: string;
+  providerId?: string;
+  requestKind?: string;
+  skillId?: string;
+  skillName?: string;
+  skillLabel?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  sequenceRole?: "single" | "sequence_step";
+  actions: HostBridgeSkillRunActions;
+};
+
+export type HostBridgeActiveTaskDto = {
+  workflowRunId: string;
+  skillRunId: string;
+  workflowId?: string;
+  taskName: string;
+  state: WorkflowTaskRecord["state"];
+  liveness: HostBridgeRunLiveness;
+  updatedAt: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  actions: HostBridgeSkillRunActions;
+};
+
 export type HostBridgeWorkflowRunStatus = {
   runId: string;
+  workflowRunId: string;
   found: boolean;
   state:
     | "queued"
@@ -204,9 +273,20 @@ export type HostBridgeWorkflowRunStatus = {
     | "unknown";
   workflowId?: string;
   workflowLabel?: string;
+  liveness: HostBridgeRunLiveness;
+  skillRuns: HostBridgeSkillRunDto[];
+  currentSkillRunId?: string;
   tasks: HostBridgeWorkflowTaskDto[];
   summary: HostBridgeTaskSummary;
   updatedAt?: string;
+};
+
+export type HostBridgeWorkflowCancelResult = {
+  accepted: boolean;
+  workflowRunId: string;
+  cancelRequestedAt: string;
+  affectedSkillRuns: HostBridgeSkillRunDto[];
+  permission: HostBridgePermissionDecision;
 };
 
 export type HostBridgeTaskSummary = {
@@ -250,7 +330,12 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
       "GET /bridge/v1/workflows/runs/{runId}",
+      "POST /bridge/v1/workflows/runs/{runId}/cancel",
       "GET /bridge/v1/tasks",
+      "GET /bridge/v1/tasks/active",
+      "GET /bridge/v1/skill-runs/{skillRunId}",
+      "POST /bridge/v1/skill-runs/{skillRunId}/reply",
+      "POST /bridge/v1/skill-runs/{skillRunId}/connect",
     ],
     explicitInputRequired: true,
     submitRequiresApproval:
@@ -1110,14 +1195,201 @@ export async function submitHostBridgeWorkflow(args: {
   };
 }
 
+function resolveSkillRunIdFromTask(task: Partial<WorkflowTaskRecord>) {
+  return (
+    normalizeString(task.runKey) ||
+    normalizeString(task.requestId) ||
+    normalizeString(task.localRunId) ||
+    normalizeString(task.id)
+  );
+}
+
+function isTerminalTaskState(state: string) {
+  return state === "succeeded" || state === "failed" || state === "canceled";
+}
+
+function isWaitingTaskState(state: string) {
+  return state === "waiting_user" || state === "waiting_auth";
+}
+
+function isActiveTaskState(state: string) {
+  return state === "queued" || state === "running";
+}
+
+function isRecoverableAcpSummary(summary?: AcpSkillRunSummary | null) {
+  if (!summary) {
+    return false;
+  }
+  const recovery = normalizeString(summary.conversationRecoveryState);
+  return (
+    summary.status === "failed" &&
+    (recovery === "available" ||
+      recovery === "connecting" ||
+      recovery === "connected" ||
+      recovery === "failed")
+  );
+}
+
+function livenessForSkillRun(args: {
+  state: string;
+  acp?: AcpSkillRunSummary | null;
+}): HostBridgeRunLiveness {
+  if (isRecoverableAcpSummary(args.acp)) {
+    return "failed_retriable";
+  }
+  if (isWaitingTaskState(args.state)) {
+    return "waiting";
+  }
+  if (isActiveTaskState(args.state)) {
+    return "active";
+  }
+  if (isTerminalTaskState(args.state)) {
+    return "terminal";
+  }
+  return "unknown";
+}
+
+function actionsForSkillRun(args: {
+  state: string;
+  acp?: AcpSkillRunSummary | null;
+  canReply?: boolean;
+  canCancelBackendRun?: boolean;
+}): HostBridgeSkillRunActions {
+  const failedRetriable = isRecoverableAcpSummary(args.acp);
+  return {
+    canReply:
+      args.state === "waiting_user" && (!!args.acp || args.canReply === true),
+    canConnect: failedRetriable,
+    canCancelWorkflow:
+      !isTerminalTaskState(args.state) ||
+      failedRetriable ||
+      args.canCancelBackendRun === true,
+    isFailedRetriable: failedRetriable,
+  };
+}
+
+function acpSummaryByRequestId() {
+  const byRequest = new Map<string, AcpSkillRunSummary>();
+  for (const summary of listAcpSkillRunSummaries({ includeArchived: true })) {
+    const requestId = normalizeString(summary.requestId);
+    if (requestId) {
+      byRequest.set(requestId, summary);
+    }
+  }
+  return byRequest;
+}
+
+function buildSkillRunFromTask(
+  task: HostBridgeWorkflowTaskDto,
+  acpByRequest: Map<string, AcpSkillRunSummary>,
+): HostBridgeSkillRunDto | null {
+  const skillRunId = normalizeString(task.skillRunId);
+  if (!skillRunId) {
+    return null;
+  }
+  const acp = task.requestId ? acpByRequest.get(task.requestId) : undefined;
+  const workflowTask = task as HostBridgeWorkflowTaskDto & {
+    canReply?: boolean;
+    canCancelBackendRun?: boolean;
+    skillName?: string;
+    skillLabel?: string;
+    skillId?: string;
+  };
+  const state = acp?.status === "repairing" ? "running" : task.state;
+  const actions = actionsForSkillRun({
+    state,
+    acp,
+    canReply: workflowTask.canReply,
+    canCancelBackendRun: workflowTask.canCancelBackendRun,
+  });
+  const dto: HostBridgeSkillRunDto = {
+    skillRunId,
+    workflowRunId: task.workflowRunId,
+    workflowId: task.workflowId,
+    workflowLabel: task.workflowLabel,
+    taskName: acp?.taskName || task.taskName,
+    state,
+    liveness: livenessForSkillRun({ state, acp }),
+    updatedAt: acp?.updatedAt || task.updatedAt,
+    createdAt: acp?.createdAt || task.createdAt,
+    jobId: acp?.jobId || task.jobId,
+    requestId: acp?.requestId || task.requestId,
+    backendId: acp?.backendId || task.backendId,
+    backendType: acp?.backendType || task.backendType,
+    providerId: task.providerId,
+    requestKind: task.requestKind,
+    skillId: acp?.skillId || workflowTask.skillId,
+    skillName: acp?.skillName || workflowTask.skillName,
+    skillLabel: acp?.skillLabel || workflowTask.skillLabel,
+    sequenceStepId: acp?.sequenceStepId || task.sequenceStepId,
+    sequenceStepIndex:
+      typeof acp?.sequenceStepIndex === "number"
+        ? acp.sequenceStepIndex
+        : task.sequenceStepIndex,
+    sequenceRole:
+      acp?.sequenceStepId || task.sequenceStepId ? "sequence_step" : "single",
+    actions,
+  };
+  return dto;
+}
+
+function skillRunRank(run: HostBridgeSkillRunDto) {
+  if (run.liveness === "waiting") {
+    return 4;
+  }
+  if (run.liveness === "failed_retriable") {
+    return 3;
+  }
+  if (run.liveness === "active") {
+    return 2;
+  }
+  if (run.liveness === "terminal") {
+    return 1;
+  }
+  return 0;
+}
+
+function currentSkillRunId(skillRuns: HostBridgeSkillRunDto[]) {
+  return [...skillRuns].sort((left, right) => {
+    const rank = skillRunRank(right) - skillRunRank(left);
+    if (rank !== 0) {
+      return rank;
+    }
+    return right.updatedAt.localeCompare(left.updatedAt);
+  })[0]?.skillRunId;
+}
+
+function workflowLiveness(skillRuns: HostBridgeSkillRunDto[]) {
+  if (skillRuns.some((run) => run.liveness === "waiting")) {
+    return "waiting" as const;
+  }
+  if (skillRuns.some((run) => run.liveness === "failed_retriable")) {
+    return "failed_retriable" as const;
+  }
+  if (skillRuns.some((run) => run.liveness === "active")) {
+    return "active" as const;
+  }
+  if (
+    skillRuns.length > 0 &&
+    skillRuns.every((run) => run.liveness === "terminal")
+  ) {
+    return "terminal" as const;
+  }
+  return "unknown" as const;
+}
+
 function taskToDto(
   task: WorkflowTaskRecord | TaskDashboardHistoryRecord,
   source: "active" | "history",
 ): HostBridgeWorkflowTaskDto {
+  const workflowTask = task as Partial<WorkflowTaskRecord>;
+  const skillRunId = resolveSkillRunIdFromTask(workflowTask);
   const dto: HostBridgeWorkflowTaskDto = {
     id: task.id,
     runId: task.runId,
+    workflowRunId: task.runId,
     jobId: task.jobId,
+    ...(skillRunId ? { skillRunId } : {}),
     workflowId: task.workflowId,
     workflowLabel: task.workflowLabel,
     taskName: task.taskName,
@@ -1126,7 +1398,19 @@ function taskToDto(
     updatedAt: task.updatedAt,
     source,
   };
+  assignIfString(dto, "runKey", workflowTask.runKey);
   assignIfString(dto, "requestId", task.requestId);
+  assignIfString(dto, "sequenceStepId", workflowTask.sequenceStepId);
+  if (typeof workflowTask.sequenceStepIndex === "number") {
+    dto.sequenceStepIndex = workflowTask.sequenceStepIndex;
+  }
+  dto.sequenceRole = workflowTask.sequenceStepId ? "sequence_step" : "single";
+  if (typeof workflowTask.canReply === "boolean") {
+    dto.canReply = workflowTask.canReply;
+  }
+  if (typeof workflowTask.canCancelBackendRun === "boolean") {
+    dto.canCancelBackendRun = workflowTask.canCancelBackendRun;
+  }
   assignIfString(dto, "engine", task.engine);
   if (typeof task.targetParentID === "number") {
     dto.targetParentID = task.targetParentID;
@@ -1331,6 +1615,71 @@ function summarizeTasks(
   return summary;
 }
 
+function acpSummaryToSkillRun(
+  summary: AcpSkillRunSummary,
+): HostBridgeSkillRunDto {
+  const state = summary.status === "repairing" ? "running" : summary.status;
+  return {
+    skillRunId: summary.requestId,
+    workflowRunId: summary.runId || summary.requestId,
+    workflowId: summary.workflowId,
+    workflowLabel: summary.workflowLabel,
+    taskName:
+      summary.taskName ||
+      summary.skillLabel ||
+      summary.skillName ||
+      summary.requestId,
+    state,
+    liveness: livenessForSkillRun({ state, acp: summary }),
+    updatedAt: summary.updatedAt,
+    createdAt: summary.createdAt,
+    jobId: summary.jobId,
+    requestId: summary.requestId,
+    backendId: summary.backendId,
+    backendType: summary.backendType,
+    skillId: summary.skillId,
+    skillName: summary.skillName,
+    skillLabel: summary.skillLabel,
+    sequenceStepId: summary.sequenceStepId,
+    sequenceStepIndex: summary.sequenceStepIndex,
+    sequenceRole: summary.sequenceStepId ? "sequence_step" : "single",
+    actions: actionsForSkillRun({
+      state,
+      acp: summary,
+      canReply: summary.status === "waiting_user",
+      canCancelBackendRun: !isTerminalTaskState(state),
+    }),
+  };
+}
+
+function buildSkillRunsForWorkflow(args: {
+  workflowRunId?: string;
+  tasks: HostBridgeWorkflowTaskDto[];
+}) {
+  const acpByRequest = acpSummaryByRequestId();
+  const byId = new Map<string, HostBridgeSkillRunDto>();
+  for (const task of args.tasks) {
+    const skillRun = buildSkillRunFromTask(task, acpByRequest);
+    if (skillRun) {
+      byId.set(skillRun.skillRunId, skillRun);
+    }
+  }
+  const workflowRunId = normalizeString(args.workflowRunId);
+  for (const summary of acpByRequest.values()) {
+    if (workflowRunId && normalizeString(summary.runId) !== workflowRunId) {
+      continue;
+    }
+    const skillRun = acpSummaryToSkillRun(summary);
+    byId.set(skillRun.skillRunId, {
+      ...byId.get(skillRun.skillRunId),
+      ...skillRun,
+    });
+  }
+  return Array.from(byId.values()).sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
 export function getHostBridgeWorkflowRunStatus(
   runId: string,
 ): HostBridgeWorkflowRunStatus {
@@ -1338,15 +1687,298 @@ export function getHostBridgeWorkflowRunStatus(
   const tasks = normalizedRunId
     ? listHostBridgeTasks({ runId: normalizedRunId, includeHistory: true })
     : [];
+  const skillRuns = buildSkillRunsForWorkflow({
+    workflowRunId: normalizedRunId,
+    tasks,
+  });
   const first = tasks[0];
+  const firstSkillRun = skillRuns[0];
   return {
     runId: normalizedRunId,
-    found: tasks.length > 0,
+    workflowRunId: normalizedRunId,
+    found: tasks.length > 0 || skillRuns.length > 0,
     state: summarizeRunState(tasks),
-    workflowId: first?.workflowId,
-    workflowLabel: first?.workflowLabel,
+    workflowId: first?.workflowId || firstSkillRun?.workflowId,
+    workflowLabel: first?.workflowLabel || firstSkillRun?.workflowLabel,
+    liveness: workflowLiveness(skillRuns),
+    skillRuns,
+    currentSkillRunId: currentSkillRunId(skillRuns),
     tasks,
     summary: summarizeTasks(tasks),
-    updatedAt: first?.updatedAt,
+    updatedAt: first?.updatedAt || firstSkillRun?.updatedAt,
   };
+}
+
+export function listHostBridgeActiveTasks(): HostBridgeActiveTaskDto[] {
+  const tasks = listHostBridgeTasks({
+    includeHistory: false,
+    activeOnly: true,
+  });
+  const acpByRequest = acpSummaryByRequestId();
+  const rows = new Map<string, HostBridgeActiveTaskDto>();
+  for (const task of tasks) {
+    const skillRun = buildSkillRunFromTask(task, acpByRequest);
+    if (!skillRun) {
+      continue;
+    }
+    if (
+      skillRun.liveness !== "active" &&
+      skillRun.liveness !== "waiting" &&
+      skillRun.liveness !== "failed_retriable"
+    ) {
+      continue;
+    }
+    rows.set(skillRun.skillRunId, {
+      workflowRunId: skillRun.workflowRunId,
+      skillRunId: skillRun.skillRunId,
+      workflowId: skillRun.workflowId,
+      taskName: skillRun.taskName,
+      state: skillRun.state,
+      liveness: skillRun.liveness,
+      updatedAt: skillRun.updatedAt,
+      sequenceStepId: skillRun.sequenceStepId,
+      sequenceStepIndex: skillRun.sequenceStepIndex,
+      actions: skillRun.actions,
+    });
+  }
+  for (const acp of acpByRequest.values()) {
+    const skillRun = acpSummaryToSkillRun(acp);
+    if (
+      skillRun.liveness === "active" ||
+      skillRun.liveness === "waiting" ||
+      skillRun.liveness === "failed_retriable"
+    ) {
+      rows.set(skillRun.skillRunId, {
+        workflowRunId: skillRun.workflowRunId,
+        skillRunId: skillRun.skillRunId,
+        workflowId: skillRun.workflowId,
+        taskName: skillRun.taskName,
+        state: skillRun.state,
+        liveness: skillRun.liveness,
+        updatedAt: skillRun.updatedAt,
+        sequenceStepId: skillRun.sequenceStepId,
+        sequenceStepIndex: skillRun.sequenceStepIndex,
+        actions: skillRun.actions,
+      });
+    }
+  }
+  return Array.from(rows.values()).sort((left, right) =>
+    right.updatedAt.localeCompare(left.updatedAt),
+  );
+}
+
+function skillRunError(code: string, message: string, details?: unknown) {
+  const error = new Error(message);
+  (error as { code?: string; details?: unknown }).code = code;
+  if (typeof details !== "undefined") {
+    (error as { details?: unknown }).details = details;
+  }
+  return error;
+}
+
+export function getHostBridgeSkillRun(
+  skillRunIdRaw: string,
+): HostBridgeSkillRunDto {
+  const skillRunId = normalizeString(skillRunIdRaw);
+  if (!skillRunId) {
+    throw skillRunError("invalid_skill_run_id", "skillRunId is required");
+  }
+  const acp = getAcpSkillRunRecord(skillRunId);
+  if (acp) {
+    return acpSummaryToSkillRun({
+      requestId: acp.requestId,
+      status: acp.status,
+      backendStatus: acp.backendStatus,
+      backendId: acp.backendId,
+      backendType: acp.backendType,
+      backendLabel: acp.backendLabel,
+      workflowId: acp.workflowId,
+      workflowLabel: acp.workflowLabel,
+      jobId: acp.jobId,
+      runId: acp.runId,
+      sequenceStepId: acp.sequenceStepId,
+      sequenceStepIndex: acp.sequenceStepIndex,
+      taskName: acp.taskName,
+      skillName: acp.skillName,
+      skillLabel: acp.skillLabel,
+      skillId: acp.skillId,
+      executionMode: acp.executionMode,
+      workspaceDir: acp.workspaceDir,
+      acpModeId: acp.acpModeId,
+      acpModelId: acp.acpModelId,
+      acpReasoningEffort: acp.acpReasoningEffort,
+      agentFamily: acp.agentFamily,
+      conversationState: acp.conversationState,
+      conversationRecoveryState: acp.conversationRecoveryState,
+      conversationError: acp.conversationError,
+      replyState: acp.replyState,
+      connectionActionState: acp.connectionActionState,
+      applyResultState: acp.applyResultState,
+      pendingPermission: acp.pendingPermission || null,
+      activePrompt: acp.activePrompt,
+      error: acp.error,
+      removedAt: acp.removedAt,
+      archivedAt: acp.archivedAt,
+      createdAt: acp.createdAt,
+      updatedAt: acp.updatedAt,
+    });
+  }
+  for (const task of listHostBridgeTasks({ includeHistory: true })) {
+    if (task.skillRunId === skillRunId) {
+      const skillRun = buildSkillRunFromTask(task, acpSummaryByRequestId());
+      if (skillRun) {
+        return skillRun;
+      }
+    }
+  }
+  throw skillRunError("skill_run_not_found", "Skill run not found", {
+    skillRunId,
+  });
+}
+
+function scopedCancelDecision(args: {
+  scope?: HostBridgePermissionScope | null;
+  workflowRunId: string;
+  skillRuns: HostBridgeSkillRunDto[];
+}): HostBridgePermissionDecision | null {
+  const scopeRequestId = normalizeString(args.scope?.requestId);
+  const scopeRunId = normalizeString(args.scope?.runId);
+  const scopeIds = new Set([scopeRequestId, scopeRunId].filter(Boolean));
+  if (scopeIds.size === 0) {
+    return null;
+  }
+  const matchesWorkflow = scopeIds.has(args.workflowRunId);
+  const matchesSkillRun = args.skillRuns.some(
+    (run) =>
+      scopeIds.has(run.skillRunId) ||
+      (run.requestId ? scopeIds.has(run.requestId) : false),
+  );
+  if (!matchesWorkflow && !matchesSkillRun) {
+    return null;
+  }
+  const channel =
+    args.scope?.kind === "skillrunner-run"
+      ? "skillrunner-run"
+      : args.scope?.kind === "acp-chat"
+        ? "acp-chat"
+        : args.scope?.kind === "acp-skill-run" || args.scope?.kind === "acp-run"
+          ? "acp-skill-run"
+          : "global";
+  return {
+    outcome: "approved",
+    requestId: "host-bridge-workflow-cancel-scoped",
+    channel,
+  };
+}
+
+async function resolveWorkflowCancelPermission(args: {
+  workflowRunId: string;
+  skillRuns: HostBridgeSkillRunDto[];
+  scope?: HostBridgePermissionScope | null;
+  timeoutMs?: number;
+}) {
+  const scoped = scopedCancelDecision(args);
+  if (scoped) {
+    return scoped;
+  }
+  return requestHostBridgePermission({
+    action: "workflow.cancel",
+    title: "Cancel workflow run?",
+    summary: `Cancel workflow run ${args.workflowRunId}.`,
+    detail:
+      "This records a cancellation intent and attempts to cancel active supported skill runs. It does not guarantee immediate terminal status.",
+    source: "host-bridge-cli",
+    scope: args.scope,
+    timeoutMs: args.timeoutMs,
+  });
+}
+
+export async function cancelHostBridgeWorkflowRun(args: {
+  workflowRunId: string;
+  reason?: string;
+  message?: string;
+  scope?: HostBridgePermissionScope | null;
+  timeoutMs?: number;
+}): Promise<HostBridgeWorkflowCancelResult> {
+  const workflowRunId = normalizeString(args.workflowRunId);
+  if (!workflowRunId) {
+    throw skillRunError("workflow_run_not_found", "Workflow run not found");
+  }
+  const status = getHostBridgeWorkflowRunStatus(workflowRunId);
+  if (!status.found) {
+    throw skillRunError("workflow_run_not_found", "Workflow run not found", {
+      workflowRunId,
+    });
+  }
+  const permission = await resolveWorkflowCancelPermission({
+    workflowRunId,
+    skillRuns: status.skillRuns,
+    scope: args.scope,
+    timeoutMs: args.timeoutMs,
+  });
+  for (const skillRun of status.skillRuns) {
+    if (
+      skillRun.backendType === "acp" &&
+      skillRun.requestId &&
+      !isTerminalTaskState(skillRun.state)
+    ) {
+      try {
+        await cancelAcpSkillRun(skillRun.requestId);
+      } catch {
+        // Cancellation is an intent; individual backend failures are reflected by later status reads.
+      }
+    }
+  }
+  return {
+    accepted: true,
+    workflowRunId,
+    cancelRequestedAt: new Date().toISOString(),
+    affectedSkillRuns: status.skillRuns,
+    permission,
+  };
+}
+
+export async function replyHostBridgeSkillRun(args: {
+  skillRunId: string;
+  message: string;
+}) {
+  const skillRun = getHostBridgeSkillRun(args.skillRunId);
+  if (skillRun.backendType !== "acp" || !skillRun.requestId) {
+    throw skillRunError(
+      "unsupported_interaction_backend",
+      "Skill run reply is only supported for ACP skill runs",
+      { skillRunId: skillRun.skillRunId },
+    );
+  }
+  if (!skillRun.actions.canReply) {
+    throw skillRunError("skill_run_not_waiting", "Skill run is not waiting", {
+      skillRunId: skillRun.skillRunId,
+      state: skillRun.state,
+    });
+  }
+  await replyAcpSkillRun({
+    requestId: skillRun.requestId,
+    message: args.message,
+  });
+  return getHostBridgeSkillRun(skillRun.skillRunId);
+}
+
+export async function connectHostBridgeSkillRun(args: { skillRunId: string }) {
+  const skillRun = getHostBridgeSkillRun(args.skillRunId);
+  if (skillRun.backendType !== "acp" || !skillRun.requestId) {
+    throw skillRunError(
+      "unsupported_interaction_backend",
+      "Skill run connect is only supported for ACP skill runs",
+      { skillRunId: skillRun.skillRunId },
+    );
+  }
+  if (!skillRun.actions.canConnect) {
+    throw skillRunError(
+      "skill_run_not_recoverable",
+      "Skill run is not recoverable",
+      { skillRunId: skillRun.skillRunId, state: skillRun.state },
+    );
+  }
+  await connectAcpSkillRun(skillRun.requestId);
+  return getHostBridgeSkillRun(skillRun.skillRunId);
 }

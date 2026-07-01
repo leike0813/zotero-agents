@@ -16,8 +16,10 @@ use crate::{
         LiteratureCommand, LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs,
         NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs,
         ReferenceIndexCommand, ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand,
-        TaskArgs, TaskCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs,
-        WorkflowArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        SkillRunArgs, SkillRunCommand, SkillRunIdArgs, SkillRunReplyArgs, TaskArgs, TaskCommand,
+        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs, WorkflowArgs,
+        WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs,
+        WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -160,12 +162,28 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         }
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::Run(args) => client::get(config, &workflow_run_path(args)?),
+        WorkflowCommand::Cancel(args) => {
+            client::post(config, &workflow_cancel_path(&args)?, workflow_cancel_input(args))
+        }
     }
 }
 
 pub fn task(config: &BridgeConfig, args: TaskArgs) -> Result<Value, CliError> {
     match args.command {
         TaskCommand::List(args) => client::get(config, &task_list_path(args)),
+        TaskCommand::Active => client::get(config, "/tasks/active"),
+    }
+}
+
+pub fn skill_run(config: &BridgeConfig, args: SkillRunArgs) -> Result<Value, CliError> {
+    match args.command {
+        SkillRunCommand::Get(args) => client::get(config, &skill_run_path(&args)?),
+        SkillRunCommand::Reply(args) => {
+            client::post(config, &skill_run_reply_path(&args)?, skill_run_reply_input(args))
+        }
+        SkillRunCommand::Connect(args) => {
+            client::post(config, &skill_run_connect_path(&args)?, json!({}))
+        }
     }
 }
 
@@ -557,6 +575,71 @@ fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
         ));
     }
     Ok(format!("/workflows/runs/{}", percent_encode_path(run_id)))
+}
+
+fn workflow_cancel_path(args: &WorkflowCancelArgs) -> Result<String, CliError> {
+    let run_id = args.run_id.trim();
+    if run_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_run_id",
+            "Workflow cancel requires a run id",
+        ));
+    }
+    Ok(format!(
+        "/workflows/runs/{}/cancel",
+        percent_encode_path(run_id)
+    ))
+}
+
+fn workflow_cancel_input(args: WorkflowCancelArgs) -> Value {
+    let mut map = Map::new();
+    if let Some(reason) = args.reason.map(|value| value.trim().to_string()) {
+        if !reason.is_empty() {
+            map.insert("reason".to_string(), Value::String(reason));
+        }
+    }
+    if let Some(message) = args.message.map(|value| value.trim().to_string()) {
+        if !message.is_empty() {
+            map.insert("message".to_string(), Value::String(message));
+        }
+    }
+    Value::Object(map)
+}
+
+fn normalized_skill_run_id(id: &str) -> Result<&str, CliError> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::validation(
+            "missing_skill_run_id",
+            "Skill run command requires a skill run id",
+        ));
+    }
+    Ok(trimmed)
+}
+
+fn skill_run_path(args: &SkillRunIdArgs) -> Result<String, CliError> {
+    Ok(format!(
+        "/skill-runs/{}",
+        percent_encode_path(normalized_skill_run_id(&args.skill_run_id)?)
+    ))
+}
+
+fn skill_run_reply_path(args: &SkillRunReplyArgs) -> Result<String, CliError> {
+    Ok(format!(
+        "/skill-runs/{}/reply",
+        percent_encode_path(normalized_skill_run_id(&args.skill_run_id)?)
+    ))
+}
+
+fn skill_run_connect_path(args: &SkillRunIdArgs) -> Result<String, CliError> {
+    Ok(format!(
+        "/skill-runs/{}/connect",
+        percent_encode_path(normalized_skill_run_id(&args.skill_run_id)?)
+    ))
+}
+
+fn skill_run_reply_input(args: SkillRunReplyArgs) -> Value {
+    json!({ "message": args.message })
 }
 
 fn task_list_path(args: TaskListArgs) -> String {
@@ -1445,6 +1528,50 @@ mod tests {
         assert_eq!(
             path,
             "/tasks?workflowId=w+1&backendId=b&runId=run-1&state=running&includeHistory=false"
+        );
+    }
+
+    #[test]
+    fn builds_workflow_cancel_path_and_input() {
+        let args = WorkflowCancelArgs {
+            run_id: "run 1".to_string(),
+            reason: Some("user".to_string()),
+            message: Some("stop".to_string()),
+        };
+        assert_eq!(
+            workflow_cancel_path(&args).unwrap(),
+            "/workflows/runs/run%201/cancel"
+        );
+        assert_eq!(
+            workflow_cancel_input(args),
+            json!({ "reason": "user", "message": "stop" })
+        );
+    }
+
+    #[test]
+    fn builds_skill_run_paths_and_reply_input() {
+        let id_args = SkillRunIdArgs {
+            skill_run_id: "skill run/1".to_string(),
+        };
+        assert_eq!(
+            skill_run_path(&id_args).unwrap(),
+            "/skill-runs/skill%20run%2F1"
+        );
+        assert_eq!(
+            skill_run_connect_path(&id_args).unwrap(),
+            "/skill-runs/skill%20run%2F1/connect"
+        );
+        let reply_args = SkillRunReplyArgs {
+            skill_run_id: "skill run/1".to_string(),
+            message: "continue".to_string(),
+        };
+        assert_eq!(
+            skill_run_reply_path(&reply_args).unwrap(),
+            "/skill-runs/skill%20run%2F1/reply"
+        );
+        assert_eq!(
+            skill_run_reply_input(reply_args),
+            json!({ "message": "continue" })
         );
     }
 

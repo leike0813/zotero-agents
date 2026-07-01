@@ -15,10 +15,15 @@ import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   describeHostBridgeWorkflow,
   buildHostBridgeWorkflowAgentRun,
+  cancelHostBridgeWorkflowRun,
+  connectHostBridgeSkillRun,
   getHostBridgeWorkflowControlManifest,
+  getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
+  listHostBridgeActiveTasks,
   listHostBridgeTasks,
   listHostBridgeWorkflows,
+  replyHostBridgeSkillRun,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
   type HostBridgeWorkflowAgentRunRequest,
@@ -71,6 +76,7 @@ const PINNED_PORT_MAX = 65535;
 const RECOVERY_DELAY_MS = 1000;
 const SUPERVISOR_INTERVAL_MS = 30000;
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const WORKFLOW_PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 type HostBridgeServerState = {
   status: HostBridgeServiceStatus;
@@ -1507,12 +1513,247 @@ async function getWorkflowRun(request: HttpRequest) {
   return response(200, "OK", hostBridgeOk(status));
 }
 
+function controlPlaneErrorResponse(error: unknown) {
+  const code = String((error as { code?: unknown })?.code || "").trim();
+  const details =
+    (error as { details?: Record<string, unknown> | undefined })?.details ||
+    undefined;
+  if (code === "workflow_run_not_found") {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "workflow_run_not_found",
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "workflow_run_not_found",
+    );
+  }
+  if (code === "skill_run_not_found") {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "skill_run_not_found",
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "skill_run_not_found",
+    );
+  }
+  if (code === "invalid_skill_run_id") {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_skill_run_id",
+        errorMessage(error),
+        "validation",
+        details,
+      ),
+      "invalid_skill_run_id",
+    );
+  }
+  if (code === "skill_run_not_waiting") {
+    return response(
+      409,
+      "Conflict",
+      hostBridgeError(
+        "skill_run_not_waiting",
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "skill_run_not_waiting",
+    );
+  }
+  if (code === "skill_run_not_recoverable") {
+    return response(
+      409,
+      "Conflict",
+      hostBridgeError(
+        "skill_run_not_recoverable",
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "skill_run_not_recoverable",
+    );
+  }
+  if (code === "unsupported_interaction_backend") {
+    return response(
+      422,
+      "Unprocessable Entity",
+      hostBridgeError(
+        "unsupported_interaction_backend",
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "unsupported_interaction_backend",
+    );
+  }
+  return response(
+    500,
+    "Internal Server Error",
+    hostBridgeError("internal_error", errorMessage(error), "internal", details),
+    "internal_error",
+  );
+}
+
+async function cancelWorkflowRun(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow cancel endpoint only supports POST",
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/runs/";
+  const suffix = "/cancel";
+  const encoded = request.path.slice(prefix.length, -suffix.length);
+  const workflowRunId = safeDecodeURIComponent(encoded) || "";
+  try {
+    const payload = parseJsonBody(request.body || "");
+    const object =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {};
+    const result = await cancelHostBridgeWorkflowRun({
+      workflowRunId,
+      reason: String(object.reason || "").trim() || undefined,
+      message: String(object.message || "").trim() || undefined,
+      scope: parsePermissionScopeHeader(request),
+      timeoutMs: WORKFLOW_PERMISSION_TIMEOUT_MS,
+    });
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
+    if (error instanceof HostBridgePermissionError) {
+      return permissionErrorResponse(error);
+    }
+    return controlPlaneErrorResponse(error);
+  }
+}
+
 async function listTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Task list endpoint only supports GET", "GET");
   }
   const tasks = listHostBridgeTasks(parseWorkflowTaskFilters(request.query));
   return response(200, "OK", hostBridgeOk({ tasks }));
+}
+
+async function listActiveTasks(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Active task endpoint only supports GET", "GET");
+  }
+  return response(
+    200,
+    "OK",
+    hostBridgeOk({ tasks: listHostBridgeActiveTasks() }),
+  );
+}
+
+function skillRunPathParts(path: string) {
+  const prefix = "/bridge/v1/skill-runs/";
+  const rest = path.slice(prefix.length);
+  const parts = rest.split("/");
+  return {
+    skillRunId: safeDecodeURIComponent(parts[0] || "") || "",
+    action: parts[1] || "",
+    extra: parts.slice(2),
+  };
+}
+
+async function handleSkillRun(request: HttpRequest) {
+  const { skillRunId, action, extra } = skillRunPathParts(request.path);
+  if (extra.length > 0) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "not_found",
+        "Host Bridge skill run route not found",
+        "not_found",
+      ),
+      "not_found",
+    );
+  }
+  try {
+    if (!action) {
+      if (request.method !== "GET") {
+        return methodNotAllowed("Skill run endpoint only supports GET", "GET");
+      }
+      return response(
+        200,
+        "OK",
+        hostBridgeOk(getHostBridgeSkillRun(skillRunId)),
+      );
+    }
+    if (action === "reply") {
+      if (request.method !== "POST") {
+        return methodNotAllowed(
+          "Skill run reply endpoint only supports POST",
+          "POST",
+        );
+      }
+      const payload = parseJsonBody(request.body || "");
+      const object =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? (payload as Record<string, unknown>)
+          : {};
+      const message = String(object.message || "").trim();
+      if (!message) {
+        return response(
+          400,
+          "Bad Request",
+          hostBridgeError(
+            "invalid_request_body",
+            "skill-run reply requires body.message",
+            "validation",
+          ),
+          "invalid_request_body",
+        );
+      }
+      return response(
+        200,
+        "OK",
+        hostBridgeOk(
+          await replyHostBridgeSkillRun({
+            skillRunId,
+            message,
+          }),
+        ),
+      );
+    }
+    if (action === "connect") {
+      if (request.method !== "POST") {
+        return methodNotAllowed(
+          "Skill run connect endpoint only supports POST",
+          "POST",
+        );
+      }
+      return response(
+        200,
+        "OK",
+        hostBridgeOk(await connectHostBridgeSkillRun({ skillRunId })),
+      );
+    }
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "not_found",
+        "Host Bridge skill run route not found",
+        "not_found",
+      ),
+      "not_found",
+    );
+  } catch (error) {
+    return controlPlaneErrorResponse(error);
+  }
 }
 
 function fileDownloadErrorResponse(error: HostBridgeFileRegistryError) {
@@ -1686,12 +1927,27 @@ async function handleHttpRequest(request: HttpRequest) {
     return agentRunWorkflow(request);
   }
 
+  if (
+    request.path.startsWith("/bridge/v1/workflows/runs/") &&
+    request.path.endsWith("/cancel")
+  ) {
+    return cancelWorkflowRun(request);
+  }
+
   if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
     return getWorkflowRun(request);
   }
 
+  if (request.path === "/bridge/v1/tasks/active") {
+    return listActiveTasks(request);
+  }
+
   if (request.path === "/bridge/v1/tasks") {
     return listTasks(request);
+  }
+
+  if (request.path.startsWith("/bridge/v1/skill-runs/")) {
+    return handleSkillRun(request);
   }
 
   if (request.path.startsWith("/bridge/v1/files/")) {

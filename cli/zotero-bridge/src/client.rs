@@ -321,9 +321,13 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         .unwrap_or("bridge_error");
     let category = match code {
         "capability_not_found" | "capability_failed" => crate::error::ErrorCategory::Capability,
-        "workflow_not_found" | "workflow_run_not_found" | "workflow_submit_failed" => {
-            crate::error::ErrorCategory::Workflow
-        }
+        "workflow_not_found"
+        | "workflow_run_not_found"
+        | "workflow_submit_failed"
+        | "skill_run_not_found"
+        | "skill_run_not_waiting"
+        | "skill_run_not_recoverable"
+        | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
         "workflow_submit_requires_approval"
         | "approval_required"
         | "permission_denied"
@@ -337,6 +341,7 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         | "invalid_workflow_input"
         | "invalid_workflow_submit_request"
         | "invalid_workflow_describe_request"
+        | "invalid_skill_run_id"
         | "invalid_file_id"
         | "bad_request" => crate::error::ErrorCategory::Validation,
         _ => crate::error::ErrorCategory::Protocol,
