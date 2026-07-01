@@ -753,7 +753,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   capability(
     "library.list_note_payloads",
     "library",
-    "List workflow note payloads from embedded attachments and legacy payload blocks.",
+    "List workflow note payloads from embedded attachments and note payload blocks.",
     { type: "item-ref", required: true },
     (input, context) =>
       resolveHostBridgeApis(context).library.listNotePayloads(

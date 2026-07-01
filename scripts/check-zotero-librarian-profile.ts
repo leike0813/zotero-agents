@@ -7,6 +7,7 @@ import {
 
 const ROOT = process.cwd();
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
+const PROFILE_SEMANTIC_ROOT = "profiles_src/hermes/zotero-librarian";
 const EXPECTED_PLATFORMS = [
   "win32-x64",
   "darwin-x64",
@@ -25,6 +26,7 @@ const REQUIRED_FILES = [
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/host-bridge.md",
   "skills/zotero-librarian/references/workflows.md",
+  "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/library-maintenance.md",
   "scripts/zotero_librarian_index_service.py",
   "scripts/install_zotero_bridge_cli.py",
@@ -37,6 +39,40 @@ const REQUIRED_FILES = [
   "assets/host-bridge/profile.example.json",
   "assets/profile-manifest-source.json",
 ];
+const SEMANTIC_SOURCE_FILES = [
+  "SOUL.md",
+  "skills/zotero-librarian/SKILL.md",
+  "skills/zotero-librarian/references/operating-principles.md",
+];
+const CANONICAL_TOP_LEVEL_COMMANDS = new Set([
+  "bridge",
+  "library",
+  "synthesis",
+  "workflow",
+  "run",
+  "mutation",
+  "file",
+  "debug",
+  "call",
+]);
+const REMOVED_TOP_LEVEL_COMMANDS = new Set([
+  "status",
+  "manifest",
+  "item",
+  "note",
+  "topics",
+  "schemas",
+  "concepts",
+  "citation-graph",
+  "library-index",
+  "resolvers",
+  "reference-index",
+  "paper-artifacts",
+  "insights",
+  "literature",
+  "task",
+  "skill-run",
+]);
 
 function read(path: string) {
   return readFileSync(join(ROOT, path), "utf8");
@@ -75,6 +111,17 @@ function assertIncludes(
 function checkStructure(errors: string[]) {
   for (const file of REQUIRED_FILES) {
     assertFile(errors, join(PROFILE_ROOT, file));
+  }
+  for (const file of SEMANTIC_SOURCE_FILES) {
+    assertFile(errors, join(PROFILE_SEMANTIC_ROOT, file));
+    if (
+      read(join(PROFILE_ROOT, file)) !== read(join(PROFILE_SEMANTIC_ROOT, file))
+    ) {
+      fail(
+        errors,
+        `rendered profile file differs from semantic source: ${file}`,
+      );
+    }
   }
   const gitignore = readProfile(".gitignore");
   for (const runtimePath of [
@@ -144,7 +191,12 @@ function checkHostBridgeSurface(errors: string[]) {
   const endpointNames = new Set(
     catalog.endpointMappings.map((entry) => entry.command),
   );
-  for (const command of ["bridge status", "bridge manifest", "run active"]) {
+  for (const command of [
+    "bridge status",
+    "bridge manifest",
+    "run active",
+    "workflow agent-apply",
+  ]) {
     if (!endpointNames.has(command)) {
       fail(errors, `Host Bridge catalog missing zotero-bridge ${command}`);
     }
@@ -160,10 +212,20 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-bridge library snapshot",
     "zotero-bridge library items list",
     "zotero-bridge run active",
+    "zotero-bridge workflow agent-apply",
     "nextCursor",
     "collectionKey",
   ]) {
     assertIncludes(errors, hostReference, snippet, "host-bridge reference");
+  }
+
+  const skill = readProfile("skills/zotero-librarian/SKILL.md");
+  for (const snippet of [
+    "references/operating-principles.md",
+    "workflow agent-apply",
+    "agentRunId",
+  ]) {
+    assertIncludes(errors, skill, snippet, "zotero-librarian skill");
   }
 }
 
@@ -272,12 +334,81 @@ function checkCronAndScripts(errors: string[]) {
       "[SILENT]",
       "duplicate DOI",
     ],
-    "cron/attention-queue.yaml": ['time: "18:00"', "[SILENT]", "synthesis insight"],
+    "cron/attention-queue.yaml": [
+      'time: "18:00"',
+      "[SILENT]",
+      "synthesis",
+      "insight",
+      "attention-queue",
+    ],
   };
   for (const [file, snippets] of Object.entries(cronExpectations)) {
     const source = readProfile(file);
     for (const snippet of snippets) {
       assertIncludes(errors, source, snippet, file);
+    }
+    checkCronCommand(errors, file, source);
+  }
+}
+
+function parseYamlCommandArgv(source: string) {
+  const lines = source.split(/\r?\n/);
+  const commandIndex = lines.findIndex((line) => /^\s*command:\s*$/.test(line));
+  if (commandIndex < 0) {
+    return null;
+  }
+  const commandIndent = lines[commandIndex].match(/^(\s*)/)?.[1].length ?? 0;
+  const argv: string[] = [];
+  for (const line of lines.slice(commandIndex + 1)) {
+    if (!line.trim()) {
+      continue;
+    }
+    const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+    if (indent <= commandIndent) {
+      break;
+    }
+    const match = line.match(/^\s*-\s*(.+?)\s*$/);
+    if (!match) {
+      continue;
+    }
+    argv.push(match[1].replace(/^["']|["']$/g, ""));
+  }
+  return argv;
+}
+
+function checkCronCommand(errors: string[], file: string, source: string) {
+  const argv = parseYamlCommandArgv(source);
+  if (!argv || argv[0] !== "zotero-bridge") {
+    return;
+  }
+  const topLevel = argv[1] || "";
+  if (REMOVED_TOP_LEVEL_COMMANDS.has(topLevel)) {
+    fail(
+      errors,
+      `${file} uses removed zotero-bridge command group: ${topLevel}`,
+    );
+  }
+  if (!CANONICAL_TOP_LEVEL_COMMANDS.has(topLevel)) {
+    fail(
+      errors,
+      `${file} uses non-canonical zotero-bridge command group: ${topLevel}`,
+    );
+  }
+  if (file === "cron/attention-queue.yaml") {
+    const expected = [
+      "zotero-bridge",
+      "synthesis",
+      "insight",
+      "attention-queue",
+    ];
+    if (
+      JSON.stringify(argv.slice(0, expected.length)) !==
+      JSON.stringify(expected)
+    ) {
+      fail(
+        errors,
+        `${file} must use zotero-bridge synthesis insight attention-queue`,
+      );
     }
   }
 }

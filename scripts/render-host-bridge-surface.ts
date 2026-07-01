@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
@@ -9,11 +9,20 @@ import {
 } from "./host-bridge-surface-catalog";
 
 const ROOT = process.cwd();
+const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
+const WRAPPER_AGENT_GUIDANCE_SOURCE =
+  "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md";
 
 type RenderTarget = {
   path: string;
+  sourcePath?: string;
   section: string;
   render: (catalog: HostBridgeSurfaceCatalog) => string;
+};
+
+type CopyTarget = {
+  path: string;
+  sourcePath: string;
 };
 
 function marker(section: string, kind: "start" | "end") {
@@ -25,7 +34,9 @@ function read(path: string) {
 }
 
 function write(path: string, text: string) {
-  writeFileSync(join(ROOT, path), text, "utf8");
+  const absolute = join(ROOT, path);
+  mkdirSync(dirname(absolute), { recursive: true });
+  writeFileSync(absolute, text, "utf8");
 }
 
 function commandForSort(mapping: HostBridgeCliMapping) {
@@ -196,7 +207,7 @@ function shimGuidance() {
 function topicContextGuidance() {
   return [
     "- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
-    "- Omit `view` only when a legacy flat topic context response is required.",
+    "- Omit `view` only when the flat topic context response is required.",
     "- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.",
     '- Example: `zotero-bridge synthesis topic get-context --input \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
   ].join("\n");
@@ -219,14 +230,14 @@ function resolverGuidance() {
     "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
     "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
     '- Examples: `zotero-bridge synthesis resolver resolve --input \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge synthesis resolver resolve --input \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
-    "- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
+    "- Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
   ].join("\n");
 }
 
 function workflowGuidance() {
   return [
     "- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.",
-    "- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use legacy `--input`.",
+    "- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use `--input`.",
     "- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.",
     "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
     "- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
@@ -398,6 +409,7 @@ const TARGETS: RenderTarget[] = [
   },
   {
     path: "skills_builtin/zotero-bridge-cli/SKILL.md",
+    sourcePath: WRAPPER_SKILL_SOURCE,
     section: "wrapper-skill",
     render: renderWrapperSurface,
   },
@@ -410,6 +422,13 @@ const TARGETS: RenderTarget[] = [
     path: "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
     section: "topic-synthesis-fragment",
     render: renderTopicSynthesisFragment,
+  },
+];
+
+const COPY_TARGETS: CopyTarget[] = [
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
+    sourcePath: WRAPPER_AGENT_GUIDANCE_SOURCE,
   },
 ];
 
@@ -437,12 +456,13 @@ function main() {
 
   let changed = false;
   for (const target of TARGETS) {
-    const current = read(target.path);
-    const next = replaceSection(
-      current,
-      target.section,
-      target.render(catalog),
-    );
+    const source = target.sourcePath
+      ? read(target.sourcePath)
+      : read(target.path);
+    const current = existsSync(join(ROOT, target.path))
+      ? read(target.path)
+      : "";
+    const next = replaceSection(source, target.section, target.render(catalog));
     if (next !== current) {
       changed = true;
       if (check) {
@@ -450,6 +470,22 @@ function main() {
       } else {
         write(target.path, next);
         console.log(`[host-bridge-surface] rendered ${target.path}`);
+      }
+    }
+  }
+
+  for (const target of COPY_TARGETS) {
+    const current = existsSync(join(ROOT, target.path))
+      ? read(target.path)
+      : "";
+    const next = read(target.sourcePath);
+    if (next !== current) {
+      changed = true;
+      if (check) {
+        console.error(`[host-bridge-surface] ${target.path} is out of date`);
+      } else {
+        write(target.path, next);
+        console.log(`[host-bridge-surface] copied ${target.path}`);
       }
     }
   }

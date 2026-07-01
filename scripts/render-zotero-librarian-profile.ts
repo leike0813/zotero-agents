@@ -19,6 +19,7 @@ type WorkflowCatalogEntry = {
 
 const ROOT = process.cwd();
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
+const PROFILE_SEMANTIC_ROOT = "profiles_src/hermes/zotero-librarian";
 const HOST_BRIDGE_REFERENCE = join(
   PROFILE_ROOT,
   "skills/zotero-librarian/references/host-bridge.md",
@@ -40,6 +41,11 @@ const MANIFEST_SOURCE_TARGET = join(
 const GENERATED_MARKER_EXAMPLES = [
   "zotero-librarian:host-bridge:start",
   "zotero-librarian:workflow-catalog:start",
+];
+const PROFILE_SEMANTIC_COPIES = [
+  "SOUL.md",
+  "skills/zotero-librarian/SKILL.md",
+  "skills/zotero-librarian/references/operating-principles.md",
 ];
 
 function read(path: string) {
@@ -260,7 +266,7 @@ function renderWorkflowReference(entries: WorkflowCatalogEntry[]) {
     ...rows,
     "",
     "Use `workflow-show <workflow-id>` to inspect the cached payload contract before direct submission.",
-    "Register submitted runs with `run-register`; monitor active runs with `run-watch`.",
+    "Register and monitor only Host-owned submitted workflow runs with `run-register` and `run-watch`.",
   ].join("\n");
 }
 
@@ -281,11 +287,19 @@ function renderManifestSource(
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
+      semanticSources: PROFILE_SEMANTIC_COPIES.map((path) =>
+        join(PROFILE_SEMANTIC_ROOT, path).replace(/\\/g, "/"),
+      ),
     },
     generated: {
       markers: GENERATED_MARKER_EXAMPLES,
       catalogChecksum: sha256(JSON.stringify(catalog)),
       workflowCatalogChecksum: sha256(JSON.stringify(workflowEntries)),
+      semanticSourceChecksum: sha256(
+        PROFILE_SEMANTIC_COPIES.map((path) =>
+          read(join(PROFILE_SEMANTIC_ROOT, path)),
+        ).join("\n---\n"),
+      ),
     },
   };
   return `${JSON.stringify(source, null, 2)}\n`;
@@ -299,6 +313,15 @@ function render(check = false) {
     throw new Error(errors.join("\n"));
   }
   const workflows = loadWorkflowCatalog();
+
+  for (const path of PROFILE_SEMANTIC_COPIES) {
+    writeOrCheck(
+      join(PROFILE_ROOT, path),
+      read(join(PROFILE_SEMANTIC_ROOT, path)),
+      check,
+      diffs,
+    );
+  }
 
   const hostBridgeSource = read(HOST_BRIDGE_REFERENCE);
   writeOrCheck(

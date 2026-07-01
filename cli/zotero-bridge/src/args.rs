@@ -354,7 +354,7 @@ pub enum TopicsCommand {
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. No view keeps the legacy flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
+        long_about = "Map to Host Bridge capability topics.get_context. Use --input for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. Omitting view keeps the flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --input. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
     GetContext(BridgeInputArgs),
 

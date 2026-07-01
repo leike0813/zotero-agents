@@ -68,7 +68,7 @@ This reference is generated from the Host Bridge capability registry and Rust CL
 | `library.get_note_detail` | Read one Zotero note body in bounded chunks. | zotero-bridge library note get | none |
 | `library.get_note_payload` | Decode one workflow payload from one Zotero note. | zotero-bridge library note payload | none |
 | `library.list_items` | List compact parent Zotero library item summaries with bounded pagination and filters. | zotero-bridge library items list | none |
-| `library.list_note_payloads` | List workflow note payloads from embedded attachments and legacy payload blocks. | zotero-bridge library note payloads | none |
+| `library.list_note_payloads` | List workflow note payloads from embedded attachments and note payload blocks. | zotero-bridge library note payloads | none |
 | `library.search_items` | Search regular Zotero library items by bounded text query. | zotero-bridge library item search | none |
 | `library.sync_snapshot` | Return a paginated Zotero library metadata snapshot for local librarian indexes. | zotero-bridge library snapshot | none |
 

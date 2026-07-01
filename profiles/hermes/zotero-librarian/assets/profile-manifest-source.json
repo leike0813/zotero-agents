@@ -8,14 +8,20 @@
     "hostBridgeCapabilityRegistry": "src/modules/hostBridgeCapabilityRegistry.ts",
     "zoteroBridgeCliCommands": "cli/zotero-bridge/src/commands.rs",
     "workflowManifest": "workflows_builtin/manifest.json",
-    "profileExample": "skills_builtin/zotero-bridge-cli/assets/profile.template.json"
+    "profileExample": "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+    "semanticSources": [
+      "profiles_src/hermes/zotero-librarian/SOUL.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md"
+    ]
   },
   "generated": {
     "markers": [
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "8b6af1356f1c12cb4654b12db813594e109c272e28817533d8c43eb544c424b2",
-    "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821"
+    "catalogChecksum": "4b432464b56d82d07032a1d8b9afa335f67d8d6c127d35921596d0963eba5eef",
+    "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
+    "semanticSourceChecksum": "0d703ce5455c6fa2b3f1d6bf34555c0c7728a6f9425bb722345f2f6d01b069c2"
   }
 }

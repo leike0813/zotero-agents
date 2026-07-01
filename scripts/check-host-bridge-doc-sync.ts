@@ -49,8 +49,24 @@ const CANONICAL_CLI_DOCS = [
   "doc/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/SKILL.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
+];
+
+const CURRENT_STATE_ONLY_DOCS = [
+  "skills_src/zotero-bridge-cli/semantic/SKILL.md",
+  "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md",
+  "skills_builtin/zotero-bridge-cli/SKILL.md",
+  "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
+  "profiles_src/hermes/zotero-librarian/SOUL.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+  "profiles/hermes/zotero-librarian/SOUL.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
 ];
 
 const FORBIDDEN_TEXT = [
@@ -113,7 +129,10 @@ const LEGACY_CLI_REGEX: Array<[RegExp, string]> = [
   [/\bzotero-bridge workflow cancel\b/, "legacy workflow cancel command"],
   [/\bzotero-bridge task\b/, "legacy task command group"],
   [/\bzotero-bridge skill-run\b/, "legacy skill-run command group"],
-  [/`topics (list|get-context|get-report|get-review-input)`/, "legacy topics command fragment"],
+  [
+    /`topics (list|get-context|get-report|get-review-input)`/,
+    "legacy topics command fragment",
+  ],
   [/`schemas get`/, "legacy schemas command fragment"],
   [/`concepts query`/, "legacy concepts command fragment"],
   [/`citation-graph [^`]+`/, "legacy citation graph command fragment"],
@@ -125,6 +144,15 @@ const LEGACY_CLI_REGEX: Array<[RegExp, string]> = [
   [/`literature ingest`/, "legacy literature command fragment"],
   [/`workflow run`/, "legacy workflow run command fragment"],
   [/`task list`/, "legacy task list command fragment"],
+];
+
+const HISTORICAL_PROTOCOL_REGEX: Array<[RegExp, string]> = [
+  [/\blegacy\b/i, "historical protocol wording"],
+  [/\bdeprecated\b/i, "deprecation wording"],
+  [/\bold command\b/i, "old command wording"],
+  [/\bprevious version\b/i, "previous-version wording"],
+  [/\bcompatibility note\b/i, "compatibility-note wording"],
+  [/旧命令|旧版|兼容旧|历史协议/, "historical protocol wording"],
 ];
 
 const REMOVED_PATHS = [
@@ -240,7 +268,21 @@ for (const docPath of CANONICAL_CLI_DOCS) {
   for (const [pattern, label] of LEGACY_CLI_REGEX) {
     const match = text.match(pattern);
     if (match) {
-      fail(`${docPath} contains stale generated CLI text (${label}): ${match[0]}`);
+      fail(
+        `${docPath} contains stale generated CLI text (${label}): ${match[0]}`,
+      );
+    }
+  }
+}
+
+for (const docPath of CURRENT_STATE_ONLY_DOCS) {
+  const text = read(docPath);
+  for (const [pattern, label] of HISTORICAL_PROTOCOL_REGEX) {
+    const match = text.match(pattern);
+    if (match) {
+      fail(
+        `${docPath} contains non-current-state skill/profile text (${label}): ${match[0]}`,
+      );
     }
   }
 }
@@ -253,9 +295,39 @@ for (const required of [
   "zotero-bridge library snapshot",
   "zotero-bridge library items list",
   "zotero-bridge run active",
+  "zotero-bridge workflow agent-apply",
 ]) {
   if (!zoteroLibrarianHostBridge.includes(required)) {
     fail(`zotero-librarian Host Bridge reference missing ${required}`);
+  }
+}
+
+const wrapperSkill = read("skills_builtin/zotero-bridge-cli/SKILL.md");
+for (const required of [
+  "references/agent-guidance.md",
+  "workflow agent-apply",
+  "agentRunId",
+  "agentRequestId",
+]) {
+  if (!wrapperSkill.includes(required)) {
+    fail(
+      `zotero-bridge wrapper skill missing semantic guidance marker: ${required}`,
+    );
+  }
+}
+
+const librarianSkill = read(
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+);
+for (const required of [
+  "references/operating-principles.md",
+  "workflow agent-apply",
+  "agentRunId",
+]) {
+  if (!librarianSkill.includes(required)) {
+    fail(
+      `zotero-librarian skill missing semantic guidance marker: ${required}`,
+    );
   }
 }
 

@@ -4,7 +4,8 @@ schedule:
   time: "18:00"
 command:
   - zotero-bridge
-  - insights
+  - synthesis
+  - insight
   - attention-queue
 behavior:
   unchanged: "[SILENT]"

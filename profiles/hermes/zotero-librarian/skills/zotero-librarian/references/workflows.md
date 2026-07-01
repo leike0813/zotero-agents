@@ -29,7 +29,7 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 | `update-topic-synthesis` | Update Topic Synthesis | skillrunner | workflow | topicId |
 
 Use `workflow-show <workflow-id>` to inspect the cached payload contract before direct submission.
-Register submitted runs with `run-register`; monitor active runs with `run-watch`.
+Register and monitor only Host-owned submitted workflow runs with `run-register` and `run-watch`.
 <!-- zotero-librarian:workflow-catalog:end -->
 
 After `workflow submit`, call:

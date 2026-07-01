@@ -176,7 +176,7 @@ describe("host bridge cli packaging and install", function () {
       wrapperReference,
       "do not wrap them in a top-level `resolver` object",
     );
-    assert.include(wrapperReference, "Legacy fields are rejected");
+    assert.include(wrapperReference, "unsupported fields and are rejected");
     assert.include(wrapperSkill, "references/host-bridge-cli.md");
     assert.notInclude(wrapperReference, 'top-level `"resolver"` field');
     assert.notInclude(docs, "带顶层 `resolver` 字段");
@@ -279,8 +279,8 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "audit");
       assert.include(source, "outputPath");
     }
-    assert.include(cliArgs, "legacy flat response");
-    assert.include(wrapperSkill, "legacy flat topic context response");
+    assert.include(cliArgs, "Omitting view keeps the flat response");
+    assert.include(wrapperSkill, "flat topic context response");
     assert.include(wrapperReference, "compact file envelope");
     assert.include(docs, "omitted_inline_result");
   });

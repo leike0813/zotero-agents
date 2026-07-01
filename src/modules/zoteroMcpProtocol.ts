@@ -2465,7 +2465,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_LIST_NOTE_PAYLOADS,
     title: "List Zotero note payloads",
     description:
-      "List workflow note payloads from embedded attachments and legacy payload blocks. Use this before get_note_payload when a note may contain markdown or workflow JSON payloads.",
+      "List workflow note payloads from embedded attachments and note payload blocks. Use this before get_note_payload when a note may contain markdown or workflow JSON payloads.",
     inputSchema: objectSchema(itemRefProperties),
     handler: async (args, context) => {
       const ref = resolveItemRef(args);
