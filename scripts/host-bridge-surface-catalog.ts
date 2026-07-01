@@ -274,7 +274,10 @@ function synthesisCliMappings(): HostBridgeCliMapping[] {
       "synthesis graph rank-external-references",
       "citation_graph.rank_external_references",
     ],
-    ["synthesis graph rank-library-papers", "citation_graph.rank_library_papers"],
+    [
+      "synthesis graph rank-library-papers",
+      "citation_graph.rank_library_papers",
+    ],
     ["synthesis graph refresh-metrics", "citation_graph.refresh_metrics"],
     ["synthesis index library get", "library_index.get"],
     ["synthesis index reference get", "reference_index.get"],
@@ -304,6 +307,10 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["workflow describe", "POST /bridge/v1/workflows/describe"],
     ["workflow submit", "POST /bridge/v1/workflows/submit"],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
+    [
+      "workflow agent-apply",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+    ],
     ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
     ["run cancel", "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"],
     ["run list", "GET /bridge/v1/tasks"],

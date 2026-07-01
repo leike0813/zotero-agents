@@ -59,7 +59,7 @@ type SelectionLike = {
   [key: string]: unknown;
 };
 
-export type WorkflowSelectionValidationMode = "menu" | "execute";
+export type WorkflowSelectionValidationMode = "menu" | "execute" | "handoff";
 
 export type WorkflowSelectionValidationResult = {
   state: "enabled" | "disabled";
@@ -1148,7 +1148,15 @@ export async function evaluateWorkflowSelection(
   const runtime = createSelectionRuntime(args.runtime);
   const selection = copySelection(args.selectionContext);
   const hasSelection = hasAnySelectionItems(selection);
-  if (!hasSelection && !canWorkflowRunWithoutSelection(manifest)) {
+  const appliesValidateSelection = args.mode !== "handoff";
+  const handoffWorkflowUnit =
+    args.mode === "handoff" &&
+    String(manifest.inputs?.unit || "").trim() === "workflow";
+  if (
+    !hasSelection &&
+    !handoffWorkflowUnit &&
+    !canWorkflowRunWithoutSelection(manifest)
+  ) {
     return {
       state: "disabled",
       reasonCode: "no-selection",
@@ -1157,7 +1165,7 @@ export async function evaluateWorkflowSelection(
     };
   }
   const requiredError = validateRequiredCounts(
-    manifest.validateSelection,
+    appliesValidateSelection ? manifest.validateSelection : undefined,
     selection,
   );
   if (requiredError) {
@@ -1169,7 +1177,7 @@ export async function evaluateWorkflowSelection(
     };
   }
   let selected: { contexts: SelectionLike[]; totalUnits: number };
-  if (manifest.validateSelection) {
+  if (manifest.validateSelection && appliesValidateSelection) {
     selected = await selectByValidateSelectionPolicy({
       manifest,
       selection,
@@ -1188,7 +1196,10 @@ export async function evaluateWorkflowSelection(
       contexts,
       totalUnits: estimatePassThroughTotalUnits(selection),
     };
-  } else if (!hasSelection && canWorkflowRunWithoutSelection(manifest)) {
+  } else if (
+    !hasSelection &&
+    (handoffWorkflowUnit || canWorkflowRunWithoutSelection(manifest))
+  ) {
     selected = { contexts: [selection], totalUnits: 1 };
   } else {
     selected = await selectInputUnit({ manifest, selection, runtime });

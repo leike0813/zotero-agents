@@ -17,9 +17,9 @@ use crate::{
         NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ResolversArgs,
         ResolversCommand, RunArgs, RunCommand, SchemasArgs, SchemasCommand, SkillRunCommand,
         SkillRunIdArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCommand, SynthesisIndexCommand,
-        SynthesisIndexGetCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs,
-        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs,
-        WorkflowSubmitArgs,
+        SynthesisIndexGetCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
+        WorkflowAgentRunArgs, WorkflowArgs, WorkflowCancelArgs, WorkflowCommand,
+        WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -190,6 +190,7 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
+        WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
     }
 }
 
@@ -570,6 +571,69 @@ fn workflow_agent_run(
         .map_err(|error| download_error_with_output_name(error, &output))?;
     write_download_output(&output, &response.bytes, false)?;
     Ok(merge_agent_run_download_payload(result, &output, &response))
+}
+
+fn workflow_agent_apply_result_arg(raw: &str) -> Result<Value, CliError> {
+    let Some((agent_request_id, bundle_path)) = raw.split_once('=') else {
+        return Err(CliError::validation(
+            "invalid_agent_apply_result",
+            "workflow agent-apply --result must be AGENT_REQUEST_ID=BUNDLE_PATH",
+        ));
+    };
+    let agent_request_id = agent_request_id.trim();
+    let bundle_path = bundle_path.trim();
+    if agent_request_id.is_empty() || bundle_path.is_empty() {
+        return Err(CliError::validation(
+            "invalid_agent_apply_result",
+            "workflow agent-apply --result requires non-empty request id and bundle path",
+        ));
+    }
+    Ok(json!({
+        "agentRequestId": agent_request_id,
+        "bundle": {
+            "kind": "local_path",
+            "path": bundle_path
+        }
+    }))
+}
+
+fn workflow_agent_apply_input(args: &WorkflowAgentApplyArgs) -> Result<Value, CliError> {
+    if args.agent_run_id.trim().is_empty() {
+        return Err(CliError::validation(
+            "missing_agent_run_id",
+            "workflow agent-apply requires an agent run id",
+        ));
+    }
+    let mut results = Vec::with_capacity(args.results.len());
+    for result in &args.results {
+        results.push(workflow_agent_apply_result_arg(result)?);
+    }
+    Ok(json!({ "results": results }))
+}
+
+fn workflow_agent_apply_path(args: &WorkflowAgentApplyArgs) -> Result<String, CliError> {
+    let agent_run_id = args.agent_run_id.trim();
+    if agent_run_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_agent_run_id",
+            "workflow agent-apply requires an agent run id",
+        ));
+    }
+    Ok(format!(
+        "/workflows/agent-runs/{}/apply",
+        percent_encode_path(agent_run_id)
+    ))
+}
+
+fn workflow_agent_apply(
+    config: &BridgeConfig,
+    args: WorkflowAgentApplyArgs,
+) -> Result<Value, CliError> {
+    client::post(
+        config,
+        &workflow_agent_apply_path(&args)?,
+        workflow_agent_apply_input(&args)?,
+    )
 }
 
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
@@ -1566,6 +1630,46 @@ mod tests {
             skill_run_reply_input(reply_args),
             json!({ "message": "continue" })
         );
+    }
+
+    #[test]
+    fn builds_workflow_agent_apply_path_and_input() {
+        let args = WorkflowAgentApplyArgs {
+            agent_run_id: "agent run/1".to_string(),
+            results: vec![
+                "req-001=C:\\tmp\\bundle.zip".to_string(),
+                "req-002=D:\\tmp\\bundle-dir".to_string(),
+            ],
+        };
+        assert_eq!(
+            workflow_agent_apply_path(&args).unwrap(),
+            "/workflows/agent-runs/agent%20run%2F1/apply"
+        );
+        assert_eq!(
+            workflow_agent_apply_input(&args).unwrap(),
+            json!({
+                "results": [
+                    {
+                        "agentRequestId": "req-001",
+                        "bundle": { "kind": "local_path", "path": "C:\\tmp\\bundle.zip" }
+                    },
+                    {
+                        "agentRequestId": "req-002",
+                        "bundle": { "kind": "local_path", "path": "D:\\tmp\\bundle-dir" }
+                    }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_workflow_agent_apply_result_arg() {
+        let args = WorkflowAgentApplyArgs {
+            agent_run_id: "agent-run-1".to_string(),
+            results: vec!["req-only".to_string()],
+        };
+        let error = workflow_agent_apply_input(&args).unwrap_err();
+        assert_eq!(error.code, "invalid_agent_apply_result");
     }
 
     #[test]

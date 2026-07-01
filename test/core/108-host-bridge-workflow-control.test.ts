@@ -410,6 +410,11 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+    assert.match(parsed.json.result.agentRunId, /^agent-run-/);
+    assert.isString(parsed.json.result.expiresAt);
+    assert.isArray(parsed.json.result.requests);
+    assert.isAtLeast(parsed.json.result.requests.length, 1);
+    assert.match(parsed.json.result.requests[0].agentRequestId, /^req-/);
     assert.strictEqual(parsed.json.result.bundle.mode, "bridge-download");
     assert.strictEqual(parsed.json.result.applyStatus.allowed, true);
     assert.match(parsed.json.result.bundle.file.fileId, /^file-/);
@@ -437,11 +442,33 @@ describe("host bridge workflow control", function () {
     const workflowJson = JSON.parse(
       await reader.readText("workflow/workflow.json"),
     );
+    const agentRunContext = JSON.parse(
+      await reader.readText("agent-run/context.json"),
+    );
+    const outputContract = JSON.parse(
+      await reader.readText(
+        `agent-run/requests/${parsed.json.result.requests[0].agentRequestId}/output-contract.json`,
+      ),
+    );
+    const applyBackText = await reader.readText("APPLY-BACK.md");
+    const toolkitCli = await reader.readText(
+      "tools/skillrunner-output-contract/skill_runner_contract/cli.py",
+    );
     const contextJson = await reader.readText("selection/context.json");
     const protocolText = await reader.readText("workflow-protocol.md");
     const selectedFile = await reader.readText("selection/files/001-paper.txt");
     const extractedDir = await reader.getExtractedDir();
     assert.strictEqual(workflowJson.id, "bridge-workflow");
+    assert.strictEqual(
+      agentRunContext.agentRunId,
+      parsed.json.result.agentRunId,
+    );
+    assert.strictEqual(
+      outputContract.agentRequestId,
+      parsed.json.result.requests[0].agentRequestId,
+    );
+    assert.include(applyBackText, "zotero-bridge workflow agent-apply");
+    assert.include(toolkitCli, "def cmd_finalize_output");
     assert.deepEqual(
       workflowJson.request.sequence.steps.map(
         (step: { skill_id: string }) => step.skill_id,
@@ -469,6 +496,174 @@ describe("host bridge workflow control", function () {
     );
     assert.notInclude(source, "literature-analysis");
     assert.notInclude(source, "literature-deep-reading");
+  });
+
+  it("applies finalized workflow agent-run bundles once through workflow applyResult", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Apply Parent");
+    await parent.saveTx();
+
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+    assert.strictEqual(handoff.status, 200);
+    const request = handoff.json.result.requests[0];
+    const bundleRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zotero-agent-run-apply-"),
+    );
+    const resultDir = path.join(bundleRoot, "result", request.namespace);
+    const manifestDir = path.join(bundleRoot, "bundle", request.namespace);
+    fs.mkdirSync(resultDir, { recursive: true });
+    fs.mkdirSync(manifestDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(resultDir, "result.json"),
+      JSON.stringify({ status: "ok" }),
+    );
+    fs.writeFileSync(
+      path.join(manifestDir, "manifest.json"),
+      JSON.stringify({ namespace: request.namespace }),
+    );
+
+    const applied = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: {
+        results: [
+          {
+            agentRequestId: request.agentRequestId,
+            bundle: {
+              kind: "local_path",
+              path: bundleRoot,
+            },
+          },
+        ],
+      },
+    });
+
+    assert.strictEqual(applied.status, 200);
+    assert.strictEqual(applied.json.status, "ok");
+    assert.strictEqual(applied.json.result.summary.succeeded, 1);
+    assert.strictEqual(applyCalls, 1);
+
+    const second = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: {
+        results: [
+          {
+            agentRequestId: request.agentRequestId,
+            bundle: {
+              kind: "local_path",
+              path: bundleRoot,
+            },
+          },
+        ],
+      },
+    });
+    assert.strictEqual(second.status, 409);
+    assert.strictEqual(second.json.error.code, "agent_run_already_consumed");
+  });
+
+  it("returns stable workflow agent-run apply errors before consuming the agent run", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.validateSelection = {
+      require: {
+        counts: {
+          notes: {
+            min: 1,
+          },
+        },
+      },
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests(() => {
+      throw new Error("apply_not_allowed must not request approval");
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Apply Rejected Parent");
+    await parent.saveTx();
+
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+    assert.strictEqual(handoff.status, 200);
+    const request = handoff.json.result.requests[0];
+
+    const deniedByApplyStatus = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: {
+        results: [
+          {
+            agentRequestId: request.agentRequestId,
+            bundle: {
+              kind: "local_path",
+              path: "unused",
+            },
+          },
+        ],
+      },
+    });
+    assert.strictEqual(deniedByApplyStatus.status, 409);
+    assert.strictEqual(
+      deniedByApplyStatus.json.error.code,
+      "apply_not_allowed",
+    );
+
+    const unknownRequest = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: {
+        results: [
+          {
+            agentRequestId: "missing-request",
+            bundle: {
+              kind: "local_path",
+              path: "unused",
+            },
+          },
+        ],
+      },
+    });
+    assert.strictEqual(unknownRequest.status, 400);
+    assert.strictEqual(unknownRequest.json.error.code, "unknown_request");
   });
 
   it("rejects workflow agent-run runtime options and provider profiles", async function () {

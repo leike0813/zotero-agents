@@ -20,12 +20,14 @@ import {
   getHostBridgeWorkflowControlManifest,
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
+  applyHostBridgeWorkflowAgentRun,
   listHostBridgeActiveTasks,
   listHostBridgeTasks,
   listHostBridgeWorkflows,
   replyHostBridgeSkillRun,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
+  type HostBridgeWorkflowAgentApplyRequest,
   type HostBridgeWorkflowAgentRunRequest,
   type HostBridgeWorkflowDescribeRequest,
   type HostBridgeWorkflowSubmitRequest,
@@ -44,6 +46,7 @@ import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
   HOST_BRIDGE_PROTOCOL_VERSION,
@@ -1495,6 +1498,49 @@ async function agentRunWorkflow(request: HttpRequest) {
   }
 }
 
+async function applyAgentRunWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow agent-run apply endpoint only supports POST",
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/agent-runs/";
+  const suffix = "/apply";
+  const encoded = request.path.slice(prefix.length, -suffix.length);
+  const agentRunId = safeDecodeURIComponent(encoded) || "";
+  let payload: HostBridgeWorkflowAgentApplyRequest;
+  try {
+    payload = parseJsonBody(
+      request.body,
+    ) as HostBridgeWorkflowAgentApplyRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_agent_run_apply_request" as HostBridgeErrorCode,
+        "Workflow agent-run apply request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_agent_run_apply_request" as HostBridgeErrorCode,
+    );
+  }
+  try {
+    const result = await applyHostBridgeWorkflowAgentRun({
+      agentRunId,
+      payload,
+      scope: parsePermissionScopeHeader(request),
+    });
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
+    if (error instanceof HostBridgePermissionError) {
+      return permissionErrorResponse(error);
+    }
+    return agentRunApplyErrorResponse(error);
+  }
+}
+
 async function getWorkflowRun(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow run endpoint only supports GET", "GET");
@@ -1606,6 +1652,48 @@ function controlPlaneErrorResponse(error: unknown) {
     "Internal Server Error",
     hostBridgeError("internal_error", errorMessage(error), "internal", details),
     "internal_error",
+  );
+}
+
+function agentRunApplyErrorResponse(error: unknown) {
+  const code = String((error as { code?: unknown })?.code || "").trim();
+  const details =
+    (error as { details?: Record<string, unknown> | undefined })?.details ||
+    undefined;
+  const statusByCode: Record<string, number> = {
+    invalid_agent_run_apply_request: 400,
+    agent_run_not_found: 404,
+    workflow_not_found: 404,
+    agent_run_expired: 410,
+    agent_run_already_consumed: 409,
+    unknown_request: 400,
+    invalid_bundle: 422,
+    apply_not_allowed: 409,
+  };
+  const status = statusByCode[code] || 500;
+  const reason =
+    status === 400
+      ? "Bad Request"
+      : status === 404
+        ? "Not Found"
+        : status === 409
+          ? "Conflict"
+          : status === 410
+            ? "Gone"
+            : status === 422
+              ? "Unprocessable Entity"
+              : "Internal Server Error";
+  const responseCode = code || "internal_error";
+  return response(
+    status,
+    reason,
+    hostBridgeError(
+      responseCode as HostBridgeErrorCode,
+      errorMessage(error),
+      status >= 500 ? "internal" : "workflow",
+      details,
+    ),
+    responseCode as HostBridgeErrorCode,
   );
 }
 
@@ -1930,6 +2018,13 @@ async function handleHttpRequest(request: HttpRequest) {
 
   if (request.path === "/bridge/v1/workflows/agent-run") {
     return agentRunWorkflow(request);
+  }
+
+  if (
+    request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+    request.path.endsWith("/apply")
+  ) {
+    return applyAgentRunWorkflow(request);
   }
 
   if (
@@ -2303,6 +2398,7 @@ export function resetHostBridgeServerForTests() {
   serverSocketFactory = createServerSocket;
   synthesisServiceResolverForTests = undefined;
   resetHostBridgeWriteAutoApprovalScopesForTests();
+  resetHostBridgeAgentRunStoreForTests();
 }
 
 export function configureHostBridgeServerForTests(

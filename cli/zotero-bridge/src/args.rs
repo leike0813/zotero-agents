@@ -602,6 +602,12 @@ pub enum WorkflowCommand {
         long_about = "Call POST /bridge/v1/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --items or --none. It does not accept workflow options or provider profiles and does not start a backend task."
     )]
     AgentRun(WorkflowAgentRunArgs),
+
+    #[command(
+        about = "Apply finalized self-owned agent workflow result bundles",
+        long_about = "Call POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply. Each --result must be AGENT_REQUEST_ID=BUNDLE_PATH. The host recalculates workflow apply readiness and requests Zotero-side approval before applying."
+    )]
+    AgentApply(WorkflowAgentApplyArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -687,6 +693,21 @@ pub struct WorkflowAgentRunArgs {
         help = "Download the handoff zip into this directory"
     )]
     pub output_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentApplyArgs {
+    #[arg(help = "Agent run id returned by workflow agent-run")]
+    pub agent_run_id: String,
+
+    #[arg(
+        long = "result",
+        value_name = "AGENT_REQUEST_ID=BUNDLE_PATH",
+        required = true,
+        num_args = 1,
+        help = "Apply-back result mapping. Repeat for multiple request bundles."
+    )]
+    pub results: Vec<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1339,6 +1360,33 @@ mod tests {
                     );
                 }
                 _ => panic!("expected workflow agent-run"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_agent_apply_with_multiple_results() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-apply",
+            "agent-run-1",
+            "--result",
+            "req-001=C:\\tmp\\one.zip",
+            "--result",
+            "req-002=C:\\tmp\\two",
+        ]);
+
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::AgentApply(input) => {
+                    assert_eq!(input.agent_run_id, "agent-run-1");
+                    assert_eq!(input.results.len(), 2);
+                    assert_eq!(input.results[0], "req-001=C:\\tmp\\one.zip");
+                    assert_eq!(input.results[1], "req-002=C:\\tmp\\two");
+                }
+                _ => panic!("expected workflow agent-apply"),
             },
             _ => panic!("expected workflow command"),
         }

@@ -41,6 +41,7 @@ This reference is generated from the Host Bridge capability registry and Rust CL
 | `zotero-bridge synthesis topic get-report` | topics.get_report | capability |
 | `zotero-bridge synthesis topic get-review-input` | topics.get_review_input | capability |
 | `zotero-bridge synthesis topic list` | topics.list | capability |
+| `zotero-bridge workflow agent-apply` | POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply | endpoint |
 | `zotero-bridge workflow agent-run` | POST /bridge/v1/workflows/agent-run | endpoint |
 | `zotero-bridge workflow describe` | POST /bridge/v1/workflows/describe | endpoint |
 | `zotero-bridge workflow list` | GET /bridge/v1/workflows | endpoint |

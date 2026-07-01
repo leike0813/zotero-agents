@@ -47,6 +47,25 @@ async function mkTempDir(prefix: string) {
   return fs.mkdtemp(path.join(os.tmpdir(), `${prefix}-`)) as Promise<string>;
 }
 
+function safeZipEntrySegments(entryPath: string) {
+  const normalized = String(entryPath || "").replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized)
+  ) {
+    throw new Error(`Unsafe zip entry path: ${entryPath}`);
+  }
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`Unsafe zip entry path: ${entryPath}`);
+  }
+  return segments;
+}
+
 export class ZipBundleReader {
   private extractedDirPromise: Promise<string> | null = null;
 
@@ -88,10 +107,7 @@ export class ZipBundleReader {
           if (!entryName) {
             continue;
           }
-          const segments = entryName.split("/").filter(Boolean);
-          if (segments.length === 0) {
-            continue;
-          }
+          const segments = safeZipEntrySegments(entryName);
           const targetPath = joinPath(extractedDir, ...segments);
           if (entryName.endsWith("/")) {
             await runtime.IOUtils.makeDirectory(targetPath, {
@@ -170,7 +186,7 @@ export class ZipBundleReader {
     const extractedDir = await this.getExtractedDir();
     const targetPath = joinPath(
       extractedDir,
-      ...entryPath.split("/").filter(Boolean),
+      ...safeZipEntrySegments(entryPath),
     );
     if (typeof runtime.IOUtils?.readUTF8 === "function") {
       return runtime.IOUtils.readUTF8(targetPath);

@@ -15,6 +15,11 @@ import {
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "./zipStore";
 import { localizeWorkflowLabel } from "../workflows/localization";
+import type { HostBridgeAgentRunPreparedRequest } from "./hostBridgeWorkflowAgentRunStore";
+
+const OUTPUT_CONTRACT_TOOLKIT_ASSET_DIR = "assets/skillrunner-output-contract";
+const OUTPUT_CONTRACT_TOOLKIT_BUNDLE_PREFIX =
+  "tools/skillrunner-output-contract";
 
 export type HostBridgeWorkflowAgentRunBundle = {
   mode: "bridge-download";
@@ -31,9 +36,12 @@ export type HostBridgeWorkflowAgentRunBundle = {
 };
 
 export type HostBridgeWorkflowAgentRunResult = {
+  agentRunId: string;
   workflowId: string;
   workflowLabel: string;
   generatedAt: string;
+  expiresAt: string;
+  requests: HostBridgeWorkflowAgentRunRequestView[];
   instruction: string;
   applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
   bundle: HostBridgeWorkflowAgentRunBundle;
@@ -41,12 +49,26 @@ export type HostBridgeWorkflowAgentRunResult = {
     workflow: string;
     workflowResources: string;
     selectionContext: string;
+    agentRunContext: string;
+    requests: string[];
+    applyBack: string;
     protocolGuide: string;
     instructions: string;
     skills: string[];
     selectedFiles: string[];
   };
   notes: string[];
+};
+
+export type HostBridgeWorkflowAgentRunRequestView = {
+  agentRequestId: string;
+  requestIndex: number;
+  taskName?: string;
+  requestKind?: string;
+  skillId?: string;
+  namespace: string;
+  resultJsonPath: string;
+  bundlePath: string;
 };
 
 export type HostBridgeWorkflowAgentRunApplyStatus = {
@@ -207,17 +229,34 @@ async function addDirectoryEntries(args: {
   }
 }
 
+async function addSkillRunnerOutputContractToolkitEntries(args: {
+  entries: StoreZipEntry[];
+  notes: string[];
+}) {
+  if (!(await runtimePathExists(OUTPUT_CONTRACT_TOOLKIT_ASSET_DIR))) {
+    args.notes.push("SkillRunner output-contract toolkit asset not found.");
+    return;
+  }
+  await addDirectoryEntries({
+    entries: args.entries,
+    rootDir: OUTPUT_CONTRACT_TOOLKIT_ASSET_DIR,
+    bundlePrefix: OUTPUT_CONTRACT_TOOLKIT_BUNDLE_PREFIX,
+  });
+}
+
 function buildProtocolGuide(args: {
+  agentRunId: string;
   manifest: WorkflowManifest;
   skillIds: string[];
   applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
+  preparedRequests: HostBridgeAgentRunPreparedRequest[];
 }) {
   const manifest = args.manifest;
   const skillIds = args.skillIds;
   const lines = [
     "# Workflow Protocol",
     "",
-    "This bundle is a self-owned workflow handoff. The host exported context only; it did not submit backend tasks, choose a provider/backend, run workflow hooks, or apply results to Zotero.",
+    "This bundle is a self-owned workflow handoff. The host prepared request context for the agent, but it did not submit backend tasks, choose a provider/backend, or apply results to Zotero.",
     "",
     "## Bundle layout",
     "",
@@ -226,6 +265,11 @@ function buildProtocolGuide(args: {
     "- `skills/<skill-id>/`: referenced skill packages. Treat each package's instructions, schemas, and assets as the executable protocol for that skill.",
     "- `selection/context.json`: requested selection, sanitized Zotero selection context, and host-side apply advisory.",
     "- `selection/files/`: files referenced by the selection context, copied into the bundle.",
+    "- `agent-run/context.json`: host-issued agentRunId, expiry, prepared request metadata, and apply-back endpoint information.",
+    "- `agent-run/requests/<agent-request-id>/request.json`: sanitized prepared request for that executable request.",
+    "- `agent-run/requests/<agent-request-id>/output-contract.json`: expected SkillRunner bundle namespace and result path for apply-back.",
+    "- `tools/skillrunner-output-contract/`: portable output-contract toolkit guidance for finalizing result bundles.",
+    "- `APPLY-BACK.md`: apply-back instructions for submitting finalized bundles to Host Bridge.",
     "- `INSTRUCTIONS.md`: short run instruction for the current handoff.",
     "",
     "## Reading workflow/workflow.json",
@@ -236,7 +280,7 @@ function buildProtocolGuide(args: {
     "- `validateSelection` declares host-owned execution/apply readiness rules. A violation does not prevent self-owned execution, but it disables host-side apply.",
     "- `request` describes the workflow request protocol. For `request.create`, run the referenced skill as the primary step. For `request.sequence.steps`, interpret the steps as candidate ordered work units.",
     "- `result` describes expected outputs or finalization semantics when declared.",
-    "- `hooks` names workflow-owned code paths used by the Zotero host. The host did not run `buildRequest` for this handoff; inspect exported workflow resources only as guidance.",
+    "- `hooks` names workflow-owned code paths used by the Zotero host. The host ran `buildRequest` or declarative request compilation only to prepare request context for this handoff; it did not dispatch the prepared requests.",
     "",
     "## Input compatibility and apply readiness",
     "",
@@ -264,11 +308,20 @@ function buildProtocolGuide(args: {
     "",
     "## Output handling",
     "",
-    "- Place final outputs under an `output/` directory in your own run workspace unless a skill package gives stricter instructions.",
-    "- This handoff does not cause Zotero to import or apply outputs automatically.",
+    "- Finalize each request output as a SkillRunner-compatible bundle under the namespace declared in `agent-run/requests/<agent-request-id>/output-contract.json`.",
+    "- Each finalized bundle must contain the declared `resultJsonPath` and a namespaced bundle manifest.",
+    "- Apply-back is explicit: call `zotero-bridge workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing one or more request bundles.",
+    "- Host Bridge recalculates apply readiness at apply time. The handoff preview is advisory and may become stale.",
+    `- agentRunId: ${args.agentRunId}`,
     "",
     "Referenced skill ids:",
     ...skillIds.map((id) => `- ${id}`),
+    "",
+    "Prepared requests:",
+    ...args.preparedRequests.map(
+      (request) =>
+        `- ${request.agentRequestId}: namespace=${request.namespace}, result=${request.resultJsonPath}`,
+    ),
     "",
     "Workflow summary:",
     `- id: ${manifest.id}`,
@@ -285,19 +338,83 @@ function buildInstructions(workflow: LoadedWorkflow, skillIds: string[]) {
     "Open `workflow/workflow.json`, then read the relevant packages under `skills/`.",
     "Read `workflow-protocol.md` before interpreting workflow fields or sequence steps.",
     "Use `selection/context.json` and files under `selection/files/` as your input context.",
-    "Decide workflow parameters and sequence branches yourself from the workflow and skill instructions.",
-    "Do not assume Zotero has submitted or will apply this run; write your outputs in your own workspace unless explicitly instructed otherwise.",
+    "Use `agent-run/context.json` and `agent-run/requests/*/output-contract.json` to finalize apply-back bundles.",
+    "Do not assume Zotero has submitted or applied this run; apply-back happens only after you explicitly call the workflow agent-apply command.",
     skillIds.length
       ? `Candidate skill packages included: ${skillIds.join(", ")}.`
       : "No statically referenced skill package was found in the workflow definition.",
   ].join(" ");
 }
 
+function requestViews(
+  preparedRequests: HostBridgeAgentRunPreparedRequest[],
+): HostBridgeWorkflowAgentRunRequestView[] {
+  return preparedRequests.map((request) => ({
+    agentRequestId: request.agentRequestId,
+    requestIndex: request.requestIndex,
+    ...(request.taskName ? { taskName: request.taskName } : {}),
+    ...(request.requestKind ? { requestKind: request.requestKind } : {}),
+    ...(request.skillId ? { skillId: request.skillId } : {}),
+    namespace: request.namespace,
+    resultJsonPath: request.resultJsonPath,
+    bundlePath: request.bundlePath,
+  }));
+}
+
+function buildOutputContract(request: HostBridgeAgentRunPreparedRequest) {
+  return {
+    schema: "zotero-bridge.agent-run.output-contract.v1",
+    agentRequestId: request.agentRequestId,
+    requestIndex: request.requestIndex,
+    namespace: request.namespace,
+    resultJsonPath: request.resultJsonPath,
+    bundlePath: request.bundlePath,
+    expectedBundleManifestPath: `bundle/${request.namespace}/manifest.json`,
+    acceptedBundleKinds: ["local_path"],
+  };
+}
+
+function buildApplyBackInstructions(args: {
+  agentRunId: string;
+  expiresAt: string;
+  preparedRequests: HostBridgeAgentRunPreparedRequest[];
+}) {
+  const exampleResults = args.preparedRequests
+    .map(
+      (request) =>
+        `  --result ${request.agentRequestId}=<path-to-${request.namespace}-run_bundle.zip>`,
+    )
+    .join(" \\\n");
+  return [
+    "# Apply Back",
+    "",
+    `agentRunId: ${args.agentRunId}`,
+    `expiresAt: ${args.expiresAt}`,
+    "",
+    "Finalize each request output using the bundled SkillRunner output-contract toolkit or an equivalent implementation of the same bundle contract.",
+    "",
+    "The host accepts finalized local bundle directories or zip files. Each bundle must contain the namespace and result path declared in the matching output contract.",
+    "",
+    "Submit results with:",
+    "",
+    "```sh",
+    `zotero-bridge workflow agent-apply ${args.agentRunId} \\`,
+    exampleResults || "  --result <agentRequestId>=<bundlePath>",
+    "```",
+    "",
+    "Apply is one-shot. Host Bridge recalculates apply readiness and approval when this command is called.",
+    "",
+  ].join("\n");
+}
+
 export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
+  agentRunId: string;
+  expiresAt: string;
   workflow: LoadedWorkflow;
   selection: unknown;
   selectionContext: unknown;
   applyStatus: HostBridgeWorkflowAgentRunApplyStatus;
+  preparedRequests: HostBridgeAgentRunPreparedRequest[];
 }): Promise<HostBridgeWorkflowAgentRunResult> {
   const workflow = args.workflow;
   const generatedAt = new Date().toISOString();
@@ -312,10 +429,13 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   );
   const instruction = buildInstructions(workflow, skillIds);
   const protocolGuide = buildProtocolGuide({
+    agentRunId: args.agentRunId,
     manifest: workflow.manifest,
     skillIds,
     applyStatus: args.applyStatus,
+    preparedRequests: args.preparedRequests,
   });
+  const publicRequests = requestViews(args.preparedRequests);
   const entries: StoreZipEntry[] = [
     {
       name: "workflow/workflow.json",
@@ -332,6 +452,40 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
         null,
         2,
       )}\n`,
+    },
+    {
+      name: "agent-run/context.json",
+      text: `${JSON.stringify(
+        {
+          schema: "zotero-bridge.agent-run.context.v1",
+          agentRunId: args.agentRunId,
+          workflowId: workflow.manifest.id,
+          expiresAt: args.expiresAt,
+          requests: publicRequests,
+          applyEndpoint: `/bridge/v1/workflows/agent-runs/${args.agentRunId}/apply`,
+          applyCommand: `zotero-bridge workflow agent-apply ${args.agentRunId}`,
+        },
+        null,
+        2,
+      )}\n`,
+    },
+    ...args.preparedRequests.flatMap((request) => [
+      {
+        name: `agent-run/requests/${safeSegment(request.agentRequestId, "request")}/request.json`,
+        text: `${JSON.stringify(request.request, null, 2)}\n`,
+      },
+      {
+        name: `agent-run/requests/${safeSegment(request.agentRequestId, "request")}/output-contract.json`,
+        text: `${JSON.stringify(buildOutputContract(request), null, 2)}\n`,
+      },
+    ]),
+    {
+      name: "APPLY-BACK.md",
+      text: buildApplyBackInstructions({
+        agentRunId: args.agentRunId,
+        expiresAt: args.expiresAt,
+        preparedRequests: args.preparedRequests,
+      }),
     },
     {
       name: "workflow-protocol.md",
@@ -352,6 +506,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
 
   const registry = await scanPluginSkillRegistry();
   const notes: string[] = [];
+  await addSkillRunnerOutputContractToolkitEntries({ entries, notes });
   for (const skillId of skillIds) {
     const entry = registry.entriesById[skillId];
     if (!entry) {
@@ -399,9 +554,12 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   });
 
   return {
+    agentRunId: args.agentRunId,
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
     generatedAt,
+    expiresAt: args.expiresAt,
+    requests: publicRequests,
     instruction,
     applyStatus: args.applyStatus,
     bundle: {
@@ -423,6 +581,12 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
       workflow: "workflow/workflow.json",
       workflowResources: "workflow/resources/",
       selectionContext: "selection/context.json",
+      agentRunContext: "agent-run/context.json",
+      requests: args.preparedRequests.map(
+        (request) =>
+          `agent-run/requests/${safeSegment(request.agentRequestId, "request")}/`,
+      ),
+      applyBack: "APPLY-BACK.md",
       protocolGuide: "workflow-protocol.md",
       instructions: "INSTRUCTIONS.md",
       skills: skillIds.map((id) => `skills/${safeSegment(id, "skill")}`),

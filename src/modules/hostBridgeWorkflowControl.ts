@@ -37,10 +37,30 @@ import {
   type HostBridgeWorkflowAgentRunApplyStatus,
   type HostBridgeWorkflowAgentRunResult,
 } from "./hostBridgeWorkflowAgentRun";
+import {
+  createHostBridgeAgentRunRecord,
+  finishHostBridgeAgentRunRecord,
+  getExpiredHostBridgeAgentRunRecord,
+  getHostBridgeAgentRunRecord,
+  sealHostBridgeAgentRunRecord,
+  type HostBridgeAgentRunPreparedRequest,
+} from "./hostBridgeWorkflowAgentRunStore";
 import type { SelectionContext } from "./selectionContext";
 import type { LoadedWorkflow } from "../workflows/types";
 import { localizeWorkflowLabel } from "../workflows/localization";
 import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
+import { executeApplyResult, executeBuildRequests } from "../workflows/runtime";
+import { ZipBundleReader } from "../workflows/zipBundleReader";
+import {
+  createDirectoryBundleReader,
+  type BundleReader,
+} from "./workflowExecution/bundleIO";
+import { createWorkflowResultContext } from "./workflowExecution/resultContext";
+import {
+  resolveTargetParentIDFromRequest,
+  resolveTaskNameFromRequest,
+} from "./workflowExecution/requestMeta";
+import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
 
 export type HostBridgeWorkflowControlManifest = {
   supported: true;
@@ -106,6 +126,40 @@ export type HostBridgeWorkflowAgentRunRequest = {
   providerProfile?: unknown;
   agentEngine?: unknown;
   input?: unknown;
+};
+
+export type HostBridgeWorkflowAgentApplyRequest = {
+  results?: unknown;
+};
+
+export type HostBridgeWorkflowAgentApplyResultRef = {
+  agentRequestId: string;
+  bundle: {
+    kind: "local_path";
+    path: string;
+  };
+};
+
+export type HostBridgeWorkflowAgentApplyResult = {
+  agentRunId: string;
+  workflowId: string;
+  appliedAt: string;
+  permission: HostBridgePermissionDecision;
+  summary: {
+    total: number;
+    succeeded: number;
+    failed: number;
+  };
+  results: Array<{
+    agentRequestId: string;
+    requestIndex: number;
+    namespace: string;
+    succeeded: boolean;
+    warningCount: number;
+    errorCount: number;
+    error?: string;
+  }>;
+  warnings: string[];
 };
 
 export type HostBridgeWorkflowSubmitPlan = {
@@ -329,6 +383,7 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "POST /bridge/v1/workflows/describe",
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
       "GET /bridge/v1/workflows/runs/{workflowRunId}",
       "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
       "GET /bridge/v1/tasks",
@@ -835,6 +890,106 @@ export async function prepareHostBridgeWorkflowAgentRun(
   return { plan, workflow };
 }
 
+function safeAgentRunSegment(value: unknown, fallback: string) {
+  const text = normalizeString(value)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return text || fallback;
+}
+
+function requestRecord(request: unknown): Record<string, unknown> {
+  return isObject(request) ? request : {};
+}
+
+function nestedRecord(
+  source: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = source[key];
+  return isObject(value) ? value : {};
+}
+
+function resolveAgentRunRequestKind(args: {
+  workflow: LoadedWorkflow;
+  request: unknown;
+}) {
+  const record = requestRecord(args.request);
+  return (
+    normalizeString(record.kind) ||
+    normalizeString(args.workflow.manifest.request?.kind)
+  );
+}
+
+function resolveAgentRunSkillId(args: {
+  workflow: LoadedWorkflow;
+  request: unknown;
+  index: number;
+}) {
+  const record = requestRecord(args.request);
+  const create = nestedRecord(record, "create");
+  const requestJson = nestedRecord(nestedRecord(record, "request"), "json");
+  const sequenceSteps = args.workflow.manifest.request?.sequence?.steps || [];
+  const sequenceStep = sequenceSteps[args.index];
+  return (
+    normalizeString(record.skill_id) ||
+    normalizeString(record.skillId) ||
+    normalizeString(create.skill_id) ||
+    normalizeString(requestJson.skill_id) ||
+    normalizeString(sequenceStep?.skill_id) ||
+    normalizeString(args.workflow.manifest.request?.create?.skill_id)
+  );
+}
+
+function buildAgentRunNamespace(args: {
+  workflow: LoadedWorkflow;
+  request: unknown;
+  index: number;
+}) {
+  const record = requestRecord(args.request);
+  return safeAgentRunSegment(
+    normalizeString(record.namespace) ||
+      resolveAgentRunSkillId(args) ||
+      `${args.workflow.manifest.id}-${args.index + 1}`,
+    `request-${args.index + 1}`,
+  );
+}
+
+function buildAgentRunPreparedRequests(args: {
+  workflow: LoadedWorkflow;
+  requests: unknown[];
+}): HostBridgeAgentRunPreparedRequest[] {
+  return args.requests.map((request, index) => {
+    const namespace = buildAgentRunNamespace({
+      workflow: args.workflow,
+      request,
+      index,
+    });
+    const requestIndex = index;
+    const agentRequestId = `req-${(index + 1).toString().padStart(3, "0")}-${namespace}`;
+    const requestKind = resolveAgentRunRequestKind({
+      workflow: args.workflow,
+      request,
+    });
+    const skillId = resolveAgentRunSkillId({
+      workflow: args.workflow,
+      request,
+      index,
+    });
+    return {
+      agentRequestId,
+      requestIndex,
+      taskName: resolveTaskNameFromRequest(request, index),
+      ...(requestKind ? { requestKind } : {}),
+      ...(skillId ? { skillId } : {}),
+      namespace,
+      resultJsonPath: `result/${namespace}/result.json`,
+      bundlePath: `bundle/${namespace}/run_bundle.zip`,
+      request,
+    };
+  });
+}
+
 export async function buildHostBridgeWorkflowAgentRun(args: {
   payload: HostBridgeWorkflowAgentRunRequest;
 }): Promise<HostBridgeWorkflowAgentRunResult> {
@@ -857,12 +1012,352 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
     workflow,
     selectionContext,
   });
+  const rawRequests = await executeBuildRequests({
+    workflow,
+    selectionContext,
+    validationMode: "handoff",
+  });
+  const preparedRequests = buildAgentRunPreparedRequests({
+    workflow,
+    requests: rawRequests,
+  });
+  const record = createHostBridgeAgentRunRecord({
+    workflowId: workflow.manifest.id,
+    selection: plan.selection,
+    requests: preparedRequests,
+  });
   return buildHostBridgeWorkflowAgentRunHandoff({
+    agentRunId: record.agentRunId,
+    expiresAt: record.expiresAt,
     workflow,
     selection: plan.selection,
     selectionContext,
     applyStatus,
+    preparedRequests,
   });
+}
+
+function parseAgentApplyResults(
+  payload: HostBridgeWorkflowAgentApplyRequest,
+): HostBridgeWorkflowAgentApplyResultRef[] {
+  if (!isObject(payload) || !Array.isArray(payload.results)) {
+    throw codedWorkflowValidationError(
+      "invalid_agent_run_apply_request",
+      "agent-run apply requires body.results",
+    );
+  }
+  const results = payload.results.map(
+    (entry): HostBridgeWorkflowAgentApplyResultRef => {
+      if (!isObject(entry)) {
+        throw codedWorkflowValidationError(
+          "invalid_agent_run_apply_request",
+          "each result must be an object",
+        );
+      }
+      const agentRequestId = normalizeString(entry.agentRequestId);
+      const bundle = isObject(entry.bundle) ? entry.bundle : {};
+      const kind = normalizeString(bundle.kind);
+      const path = normalizeString(bundle.path);
+      if (!agentRequestId || kind !== "local_path" || !path) {
+        throw codedWorkflowValidationError(
+          "invalid_agent_run_apply_request",
+          "each result requires agentRequestId and bundle { kind: local_path, path }",
+        );
+      }
+      return {
+        agentRequestId,
+        bundle: {
+          kind: "local_path",
+          path,
+        },
+      };
+    },
+  );
+  if (results.length === 0) {
+    throw codedWorkflowValidationError(
+      "invalid_agent_run_apply_request",
+      "agent-run apply requires at least one result",
+    );
+  }
+  return results;
+}
+
+function codedAgentApplyError(
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+) {
+  const error = new Error(message);
+  (error as { code?: string; details?: Record<string, unknown> }).code = code;
+  if (details) {
+    (error as { details?: Record<string, unknown> }).details = details;
+  }
+  return error;
+}
+
+function bundlePathLooksZip(bundlePath: string) {
+  return bundlePath.toLowerCase().endsWith(".zip");
+}
+
+function createAgentApplyBundleReader(bundlePath: string): BundleReader {
+  if (bundlePathLooksZip(bundlePath)) {
+    return new ZipBundleReader(bundlePath);
+  }
+  return createDirectoryBundleReader(bundlePath);
+}
+
+async function readRequiredBundleJson(args: {
+  bundleReader: BundleReader;
+  entryPath: string;
+  errorCode: string;
+}) {
+  let text = "";
+  try {
+    text = await args.bundleReader.readText(args.entryPath);
+  } catch (error) {
+    throw codedAgentApplyError(
+      args.errorCode,
+      `agent-run bundle is missing ${args.entryPath}: ${error instanceof Error ? error.message : String(error || "")}`,
+      { entryPath: args.entryPath },
+    );
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw codedAgentApplyError(
+      args.errorCode,
+      `agent-run bundle entry is not valid JSON: ${args.entryPath}`,
+      { entryPath: args.entryPath },
+    );
+  }
+}
+
+async function validateAgentApplyBundle(args: {
+  bundleReader: BundleReader;
+  prepared: HostBridgeAgentRunPreparedRequest;
+}) {
+  await readRequiredBundleJson({
+    bundleReader: args.bundleReader,
+    entryPath: args.prepared.resultJsonPath,
+    errorCode: "invalid_bundle",
+  });
+  const manifestPath = `bundle/${args.prepared.namespace}/manifest.json`;
+  const manifest = await readRequiredBundleJson({
+    bundleReader: args.bundleReader,
+    entryPath: manifestPath,
+    errorCode: "invalid_bundle",
+  });
+  const manifestRecord = isObject(manifest) ? manifest : {};
+  const manifestNamespace = normalizeString(
+    manifestRecord.namespace ??
+      nestedRecord(manifestRecord, "run").namespace ??
+      nestedRecord(manifestRecord, "result").namespace,
+  );
+  if (manifestNamespace && manifestNamespace !== args.prepared.namespace) {
+    throw codedAgentApplyError(
+      "invalid_bundle",
+      "agent-run bundle namespace does not match prepared request",
+      {
+        expected: args.prepared.namespace,
+        actual: manifestNamespace,
+      },
+    );
+  }
+}
+
+async function requestAgentRunApplyPermission(args: {
+  workflow: LoadedWorkflow;
+  resultCount: number;
+  scope?: HostBridgePermissionScope | null;
+}) {
+  return requestHostBridgePermission({
+    action: "workflow.submit",
+    title: "Apply workflow agent-run results",
+    summary: `Apply ${args.resultCount} agent-run result bundle(s) for workflow ${localizeWorkflowLabel(args.workflow)}.`,
+    detail:
+      "Host Bridge will import the finalized result bundle(s) into Zotero using the workflow applyResult hook.",
+    source: "host-bridge-cli",
+    scope: args.scope,
+  });
+}
+
+export async function applyHostBridgeWorkflowAgentRun(args: {
+  agentRunId: string;
+  payload: HostBridgeWorkflowAgentApplyRequest;
+  scope?: HostBridgePermissionScope | null;
+}): Promise<HostBridgeWorkflowAgentApplyResult> {
+  const agentRunId = normalizeString(args.agentRunId);
+  const results = parseAgentApplyResults(args.payload);
+  const expired = getExpiredHostBridgeAgentRunRecord(agentRunId);
+  if (expired) {
+    throw codedAgentApplyError("agent_run_expired", "agent-run has expired", {
+      agentRunId,
+    });
+  }
+  const record = getHostBridgeAgentRunRecord(agentRunId);
+  if (!record) {
+    throw codedAgentApplyError("agent_run_not_found", "agent-run not found", {
+      agentRunId,
+    });
+  }
+  if (record.sealedAt) {
+    throw codedAgentApplyError(
+      "agent_run_already_consumed",
+      "agent-run has already been consumed",
+      { agentRunId },
+    );
+  }
+  const workflow = getWorkflowById(record.workflowId);
+  if (!workflow) {
+    throw codedAgentApplyError("workflow_not_found", "workflow not found", {
+      workflowId: record.workflowId,
+    });
+  }
+
+  const preparedById = new Map(
+    record.requests.map((request) => [request.agentRequestId, request]),
+  );
+  for (const result of results) {
+    if (!preparedById.has(result.agentRequestId)) {
+      throw codedAgentApplyError(
+        "unknown_request",
+        "agent-run apply result references an unknown request",
+        { agentRequestId: result.agentRequestId },
+      );
+    }
+  }
+
+  const selectedItems = resolveSelectedItemsForSelection(record.selection);
+  const selectionContext = await buildSelectionContext(selectedItems);
+  const applyStatus = await evaluateAgentRunApplyStatus({
+    workflow,
+    selectionContext,
+  });
+  if (!applyStatus.allowed) {
+    throw codedAgentApplyError(
+      "apply_not_allowed",
+      applyStatus.message ||
+        "workflow agent-run apply is not currently allowed",
+      {
+        reasonCode: applyStatus.reasonCode,
+      },
+    );
+  }
+
+  const permission = await requestAgentRunApplyPermission({
+    workflow,
+    resultCount: results.length,
+    scope: args.scope,
+  });
+  sealHostBridgeAgentRunRecord(agentRunId);
+
+  const appliedAt = new Date().toISOString();
+  const perRequest: HostBridgeWorkflowAgentApplyResult["results"] = [];
+  const warnings: string[] = [];
+  let succeeded = 0;
+  let failed = 0;
+  try {
+    for (const result of results) {
+      const prepared = preparedById.get(result.agentRequestId)!;
+      const bundleReader = createAgentApplyBundleReader(result.bundle.path);
+      try {
+        await validateAgentApplyBundle({ bundleReader, prepared });
+        const workspaceDir =
+          typeof bundleReader.getExtractedDir === "function"
+            ? await bundleReader.getExtractedDir()
+            : result.bundle.path;
+        const runResult = {
+          status: "succeeded",
+          backendStatus: "succeeded",
+          requestId: prepared.agentRequestId,
+          resultJsonPath: prepared.resultJsonPath,
+          resultArtifactBasePath: `result/${prepared.namespace}`,
+          workspaceDir,
+          bundleDir: workspaceDir,
+          responseJson: {
+            provider: "agent-run",
+            namespace: prepared.namespace,
+            resultJsonPath: prepared.resultJsonPath,
+          },
+        };
+        const resultContext = await createWorkflowResultContext({
+          runResult,
+          bundleReader,
+          manifest: workflow.manifest,
+        });
+        const parent = resolveTargetParentIDFromRequest(prepared.request);
+        await executeApplyResult({
+          workflow,
+          parent,
+          bundleReader,
+          resultContext,
+          request: prepared.request,
+          runResult,
+        });
+        await collectSkillRunFeedbackSidecar({
+          workflow,
+          request: prepared.request,
+          runResult,
+          resultContext,
+          bundleReader,
+          jobId: prepared.agentRequestId,
+        });
+        if (resultContext.warnings.length > 0) {
+          warnings.push(
+            ...resultContext.warnings.map(
+              (warning) =>
+                `${prepared.agentRequestId}: ${warning.code}: ${warning.message}`,
+            ),
+          );
+        }
+        succeeded += 1;
+        perRequest.push({
+          agentRequestId: prepared.agentRequestId,
+          requestIndex: prepared.requestIndex,
+          namespace: prepared.namespace,
+          succeeded: true,
+          warningCount: resultContext.warnings.length,
+          errorCount: resultContext.errors.length,
+        });
+      } catch (error) {
+        failed += 1;
+        const message =
+          error instanceof Error ? error.message : String(error || "");
+        perRequest.push({
+          agentRequestId: prepared.agentRequestId,
+          requestIndex: prepared.requestIndex,
+          namespace: prepared.namespace,
+          succeeded: false,
+          warningCount: 0,
+          errorCount: 1,
+          error: message,
+        });
+        throw error;
+      }
+    }
+    finishHostBridgeAgentRunRecord({ agentRunId, outcome: "succeeded" });
+  } catch (error) {
+    finishHostBridgeAgentRunRecord({
+      agentRunId,
+      outcome: "failed",
+      error: error instanceof Error ? error.message : String(error || ""),
+    });
+    throw error;
+  }
+
+  return {
+    agentRunId,
+    workflowId: record.workflowId,
+    appliedAt,
+    permission,
+    summary: {
+      total: results.length,
+      succeeded,
+      failed,
+    },
+    results: perRequest,
+    warnings,
+  };
 }
 
 function selectionArray(

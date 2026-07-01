@@ -44,6 +44,7 @@ import {
   isSkillRunFeedbackCollectionEnabled,
 } from "../modules/skillRunFeedback";
 import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
+import type { WorkflowSelectionValidationMode } from "./workflowSelectionValidation";
 
 type AttachmentLike = {
   item?: {
@@ -891,13 +892,14 @@ async function resolveSelectionContexts(args: {
     providerOptions?: Record<string, unknown>;
     runOptions?: WorkflowRunOptions;
   };
+  validationMode?: WorkflowSelectionValidationMode;
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
   const result = await evaluateWorkflowSelection({
     workflow: args.workflow,
     selectionContext: args.selectionContext,
     executionOptions: args.executionOptions,
-    mode: "execute",
+    mode: args.validationMode || "execute",
     runtime: args.runtime,
   });
   return {
@@ -914,6 +916,7 @@ export async function executeBuildRequests(args: {
     providerOptions?: Record<string, unknown>;
     runOptions?: WorkflowRunOptions;
   };
+  validationMode?: WorkflowSelectionValidationMode;
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   return measureAsyncTestPerformanceSpan(
@@ -929,6 +932,7 @@ export async function executeBuildRequests(args: {
         workflow: args.workflow,
         selectionContext: args.selectionContext,
         executionOptions: args.executionOptions,
+        validationMode: args.validationMode,
         runtime,
       });
       const resolvedSelections = resolved.contexts;

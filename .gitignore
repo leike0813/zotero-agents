@@ -28,6 +28,7 @@ logs
 .history/
 .codex/
 .claude/
+.kilo/
 .qwen/
 .codegraph/
 .agents/*
