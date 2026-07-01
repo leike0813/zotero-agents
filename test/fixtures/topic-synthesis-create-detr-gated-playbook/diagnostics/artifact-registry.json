@@ -58,7 +58,7 @@
     },
     {
       "artifact_key": "paper_artifacts_manifest_batch_1",
-      "hash": "sha256:d7ba6c82e17a8d3f74cfa4ca77f9b64c86c227052f3ab69168d8ab616e6ce760",
+      "hash": "sha256:fb2e4fde5283a75ef1ba0321f990398a991c6a08bd75095ec55853c34ecefcb6",
       "path": "runtime/payloads/paper-artifacts-manifest-batch-1.json",
       "skill_id": "create-topic-synthesis-prepare",
       "stage_id": "stage_20_resolver_and_workset"

@@ -1,7 +1,7 @@
 {
   "data": {
     "approval": "none",
-    "capability": "synthesis.get_paper_artifact_manifest",
+    "capability": "paper_artifacts.get_manifest",
     "data": {
       "artifacts": [
         {

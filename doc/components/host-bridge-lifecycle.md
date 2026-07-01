@@ -218,8 +218,13 @@ All routes are under the `/bridge/v1/` prefix.
 | `/bridge/v1/call` | POST | `callCapability()` | Invoke a named capability with input |
 | `/bridge/v1/workflows` | GET | `listWorkflows()` | List available workflow manifests |
 | `/bridge/v1/workflows/submit` | POST | `submitWorkflow()` | Submit a workflow for execution |
-| `/bridge/v1/workflows/runs/{runId}` | GET | `getWorkflowRun()` | Query workflow run status |
+| `/bridge/v1/workflows/runs/{workflowRunId}` | GET | `getWorkflowRun()` | Query workflow run status |
+| `/bridge/v1/workflows/runs/{workflowRunId}/cancel` | POST | `cancelWorkflowRun()` | Request workflow run cancellation |
 | `/bridge/v1/tasks` | GET | `listTasks()` | List task records |
+| `/bridge/v1/tasks/active` | GET | `listActiveTasks()` | List lightweight active task records |
+| `/bridge/v1/skill-runs/{skillRunId}` | GET | `getSkillRun()` | Query one skill run status |
+| `/bridge/v1/skill-runs/{skillRunId}/reply` | POST | `replySkillRun()` | Reply to a waiting skill run |
+| `/bridge/v1/skill-runs/{skillRunId}/connect` | POST | `connectSkillRun()` | Connect to a recoverable skill run |
 | `/bridge/v1/files/{fileId}` | GET | `downloadFile()` | Download a file by file ID |
 
 Request processing order:

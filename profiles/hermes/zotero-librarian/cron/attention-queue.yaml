@@ -13,5 +13,5 @@ behavior:
     - metadata completion
     - analysis candidates
 notes:
-  - Combine insights attention-queue with the local index.
+  - Combine synthesis insight attention-queue with the local index.
   - Output [SILENT] when there are no high priority items.

@@ -31,87 +31,94 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | --- | --- | --- | --- | --- | --- |
 | `context.get_current_view` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `context.get_selected_items` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `library.get_item_attachments` | library | `none` | `item-ref required` | `item attachments` | mcp-mirror |
-| `library.get_item_detail` | library | `none` | `item-ref required` | `item get` | mcp-mirror |
-| `library.get_item_notes` | library | `none` | `object required` | `item notes` | mcp-mirror |
-| `library.get_note_detail` | library | `none` | `object required` | `note get` | mcp-mirror |
-| `library.get_note_payload` | library | `none` | `object required` | `note payload` | mcp-mirror |
-| `library.list_items` | library | `none` | `object` | `library list` | mcp-mirror |
-| `library.list_note_payloads` | library | `none` | `item-ref required` | `note payloads` | mcp-mirror |
-| `library.search_items` | library | `none` | `object required` | `item search` | mcp-mirror |
+| `library.get_item_attachments` | library | `none` | `item-ref required` | `library item attachments` | mcp-mirror |
+| `library.get_item_detail` | library | `none` | `item-ref required` | `library item get` | mcp-mirror |
+| `library.get_item_notes` | library | `none` | `object required` | `library item notes` | mcp-mirror |
+| `library.get_note_detail` | library | `none` | `object required` | `library note get` | mcp-mirror |
+| `library.get_note_payload` | library | `none` | `object required` | `library note payload` | mcp-mirror |
+| `library.list_items` | library | `none` | `object` | `library items list` | mcp-mirror |
+| `library.list_note_payloads` | library | `none` | `item-ref required` | `library note payloads` | mcp-mirror |
+| `library.search_items` | library | `none` | `object required` | `library item search` | mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | mcp-mirror |
-| `topics.find_by_paper_ref` | topics | `none` | `object` | `topics find-by-paper-ref` | mcp-mirror |
-| `topics.get_context` | topics | `none` | `object` | `topics get-context` | mcp-mirror |
-| `topics.get_report` | topics | `none` | `object` | `topics get-report` | mcp-mirror |
-| `topics.get_review_input` | topics | `none` | `object` | `topics get-review-input` | mcp-mirror |
-| `topics.list` | topics | `none` | `object` | `topics list` | mcp-mirror |
-| `schemas.get` | schemas | `none` | `object` | `schemas get` | mcp-mirror |
-| `concepts.query` | concepts | `none` | `object` | `concepts query` | mcp-mirror |
-| `citation_graph.get_layout` | citation_graph | `none` | `object` | `citation-graph get-layout` | cache-view, mcp-mirror |
-| `citation_graph.get_metrics` | citation_graph | `none` | `object` | `citation-graph get-metrics` | cache-view, mcp-mirror |
-| `citation_graph.get_overview` | citation_graph | `none` | `object` | `citation-graph overview` | cache-view, mcp-mirror |
-| `citation_graph.get_slice` | citation_graph | `none` | `object` | `citation-graph get-slice` | cache-view, mcp-mirror |
-| `citation_graph.query_cluster` | citation_graph | `none` | `object` | `citation-graph query-cluster` | cache-view, mcp-mirror |
-| `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `citation-graph rank-external-references` | cache-view, mcp-mirror |
-| `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `citation-graph rank-library-papers` | cache-view, mcp-mirror |
-| `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `citation-graph refresh-metrics` | dangerous, mcp-mirror |
-| `library_index.get` | library_index | `none` | `object` | `library-index get` | cache-view, mcp-mirror |
-| `resolvers.resolve` | resolvers | `none` | `object` | `resolvers resolve` | mcp-mirror |
-| `reference_index.get` | reference_index | `none` | `object` | `reference-index get` | cache-view, mcp-mirror |
-| `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `paper-artifacts export-filtered` | mcp-mirror |
-| `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `paper-artifacts manifest` | mcp-mirror |
-| `paper_artifacts.read` | paper_artifacts | `none` | `object` | `paper-artifacts read` | mcp-mirror |
-| `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `paper-artifacts resolve-topic-digest` | mcp-mirror |
-| `insights.get_attention_queue` | insights | `none` | `object` | `insights attention-queue` | mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `literature ingest` | raw-only, mcp-mirror |
-| `mutation.preview` | mutation | `none` | `mutation-preview required` | `raw call only` | raw-only, mcp-mirror |
+| `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | mcp-mirror |
+| `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | mcp-mirror |
+| `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | mcp-mirror |
+| `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | mcp-mirror |
+| `topics.list` | topics | `none` | `object` | `synthesis topic list` | mcp-mirror |
+| `schemas.get` | schemas | `none` | `object` | `synthesis schema get` | mcp-mirror |
+| `concepts.query` | concepts | `none` | `object` | `synthesis concept query` | mcp-mirror |
+| `citation_graph.get_layout` | citation_graph | `none` | `object` | `synthesis graph get-layout` | cache-view, mcp-mirror |
+| `citation_graph.get_metrics` | citation_graph | `none` | `object` | `synthesis graph get-metrics` | cache-view, mcp-mirror |
+| `citation_graph.get_overview` | citation_graph | `none` | `object` | `synthesis graph overview` | cache-view, mcp-mirror |
+| `citation_graph.get_slice` | citation_graph | `none` | `object` | `synthesis graph get-slice` | cache-view, mcp-mirror |
+| `citation_graph.query_cluster` | citation_graph | `none` | `object` | `synthesis graph query-cluster` | cache-view, mcp-mirror |
+| `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `synthesis graph rank-external-references` | cache-view, mcp-mirror |
+| `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `synthesis graph rank-library-papers` | cache-view, mcp-mirror |
+| `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
+| `library_index.get` | library_index | `none` | `object` | `synthesis index library get` | cache-view, mcp-mirror |
+| `resolvers.resolve` | resolvers | `none` | `object` | `synthesis resolver resolve` | mcp-mirror |
+| `reference_index.get` | reference_index | `none` | `object` | `synthesis index reference get` | cache-view, mcp-mirror |
+| `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `synthesis artifact export-filtered` | mcp-mirror |
+| `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `synthesis artifact manifest` | mcp-mirror |
+| `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | mcp-mirror |
+| `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | mcp-mirror |
+| `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | mcp-mirror |
+| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `mutation apply`, `mutation literature-ingest` | mcp-mirror |
+| `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 
 #### CLI mappings
 
 | CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
-| `status` | `GET /bridge/v1/health` | endpoint | - |
-| `manifest` | `GET /bridge/v1/manifest` | endpoint | - |
-| `library list` | `library.list_items` | capability | - |
+| `bridge manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `bridge status` | `GET /bridge/v1/health` | endpoint | - |
+| `library item attachments` | `library.get_item_attachments` | capability | - |
+| `library item get` | `library.get_item_detail` | capability | - |
+| `library item notes` | `library.get_item_notes` | capability | - |
+| `library item search` | `library.search_items` | capability | - |
+| `library items list` | `library.list_items` | capability | - |
+| `library note get` | `library.get_note_detail` | capability | - |
+| `library note payload` | `library.get_note_payload` | capability | - |
+| `library note payloads` | `library.list_note_payloads` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
-| `item attachments` | `library.get_item_attachments` | capability | - |
-| `item get` | `library.get_item_detail` | capability | - |
-| `item notes` | `library.get_item_notes` | capability | - |
-| `item search` | `library.search_items` | capability | - |
-| `note get` | `library.get_note_detail` | capability | - |
-| `note payload` | `library.get_note_payload` | capability | - |
-| `note payloads` | `library.list_note_payloads` | capability | - |
-| `topics find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
-| `topics get-context` | `topics.get_context` | capability | - |
-| `topics get-report` | `topics.get_report` | capability | - |
-| `topics get-review-input` | `topics.get_review_input` | capability | - |
-| `topics list` | `topics.list` | capability | - |
-| `schemas get` | `schemas.get` | capability | - |
-| `concepts query` | `concepts.query` | capability | - |
-| `citation-graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
-| `citation-graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
-| `citation-graph get-slice` | `citation_graph.get_slice` | capability | cache-view |
-| `citation-graph overview` | `citation_graph.get_overview` | capability | cache-view |
-| `citation-graph query-cluster` | `citation_graph.query_cluster` | capability | cache-view |
-| `citation-graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
-| `citation-graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
-| `citation-graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
-| `library-index get` | `library_index.get` | capability | cache-view |
-| `resolvers resolve` | `resolvers.resolve` | capability | - |
-| `reference-index get` | `reference_index.get` | capability | cache-view |
-| `paper-artifacts export-filtered` | `paper_artifacts.export_filtered` | capability | - |
-| `paper-artifacts manifest` | `paper_artifacts.get_manifest` | capability | - |
-| `paper-artifacts read` | `paper_artifacts.read` | capability | - |
-| `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
-| `insights attention-queue` | `insights.get_attention_queue` | capability | - |
-| `literature ingest` | `mutation.execute` | capability | - |
+| `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
+| `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
+| `synthesis artifact read` | `paper_artifacts.read` | capability | - |
+| `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
+| `synthesis concept query` | `concepts.query` | capability | - |
+| `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
+| `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
+| `synthesis graph get-slice` | `citation_graph.get_slice` | capability | cache-view |
+| `synthesis graph overview` | `citation_graph.get_overview` | capability | cache-view |
+| `synthesis graph query-cluster` | `citation_graph.query_cluster` | capability | cache-view |
+| `synthesis graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
+| `synthesis graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
+| `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
+| `synthesis index library get` | `library_index.get` | capability | cache-view |
+| `synthesis index reference get` | `reference_index.get` | capability | cache-view |
+| `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
+| `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
+| `synthesis schema get` | `schemas.get` | capability | - |
+| `synthesis topic find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
+| `synthesis topic get-context` | `topics.get_context` | capability | - |
+| `synthesis topic get-report` | `topics.get_report` | capability | - |
+| `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
+| `synthesis topic list` | `topics.list` | capability | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
-| `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
-| `task list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run active` | `GET /bridge/v1/tasks/active` | endpoint | - |
+| `run cancel` | `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
+| `run get` | `GET /bridge/v1/workflows/runs/{workflowRunId}` | endpoint | - |
+| `run list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run skill connect` | `POST /bridge/v1/skill-runs/{skillRunId}/connect` | endpoint | - |
+| `run skill get` | `GET /bridge/v1/skill-runs/{skillRunId}` | endpoint | - |
+| `run skill reply` | `POST /bridge/v1/skill-runs/{skillRunId}/reply` | endpoint | - |
+| `mutation apply` | `mutation.execute` | capability | - |
+| `mutation literature-ingest` | `mutation.execute` | capability | - |
+| `mutation preview` | `mutation.preview` | capability | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
 | `debug acp-skill-run reapply-result` | `debug.acpSkillRun.reapplyResult` | capability | - |
 | `debug persistence` | `debug.persistence.snapshot` | capability | - |
@@ -121,19 +128,19 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 #### Library guidance
 
-- Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
+- Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
 - Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
-- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 #### Resolver payloads
 
-- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
 - Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
 - `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
-- Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Examples: `zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 #### Workflow payloads
@@ -145,6 +152,13 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 - Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
 - `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
 - `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.
+
+#### Runtime control payloads
+
+- Use `run get <workflowRunId>` for workflow-level runtime status and known skill run projections.
+- Use `run active` for the lightweight global active-task list; it excludes transcripts, local paths, and provider-private payloads.
+- Use `run cancel <workflowRunId>` for workflow-level cancellation intent; cancellation does not imply immediate terminal state.
+- Use `run skill get|reply|connect <skillRunId>` for explicit skill run interactions. Do not infer a skill run target from a workflow run id.
 
 #### Debug capabilities
 
@@ -430,29 +444,34 @@ prompt、产物或脚本。run workspace profile 不保存 token 明文；token 
 所有命令都支持顶层 `--endpoint` 和 `--profile`。
 
 ```text
-zotero-bridge status
-zotero-bridge manifest
+zotero-bridge bridge status
+zotero-bridge bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
-zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'
+zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'
 zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
-zotero-bridge item search --query <text> [--limit <n>] [--library-id <id>]
-zotero-bridge item get (--key <key> | --id <id>) [--library-id <id>]
-zotero-bridge item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
-zotero-bridge item attachments (--key <key> | --id <id>) [--library-id <id>]
-zotero-bridge note get (--key <key> | --id <id>) [--format text|html] [--offset <n>] [--max-chars <n>]
-zotero-bridge note payloads (--key <key> | --id <id>)
-zotero-bridge note payload (--key <key> | --id <id>) [--payload-type <type>] [--offset <n>] [--max-chars <n>]
-zotero-bridge topics <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge citation-graph <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge paper-artifacts <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge insights <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge literature ingest --input <JSON_OR_FILE>
+zotero-bridge library item search --query <text> [--limit <n>] [--library-id <id>]
+zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
+zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library note get (--key <key> | --id <id>) [--format text|html] [--offset <n>] [--max-chars <n>]
+zotero-bridge library note payloads (--key <key> | --id <id>)
+zotero-bridge library note payload (--key <key> | --id <id>) [--payload-type <type>] [--offset <n>] [--max-chars <n>]
+zotero-bridge synthesis topic <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis graph <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis artifact <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis insight <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
 zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow submit --workflow <id> (--items <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
 zotero-bridge workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) [--output-dir <DIR>]
-zotero-bridge workflow run <runId>
-zotero-bridge task list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
+zotero-bridge run get <workflowRunId>
+zotero-bridge run cancel <workflowRunId> [--reason <reason>] [--message <message>]
+zotero-bridge run list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
+zotero-bridge run active
+zotero-bridge run skill get <skillRunId>
+zotero-bridge run skill reply <skillRunId> --message <message>
+zotero-bridge run skill connect <skillRunId>
 zotero-bridge file download <fileId> --output <path> [--force]
 ```
 
@@ -464,10 +483,10 @@ zotero-bridge file download <fileId> --output <path> [--force]
 
 ### 5.1 状态与 manifest
 
-`status` 调用 `GET /bridge/v1/health`，不需要 token。它用于确认 bridge 是否
+`bridge status` 调用 `GET /bridge/v1/health`，不需要 token。它用于确认 bridge 是否
 可达，以及协议版本是否兼容。
 
-`manifest` 调用 `GET /bridge/v1/manifest`，需要 token。manifest 包含：
+`bridge manifest` 调用 `GET /bridge/v1/manifest`，需要 token。manifest 包含：
 
 - `protocol`
 - endpoint bind metadata
@@ -493,44 +512,44 @@ zotero-bridge file download <fileId> --output <path> [--force]
 
 推荐 agent 优先使用语义命令，而不是 raw capability call：
 
-- `item search` -> `library.search_items`
-- `item get` -> `library.get_item_detail`
-- `item notes` -> `library.get_item_notes`
-- `item attachments` -> `library.get_item_attachments`
-- `library list` -> `library.list_items`
+- `library item search` -> `library.search_items`
+- `library item get` -> `library.get_item_detail`
+- `library item notes` -> `library.get_item_notes`
+- `library item attachments` -> `library.get_item_attachments`
+- `library items list` -> `library.list_items`
 - `library snapshot` -> `library.sync_snapshot`
-- `note get` -> `library.get_note_detail`
-- `note payloads` -> `library.list_note_payloads`
-- `note payload` -> `library.get_note_payload`
-- `topics list` -> `topics.list`
-- `topics get-context` -> `topics.get_context`
-- `topics get-report` -> `topics.get_report`
-- `topics get-review-input` -> `topics.get_review_input`
-- `schemas get` -> `schemas.get`
-- `concepts query` -> `concepts.query`
-- `library-index get` -> `library_index.get`
+- `library note get` -> `library.get_note_detail`
+- `library note payloads` -> `library.list_note_payloads`
+- `library note payload` -> `library.get_note_payload`
+- `synthesis topic list` -> `topics.list`
+- `synthesis topic get-context` -> `topics.get_context`
+- `synthesis topic get-report` -> `topics.get_report`
+- `synthesis topic get-review-input` -> `topics.get_review_input`
+- `synthesis schema get` -> `schemas.get`
+- `synthesis concept query` -> `concepts.query`
+- `synthesis index library get` -> `library_index.get`
   sidecar cache view, not synchronized Zotero Library truth
-- `resolvers resolve` -> `resolvers.resolve`
-- `citation-graph get-metrics` -> `citation_graph.get_metrics`
+- `synthesis resolver resolve` -> `resolvers.resolve`
+- `synthesis graph get-metrics` -> `citation_graph.get_metrics`
   sidecar cache view, not synchronized Zotero Library truth
-- `citation-graph rank-external-references` ->
+- `synthesis graph rank-external-references` ->
   `citation_graph.rank_external_references`
-- `citation-graph rank-library-papers` ->
+- `synthesis graph rank-library-papers` ->
   `citation_graph.rank_library_papers`
-- `insights attention-queue` -> `insights.get_attention_queue`
-- `paper-artifacts export-filtered` -> `paper_artifacts.export_filtered`
-- `literature ingest` -> `mutation.execute` with operation `literature.ingest`
+- `synthesis insight attention-queue` -> `insights.get_attention_queue`
+- `synthesis artifact export-filtered` -> `paper_artifacts.export_filtered`
+- `mutation literature-ingest` -> `mutation.execute` with operation `literature.ingest`
 - raw `call mutation.execute` with operation `note.upsertPayload` -> upsert one
   embedded workflow payload attachment on a Zotero note
 
 这些命令不会直接读取 Zotero SQLite、storage 目录或本地文件路径。读命令只通过
-Host Bridge capability 返回 JSON-safe DTO；`literature ingest` 只通过审批后的
+Host Bridge capability 返回 JSON-safe DTO；`mutation literature-ingest` 只通过审批后的
 Host Bridge mutation 写入 Zotero。完整语义命令映射以 1.1 的 generated
 surface 为准。
 
 Synthesis registry、library-index、citation-graph 相关读命令只暴露插件
 sidecar cache 视图，可能滞后或为空。需要当前 Zotero 条目、笔记、附件、标签、
-集合、related item 等事实时，应使用 `item` / `note` 命令直读 Zotero Library；
+集合、related item 等事实时，应使用 `library item` / `library note` 命令直读 Zotero Library；
 需要当前 digest/topic 生成物时，应使用 artifact-oriented synthesis 读命令。
 
 ### 5.3 Raw capability call
@@ -611,11 +630,12 @@ Host Bridge 复用现有 workflow preparation、duplicate guard、execution 和 
 seam。submit 不等待完整 workflow 结束，而是返回 runId、jobIds、初始 task
 状态和 permission 结果。
 
-`workflow run <runId>` 查询单个 run 的当前/历史状态。
+`run get <workflowRunId>` 查询单个 workflow run 的当前/历史状态，并返回其
+已知 skill run 轻量视图。
 
-### 5.5 Task 命令
+### 5.5 Run 命令
 
-`task list` 查询 active 和 recent task summary。当前过滤项包括：
+`run list` 查询 active 和 recent task summary。当前过滤项包括：
 
 - `--workflow`
 - `--backend`
@@ -627,6 +647,12 @@ seam。submit 不等待完整 workflow 结束，而是返回 runId、jobIds、�
 
 `--active-only` 会让请求带上 `includeHistory=false`，只返回 active runtime
 rows。
+
+`run active` 查询轻量 active task 列表，仅返回 running、waiting 与
+failed-retriable 任务，不返回 transcript、本地路径或 provider-private payload。
+
+`run skill get|reply|connect <skillRunId>` 只接受显式 skill run 句柄，不从
+workflow run id 隐式推断交互目标。
 
 ### 5.6 File download
 
@@ -719,22 +745,24 @@ Host Bridge 根据 capability 或 operation metadata 决定是否需要审批，
 
 不需要审批：
 
-- `status`
-- `manifest`
+- `bridge status`
+- `bridge manifest`
 - context/library 只读 capability
 - `mutation.preview`
 - `diagnostic.get_status`
 - `workflow list`
 - `workflow agent-run`
-- `workflow run`
-- `task list`
+- `run get`
+- `run list`
+- `run active`
+- `run skill get`
 - `file download`
 
 默认需要 Zotero UI 审批：
 
 - `workflow submit`
 - `mutation.execute`
-- `literature ingest`
+- `mutation literature-ingest`
 
 当 Zotero 端全局开启 `hostBridgeDisableWriteApproval` 时，Host Bridge 写入、
 workflow submit 和危险能力审批会被跳过。该选项只应在可信、临时调试会话中
@@ -882,7 +910,7 @@ bundle 中 `workflow/workflow.json` 是唯一 canonical workflow manifest。
 workflow 包内其它资源复制到 `workflow/resources/`；不会再额外复制
 `workflow/package/workflow.json`。
 
-### `GET /bridge/v1/workflows/runs/{runId}`
+### `GET /bridge/v1/workflows/runs/{workflowRunId}`
 
 需要鉴权。返回 run 是否存在、run summary 和 task state。
 
@@ -1005,10 +1033,10 @@ PATH 已经可用。
 
 以下参数类型使用 `JSON_OR_FILE`：
 
-- domain semantic commands with `--input`, such as `topics get-context`,
-  `citation-graph get-metrics`, `paper-artifacts read`, `schemas get`,
-  `concepts query`, and `insights attention-queue`
-- `literature ingest --input`
+- domain semantic commands with `--input`, such as `synthesis topic get-context`,
+  `synthesis graph get-metrics`, `synthesis artifact read`, `synthesis schema get`,
+  `synthesis concept query`, and `synthesis insight attention-queue`
+- `mutation literature-ingest --input`
 - `call --input`
 - `workflow describe --workflow-options`
 - `workflow describe --provider-profile`
@@ -1061,12 +1089,12 @@ JSON 解析失败返回：
 
 以下命令使用 item/note ref：
 
-- `item get`
-- `item notes`
-- `item attachments`
-- `note get`
-- `note payloads`
-- `note payload`
+- `library item get`
+- `library item notes`
+- `library item attachments`
+- `library note get`
+- `library note payloads`
+- `library note payload`
 
 必须且只能提供一个：
 
@@ -1107,12 +1135,12 @@ CLI 映射到 Host Bridge input：
 }
 ```
 
-### 12.4 `status`
+### 12.4 `bridge status`
 
 调用格式：
 
 ```text
-zotero-bridge status [--endpoint <url>] [--profile <path>]
+zotero-bridge bridge status [--endpoint <url>] [--profile <path>]
 ```
 
 配置要求：
@@ -1163,12 +1191,12 @@ CLI 会检查 `data.protocol === "host-bridge.v1"`。不匹配时返回：
 | `invalid_bridge_envelope` | `protocol` | 11 |
 | `incompatible_bridge_protocol` | `protocol` | 11 |
 
-### 12.5 `manifest`
+### 12.5 `bridge manifest`
 
 调用格式：
 
 ```text
-zotero-bridge manifest [--endpoint <url>] [--profile <path>]
+zotero-bridge bridge manifest [--endpoint <url>] [--profile <path>]
 ```
 
 配置要求：
@@ -1216,8 +1244,13 @@ Authorization: Bearer <token>
       "POST /bridge/v1/workflows/describe",
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
-      "GET /bridge/v1/workflows/runs/{runId}",
-      "GET /bridge/v1/tasks"
+      "GET /bridge/v1/workflows/runs/{workflowRunId}",
+      "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
+      "GET /bridge/v1/tasks",
+      "GET /bridge/v1/tasks/active",
+      "GET /bridge/v1/skill-runs/{skillRunId}",
+      "POST /bridge/v1/skill-runs/{skillRunId}/reply",
+      "POST /bridge/v1/skill-runs/{skillRunId}/connect"
     ],
     "explicitInputRequired": true,
     "submitRequiresApproval": true
@@ -1323,15 +1356,15 @@ Host Bridge capability 失败时，CLI 会把 bridge error 放入
 调用格式：
 
 ```text
-zotero-bridge topics <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge schemas get [--input <JSON_OR_FILE>]
-zotero-bridge concepts query [--input <JSON_OR_FILE>]
-zotero-bridge citation-graph <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge library-index get [--input <JSON_OR_FILE>]
-zotero-bridge resolvers resolve [--input <JSON_OR_FILE>]
-zotero-bridge reference-index get [--input <JSON_OR_FILE>]
-zotero-bridge paper-artifacts <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge insights <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis topic <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis schema get [--input <JSON_OR_FILE>]
+zotero-bridge synthesis concept query [--input <JSON_OR_FILE>]
+zotero-bridge synthesis graph <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis index library get [--input <JSON_OR_FILE>]
+zotero-bridge synthesis resolver resolve [--input <JSON_OR_FILE>]
+zotero-bridge synthesis index reference get [--input <JSON_OR_FILE>]
+zotero-bridge synthesis artifact <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis insight <subcommand> [--input <JSON_OR_FILE>]
 ```
 
 这些领域语义命令都通过 `POST <endpoint>/call` 调用对应 Host Bridge
@@ -1345,21 +1378,21 @@ registry 和 Rust CLI source 渲染，新增、删除或重命名 Host Bridge su
 典型调用：
 
 ```text
-zotero-bridge topics list --input '{}'
-zotero-bridge topics get-context --input '{"topicId":"topic-id"}'
-zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"digest"}'
-zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'
-zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"audit","outputPath":"runtime/topic-context.audit.json","overwrite":true}'
-zotero-bridge topics get-report --input '{"topicId":"topic-id"}'
-zotero-bridge library-index get --input '{"cursor":0,"limit":50}'
-zotero-bridge resolvers resolve --input @runtime/payloads/resolver-input.json
-zotero-bridge citation-graph get-metrics --input @runtime/payloads/metrics-input.json
-zotero-bridge citation-graph rank-external-references --input '{"limit":10}'
-zotero-bridge insights attention-queue --input '{}'
-zotero-bridge paper-artifacts export-filtered --input @runtime/payloads/export-input.json
+zotero-bridge synthesis topic list --input '{}'
+zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id"}'
+zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"digest"}'
+zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'
+zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"audit","outputPath":"runtime/topic-context.audit.json","overwrite":true}'
+zotero-bridge synthesis topic get-report --input '{"topicId":"topic-id"}'
+zotero-bridge synthesis index library get --input '{"cursor":0,"limit":50}'
+zotero-bridge synthesis resolver resolve --input @runtime/payloads/resolver-input.json
+zotero-bridge synthesis graph get-metrics --input @runtime/payloads/metrics-input.json
+zotero-bridge synthesis graph rank-external-references --input '{"limit":10}'
+zotero-bridge synthesis insight attention-queue --input '{}'
+zotero-bridge synthesis artifact export-filtered --input @runtime/payloads/export-input.json
 ```
 
-`topics get-context` 未传 `view` 时保持 legacy flat 输出，供旧 workflow
+`synthesis topic get-context` 未传 `view` 时保持 legacy flat 输出，供旧 workflow
 继续使用。显式 `view` 使用 v2 topic context envelope：`digest` 返回基础信息
 和语义摘要，`semantic` 返回完整语义内容，`audit` 返回 hashes、freshness、
 discovery 和 diagnostics，`full` 返回上述三者的嵌套组合。大体量
@@ -1368,13 +1401,13 @@ path、bytes、sha256 和 `omitted_inline_result: true` 的 compact envelope。
 local profile 会直接写该文件；remote profile 会把该路径作为 zip entry
 返回 `delivery.mode: "bridge-download"`，不会写调用方文件系统。
 
-`paper-artifacts export-filtered` 在 local profile 下会在
+`synthesis artifact export-filtered` 在 local profile 下会在
 `run_root/runtime/payloads/` 下写出 `paper-artifacts-manifest.json` 和
 content 文件。remote profile 会在 host 侧临时目录生成相同相对结构并打包为
 zip，响应里的 `manifest_file` 仍指向 zip 内的
 `runtime/payloads/paper-artifacts-manifest.json`。
 
-`resolvers resolve` 的输入是直接 resolver payload，不要再包一层
+`synthesis resolver resolve` 的输入是直接 resolver payload，不要再包一层
 `resolver`：
 
 ```json
@@ -1392,13 +1425,13 @@ zip，响应里的 `manifest_file` 仍指向 zip 内的
 旧字段 `resolver`、`topic_resolver`、`mode`、`query`、`include` 和
 `exclude` 都会被拒绝。
 
-`library-index get`、`reference-index get` 和 citation-graph cache-view
+`synthesis index library get`、`synthesis index reference get` 和 synthesis graph cache-view
 子命令返回 Synthesis 持久缓存视图。它们不保证已经与 Zotero Library 同步，也
-不会为了读取而启动 refresh。Agent 需要当前 Zotero 事实时必须走 `item` /
-`note` 命令；需要生成物事实时走 topic context、topic report、manifest 或
+不会为了读取而启动 refresh。Agent 需要当前 Zotero 事实时必须走 `library item` /
+`library note` 命令；需要生成物事实时走 topic context、topic report、manifest 或
 paper artifact 读命令。
 
-`reference-index get` 默认返回 source paper registry rows。需要读取当前
+`synthesis index reference get` 默认返回 source paper registry rows。需要读取当前
 source paper 的逐条 references 及其库内绑定信息时，传
 `includeReferences:true` 和 `referenceSourceRefs:["<paper_ref>"]`；需要按
 raw reference 精确过滤时，可同时传 `rawReferenceIds`。
@@ -1423,12 +1456,12 @@ raw reference 精确过滤时，可同时传 `rawReferenceIds`。
 | `input_file_unreadable` | `validation` | 7 |
 | `input_json_invalid` | `validation` | 7 |
 
-### 12.7.1 `literature ingest`
+### 12.7.1 `mutation literature-ingest`
 
 调用格式：
 
 ```text
-zotero-bridge literature ingest --input <JSON_OR_FILE>
+zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 ```
 
 输入必须是 JSON object，包含单个 `paper` 和可选 `collection`。CLI 会将它包装为
@@ -1544,12 +1577,12 @@ Content-Type: application/json
 | `permission_timeout` | `permission` | 6 |
 | `permission_ui_unavailable` | `permission` | 6 |
 
-### 12.8 `item search`
+### 12.8 `library item search`
 
 调用格式：
 
 ```text
-zotero-bridge item search --query <text> [--limit <n>] [--library-id <id>]
+zotero-bridge library item search --query <text> [--limit <n>] [--library-id <id>]
 ```
 
 Capability 映射：
@@ -1595,12 +1628,12 @@ Capability input：
 `query` 不能为空。空 query 会由 Host Bridge capability 返回
 `capability_failed`。
 
-### 12.9 `item get`
+### 12.9 `library item get`
 
 调用格式：
 
 ```text
-zotero-bridge item get (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
 ```
 
 Capability 映射：
@@ -1637,12 +1670,12 @@ Capability input 见“item/note ref 参数”。
 
 未找到 item 时，当前 broker 返回 `null`，仍是成功 envelope。
 
-### 12.10 `item notes`
+### 12.10 `library item notes`
 
 调用格式：
 
 ```text
-zotero-bridge item notes (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
+zotero-bridge library item notes (--key <key> | --id <id>) [--library-id <id>] [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
 ```
 
 Capability 映射：
@@ -1686,12 +1719,12 @@ Capability input：
 
 如果 child note 解析失败，数组中对应条目可能包含 `errors`。
 
-### 12.11 `item attachments`
+### 12.11 `library item attachments`
 
 调用格式：
 
 ```text
-zotero-bridge item attachments (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
 ```
 
 Capability 映射：
@@ -1750,12 +1783,12 @@ library.get_item_attachments
 
 返回中不得包含 `path` 或本地绝对路径。下载只能使用 `file.fileId`。
 
-### 12.12 `note get`
+### 12.12 `library note get`
 
 调用格式：
 
 ```text
-zotero-bridge note get (--key <key> | --id <id>) [--library-id <id>] [--format text|html] [--offset <n>] [--max-chars <n>]
+zotero-bridge library note get (--key <key> | --id <id>) [--library-id <id>] [--format text|html] [--offset <n>] [--max-chars <n>]
 ```
 
 Capability 映射：
@@ -1801,12 +1834,12 @@ Capability input：
 
 分页读取时使用下一次请求的 `--offset <nextOffset>`。
 
-### 12.13 `note payloads`
+### 12.13 `library note payloads`
 
 调用格式：
 
 ```text
-zotero-bridge note payloads (--key <key> | --id <id>) [--library-id <id>]
+zotero-bridge library note payloads (--key <key> | --id <id>) [--library-id <id>]
 ```
 
 Capability 映射：
@@ -1819,12 +1852,12 @@ library.list_note_payloads
 decoded text、完整 payload 或 markdown 正文。具体字段由 note payload codec
 产生，调用方应以 manifest 中的 payload metadata 和后续 `note payload` 读取为准。
 
-### 12.14 `note payload`
+### 12.14 `library note payload`
 
 调用格式：
 
 ```text
-zotero-bridge note payload (--key <key> | --id <id>) [--library-id <id>] [--payload-type <type>] [--offset <n>] [--max-chars <n>]
+zotero-bridge library note payload (--key <key> | --id <id>) [--library-id <id>] [--payload-type <type>] [--offset <n>] [--max-chars <n>]
 ```
 
 Capability 映射：
@@ -2069,18 +2102,18 @@ profile 文件不得保存 bearer token、backend auth、baseUrl 或本地路径
 | `permission_timeout` | `permission` | 6 |
 | `permission_ui_unavailable` | `permission` | 6 |
 
-### 12.17 `workflow run`
+### 12.17 `run get`
 
 调用格式：
 
 ```text
-zotero-bridge workflow run <runId>
+zotero-bridge run get <workflowRunId>
 ```
 
 HTTP 映射：
 
 ```text
-GET <endpoint>/workflows/runs/<percent-encoded-runId>
+GET <endpoint>/workflows/runs/<percent-encoded-workflowRunId>
 ```
 
 空 run id 返回：
@@ -2131,12 +2164,12 @@ queued | running | waiting | succeeded | failed | canceled | unknown
 }
 ```
 
-### 12.18 `task list`
+### 12.18 `run list`
 
 调用格式：
 
 ```text
-zotero-bridge task list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
+zotero-bridge run list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
 ```
 
 Query 映射：
@@ -2194,7 +2227,31 @@ GET <endpoint>/tasks?workflowId=workflow-id&runId=run-1&includeHistory=false
 `inputUnitIdentity`，并把 task `error` 中的本地绝对路径替换为
 `[redacted-path]`。
 
-### 12.19 `file download`
+### 12.19 `run active` and `run skill`
+
+调用格式：
+
+```text
+zotero-bridge run active
+zotero-bridge run skill get <skillRunId>
+zotero-bridge run skill reply <skillRunId> --message <message>
+zotero-bridge run skill connect <skillRunId>
+```
+
+HTTP 映射：
+
+```text
+GET <endpoint>/tasks/active
+GET <endpoint>/skill-runs/<percent-encoded-skillRunId>
+POST <endpoint>/skill-runs/<percent-encoded-skillRunId>/reply
+POST <endpoint>/skill-runs/<percent-encoded-skillRunId>/connect
+```
+
+`run active` 返回轻量任务句柄，不返回 transcript、本地路径、完整错误文本或
+provider private payload。`run skill reply` 和 `run skill connect` 必须显式
+使用 `skillRunId`，不得用 workflow run id 隐式路由。
+
+### 12.20 `file download`
 
 调用格式：
 
@@ -2275,7 +2332,7 @@ Host Bridge download 错误映射：
 | `file_unavailable` | `download` | 10 |
 | `download_failed` | `download` | 10 |
 
-### 12.20 HTTP bridge envelope 与 CLI error 映射
+### 12.21 HTTP bridge envelope 与 CLI error 映射
 
 Host Bridge JSON endpoint 错误 envelope：
 

@@ -19,8 +19,8 @@ Initialize the packaged CLI before the first Zotero action:
 
 ```powershell
 scripts/install_zotero_bridge_cli.py
-zotero-bridge status
-zotero-bridge manifest
+zotero-bridge bridge status
+zotero-bridge bridge manifest
 scripts/zotero_librarian_index_service.py stats
 ```
 
@@ -36,7 +36,7 @@ $env:ZOTERO_BRIDGE_TOKEN = "<set-by-runtime>"
 Use direct library commands for bounded reads:
 
 ```powershell
-zotero-bridge library list --input '{"limit":25,"query":"transformer"}'
+zotero-bridge library items list --input '{"limit":25,"query":"transformer"}'
 zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
 ```
 

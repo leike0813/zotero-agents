@@ -153,7 +153,7 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
     assert.include(hostBridgeReference, "library.sync_snapshot");
     assert.include(hostBridgeReference, "`zotero-bridge library snapshot`");
-    assert.include(hostBridgeReference, "`zotero-bridge library list`");
+    assert.include(hostBridgeReference, "`zotero-bridge library items list`");
 
     assert.include(
       workflowReference,
@@ -185,7 +185,7 @@ describe("zotero-librarian Hermes profile distribution", function () {
       ],
       [
         "cron/attention-queue.yaml",
-        ['time: "18:00"', "insights attention-queue"],
+        ['time: "18:00"', "synthesis insight attention-queue"],
       ],
     ];
 

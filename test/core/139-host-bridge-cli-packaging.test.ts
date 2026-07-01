@@ -202,21 +202,14 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_PROFILE");
     }
 
-    for (const commandGroup of [
-      "schemas",
-      "concepts",
-      "library",
-      "library-index",
-      "resolvers",
-      "reference-index",
-    ]) {
+    for (const commandGroup of ["bridge", "library", "synthesis", "run"]) {
       assert.include(wrapperReference, `zotero-bridge ${commandGroup} --help`);
     }
-    assert.include(wrapperReference, "`library list`");
+    assert.include(wrapperReference, "`library items list`");
     assert.include(wrapperReference, "`library snapshot`");
-    assert.include(wrapperReference, "`library-index get`");
-    assert.include(wrapperReference, "`reference-index get`");
-    assert.include(wrapperReference, "`resolvers resolve`");
+    assert.include(wrapperReference, "`synthesis index library get`");
+    assert.include(wrapperReference, "`synthesis index reference get`");
+    assert.include(wrapperReference, "`synthesis resolver resolve`");
   });
 
   it("documents library snapshot/list semantic CLI commands for Zotero library indexes", async function () {
@@ -245,12 +238,12 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "library.list_items");
     }
     for (const source of [wrapperReference, docs]) {
-      assert.include(source, "zotero-bridge library list");
+      assert.include(source, "zotero-bridge library items list");
       assert.include(source, "zotero-bridge library snapshot");
       assert.include(source, "collectionKey");
       assert.include(source, "nextCursor");
     }
-    assert.include(commands, "LibraryCommand::List");
+    assert.include(commands, "LibraryItemsCommand::List");
     assert.include(commands, "LibraryCommand::Snapshot");
   });
 
@@ -278,7 +271,7 @@ describe("host bridge cli packaging and install", function () {
     assert.include(cliArgs, "topics.get_context");
     assert.include(cliArgs, "get-context");
     for (const source of [wrapperSkill, wrapperReference, docs]) {
-      assert.include(source, "topics get-context");
+      assert.include(source, "synthesis topic get-context");
     }
     for (const source of [cliArgs, wrapperSkill, wrapperReference, docs]) {
       assert.include(source, "view");

@@ -6,7 +6,7 @@
   "payload_path": "runtime/payloads/resolver-and-workset.json",
   "payload_schema": "assets/schemas/stage-20-resolver-and-workset.schema.json",
   "required_reads": [
-    "zotero-bridge synthesis get-library-index --input '{\"cursor\":0,\"limit\":200}'"
+    "zotero-bridge synthesis index library get --input '{\"cursor\":0,\"limit\":200}'"
   ],
   "schema_id": "synthesis.topic_synthesis_gate_instruction",
   "schema_version": "1.0.0",

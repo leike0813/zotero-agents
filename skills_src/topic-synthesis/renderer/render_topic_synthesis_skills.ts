@@ -118,7 +118,7 @@ function skillQualityGoals(skill: SkillContract): string {
     "create-topic-synthesis-prepare": [
       "topic intent 必须把 seed 转成稳定 topic identity：标题、别名、定义、纳入/排除范围都要能指导 resolver。",
       "duplicate check 只基于 Host topic list 中现有 topic 的 title、description、aliases 和 id，不能把宽泛相关主题误判为同一主题。",
-      "resolver proposal 要可复现、边界清楚；runtime 负责执行 `resolvers resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
+      "resolver proposal 要可复现、边界清楚；runtime 负责执行 `synthesis resolver resolve`、citation metrics 和 filtered artifact export，LLM 不手写 resolver result。",
       "远程 SkillRunner profile 下 filtered artifact export 可能返回 bridge-download；按 runtime 写出的 `runtime/payloads/paper-artifacts-export-delivery.json` 执行 downloadCommand/unpackHint 后再继续。",
       "paper triage 必须保持 paper-local，为每篇 resolved paper 给出 relevance、quality、core_digest 和 caveats，不提前写跨文献综合。",
     ],
@@ -158,7 +158,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
       ],
       runtime: [
         "初始化 SQLite 和 stage state。",
-        "执行 resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "执行 resolver cascade：`synthesis resolver resolve`、citation metrics、filtered artifact export。",
         "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 create topic context、resolver proposal 和 paper triage payload。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",
@@ -173,7 +173,7 @@ function llmRuntimeBoundary(skill: SkillContract): {
       runtime: [
         "初始化或校验 SQLite 和 stage state。",
         "执行 update preflight：get-context digest/audit、baseline resolver resolve 和 audit report 生成。",
-        "校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。",
+        "校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`synthesis resolver resolve`、citation metrics、filtered artifact export。",
         "远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。",
         "校验 paper triage payload，合并已保存 triage 和新增 triage。",
         "生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。",

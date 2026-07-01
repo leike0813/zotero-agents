@@ -825,7 +825,7 @@ describe("Topic synthesis suite renderer", function () {
     assert.include(coreSkill, "KG enrichment");
     assert.include(coreSkill, "existing_topic_relation_proposals");
     assert.include(coreSkill, "prospective_topic_relation_proposals");
-    assert.include(coreSkill, "topics list --input '{}'");
+    assert.include(coreSkill, "synthesis topic list --input '{}'");
     assert.include(coreSkill, "target_is_broader_topic_candidate");
     assert.include(coreSkill, "target_is_narrower_topic_candidate");
     assert.include(
@@ -903,15 +903,15 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(createSkill, "Host 文库索引");
     assert.notInclude(updateSkill, "Host 主题上下文");
     assert.notInclude(updateSkill, "Host 文库索引");
-    assert.include(createSkill, "<zotero-bridge> topics list --input '{}'");
+    assert.include(createSkill, "<zotero-bridge> synthesis topic list --input '{}'");
     assert.include(
       createSkill,
-      '<zotero-bridge> library-index get --input \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --input \'{"cursor":0,"limit":200}\'',
     );
     assert.include(updateSkill, "runtime/payloads/update-audit-report.json");
     assert.include(
       updateSkill,
-      '<zotero-bridge> library-index get --input \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --input \'{"cursor":0,"limit":200}\'',
     );
   });
 
@@ -1044,9 +1044,9 @@ describe("Topic synthesis suite renderer", function () {
         ),
         "utf8",
       );
-      assert.include(scriptText, '["resolvers", "resolve"]');
-      assert.include(scriptText, '["citation-graph", "get-metrics"]');
-      assert.include(scriptText, '["paper-artifacts", "export-filtered"]');
+      assert.include(scriptText, '["synthesis", "resolver", "resolve"]');
+      assert.include(scriptText, '["synthesis", "graph", "get-metrics"]');
+      assert.include(scriptText, '["synthesis", "artifact", "export-filtered"]');
       assert.notInclude(scriptText, '["synthesis", "resolve-resolver"]');
       assert.notInclude(
         scriptText,

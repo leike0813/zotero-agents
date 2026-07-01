@@ -1,6 +1,6 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "buildFingerprint": "929977cf83d2c269193ec21fe839e96e7d1a8dbfc68cdf7f5caed9140327791c",
   "fingerprintInputs": [
     ".github/workflows/build-zotero-bridge-cli.yml",

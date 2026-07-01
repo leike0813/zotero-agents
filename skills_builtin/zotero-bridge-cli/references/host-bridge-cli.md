@@ -20,7 +20,7 @@ so Host Bridge write approvals return to the SkillRunner panel.
 For resolver commands, pass direct resolver fields: `tag`, `collection_key`,
 `paper_refs`, optional `combine`, and optional paging fields. Do not wrap them
 in a top-level `resolver` object. `topic_resolver`, `mode`, `query`, `include`,
-and `exclude` are legacy fields and are rejected by `resolvers resolve`.
+and `exclude` are legacy fields and are rejected by `synthesis resolver resolve`.
 
 <!-- host-bridge-surface:wrapper-reference:start -->
 This section is generated from the Host Bridge surface catalog.
@@ -34,24 +34,15 @@ This section is generated from the Host Bridge surface catalog.
 ### Discovery commands
 
 ```text
-zotero-bridge status
-zotero-bridge manifest
+zotero-bridge bridge status
+zotero-bridge bridge manifest
 zotero-bridge --help
+zotero-bridge bridge --help
 zotero-bridge library --help
-zotero-bridge item --help
-zotero-bridge note --help
-zotero-bridge topics --help
-zotero-bridge schemas --help
-zotero-bridge concepts --help
-zotero-bridge citation-graph --help
-zotero-bridge library-index --help
-zotero-bridge resolvers --help
-zotero-bridge reference-index --help
-zotero-bridge paper-artifacts --help
-zotero-bridge insights --help
-zotero-bridge literature --help
+zotero-bridge synthesis --help
 zotero-bridge workflow --help
-zotero-bridge task --help
+zotero-bridge run --help
+zotero-bridge mutation --help
 zotero-bridge file --help
 ```
 
@@ -59,71 +50,78 @@ zotero-bridge file --help
 
 | CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
-| `status` | `GET /bridge/v1/health` | endpoint | - |
-| `manifest` | `GET /bridge/v1/manifest` | endpoint | - |
-| `library list` | `library.list_items` | capability | - |
+| `bridge manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `bridge status` | `GET /bridge/v1/health` | endpoint | - |
+| `library item attachments` | `library.get_item_attachments` | capability | - |
+| `library item get` | `library.get_item_detail` | capability | - |
+| `library item notes` | `library.get_item_notes` | capability | - |
+| `library item search` | `library.search_items` | capability | - |
+| `library items list` | `library.list_items` | capability | - |
+| `library note get` | `library.get_note_detail` | capability | - |
+| `library note payload` | `library.get_note_payload` | capability | - |
+| `library note payloads` | `library.list_note_payloads` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
-| `item attachments` | `library.get_item_attachments` | capability | - |
-| `item get` | `library.get_item_detail` | capability | - |
-| `item notes` | `library.get_item_notes` | capability | - |
-| `item search` | `library.search_items` | capability | - |
-| `note get` | `library.get_note_detail` | capability | - |
-| `note payload` | `library.get_note_payload` | capability | - |
-| `note payloads` | `library.list_note_payloads` | capability | - |
-| `topics find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
-| `topics get-context` | `topics.get_context` | capability | - |
-| `topics get-report` | `topics.get_report` | capability | - |
-| `topics get-review-input` | `topics.get_review_input` | capability | - |
-| `topics list` | `topics.list` | capability | - |
-| `schemas get` | `schemas.get` | capability | - |
-| `concepts query` | `concepts.query` | capability | - |
-| `citation-graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
-| `citation-graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
-| `citation-graph get-slice` | `citation_graph.get_slice` | capability | cache-view |
-| `citation-graph overview` | `citation_graph.get_overview` | capability | cache-view |
-| `citation-graph query-cluster` | `citation_graph.query_cluster` | capability | cache-view |
-| `citation-graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
-| `citation-graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
-| `citation-graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
-| `library-index get` | `library_index.get` | capability | cache-view |
-| `resolvers resolve` | `resolvers.resolve` | capability | - |
-| `reference-index get` | `reference_index.get` | capability | cache-view |
-| `paper-artifacts export-filtered` | `paper_artifacts.export_filtered` | capability | - |
-| `paper-artifacts manifest` | `paper_artifacts.get_manifest` | capability | - |
-| `paper-artifacts read` | `paper_artifacts.read` | capability | - |
-| `paper-artifacts resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
-| `insights attention-queue` | `insights.get_attention_queue` | capability | - |
-| `literature ingest` | `mutation.execute` | capability | - |
+| `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
+| `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
+| `synthesis artifact read` | `paper_artifacts.read` | capability | - |
+| `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
+| `synthesis concept query` | `concepts.query` | capability | - |
+| `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
+| `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
+| `synthesis graph get-slice` | `citation_graph.get_slice` | capability | cache-view |
+| `synthesis graph overview` | `citation_graph.get_overview` | capability | cache-view |
+| `synthesis graph query-cluster` | `citation_graph.query_cluster` | capability | cache-view |
+| `synthesis graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
+| `synthesis graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
+| `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
+| `synthesis index library get` | `library_index.get` | capability | cache-view |
+| `synthesis index reference get` | `reference_index.get` | capability | cache-view |
+| `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
+| `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
+| `synthesis schema get` | `schemas.get` | capability | - |
+| `synthesis topic find-by-paper-ref` | `topics.find_by_paper_ref` | capability | - |
+| `synthesis topic get-context` | `topics.get_context` | capability | - |
+| `synthesis topic get-report` | `topics.get_report` | capability | - |
+| `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
+| `synthesis topic list` | `topics.list` | capability | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
-| `workflow run` | `GET /bridge/v1/workflows/runs/{runId}` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
-| `task list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run active` | `GET /bridge/v1/tasks/active` | endpoint | - |
+| `run cancel` | `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
+| `run get` | `GET /bridge/v1/workflows/runs/{workflowRunId}` | endpoint | - |
+| `run list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run skill connect` | `POST /bridge/v1/skill-runs/{skillRunId}/connect` | endpoint | - |
+| `run skill get` | `GET /bridge/v1/skill-runs/{skillRunId}` | endpoint | - |
+| `run skill reply` | `POST /bridge/v1/skill-runs/{skillRunId}/reply` | endpoint | - |
+| `mutation apply` | `mutation.execute` | capability | - |
+| `mutation literature-ingest` | `mutation.execute` | capability | - |
+| `mutation preview` | `mutation.preview` | capability | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
 
 ### Library guidance
 
-- Use `zotero-bridge library list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
+- Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
 - Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
-- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 ### Topic context payloads
 
-- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
+- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
 - Omit `view` only when a legacy flat topic context response is required.
 - For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.
-- Example: `zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
+- Example: `zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
 
 ### Resolver payloads
 
-- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
 - Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
 - `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
-- Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Examples: `zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 ### Workflow payloads
@@ -142,9 +140,7 @@ zotero-bridge file --help
 | --- | --- | --- | --- | --- | --- |
 | `context.get_current_view` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `context.get_selected_items` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `citation-graph refresh-metrics` | dangerous, mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `literature ingest` | raw-only, mcp-mirror |
-| `mutation.preview` | mutation | `none` | `mutation-preview required` | `raw call only` | raw-only, mcp-mirror |
+| `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `debug.acpSkillRun.reapplyResult` | debug | `none` | `object` | `debug acp-skill-run reapply-result` | debug-only, mcp-mirror |
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |
@@ -164,5 +160,5 @@ zotero-bridge file --help
 
 ## Remote Export Bundles
 
-- With a remote profile, `topics get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
-- With a remote profile, `paper-artifacts export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.
+- With a remote profile, `synthesis topic get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
+- With a remote profile, `synthesis artifact export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.

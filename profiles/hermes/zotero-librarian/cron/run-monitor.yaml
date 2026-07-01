@@ -14,4 +14,4 @@ behavior:
     - canceled
 notes:
   - Read active runs from local SQLite.
-  - Call zotero-bridge workflow run for each active run id.
+  - Call zotero-bridge run get for each active run id.

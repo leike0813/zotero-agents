@@ -103,21 +103,12 @@ function writeOrCheck(
 
 function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   const order = [
+    "bridge",
     "library",
-    "item",
-    "note",
-    "topics",
-    "schemas",
-    "concepts",
-    "citation-graph",
-    "library-index",
-    "resolvers",
-    "reference-index",
-    "paper-artifacts",
-    "insights",
-    "literature",
+    "synthesis",
     "workflow",
-    "task",
+    "run",
+    "mutation",
     "file",
   ];
   return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
@@ -142,13 +133,13 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
     .filter((mapping) => {
       const group = mapping.command.split(" ")[0] || "";
       return [
+        "bridge",
         "library",
-        "item",
-        "note",
         "workflow",
-        "task",
+        "run",
         "file",
-        "insights",
+        "synthesis",
+        "mutation",
       ].includes(group);
     })
     .map(
@@ -185,6 +176,8 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
     "## Snapshot Payload",
     "",
     "`zotero-bridge library snapshot --input <JSON_OR_FILE>` maps to `library.sync_snapshot`.",
+    "",
+    "`zotero-bridge library items list --input <JSON_OR_FILE>` maps to `library.list_items`.",
     "",
     "Input fields: `libraryId`, `cursor`, `limit`, `collectionId`, `collectionKey`, `tag`, `itemType`, and `query`.",
     "",

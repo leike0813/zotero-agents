@@ -30,25 +30,15 @@ function write(path: string, text: string) {
 
 function commandForSort(mapping: HostBridgeCliMapping) {
   const groupOrder = [
-    "status",
-    "manifest",
+    "bridge",
     "library",
-    "item",
-    "note",
-    "topics",
-    "schemas",
-    "concepts",
-    "citation-graph",
-    "library-index",
-    "resolvers",
-    "reference-index",
-    "paper-artifacts",
-    "insights",
-    "literature",
+    "synthesis",
     "workflow",
-    "task",
+    "run",
+    "mutation",
     "file",
     "debug",
+    "call",
   ];
   const group = mapping.command.split(" ")[0] || "";
   const groupIndex = groupOrder.indexOf(group);
@@ -153,9 +143,7 @@ function commandBlock(mappings: HostBridgeCliMapping[]) {
 }
 
 function semanticCliMappings(catalog: HostBridgeSurfaceCatalog) {
-  return sortedMappings(catalog).filter(
-    (mapping) => mapping.command !== "status" && mapping.command !== "manifest",
-  );
+  return sortedMappings(catalog);
 }
 
 function discoveryCommandBlock(catalog: HostBridgeSurfaceCatalog) {
@@ -168,8 +156,8 @@ function discoveryCommandBlock(catalog: HostBridgeSurfaceCatalog) {
   );
   return [
     "```text",
-    "zotero-bridge status",
-    "zotero-bridge manifest",
+    "zotero-bridge bridge status",
+    "zotero-bridge bridge manifest",
     "zotero-bridge --help",
     ...groups.map((group) => `zotero-bridge ${group} --help`),
     "```",
@@ -207,18 +195,18 @@ function shimGuidance() {
 
 function topicContextGuidance() {
   return [
-    "- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
+    "- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
     "- Omit `view` only when a legacy flat topic context response is required.",
     "- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.",
-    '- Example: `zotero-bridge topics get-context --input \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
+    '- Example: `zotero-bridge synthesis topic get-context --input \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
   ].join("\n");
 }
 
 function libraryGuidance() {
   return [
-    '- Use `zotero-bridge library list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
+    '- Use `zotero-bridge library items list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
     '- Use `zotero-bridge library snapshot --input \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
-    "- `library list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
   ].join("\n");
@@ -226,11 +214,11 @@ function libraryGuidance() {
 
 function resolverGuidance() {
   return [
-    "- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
+    "- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
     "- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.",
     "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
     "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
-    '- Examples: `zotero-bridge resolvers resolve --input \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge resolvers resolve --input \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
+    '- Examples: `zotero-bridge synthesis resolver resolve --input \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge synthesis resolver resolve --input \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
     "- Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
   ].join("\n");
 }
@@ -244,6 +232,15 @@ function workflowGuidance() {
     "- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
     "- `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.",
     "- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.",
+  ].join("\n");
+}
+
+function runGuidance() {
+  return [
+    "- Use `run get <workflowRunId>` for workflow-level runtime status and known skill run projections.",
+    "- Use `run active` for the lightweight global active-task list; it excludes transcripts, local paths, and provider-private payloads.",
+    "- Use `run cancel <workflowRunId>` for workflow-level cancellation intent; cancellation does not imply immediate terminal state.",
+    "- Use `run skill get|reply|connect <skillRunId>` for explicit skill run interactions. Do not infer a skill run target from a workflow run id.",
   ].join("\n");
 }
 
@@ -271,6 +268,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     workflowGuidance(),
     "",
+    "#### Runtime control payloads",
+    "",
+    runGuidance(),
+    "",
     "#### Debug capabilities",
     "",
     capabilityTable(sortedCapabilities(catalog, (entry) => entry.debugOnly)),
@@ -283,8 +284,8 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
   const insightCommands = catalog.cliMappings
     .filter(
       (mapping) =>
-        mapping.command.startsWith("citation-graph ") ||
-        mapping.command.startsWith("insights "),
+        mapping.command.startsWith("synthesis graph ") ||
+        mapping.command.startsWith("synthesis insight "),
     )
     .sort((left, right) => left.command.localeCompare(right.command))
     .map((mapping) => mapping.command)
@@ -315,6 +316,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "### Workflow payloads",
     "",
     workflowGuidance(),
+    "",
+    "### Runtime control payloads",
+    "",
+    runGuidance(),
   ].join("\n");
 }
 
@@ -369,13 +374,7 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
 function renderTopicSynthesisFragment(catalog: HostBridgeSurfaceCatalog) {
   const topicCommandGroups = [
     "library",
-    "topics",
-    "library-index",
-    "resolvers",
-    "reference-index",
-    "citation-graph",
-    "paper-artifacts",
-    "insights",
+    "synthesis",
   ];
   const topicCommands = catalog.cliMappings
     .filter((mapping) =>

@@ -5,13 +5,17 @@
   const VALID = new Set(["system", "light", "dark"]);
 
   function normalizeTheme(value) {
-    const candidate = String(value || "").trim().toLowerCase();
+    const candidate = String(value || "")
+      .trim()
+      .toLowerCase();
     return VALID.has(candidate) ? candidate : "system";
   }
 
   function readStoredTheme() {
     try {
-      return normalizeTheme(window.localStorage && window.localStorage.getItem(STORAGE_KEY));
+      return normalizeTheme(
+        window.localStorage && window.localStorage.getItem(STORAGE_KEY),
+      );
     } catch {
       return "system";
     }
@@ -32,12 +36,17 @@
   function setTheme(theme) {
     const normalized = applyTheme(theme);
     try {
-      window.localStorage && window.localStorage.setItem(STORAGE_KEY, normalized);
+      window.localStorage &&
+        window.localStorage.setItem(STORAGE_KEY, normalized);
     } catch {
       // Local storage is best-effort in chrome iframes.
     }
     try {
-      window.dispatchEvent(new CustomEvent("zotero-skills-theme-change", { detail: { theme: normalized } }));
+      window.dispatchEvent(
+        new CustomEvent("zotero-skills-theme-change", {
+          detail: { theme: normalized },
+        }),
+      );
     } catch {
       // CustomEvent may be unavailable in some narrow test contexts.
     }
@@ -47,7 +56,10 @@
   applyTheme(readStoredTheme());
 
   window.ZoteroSkillsTheme = {
-    getTheme: () => normalizeTheme(document.documentElement.getAttribute("data-zs-theme-choice")),
+    getTheme: () =>
+      normalizeTheme(
+        document.documentElement.getAttribute("data-zs-theme-choice"),
+      ),
     setTheme,
   };
 

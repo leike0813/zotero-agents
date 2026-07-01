@@ -45,6 +45,14 @@ const DOCS = [
   "openspec/specs/zotero-mcp-tool-suite/spec.md",
 ];
 
+const CANONICAL_CLI_DOCS = [
+  "doc/host-bridge-cli.md",
+  "skills_builtin/zotero-bridge-cli/SKILL.md",
+  "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+  "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
+];
+
 const FORBIDDEN_TEXT = [
   "synthesis <subcommand>",
   "synthesis <subcommand> --input",
@@ -83,6 +91,40 @@ const FORBIDDEN_REGEX: Array<[RegExp, string]> = [
   [/\bget-reference-sidecar-index\b/, "legacy reference sidecar CLI command"],
   [/\bget-library-index\b/, "legacy library index CLI command"],
   [/\bresolve-resolver\b/, "legacy resolver CLI command"],
+];
+
+const LEGACY_CLI_REGEX: Array<[RegExp, string]> = [
+  [/\bzotero-bridge status\b/, "legacy bridge status command"],
+  [/\bzotero-bridge manifest\b/, "legacy bridge manifest command"],
+  [/\bzotero-bridge library list\b/, "legacy library list command"],
+  [/\bzotero-bridge item\b/, "legacy item command group"],
+  [/\bzotero-bridge note\b/, "legacy note command group"],
+  [/\bzotero-bridge topics\b/, "legacy topics command group"],
+  [/\bzotero-bridge schemas\b/, "legacy schemas command group"],
+  [/\bzotero-bridge concepts\b/, "legacy concepts command group"],
+  [/\bzotero-bridge citation-graph\b/, "legacy citation graph command group"],
+  [/\bzotero-bridge library-index\b/, "legacy library index command group"],
+  [/\bzotero-bridge resolvers\b/, "legacy resolvers command group"],
+  [/\bzotero-bridge reference-index\b/, "legacy reference index command group"],
+  [/\bzotero-bridge paper-artifacts\b/, "legacy paper artifacts command group"],
+  [/\bzotero-bridge insights\b/, "legacy insights command group"],
+  [/\bzotero-bridge literature\b/, "legacy literature command group"],
+  [/\bzotero-bridge workflow run\b/, "legacy workflow run command"],
+  [/\bzotero-bridge workflow cancel\b/, "legacy workflow cancel command"],
+  [/\bzotero-bridge task\b/, "legacy task command group"],
+  [/\bzotero-bridge skill-run\b/, "legacy skill-run command group"],
+  [/`topics (list|get-context|get-report|get-review-input)`/, "legacy topics command fragment"],
+  [/`schemas get`/, "legacy schemas command fragment"],
+  [/`concepts query`/, "legacy concepts command fragment"],
+  [/`citation-graph [^`]+`/, "legacy citation graph command fragment"],
+  [/`library-index get`/, "legacy library index command fragment"],
+  [/`resolvers resolve`/, "legacy resolvers command fragment"],
+  [/`reference-index get`/, "legacy reference index command fragment"],
+  [/`paper-artifacts [^`]+`/, "legacy paper artifacts command fragment"],
+  [/`insights attention-queue`/, "legacy insights command fragment"],
+  [/`literature ingest`/, "legacy literature command fragment"],
+  [/`workflow run`/, "legacy workflow run command fragment"],
+  [/`task list`/, "legacy task list command fragment"],
 ];
 
 const REMOVED_PATHS = [
@@ -193,13 +235,24 @@ for (const docPath of DOCS) {
   }
 }
 
+for (const docPath of CANONICAL_CLI_DOCS) {
+  const text = read(docPath);
+  for (const [pattern, label] of LEGACY_CLI_REGEX) {
+    const match = text.match(pattern);
+    if (match) {
+      fail(`${docPath} contains stale generated CLI text (${label}): ${match[0]}`);
+    }
+  }
+}
+
 const zoteroLibrarianHostBridge = read(
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
 );
 for (const required of [
   "library.sync_snapshot",
   "zotero-bridge library snapshot",
-  "zotero-bridge library list",
+  "zotero-bridge library items list",
+  "zotero-bridge run active",
 ]) {
   if (!zoteroLibrarianHostBridge.includes(required)) {
     fail(`zotero-librarian Host Bridge reference missing ${required}`);

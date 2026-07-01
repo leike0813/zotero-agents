@@ -131,8 +131,21 @@ function checkHostBridgeSurface(errors: string[]) {
   const mappingNames = new Set(
     catalog.cliMappings.map((entry) => entry.command),
   );
-  for (const command of ["library list", "library snapshot"]) {
+  for (const command of [
+    "library items list",
+    "library snapshot",
+    "synthesis insight attention-queue",
+    "mutation literature-ingest",
+  ]) {
     if (!mappingNames.has(command)) {
+      fail(errors, `Host Bridge catalog missing zotero-bridge ${command}`);
+    }
+  }
+  const endpointNames = new Set(
+    catalog.endpointMappings.map((entry) => entry.command),
+  );
+  for (const command of ["bridge status", "bridge manifest", "run active"]) {
+    if (!endpointNames.has(command)) {
       fail(errors, `Host Bridge catalog missing zotero-bridge ${command}`);
     }
   }
@@ -145,7 +158,8 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-librarian:host-bridge:end",
     "library.sync_snapshot",
     "zotero-bridge library snapshot",
-    "zotero-bridge library list",
+    "zotero-bridge library items list",
+    "zotero-bridge run active",
     "nextCursor",
     "collectionKey",
   ]) {
@@ -258,7 +272,7 @@ function checkCronAndScripts(errors: string[]) {
       "[SILENT]",
       "duplicate DOI",
     ],
-    "cron/attention-queue.yaml": ['time: "18:00"', "[SILENT]", "insights"],
+    "cron/attention-queue.yaml": ['time: "18:00"', "[SILENT]", "synthesis insight"],
   };
   for (const [file, snippets] of Object.entries(cronExpectations)) {
     const source = readProfile(file);

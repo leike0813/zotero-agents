@@ -45,22 +45,19 @@ Host Bridge capability registry and Rust CLI source.
 Run these commands first when the available surface is unclear:
 
 ```text
-zotero-bridge status
-zotero-bridge manifest
+zotero-bridge bridge status
+zotero-bridge bridge manifest
 zotero-bridge --help
+zotero-bridge bridge --help
 zotero-bridge library --help
-zotero-bridge item --help
-zotero-bridge note --help
-zotero-bridge topics --help
-zotero-bridge citation-graph --help
-zotero-bridge paper-artifacts --help
-zotero-bridge insights --help
+zotero-bridge synthesis --help
 zotero-bridge workflow --help
-zotero-bridge task --help
+zotero-bridge run --help
+zotero-bridge mutation --help
 zotero-bridge file --help
 ```
 
-`status` checks unauthenticated bridge health. `manifest` is authenticated and
+`bridge status` checks unauthenticated bridge health. `bridge manifest` is authenticated and
 lists the Host Bridge capabilities, workflow endpoints, file download support,
 and CLI schema.
 
@@ -77,26 +74,26 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Command families
 
-- Prefer semantic CLI command families: library (list, snapshot); item (attachments, get, notes, search); note (get, payload, payloads); topics (find-by-paper-ref, get-context, get-report, get-review-input, list); schemas (get); concepts (query); citation-graph (get-layout, get-metrics, get-slice, overview, query-cluster, rank-external-references, rank-library-papers, refresh-metrics); library-index (get); resolvers (resolve); reference-index (get); paper-artifacts (export-filtered, manifest, read, resolve-topic-digest); insights (attention-queue); literature (ingest); workflow (agent-run, describe, list, run, submit); task (list); file (download).
-- Current graph/insight commands: citation-graph get-layout, citation-graph get-metrics, citation-graph get-slice, citation-graph overview, citation-graph query-cluster, citation-graph rank-external-references, citation-graph rank-library-papers, citation-graph refresh-metrics, insights attention-queue.
+- Prefer semantic CLI command families: bridge (manifest, status); library (item attachments, item get, item notes, item search, items list, note get, note payload, note payloads, snapshot); synthesis (artifact export-filtered, artifact manifest, artifact read, artifact resolve-topic-digest, concept query, graph get-layout, graph get-metrics, graph get-slice, graph overview, graph query-cluster, graph rank-external-references, graph rank-library-papers, graph refresh-metrics, index library get, index reference get, insight attention-queue, resolver resolve, schema get, topic find-by-paper-ref, topic get-context, topic get-report, topic get-review-input, topic list); workflow (agent-run, describe, list, submit); run (active, cancel, get, list, skill connect, skill get, skill reply); mutation (apply, literature-ingest, preview); file (download).
+- Current graph/insight commands: synthesis graph get-layout, synthesis graph get-metrics, synthesis graph get-slice, synthesis graph overview, synthesis graph query-cluster, synthesis graph rank-external-references, synthesis graph rank-library-papers, synthesis graph refresh-metrics, synthesis insight attention-queue.
 - Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.
 - MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.
 - Full generated reference: `references/host-bridge-cli.md`.
 
 ### Topic context payloads
 
-- `topics get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
+- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
 - Omit `view` only when a legacy flat topic context response is required.
 - For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.
-- Example: `zotero-bridge topics get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
+- Example: `zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
 
 ### Resolver payloads
 
-- `resolvers resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
 - Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
 - `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
-- Examples: `zotero-bridge resolvers resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge resolvers resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Examples: `zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Legacy fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 ### Workflow payloads
@@ -108,9 +105,16 @@ This section is generated from the Host Bridge surface catalog.
 - Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
 - `workflow agent-run` is read-only: it does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task.
 - `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and may disable future host-side apply without blocking self-owned execution.
+
+### Runtime control payloads
+
+- Use `run get <workflowRunId>` for workflow-level runtime status and known skill run projections.
+- Use `run active` for the lightweight global active-task list; it excludes transcripts, local paths, and provider-private payloads.
+- Use `run cancel <workflowRunId>` for workflow-level cancellation intent; cancellation does not imply immediate terminal state.
+- Use `run skill get|reply|connect <skillRunId>` for explicit skill run interactions. Do not infer a skill run target from a workflow run id.
 <!-- host-bridge-surface:wrapper-skill:end -->
 
 ## Remote Export Bundles
 
-- With a remote profile, `topics get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
-- With a remote profile, `paper-artifacts export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.
+- With a remote profile, `synthesis topic get-context` with `outputPath` returns `delivery.mode="bridge-download"` instead of writing the caller path. Run `delivery.downloadCommand`, then run `delivery.unpackHint`.
+- With a remote profile, `synthesis artifact export-filtered` returns the same kind of zip bundle. Treat `manifest_file` as a path inside the unpacked zip.

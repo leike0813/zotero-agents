@@ -1,7 +1,7 @@
 schema: hermes.profile.distribution.v1
 name: zotero-librarian
 title: Zotero Librarian
-version: 0.1.0
+version: 0.2.0
 summary: Hermes profile for maintaining a Zotero literature library through zotero-bridge.
 entrypoint: SOUL.md
 repository: https://github.com/leike0813/zotero-librarian-profile

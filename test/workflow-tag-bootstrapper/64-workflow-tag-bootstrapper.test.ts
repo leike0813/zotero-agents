@@ -97,7 +97,7 @@ describe("workflow: tag-bootstrapper", function () {
 
     assert.include(skill, "references/tag_standard.md");
     assert.include(skill, "zotero-bridge-cli");
-    assert.include(skill, "library-index get");
+    assert.include(skill, "synthesis index library get");
     assert.include(skill, "has_more");
     assert.include(skill, "Zotero DB/storage");
     assert.include(skill, "scripts/normalize_output.py");
@@ -115,7 +115,10 @@ describe("workflow: tag-bootstrapper", function () {
       "references/tag_standard.md",
     );
     assert.include(runner.entrypoint.prompts.common, "zotero-bridge-cli");
-    assert.include(runner.entrypoint.prompts.common, "library-index get");
+    assert.include(
+      runner.entrypoint.prompts.common,
+      "synthesis index library get",
+    );
     assert.include(
       runner.entrypoint.prompts.common,
       "scripts/normalize_output.py",

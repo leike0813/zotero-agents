@@ -1,7 +1,7 @@
 {
   "data": {
     "approval": "none",
-    "capability": "synthesis.list_topics",
+    "capability": "topics.list",
     "data": {
       "diagnostics": {
         "count": 0,

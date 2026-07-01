@@ -8,17 +8,17 @@ use serde_json::{json, Map, Value};
 
 use crate::{
     args::{
-        BridgeInputArgs, CallArgs, CitationGraphArgs, CitationGraphCommand, ConceptsArgs,
-        ConceptsCommand, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
-        DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, InsightsArgs,
-        InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs,
-        LibraryArgs, LibraryCommand, LibraryIndexArgs, LibraryIndexCommand, LiteratureArgs,
-        LiteratureCommand, LiteratureIngestArgs, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ReferenceIndexArgs,
-        ReferenceIndexCommand, ResolversArgs, ResolversCommand, SchemasArgs, SchemasCommand,
-        SkillRunArgs, SkillRunCommand, SkillRunIdArgs, SkillRunReplyArgs, TaskArgs, TaskCommand,
-        TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs, WorkflowArgs,
-        WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs,
+        BridgeArgs, BridgeCommand, BridgeInputArgs, CallArgs, CitationGraphArgs,
+        CitationGraphCommand, ConceptsArgs, ConceptsCommand, DebugAcpSkillRunCommand, DebugArgs,
+        DebugCommand, DebugInputArgs, DebugSynthesisCommand, FileArgs, FileCommand,
+        FileDownloadArgs, InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs,
+        ItemRefArgs, ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand,
+        LiteratureIngestArgs, MutationArgs, MutationCommand, NoteArgs, NoteCommand, NoteDetailArgs,
+        NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ResolversArgs,
+        ResolversCommand, RunArgs, RunCommand, SchemasArgs, SchemasCommand, SkillRunCommand,
+        SkillRunIdArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCommand, SynthesisIndexCommand,
+        SynthesisIndexGetCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentRunArgs,
+        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRunArgs,
         WorkflowSubmitArgs,
     },
     client,
@@ -36,6 +36,13 @@ pub fn status(config: &BridgeConfig) -> Result<Value, CliError> {
 
 pub fn manifest(config: &BridgeConfig) -> Result<Value, CliError> {
     client::manifest(config)
+}
+
+pub fn bridge(config: &BridgeConfig, args: BridgeArgs) -> Result<Value, CliError> {
+    match args.command {
+        BridgeCommand::Status => status(config),
+        BridgeCommand::Manifest => manifest(config),
+    }
 }
 
 pub fn call(config: &BridgeConfig, args: CallArgs) -> Result<Value, CliError> {
@@ -78,11 +85,53 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
 
 pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliError> {
     match args.command {
-        LibraryCommand::List(input) => {
-            call_capability(config, "library.list_items", bridge_input(input)?)
-        }
+        LibraryCommand::Items(args) => match args.command {
+            LibraryItemsCommand::List(input) => {
+                call_capability(config, "library.list_items", bridge_input(input)?)
+            }
+        },
+        LibraryCommand::Item(args) => item(config, args),
+        LibraryCommand::Note(args) => note(config, args),
         LibraryCommand::Snapshot(input) => {
             call_capability(config, "library.sync_snapshot", bridge_input(input)?)
+        }
+    }
+}
+
+pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, CliError> {
+    match args.command {
+        SynthesisCommand::Topic(args) => topics(config, args),
+        SynthesisCommand::Schema(args) => schemas(config, args),
+        SynthesisCommand::Concept(args) => concepts(config, args),
+        SynthesisCommand::Graph(args) => citation_graph(config, args),
+        SynthesisCommand::Index(args) => match args.command {
+            SynthesisIndexCommand::Library(args) => match args.command {
+                SynthesisIndexGetCommand::Get(input) => {
+                    call_capability(config, "library_index.get", bridge_input(input)?)
+                }
+            },
+            SynthesisIndexCommand::Reference(args) => match args.command {
+                SynthesisIndexGetCommand::Get(input) => {
+                    call_capability(config, "reference_index.get", bridge_input(input)?)
+                }
+            },
+        },
+        SynthesisCommand::Resolver(args) => resolvers(config, args),
+        SynthesisCommand::Artifact(args) => paper_artifacts(config, args),
+        SynthesisCommand::Insight(args) => insights(config, args),
+    }
+}
+
+pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliError> {
+    match args.command {
+        MutationCommand::Preview(input) => {
+            call_capability(config, "mutation.preview", bridge_input(input)?)
+        }
+        MutationCommand::Apply(input) => {
+            call_capability(config, "mutation.execute", bridge_input(input)?)
+        }
+        MutationCommand::LiteratureIngest(args) => {
+            call_capability(config, "mutation.execute", literature_ingest_input(args)?)
         }
     }
 }
@@ -111,21 +160,9 @@ pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<
     call_capability(config, capability, input)
 }
 
-pub fn library_index(config: &BridgeConfig, args: LibraryIndexArgs) -> Result<Value, CliError> {
-    let capability = library_index_capability(&args.command);
-    let input = bridge_input(library_index_input(args.command))?;
-    call_capability(config, capability, input)
-}
-
 pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
     let capability = resolvers_capability(&args.command);
     let input = bridge_input(resolvers_input(args.command))?;
-    call_capability(config, capability, input)
-}
-
-pub fn reference_index(config: &BridgeConfig, args: ReferenceIndexArgs) -> Result<Value, CliError> {
-    let capability = reference_index_capability(&args.command);
-    let input = bridge_input(reference_index_input(args.command))?;
     call_capability(config, capability, input)
 }
 
@@ -141,14 +178,6 @@ pub fn insights(config: &BridgeConfig, args: InsightsArgs) -> Result<Value, CliE
     call_capability(config, capability, input)
 }
 
-pub fn literature(config: &BridgeConfig, args: LiteratureArgs) -> Result<Value, CliError> {
-    match args.command {
-        LiteratureCommand::Ingest(args) => {
-            call_capability(config, "mutation.execute", literature_ingest_input(args)?)
-        }
-    }
-}
-
 pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliError> {
     match args.command {
         WorkflowCommand::List => client::get(config, "/workflows"),
@@ -161,29 +190,30 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
-        WorkflowCommand::Run(args) => client::get(config, &workflow_run_path(args)?),
-        WorkflowCommand::Cancel(args) => {
-            client::post(config, &workflow_cancel_path(&args)?, workflow_cancel_input(args))
-        }
     }
 }
 
-pub fn task(config: &BridgeConfig, args: TaskArgs) -> Result<Value, CliError> {
+pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
     match args.command {
-        TaskCommand::List(args) => client::get(config, &task_list_path(args)),
-        TaskCommand::Active => client::get(config, "/tasks/active"),
-    }
-}
-
-pub fn skill_run(config: &BridgeConfig, args: SkillRunArgs) -> Result<Value, CliError> {
-    match args.command {
-        SkillRunCommand::Get(args) => client::get(config, &skill_run_path(&args)?),
-        SkillRunCommand::Reply(args) => {
-            client::post(config, &skill_run_reply_path(&args)?, skill_run_reply_input(args))
-        }
-        SkillRunCommand::Connect(args) => {
-            client::post(config, &skill_run_connect_path(&args)?, json!({}))
-        }
+        RunCommand::Get(args) => client::get(config, &workflow_run_path(args)?),
+        RunCommand::Cancel(args) => client::post(
+            config,
+            &workflow_cancel_path(&args)?,
+            workflow_cancel_input(args),
+        ),
+        RunCommand::List(args) => client::get(config, &task_list_path(args)),
+        RunCommand::Active => client::get(config, "/tasks/active"),
+        RunCommand::Skill(args) => match args.command {
+            SkillRunCommand::Get(args) => client::get(config, &skill_run_path(&args)?),
+            SkillRunCommand::Reply(args) => client::post(
+                config,
+                &skill_run_reply_path(&args)?,
+                skill_run_reply_input(args),
+            ),
+            SkillRunCommand::Connect(args) => {
+                client::post(config, &skill_run_connect_path(&args)?, json!({}))
+            }
+        },
     }
 }
 
@@ -348,18 +378,6 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeInputArgs {
     }
 }
 
-fn library_index_capability(command: &LibraryIndexCommand) -> &'static str {
-    match command {
-        LibraryIndexCommand::Get(_) => "library_index.get",
-    }
-}
-
-fn library_index_input(command: LibraryIndexCommand) -> BridgeInputArgs {
-    match command {
-        LibraryIndexCommand::Get(args) => args,
-    }
-}
-
 fn resolvers_capability(command: &ResolversCommand) -> &'static str {
     match command {
         ResolversCommand::Resolve(_) => "resolvers.resolve",
@@ -369,18 +387,6 @@ fn resolvers_capability(command: &ResolversCommand) -> &'static str {
 fn resolvers_input(command: ResolversCommand) -> BridgeInputArgs {
     match command {
         ResolversCommand::Resolve(args) => args,
-    }
-}
-
-fn reference_index_capability(command: &ReferenceIndexCommand) -> &'static str {
-    match command {
-        ReferenceIndexCommand::Get(_) => "reference_index.get",
-    }
-}
-
-fn reference_index_input(command: ReferenceIndexCommand) -> BridgeInputArgs {
-    match command {
-        ReferenceIndexCommand::Get(args) => args,
     }
 }
 
@@ -425,7 +431,7 @@ fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError
         _ => {
             return Err(CliError::validation(
                 "invalid_literature_ingest_input",
-                "literature ingest input must be a JSON object",
+                "mutation literature-ingest input must be a JSON object",
             ));
         }
     };
@@ -1157,18 +1163,8 @@ mod tests {
             "citation_graph.refresh_metrics"
         );
         assert_eq!(
-            library_index_capability(&LibraryIndexCommand::Get(BridgeInputArgs { input: None })),
-            "library_index.get"
-        );
-        assert_eq!(
             resolvers_capability(&ResolversCommand::Resolve(BridgeInputArgs { input: None })),
             "resolvers.resolve"
-        );
-        assert_eq!(
-            reference_index_capability(&ReferenceIndexCommand::Get(BridgeInputArgs {
-                input: None
-            })),
-            "reference_index.get"
         );
         assert_eq!(
             paper_artifacts_capability(&PaperArtifactsCommand::Manifest(BridgeInputArgs {

@@ -76,8 +76,6 @@ const CACHE_VIEW_CAPABILITIES = new Set([
 const RAW_ONLY_CAPABILITIES = new Set([
   "context.get_current_view",
   "context.get_selected_items",
-  "mutation.preview",
-  "mutation.execute",
   "diagnostic.get_status",
   "debug.zotero.eval",
 ]);
@@ -238,16 +236,18 @@ function parseDebugMappings(source: string): HostBridgeCliMapping[] {
 
 function coreCliMappings(): HostBridgeCliMapping[] {
   return [
-    ["library list", "library.list_items"],
+    ["library items list", "library.list_items"],
     ["library snapshot", "library.sync_snapshot"],
-    ["item search", "library.search_items"],
-    ["item get", "library.get_item_detail"],
-    ["item notes", "library.get_item_notes"],
-    ["item attachments", "library.get_item_attachments"],
-    ["note get", "library.get_note_detail"],
-    ["note payloads", "library.list_note_payloads"],
-    ["note payload", "library.get_note_payload"],
-    ["literature ingest", "mutation.execute"],
+    ["library item search", "library.search_items"],
+    ["library item get", "library.get_item_detail"],
+    ["library item notes", "library.get_item_notes"],
+    ["library item attachments", "library.get_item_attachments"],
+    ["library note get", "library.get_note_detail"],
+    ["library note payloads", "library.list_note_payloads"],
+    ["library note payload", "library.get_note_payload"],
+    ["mutation preview", "mutation.preview"],
+    ["mutation apply", "mutation.execute"],
+    ["mutation literature-ingest", "mutation.execute"],
   ].map(([command, target]) => ({
     command,
     target,
@@ -256,16 +256,61 @@ function coreCliMappings(): HostBridgeCliMapping[] {
   }));
 }
 
+function synthesisCliMappings(): HostBridgeCliMapping[] {
+  return [
+    ["synthesis topic list", "topics.list"],
+    ["synthesis topic find-by-paper-ref", "topics.find_by_paper_ref"],
+    ["synthesis topic get-context", "topics.get_context"],
+    ["synthesis topic get-report", "topics.get_report"],
+    ["synthesis topic get-review-input", "topics.get_review_input"],
+    ["synthesis schema get", "schemas.get"],
+    ["synthesis concept query", "concepts.query"],
+    ["synthesis graph overview", "citation_graph.get_overview"],
+    ["synthesis graph query-cluster", "citation_graph.query_cluster"],
+    ["synthesis graph get-slice", "citation_graph.get_slice"],
+    ["synthesis graph get-layout", "citation_graph.get_layout"],
+    ["synthesis graph get-metrics", "citation_graph.get_metrics"],
+    [
+      "synthesis graph rank-external-references",
+      "citation_graph.rank_external_references",
+    ],
+    ["synthesis graph rank-library-papers", "citation_graph.rank_library_papers"],
+    ["synthesis graph refresh-metrics", "citation_graph.refresh_metrics"],
+    ["synthesis index library get", "library_index.get"],
+    ["synthesis index reference get", "reference_index.get"],
+    ["synthesis resolver resolve", "resolvers.resolve"],
+    ["synthesis artifact manifest", "paper_artifacts.get_manifest"],
+    ["synthesis artifact read", "paper_artifacts.read"],
+    ["synthesis artifact export-filtered", "paper_artifacts.export_filtered"],
+    [
+      "synthesis artifact resolve-topic-digest",
+      "paper_artifacts.resolve_topic_digest",
+    ],
+    ["synthesis insight attention-queue", "insights.get_attention_queue"],
+  ].map(([command, target]) => ({
+    command,
+    target,
+    kind: "capability" as const,
+    dangerous: DANGEROUS_CAPABILITIES.has(target),
+    cacheView: CACHE_VIEW_CAPABILITIES.has(target),
+  }));
+}
+
 function endpointMappings(): HostBridgeCliMapping[] {
   return [
-    ["status", "GET /bridge/v1/health"],
-    ["manifest", "GET /bridge/v1/manifest"],
+    ["bridge status", "GET /bridge/v1/health"],
+    ["bridge manifest", "GET /bridge/v1/manifest"],
     ["workflow list", "GET /bridge/v1/workflows"],
     ["workflow describe", "POST /bridge/v1/workflows/describe"],
     ["workflow submit", "POST /bridge/v1/workflows/submit"],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
-    ["workflow run", "GET /bridge/v1/workflows/runs/{runId}"],
-    ["task list", "GET /bridge/v1/tasks"],
+    ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
+    ["run cancel", "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"],
+    ["run list", "GET /bridge/v1/tasks"],
+    ["run active", "GET /bridge/v1/tasks/active"],
+    ["run skill get", "GET /bridge/v1/skill-runs/{skillRunId}"],
+    ["run skill reply", "POST /bridge/v1/skill-runs/{skillRunId}/reply"],
+    ["run skill connect", "POST /bridge/v1/skill-runs/{skillRunId}/connect"],
     ["file download", "GET /bridge/v1/files/{fileId}"],
   ].map(([command, target]) => ({
     command,
@@ -281,7 +326,7 @@ export function buildHostBridgeSurfaceCatalog(
   const cliCommandsSource = read(root, CLI_COMMANDS);
   const cliMappings = [
     ...coreCliMappings(),
-    ...parseDomainMappings(cliCommandsSource),
+    ...synthesisCliMappings(),
     ...parseDebugMappings(cliCommandsSource),
   ];
   const cliByCapability = new Map<string, string[]>();

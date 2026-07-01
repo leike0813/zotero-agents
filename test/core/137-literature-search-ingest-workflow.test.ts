@@ -574,11 +574,11 @@ describe("Literature Search Ingest workflow contract", function () {
     const prompt = runner.entrypoint?.prompts?.common || "";
 
     for (const text of [skill, prompt]) {
-      assert.include(text, "topics list");
-      assert.include(text, "library-index get");
-      assert.include(text, "literature ingest");
+      assert.include(text, "synthesis topic list");
+      assert.include(text, "synthesis index library get");
+      assert.include(text, "mutation literature-ingest");
       assert.include(text, "targeted_ingest");
-      assert.include(text, "paper-artifacts read");
+      assert.include(text, "synthesis artifact read");
       assert.include(text, "best-effort");
       assert.include(text, "filetype:pdf");
       assert.include(text, "missing_pdf_references");

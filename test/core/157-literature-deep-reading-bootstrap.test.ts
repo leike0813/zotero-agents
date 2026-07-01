@@ -841,7 +841,7 @@ function topicSemantic(topicId) {
     diagnostics: []
   };
 }
-if (command === "reference-index get") {
+if (command === "synthesis index reference get") {
   reply({
     rows: [
       {
@@ -880,7 +880,7 @@ if (command === "reference-index get") {
       }
     ]
   });
-} else if (command === "paper-artifacts manifest") {
+} else if (command === "synthesis artifact manifest") {
   const artifacts = [];
   for (const paperRef of input.paper_refs) {
     const types = input.artifact_types || ["digest"];
@@ -889,7 +889,7 @@ if (command === "reference-index get") {
     }
   }
   reply({ artifacts, diagnostics: [], total: artifacts.length });
-} else if (command === "paper-artifacts export-filtered") {
+} else if (command === "synthesis artifact export-filtered") {
   const targetDir = "runtime/payloads/artifacts";
   const manifestFile = "runtime/payloads/paper-artifacts-manifest.json";
   const types = input.artifact_types || ["digest"];
@@ -936,7 +936,7 @@ if (command === "reference-index get") {
   }
   fs.writeFileSync(path.resolve(process.cwd(), manifestFile), JSON.stringify({ papers }, null, 2), "utf8");
   reply({ exported: papers.reduce((sum, paper) => sum + paper.artifacts.length, 0), manifest_file: manifestFile, diagnostics: [] });
-} else if (command === "paper-artifacts resolve-topic-digest") {
+} else if (command === "synthesis artifact resolve-topic-digest") {
   const paperRef = input.paper_ref || input.paperRef || input.digest_ref?.paper_ref || input.digestRef?.paper_ref || "1:B";
   reply({
     ok: true,
@@ -955,7 +955,7 @@ if (command === "reference-index get") {
     source_changed: false,
     diagnostics: []
   });
-} else if (command === "topics find-by-paper-ref") {
+} else if (command === "synthesis topic find-by-paper-ref") {
   reply({
     ok: true,
     status: "ok",
@@ -963,7 +963,7 @@ if (command === "reference-index get") {
     topics: topicCandidates,
     diagnostics: { requested_count: 1, matched_topic_count: topicCandidates.length, unmatched_paper_refs: [], source: "artifact_state" }
   });
-} else if (command === "topics get-context") {
+} else if (command === "synthesis topic get-context") {
   const topicId = input.topicId || input.topic_id;
   if (input.view === "semantic") {
     reply({
@@ -989,7 +989,7 @@ if (command === "reference-index get") {
     diagnostics: []
   });
   }
-} else if (command === "citation-graph get-slice") {
+} else if (command === "synthesis graph get-slice") {
   reply({
     nodes: [
       { node_id: "zotero:item:EIMSDEU3", title: "Sample Paper", kind: "target", paperRef: "1:EIMSDEU3" },
@@ -999,7 +999,7 @@ if (command === "reference-index get") {
     diagnostics: [],
     truncated: false
   });
-} else if (command === "citation-graph get-layout") {
+} else if (command === "synthesis graph get-layout") {
   const status = ${JSON.stringify(options?.layoutStatus || "ready")};
   if (status === "ready") {
     reply({
@@ -1033,7 +1033,7 @@ if (command === "reference-index get") {
       diagnostics: { warnings: ["layout status is " + status] }
     });
   }
-} else if (command === "concepts query") {
+} else if (command === "synthesis concept query") {
   reply({ matches: input.labels.map((label) => ({ label, matches: [{ label, definition: label + " definition" }] })) });
 } else {
   reply({});
@@ -1667,7 +1667,7 @@ describe("Literature deep reading bootstrap skill", function () {
       .map((line) => JSON.parse(line));
     assert.equal(
       calls.filter(
-        (entry) => entry.command === "paper-artifacts export-filtered",
+        (entry) => entry.command === "synthesis artifact export-filtered",
       ).length,
       1,
     );
@@ -2597,24 +2597,24 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.deepEqual(
       calls.map((entry) => entry.command),
       [
-        "reference-index get",
-        "topics find-by-paper-ref",
-        "paper-artifacts manifest",
-        "paper-artifacts export-filtered",
-        "topics get-context",
-        "reference-index get",
-        "paper-artifacts manifest",
-        "paper-artifacts export-filtered",
-        "paper-artifacts resolve-topic-digest",
-        "paper-artifacts resolve-topic-digest",
-        "paper-artifacts resolve-topic-digest",
-        "citation-graph get-slice",
-        "citation-graph get-layout",
-        "concepts query",
+        "synthesis index reference get",
+        "synthesis topic find-by-paper-ref",
+        "synthesis artifact manifest",
+        "synthesis artifact export-filtered",
+        "synthesis topic get-context",
+        "synthesis index reference get",
+        "synthesis artifact manifest",
+        "synthesis artifact export-filtered",
+        "synthesis artifact resolve-topic-digest",
+        "synthesis artifact resolve-topic-digest",
+        "synthesis artifact resolve-topic-digest",
+        "synthesis graph get-slice",
+        "synthesis graph get-layout",
+        "synthesis concept query",
       ],
     );
     const referenceIndexCalls = calls.filter(
-      (entry) => entry.command === "reference-index get",
+      (entry) => entry.command === "synthesis index reference get",
     );
     assert.isTrue(
       referenceIndexCalls.every(
@@ -2624,12 +2624,12 @@ describe("Literature deep reading bootstrap skill", function () {
       ),
     );
     const layoutCall = calls.find(
-      (entry) => entry.command === "citation-graph get-layout",
+      (entry) => entry.command === "synthesis graph get-layout",
     );
     assert.equal(layoutCall.input.preset, "force");
     assert.equal(layoutCall.input.allowTruncated, true);
     const topicContextCall = calls.find(
-      (entry) => entry.command === "topics get-context",
+      (entry) => entry.command === "synthesis topic get-context",
     );
     assert.equal(topicContextCall.input.view, "semantic");
 
@@ -2776,7 +2776,7 @@ describe("Literature deep reading bootstrap skill", function () {
       .map((line) => JSON.parse(line));
     assert.equal(
       calls.filter(
-        (entry) => entry.command === "paper-artifacts export-filtered",
+        (entry) => entry.command === "synthesis artifact export-filtered",
       ).length,
       2,
     );
@@ -2921,7 +2921,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(
       calls.filter(
         (entry) =>
-          entry.command === "topics get-context" &&
+          entry.command === "synthesis topic get-context" &&
           entry.input.view === "semantic",
       ).length,
       1,
@@ -2929,7 +2929,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(
       calls.filter(
         (entry) =>
-          entry.command === "topics get-context" &&
+          entry.command === "synthesis topic get-context" &&
           entry.input.view === "digest",
       ).length,
       1,

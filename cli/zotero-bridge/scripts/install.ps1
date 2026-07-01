@@ -258,7 +258,7 @@ $result = [ordered]@{
     pathAlreadyConfigured   = $pathAlreadyConfigured
     pathUpdated             = $pathUpdated
     terminalRestartRequired = $pathUpdated
-    nextStep                = if ((-not $pathAlreadyConfigured) -and (-not $pathUpdated)) { "Add $installDir to PATH or call the binary by absolute path." } else { "Run zotero-bridge status." }
+    nextStep                = if ((-not $pathAlreadyConfigured) -and (-not $pathUpdated)) { "Add $installDir to PATH or call the binary by absolute path." } else { "Run zotero-bridge bridge status." }
 }
 
 if ($options.Json) {

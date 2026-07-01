@@ -452,7 +452,7 @@ def run_watch(args: argparse.Namespace) -> int:
     changes: list[dict[str, Any]] = []
     with conn:
         for row in rows:
-            state, payload = run_state(call_bridge(args.bridge, ["workflow", "run", row["run_id"]]))
+            state, payload = run_state(call_bridge(args.bridge, ["run", "get", row["run_id"]]))
             should_report = state != row["state"] or state in {"waiting", *TERMINAL_RUN_STATES}
             conn.execute(
                 "UPDATE runs SET state = ?, payload_json = ?, updated_at = ? WHERE run_id = ?",

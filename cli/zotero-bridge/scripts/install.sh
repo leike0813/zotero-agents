@@ -221,7 +221,7 @@ fi
 if [ "$path_already_configured" -eq 0 ] && [ "$path_updated" -eq 0 ]; then
   next_step="Add $install_dir to PATH or call the binary by absolute path."
 else
-  next_step="Run zotero-bridge status."
+  next_step="Run zotero-bridge bridge status."
 fi
 
 if [ "$json_flag" -eq 1 ]; then

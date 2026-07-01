@@ -221,12 +221,18 @@ mod tests {
     };
 
     use super::{normalize_endpoint, BridgeConfig};
-    use crate::{args::Cli, args::Command};
+    use crate::args::{BridgeArgs, BridgeCommand, Cli, Command};
 
     static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn env_lock() -> &'static Mutex<()> {
         ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn bridge_status_command() -> Command {
+        Command::Bridge(BridgeArgs {
+            command: BridgeCommand::Status,
+        })
     }
 
     #[test]
@@ -263,7 +269,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
-            command: Command::Status,
+            command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
         assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
@@ -300,7 +306,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
-            command: Command::Status,
+            command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
         assert_eq!(config.endpoint, "http://192.0.2.25:27655/bridge/v1");
@@ -344,7 +350,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
-            command: Command::Status,
+            command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
         assert_eq!(config.endpoint, "http://127.0.0.1:26570/bridge/v1");
@@ -390,7 +396,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
-            command: Command::Status,
+            command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
         assert_eq!(config.connection_mode.as_deref(), Some("remote"));
@@ -439,7 +445,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
-            command: Command::Status,
+            command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
         assert_eq!(

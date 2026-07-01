@@ -407,7 +407,7 @@ const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({
   year: ref === "1:DETR" ? 2020 : 2022,
   match_reasons: ["explicit"]
 }));
-if (command === "topics get-context") {
+if (command === "synthesis topic get-context") {
   if (input.topicId === "missing-topic") {
     console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "topics.get_context", data: { ok: false, status: "not_found", topic_id: input.topicId } } }));
   } else if (input.view === "digest") {
@@ -463,9 +463,9 @@ if (command === "topics get-context") {
     console.log(JSON.stringify({ ok: false, error: { code: "invalid_view" } }));
     process.exitCode = 1;
   }
-} else if (command === "resolvers resolve") {
+} else if (command === "synthesis resolver resolve") {
   console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "resolvers.resolve", data: { ok: true, papers, returned: papers.length, total: papers.length } } }));
-} else if (command === "citation-graph get-metrics") {
+} else if (command === "synthesis graph get-metrics") {
   const refs = input.paperRefs || input.paper_refs || [];
   console.log(JSON.stringify({ ok: true, data: { approval: "none", capability: "citation_graph.get_metrics", data: { ok: true, status: "ready", items: refs.map((paper_ref) => ({
     paper_ref,
@@ -479,7 +479,7 @@ if (command === "topics get-context") {
     unresolved_reference_count: 1,
     synthesis_role_hints: ["core", "external-heavy"]
   })) } } }));
-} else if (command === "paper-artifacts export-filtered") {
+} else if (command === "synthesis artifact export-filtered") {
   if (process.env.ZS_FAKE_BRIDGE_REMOTE_EXPORT === "1") {
     console.log(JSON.stringify({
       ok: true,
@@ -589,7 +589,7 @@ describe("topic synthesis split skill runtime", function () {
     });
     assert.deepEqual(
       (await readBridgeCalls(runRoot)).map((call) => call.command),
-      ["topics get-context", "topics get-context"],
+      ["synthesis topic get-context", "synthesis topic get-context"],
     );
     const updateAuditReport = await readJson<any>(
       path.join(runRoot, "runtime/payloads/update-audit-report.json"),
@@ -1019,7 +1019,11 @@ describe("topic synthesis split skill runtime", function () {
     );
     assert.deepEqual(
       (await readBridgeCalls(runRoot)).map((call) => call.command),
-      ["topics get-context", "topics get-context", "resolvers resolve"],
+      [
+        "synthesis topic get-context",
+        "synthesis topic get-context",
+        "synthesis resolver resolve",
+      ],
     );
   });
 
@@ -2146,7 +2150,7 @@ describe("topic synthesis split skill runtime", function () {
     const calls = await readBridgeCalls(runRoot);
     assert.equal(
       calls.filter(
-        (entry) => entry.command === "paper-artifacts export-filtered",
+        (entry) => entry.command === "synthesis artifact export-filtered",
       ).length,
       1,
     );

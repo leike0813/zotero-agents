@@ -1,7 +1,7 @@
 {
   "data": {
     "approval": "none",
-    "capability": "synthesis.resolve_resolver",
+    "capability": "resolvers.resolve",
     "data": {
       "cursor": "0",
       "diagnostics": {
@@ -14,8 +14,7 @@
       "limit": 100,
       "next_cursor": "",
       "normalized_resolver": {
-        "mode": "tag_query",
-        "query": {
+        "tag": {
           "and": [
             "model:DL/DETR"
           ]

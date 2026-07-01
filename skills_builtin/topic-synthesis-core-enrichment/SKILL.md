@@ -49,7 +49,7 @@ Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill
 <!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
 Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
-当前 topic synthesis 相关命令族摘要：`citation-graph get-layout`, `citation-graph get-metrics`, `citation-graph get-slice`, `citation-graph overview`, `citation-graph query-cluster`, `citation-graph rank-external-references`, `citation-graph rank-library-papers`, `citation-graph refresh-metrics`, `insights attention-queue`, `library-index get`, `paper-artifacts export-filtered`, `paper-artifacts manifest`, `paper-artifacts read`, `paper-artifacts resolve-topic-digest`, `reference-index get`, `resolvers resolve`, `topics find-by-paper-ref`, `topics get-context`, `topics get-report`, `topics get-review-input`, `topics list`。
+当前 topic synthesis 相关命令族摘要：`library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
 使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
 不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 
@@ -407,7 +407,7 @@ Payload JSON 示例（可提交结构样例）：
 语义处理步骤：
 
 1. 读取 concept candidate context。
-2. 读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge topics list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge topics list --input '{}'`。
+2. 读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --input '{}'`。
 3. 为关键概念写 definition、aliases、disambiguation 和 topic relevance。
 4. 以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。
 5. 判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。
@@ -421,14 +421,14 @@ Payload JSON 示例（可提交结构样例）：
 材料使用说明：
 
 - `runtime/views/concept-candidate-context.json` 来自已校验 core synthesis，用它核对概念候选。
-- `topics list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。
+- `synthesis topic list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。
 - payload 路径：runtime/payloads/kg-enrichment.json
 - schema 文件：assets/schemas/stage-50-kg-enrichment.schema.json
 
 字段说明：
 
 - `concept_details`：解释 topic 边界、路线、机制、任务、benchmark、数据集、评价轴或训练信号相关概念。
-- `existing_topic_relation_proposals`：只引用 `topics list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。
+- `existing_topic_relation_proposals`：只引用 `synthesis topic list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。
 - `prospective_topic_relation_proposals`：只写未来可能 synthesis 的 target_topic_seed 和 relation_type。
 - `relation_type`：`target_is_broader_topic_candidate` 表示 target 比当前 topic 更宽；`target_is_narrower_topic_candidate` 表示 target 比当前 topic 更窄；`related_topic_candidate` 表示相关但没有清晰包含或交叉；`overlap_topic_candidate` 表示两者部分交叉且互不包含；`contrast_topic_candidate` 表示同一问题空间中的替代路线或对立视角。
 - `topic_matching_terms`：用于 topic discovery/matching 的 include、must-have、methods、exclude terms。

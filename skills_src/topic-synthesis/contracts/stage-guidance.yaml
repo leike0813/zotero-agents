@@ -32,7 +32,7 @@ stages:
       - "只根据已有 topic 的 title、description、aliases 判断重复风险。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: "<zotero-bridge> topics list --input '{}'"
+      - command: "<zotero-bridge> synthesis topic list --input '{}'"
         purpose: "获取现有 topic 列表，用于 create duplicate check。"
         notes: "只根据返回 topic 的 title、description、aliases 和 id 判断是否同一主题；不要把相关主题直接判为 duplicate。"
     required_read_notes:
@@ -77,7 +77,7 @@ stages:
       - "区分 current_linked_papers、saved_triage、source_materials 和后续 resolver diff：旧关联文献是已持久化 topic 的来源集合，saved_triage 是已有单篇判断覆盖，source_materials 只说明 digest/references/citation-analysis 等 source artifacts 可读。"
       - "把判断写入 `payload_path`，再使用 gate 返回的 submit command 提交。"
     host_read_commands:
-      - command: '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --input ''{"cursor":0,"limit":200}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。"
         notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
@@ -122,7 +122,7 @@ stages:
       - "提交后由 runtime 写 resolver result、metrics、artifact manifests 和 workset。"
       - "远程 SkillRunner profile 下，filtered artifact export 可能返回 `delivery.mode=\"bridge-download\"`；如果 submit 报 remote export delivery required，读取 `runtime/payloads/paper-artifacts-export-delivery.json`，执行其中的 `delivery.downloadCommand`，按 `delivery.unpackHint` 解包到 run workspace，再重新运行 gate/submit。"
     host_read_commands:
-      - command: '<zotero-bridge> library-index get --input ''{"cursor":0,"limit":200}'''
+      - command: '<zotero-bridge> synthesis index library get --input ''{"cursor":0,"limit":200}'''
         purpose: "读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。"
         notes: "如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。"
     required_read_notes:
@@ -402,7 +402,7 @@ stages:
     semantic_goal: "把 core synthesis 中的概念候选转成可供 sidecar materialization 的 KG 补全 payload。"
     execution_steps:
       - "读取 concept candidate context。"
-      - "读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge topics list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge topics list --input '{}'`。"
+      - "读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --input '{}'`。"
       - "为关键概念写 definition、aliases、disambiguation 和 topic relevance。"
       - "以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。"
       - "判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。"
@@ -410,14 +410,14 @@ stages:
       - "写 topic matching terms，供 runtime 生成 sidecars。"
     required_read_notes:
       - "`runtime/views/concept-candidate-context.json` 来自已校验 core synthesis，用它核对概念候选。"
-      - "`topics list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。"
+      - "`synthesis topic list` 返回当前库中已有 topics，以及这些 topic metadata 中保存的 prospective_topic_relation_proposals。"
     runtime_reads:
       - path: "runtime/views/concept-candidate-context.json"
         produced_by: "Stage 40 core synthesis submit 后的 runtime materialization"
         purpose: "读取待补全的概念候选、来源和上下文。"
     field_guidance:
       concept_details: "解释 topic 边界、路线、机制、任务、benchmark、数据集、评价轴或训练信号相关概念。"
-      existing_topic_relation_proposals: "只引用 `topics list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。"
+      existing_topic_relation_proposals: "只引用 `synthesis topic list` 返回的已有 topic_id，写出 relation_type、confidence、rationale 和 source_paper_refs。"
       prospective_topic_relation_proposals: "只写未来可能 synthesis 的 target_topic_seed 和 relation_type。"
       relation_type: "`target_is_broader_topic_candidate` 表示 target 比当前 topic 更宽；`target_is_narrower_topic_candidate` 表示 target 比当前 topic 更窄；`related_topic_candidate` 表示相关但没有清晰包含或交叉；`overlap_topic_candidate` 表示两者部分交叉且互不包含；`contrast_topic_candidate` 表示同一问题空间中的替代路线或对立视角。"
       topic_matching_terms: "用于 topic discovery/matching 的 include、must-have、methods、exclude terms。"

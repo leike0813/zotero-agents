@@ -20,13 +20,13 @@
 本次先执行以下只读命令并保存 transcript：
 
 ```text
-zotero-bridge status
+zotero-bridge bridge status
 zotero-bridge debug status
-zotero-bridge manifest
-zotero-bridge synthesis list-topics --input '{}'
-zotero-bridge synthesis get-library-index --input '{"cursor":0,"limit":200}'
-zotero-bridge synthesis resolve-resolver --input '{"resolver":{"mode":"tag_query","query":{"and":["model:DL/DETR"]}}}'
-zotero-bridge synthesis get-paper-artifact-manifest --input '{"paper_refs":[...]}'
+zotero-bridge bridge manifest
+zotero-bridge synthesis topic list --input '{}'
+zotero-bridge synthesis index library get --input '{"cursor":0,"limit":200}'
+zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["model:DL/DETR"]}}'
+zotero-bridge synthesis artifact manifest --input '{"paper_refs":[...]}'
 ```
 
 `list-topics` 返回空 topic 列表，因此 create duplicate 判断为 `none`。`model:DL/DETR` resolver 返回 22 篇候选，本 playbook 为了后续测试稳定性只选择 5 篇代表论文。

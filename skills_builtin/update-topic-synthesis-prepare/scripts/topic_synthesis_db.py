@@ -102,7 +102,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "task": "编写新建主题意图和重复检查判断。",
                 "schema": "stage-10-create-topic-context.schema.json",
                 "payload_path": "runtime/payloads/create-topic-context.json",
-                "required_reads": ["<zotero-bridge> topics list --input '{}'"],
+                "required_reads": ["<zotero-bridge> synthesis topic list --input '{}'"],
             },
             {
                 "id": "stage_20_resolver_and_workset",
@@ -111,7 +111,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "schema": "stage-20-resolver-and-workset.schema.json",
                 "payload_path": "runtime/payloads/resolver-and-workset.json",
                 "required_reads": [
-                    "<zotero-bridge> library-index get --input '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --input '{\"cursor\":0,\"limit\":200}'"
                 ],
             },
             {
@@ -159,7 +159,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "payload_path": "runtime/payloads/update-topic-context.json",
                 "required_reads": [
                     "runtime/payloads/update-audit-report.json",
-                    "<zotero-bridge> library-index get --input '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --input '{\"cursor\":0,\"limit\":200}'"
                 ],
             },
             {
@@ -1310,7 +1310,7 @@ def run_update_preflight(
 
     digest_output = run_bridge_json(
         run_root,
-        ["topics", "get-context"],
+        ["synthesis", "topic", "get-context"],
         {"topicId": topic_id, "view": "digest"},
         "topic-context-digest-input.json",
     )
@@ -1327,7 +1327,7 @@ def run_update_preflight(
 
     audit_output = run_bridge_json(
         run_root,
-        ["topics", "get-context"],
+        ["synthesis", "topic", "get-context"],
         {"topicId": topic_id, "view": "audit"},
         "topic-context-audit-input.json",
     )
@@ -1453,7 +1453,7 @@ def collect_resolver_cascade(
             raise ValueError("update resolver proposal must preserve current resolver: " + "; ".join(additive_errors))
     resolver_output = run_bridge_json(
         run_root,
-        ["resolvers", "resolve"],
+        ["synthesis", "resolver", "resolve"],
         payload["resolver"],
         "resolver-input.json",
     )
@@ -1546,7 +1546,7 @@ def collect_resolver_cascade(
 
     metrics_output = run_bridge_json(
         run_root,
-        ["citation-graph", "get-metrics"],
+        ["synthesis", "graph", "get-metrics"],
         {"paperRefs": refs, "limit": len(refs)},
         "citation-graph-metrics-input-1.json",
     )
@@ -1607,7 +1607,7 @@ def export_filtered_paper_artifacts_manifest(run_root: Path, refs: list[str]) ->
         return cached_manifest
     artifacts_output = run_bridge_json(
         run_root,
-        ["paper-artifacts", "export-filtered"],
+        ["synthesis", "artifact", "export-filtered"],
         {"run_root": str(run_root), "paper_refs": refs},
         "paper-artifacts-export-input-1.json",
     )

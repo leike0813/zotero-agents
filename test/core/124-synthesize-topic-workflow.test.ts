@@ -514,9 +514,9 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(prepareText, "topics list");
-    assert.include(prepareText, "resolvers resolve");
-    assert.include(prepareText, "paper-artifacts export-filtered");
+    assert.include(prepareText, "synthesis topic list");
+    assert.include(prepareText, "synthesis resolver resolve");
+    assert.include(prepareText, "synthesis artifact export-filtered");
     assert.include(prepareText, "topic_synthesis_canceled");
     assert.include(coreText, "source_paper_refs");
     assert.include(coreText, "improvement dimensions");
@@ -552,7 +552,7 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.match(skillText, /topic seed[\s\S]+topics list/i);
+    assert.match(skillText, /topic seed[\s\S]+synthesis topic list/i);
     assert.include(skillText, "title、description、aliases");
     assert.match(skillText, /duplicate check[\s\S]+topic_synthesis_canceled/);
     assert.notInclude(skillText, "可建议改用 update-topic-synthesis");
@@ -561,7 +561,7 @@ describe("Synthesize topic workflow contract", function () {
       runner.entrypoint.prompts.common,
       "assets/output.schema.json",
     );
-    assert.include(skillText, "resolvers resolve");
+    assert.include(skillText, "synthesis resolver resolve");
     assert.include(skillText, "Host Bridge");
     assert.include(runner.entrypoint.prompts.common, "SKILL.md");
     assert.include(runner.entrypoint.prompts.common, "scripts/gate.py");
@@ -677,18 +677,18 @@ describe("Synthesize topic workflow contract", function () {
     }
 
     assert.include(createPrepare, "topic seed");
-    assert.include(createPrepare, "topics list");
-    assert.include(createPrepare, "resolvers resolve");
-    assert.include(createPrepare, "library-index get");
-    assert.include(createPrepare, "citation-graph get-metrics");
+    assert.include(createPrepare, "synthesis topic list");
+    assert.include(createPrepare, "synthesis resolver resolve");
+    assert.include(createPrepare, "synthesis index library get");
+    assert.include(createPrepare, "synthesis graph get-metrics");
     assert.include(createPrepare, "duplicate check");
     assert.notInclude(createPrepare, "update_full");
     assert.notInclude(createPrepare, "update_patch");
 
     assert.include(updatePrepare, "update topic synthesis workflow");
-    assert.include(updatePrepare, "topics get-context");
+    assert.include(updatePrepare, "synthesis topic get-context");
     assert.include(updatePrepare, "update-audit-report.json");
-    assert.notInclude(updatePrepare, "topics list --input '{}'");
+    assert.notInclude(updatePrepare, "synthesis topic list --input '{}'");
 
     assert.include(coreSkill, "source_paper_refs");
     assert.include(coreSkill, "topic_matching_terms");
@@ -708,7 +708,7 @@ describe("Synthesize topic workflow contract", function () {
       ),
     );
 
-    assert.include(skillText, "topics get-context");
+    assert.include(skillText, "synthesis topic get-context");
     assert.include(skillText, "update-audit-report.json");
     assert.include(skillText, "update_full");
     assert.include(skillText, "update_decision");

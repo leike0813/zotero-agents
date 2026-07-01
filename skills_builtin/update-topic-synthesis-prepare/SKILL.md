@@ -50,7 +50,7 @@ Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill
 <!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
 Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
-当前 topic synthesis 相关命令族摘要：`citation-graph get-layout`, `citation-graph get-metrics`, `citation-graph get-slice`, `citation-graph overview`, `citation-graph query-cluster`, `citation-graph rank-external-references`, `citation-graph rank-library-papers`, `citation-graph refresh-metrics`, `insights attention-queue`, `library-index get`, `paper-artifacts export-filtered`, `paper-artifacts manifest`, `paper-artifacts read`, `paper-artifacts resolve-topic-digest`, `reference-index get`, `resolvers resolve`, `topics find-by-paper-ref`, `topics get-context`, `topics get-report`, `topics get-review-input`, `topics list`。
+当前 topic synthesis 相关命令族摘要：`library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
 使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
 不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 
@@ -83,7 +83,7 @@ Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护�
 
 - 初始化或校验 SQLite 和 stage state。
 - 执行 update preflight：get-context digest/audit、baseline resolver resolve 和 audit report 生成。
-- 校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`resolvers resolve`、citation metrics、filtered artifact export。
+- 校验 resolver proposal 只新增内容，并执行 updated resolver cascade：`synthesis resolver resolve`、citation metrics、filtered artifact export。
 - 远程 Host Bridge export 返回 bridge-download 时，写出 `runtime/payloads/paper-artifacts-export-delivery.json` 并要求 agent 执行 downloadCommand/unpackHint。
 - 校验 paper triage payload，合并已保存 triage 和新增 triage。
 - 生成 cross-paper context、external-literature context、source evidence index 和 prepare handoff。
@@ -187,7 +187,7 @@ Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护�
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> library-index get --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。
+- Host read：`<zotero-bridge> synthesis index library get --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。
   说明：如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。
 - Gate required read：`runtime/payloads/update-audit-report.json`。按 gate 返回路径读取。
 

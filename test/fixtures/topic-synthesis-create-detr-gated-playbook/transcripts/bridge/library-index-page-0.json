@@ -1,7 +1,7 @@
 {
   "data": {
     "approval": "none",
-    "capability": "synthesis.get_library_index",
+    "capability": "library_index.get",
     "data": {
       "cursor": "0",
       "has_more": false,

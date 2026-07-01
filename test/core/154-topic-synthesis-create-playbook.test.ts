@@ -328,8 +328,8 @@ describe("DETR create topic synthesis gated playbook", function () {
       ),
     );
 
-    assert.include(playbook, "zotero-bridge status");
-    assert.include(playbook, "resolve-resolver");
+    assert.include(playbook, "zotero-bridge bridge status");
+    assert.include(playbook, "synthesis resolver resolve");
     assert.include(playbook, "5 篇");
     assert.include(playbook, "不保留 bearer token");
     assert.notInclude(allText.join("\n"), "c5731f");

@@ -168,11 +168,11 @@
       <h3>02. library-index-page-0</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge synthesis get-library-index --input {&quot;cursor&quot;: 0, &quot;limit&quot;: 200}</code></pre>
+      <pre class="code command"><code>zotero-bridge synthesis index library get --input {&quot;cursor&quot;: 0, &quot;limit&quot;: 200}</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;approval&quot;: &quot;none&quot;,
-    &quot;capability&quot;: &quot;synthesis.get_library_index&quot;,
+    &quot;capability&quot;: &quot;library_index.get&quot;,
     &quot;data&quot;: {
       &quot;cursor&quot;: &quot;0&quot;,
       &quot;has_more&quot;: false,
@@ -937,11 +937,11 @@
       <h3>03. list-topics</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge synthesis list-topics --input {}</code></pre>
+      <pre class="code command"><code>zotero-bridge synthesis topic list --input {}</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;approval&quot;: &quot;none&quot;,
-    &quot;capability&quot;: &quot;synthesis.list_topics&quot;,
+    &quot;capability&quot;: &quot;topics.list&quot;,
     &quot;data&quot;: {
       &quot;diagnostics&quot;: {
         &quot;count&quot;: 0,
@@ -962,7 +962,7 @@
       <h3>04. manifest</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge manifest</code></pre>
+      <pre class="code command"><code>zotero-bridge bridge manifest</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;capabilities&quot;: [
@@ -1207,7 +1207,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.list_topics&quot;
+        &quot;name&quot;: &quot;topics.list&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1216,7 +1216,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_topic_context&quot;
+        &quot;name&quot;: &quot;topics.get_context&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1225,7 +1225,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_schemas&quot;
+        &quot;name&quot;: &quot;schemas.get&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1234,7 +1234,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.query_concept_kb&quot;
+        &quot;name&quot;: &quot;concepts.query&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1243,7 +1243,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.query_citation_graph_cluster&quot;
+        &quot;name&quot;: &quot;citation_graph.query_cluster&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1252,7 +1252,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_library_index&quot;
+        &quot;name&quot;: &quot;library_index.get&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1261,7 +1261,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.resolve_resolver&quot;
+        &quot;name&quot;: &quot;resolvers.resolve&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1270,7 +1270,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_reference_sidecar_index&quot;
+        &quot;name&quot;: &quot;reference_index.get&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1279,7 +1279,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_citation_graph_slice&quot;
+        &quot;name&quot;: &quot;citation_graph.get_slice&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1288,7 +1288,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_citation_graph_metrics&quot;
+        &quot;name&quot;: &quot;citation_graph.get_metrics&quot;
       },
       {
         &quot;approval&quot;: &quot;zotero-ui-required&quot;,
@@ -1297,7 +1297,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.refresh_citation_graph_metrics&quot;
+        &quot;name&quot;: &quot;citation_graph.refresh_metrics&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1306,7 +1306,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_paper_artifact_manifest&quot;
+        &quot;name&quot;: &quot;paper_artifacts.get_manifest&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1315,7 +1315,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.export_filtered_paper_artifacts&quot;
+        &quot;name&quot;: &quot;paper_artifacts.export_filtered&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1324,7 +1324,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.resolve_topic_paper_digest&quot;
+        &quot;name&quot;: &quot;paper_artifacts.resolve_topic_digest&quot;
       },
       {
         &quot;approval&quot;: &quot;none&quot;,
@@ -1333,7 +1333,7 @@
           &quot;required&quot;: false,
           &quot;type&quot;: &quot;object&quot;
         },
-        &quot;name&quot;: &quot;synthesis.get_review_input&quot;
+        &quot;name&quot;: &quot;topics.get_review_input&quot;
       }
     ],
     &quot;cli&quot;: {
@@ -1354,11 +1354,11 @@
       <h3>05. resolver-discovery</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge synthesis resolve-resolver --input {&quot;resolver&quot;: {&quot;mode&quot;: &quot;tag_query&quot;, &quot;query&quot;: {&quot;and&quot;: [&quot;model:DL/DETR&quot;]}}}</code></pre>
+      <pre class="code command"><code>zotero-bridge synthesis resolver resolve --input {&quot;tag&quot;: {&quot;and&quot;: [&quot;model:DL/DETR&quot;]}}</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;approval&quot;: &quot;none&quot;,
-    &quot;capability&quot;: &quot;synthesis.resolve_resolver&quot;,
+    &quot;capability&quot;: &quot;resolvers.resolve&quot;,
     &quot;data&quot;: {
       &quot;cursor&quot;: &quot;0&quot;,
       &quot;diagnostics&quot;: {
@@ -1573,11 +1573,11 @@
       <h3>06. selected-paper-artifact-manifest</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge synthesis get-paper-artifact-manifest --input {&quot;paper_refs&quot;: [&quot;1:EIMSDEU3&quot;, &quot;1:5HBHAWIV&quot;, &quot;1:HPLZ65Z2&quot;, &quot;1:3JUY9GBQ&quot;, &quot;1:SZ3GNWT9&quot;]}</code></pre>
+      <pre class="code command"><code>zotero-bridge synthesis artifact manifest --input {&quot;paper_refs&quot;: [&quot;1:EIMSDEU3&quot;, &quot;1:5HBHAWIV&quot;, &quot;1:HPLZ65Z2&quot;, &quot;1:3JUY9GBQ&quot;, &quot;1:SZ3GNWT9&quot;]}</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;approval&quot;: &quot;none&quot;,
-    &quot;capability&quot;: &quot;synthesis.get_paper_artifact_manifest&quot;,
+    &quot;capability&quot;: &quot;paper_artifacts.get_manifest&quot;,
     &quot;data&quot;: {
       &quot;artifacts&quot;: [
         {
@@ -2008,7 +2008,7 @@
       <h3>07. status</h3>
       <table class="kv"><tbody><tr><th>ok</th><td>True</td></tr></tbody></table>
       <h4>命令</h4>
-      <pre class="code command"><code>zotero-bridge status</code></pre>
+      <pre class="code command"><code>zotero-bridge bridge status</code></pre>
       <details ><summary>Bridge 返回 JSON</summary><pre class="code json"><code>{
   &quot;data&quot;: {
     &quot;authRequired&quot;: true,
@@ -2095,7 +2095,7 @@
   &quot;payload_path&quot;: &quot;runtime/payloads/create-topic-context.json&quot;,
   &quot;payload_schema&quot;: &quot;assets/schemas/stage-10-create-topic-context.schema.json&quot;,
   &quot;required_reads&quot;: [
-    &quot;zotero-bridge synthesis list-topics --input &#x27;{}&#x27;&quot;
+    &quot;zotero-bridge synthesis topic list --input &#x27;{}&#x27;&quot;
   ],
   &quot;schema_id&quot;: &quot;synthesis.topic_synthesis_gate_instruction&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,
@@ -2174,7 +2174,7 @@
   &quot;payload_path&quot;: &quot;runtime/payloads/resolver-and-workset.json&quot;,
   &quot;payload_schema&quot;: &quot;assets/schemas/stage-20-resolver-and-workset.schema.json&quot;,
   &quot;required_reads&quot;: [
-    &quot;zotero-bridge synthesis get-library-index --input &#x27;{\&quot;cursor\&quot;:0,\&quot;limit\&quot;:200}&#x27;&quot;
+    &quot;zotero-bridge synthesis index library get --input &#x27;{\&quot;cursor\&quot;:0,\&quot;limit\&quot;:200}&#x27;&quot;
   ],
   &quot;schema_id&quot;: &quot;synthesis.topic_synthesis_gate_instruction&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,
@@ -2538,7 +2538,7 @@
     &quot;1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json&quot;
   ],
   &quot;exported_at&quot;: &quot;2026-06-06T08:11:53.485Z&quot;,
-  &quot;exported_by&quot;: &quot;synthesis.export_filtered_paper_artifacts&quot;,
+  &quot;exported_by&quot;: &quot;paper_artifacts.export_filtered&quot;,
   &quot;paper_refs&quot;: [
     &quot;1:3JUY9GBQ&quot;,
     &quot;1:5HBHAWIV&quot;,
@@ -2887,7 +2887,7 @@
 }</code></pre></details><details ><summary>workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/paper-artifacts-manifest.json</summary><pre class="code json"><code>{
   &quot;schema_id&quot;: &quot;synthesis.filtered_paper_artifacts_manifest&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,
-  &quot;exported_by&quot;: &quot;synthesis.export_filtered_paper_artifacts&quot;,
+  &quot;exported_by&quot;: &quot;paper_artifacts.export_filtered&quot;,
   &quot;exported_at&quot;: &quot;2026-06-06T08:11:53.485Z&quot;,
   &quot;paper_refs&quot;: [
     &quot;1:3JUY9GBQ&quot;,
@@ -5128,7 +5128,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
     &quot;1:SZ3GNWT9:probe:notes=4:payloads=citation-analysis-json,digest-markdown,literature-matching-metadata-json,references-json&quot;
   ],
   &quot;exported_at&quot;: &quot;2026-06-06T08:11:53.485Z&quot;,
-  &quot;exported_by&quot;: &quot;synthesis.export_filtered_paper_artifacts&quot;,
+  &quot;exported_by&quot;: &quot;paper_artifacts.export_filtered&quot;,
   &quot;paper_refs&quot;: [
     &quot;1:3JUY9GBQ&quot;,
     &quot;1:5HBHAWIV&quot;,
@@ -5477,7 +5477,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
 }</code></pre></details></article><article class="mini-card"><h3>paper-artifacts-manifest.json</h3><p class="muted">runtime 生成 · 14,768 bytes</p><details ><summary>workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/payloads/paper-artifacts-manifest.json</summary><pre class="code json"><code>{
   &quot;schema_id&quot;: &quot;synthesis.filtered_paper_artifacts_manifest&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,
-  &quot;exported_by&quot;: &quot;synthesis.export_filtered_paper_artifacts&quot;,
+  &quot;exported_by&quot;: &quot;paper_artifacts.export_filtered&quot;,
   &quot;exported_at&quot;: &quot;2026-06-06T08:11:53.485Z&quot;,
   &quot;paper_refs&quot;: [
     &quot;1:3JUY9GBQ&quot;,
@@ -6585,7 +6585,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
   &quot;payload_path&quot;: &quot;runtime/payloads/create-topic-context.json&quot;,
   &quot;payload_schema&quot;: &quot;assets/schemas/stage-10-create-topic-context.schema.json&quot;,
   &quot;required_reads&quot;: [
-    &quot;zotero-bridge synthesis list-topics --input &#x27;{}&#x27;&quot;
+    &quot;zotero-bridge synthesis topic list --input &#x27;{}&#x27;&quot;
   ],
   &quot;schema_id&quot;: &quot;synthesis.topic_synthesis_gate_instruction&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,
@@ -6602,7 +6602,7 @@ split runtime 未抓取外部网络文献；external-literature-context.md 仅�
   &quot;payload_path&quot;: &quot;runtime/payloads/resolver-and-workset.json&quot;,
   &quot;payload_schema&quot;: &quot;assets/schemas/stage-20-resolver-and-workset.schema.json&quot;,
   &quot;required_reads&quot;: [
-    &quot;zotero-bridge synthesis get-library-index --input &#x27;{\&quot;cursor\&quot;:0,\&quot;limit\&quot;:200}&#x27;&quot;
+    &quot;zotero-bridge synthesis index library get --input &#x27;{\&quot;cursor\&quot;:0,\&quot;limit\&quot;:200}&#x27;&quot;
   ],
   &quot;schema_id&quot;: &quot;synthesis.topic_synthesis_gate_instruction&quot;,
   &quot;schema_version&quot;: &quot;1.0.0&quot;,

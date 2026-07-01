@@ -1757,7 +1757,7 @@ def remote_export_delivery_message(run_root: Path, delivery_name: str, artifact_
         delivery.get("manifestFile"),
     )
     instructions = [
-        "paper-artifacts export-filtered returned a remote bridge-download bundle",
+        "synthesis artifact export-filtered returned a remote bridge-download bundle",
         f"delivery details were written to {normalize_posix(delivery_path)}",
     ]
     if download_command:
@@ -1788,7 +1788,7 @@ def export_filtered_paper_artifacts(run_root: Path, payload: dict[str, Any], inp
         return cached
     export_output = run_bridge_json(
         run_root,
-        ["paper-artifacts", "export-filtered"],
+        ["synthesis", "artifact", "export-filtered"],
         payload,
         input_name,
     )
@@ -2034,7 +2034,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
     try:
         reference_output = run_bridge_json(
             run_root,
-            ["reference-index", "get"],
+            ["synthesis", "index", "reference", "get"],
             reference_index_request_payload(target["paper_ref"]),
             "bootstrap-reference-index-input.json",
         )
@@ -2052,7 +2052,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
     try:
         topic_output = run_bridge_json(
             run_root,
-            ["topics", "find-by-paper-ref"],
+            ["synthesis", "topic", "find-by-paper-ref"],
             {"paper_ref": target["paper_ref"]},
             "bootstrap-topics-find-by-paper-ref-input.json",
         )
@@ -2075,7 +2075,7 @@ def run_host_preflight(run_root: Path, diagnostics: list[dict[str, Any]]) -> dic
     try:
         manifest_output = run_bridge_json(
             run_root,
-            ["paper-artifacts", "manifest"],
+            ["synthesis", "artifact", "manifest"],
             {"paper_refs": [target["paper_ref"]], "artifact_types": ["digest", "references", "citation_analysis"]},
             "bootstrap-paper-artifacts-manifest-input.json",
         )
@@ -2951,7 +2951,7 @@ def build_reference_bindings(context: dict[str, Any], run_root: Path, diagnostic
         try:
             output = run_bridge_json(
                 run_root,
-                ["reference-index", "get"],
+                ["synthesis", "index", "reference", "get"],
                 reference_index_request_payload(target_refs["paper_ref"]),
                 "reference-index-input.json",
             )
@@ -3065,7 +3065,7 @@ def resolve_reference_digest_result(run_root: Path, paper_ref: str, artifact: di
     try:
         output = run_bridge_json(
             run_root,
-            ["paper-artifacts", "resolve-topic-digest"],
+            ["synthesis", "artifact", "resolve-topic-digest"],
             {
                 "paper_ref": paper_ref,
                 "digest_ref": digest_ref,
@@ -3182,7 +3182,7 @@ def collect_reference_digests(context: dict[str, Any], run_root: Path, bindings:
     try:
         manifest_output = run_bridge_json(
             run_root,
-            ["paper-artifacts", "manifest"],
+            ["synthesis", "artifact", "manifest"],
             {"paper_refs": paper_refs, "artifact_types": ["digest"]},
             "paper-artifacts-manifest-input.json",
         )
@@ -3257,7 +3257,7 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
     if start_node_id:
         request["startNodeId"] = start_node_id
     try:
-        slice_output = run_bridge_json(run_root, ["citation-graph", "get-slice"], request, "citation-graph-slice-input.json")
+        slice_output = run_bridge_json(run_root, ["synthesis", "graph", "get-slice"], request, "citation-graph-slice-input.json")
         slice_data = unwrap_bridge_data(slice_output)
         snapshot = {
             "schema_version": "literature-deep-reading.citation-graph-snapshot.v0",
@@ -3279,7 +3279,7 @@ def collect_citation_graph(context: dict[str, Any], run_root: Path, diagnostics:
         snapshot = snapshot_empty
     layout_request = {**request, "preset": "force", "allowTruncated": True}
     try:
-        layout_output = run_bridge_json(run_root, ["citation-graph", "get-layout"], layout_request, "citation-graph-layout-input.json")
+        layout_output = run_bridge_json(run_root, ["synthesis", "graph", "get-layout"], layout_request, "citation-graph-layout-input.json")
         layout_data = unwrap_bridge_data(layout_output)
         layout_nodes = as_list(layout_data.get("nodes"))
         layout_edges = as_list(layout_data.get("edges"))
@@ -3388,7 +3388,7 @@ def collect_concepts(context: dict[str, Any], run_root: Path, diagnostics: list[
     try:
         output = run_bridge_json(
             run_root,
-            ["concepts", "query"],
+            ["synthesis", "concept", "query"],
             {"labels": labels, "limit": max(20, len(labels))},
             "concepts-query-input.json",
         )
@@ -3503,12 +3503,12 @@ def collect_topic_context(context: dict[str, Any], run_root: Path, diagnostics: 
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": []}
     if not topic_id:
         code = "topic_context_multiple_candidates" if len(topic_candidates) > 1 else "topic_context_unresolved"
-        message = "Multiple topic candidates are available; set selected_topic_id in context-request.json." if len(topic_candidates) > 1 else "No explicit topic id is available for topics get-context."
+        message = "Multiple topic candidates are available; set selected_topic_id in context-request.json." if len(topic_candidates) > 1 else "No explicit topic id is available for synthesis topic get-context."
         diagnostic = {"severity": "info", "code": code, "message": message}
         diagnostics.append(diagnostic)
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "none", "topic_id": "", "context": {}, "diagnostics": [diagnostic]}
     try:
-        output = run_bridge_json(run_root, ["topics", "get-context"], {"topicId": topic_id, "view": "semantic"}, "topic-context-input.json")
+        output = run_bridge_json(run_root, ["synthesis", "topic", "get-context"], {"topicId": topic_id, "view": "semantic"}, "topic-context-input.json")
         raw_data = unwrap_bridge_data(output)
         data = raw_data if isinstance(raw_data, dict) else {}
         return {"schema_version": "literature-deep-reading.topic-context.v0", "source": "host_topics_get_context", "topic_id": topic_id, "view": "semantic", "context": data, "diagnostics": as_list(data.get("diagnostics"))}
@@ -3546,7 +3546,7 @@ def collect_topic_candidate_digests(context: dict[str, Any], run_root: Path, sel
         try:
             output = run_bridge_json(
                 run_root,
-                ["topics", "get-context"],
+                ["synthesis", "topic", "get-context"],
                 {"topicId": topic_id, "view": "digest"},
                 f"topic-candidate-digest-{sanitize_runtime_filename_segment(topic_id)}-input.json",
             )

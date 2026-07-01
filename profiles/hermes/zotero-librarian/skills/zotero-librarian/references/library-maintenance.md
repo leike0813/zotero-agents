@@ -19,4 +19,4 @@ Weekly hygiene should report duplicate DOI/title candidates, suspicious mojibake
 
 ## Attention Queue
 
-The attention queue combines `zotero-bridge insights attention-queue` with local index metadata to rank high priority reading, metadata completion, and analysis tasks.
+The attention queue combines `zotero-bridge synthesis insight attention-queue` with local index metadata to rank high priority reading, metadata completion, and analysis tasks.
