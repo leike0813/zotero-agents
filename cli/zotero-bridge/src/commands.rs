@@ -19,18 +19,18 @@ use crate::{
         DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisCommand,
         FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
         ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs, LibraryArgs,
-        LibraryCommand, LibraryItemsCommand, LiteratureIngestArgs, MutationArgs,
-        MutationCollectionArgs, MutationCollectionCommand, MutationCollectionCreateArgs,
-        MutationCollectionItemsArgs, MutationCommand, MutationItemArgs, MutationItemAttachFileArgs,
-        MutationItemCommand, MutationItemUpdateArgs, MutationNoteArgs, MutationNoteCommand,
-        MutationNoteCreateArgs, MutationNotePayloadArgs, MutationNoteUpdateArgs, MutationTagArgs,
-        MutationTagCommand, MutationTagsArgs, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, NotificationAckArgs, NotificationCommand, NotificationListArgs,
-        NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs,
-        ResolversArgs, ResolversCommand, RunArgs, RunCommand, RunPermissionArgs,
-        RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs,
-        SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs,
-        SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LiteratureIngestArgs,
+        MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
+        MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
+        MutationItemArgs, MutationItemAttachFileArgs, MutationItemCommand, MutationItemUpdateArgs,
+        MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
+        MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
+        NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
+        NotificationListArgs, NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
         SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
         SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
         TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentRunArgs, WorkflowArgs,
@@ -141,6 +141,11 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
         LibraryCommand::Snapshot(input) => {
             call_capability(config, "library.sync_snapshot", bridge_input(input)?)
         }
+        LibraryCommand::Readiness(args) => call_capability(
+            config,
+            "library.readiness_audit",
+            library_readiness_input(args.command)?,
+        ),
     }
 }
 
@@ -583,6 +588,23 @@ fn bridge_input(args: BridgeInputArgs) -> Result<Value, CliError> {
     read_json_arg(args.input.as_deref())
 }
 
+fn library_readiness_input(command: LibraryReadinessCommand) -> Result<Value, CliError> {
+    let (input, check) = match command {
+        LibraryReadinessCommand::Audit(input) => return bridge_input(input),
+        LibraryReadinessCommand::MissingPdf(input) => (input, "pdf"),
+        LibraryReadinessCommand::MissingMarkdown(input) => (input, "markdown"),
+        LibraryReadinessCommand::MissingAnalysis(input) => (input, "analysis"),
+    };
+    let mut value = bridge_input(input)?;
+    if !value.is_object() {
+        value = json!({});
+    }
+    let object = value.as_object_mut().expect("readiness input object");
+    object.insert("checks".to_string(), json!([check]));
+    object.insert("missingOnly".to_string(), Value::Bool(true));
+    Ok(value)
+}
+
 fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError> {
     let input = read_json_arg(Some(&args.input))?;
     let mut object = match input {
@@ -712,13 +734,14 @@ fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, Cli
 }
 
 fn mutation_item_attach_file_input(args: MutationItemAttachFileArgs) -> Result<Value, CliError> {
+    let file_id = normalize_file_id(&args.file)?;
     let mut object = Map::new();
     object.insert(
         "operation".to_string(),
         Value::String("item.attachFile".to_string()),
     );
     object.insert("item".to_string(), context_ref_value(&args.item)?);
-    object.insert("fileId".to_string(), Value::String(args.file));
+    object.insert("fileId".to_string(), Value::String(file_id));
     if let Some(display_name) = args.display_name {
         object.insert("displayName".to_string(), Value::String(display_name));
     }
@@ -1065,10 +1088,53 @@ fn context_ref_value(raw: &str) -> Result<Value, CliError> {
         ));
     }
     if trimmed.starts_with('{') {
-        return serde_json::from_str(trimmed)
-            .map_err(|error| CliError::validation("invalid_object_ref_json", error.to_string()));
+        let value: Value = serde_json::from_str(trimmed)
+            .map_err(|error| CliError::validation("invalid_object_ref_json", error.to_string()))?;
+        if !value.is_object() {
+            return Err(CliError::validation(
+                "invalid_object_ref_json",
+                "Object ref JSON must be a JSON object",
+            ));
+        }
+        return Ok(value);
+    }
+    if !is_safe_zotero_object_ref(trimmed) {
+        return Err(CliError::validation(
+            "invalid_object_ref",
+            "Object ref must be a Zotero key, libraryId:itemKey, or JSON object",
+        ));
     }
     Ok(Value::String(trimmed.to_string()))
+}
+
+fn is_safe_zotero_object_ref(value: &str) -> bool {
+    if value.contains('/')
+        || value.contains('\\')
+        || value.contains("..")
+        || value.contains('(')
+        || value.contains(')')
+        || value.contains(';')
+        || value.contains('{')
+        || value.contains('}')
+        || value.contains('[')
+        || value.contains(']')
+    {
+        return false;
+    }
+    if let Some((library_id, key)) = value.split_once(':') {
+        return !library_id.is_empty()
+            && library_id.chars().all(|entry| entry.is_ascii_digit())
+            && is_zotero_key_like(key);
+    }
+    !value.contains(':') && is_zotero_key_like(value)
+}
+
+fn is_zotero_key_like(value: &str) -> bool {
+    let length = value.len();
+    (2..=128).contains(&length)
+        && value
+            .chars()
+            .all(|entry| entry.is_ascii_alphanumeric() || entry == '_' || entry == '-')
 }
 
 fn context_object_open_input(field: &str, args: ContextObjectRefArgs) -> Result<Value, CliError> {
@@ -1379,6 +1445,7 @@ fn download_success_payload(
 fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     let file_id = file_id.trim();
     if file_id.is_empty()
+        || !file_id.starts_with("file-")
         || file_id.contains('/')
         || file_id.contains('\\')
         || file_id.contains("..")
@@ -1386,7 +1453,7 @@ fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     {
         return Err(CliError::validation(
             "invalid_file_id",
-            "file download requires an opaque fileId, not a path",
+            "file commands require a Host Bridge opaque file-* handle, not a path",
         ));
     }
     Ok(file_id.to_string())
@@ -1904,6 +1971,30 @@ mod tests {
     }
 
     #[test]
+    fn builds_library_readiness_missing_inputs() {
+        let audit = library_readiness_input(LibraryReadinessCommand::Audit(BridgeInputArgs {
+            input: Some("{\"limit\":25,\"checks\":[\"pdf\",\"analysis\"]}".to_string()),
+        }))
+        .unwrap();
+        assert_eq!(audit, json!({ "limit": 25, "checks": ["pdf", "analysis"] }));
+
+        let missing_markdown =
+            library_readiness_input(LibraryReadinessCommand::MissingMarkdown(BridgeInputArgs {
+                input: Some("{\"collectionKey\":\"COLL\",\"limit\":10}".to_string()),
+            }))
+            .unwrap();
+        assert_eq!(
+            missing_markdown,
+            json!({
+                "collectionKey": "COLL",
+                "limit": 10,
+                "checks": ["markdown"],
+                "missingOnly": true
+            })
+        );
+    }
+
+    #[test]
     fn builds_literature_ingest_mutation_input() {
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: "{\"paper\":{\"title\":\"Bridge Paper\",\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
@@ -2028,6 +2119,49 @@ mod tests {
                 "contentType": "text/markdown"
             })
         );
+    }
+
+    #[test]
+    fn rejects_unsafe_object_refs_and_non_opaque_attach_file_ids() {
+        for value in [
+            "../ABC123",
+            "C:\\tmp\\paper.pdf",
+            "https://example.test/item",
+            "javascript:alert(1)",
+            "eval(ABC123)",
+            "1:http://example.test",
+        ] {
+            let error = context_ref_value(value).unwrap_err();
+            assert_eq!(error.code, "invalid_object_ref", "{value}");
+        }
+
+        let json_array_error = context_ref_value("[\"ABC123\"]").unwrap_err();
+        assert_eq!(json_array_error.code, "invalid_object_ref");
+
+        assert_eq!(context_ref_value("1:ABC123").unwrap(), json!("1:ABC123"));
+        assert_eq!(context_ref_value("ABC123").unwrap(), json!("ABC123"));
+        assert_eq!(
+            context_ref_value("{\"key\":\"ABC123\"}").unwrap(),
+            json!({ "key": "ABC123" })
+        );
+
+        let attach_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
+            item: "ABC123".to_string(),
+            file: "../artifact.md".to_string(),
+            display_name: None,
+            content_type: None,
+        })
+        .unwrap_err();
+        assert_eq!(attach_error.code, "invalid_file_id");
+
+        let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
+            item: "ABC123".to_string(),
+            file: "artifact-md".to_string(),
+            display_name: None,
+            content_type: None,
+        })
+        .unwrap_err();
+        assert_eq!(non_handle_error.code, "invalid_file_id");
     }
 
     #[test]

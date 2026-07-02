@@ -156,6 +156,17 @@ describe("host bridge cli packaging and install", function () {
       ),
       "utf8",
     );
+    const terminologySource = await fs.readFile(
+      path.join(process.cwd(), "skills_src/host-bridge-shared/terminology.md"),
+      "utf8",
+    );
+    const terminologyReference = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/references/terminology.md",
+      ),
+      "utf8",
+    );
     const docs = await fs.readFile(
       path.join(process.cwd(), "doc/host-bridge-cli.md"),
       "utf8",
@@ -194,6 +205,17 @@ describe("host bridge cli packaging and install", function () {
       ),
       "utf8",
     );
+    const terminologySource = await fs.readFile(
+      path.join(process.cwd(), "skills_src/host-bridge-shared/terminology.md"),
+      "utf8",
+    );
+    const terminologyReference = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "skills_builtin/zotero-bridge-cli/references/terminology.md",
+      ),
+      "utf8",
+    );
 
     for (const source of [wrapperSkill, wrapperReference]) {
       assert.include(source, ".\\.zotero-bridge\\bin\\zotero-bridge.cmd");
@@ -207,9 +229,24 @@ describe("host bridge cli packaging and install", function () {
     }
     assert.include(wrapperReference, "`library items list`");
     assert.include(wrapperReference, "`library snapshot`");
+    assert.include(wrapperReference, "`library readiness missing-analysis`");
     assert.include(wrapperReference, "`synthesis index library get`");
     assert.include(wrapperReference, "`synthesis index reference get`");
     assert.include(wrapperReference, "`synthesis resolver resolve`");
+    assert.include(wrapperSkill, "references/terminology.md");
+    assert.equal(terminologyReference, terminologySource);
+    for (const term of [
+      "citation graph",
+      "三件套",
+      "digest",
+      "references",
+      "citation-analysis",
+      "workflowRunId",
+      "skillRunId",
+      "fileId",
+    ]) {
+      assert.include(terminologyReference, term);
+    }
   });
 
   it("documents library snapshot/list semantic CLI commands for Zotero library indexes", async function () {
@@ -236,15 +273,18 @@ describe("host bridge cli packaging and install", function () {
     for (const source of [cliArgs, commands, wrapperReference, docs]) {
       assert.include(source, "library.sync_snapshot");
       assert.include(source, "library.list_items");
+      assert.include(source, "library.readiness_audit");
     }
     for (const source of [wrapperReference, docs]) {
       assert.include(source, "zotero-bridge library items list");
       assert.include(source, "zotero-bridge library snapshot");
+      assert.include(source, "library readiness missing-analysis");
       assert.include(source, "collectionKey");
       assert.include(source, "nextCursor");
     }
     assert.include(commands, "LibraryItemsCommand::List");
     assert.include(commands, "LibraryCommand::Snapshot");
+    assert.include(commands, "LibraryReadinessCommand::MissingAnalysis");
   });
 
   it("documents topic get-context views and file output across CLI and wrapper surfaces", async function () {

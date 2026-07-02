@@ -50,8 +50,6 @@ Runtime persistence governance SHALL expose cleanable runtime data categories fo
 - **AND** delete `runtime/workflow-products`
 - **AND** leave original run workspaces untouched.
 
-## ADDED Requirements
-
 ### Requirement: Runtime persistence usage exposes state databases
 
 Runtime persistence governance SHALL expose both runtime SQLite databases for diagnostics without making them generic cleanable categories.
@@ -113,4 +111,3 @@ diagnostics.
 - **GIVEN** the configured runtime root is a POSIX absolute path
 - **WHEN** runtime persistence paths are resolved
 - **THEN** child paths SHALL preserve POSIX path shape.
-

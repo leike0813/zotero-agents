@@ -16,12 +16,20 @@ const REQUIRED_PROFILE_FILES = [
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/host-bridge.md",
   "skills/zotero-librarian/references/workflows.md",
+  "skills/zotero-librarian/references/terminology.md",
   "skills/zotero-librarian/references/library-maintenance.md",
+  "skills/zotero-librarian/references/workflow-execution-policy.md",
+  "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-workflow-agent-runner/SKILL.md",
+  "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   "scripts/zotero_librarian_index_service.py",
+  "scripts/zotero_librarian_workflow_service.py",
+  "scripts/zotero_librarian_notification_service.py",
   "scripts/install_zotero_bridge_cli.py",
   "cron/index-refresh.yaml",
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
+  "cron/notification-sync.yaml",
   "cron/inbox-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
@@ -67,6 +75,27 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.notMatch(combined, /bearer\s+[A-Za-z0-9._~+/-]{16,}/i);
     assert.notMatch(combined, /"token"\s*:/i);
     assert.notMatch(combined, /C:\\Users\\|\/Users\/|\/home\//);
+
+    const terminologySource = await fs.readFile(
+      path.join(process.cwd(), "skills_src/host-bridge-shared/terminology.md"),
+      "utf8",
+    );
+    const terminologyReference = await readProfile(
+      "skills/zotero-librarian/references/terminology.md",
+    );
+    assert.equal(terminologyReference, terminologySource);
+    for (const term of [
+      "citation graph",
+      "三件套",
+      "digest",
+      "references",
+      "citation-analysis",
+      "workflowRunId",
+      "skillRunId",
+      "fileId",
+    ]) {
+      assert.include(terminologyReference, term);
+    }
   });
 
   it("documents the standalone repository install path", async function () {
@@ -152,8 +181,13 @@ describe("zotero-librarian Hermes profile distribution", function () {
       "<!-- zotero-librarian:host-bridge:end -->",
     );
     assert.include(hostBridgeReference, "library.sync_snapshot");
+    assert.include(hostBridgeReference, "library.readiness_audit");
     assert.include(hostBridgeReference, "`zotero-bridge library snapshot`");
     assert.include(hostBridgeReference, "`zotero-bridge library items list`");
+    assert.include(
+      hostBridgeReference,
+      "`zotero-bridge library readiness missing-analysis`",
+    );
 
     assert.include(
       workflowReference,
@@ -165,6 +199,19 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
     assert.include(workflowReference, "workflow-refresh");
     assert.notInclude(workflowReference, "debug_only");
+
+    const skill = await readProfile("skills/zotero-librarian/SKILL.md");
+    assert.include(skill, "references/terminology.md");
+    assert.include(skill, "references/workflow-execution-policy.md");
+    assert.include(skill, "references/common-tasks.md");
+    assert.include(skill, "$zotero-workflow-agent-runner");
+
+    const agentRunner = await readProfile(
+      "skills/zotero-workflow-agent-runner/SKILL.md",
+    );
+    assert.include(agentRunner, "workflow agent-run");
+    assert.include(agentRunner, "agentRunId");
+    assert.include(agentRunner, "workflow agent-apply");
   });
 
   it("defines concrete cron templates for index, workflow, run, and hygiene jobs", async function () {
@@ -178,6 +225,10 @@ describe("zotero-librarian Hermes profile distribution", function () {
         ['time: "03:00"', "workflow-refresh"],
       ],
       ["cron/run-monitor.yaml", ["every: 5m", "run-watch"]],
+      [
+        "cron/notification-sync.yaml",
+        ["every: 5m", "zotero_librarian_notification_service.py", "sync"],
+      ],
       ["cron/inbox-triage.yaml", ['time: "09:00"', "status:0-inbox", "no tag"]],
       [
         "cron/library-hygiene.yaml",
@@ -195,6 +246,7 @@ describe("zotero-librarian Hermes profile distribution", function () {
         assert.include(source, snippet, relativePath);
       }
       assert.include(source, "[SILENT]", relativePath);
+      assert.notInclude(source, "run notification wait", relativePath);
     }
   });
 
@@ -222,6 +274,7 @@ describe("zotero-librarian Hermes profile distribution", function () {
       "utf8",
     );
     assert.include(checkScript, "library.sync_snapshot");
+    assert.include(checkScript, "library.readiness_audit");
     assert.include(checkScript, "ZOTERO_LIBRARIAN_STATE_DIR");
     assert.include(checkScript, "tokenEnv");
 
@@ -266,5 +319,30 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.include(indexService, "index.sqlite");
     assert.include(indexService, "library snapshot");
     assert.include(indexService, "workflow describe");
+
+    const workflowService = await readProfile(
+      "scripts/zotero_librarian_workflow_service.py",
+    );
+    for (const command of [
+      "parent-selection",
+      "readiness-plan",
+      "plan",
+      "submit",
+    ]) {
+      assert.include(workflowService, `"${command}"`);
+    }
+    assert.include(workflowService, "confirm_concurrency");
+    assert.include(workflowService, "agent-run");
+    assert.notInclude(workflowService, "run notification wait");
+
+    const notificationService = await readProfile(
+      "scripts/zotero_librarian_notification_service.py",
+    );
+    for (const command of ["sync", "inbox", "summary", "ack"]) {
+      assert.include(notificationService, `"${command}"`);
+    }
+    assert.include(notificationService, '"run", "notification", "list"');
+    assert.include(notificationService, '"run", "notification", "ack"');
+    assert.notInclude(notificationService, "run notification wait");
   });
 });

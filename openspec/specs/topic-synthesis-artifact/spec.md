@@ -1,3 +1,7 @@
+## Purpose
+
+Topic synthesis artifacts define the structured sidecars and payload fields used to persist topic graph proposals, review context, and generated topic synthesis outputs.
+
 ## Requirements
 ### Requirement: Topic synthesis sidecars
 

@@ -27,9 +27,7 @@ export function isAcpSkillRunTask(entry: {
 
 function isVisibleAcpSkillRun(run: AcpSkillRunSummary) {
   return (
-    !run.removedAt &&
-    !run.archivedAt &&
-    isActiveAcpSkillRunStatus(run.status)
+    !run.removedAt && !run.archivedAt && isActiveAcpSkillRunStatus(run.status)
   );
 }
 

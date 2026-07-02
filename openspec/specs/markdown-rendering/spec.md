@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Markdown rendering defines the shared plugin renderer contract for user-visible Markdown surfaces, including transcript, document, bundled help, and dashboard content.
 
 ## Requirements
 

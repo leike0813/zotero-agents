@@ -1,55 +1,16 @@
 import { config } from "../../package.json";
 import { getStringOrFallback } from "../utils/locale";
-import { parseNoteKind } from "./notePayloadCodec";
-
-type ArtifactKind =
-  | "source-markdown"
-  | "digest"
-  | "references"
-  | "citation-analysis";
+import {
+  isTopLevelRegularArtifactItem,
+  parseLibraryArtifactState,
+  resolveLibraryArtifactReadiness,
+  type LibraryArtifactItem,
+} from "./libraryArtifactReadiness";
 
 type ArtifactColumnState = "" | string;
 
-type ArtifactItem = Zotero.Item & {
-  attachmentFilename?: string;
-  attachmentContentType?: string;
-  getFilePath?: () => string | false | null | undefined;
-  getFilePathAsync?: () => Promise<string | false | null | undefined>;
-  getBestAttachment?: () => Promise<Zotero.Item | false>;
-  isPDFAttachment?: () => boolean;
-  isRegularItem?: () => boolean;
-  isTopLevelItem?: () => boolean;
-};
-
 const ARTIFACTS_COLUMN_DATA_KEY = "artifacts";
-const ARTIFACT_DEFINITIONS: Array<{
-  kind: ArtifactKind;
-  label: string;
-  icon: string;
-}> = [
-  {
-    kind: "source-markdown",
-    label: "Source Markdown",
-    icon: "icon_artifact_markdown.svg",
-  },
-  {
-    kind: "digest",
-    label: "Digest",
-    icon: "icon_artifact_digest.svg",
-  },
-  {
-    kind: "references",
-    label: "References",
-    icon: "icon_artifact_references.svg",
-  },
-  {
-    kind: "citation-analysis",
-    label: "Citation Analysis",
-    icon: "icon_artifact_citation_analysis.svg",
-  },
-];
 const REFRESH_DEBOUNCE_MS = 100;
-const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 
 let registeredColumnDataKey: string | false | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -109,7 +70,7 @@ export function notifyLibraryArtifactsColumnItemsChanged(
     if (!Number.isFinite(numericID)) {
       continue;
     }
-    const item = Zotero.Items.get(numericID) as ArtifactItem | undefined;
+    const item = Zotero.Items.get(numericID) as LibraryArtifactItem | undefined;
     if (!item) {
       continue;
     }
@@ -132,8 +93,11 @@ export function resetLibraryArtifactsColumnForTests() {
 }
 
 function provideArtifactsCellData(item: Zotero.Item) {
-  const artifactItem = item as ArtifactItem;
-  if (!isTopLevelRegularItem(artifactItem) || !Number.isFinite(item.id)) {
+  const artifactItem = item as LibraryArtifactItem;
+  if (
+    !isTopLevelRegularArtifactItem(artifactItem) ||
+    !Number.isFinite(item.id)
+  ) {
     return "";
   }
   const cached = stateCache.get(item.id);
@@ -144,7 +108,7 @@ function provideArtifactsCellData(item: Zotero.Item) {
   return "";
 }
 
-async function scanItemArtifacts(item: ArtifactItem) {
+async function scanItemArtifacts(item: LibraryArtifactItem) {
   if (pendingScans.has(item.id)) {
     return;
   }
@@ -168,217 +132,9 @@ async function scanItemArtifacts(item: ArtifactItem) {
 }
 
 async function resolveArtifactState(
-  item: ArtifactItem,
+  item: LibraryArtifactItem,
 ): Promise<ArtifactColumnState> {
-  if (!isTopLevelRegularItem(item)) {
-    return "";
-  }
-  const artifacts = new Set<ArtifactKind>();
-  if (await hasSourceMarkdownArtifact(item)) {
-    artifacts.add("source-markdown");
-  }
-  for (const artifact of resolveGeneratedNoteArtifacts(item)) {
-    artifacts.add(artifact);
-  }
-  return serializeArtifactState(artifacts);
-}
-
-async function hasSourceMarkdownArtifact(item: ArtifactItem) {
-  const bestAttachment = await resolveBestPdfAttachment(item);
-  if (!bestAttachment) {
-    return false;
-  }
-  const bestStem = await resolveAttachmentStem(bestAttachment);
-  if (!bestStem) {
-    return false;
-  }
-  const markdownStems = await resolveMarkdownAttachmentStems(item);
-  return markdownStems.has(bestStem);
-}
-
-function resolveGeneratedNoteArtifacts(item: ArtifactItem) {
-  const artifacts = new Set<ArtifactKind>();
-  for (const id of item.getNotes?.() || []) {
-    const note = Zotero.Items.get(id) as ArtifactItem | undefined;
-    if (!note?.isNote?.()) {
-      continue;
-    }
-    const noteKind = normalizeGeneratedNoteKind(note.getNote?.() || "");
-    if (noteKind === "digest") {
-      artifacts.add("digest");
-    } else if (noteKind === "references") {
-      artifacts.add("references");
-    } else if (noteKind === "citation-analysis") {
-      artifacts.add("citation-analysis");
-    }
-  }
-  return artifacts;
-}
-
-function normalizeGeneratedNoteKind(noteHtml: unknown) {
-  const html = String(noteHtml || "");
-  const parsed = parseNoteKind(html);
-  if (parsed === "citation_analysis") {
-    return "citation-analysis";
-  }
-  if (parsed) {
-    return parsed;
-  }
-  const anchorMatch = html.match(
-    /data-zs-payload-anchor\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
-  );
-  const anchor = String(
-    anchorMatch?.[1] || anchorMatch?.[2] || anchorMatch?.[3] || "",
-  );
-  if (anchor === "digest-markdown") {
-    return "digest";
-  }
-  if (anchor === "references-json") {
-    return "references";
-  }
-  if (anchor === "citation-analysis-json") {
-    return "citation-analysis";
-  }
-  return "";
-}
-
-function serializeArtifactState(artifacts: Set<ArtifactKind>) {
-  return ARTIFACT_DEFINITIONS.map(({ kind }) => kind)
-    .filter((kind) => artifacts.has(kind))
-    .join("|");
-}
-
-function parseArtifactState(data: string) {
-  const requested = new Set(
-    String(data || "")
-      .split("|")
-      .filter(Boolean),
-  );
-  return ARTIFACT_DEFINITIONS.filter(({ kind }) => requested.has(kind));
-}
-
-async function resolveBestPdfAttachment(item: ArtifactItem) {
-  const best = await item.getBestAttachment?.();
-  if (best && isPdfAttachment(best as ArtifactItem)) {
-    return best as ArtifactItem;
-  }
-  for (const id of item.getAttachments?.() || []) {
-    const attachment = Zotero.Items.get(id) as ArtifactItem | undefined;
-    if (attachment && isPdfAttachment(attachment)) {
-      return attachment;
-    }
-  }
-  return null;
-}
-
-function isPdfAttachment(item: ArtifactItem) {
-  try {
-    if (item.isPDFAttachment?.()) {
-      return true;
-    }
-  } catch {
-    return false;
-  }
-  if (normalizeContentType(item.attachmentContentType) === "application/pdf") {
-    return true;
-  }
-  const filename = resolveAttachmentFilenameSync(item).toLowerCase();
-  return filename.endsWith(".pdf");
-}
-
-async function resolveMarkdownAttachmentStems(item: ArtifactItem) {
-  const stems = new Set<string>();
-  for (const id of item.getAttachments?.() || []) {
-    const attachment = Zotero.Items.get(id) as ArtifactItem | undefined;
-    if (!attachment || !(await isMarkdownAttachment(attachment))) {
-      continue;
-    }
-    const stem = await resolveAttachmentStem(attachment);
-    if (stem) {
-      stems.add(stem);
-    }
-  }
-  return stems;
-}
-
-async function isMarkdownAttachment(item: ArtifactItem) {
-  const filename = await resolveAttachmentFilename(item);
-  return MARKDOWN_EXTENSIONS.has(resolveExtension(filename));
-}
-
-async function resolveAttachmentStem(item: ArtifactItem) {
-  const filename = await resolveAttachmentFilename(item);
-  const extension = resolveExtension(filename);
-  if (!extension) {
-    return "";
-  }
-  return filename
-    .slice(0, Math.max(0, filename.length - extension.length - 1))
-    .trim()
-    .toLowerCase();
-}
-
-async function resolveAttachmentFilename(item: ArtifactItem) {
-  const syncFilename = resolveAttachmentFilenameSync(item);
-  if (syncFilename) {
-    return syncFilename;
-  }
-  try {
-    const filePath = await item.getFilePathAsync?.();
-    return basename(String(filePath || ""));
-  } catch {
-    return "";
-  }
-}
-
-function resolveAttachmentFilenameSync(item: ArtifactItem) {
-  const attachmentFilename = String(item.attachmentFilename || "").trim();
-  if (attachmentFilename) {
-    return attachmentFilename;
-  }
-  try {
-    const filePath = item.getFilePath?.();
-    return basename(String(filePath || ""));
-  } catch {
-    return "";
-  }
-}
-
-function basename(value: string) {
-  const normalized = String(value || "").trim();
-  if (!normalized) {
-    return "";
-  }
-  const parts = normalized.split(/[\\/]+/);
-  return parts[parts.length - 1] || "";
-}
-
-function resolveExtension(filename: string) {
-  const index = filename.lastIndexOf(".");
-  if (index <= 0 || index === filename.length - 1) {
-    return "";
-  }
-  return filename.slice(index + 1).toLowerCase();
-}
-
-function normalizeContentType(value: unknown) {
-  return String(value || "")
-    .split(";")[0]
-    .trim()
-    .toLowerCase();
-}
-
-function isTopLevelRegularItem(item: ArtifactItem) {
-  if (item.isNote?.() || item.isAttachment?.()) {
-    return false;
-  }
-  if (typeof item.isRegularItem === "function" && !item.isRegularItem()) {
-    return false;
-  }
-  if (typeof item.isTopLevelItem === "function") {
-    return item.isTopLevelItem();
-  }
-  return !item.parentID;
+  return (await resolveLibraryArtifactReadiness(item)).state;
 }
 
 function renderArtifactsCell(
@@ -390,7 +146,7 @@ function renderArtifactsCell(
   cell.className = ["cell", columnClassName, "zs-library-artifacts-cell"]
     .filter(Boolean)
     .join(" ");
-  const artifacts = parseArtifactState(data);
+  const artifacts = parseLibraryArtifactState(data);
   if (!artifacts.length) {
     cell.setAttribute("aria-label", "");
     return cell;

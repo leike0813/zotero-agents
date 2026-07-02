@@ -116,8 +116,6 @@ SkillRunner-bound requests SHALL NOT include
   `skillrunner_zotero_host_access_runtime_option_stripped`.
 - **AND** backend/provider compatibility SHALL otherwise remain unchanged.
 
-## ADDED Requirements
-
 ### Requirement: Workflow manifest declares skill-level execution mode
 
 SkillRunner-compatible workflow manifests SHALL declare skill execution mode on
@@ -142,4 +140,3 @@ the job or sequence step that runs the skill.
 - **GIVEN** a workflow manifest declares `execution.mode` or `execution.skillrunner_mode`
 - **WHEN** the manifest is loaded
 - **THEN** validation SHALL reject the manifest.
-

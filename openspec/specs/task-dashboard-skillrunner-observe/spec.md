@@ -596,8 +596,6 @@ SkillRunner session sync start requests MUST be idempotent for a request whose r
 - **WHEN** another observer path asks to start sync for the same unchanged request state
 - **THEN** plugin MUST reuse the existing sync or skip the duplicate start according to request-local cadence
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner UI projection MUST derive from SkillRunner run store
 
 Dashboard, Task Manager, and SkillRunner workspace UI MUST treat the
@@ -757,8 +755,6 @@ Dashboard and run workspace observation MUST prefer stable operation over real-t
 - **WHEN** debug connection audit is opened
 - **THEN** it SHALL expose reachability mode, physical debt, degraded mode, and skipped low-priority request counters.
 
-## ADDED Requirements
-
 ### Requirement: Selectable Pre-Ready SkillRunner Rows
 
 SkillRunner pre-ready rows MUST be selectable in the SkillRunner panel while
@@ -777,8 +773,6 @@ remaining non-interactive with the backend.
 #### Scenario: task becomes request-ready
 - **WHEN** the same local task receives a backend `request_id` and reaches request-ready
 - **THEN** the same selected foreground task upgrades to the normal backend-interactive run.
-
-## ADDED Requirements
 
 ### Requirement: Reconciler recovery is one-shot foreground handoff
 
@@ -1035,8 +1029,6 @@ SkillRunner lifecycle invariants MUST capture lifecycle, projection, terminal ow
 - **WHEN** the invariant checker is updated
 - **THEN** the lifecycle invariant YAML MUST become part of
   `check:ssot-invariants`.
-
-## ADDED Requirements
 
 ### Requirement: Jobs endpoint observations MUST converge local SkillRunner state
 

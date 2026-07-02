@@ -166,8 +166,6 @@ and evaluated before request construction.
 - **AND** build one request per returned scoped selection context
 - **AND** raise `NO_VALID_INPUT_UNITS` when no valid context remains.
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner sequences use foreground step orchestration
 
 `skillrunner.sequence.v1` normal execution SHALL be orchestrated by the
@@ -192,8 +190,6 @@ frontend step loop instead of active reconciler settlement.
 - **WHEN** a SkillRunner sequence step reaches `failed` or `canceled`
 - **THEN** the sequence SHALL stop
 - **AND** downstream steps SHALL NOT be submitted.
-
-## ADDED Requirements
 
 ### Requirement: Runtime maps skill-level mode to provider execution mode
 

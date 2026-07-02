@@ -1,3 +1,9 @@
+## Purpose
+
+Host Access preferences present Host Bridge and MCP service status, operation feedback, and token/profile actions without mixing diagnostics with transient user operations.
+
+## Requirements
+
 ### Requirement: Host Access preferences separate status and operation feedback
 
 The preferences Host Access card SHALL show service status summaries separately

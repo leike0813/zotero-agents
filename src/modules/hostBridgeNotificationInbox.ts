@@ -71,6 +71,8 @@ type NotificationInput = Omit<
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+export const HOST_BRIDGE_NOTIFICATION_MAX_EVENTS = 1000;
+export const HOST_BRIDGE_NOTIFICATION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const events: HostBridgeNotificationEvent[] = [];
 const eventIdByKey = new Map<string, string>();
@@ -94,6 +96,47 @@ function normalizeLimit(limit: unknown) {
     return Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
   }
   return DEFAULT_LIMIT;
+}
+
+function eventTime(event: HostBridgeNotificationEvent) {
+  const time = Date.parse(event.createdAt);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function removeEvent(event: HostBridgeNotificationEvent) {
+  const index = events.findIndex((entry) => entry.eventId === event.eventId);
+  if (index >= 0) {
+    events.splice(index, 1);
+  }
+  for (const [key, eventId] of eventIdByKey.entries()) {
+    if (eventId === event.eventId) {
+      eventIdByKey.delete(key);
+    }
+  }
+}
+
+export function pruneHostBridgeNotificationInbox(now = Date.now()) {
+  const cutoff = now - HOST_BRIDGE_NOTIFICATION_MAX_AGE_MS;
+  for (const event of [...events]) {
+    const createdAt = eventTime(event);
+    if (createdAt > 0 && createdAt < cutoff) {
+      removeEvent(event);
+    }
+  }
+  if (events.length <= HOST_BRIDGE_NOTIFICATION_MAX_EVENTS) {
+    return;
+  }
+  const retained = new Set(
+    [...events]
+      .sort((left, right) => eventTime(right) - eventTime(left))
+      .slice(0, HOST_BRIDGE_NOTIFICATION_MAX_EVENTS)
+      .map((event) => event.eventId),
+  );
+  for (const event of [...events]) {
+    if (!retained.has(event.eventId)) {
+      removeEvent(event);
+    }
+  }
 }
 
 function eventMatches(
@@ -145,6 +188,7 @@ function insertNotification(input: NotificationInput) {
     },
     acknowledgedAt: null,
   });
+  pruneHostBridgeNotificationInbox();
 }
 
 function workflowEventType(
@@ -321,6 +365,7 @@ export function projectTaskNotifications(
 export function listHostBridgeNotificationEvents(
   filters: HostBridgeNotificationFilters = {},
 ): HostBridgeNotificationListResult {
+  pruneHostBridgeNotificationInbox();
   const limit = normalizeLimit(filters.limit);
   const sinceIndex = filters.sinceEventId
     ? events.findIndex((event) => event.eventId === filters.sinceEventId)
@@ -343,6 +388,7 @@ export function listHostBridgeNotificationEvents(
 export function acknowledgeHostBridgeNotificationEvents(
   eventIds: string[],
 ): HostBridgeNotificationAckResult {
+  pruneHostBridgeNotificationInbox();
   const acknowledgedAt = nowIso();
   const ids = Array.from(
     new Set(eventIds.map(normalizeString).filter(Boolean)),

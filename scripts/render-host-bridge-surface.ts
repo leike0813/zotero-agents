@@ -12,6 +12,8 @@ const ROOT = process.cwd();
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
 const WRAPPER_AGENT_GUIDANCE_SOURCE =
   "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md";
+const SHARED_TERMINOLOGY_SOURCE =
+  "skills_src/host-bridge-shared/terminology.md";
 
 type RenderTarget = {
   path: string;
@@ -217,8 +219,10 @@ function libraryGuidance() {
   return [
     '- Use `zotero-bridge library items list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
     '- Use `zotero-bridge library snapshot --input \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
+    "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
     "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.",
     "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
   ].join("\n");
 }
@@ -429,6 +433,10 @@ const COPY_TARGETS: CopyTarget[] = [
   {
     path: "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
     sourcePath: WRAPPER_AGENT_GUIDANCE_SOURCE,
+  },
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/terminology.md",
+    sourcePath: SHARED_TERMINOLOGY_SOURCE,
   },
 ];
 

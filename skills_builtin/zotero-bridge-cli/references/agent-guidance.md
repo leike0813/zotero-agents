@@ -2,6 +2,8 @@
 
 This reference explains how to choose Host Bridge CLI commands during agent work. Use it with the generated command reference in `host-bridge-cli.md`.
 
+Read `terminology.md` first when the task uses Chinese shorthand, artifact names, graph terms, run handles, or writeback terms that may be ambiguous.
+
 ## Command Selection
 
 - Use `bridge` to check Host Bridge availability, inspect the manifest, inspect the active profile, and diagnose backend readiness.
@@ -35,6 +37,18 @@ zotero-bridge run permission get <permissionRequestId>
 ```
 
 The permission commands do not approve or reject requests. They only explain what is waiting and which workflow or skill run it belongs to.
+
+## Library Readiness
+
+Use readiness commands before planning remediation batches for missing source files or generated literature artifacts:
+
+```powershell
+zotero-bridge library readiness missing-pdf --input '{"limit":100}'
+zotero-bridge library readiness missing-markdown --input '{"collectionKey":"COLL","limit":100}'
+zotero-bridge library readiness missing-analysis --input '{"tag":"to-review","limit":100}'
+```
+
+Readiness commands are read-only. They do not fetch PDFs, convert Markdown, run `literature-analysis`, or write notes. `missing-markdown` follows the Zotero Artifacts column source Markdown rule: a `.md` or `.markdown` attachment must share the best PDF's filename stem. `missing-analysis` follows the same column's generated artifact rule: `digest`, `references`, and `citation-analysis` markers must all be present.
 
 ## Zotero UI Context
 

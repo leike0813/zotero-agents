@@ -1,3 +1,7 @@
+## Purpose
+
+The local readonly UI harness provides a development-only way to inspect plugin UI pages against configured Zotero data without starting Zotero or mutating library state.
+
 ## Requirements
 ### Requirement: Local Readonly Harness Startup
 
@@ -168,8 +172,6 @@ and populated DOM content before capturing screenshots.
 - **THEN** those artifacts SHALL remain outside tracked source by default
 - **AND** source changes SHALL be limited to reusable harness code, tests, or
   documented fixtures.
-
-## ADDED Requirements
 
 ### Requirement: UI readonly harness supports isolated runtime database
 

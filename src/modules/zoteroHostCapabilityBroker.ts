@@ -19,6 +19,10 @@ import {
   listNotePayloadBlocksForItem,
   selectPreferredNotePayloadBlock,
 } from "./zoteroNotePayloadResolver";
+import {
+  resolveLibraryArtifactReadiness,
+  type LibraryArtifactItem,
+} from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
 
 export type ZoteroHostItemRefInput =
@@ -171,6 +175,14 @@ export type ZoteroHostLibraryListArgs = {
   cursor?: string | number;
 };
 
+export type ZoteroHostLibraryReadinessCheck = "pdf" | "markdown" | "analysis";
+
+export type ZoteroHostLibraryReadinessAuditArgs = ZoteroHostLibraryListArgs & {
+  checks?: ZoteroHostLibraryReadinessCheck[] | string;
+  missingOnly?: boolean | string | number;
+  missing_only?: boolean | string | number;
+};
+
 export type ZoteroHostLibraryItemSummaryDto = ZoteroHostItemSummaryDto & {
   noteCount: number;
   attachmentCount: number;
@@ -204,6 +216,46 @@ export type ZoteroHostLibrarySyncSnapshotResponse = {
   generatedAt: string;
   snapshotId: string;
   items: ZoteroHostLibrarySyncSnapshotItemDto[];
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  totalScanned: number;
+  filters: ZoteroHostLibraryListResponse["filters"];
+};
+
+export type ZoteroHostLibraryReadinessItemDto =
+  ZoteroHostLibraryItemSummaryDto & {
+    readiness: {
+      pdf: "present" | "missing";
+      markdown: "present" | "missing";
+      analysis: "present" | "missing";
+    };
+    missing: ZoteroHostLibraryReadinessCheck[];
+    evidence: {
+      artifacts: string[];
+      artifactState: string;
+      pdf: {
+        present: boolean;
+        filename?: string;
+      };
+      markdown: {
+        present: boolean;
+        matchingStem?: string;
+        markdownStemCount: number;
+      };
+      analysis: {
+        present: boolean;
+        missingParts: Array<"digest" | "references" | "citation-analysis">;
+      };
+    };
+  };
+
+export type ZoteroHostLibraryReadinessAuditResponse = {
+  schema: "zotero.library.readiness_audit.v1";
+  generatedAt: string;
+  checks: ZoteroHostLibraryReadinessCheck[];
+  missingOnly: boolean;
+  items: ZoteroHostLibraryReadinessItemDto[];
   nextCursor: string;
   hasMore: boolean;
   returned: number;
@@ -446,6 +498,11 @@ const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
 const LIBRARY_LIST_LIMIT_DEFAULT = 100;
 const LIBRARY_LIST_LIMIT_MAX = 200;
+const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
+  "pdf",
+  "markdown",
+  "analysis",
+];
 const TARGET_LIMIT_MAX = 50;
 const TAG_LIMIT_MAX = 100;
 const TAG_TEXT_LIMIT = 200;
@@ -505,6 +562,20 @@ function escapeAttribute(value: unknown) {
 function parsePositiveInteger(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseBooleanInput(value: unknown) {
+  if (value === true || value === false) {
+    return value;
+  }
+  const normalized = trimText(value).toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return false;
 }
 
 function parseNonNegativeInteger(value: unknown) {
@@ -2777,6 +2848,87 @@ async function syncLibrarySnapshot(
   };
 }
 
+async function readinessAudit(
+  args: ZoteroHostLibraryReadinessAuditArgs = {},
+): Promise<ZoteroHostLibraryReadinessAuditResponse> {
+  const selection = await selectLibraryItemPage(args);
+  const checks = normalizeReadinessChecks(args.checks);
+  const missingOnly = parseBooleanInput(args.missingOnly ?? args.missing_only);
+  const items: ZoteroHostLibraryReadinessItemDto[] = [];
+  for (const item of selection.page) {
+    const dto = await serializeLibraryReadinessItem(
+      item as LibraryArtifactItem,
+      checks,
+    );
+    if (!missingOnly || dto.missing.length > 0) {
+      items.push(dto);
+    }
+  }
+  return {
+    schema: "zotero.library.readiness_audit.v1",
+    generatedAt: new Date().toISOString(),
+    checks,
+    missingOnly,
+    items,
+    nextCursor: selection.nextCursor,
+    hasMore: selection.hasMore,
+    returned: items.length,
+    totalScanned: selection.totalScanned,
+    filters: selection.filters,
+  };
+}
+
+function normalizeReadinessChecks(value: unknown) {
+  const raw = Array.isArray(value)
+    ? value
+    : trimText(value)
+      ? trimText(value)
+          .split(",")
+          .map((entry) => entry.trim())
+      : LIBRARY_READINESS_CHECKS;
+  const checks = raw.filter((entry): entry is ZoteroHostLibraryReadinessCheck =>
+    LIBRARY_READINESS_CHECKS.includes(entry as ZoteroHostLibraryReadinessCheck),
+  );
+  return checks.length ? Array.from(new Set(checks)) : LIBRARY_READINESS_CHECKS;
+}
+
+async function serializeLibraryReadinessItem(
+  item: LibraryArtifactItem,
+  checks: ZoteroHostLibraryReadinessCheck[],
+): Promise<ZoteroHostLibraryReadinessItemDto> {
+  const artifactReadiness = await resolveLibraryArtifactReadiness(item);
+  const readiness = {
+    pdf: artifactReadiness.pdf.present ? "present" : "missing",
+    markdown: artifactReadiness.sourceMarkdown.present ? "present" : "missing",
+    analysis: artifactReadiness.generated.complete ? "present" : "missing",
+  } satisfies ZoteroHostLibraryReadinessItemDto["readiness"];
+  const missing = checks.filter((check) => readiness[check] === "missing");
+  return {
+    ...serializeLibraryItemSummary(item),
+    readiness,
+    missing,
+    evidence: {
+      artifacts: artifactReadiness.artifacts,
+      artifactState: artifactReadiness.state,
+      pdf: {
+        present: artifactReadiness.pdf.present,
+        filename: artifactReadiness.pdf.filename || undefined,
+      },
+      markdown: {
+        present: artifactReadiness.sourceMarkdown.present,
+        matchingStem:
+          artifactReadiness.sourceMarkdown.matchingStem || undefined,
+        markdownStemCount:
+          artifactReadiness.sourceMarkdown.markdownStems.length,
+      },
+      analysis: {
+        present: artifactReadiness.generated.complete,
+        missingParts: artifactReadiness.generated.missingParts,
+      },
+    },
+  };
+}
+
 function getSelectedItems() {
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
@@ -2964,6 +3116,7 @@ export function createZoteroHostCapabilityBrokerApis() {
     library: {
       listItems: listLibraryItems,
       syncSnapshot: syncLibrarySnapshot,
+      readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
         const query = trimText(args?.query, FIELD_TEXT_LIMIT).toLowerCase();
         if (!query) {

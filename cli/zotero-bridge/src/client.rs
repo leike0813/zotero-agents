@@ -414,6 +414,7 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         | "invalid_workflow_submit_request"
         | "invalid_workflow_describe_request"
         | "invalid_skill_run_id"
+        | "invalid_object_ref"
         | "invalid_file_id"
         | "upload_empty"
         | "upload_too_large"
@@ -628,8 +629,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        build_http_request, download, manifest, parse_endpoint, parse_http_response,
-        parse_http_response_bytes, sha256_hex,
+        bridge_error_from_value, build_http_request, download, manifest, parse_endpoint,
+        parse_http_response, parse_http_response_bytes, sha256_hex,
     };
     use crate::config::BridgeConfig;
 
@@ -709,6 +710,33 @@ mod tests {
             parse_http_response_bytes(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nabcd").unwrap();
         assert_eq!(long.headers["content-length"], "1");
         assert_eq!(long.body, b"abcd");
+    }
+
+    #[test]
+    fn classifies_host_bridge_error_codes_by_category() {
+        use crate::error::ErrorCategory;
+
+        let cases = [
+            ("invalid_object_ref", ErrorCategory::Validation),
+            ("permission_request_not_found", ErrorCategory::Permission),
+            ("backend_not_found", ErrorCategory::Workflow),
+            ("workflow_not_found", ErrorCategory::Workflow),
+            ("skill_run_not_found", ErrorCategory::Workflow),
+            ("unsupported_cache_scope", ErrorCategory::Validation),
+            ("unsupported_interaction_backend", ErrorCategory::Workflow),
+        ];
+
+        for (code, category) in cases {
+            let error = bridge_error_from_value(
+                400,
+                json!({
+                    "status": "error",
+                    "error": { "code": code }
+                }),
+            );
+            assert_eq!(error.code, code);
+            assert_eq!(error.category, category, "{code}");
+        }
     }
 
     fn download_config(port: u16) -> BridgeConfig {

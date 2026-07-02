@@ -30,6 +30,12 @@ const WORKFLOW_REFERENCE = join(
 );
 const PROFILE_EXAMPLE_SOURCE =
   "skills_builtin/zotero-bridge-cli/assets/profile.template.json";
+const SHARED_TERMINOLOGY_SOURCE =
+  "skills_src/host-bridge-shared/terminology.md";
+const PROFILE_TERMINOLOGY_TARGET = join(
+  PROFILE_ROOT,
+  "skills/zotero-librarian/references/terminology.md",
+);
 const PROFILE_EXAMPLE_TARGET = join(
   PROFILE_ROOT,
   "assets/host-bridge/profile.example.json",
@@ -46,7 +52,27 @@ const PROFILE_SEMANTIC_COPIES = [
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
+  "skills/zotero-librarian/references/workflow-execution-policy.md",
+  "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-workflow-agent-runner/SKILL.md",
+  "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
+const PROFILE_SCRIPT_SOURCES = [
+  "profiles/hermes/zotero-librarian/scripts/zotero_librarian_index_service.py",
+  "profiles/hermes/zotero-librarian/scripts/install_zotero_bridge_cli.py",
+  "profiles/hermes/zotero-librarian/scripts/zotero_librarian_workflow_service.py",
+  "profiles/hermes/zotero-librarian/scripts/zotero_librarian_notification_service.py",
+];
+const PROFILE_CRON_SOURCES = [
+  "profiles/hermes/zotero-librarian/cron/index-refresh.yaml",
+  "profiles/hermes/zotero-librarian/cron/workflow-catalog-refresh.yaml",
+  "profiles/hermes/zotero-librarian/cron/run-monitor.yaml",
+  "profiles/hermes/zotero-librarian/cron/notification-sync.yaml",
+  "profiles/hermes/zotero-librarian/cron/inbox-triage.yaml",
+  "profiles/hermes/zotero-librarian/cron/library-hygiene.yaml",
+  "profiles/hermes/zotero-librarian/cron/attention-queue.yaml",
+];
+const PROFILE_CONFIG_SOURCES = ["profiles/hermes/zotero-librarian/config.yaml"];
 
 function read(path: string) {
   return readFileSync(join(ROOT, path), "utf8");
@@ -185,7 +211,11 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
     "",
     "`zotero-bridge library items list --input <JSON_OR_FILE>` maps to `library.list_items`.",
     "",
+    "`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --input <JSON_OR_FILE>` maps to `library.readiness_audit`.",
+    "",
     "Input fields: `libraryId`, `cursor`, `limit`, `collectionId`, `collectionKey`, `tag`, `itemType`, and `query`.",
+    "",
+    "Readiness commands use the same filters plus `checks` and `missingOnly`; use them before planning PDF retrieval, Markdown conversion, or literature-analysis remediation.",
     "",
     "Output fields: `schema`, `generatedAt`, `snapshotId`, `items`, `nextCursor`, `hasMore`, `returned`, and `totalScanned`.",
     "",
@@ -287,18 +317,34 @@ function renderManifestSource(
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
-      semanticSources: PROFILE_SEMANTIC_COPIES.map((path) =>
-        join(PROFILE_SEMANTIC_ROOT, path).replace(/\\/g, "/"),
-      ),
+      semanticSources: [
+        ...PROFILE_SEMANTIC_COPIES.map((path) =>
+          join(PROFILE_SEMANTIC_ROOT, path).replace(/\\/g, "/"),
+        ),
+        SHARED_TERMINOLOGY_SOURCE,
+      ],
+      profileScripts: PROFILE_SCRIPT_SOURCES,
+      profileCron: PROFILE_CRON_SOURCES,
+      profileConfig: PROFILE_CONFIG_SOURCES,
     },
     generated: {
       markers: GENERATED_MARKER_EXAMPLES,
       catalogChecksum: sha256(JSON.stringify(catalog)),
       workflowCatalogChecksum: sha256(JSON.stringify(workflowEntries)),
       semanticSourceChecksum: sha256(
-        PROFILE_SEMANTIC_COPIES.map((path) =>
-          read(join(PROFILE_SEMANTIC_ROOT, path)),
-        ).join("\n---\n"),
+        [
+          ...PROFILE_SEMANTIC_COPIES.map((path) =>
+            read(join(PROFILE_SEMANTIC_ROOT, path)),
+          ),
+          read(SHARED_TERMINOLOGY_SOURCE),
+        ].join("\n---\n"),
+      ),
+      serviceSourceChecksum: sha256(
+        [
+          ...PROFILE_SCRIPT_SOURCES.map((path) => read(path)),
+          ...PROFILE_CRON_SOURCES.map((path) => read(path)),
+          ...PROFILE_CONFIG_SOURCES.map((path) => read(path)),
+        ].join("\n---\n"),
       ),
     },
   };
@@ -322,6 +368,13 @@ function render(check = false) {
       diffs,
     );
   }
+
+  writeOrCheck(
+    PROFILE_TERMINOLOGY_TARGET,
+    read(SHARED_TERMINOLOGY_SOURCE),
+    check,
+    diffs,
+  );
 
   const hostBridgeSource = read(HOST_BRIDGE_REFERENCE);
   writeOrCheck(

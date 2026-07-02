@@ -15,6 +15,7 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.search_items",
   "library.list_items",
   "library.sync_snapshot",
+  "library.readiness_audit",
   "library.get_item_detail",
   "library.get_item_notes",
   "library.get_note_detail",

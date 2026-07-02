@@ -15,3 +15,4 @@ behavior:
 notes:
   - Read active runs from local SQLite.
   - Call zotero-bridge run get for each active run id.
+  - Return after one pass; do not block waiting for run completion.

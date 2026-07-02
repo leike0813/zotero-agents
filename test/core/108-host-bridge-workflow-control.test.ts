@@ -40,7 +40,14 @@ import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
-import { resetHostBridgeNotificationInboxForTests } from "../../src/modules/hostBridgeNotificationInbox";
+import {
+  acknowledgeHostBridgeNotificationEvents,
+  HOST_BRIDGE_NOTIFICATION_MAX_EVENTS,
+  listHostBridgeNotificationEvents,
+  projectSkillRunNotification,
+  resetHostBridgeNotificationInboxForTests,
+} from "../../src/modules/hostBridgeNotificationInbox";
+import { resetHostBridgeNotificationProjectionForTests } from "../../src/modules/hostBridgeWorkflowControl";
 import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   installRuntimeBridgeOverrideForTests,
@@ -173,6 +180,7 @@ describe("host bridge workflow control", function () {
     resetTaskDashboardHistory();
     resetHostBridgeFileRegistryForTests();
     resetHostBridgeNotificationInboxForTests();
+    resetHostBridgeNotificationProjectionForTests();
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
@@ -1708,6 +1716,23 @@ describe("host bridge workflow control", function () {
       createdAt: now,
       updatedAt: now,
     });
+    recordWorkflowTaskUpdate({
+      id: "job-notify-other",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-notify-other",
+        workflowLabel: "Other Workflow",
+        taskName: "Other Notify Task",
+        requestId: "request-notify-other",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const listed = await bridgeRequest({
       token,
@@ -1731,6 +1756,41 @@ describe("host bridge workflow control", function () {
       assert.notProperty(notification, "transcript");
       assert.notProperty(notification, "providerPayload");
     }
+    assert.isTrue(
+      notifications.every((entry) => entry.workflowRunId === "run-notify-1"),
+    );
+
+    const repeated = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+    });
+    assert.strictEqual(repeated.status, 200);
+    assert.deepEqual(
+      repeated.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+      notifications.map((entry) => entry.eventId),
+    );
+
+    const unfiltered = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?acknowledged=false",
+    });
+    const unfilteredAgain = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?acknowledged=false",
+    });
+    assert.deepEqual(
+      unfilteredAgain.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+      unfiltered.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+    );
 
     const eventId = String(notifications[0].eventId);
     const ack = await bridgeRequest({
@@ -1755,6 +1815,65 @@ describe("host bridge workflow control", function () {
       [eventId],
     );
     assert.isString(acknowledged.json.result.notifications[0].acknowledgedAt);
+  });
+
+  it("bounds notification inbox events and clears pruned deduplication keys", function () {
+    const base = Date.now() - HOST_BRIDGE_NOTIFICATION_MAX_EVENTS * 1000;
+    for (
+      let index = 0;
+      index < HOST_BRIDGE_NOTIFICATION_MAX_EVENTS + 5;
+      index += 1
+    ) {
+      projectSkillRunNotification({
+        skillRunId: `prune-${index}`,
+        workflowRunId: "run-prune",
+        workflowId: "bridge-workflow",
+        taskName: `Prune Task ${index}`,
+        state: "running",
+        liveness: "active",
+        updatedAt: new Date(base + index * 1000).toISOString(),
+        actions: {
+          canReply: false,
+          canConnect: false,
+          canCancelWorkflow: true,
+          isFailedRetriable: false,
+        },
+      });
+    }
+
+    const prunedAck = acknowledgeHostBridgeNotificationEvents([
+      "hb-notification-1",
+    ]);
+    assert.deepEqual(prunedAck.missing, ["hb-notification-1"]);
+    assert.deepEqual(
+      listHostBridgeNotificationEvents({ skillRunId: "prune-0" }).notifications,
+      [],
+    );
+
+    projectSkillRunNotification({
+      skillRunId: "prune-0",
+      workflowRunId: "run-prune",
+      workflowId: "bridge-workflow",
+      taskName: "Prune Task 0",
+      state: "running",
+      liveness: "active",
+      updatedAt: new Date().toISOString(),
+      actions: {
+        canReply: false,
+        canConnect: false,
+        canCancelWorkflow: true,
+        isFailedRetriable: false,
+      },
+    });
+
+    const reprojected = listHostBridgeNotificationEvents({
+      skillRunId: "prune-0",
+    });
+    assert.strictEqual(reprojected.returned, 1);
+    assert.notStrictEqual(
+      reprojected.notifications[0]?.eventId,
+      "hb-notification-1",
+    );
   });
 
   it("projects waiting and recoverable ACP skill-run notifications", async function () {
@@ -1914,6 +2033,9 @@ describe("host bridge workflow control", function () {
       invalidated: true,
       scope: "graph",
       id: "metrics",
+      effect: "default_synthesis_service_invalidated",
+      effectScope: "default_synthesis_service",
+      scopedInvalidationApplied: false,
     });
 
     const resolved = await bridgeRequest({

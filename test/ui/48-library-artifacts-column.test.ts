@@ -6,6 +6,7 @@ import {
   resetLibraryArtifactsColumnForTests,
   unregisterLibraryArtifactsColumn,
 } from "../../src/modules/libraryArtifactsColumn";
+import { resolveLibraryArtifactReadiness } from "../../src/modules/libraryArtifactReadiness";
 import { probeMozillaRuntimeModules } from "../../src/utils/runtimeCompatibility";
 
 describe("library artifacts column", function () {
@@ -212,6 +213,33 @@ describe("library artifacts column", function () {
       ),
       "digest",
     );
+  });
+
+  it("exposes structured readiness from the shared artifact evaluator", async function () {
+    const parent = await createParentItem("Readiness Paper");
+    const pdf = await createAttachment(parent, "D:\\Library\\readiness.pdf", {
+      contentType: "application/pdf",
+    });
+    await createAttachment(parent, "D:\\Library\\readiness.md", {
+      contentType: "text/markdown",
+    });
+    await createNote(
+      parent,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
+    );
+    parent.getBestAttachment = async () => pdf;
+
+    const readiness = await resolveLibraryArtifactReadiness(parent);
+
+    assert.isTrue(readiness.pdf.present);
+    assert.isTrue(readiness.sourceMarkdown.present);
+    assert.isFalse(readiness.generated.complete);
+    assert.deepEqual(readiness.generated.missingParts, [
+      "references",
+      "citation-analysis",
+    ]);
+    assert.equal(readiness.state, "source-markdown|digest");
   });
 
   it("renders the artifact icon set for multi-artifact cells", function () {

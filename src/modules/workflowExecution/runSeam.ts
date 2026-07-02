@@ -319,7 +319,9 @@ export function runWorkflowExecutionSeam(
                 });
               }
             : undefined;
-        const onSequenceStepSucceeded: SequenceStepSucceededObserver | undefined =
+        const onSequenceStepSucceeded:
+          | SequenceStepSucceededObserver
+          | undefined =
           backendType === ACP_BACKEND_TYPE
             ? (event) => {
                 if (

@@ -475,8 +475,6 @@ preparing requests without dispatch and applying externally finalized results.
 - **THEN** it SHALL invoke workflow `applyResult` through the same runtime
   contract used by Host-owned workflow execution.
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner terminal success uses foreground apply
 
 Normal SkillRunner terminal success SHALL be applied by the foreground workflow
@@ -595,4 +593,3 @@ Workflow seams MUST avoid persisting display and registry-derived fields in the 
 - **THEN** it MUST persist sequence association ids when present
 - **AND** it MUST NOT persist `sequenceStepIndex` or `sequenceFinalStepId` as
   run lifecycle facts.
-

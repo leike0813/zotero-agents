@@ -27,12 +27,20 @@ const REQUIRED_FILES = [
   "skills/zotero-librarian/references/host-bridge.md",
   "skills/zotero-librarian/references/workflows.md",
   "skills/zotero-librarian/references/operating-principles.md",
+  "skills/zotero-librarian/references/terminology.md",
   "skills/zotero-librarian/references/library-maintenance.md",
+  "skills/zotero-librarian/references/workflow-execution-policy.md",
+  "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-workflow-agent-runner/SKILL.md",
+  "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   "scripts/zotero_librarian_index_service.py",
+  "scripts/zotero_librarian_workflow_service.py",
+  "scripts/zotero_librarian_notification_service.py",
   "scripts/install_zotero_bridge_cli.py",
   "cron/index-refresh.yaml",
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
+  "cron/notification-sync.yaml",
   "cron/inbox-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
@@ -43,7 +51,13 @@ const SEMANTIC_SOURCE_FILES = [
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
+  "skills/zotero-librarian/references/workflow-execution-policy.md",
+  "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-workflow-agent-runner/SKILL.md",
+  "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
+const SHARED_TERMINOLOGY_SOURCE =
+  "skills_src/host-bridge-shared/terminology.md";
 const CANONICAL_TOP_LEVEL_COMMANDS = new Set([
   "bridge",
   "library",
@@ -135,6 +149,19 @@ function checkStructure(errors: string[]) {
   }
 }
 
+function checkTerminologyReference(errors: string[]) {
+  const rendered = readProfile(
+    "skills/zotero-librarian/references/terminology.md",
+  );
+  const source = read(SHARED_TERMINOLOGY_SOURCE);
+  if (rendered !== source) {
+    fail(
+      errors,
+      "profile terminology reference differs from shared terminology source",
+    );
+  }
+}
+
 function checkSecrets(errors: string[]) {
   const combined = REQUIRED_FILES.map((file) => readProfile(file)).join("\n");
   const forbidden = [
@@ -175,12 +202,16 @@ function checkHostBridgeSurface(errors: string[]) {
   if (!capabilityNames.has("library.sync_snapshot")) {
     fail(errors, "Host Bridge catalog missing library.sync_snapshot");
   }
+  if (!capabilityNames.has("library.readiness_audit")) {
+    fail(errors, "Host Bridge catalog missing library.readiness_audit");
+  }
   const mappingNames = new Set(
     catalog.cliMappings.map((entry) => entry.command),
   );
   for (const command of [
     "library items list",
     "library snapshot",
+    "library readiness missing-analysis",
     "synthesis insight attention-queue",
     "mutation literature-ingest",
   ]) {
@@ -209,8 +240,10 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-librarian:host-bridge:start",
     "zotero-librarian:host-bridge:end",
     "library.sync_snapshot",
+    "library.readiness_audit",
     "zotero-bridge library snapshot",
     "zotero-bridge library items list",
+    "zotero-bridge library readiness missing-analysis",
     "zotero-bridge run active",
     "zotero-bridge workflow agent-apply",
     "nextCursor",
@@ -222,10 +255,32 @@ function checkHostBridgeSurface(errors: string[]) {
   const skill = readProfile("skills/zotero-librarian/SKILL.md");
   for (const snippet of [
     "references/operating-principles.md",
+    "references/terminology.md",
+    "references/workflow-execution-policy.md",
+    "references/common-tasks.md",
+    "$zotero-workflow-agent-runner",
     "workflow agent-apply",
     "agentRunId",
   ]) {
     assertIncludes(errors, skill, snippet, "zotero-librarian skill");
+  }
+
+  const agentRunner = readProfile(
+    "skills/zotero-workflow-agent-runner/SKILL.md",
+  );
+  for (const snippet of [
+    "workflow agent-run",
+    "agentRunId",
+    "agentRequestId",
+    "workflow agent-apply",
+    "references/agent-run-playbook.md",
+  ]) {
+    assertIncludes(
+      errors,
+      agentRunner,
+      snippet,
+      "zotero-workflow-agent-runner skill",
+    );
   }
 }
 
@@ -328,6 +383,12 @@ function checkCronAndScripts(errors: string[]) {
       "workflow-refresh",
     ],
     "cron/run-monitor.yaml": ["every: 5m", "[SILENT]", "run-watch"],
+    "cron/notification-sync.yaml": [
+      "every: 5m",
+      "[SILENT]",
+      "zotero_librarian_notification_service.py",
+      "sync",
+    ],
     "cron/inbox-triage.yaml": ['time: "09:00"', "[SILENT]", "status:0-inbox"],
     "cron/library-hygiene.yaml": [
       "weekly: monday",
@@ -347,7 +408,55 @@ function checkCronAndScripts(errors: string[]) {
     for (const snippet of snippets) {
       assertIncludes(errors, source, snippet, file);
     }
+    if (source.includes("run notification wait")) {
+      fail(errors, `${file} must not use long-polling notification wait`);
+    }
     checkCronCommand(errors, file, source);
+  }
+
+  const workflowService = readProfile(
+    "scripts/zotero_librarian_workflow_service.py",
+  );
+  for (const snippet of [
+    '"parent-selection"',
+    '"readiness-plan"',
+    '"plan"',
+    '"submit"',
+    "confirm_concurrency",
+    "agent-run",
+    "submit",
+  ]) {
+    assertIncludes(errors, workflowService, snippet, "workflow service");
+  }
+
+  const notificationService = readProfile(
+    "scripts/zotero_librarian_notification_service.py",
+  );
+  for (const snippet of [
+    '"sync"',
+    '"inbox"',
+    '"summary"',
+    '"ack"',
+    'run", "notification", "list',
+    'run", "notification", "ack',
+  ]) {
+    assertIncludes(
+      errors,
+      notificationService,
+      snippet,
+      "notification service",
+    );
+  }
+  if (
+    workflowService.includes('"wait"') ||
+    workflowService.includes("run notification wait") ||
+    notificationService.includes('"wait"') ||
+    notificationService.includes("run notification wait")
+  ) {
+    fail(
+      errors,
+      "profile workflow/notification scripts must not use notification wait",
+    );
   }
 }
 
@@ -443,6 +552,7 @@ function checkBinaries(errors: string[]) {
 
 const errors: string[] = [];
 checkStructure(errors);
+checkTerminologyReference(errors);
 checkSecrets(errors);
 checkHostBridgeSurface(errors);
 checkWorkflowCatalog(errors);

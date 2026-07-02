@@ -139,3 +139,39 @@ capability metadata rather than trusting the CLI to decide.
   operation
 - **AND** the CLI MUST NOT be able to approve the operation itself.
 
+### Requirement: Host Bridge diagnostics expose redacted operational state
+
+Host Bridge diagnostics SHALL expose agent-usable operational summaries without leaking credentials, private paths, provider payloads, transcripts, or credential-bearing URLs.
+
+#### Scenario: Diagnostics redact sensitive values
+
+- **WHEN** backend diagnostics include URLs, local paths, or credential-like tokens
+- **THEN** the diagnostics response SHALL redact those values before returning them to the client.
+
+### Requirement: Host Bridge exposes read-only library readiness audit
+
+Host Bridge SHALL expose `library.readiness_audit` as a read-only capability for
+paginated Zotero library readiness inspection.
+
+#### Scenario: Capability returns lightweight readiness DTOs
+
+- **WHEN** `/bridge/v1/call` invokes `library.readiness_audit`
+- **THEN** Host Bridge SHALL return `zotero.library.readiness_audit.v1`
+- **AND** each item SHALL include a compact Zotero item summary, readiness
+  states for `pdf`, `markdown`, and `analysis`, a `missing` array, and
+  redacted evidence.
+- **AND** results SHALL use the same filter, cursor, and limit behavior as the
+  existing library list and snapshot capabilities.
+
+#### Scenario: Capability is read-only
+
+- **WHEN** Host Bridge handles `library.readiness_audit`
+- **THEN** it SHALL NOT mutate Zotero data, execute workflows, register file
+  downloads, invalidate caches, or require Zotero UI approval.
+
+#### Scenario: Evidence is redacted
+
+- **WHEN** readiness evidence is returned
+- **THEN** it SHALL NOT include local private paths, transcript text, backend
+  private payloads, or decoded note payload bodies.
+

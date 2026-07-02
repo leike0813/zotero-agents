@@ -40,6 +40,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `library.list_annotations` | library | `none` | `item-ref required` | `library annotation list` | mcp-mirror |
 | `library.list_items` | library | `none` | `object` | `library items list` | mcp-mirror |
 | `library.list_note_payloads` | library | `none` | `item-ref required` | `library note payloads` | mcp-mirror |
+| `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | mcp-mirror |
 | `library.search_items` | library | `none` | `object required` | `library item search` | mcp-mirror |
 | `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | mcp-mirror |
 | `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | mcp-mirror |
@@ -89,6 +90,10 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `library note get` | `library.get_note_detail` | capability | - |
 | `library note payload` | `library.get_note_payload` | capability | - |
 | `library note payloads` | `library.list_note_payloads` | capability | - |
+| `library readiness audit` | `library.readiness_audit` | capability | - |
+| `library readiness missing-analysis` | `library.readiness_audit` | capability | - |
+| `library readiness missing-markdown` | `library.readiness_audit` | capability | - |
+| `library readiness missing-pdf` | `library.readiness_audit` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
 | `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
@@ -172,8 +177,10 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 - Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
 - Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 #### Resolver payloads

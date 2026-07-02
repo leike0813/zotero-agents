@@ -288,6 +288,20 @@ describe("host bridge server phase 1", function () {
     assert.notInclude(diagnose.body, token);
   });
 
+  it("redacts diagnostic URLs, credentials, and private paths", function () {
+    const redacted = hostBridgeServerInternalsForTests.redactDiagnosticText(
+      "failed at http://user:pass@example.test:8080/api?token=secret from /root/.config/zotero and C:\\Users\\alice\\secret with api_key=abc",
+    );
+
+    assert.include(redacted, "[redacted-url]");
+    assert.include(redacted, "[redacted-path]");
+    assert.notInclude(redacted, "user:pass");
+    assert.notInclude(redacted, "token=secret");
+    assert.notInclude(redacted, "/root/.config");
+    assert.notInclude(redacted, "C:\\Users\\alice");
+    assert.notInclude(redacted, "api_key=abc");
+  });
+
   it("uploads a binary file body as an opaque Host Bridge handle", async function () {
     const token = configureHostBridgeServerForTests({ token: "upload-token" });
     const raw = await handleHostBridgeHttpRequestForTests({

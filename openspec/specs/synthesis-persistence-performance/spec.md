@@ -201,8 +201,6 @@ WebDAV Sync SHALL only upload durable bundle assets and SHALL exclude runtime st
 - **THEN** uploaded paths SHALL be limited to `manifest.json` and `bundles/**` under a snapshot root plus the final `HEAD.json`
 - **AND** it SHALL exclude `zotero-agents.db`, `synthesis.db`, and their WAL/SHM companion files.
 
-## ADDED Requirements
-
 ### Requirement: Synthesis runtime state is isolated in its own SQLite database
 
 Synthesis SHALL use `state/synthesis.db` as the local SQLite source for sidecar cache rows, review state, user-approved decisions, and operation progress.

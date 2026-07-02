@@ -248,7 +248,9 @@ function extractFileNameFromPath(path?: string | null) {
 }
 
 function normalizeComparableUrl(value: unknown) {
-  return String(value || "").trim().toLowerCase();
+  return String(value || "")
+    .trim()
+    .toLowerCase();
 }
 
 function readItemField(item: Zotero.Item, field: string) {

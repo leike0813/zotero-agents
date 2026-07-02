@@ -719,6 +719,34 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       ),
   ),
   capability(
+    "library.readiness_audit",
+    "library",
+    "Return paginated read-only library readiness for missing PDF, source Markdown, and literature-analysis artifacts.",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        libraryId: { type: ["number", "string"] },
+        collection: {},
+        collectionId: { type: ["number", "string"] },
+        collectionKey: { type: "string" },
+        collectionLibraryId: { type: ["number", "string"] },
+        tag: { type: "string" },
+        itemType: { type: "string" },
+        query: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+        cursor: { type: ["number", "string"] },
+        checks: {},
+        missingOnly: { type: ["boolean", "string", "number"] },
+        missing_only: { type: ["boolean", "string", "number"] },
+      },
+    },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.readinessAudit(
+        libraryListArgsFromInput(input),
+      ),
+  ),
+  capability(
     "library.get_item_detail",
     "library",
     "Return detailed JSON-safe metadata for one Zotero item.",

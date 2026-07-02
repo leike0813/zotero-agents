@@ -429,6 +429,9 @@ pub enum LibraryCommand {
         long_about = "Map to Host Bridge capability library.sync_snapshot. Use --input for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
     )]
     Snapshot(BridgeInputArgs),
+
+    #[command(about = "Audit Zotero library PDF, Markdown, and literature-analysis readiness")]
+    Readiness(LibraryReadinessArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -444,6 +447,39 @@ pub enum LibraryItemsCommand {
         long_about = "Map to Host Bridge capability library.list_items. Use --input for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
     )]
     List(BridgeInputArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct LibraryReadinessArgs {
+    #[command(subcommand)]
+    pub command: LibraryReadinessCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum LibraryReadinessCommand {
+    #[command(
+        about = "Audit PDF, source Markdown, and literature-analysis artifact readiness",
+        long_about = "Map to Host Bridge capability library.readiness_audit. Use --input for optional filters plus checks and missingOnly."
+    )]
+    Audit(BridgeInputArgs),
+
+    #[command(
+        about = "List Zotero items missing a PDF attachment",
+        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"pdf\"] and missingOnly=true."
+    )]
+    MissingPdf(BridgeInputArgs),
+
+    #[command(
+        about = "List Zotero items missing same-stem source Markdown",
+        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"markdown\"] and missingOnly=true."
+    )]
+    MissingMarkdown(BridgeInputArgs),
+
+    #[command(
+        about = "List Zotero items missing literature-analysis generated artifacts",
+        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"analysis\"] and missingOnly=true."
+    )]
+    MissingAnalysis(BridgeInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1374,27 +1410,6 @@ pub struct NotificationAckArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct TaskArgs {
-    #[command(subcommand)]
-    pub command: TaskCommand,
-}
-
-#[derive(Debug, Clone, Subcommand)]
-pub enum TaskCommand {
-    #[command(
-        about = "List active and recent workflow tasks",
-        long_about = "Call GET /bridge/v1/tasks. Optional filters: --workflow, --backend, --backend-type, --request, --run, --state, and --active-only."
-    )]
-    List(TaskListArgs),
-
-    #[command(
-        about = "List lightweight active workflow tasks",
-        long_about = "Call GET /bridge/v1/tasks/active. This returns running, waiting, and failed-retriable task handles without transcripts or local paths."
-    )]
-    Active,
-}
-
-#[derive(Debug, Clone, Args)]
 pub struct TaskListArgs {
     #[arg(long, help = "Filter by workflow id")]
     pub workflow: Option<String>,
@@ -1416,12 +1431,6 @@ pub struct TaskListArgs {
 
     #[arg(long, help = "Only return active task runtime rows")]
     pub active_only: bool,
-}
-
-#[derive(Debug, Clone, Args)]
-pub struct SkillRunArgs {
-    #[command(subcommand)]
-    pub command: SkillRunCommand,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -1630,10 +1639,10 @@ mod tests {
         AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand, Cli, Command,
         ContextCollectionCommand, ContextCommand, ContextItemCommand, ContextNoteCommand,
         ContextSelectionCommand, FileCommand, LibraryCommand, LibraryItemsCommand,
-        MutationCollectionCommand, MutationCommand, MutationItemCommand, MutationNoteCommand,
-        MutationTagCommand, NotificationCommand, RunCommand, RunPermissionCommand,
-        RunWorkflowCommand, SkillRunCommand, SynthesisCacheCommand, SynthesisCommand,
-        SynthesisIndexCommand, TopicsCommand, WorkflowCommand,
+        LibraryReadinessCommand, MutationCollectionCommand, MutationCommand, MutationItemCommand,
+        MutationNoteCommand, MutationTagCommand, NotificationCommand, RunArgs, RunCommand,
+        RunPermissionCommand, RunWorkflowCommand, SkillRunCommand, SynthesisCacheCommand,
+        SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowCommand,
     };
 
     #[test]
@@ -1668,6 +1677,27 @@ mod tests {
                 "legacy top-level command still listed: {removed}"
             );
         }
+    }
+
+    #[test]
+    fn legacy_task_and_skill_run_top_level_commands_are_not_supported() {
+        for argv in [
+            ["zotero-bridge", "task", "active"],
+            ["zotero-bridge", "skill-run", "get"],
+        ] {
+            assert!(
+                Cli::try_parse_from(argv).is_err(),
+                "legacy top-level command parsed unexpectedly: {:?}",
+                argv
+            );
+        }
+
+        assert!(matches!(
+            Cli::parse_from(["zotero-bridge", "run", "active"]).command,
+            Command::Run(RunArgs {
+                command: RunCommand::Active
+            })
+        ));
     }
 
     #[test]
@@ -2146,6 +2176,54 @@ mod tests {
                     );
                 }
                 _ => panic!("expected library snapshot"),
+            },
+            _ => panic!("expected library command"),
+        }
+    }
+
+    #[test]
+    fn parses_library_readiness_commands_with_json_input() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "library",
+            "readiness",
+            "audit",
+            "--input",
+            "{\"limit\":50,\"checks\":[\"pdf\",\"analysis\"]}",
+        ]);
+        match cli.command {
+            Command::Library(args) => match args.command {
+                LibraryCommand::Readiness(args) => match args.command {
+                    LibraryReadinessCommand::Audit(input) => {
+                        assert_eq!(
+                            input.input.as_deref(),
+                            Some("{\"limit\":50,\"checks\":[\"pdf\",\"analysis\"]}")
+                        );
+                    }
+                    _ => panic!("expected readiness audit"),
+                },
+                _ => panic!("expected library readiness"),
+            },
+            _ => panic!("expected library command"),
+        }
+
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "library",
+            "readiness",
+            "missing-analysis",
+            "--input",
+            "{\"collectionKey\":\"COLL\"}",
+        ]);
+        match cli.command {
+            Command::Library(args) => match args.command {
+                LibraryCommand::Readiness(args) => match args.command {
+                    LibraryReadinessCommand::MissingAnalysis(input) => {
+                        assert_eq!(input.input.as_deref(), Some("{\"collectionKey\":\"COLL\"}"));
+                    }
+                    _ => panic!("expected readiness missing-analysis"),
+                },
+                _ => panic!("expected library readiness"),
             },
             _ => panic!("expected library command"),
         }

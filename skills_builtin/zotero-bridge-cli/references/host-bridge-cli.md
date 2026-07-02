@@ -67,6 +67,10 @@ zotero-bridge context --help
 | `library note get` | `library.get_note_detail` | capability | - |
 | `library note payload` | `library.get_note_payload` | capability | - |
 | `library note payloads` | `library.list_note_payloads` | capability | - |
+| `library readiness audit` | `library.readiness_audit` | capability | - |
+| `library readiness missing-analysis` | `library.readiness_audit` | capability | - |
+| `library readiness missing-markdown` | `library.readiness_audit` | capability | - |
+| `library readiness missing-pdf` | `library.readiness_audit` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
 | `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
@@ -145,8 +149,10 @@ zotero-bridge context --help
 
 - Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
 - Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
 
 ### Topic context payloads

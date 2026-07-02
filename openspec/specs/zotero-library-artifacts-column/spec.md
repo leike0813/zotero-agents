@@ -22,38 +22,14 @@ column named `Artifacts` that can be enabled from Zotero's column picker.
 - **WHEN** the plugin shuts down
 - **THEN** it SHALL unregister the returned column data key.
 
-### Requirement: Artifacts column SHALL render artifact presence icons
+### Requirement: Artifacts column uses shared artifact readiness classification
 
-The library column SHALL display source Markdown, digest, references, and
-citation-analysis artifact presence as compact icons for top-level regular
-items.
+The Zotero Library Artifacts column SHALL use the same top-level item and artifact readiness classification as Host Bridge library readiness queries.
 
-#### Scenario: Source Markdown attachment exists
+#### Scenario: Column checks top-level regular items
 
-- **GIVEN** a top-level regular item has a best PDF attachment
-- **AND** the same parent item has an attached `.md` or `.markdown` file with
-  the same filename stem
-- **WHEN** the Artifacts column renders that item
-- **THEN** the column SHALL include the source Markdown icon.
-
-#### Scenario: Generated note markers exist
-
-- **GIVEN** a top-level regular item has direct child notes
-- **AND** a child note's HTML is classified by `parseNoteKind()` as `digest`,
-  `references`, or `citation-analysis`, or carries the matching generated
-  payload-anchor marker
-- **WHEN** the Artifacts column renders that item
-- **THEN** the column SHALL include the matching digest, references, or
-  citation-analysis icon.
-- **AND** the column SHALL NOT decode note payloads, resolve note payload
-  attachments, validate payload schemas, read Synthesis storage, or infer the
-  artifact from the note title alone.
-
-#### Scenario: Unsupported rows are ignored
-
-- **WHEN** the item tree asks for column data for a note, attachment, child row,
-  or item without a finite item id
-- **THEN** the column SHALL return empty data and render no artifact icons.
+- **WHEN** the Artifacts column evaluates an item row
+- **THEN** it SHALL use the shared readiness classifier for top-level regular item eligibility.
 
 ### Requirement: Artifacts column SHALL stay cheap under dynamic item-tree refresh
 

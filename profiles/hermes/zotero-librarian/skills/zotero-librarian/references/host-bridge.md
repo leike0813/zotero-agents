@@ -23,6 +23,10 @@ This reference is generated from the Host Bridge capability registry and Rust CL
 | `zotero-bridge library note get` | library.get_note_detail | capability |
 | `zotero-bridge library note payload` | library.get_note_payload | capability |
 | `zotero-bridge library note payloads` | library.list_note_payloads | capability |
+| `zotero-bridge library readiness audit` | library.readiness_audit | capability |
+| `zotero-bridge library readiness missing-analysis` | library.readiness_audit | capability |
+| `zotero-bridge library readiness missing-markdown` | library.readiness_audit | capability |
+| `zotero-bridge library readiness missing-pdf` | library.readiness_audit | capability |
 | `zotero-bridge library snapshot` | library.sync_snapshot | capability |
 | `zotero-bridge synthesis artifact export-filtered` | paper_artifacts.export_filtered | capability |
 | `zotero-bridge synthesis artifact manifest` | paper_artifacts.get_manifest | capability |
@@ -102,6 +106,7 @@ This reference is generated from the Host Bridge capability registry and Rust CL
 | `library.list_annotations` | List reader annotations for one Zotero item when the Zotero runtime exposes them. | zotero-bridge library annotation list | none |
 | `library.list_items` | List compact parent Zotero library item summaries with bounded pagination and filters. | zotero-bridge library items list | none |
 | `library.list_note_payloads` | List workflow note payloads from embedded attachments and note payload blocks. | zotero-bridge library note payloads | none |
+| `library.readiness_audit` | Return paginated read-only library readiness for missing PDF, source Markdown, and literature-analysis artifacts. | zotero-bridge library readiness audit, zotero-bridge library readiness missing-analysis, zotero-bridge library readiness missing-markdown, zotero-bridge library readiness missing-pdf | none |
 | `library.search_items` | Search regular Zotero library items by bounded text query. | zotero-bridge library item search | none |
 | `library.sync_snapshot` | Return a paginated Zotero library metadata snapshot for local librarian indexes. | zotero-bridge library snapshot | none |
 
@@ -111,7 +116,11 @@ This reference is generated from the Host Bridge capability registry and Rust CL
 
 `zotero-bridge library items list --input <JSON_OR_FILE>` maps to `library.list_items`.
 
+`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --input <JSON_OR_FILE>` maps to `library.readiness_audit`.
+
 Input fields: `libraryId`, `cursor`, `limit`, `collectionId`, `collectionKey`, `tag`, `itemType`, and `query`.
+
+Readiness commands use the same filters plus `checks` and `missingOnly`; use them before planning PDF retrieval, Markdown conversion, or literature-analysis remediation.
 
 Output fields: `schema`, `generatedAt`, `snapshotId`, `items`, `nextCursor`, `hasMore`, `returned`, and `totalScanned`.
 

@@ -71,6 +71,9 @@ import {
   type HostBridgeNotificationListResult,
 } from "./hostBridgeNotificationInbox";
 
+const BROAD_NOTIFICATION_HISTORY_PROJECTION_TTL_MS = 1000;
+let broadNotificationHistoryProjectedAt = 0;
+
 export type HostBridgeWorkflowControlManifest = {
   supported: true;
   endpoints: string[];
@@ -2563,7 +2566,7 @@ function refreshHostBridgeNotificationProjection(
     }
   } else {
     const acpByRequest = acpSummaryByRequestId();
-    for (const task of listHostBridgeTasks({ includeHistory: true })) {
+    for (const task of listHostBridgeTasks({ includeHistory: false })) {
       if (task.workflowRunId) {
         runIds.add(task.workflowRunId);
       }
@@ -2577,6 +2580,25 @@ function refreshHostBridgeNotificationProjection(
       projectSkillRunNotification(skillRun);
       if (skillRun.workflowRunId) {
         runIds.add(skillRun.workflowRunId);
+      }
+    }
+    const now = Date.now();
+    if (
+      now - broadNotificationHistoryProjectedAt >=
+      BROAD_NOTIFICATION_HISTORY_PROJECTION_TTL_MS
+    ) {
+      broadNotificationHistoryProjectedAt = now;
+      for (const task of listHostBridgeTasks({ includeHistory: true })) {
+        if (task.source !== "history") {
+          continue;
+        }
+        if (task.workflowRunId) {
+          runIds.add(task.workflowRunId);
+        }
+        const skillRun = buildSkillRunFromTask(task, acpByRequest);
+        if (skillRun) {
+          projectSkillRunNotification(skillRun);
+        }
       }
     }
   }
@@ -2597,6 +2619,10 @@ export function ackHostBridgeNotifications(
   eventIds: string[],
 ): HostBridgeNotificationAckResult {
   return acknowledgeHostBridgeNotificationEvents(eventIds);
+}
+
+export function resetHostBridgeNotificationProjectionForTests() {
+  broadNotificationHistoryProjectedAt = 0;
 }
 
 function scopedCancelDecision(args: {

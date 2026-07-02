@@ -1454,12 +1454,16 @@ function redactDiagnosticText(value: unknown) {
     return "";
   }
   return text
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi, "[redacted-url]")
     .replace(/[A-Za-z]:[\\/][^\r\n.;,)]*/g, "[redacted-path]")
     .replace(
-      /\/(?:Users|home|var|tmp|private|Volumes)\/[^\r\n.;,)]*/g,
+      /\/(?:Users|home|var|tmp|private|Volumes|root|opt|data)\/[^\r\n.;,)]*/g,
       "[redacted-path]",
     )
-    .replace(/(bearer|token|password|secret)=([^&\s]+)/gi, "$1=[redacted]")
+    .replace(
+      /(bearer|token|password|secret|api[_-]?key|access[_-]?token)=([^&\s]+)/gi,
+      "$1=[redacted]",
+    )
     .slice(0, 500);
 }
 
@@ -2887,8 +2891,10 @@ async function invalidateSynthesisCache(request: HttpRequest) {
     await requestHostBridgePermission({
       action: "synthesis.cache.invalidate",
       title: "Invalidate Synthesis cache",
-      summary: `Invalidate Synthesis cache scope: ${scope}`,
-      detail: payload.id ? `Target id: ${String(payload.id)}` : undefined,
+      summary: `Invalidate default Synthesis service cache; requested scope: ${scope}`,
+      detail: payload.id
+        ? `Requested target id for audit: ${String(payload.id)}`
+        : undefined,
       source: "host-bridge-cli",
       scope: parsePermissionScopeHeader(request),
     });
@@ -2901,6 +2907,8 @@ async function invalidateSynthesisCache(request: HttpRequest) {
         scope,
         id: typeof payload.id === "string" ? payload.id : undefined,
         effect: "default_synthesis_service_invalidated",
+        effectScope: "default_synthesis_service",
+        scopedInvalidationApplied: false,
         invalidatedAt: nowIso(),
       }),
     );
@@ -3556,6 +3564,7 @@ export const hostBridgeServerInternalsForTests = {
   scheduleRecovery(reason: string) {
     scheduleHostBridgeRecovery(reason);
   },
+  redactDiagnosticText,
 };
 
 function normalizeTestHeaders(headers?: Record<string, unknown>) {

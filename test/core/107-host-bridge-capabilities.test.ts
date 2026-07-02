@@ -130,6 +130,33 @@ async function createParentItem(title: string) {
   return item;
 }
 
+async function createAttachment(
+  parent: Zotero.Item,
+  filePath: string,
+  options: { contentType?: string } = {},
+) {
+  const item = new Zotero.Item("attachment") as Zotero.Item & {
+    attachmentContentType?: string;
+    attachmentFilename?: string;
+    setFilePath?: (path: string) => void;
+  };
+  item.parentID = parent.id;
+  item.attachmentContentType = options.contentType || "";
+  item.setFilePath?.(filePath);
+  item.attachmentFilename = filePath.split(/[\\/]+/).pop() || "";
+  await item.saveTx();
+  return item;
+}
+
+async function createNote(parent: Zotero.Item, title: string, html: string) {
+  const item = new Zotero.Item("note");
+  item.parentID = parent.id;
+  item.setField("title", title);
+  item.setNote(html);
+  await item.saveTx();
+  return item;
+}
+
 describe("host bridge capability calls", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
@@ -239,6 +266,85 @@ describe("host bridge capability calls", function () {
       "10.5555/bridge-snapshot",
     );
     assert.isString(parsed.json.result.data.nextCursor);
+  });
+
+  it("routes library readiness audits with shared artifact evidence", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "readiness-token",
+    });
+    const complete = await createParentItem("Bridge Readiness Complete");
+    const completePdf = await createAttachment(
+      complete,
+      "D:\\Private\\complete.pdf",
+      { contentType: "application/pdf" },
+    );
+    await createAttachment(complete, "D:\\Private\\complete.md", {
+      contentType: "text/markdown",
+    });
+    await createNote(
+      complete,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
+    );
+    await createNote(
+      complete,
+      "References",
+      '<div data-zs-note-kind="references"><p>References</p></div>',
+    );
+    await createNote(
+      complete,
+      "Citation",
+      '<div data-zs-note-kind="citation_analysis"><p>Citation</p></div>',
+    );
+    complete.getBestAttachment = async () => completePdf;
+
+    const missing = await createParentItem("Bridge Readiness Missing");
+    const missingPdf = await createAttachment(
+      missing,
+      "D:\\Private\\missing.pdf",
+      { contentType: "application/pdf" },
+    );
+    await createAttachment(missing, "D:\\Private\\other.md", {
+      contentType: "text/markdown",
+    });
+    await createNote(
+      missing,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
+    );
+    missing.getBestAttachment = async () => missingPdf;
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.readiness_audit",
+      input: {
+        query: "Bridge Readiness",
+        checks: ["markdown", "analysis"],
+        missingOnly: true,
+        limit: 10,
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(
+      parsed.json.result.capability,
+      "library.readiness_audit",
+    );
+    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(
+      parsed.json.result.data.schema,
+      "zotero.library.readiness_audit.v1",
+    );
+    assert.lengthOf(parsed.json.result.data.items, 1);
+    const item = parsed.json.result.data.items[0];
+    assert.strictEqual(item.key, missing.key);
+    assert.deepEqual(item.missing, ["markdown", "analysis"]);
+    assert.deepEqual(item.evidence.analysis.missingParts, [
+      "references",
+      "citation-analysis",
+    ]);
+    assert.strictEqual(item.evidence.pdf.filename, "missing.pdf");
+    assert.notInclude(JSON.stringify(item), "D:\\Private");
   });
 
   it("passes connection mode headers into synthesis capability context", async function () {

@@ -136,8 +136,7 @@ later submit finalized local SkillRunner-style bundles for explicit apply-back.
 
 ### Requirement: Host Bridge exposes a notification inbox
 
-Host Bridge SHALL expose a lightweight notification inbox for workflow and
-skill-run runtime events.
+Host Bridge SHALL expose a lightweight bounded notification inbox for workflow and skill-run lifecycle events.
 
 #### Scenario: Client lists notification events
 
@@ -167,12 +166,17 @@ skill-run runtime events.
   timestamp
 - **AND** acknowledgement SHALL NOT delete the event.
 
+#### Scenario: Notification projection avoids repeated broad history scans
+
+- **WHEN** clients list notifications with workflow or skill-run filters
+- **THEN** Host Bridge SHALL project only the requested run scope
+- **AND** unfiltered broad history projection SHALL be gated so polling does not repeatedly scan full history.
+
 #### Scenario: Runtime state projects notification events
 
-- **WHEN** workflow/task/skill-run state indicates running, waiting, terminal,
-  or recoverable failure transitions
-- **THEN** the inbox SHALL expose corresponding workflow or skill-run
-  notification events without requiring transcript access.
+- **WHEN** runtime workflow or skill-run state is projected into the notification inbox
+- **THEN** Host Bridge SHALL retain lightweight notification events without transcript access
+- **AND** SHALL prune old or excess retained events so the in-memory inbox and deduplication index remain bounded.
 
 ### Requirement: Host Bridge exposes context and navigation endpoints
 

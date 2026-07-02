@@ -10,19 +10,22 @@ Use this skill when the task needs Zotero library data, current Zotero UI contex
 
 The CLI is the contract boundary. Prefer commands documented in `references/host-bridge-cli.md` over raw capabilities. Use `call` only for diagnostics or for a capability that is explicitly raw-only.
 
+When the user uses Chinese shorthand, artifact names, run handles, graph terms, writeback terms, or domain abbreviations that could map to more than one Host Bridge concept, read `references/terminology.md` before choosing commands.
+
 ## Operating Principles
 
 1. Start with the narrowest read operation that can answer the question.
 2. Treat Zotero item keys, topic IDs, workflow IDs, `workflowRunId`, `skillRunId`, `agentRunId`, and `agentRequestId` as opaque handles.
 3. Use `context current` or `context selection get` when the user's request depends on the active Zotero view, selected items, or where the user should be taken next.
 4. Treat `context ... open` as Zotero UI navigation only. It does not write library data and it must target Zotero object handles returned by Zotero or Host Bridge.
-5. Use `bridge profile inspect`, `bridge profile diagnose`, and `bridge backend ...` when availability, backend readiness, or profile compatibility is uncertain.
-6. Inspect first, preview writes when the user has not already approved the exact operation, then apply through `mutation apply` or a mutation-backed semantic command.
-7. For workflow execution, decide whether Host Bridge owns the run or the agent owns the execution before issuing commands.
-8. Do not infer a hidden interactive target from a workflow run. Reply and connect actions require `skillRunId`.
-9. Treat permission visibility as read-only. Use `run permission ...` to understand pending approval state; do not try to approve or reject from the CLI.
-10. Do not assemble workflow result bundles by hand when `workflow agent-run` provides a prepared handoff contract.
-11. Treat uploaded files as Host Bridge handles. Upload local artifacts with `file upload`, attach them with `mutation item attach-file`, and do not pass local paths as Zotero paths.
+5. Use `library readiness` before planning PDF retrieval, source Markdown conversion, or `literature-analysis` remediation. Readiness commands are read-only discovery, not repair.
+6. Use `bridge profile inspect`, `bridge profile diagnose`, and `bridge backend ...` when availability, backend readiness, or profile compatibility is uncertain.
+7. Inspect first, preview writes when the user has not already approved the exact operation, then apply through `mutation apply` or a mutation-backed semantic command.
+8. For workflow execution, decide whether Host Bridge owns the run or the agent owns the execution before issuing commands.
+9. Do not infer a hidden interactive target from a workflow run. Reply and connect actions require `skillRunId`.
+10. Treat permission visibility as read-only. Use `run permission ...` to understand pending approval state; do not try to approve or reject from the CLI.
+11. Do not assemble workflow result bundles by hand when `workflow agent-run` provides a prepared handoff contract.
+12. Treat uploaded files as Host Bridge handles. Upload local artifacts with `file upload`, attach them with `mutation item attach-file`, and do not pass local paths as Zotero paths.
 
 ## Runtime Setup
 
@@ -65,6 +68,7 @@ For library writeback, prefer mutation-backed commands such as `mutation tag add
 
 - `references/host-bridge-cli.md`: command groups, endpoints, capabilities, and examples generated from the Host Bridge surface catalog.
 - `references/agent-guidance.md`: command selection rules, workflow handoff rules, and failure-handling guidance for agents.
+- `references/terminology.md`: shared Host Bridge and Zotero Librarian terminology for graph, artifact, handle, readiness, and writeback concepts.
 
 ## Remote Export Bundles
 
