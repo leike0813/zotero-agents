@@ -107,13 +107,17 @@ The system SHALL assign workspace ownership based on session type.
 
 ### Requirement: Task workspace retention follows task history retention
 
-The system SHALL align task workspace cleanup with task history cleanup.
+The system SHALL align task workspace cleanup with task history cleanup. ACP
+Skill runtime files, including transcript JSONL, output revisions, continuation
+context, and result artifacts, SHALL be stored under the run workspace/runtime
+directory so they are governed by the same retention lifecycle.
 
 #### Scenario: Task history retention expires
 
 - **WHEN** an ACP task history record becomes eligible for cleanup
 - **THEN** its task workspace SHOULD also become eligible for cleanup
-- **AND** the default retention policy SHOULD follow the existing 30-day task history retention.
+- **AND** the default retention policy SHOULD follow the existing 30-day task
+  history retention.
 
 #### Scenario: Terminal ACP Skills run exceeds retention
 
@@ -121,7 +125,18 @@ The system SHALL align task workspace cleanup with task history cleanup.
   task history retention threshold
 - **THEN** retention cleanup MUST delete its persisted ACP skill run row
 - **AND** retention cleanup MUST delete its workspace under
-  `runtime/acp/skill-runs`.
+  `runtime/acp/skill-runs`
+- **AND** retention cleanup MUST delete the run's file-backed transcript,
+  output revision, and continuation context files because they live under that
+  workspace.
+
+#### Scenario: Terminal ACP Skills run has a separate runtime directory
+
+- **WHEN** an expired terminal ACP Skills run has `runtimeDir` under
+  `runtime/acp/skill-runs` but no deletable `workspaceDir`
+- **THEN** retention cleanup MUST delete the persisted ACP skill run row
+- **AND** retention cleanup MUST delete that `runtimeDir` after validating it is
+  inside `runtime/acp/skill-runs`.
 
 #### Scenario: Active ACP Skills run exceeds retention
 

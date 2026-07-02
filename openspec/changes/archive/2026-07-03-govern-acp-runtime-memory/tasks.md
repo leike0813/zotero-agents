@@ -13,3 +13,15 @@
 - [x] Review fix: capture assistant turn text in runtime files instead of accumulating controller strings.
 - [x] Review fix: include `runtimeDir` in expired ACP Skill run retention cleanup.
 - [x] Review fix: update focused regression tests and validation.
+- [x] v4: Update OpenSpec artifacts for unified ACP Skills/ACP Chat file-backed transcript state and live deltas.
+- [x] v4: Add shared transcript paging/delta primitives used by both ACP Skills and ACP Chat.
+- [x] v4: Convert ACP Chat persistence and session runtime to metadata-only state with JSONL transcript writes.
+- [x] v4: Add ACP Chat transcript page/delta bridge and UI page cache; reuse the same live model for ACP Skills.
+- [x] v4: Back up and reset local test ACP Skill/ACP Chat runtime database state.
+- [x] v4: Update focused tests for Chat/Skills metadata-only snapshots, JSONL paging, live deltas, and reset behavior.
+- [x] v4: Run TypeScript, OpenSpec, and targeted regression validation.
+- [x] Review fix: keep live deltas from mutating non-tail transcript pages or forcing tail reloads.
+- [x] Review fix: replace silent delta queue truncation with explicit lightweight resync sentinels.
+- [x] Review fix: unify ACP Chat first streaming chunk deltas with ACP Skills.
+- [x] Review fix: include Chat plan items in rebuildable transcript index previews.
+- [x] Review fix: update focused regression tests and validation.

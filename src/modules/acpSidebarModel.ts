@@ -119,7 +119,7 @@ export function buildAcpSidebarViewSnapshot(args: {
     errorCount: Number(args.frontendSnapshot?.errorCount || 0),
     totalMessageCount: Number(
       args.frontendSnapshot?.totalMessageCount ||
-        args.snapshot.items.length ||
+        args.snapshot.transcriptItemCount ||
         0,
     ),
     conversationId: String(args.snapshot.conversationId || "").trim(),
@@ -156,13 +156,9 @@ export function buildAcpSidebarViewSnapshot(args: {
     statusExpanded: args.snapshot.statusExpanded === true,
     chatDisplayMode:
       args.snapshot.chatDisplayMode === "bubble" ? "bubble" : "plain",
-    transcriptRevision: Number(
-      (
-        args.snapshot as AcpConversationSnapshot & {
-          transcriptRevision?: number;
-        }
-      ).transcriptRevision || 0,
-    ),
+    transcriptRevision: Number(args.snapshot.transcriptRevision || 0),
+    transcriptItemCount: Number(args.snapshot.transcriptItemCount || 0),
+    transcriptPreview: String(args.snapshot.transcriptPreview || "").trim(),
     lastError,
     commandLabel: String(args.snapshot.commandLabel || "").trim(),
     commandLine: String(args.snapshot.commandLine || "").trim(),

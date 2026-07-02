@@ -55,18 +55,26 @@ ACP Skills SHALL attempt to restore a missing live controller before sending a r
 - **THEN** ACP Skills SHALL reject the action or report it unsupported
 - **AND** the terminal run status SHALL remain `failed`.
 
-### Requirement: ACP Skills SHALL preserve continuation context on recovered workflow replies
-When a recoverable ACP Skill workflow has not completed apply, replies sent after recovery SHALL be wrapped with a continuation guard before being sent to the ACP backend.
+### Requirement: ACP Skills Preserve Continuation Context On Recovered Workflow Replies
 
-#### Scenario: Recovered workflow reply uses continuation guard
+ACP Skills SHALL wrap replies sent after recovery with a continuation guard
+built from persisted runtime files rather than from long-lived controller
+closure state when a recoverable workflow has not completed apply.
+
+#### Scenario: Recovered workflow reply uses file-backed continuation guard
+
 - **GIVEN** an ACP Skill run has status `waiting_user` or `failed_retriable`
 - **AND** it has a recoverable remote session and a non-terminal workflow task
-- **AND** the live controller has been lost or detached
+- **AND** the live controller has been lost, detached, or reduced to a thin live
+  session handle
 - **WHEN** the user sends a reply and recovery succeeds
 - **THEN** the runner sends the reply to the original `sessionId`
-- **AND** the backend prompt includes a continuation guard identifying the same ACP Skills run and same remote ACP session
-- **AND** the guard includes the run workspace, input manifest, requested skill, execution mode, and output-contract reminder
-- **AND** the guard instructs the agent not to restart the task, discard prior work, or switch skills.
+- **AND** the backend prompt includes a continuation guard identifying the same
+  ACP Skills run and same remote ACP session
+- **AND** the guard is built from persisted runtime files such as
+  `run-context.json`, the input manifest, and result path metadata
+- **AND** recovery SHALL NOT require request, runner, materialization, or prompt
+  builder objects to be retained in the controller closure.
 
 #### Scenario: Recovered succeeded conversation does not use workflow guard
 - **GIVEN** workflow apply already succeeded for an ACP Skill run

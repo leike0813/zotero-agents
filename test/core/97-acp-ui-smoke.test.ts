@@ -2108,7 +2108,21 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, 'option.sentinel === "show-more"');
     assert.include(acpChatJs, 'sendAction("new-conversation",');
     assert.include(acpChatJs, "function projectConversationView(snapshot)");
-    assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
+    assert.include(acpChatJs, "items: state.transcriptItems");
+    assert.include(acpChatJs, '"load-chat-transcript-page"');
+    assert.include(acpChatJs, '"acp:transcript-page"');
+    assert.include(acpChatJs, '"acp:transcript-delta"');
+    assert.include(acpChatJs, "function isTranscriptTailPage()");
+    assert.include(acpChatJs, "function requestTranscriptResync(");
+    assert.include(
+      acpChatJs,
+      "} else if (tailPage) {\n          state.transcriptItems.push(delta.item);",
+    );
+    assert.include(
+      acpChatJs,
+      "if (tailPage) {\n            requestTranscriptPage(state.snapshot || {}, undefined);",
+    );
+    assert.include(acpChatJs, "continue;");
     assert.include(acpChatJs, "const view = projectConversationView(snapshot");
     assert.include(acpChatJs, "assistantTranscriptRenderer()");
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
@@ -2146,10 +2160,19 @@ describe("acp ui smoke", function () {
       "projectAcpSkillRunConversationView(sourceRun)",
     );
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
+    assert.include(acpSkillRunJs, "function isTranscriptTailPage()");
+    assert.include(acpSkillRunJs, "function requestTranscriptResync(run)");
+    assert.include(
+      acpSkillRunJs,
+      "} else if (tailPage) {\n          state.transcriptItems.push(delta.item);",
+    );
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
     assert.include(acpSkillRunJs, 'variant: "skillrunner"');
     assert.include(acpSkillRunJs, "parser.render(safeText(value))");
+    assert.include(assistantSidebar, "appendBoundedTranscriptDelta(");
+    assert.notInclude(assistantSidebar, ".slice(-200)");
+    assert.include(assistantSidebar, "resyncRequired: true");
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
     assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
     assert.include(

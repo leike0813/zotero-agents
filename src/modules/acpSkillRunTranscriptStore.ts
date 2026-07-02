@@ -239,6 +239,10 @@ function previewFromItem(item: AcpSkillRunTranscriptItem | null | undefined) {
   if (!item) {
     return undefined;
   }
+  const raw = item as {
+    kind?: string;
+    entries?: Array<{ content?: unknown }>;
+  };
   if (item.kind === "message" || item.kind === "thought") {
     return truncatePreview(item.text);
   }
@@ -253,7 +257,26 @@ function previewFromItem(item: AcpSkillRunTranscriptItem | null | undefined) {
       item.summary || item.resultSummary || item.inputSummary || item.title,
     );
   }
+  if (raw.kind === "plan") {
+    return previewFromPlanEntries(raw.entries);
+  }
   return undefined;
+}
+
+function previewFromPlanEntries(entries: unknown) {
+  if (!Array.isArray(entries)) {
+    return undefined;
+  }
+  return truncatePreview(
+    entries
+      .map((entry) =>
+        entry && typeof entry === "object"
+          ? (entry as { content?: unknown }).content
+          : "",
+      )
+      .filter(Boolean)
+      .join(" "),
+  );
 }
 
 function appendPreview(existing: string | undefined, text: unknown) {
@@ -277,6 +300,12 @@ function previewFromPatch(
   }
   if (typeof (patch as { text?: unknown }).text === "string") {
     return truncatePreview((patch as { text?: string }).text);
+  }
+  const planPreview = previewFromPlanEntries(
+    (patch as { entries?: unknown }).entries,
+  );
+  if (planPreview) {
+    return planPreview;
   }
   const summary =
     (patch as { summary?: unknown }).summary ||

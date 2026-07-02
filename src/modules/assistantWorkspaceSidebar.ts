@@ -28,6 +28,7 @@ import {
   getAcpConversationUiSnapshot,
   getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
+  readAcpConversationTranscriptPage,
   reconnectAcpConversation,
   renameAcpConversation,
   resolveAcpConversationPermission,
@@ -61,8 +62,14 @@ import {
   setAcpSkillRunMode,
   setAcpSkillRunModel,
   setAcpSkillRunReasoningEffort,
+  subscribeAcpSkillRunTranscriptDeltas,
   subscribeAcpSkillRunSnapshots,
+  type AcpSkillRunTranscriptDelta,
 } from "./acpSkillRunStore";
+import {
+  subscribeAcpChatTranscriptDeltas,
+  type AcpChatTranscriptDelta,
+} from "./acpConversationTranscriptStore";
 import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
@@ -97,6 +104,16 @@ import {
 
 type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type SidebarButtonElement = XULElement | Element;
+const TRANSCRIPT_DELTA_BATCH_MAX_ITEMS = 200;
+const TRANSCRIPT_DELTA_BATCH_MAX_BYTES = 64 * 1024;
+
+type AssistantWorkspaceTranscriptDeltaEnvelope = {
+  item?: unknown;
+  text?: unknown;
+  patch?: unknown;
+  resyncRequired?: boolean;
+};
+
 type MountedSidebarPane = {
   button: SidebarButtonElement | null;
   container: XULElement | null;
@@ -116,12 +133,18 @@ type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpSnapshotSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
+  removeAcpSkillRunTranscriptDeltaSubscription?: () => void;
+  removeAcpChatTranscriptDeltaSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshGeneration: number;
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
+  pendingAcpChatTranscriptDeltas?: AcpChatTranscriptDelta[];
+  acpChatTranscriptDeltaTimer?: ReturnType<typeof setTimeout> | null;
+  pendingAcpSkillRunTranscriptDeltas?: AcpSkillRunTranscriptDelta[];
+  acpSkillRunTranscriptDeltaTimer?: ReturnType<typeof setTimeout> | null;
   scopeKey: string;
   snapshotRevision: number;
   lastAcpSkillWaitingToastKeys: Set<string>;
@@ -669,6 +692,187 @@ async function postAcpSkillRunTranscriptPage(
   });
 }
 
+async function postAcpChatTranscriptPage(
+  host: AssistantWorkspaceHostRuntime,
+  pane: MountedSidebarPane,
+  target: AcpSidebarTarget,
+  payload: Record<string, unknown>,
+) {
+  const backendId = String(payload.backendId || "").trim();
+  const conversationId = String(payload.conversationId || "").trim();
+  const cursorValue = payload.cursor;
+  const cursor =
+    typeof cursorValue === "number" && Number.isFinite(cursorValue)
+      ? cursorValue
+      : undefined;
+  const limitValue = payload.limit;
+  const limit =
+    typeof limitValue === "number" && Number.isFinite(limitValue)
+      ? limitValue
+      : undefined;
+  const page = await readAcpConversationTranscriptPage({
+    backendId,
+    conversationId,
+    cursor,
+    limit,
+  });
+  postShellMessage(pane, "assistant-workspace:child-snapshot", {
+    tab: "acp-chat",
+    phase: "transcript-page",
+    snapshot: {
+      scopeKey: host.scopeKey,
+      activeTab: host.activeTab,
+      tab: "acp-chat",
+      revision: host.snapshotRevision,
+      target,
+      backendId,
+      conversationId,
+      transcriptPage: page,
+    },
+  });
+}
+
+function buildTranscriptResyncDelta<
+  T extends AssistantWorkspaceTranscriptDeltaEnvelope,
+>(delta: T): T {
+  const { item: _item, text: _text, patch: _patch, ...rest } = delta;
+  return {
+    ...rest,
+    resyncRequired: true,
+  } as T;
+}
+
+export function appendBoundedTranscriptDelta<
+  T extends AssistantWorkspaceTranscriptDeltaEnvelope,
+>(current: T[] | undefined, delta: T): T[] {
+  const next = [...(current || []), delta];
+  if (
+    next.some((entry) => entry.resyncRequired) ||
+    next.length > TRANSCRIPT_DELTA_BATCH_MAX_ITEMS
+  ) {
+    return [buildTranscriptResyncDelta(delta)];
+  }
+  if (JSON.stringify(next).length > TRANSCRIPT_DELTA_BATCH_MAX_BYTES) {
+    return [buildTranscriptResyncDelta(delta)];
+  }
+  return next;
+}
+
+function flushAcpChatTranscriptDeltas(host: AssistantWorkspaceHostRuntime) {
+  if (host.acpChatTranscriptDeltaTimer) {
+    clearTimeout(host.acpChatTranscriptDeltaTimer);
+    host.acpChatTranscriptDeltaTimer = null;
+  }
+  const deltas = host.pendingAcpChatTranscriptDeltas || [];
+  host.pendingAcpChatTranscriptDeltas = [];
+  if (deltas.length === 0 || host.activeTab !== "acp-chat") {
+    return;
+  }
+  const target = host.activeTarget;
+  if (!target) {
+    return;
+  }
+  const pane = target === "reader" ? host.reader : host.library;
+  const active = getAcpConversationUiSnapshot();
+  const activeBackendId = String(active.backendId || "").trim();
+  const activeConversationId = String(active.conversationId || "").trim();
+  const matching = deltas.filter(
+    (delta) =>
+      String(delta.backendId || "").trim() === activeBackendId &&
+      String(delta.conversationId || "").trim() === activeConversationId,
+  );
+  if (matching.length === 0) {
+    return;
+  }
+  postShellMessage(pane, "assistant-workspace:child-snapshot", {
+    tab: "acp-chat",
+    phase: "transcript-delta",
+    snapshot: {
+      scopeKey: host.scopeKey,
+      activeTab: host.activeTab,
+      tab: "acp-chat",
+      revision: host.snapshotRevision,
+      backendId: activeBackendId,
+      conversationId: activeConversationId,
+      transcriptDeltas: matching,
+    },
+  });
+}
+
+function queueAcpChatTranscriptDelta(
+  host: AssistantWorkspaceHostRuntime,
+  delta: AcpChatTranscriptDelta,
+) {
+  host.pendingAcpChatTranscriptDeltas = appendBoundedTranscriptDelta(
+    host.pendingAcpChatTranscriptDeltas,
+    delta,
+  );
+  if (host.acpChatTranscriptDeltaTimer) {
+    return;
+  }
+  host.acpChatTranscriptDeltaTimer = setTimeout(() => {
+    flushAcpChatTranscriptDeltas(host);
+  }, 33);
+}
+
+function flushAcpSkillRunTranscriptDeltas(host: AssistantWorkspaceHostRuntime) {
+  if (host.acpSkillRunTranscriptDeltaTimer) {
+    clearTimeout(host.acpSkillRunTranscriptDeltaTimer);
+    host.acpSkillRunTranscriptDeltaTimer = null;
+  }
+  const deltas = host.pendingAcpSkillRunTranscriptDeltas || [];
+  host.pendingAcpSkillRunTranscriptDeltas = [];
+  if (deltas.length === 0 || host.activeTab !== "acp-skills") {
+    return;
+  }
+  const target = host.activeTarget;
+  if (!target) {
+    return;
+  }
+  const pane = target === "reader" ? host.reader : host.library;
+  const panel = buildAcpSkillRunPanelSnapshot() as {
+    selectedRun?: { requestId?: string };
+  };
+  const requestId = String(panel.selectedRun?.requestId || "").trim();
+  if (!requestId) {
+    return;
+  }
+  const matching = deltas.filter(
+    (delta) => String(delta.requestId || "").trim() === requestId,
+  );
+  if (matching.length === 0) {
+    return;
+  }
+  postShellMessage(pane, "assistant-workspace:child-snapshot", {
+    tab: "acp-skills",
+    phase: "transcript-delta",
+    snapshot: {
+      scopeKey: host.scopeKey,
+      activeTab: host.activeTab,
+      tab: "acp-skills",
+      revision: host.snapshotRevision,
+      requestId,
+      transcriptDeltas: matching,
+    },
+  });
+}
+
+function queueAcpSkillRunTranscriptDelta(
+  host: AssistantWorkspaceHostRuntime,
+  delta: AcpSkillRunTranscriptDelta,
+) {
+  host.pendingAcpSkillRunTranscriptDeltas = appendBoundedTranscriptDelta(
+    host.pendingAcpSkillRunTranscriptDeltas,
+    delta,
+  );
+  if (host.acpSkillRunTranscriptDeltaTimer) {
+    return;
+  }
+  host.acpSkillRunTranscriptDeltaTimer = setTimeout(() => {
+    flushAcpSkillRunTranscriptDeltas(host);
+  }, 33);
+}
+
 async function postFreshAcpChatSnapshot(
   host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
@@ -1023,6 +1227,15 @@ async function handleChildAction(
     postAcpSkillRunSnapshot(
       host,
       target === "reader" ? host.reader : host.library,
+    );
+    return;
+  }
+  if (action === "load-chat-transcript-page") {
+    await postAcpChatTranscriptPage(
+      host,
+      target === "reader" ? host.reader : host.library,
+      target,
+      childPayload,
     );
     return;
   }
@@ -1550,6 +1763,14 @@ export function installAssistantWorkspaceSidebarShell(
     schedulePostSnapshot(host);
     updateAssistantAttentionIndicator(host);
   });
+  host.removeAcpSkillRunTranscriptDeltaSubscription =
+    subscribeAcpSkillRunTranscriptDeltas((delta) => {
+      queueAcpSkillRunTranscriptDelta(host, delta);
+    });
+  host.removeAcpChatTranscriptDeltaSubscription =
+    subscribeAcpChatTranscriptDeltas((delta) => {
+      queueAcpChatTranscriptDelta(host, delta);
+    });
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
@@ -1577,12 +1798,22 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpSnapshotSubscription?.();
   host.removeAcpSkillRunSubscription?.();
+  host.removeAcpSkillRunTranscriptDeltaSubscription?.();
+  host.removeAcpChatTranscriptDeltaSubscription?.();
   host.removeTaskSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();
   detachSkillRunnerSidebarHost({ hostWindow: win as Window });
   if (host.postSnapshotTimer) {
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
+  }
+  if (host.acpChatTranscriptDeltaTimer) {
+    clearTimeout(host.acpChatTranscriptDeltaTimer);
+    host.acpChatTranscriptDeltaTimer = null;
+  }
+  if (host.acpSkillRunTranscriptDeltaTimer) {
+    clearTimeout(host.acpSkillRunTranscriptDeltaTimer);
+    host.acpSkillRunTranscriptDeltaTimer = null;
   }
   clearSkillRunnerSidebarRefresh(host);
   if (host.library.frame && host.library.frameLoadHandler) {

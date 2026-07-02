@@ -18,6 +18,7 @@ import {
   getAcpFrontendSnapshot,
   getAcpConversationSnapshot,
   refreshAcpConversationBackends,
+  readAcpConversationTranscriptPage,
   reconnectAcpConversation,
   renameAcpConversation,
   resolveAcpConversationPermission,
@@ -70,6 +71,29 @@ import type {
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
 import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
+import { subscribeAcpChatTranscriptDeltas } from "../../src/modules/acpConversationTranscriptStore";
+
+async function readActiveTranscriptItems(backendId = ACP_OPENCODE_BACKEND_ID) {
+  const snapshot = getAcpConversationSnapshot(backendId);
+  const page = await readAcpConversationTranscriptPage({
+    backendId,
+    conversationId: snapshot.conversationId,
+    limit: 200,
+  });
+  return page.items;
+}
+
+async function readTranscriptItemsForConversation(
+  conversationId: string,
+  backendId = ACP_OPENCODE_BACKEND_ID,
+) {
+  const page = await readAcpConversationTranscriptPage({
+    backendId,
+    conversationId,
+    limit: 200,
+  });
+  return page.items;
+}
 
 class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly updates = new Set<AcpConnectionUpdateListener>();
@@ -1081,7 +1105,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const toolItems = getAcpConversationSnapshot().items.filter(
+    const toolItems = (await readActiveTranscriptItems()).filter(
       (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
     );
     assert.lengthOf(toolItems, 1);
@@ -1125,7 +1149,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const toolItems = getAcpConversationSnapshot().items.filter(
+    const toolItems = (await readActiveTranscriptItems()).filter(
       (entry) => entry.kind === "tool_call",
     );
     assert.lengthOf(toolItems, 2);
@@ -1169,7 +1193,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const toolItem = getAcpConversationSnapshot().items.find(
+    const toolItem = (await readActiveTranscriptItems()).find(
       (entry) =>
         entry.kind === "tool_call" && entry.toolCallId === "tool-summary",
     );
@@ -1210,7 +1234,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const toolItem = getAcpConversationSnapshot().items.find(
+    const toolItem = (await readActiveTranscriptItems()).find(
       (entry) =>
         entry.kind === "tool_call" && entry.toolCallId === "tool-first-summary",
     );
@@ -1258,7 +1282,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const toolItem = getAcpConversationSnapshot().items.find(
+    const toolItem = (await readActiveTranscriptItems()).find(
       (entry) =>
         entry.kind === "tool_call" && entry.toolCallId === "tool-normalized",
     );
@@ -1306,7 +1330,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const assistantItems = getAcpConversationSnapshot().items.filter(
+    const assistantItems = (await readActiveTranscriptItems()).filter(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.lengthOf(assistantItems, 2);
@@ -1316,9 +1340,8 @@ describe("acp session manager", function () {
     );
   });
 
-  it("keeps conversation updatedAt stable while appending streaming text chunks", async function () {
+  it("keeps streaming text out of snapshots while appending transcript chunks", async function () {
     await connectAcpConversation();
-    const before = getAcpConversationSnapshot().updatedAt;
 
     await lastAdapter?.emitSessionUpdate({
       sessionId: "session-1",
@@ -1327,10 +1350,7 @@ describe("acp session manager", function () {
         content: { type: "text", text: "First " },
       },
     });
-    const afterFirstChunk = getAcpConversationSnapshot();
-    const firstStreamingItem = afterFirstChunk.items.find(
-      (entry) => entry.kind === "message" && entry.role === "assistant",
-    );
+    assert.lengthOf(getAcpConversationSnapshot().items, 0);
     await lastAdapter?.emitSessionUpdate({
       sessionId: "session-1",
       update: {
@@ -1340,13 +1360,13 @@ describe("acp session manager", function () {
     });
 
     const snapshot = getAcpConversationSnapshot();
-    const assistantItems = snapshot.items.filter(
+    const assistantItems = (await readActiveTranscriptItems()).filter(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
-    assert.equal(snapshot.updatedAt, before);
+    assert.lengthOf(snapshot.items, 0);
+    assert.isAtLeast(snapshot.transcriptRevision, 2);
     assert.lengthOf(assistantItems, 1);
     assert.equal(assistantItems[0].text, "First second");
-    assert.equal(assistantItems[0].updatedAt, firstStreamingItem?.updatedAt);
   });
 
   it("starts a new thought when assistant output appears between thought chunks", async function () {
@@ -1383,7 +1403,7 @@ describe("acp session manager", function () {
       },
     });
 
-    const thoughtItems = getAcpConversationSnapshot().items.filter(
+    const thoughtItems = (await readActiveTranscriptItems()).filter(
       (entry) => entry.kind === "thought",
     );
     assert.lengthOf(thoughtItems, 2);
@@ -1418,14 +1438,10 @@ describe("acp session manager", function () {
     });
 
     const snapshot = getAcpConversationSnapshot();
-    const toolItems = snapshot.items.filter(
-      (entry) => entry.kind === "tool_call",
-    );
+    const items = await readActiveTranscriptItems();
+    const toolItems = items.filter((entry) => entry.kind === "tool_call");
     assert.lengthOf(toolItems, 1);
-    assert.equal(
-      snapshot.items[snapshot.items.length - 1]?.id,
-      toolItems[0]?.id,
-    );
+    assert.equal(items[items.length - 1]?.id, toolItems[0]?.id);
     assert.deepInclude(toolItems[0], {
       toolCallId: "tool-1",
       state: "completed",
@@ -1538,9 +1554,10 @@ describe("acp session manager", function () {
         used: 1200,
         size: 8000,
       });
-      assert.isAtLeast(snapshot.items.length, 5);
+      const transcriptItems = await readActiveTranscriptItems();
+      assert.isAtLeast(transcriptItems.length, 5);
       assert.deepInclude(
-        snapshot.items.find(
+        transcriptItems.find(
           (entry) => entry.kind === "message" && entry.role === "user",
         ) || {},
         {
@@ -1549,19 +1566,19 @@ describe("acp session manager", function () {
         },
       );
       assert.deepInclude(
-        snapshot.items.find((entry) => entry.kind === "thought") || {},
+        transcriptItems.find((entry) => entry.kind === "thought") || {},
         {
           text: "Checking the workspace and planning the next step.",
         },
       );
       assert.deepInclude(
-        snapshot.items.find((entry) => entry.kind === "tool_call") || {},
+        transcriptItems.find((entry) => entry.kind === "tool_call") || {},
         {
           title: "Inspect notes",
           state: "completed",
         },
       );
-      const plan = snapshot.items.find((entry) => entry.kind === "plan") as
+      const plan = transcriptItems.find((entry) => entry.kind === "plan") as
         | { entries?: Array<{ status?: string }> }
         | undefined;
       assert.deepEqual(
@@ -1569,7 +1586,7 @@ describe("acp session manager", function () {
         ["completed", "skipped"],
       );
       assert.deepInclude(
-        snapshot.items.find(
+        transcriptItems.find(
           (entry) => entry.kind === "message" && entry.role === "assistant",
         ) || {},
         {
@@ -1653,9 +1670,12 @@ describe("acp session manager", function () {
         persisted.snapshot.sessionCwd,
         expectedStoragePaths.agentWorkspaceDir,
       );
-      assert.isAtLeast(persisted.items.length, 5);
+      assert.isAtLeast(persisted.snapshot.transcriptItemCount, 5);
+      const persistedItems = await readTranscriptItemsForConversation(
+        snapshot.conversationId,
+      );
       assert.equal(
-        persisted.items.find(
+        persistedItems.find(
           (entry) => entry.kind === "message" && entry.role === "assistant",
         )?.text,
         "Echo: Hello ACP",
@@ -1705,16 +1725,18 @@ describe("acp session manager", function () {
 
     const one = getAcpConversationSnapshot("acp-one");
     const two = getAcpConversationSnapshot("acp-two");
+    const oneItems = await readActiveTranscriptItems("acp-one");
+    const twoItems = await readActiveTranscriptItems("acp-two");
     assert.equal(one.backendId, "acp-one");
     assert.equal(two.backendId, "acp-two");
     assert.equal(
-      one.items.find(
+      oneItems.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       )?.text,
       "Echo: hello one",
     );
     assert.equal(
-      two.items.find(
+      twoItems.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       )?.text,
       "Echo: hello two",
@@ -1745,7 +1767,7 @@ describe("acp session manager", function () {
     assert.equal(frontend.connectedCount, 2);
     assert.equal(
       frontend.totalMessageCount,
-      one.items.length + two.items.length,
+      one.transcriptItemCount + two.transcriptItemCount,
     );
     assert.deepEqual(
       frontend.backendChatSessions.map((entry) => entry.backendId),
@@ -1756,8 +1778,14 @@ describe("acp session manager", function () {
 
     const beforeNew = getAcpConversationSnapshot("acp-two").conversationId;
     await startNewAcpConversation();
-    assert.isAtLeast(loadAcpConversationState("acp-one").items.length, 1);
-    assert.lengthOf(loadAcpConversationState("acp-two").items, 0);
+    assert.isAtLeast(
+      loadAcpConversationState("acp-one").snapshot.transcriptItemCount,
+      1,
+    );
+    assert.equal(
+      loadAcpConversationState("acp-two").snapshot.transcriptItemCount,
+      0,
+    );
     assert.isAtLeast(listAcpChatSessions("acp-two").length, 2);
     assert.notEqual(
       getAcpConversationSnapshot("acp-two").conversationId,
@@ -1880,17 +1908,17 @@ describe("acp session manager", function () {
     assert.equal(snapshot.sessionId, "");
     assert.equal(snapshot.remoteSessionId, "");
     assert.equal(snapshot.status, "idle");
-    assert.lengthOf(snapshot.items, 0);
+    assert.equal(snapshot.transcriptItemCount, 0);
 
     const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(persisted.snapshot.sessionId, "");
     assert.equal(persisted.snapshot.remoteSessionId, "");
-    assert.lengthOf(persisted.items, 0);
+    assert.equal(persisted.snapshot.transcriptItemCount, 0);
     const previous = loadAcpConversationState(
       ACP_OPENCODE_BACKEND_ID,
       previousConversationId,
     );
-    assert.isAtLeast(previous.items.length, 1);
+    assert.isAtLeast(previous.snapshot.transcriptItemCount, 1);
     assert.isAtLeast(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).length, 2);
   });
 
@@ -1910,8 +1938,8 @@ describe("acp session manager", function () {
       secondConversationId,
     );
     assert.include(
-      getAcpConversationSnapshot()
-        .items.filter((entry) => entry.kind === "message")
+      (await readActiveTranscriptItems())
+        .filter((entry) => entry.kind === "message")
         .map((entry) => ("text" in entry ? entry.text : ""))
         .join("\n"),
       "Second local session",
@@ -1924,7 +1952,7 @@ describe("acp session manager", function () {
     assert.equal(snapshot.conversationId, firstConversationId);
     assert.equal(snapshot.sessionId, "");
     assert.include(
-      snapshot.items
+      (await readTranscriptItemsForConversation(firstConversationId))
         .filter((entry) => entry.kind === "message")
         .map((entry) => ("text" in entry ? entry.text : ""))
         .join("\n"),
@@ -1935,7 +1963,7 @@ describe("acp session manager", function () {
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.conversationId, firstConversationId);
     assert.include(
-      snapshot.items
+      (await readTranscriptItemsForConversation(firstConversationId))
         .filter((entry) => entry.kind === "message")
         .map((entry) => ("text" in entry ? entry.text : ""))
         .join("\n"),
@@ -1989,7 +2017,7 @@ describe("acp session manager", function () {
     assert.deepEqual(lastAdapter?.sessionIds, []);
     assert.equal(snapshot.sessionTitle, "Loaded session");
     assert.isUndefined(
-      snapshot.items.find(
+      (await readTranscriptItemsForConversation(conversationId)).find(
         (entry) =>
           entry.kind === "message" &&
           entry.role === "assistant" &&
@@ -2026,7 +2054,7 @@ describe("acp session manager", function () {
       ),
     );
     assert.isOk(
-      snapshot.items.find(
+      (await readActiveTranscriptItems()).find(
         (entry) =>
           entry.kind === "status" &&
           entry.text.includes("Remote session could not be restored"),
@@ -2110,11 +2138,9 @@ describe("acp session manager", function () {
       ),
     );
     assert.equal(
-      loadAcpConversationState(
-        ACP_OPENCODE_BACKEND_ID,
-        firstConversationId,
-      ).items.find((entry) => entry.kind === "message" && entry.role === "user")
-        ?.text,
+      (await readTranscriptItemsForConversation(firstConversationId)).find(
+        (entry) => entry.kind === "message" && entry.role === "user",
+      )?.text,
       "Keep archived transcript",
     );
 
@@ -2132,17 +2158,10 @@ describe("acp session manager", function () {
       lastAdapter.streamingChunkCount = 100;
       return lastAdapter;
     });
-    let streamingAssistantSnapshotCount = 0;
-    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
-      if (
-        snapshot.items.some(
-          (entry) =>
-            entry.kind === "message" &&
-            entry.role === "assistant" &&
-            entry.state === "streaming",
-        )
-      ) {
-        streamingAssistantSnapshotCount += 1;
+    let streamingAssistantDeltaCount = 0;
+    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
+      if (delta.op === "append_text" && delta.text) {
+        streamingAssistantDeltaCount += 1;
       }
     });
 
@@ -2152,19 +2171,58 @@ describe("acp session manager", function () {
     await new Promise((resolve) => setTimeout(resolve, 120));
     unsubscribe();
 
-    const snapshot = getAcpConversationSnapshot();
-    const assistant = snapshot.items.find(
+    const assistant = (await readActiveTranscriptItems()).find(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
-    assert.isAbove(streamingAssistantSnapshotCount, 0);
-    const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
+    assert.isAbove(streamingAssistantDeltaCount, 0);
     assert.equal(
-      persisted.items.find(
+      (await readActiveTranscriptItems()).find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       )?.text.length,
       100,
     );
+  });
+
+  it("emits ACP chat first streaming chunks as text-bearing upserts", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.streamingChunkCount = 2;
+      return lastAdapter;
+    });
+    const deltas: any[] = [];
+    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
+      deltas.push(delta);
+    });
+
+    await sendAcpConversationPrompt({
+      message: "stream two chunks",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    unsubscribe();
+
+    const assistantUpsert = deltas.find(
+      (delta) =>
+        delta.op === "upsert_item" &&
+        delta.item?.kind === "message" &&
+        delta.item?.role === "assistant",
+    );
+    assert.equal(assistantUpsert?.item?.text, "0");
+    const assistantAppends = deltas.filter(
+      (delta) =>
+        delta.op === "append_text" && delta.itemId === assistantUpsert?.itemId,
+    );
+    assert.deepEqual(
+      assistantAppends.map((delta) => delta.text),
+      ["1"],
+    );
+    assert.equal(
+      (await readActiveTranscriptItems()).find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text,
+      "01",
+    );
+    assert.lengthOf(getAcpConversationSnapshot().items, 0);
   });
 
   it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {
@@ -2196,17 +2254,15 @@ describe("acp session manager", function () {
     await new Promise((resolve) => setTimeout(resolve, 120));
     unsubscribe();
 
-    const snapshot = getAcpConversationSnapshot();
-    const assistant = snapshot.items.find(
+    const assistant = (await readActiveTranscriptItems()).find(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
     assert.equal(assistant?.state, "complete");
     assert.equal(streamingAssistantSnapshotCount, 0);
     assert.isBelow(snapshotCount, 20);
-    const persisted = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
     assert.equal(
-      persisted.items.find(
+      (await readActiveTranscriptItems()).find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       )?.text.length,
       100,
@@ -2223,13 +2279,10 @@ describe("acp session manager", function () {
     });
     const partialLengths: number[] = [];
     const unsubscribe = subscribeAcpFrontendSnapshots((snapshot) => {
-      const assistant = snapshot.activeSnapshot?.items.find(
+      const leaked = snapshot.activeSnapshot?.items.some(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       );
-      const length = assistant?.text.length || 0;
-      if (length > 0 && length < 20) {
-        partialLengths.push(length);
-      }
+      if (leaked) partialLengths.push(1);
     });
 
     await sendAcpConversationPrompt({
@@ -2239,13 +2292,12 @@ describe("acp session manager", function () {
     unsubscribe();
 
     assert.deepEqual(partialLengths, []);
-    const snapshot = getAcpFrontendSnapshot();
-    const assistant = snapshot.activeSnapshot?.items.find(
+    const assistant = (await readActiveTranscriptItems()).find(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 20);
     assert.equal(
-      loadAcpConversationState(ACP_OPENCODE_BACKEND_ID).items.find(
+      (await readActiveTranscriptItems()).find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       )?.text.length,
       20,
@@ -2273,9 +2325,9 @@ describe("acp session manager", function () {
       },
     } as any);
 
-    let visible = getAcpFrontendSnapshot().activeSnapshot?.items || [];
+    let visible = await readActiveTranscriptItems();
     assert.isUndefined(
-      visible.find(
+      getAcpFrontendSnapshot().activeSnapshot?.items.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
       ),
     );
@@ -2298,7 +2350,7 @@ describe("acp session manager", function () {
       },
     } as any);
 
-    visible = getAcpFrontendSnapshot().activeSnapshot?.items || [];
+    visible = await readActiveTranscriptItems();
     tool = visible.find(
       (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
     );
@@ -2318,17 +2370,10 @@ describe("acp session manager", function () {
       lastAdapter.emitUsageAfterEachStreamingChunk = true;
       return lastAdapter;
     });
-    const partialLengths: number[] = [];
-    const unsubscribe = subscribeAcpFrontendSnapshots((snapshot) => {
-      const assistant = snapshot.activeSnapshot?.items.find(
-        (entry) =>
-          entry.kind === "message" &&
-          entry.role === "assistant" &&
-          entry.state === "streaming",
-      );
-      const length = assistant?.text.length || 0;
-      if (length > 0 && length < 20) {
-        partialLengths.push(length);
+    let chunkDeltaCount = 0;
+    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
+      if (delta.op === "append_text" && delta.text) {
+        chunkDeltaCount += 1;
       }
     });
 
@@ -2338,11 +2383,8 @@ describe("acp session manager", function () {
     await new Promise((resolve) => setTimeout(resolve, 240));
     unsubscribe();
 
-    assert.isAtLeast(new Set(partialLengths).size, 10);
-    assert.include(partialLengths, 1);
-    assert.isAtLeast(Math.max(...partialLengths), 10);
-    const snapshot = getAcpFrontendSnapshot();
-    const assistant = snapshot.activeSnapshot?.items.find(
+    assert.isAtLeast(chunkDeltaCount, 10);
+    const assistant = (await readActiveTranscriptItems()).find(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 20);
@@ -2628,7 +2670,12 @@ describe("acp session manager", function () {
     const promptPromise = sendAcpConversationPrompt({
       message: "Busy turn",
     });
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (getAcpConversationSnapshot().busy) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
 
     const busySnapshot = getAcpConversationSnapshot();
     assert.equal(busySnapshot.busy, true);
@@ -2843,7 +2890,7 @@ describe("acp conversation store", function () {
       .DataDirectory;
   });
 
-  it("migrates legacy per-backend conversation storage into a default chat session", function () {
+  it("removes legacy per-backend conversation storage instead of migrating transcript rows", function () {
     const legacyRequestId = `conversation:${ACP_OPENCODE_BACKEND_ID}`;
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
       requestId: legacyRequestId,
@@ -2877,18 +2924,11 @@ describe("acp conversation store", function () {
     ]);
 
     const restored = loadAcpConversationState(ACP_OPENCODE_BACKEND_ID);
-    assert.equal(restored.snapshot.conversationId, "legacy-conversation");
+    assert.equal(restored.snapshot.conversationId, "");
     assert.equal(restored.snapshot.sessionId, "");
-    assert.equal(restored.snapshot.remoteSessionId, "legacy-remote-session");
-    assert.equal(restored.items[0]?.kind, "message");
-    assert.equal(
-      restored.items.find((entry) => entry.kind === "message")?.text,
-      "Legacy hello",
-    );
-    assert.equal(
-      listAcpChatSessions(ACP_OPENCODE_BACKEND_ID)[0]?.conversationId,
-      "legacy-conversation",
-    );
+    assert.equal(restored.snapshot.remoteSessionId, "");
+    assert.lengthOf(restored.items, 0);
+    assert.lengthOf(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID), 0);
     assert.isNull(
       getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, legacyRequestId),
     );

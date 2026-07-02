@@ -20,3 +20,10 @@ number of live ACP adapters/remote connections retained by the plugin.
 - **WHEN** another chat session needs a live adapter
 - **THEN** ACP Chat SHALL reject the new live connection
 - **AND** existing busy sessions SHALL remain connected.
+
+#### Scenario: Live chat slot does not own complete transcript text
+
+- **WHEN** an ACP Chat session remains connected across many prompts
+- **THEN** the live slot SHALL retain only adapter/session state, active
+  transcript item ids, and bounded metadata needed for updates
+- **AND** it SHALL NOT retain the complete conversation transcript.

@@ -9,9 +9,11 @@ import {
   replacePluginTaskRowEntries,
   upsertPluginTaskRequestEntry,
 } from "./pluginStateStore";
-import { getRuntimePersistencePaths } from "./runtimePersistence";
 import {
-  cloneAcpConversationItem,
+  getRuntimePersistencePaths,
+  removeRuntimePath,
+} from "./runtimePersistence";
+import {
   cloneAcpSelectableOption,
   createEmptyAcpConversationSnapshot,
   normalizeAcpStatus,
@@ -26,6 +28,7 @@ import {
   type AcpSelectableOption,
   type AcpUsageSummary,
 } from "./acpTypes";
+import { resolveAcpChatTranscriptPaths } from "./acpConversationTranscriptStore";
 
 const ACP_SCOPE_ACTIVE = "active";
 const ACP_FRONTEND_REQUEST_ID = "frontend";
@@ -54,6 +57,16 @@ function nextOpaqueId(prefix: string) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function truncatePreview(value: unknown) {
+  const text = normalizeString(value);
+  if (!text) {
+    return undefined;
+  }
+  return text.length > 8 * 1024
+    ? `${text.slice(0, 8 * 1024)}...<truncated>`
+    : text;
 }
 
 function normalizeChatDisplayMode(value: unknown) {
@@ -286,131 +299,6 @@ function parseHostContext(value: unknown): AcpHostContext | null {
   };
 }
 
-function parseConversationItem(payload: string) {
-  try {
-    const parsed = JSON.parse(String(payload || "{}")) as Record<
-      string,
-      unknown
-    >;
-    if (!isRecord(parsed)) {
-      return null;
-    }
-    if (normalizeString(parsed.kind) === "message") {
-      return {
-        id: normalizeString(parsed.id),
-        kind: "message",
-        role:
-          parsed.role === "assistant" || parsed.role === "system"
-            ? parsed.role
-            : "user",
-        text: String(parsed.text || ""),
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-        state:
-          parsed.state === "streaming" || parsed.state === "error"
-            ? parsed.state
-            : "complete",
-      } satisfies AcpConversationItem;
-    }
-    if (normalizeString(parsed.kind) === "thought") {
-      return {
-        id: normalizeString(parsed.id),
-        kind: "thought",
-        text: String(parsed.text || ""),
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-        state:
-          parsed.state === "streaming" || parsed.state === "error"
-            ? parsed.state
-            : "complete",
-      } satisfies AcpConversationItem;
-    }
-    if (normalizeString(parsed.kind) === "tool_call") {
-      const state = normalizeString(parsed.state);
-      return {
-        id: normalizeString(parsed.id),
-        kind: "tool_call",
-        toolCallId: normalizeString(parsed.toolCallId),
-        title: String(parsed.title || ""),
-        toolKind: normalizeString(parsed.toolKind) || undefined,
-        state:
-          state === "pending" || state === "in_progress" || state === "failed"
-            ? (state as "pending" | "in_progress" | "failed")
-            : "completed",
-        summary: normalizeString(parsed.summary) || undefined,
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-      } satisfies AcpConversationItem;
-    }
-    if (normalizeString(parsed.kind) === "plan") {
-      return {
-        id: normalizeString(parsed.id),
-        kind: "plan",
-        entries: Array.isArray(parsed.entries)
-          ? parsed.entries
-              .map((entry) => {
-                if (!isRecord(entry)) {
-                  return undefined;
-                }
-                return {
-                  content: normalizeString(entry.content),
-                  priority: normalizeString(entry.priority),
-                  status: normalizeString(entry.status),
-                };
-              })
-              .filter(
-                (
-                  entry,
-                ): entry is NonNullable<
-                  Exclude<
-                    AcpConversationItem,
-                    { kind: "message" | "thought" | "tool_call" | "status" }
-                  >["entries"][number]
-                > => !!entry,
-              )
-          : [],
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-      } satisfies AcpConversationItem;
-    }
-    if (normalizeString(parsed.kind) === "status") {
-      const level = normalizeString(parsed.level);
-      return {
-        id: normalizeString(parsed.id),
-        kind: "status",
-        level:
-          level === "warn" || level === "error"
-            ? (level as "warn" | "error")
-            : "info",
-        label: normalizeString(parsed.label),
-        text: String(parsed.text || ""),
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-      } satisfies AcpConversationItem;
-    }
-    if (normalizeString(parsed.role)) {
-      return {
-        id: normalizeString(parsed.id),
-        kind: "message",
-        role:
-          parsed.role === "assistant" || parsed.role === "system"
-            ? parsed.role
-            : "user",
-        text: String(parsed.text || ""),
-        createdAt: normalizeString(parsed.createdAt) || nowIso(),
-        updatedAt: normalizeString(parsed.updatedAt) || undefined,
-        state:
-          parsed.state === "streaming" || parsed.state === "error"
-            ? parsed.state
-            : "complete",
-      } satisfies AcpConversationItem;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
 function normalizeSnapshotPayload(args: {
   backendId: string;
   payload: string;
@@ -483,6 +371,21 @@ function normalizeSnapshotPayload(args: {
       parsed.pendingPermissionRequest,
     );
     snapshot.diagnostics = parseDiagnostics(parsed.diagnostics);
+    snapshot.transcriptPath = normalizeString(parsed.transcriptPath);
+    snapshot.transcriptIndexPath = normalizeString(parsed.transcriptIndexPath);
+    snapshot.transcriptRevision = Math.max(
+      0,
+      Math.floor(Number(parsed.transcriptRevision || 0) || 0),
+    );
+    snapshot.transcriptEventSeq = Math.max(
+      snapshot.transcriptRevision,
+      Math.floor(Number(parsed.transcriptEventSeq || 0) || 0),
+    );
+    snapshot.transcriptItemCount = Math.max(
+      0,
+      Math.floor(Number(parsed.transcriptItemCount || 0) || 0),
+    );
+    snapshot.transcriptPreview = truncatePreview(parsed.transcriptPreview);
     snapshot.lastHostContext = parseHostContext(parsed.lastHostContext);
     snapshot.agentWorkspaceDir = normalizeString(parsed.agentWorkspaceDir);
     const legacyParsed = parsed as Partial<AcpConversationSnapshot> & {
@@ -599,22 +502,6 @@ function normalizeSessionIndexPayload(payload: string) {
   }
 }
 
-function readConversationItems(args: { backendId: string; requestId: string }) {
-  return listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE)
-    .filter(
-      (entry) =>
-        String(entry.backendId || "").trim() === args.backendId &&
-        String(entry.requestId || "").trim() === args.requestId,
-    )
-    .map((entry) => parseConversationItem(entry.payload))
-    .filter((entry) => !!entry)
-    .sort((left, right) =>
-      String((left as AcpConversationItem).createdAt || "").localeCompare(
-        String((right as AcpConversationItem).createdAt || ""),
-      ),
-    ) as AcpConversationItem[];
-}
-
 function removeConversationRowsByRequestId(requestIds: Set<string>) {
   if (requestIds.size === 0) {
     return;
@@ -628,6 +515,14 @@ function removeConversationRowsByRequestId(requestIds: Set<string>) {
     ACP_SCOPE_ACTIVE,
     preservedRows,
   );
+}
+
+function removeConversationStorageDir(
+  backendId: string,
+  conversationId: string,
+) {
+  const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
+  void removeRuntimePath(paths.conversationStorageDir);
 }
 
 function writeAcpChatSessionIndex(args: {
@@ -704,13 +599,11 @@ function readStoredAcpChatSessionIndex(backendIdRaw: string) {
 }
 
 function migrateLegacyConversationIfNeeded(backendId: string) {
-  const indexEntry = getPluginTaskRequestEntry(
-    PLUGIN_TASK_DOMAIN_ACP,
-    sessionIndexRequestId(backendId),
-  );
-  if (indexEntry) {
-    return;
-  }
+  void backendId;
+  return;
+}
+
+function removeLegacyConversationIfNeeded(backendId: string) {
   const legacyRequestId = legacyConversationRequestId(backendId);
   const legacyEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
@@ -719,24 +612,6 @@ function migrateLegacyConversationIfNeeded(backendId: string) {
   if (!legacyEntry) {
     return;
   }
-  const legacySnapshot = normalizeSnapshotPayload({
-    backendId,
-    payload: legacyEntry.payload,
-  });
-  const conversationId =
-    normalizeString(legacySnapshot.conversationId) ||
-    nextOpaqueId("acp-conversation");
-  legacySnapshot.conversationId = conversationId;
-  legacySnapshot.conversationCreatedAt =
-    normalizeString(legacySnapshot.conversationCreatedAt) ||
-    normalizeString(legacyEntry.updatedAt) ||
-    nowIso();
-  const items = readConversationItems({
-    backendId,
-    requestId: legacyRequestId,
-  });
-  legacySnapshot.items = items;
-  saveAcpConversationState(legacySnapshot);
   deletePluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, legacyRequestId);
   removeConversationRowsByRequestId(new Set([legacyRequestId]));
 }
@@ -744,6 +619,7 @@ function migrateLegacyConversationIfNeeded(backendId: string) {
 export function loadAcpChatSessionIndex(backendIdRaw: string) {
   const backendId =
     String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  removeLegacyConversationIfNeeded(backendId);
   const stored = readStoredAcpChatSessionIndex(backendId);
   if (stored.sessions.length > 0) {
     const visibleSessions = stored.sessions.filter(isVisibleSession);
@@ -885,13 +761,25 @@ export function loadAcpConversationState(
     normalizeString(snapshot.remoteSessionId) ||
     normalizeString(snapshot.sessionId);
   snapshot.sessionId = "";
-  const items = readConversationItems({
-    backendId,
-    requestId,
-  });
+  const paths = resolveAcpChatRuntimePaths(backendId, snapshot.conversationId);
+  const transcriptPaths = resolveAcpChatTranscriptPaths(
+    paths.conversationStorageDir,
+  );
+  snapshot.conversationStorageDir =
+    snapshot.conversationStorageDir || paths.conversationStorageDir;
+  snapshot.transcriptPath =
+    snapshot.transcriptPath || transcriptPaths.transcriptPath;
+  snapshot.transcriptIndexPath =
+    snapshot.transcriptIndexPath || transcriptPaths.transcriptIndexPath;
+  snapshot.transcriptEventSeq = Math.max(
+    snapshot.transcriptEventSeq,
+    snapshot.transcriptRevision,
+  );
+  snapshot.transcriptRevision = snapshot.transcriptEventSeq;
+  snapshot.items = [];
   return {
     snapshot,
-    items,
+    items: [] as AcpConversationItem[],
   };
 }
 
@@ -942,9 +830,17 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
     normalizeString(snapshot.conversationCreatedAt) || nowIso();
   snapshot.conversationTitle = deriveConversationTitle({
     snapshot,
-    items: snapshot.items,
+    items: [],
   });
   const requestId = conversationRequestId(backendId, conversationId);
+  const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
+  const transcriptPaths = resolveAcpChatTranscriptPaths(
+    snapshot.conversationStorageDir || paths.conversationStorageDir,
+  );
+  snapshot.transcriptPath =
+    snapshot.transcriptPath || transcriptPaths.transcriptPath;
+  snapshot.transcriptIndexPath =
+    snapshot.transcriptIndexPath || transcriptPaths.transcriptIndexPath;
   upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
     requestId,
     backendId,
@@ -1007,6 +903,12 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
           }
         : null,
       diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })),
+      transcriptPath: snapshot.transcriptPath,
+      transcriptIndexPath: snapshot.transcriptIndexPath,
+      transcriptRevision: snapshot.transcriptRevision,
+      transcriptEventSeq: snapshot.transcriptEventSeq,
+      transcriptItemCount: snapshot.transcriptItemCount,
+      transcriptPreview: snapshot.transcriptPreview,
       lastHostContext: snapshot.lastHostContext
         ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
         : null,
@@ -1020,33 +922,7 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       updatedAt: snapshot.updatedAt || nowIso(),
     }),
   });
-  replacePluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, ACP_SCOPE_ACTIVE, [
-    ...listPluginTaskRowEntries(
-      PLUGIN_TASK_DOMAIN_ACP,
-      ACP_SCOPE_ACTIVE,
-    ).filter(
-      (entry) =>
-        String(entry.backendId || "").trim() !== backendId ||
-        String(entry.requestId || "").trim() !== requestId,
-    ),
-    ...snapshot.items
-      .filter((item) => normalizeString(item.id))
-      .map((item) => ({
-        taskId: item.id,
-        requestId,
-        backendId,
-        state:
-          item.kind === "message" ||
-          item.kind === "thought" ||
-          item.kind === "tool_call"
-            ? String(item.state || "")
-            : item.kind === "status"
-              ? item.level
-              : "complete",
-        updatedAt: String(item.updatedAt || item.createdAt || nowIso()),
-        payload: JSON.stringify(cloneAcpConversationItem(item)),
-      })),
-  ]);
+  removeConversationRowsByRequestId(new Set([requestId]));
   const indexEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
     sessionIndexRequestId(backendId),
@@ -1069,7 +945,7 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
   summaries.push({
     conversationId,
     title: snapshot.conversationTitle,
-    messageCount: snapshot.items.length,
+    messageCount: snapshot.transcriptItemCount,
     status: snapshot.status,
     lastError,
     createdAt: snapshot.conversationCreatedAt,
@@ -1096,6 +972,7 @@ export function deleteAcpConversationState(
   const requestId = conversationRequestId(backendId, conversationId);
   deletePluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
   removeConversationRowsByRequestId(new Set([requestId]));
+  removeConversationStorageDir(backendId, conversationId);
   const index = loadAcpChatSessionIndex(backendId);
   const stored = readStoredAcpChatSessionIndex(backendId);
   const sessions = stored.sessions.filter(
@@ -1129,4 +1006,7 @@ export function clearAcpConversationState(backendIdRaw: string) {
     sessionIndexRequestId(backendId),
   );
   removeConversationRowsByRequestId(requestIds);
+  for (const session of index.sessions) {
+    removeConversationStorageDir(backendId, session.conversationId);
+  }
 }

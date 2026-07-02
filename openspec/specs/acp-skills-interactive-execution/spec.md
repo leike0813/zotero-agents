@@ -3,17 +3,25 @@
 ## Purpose
 TBD - created by archiving change add-acp-skills-interactive-execution. Update Purpose after archive.
 ## Requirements
-### Requirement: ACP Skill Runs Keep A Live Conversation After Workflow Success
+### Requirement: ACP Skill Runs Detach Local Conversation After Workflow Success
 
-When an ACP Skill run validates a final assistant turn payload, the provider result SHALL be returned for workflow apply while the ACP session remains available for follow-up conversation.
+ACP Skill runs SHALL return the provider result and detach the local ACP
+controller/adapter/transport after validating a final assistant turn payload and
+successfully applying the workflow. The run SHALL preserve its `sessionId` and
+recovery metadata so a follow-up reply can reconnect to the same remote session
+when supported.
 
-#### Scenario: Success Keeps Conversation Active
+#### Scenario: Success Detaches Local Conversation
 
-- **GIVEN** an ACP Skill run has produced a valid assistant turn payload with `__SKILL_DONE__: true`
-- **WHEN** the runner returns a succeeded provider result
+- **GIVEN** an ACP Skill run has produced a valid assistant turn payload with
+  `__SKILL_DONE__: true`
+- **AND** workflow apply has succeeded
+- **WHEN** the runner finalizes the run
 - **THEN** the run status is `succeeded`
-- **AND** the conversation state remains `active`
-- **AND** the live run controller can accept a text reply.
+- **AND** the conversation state is `closed`
+- **AND** the live run controller is not retained
+- **AND** a later text reply can recover the same `sessionId` if recovery is
+  supported.
 
 ### Requirement: ACP Skill Interactive Pending Turns Do Not Trigger Apply
 

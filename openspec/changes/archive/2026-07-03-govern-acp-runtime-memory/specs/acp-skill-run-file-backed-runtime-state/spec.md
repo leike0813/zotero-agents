@@ -76,7 +76,9 @@ ACP Skill transcripts SHALL use a single append-only JSONL event log at
 - **THEN** the rebuildable transcript index SHALL update bounded item/root
   previews from the event payload
 - **AND** append-time preview generation SHALL NOT reread and fold transcript
-  JSONL items from disk.
+  JSONL items from disk
+- **AND** plan-style transcript items SHALL produce bounded previews from their
+  plan entry content when present.
 
 #### Scenario: Transcript page loads asynchronously
 
@@ -95,6 +97,14 @@ ACP Skill transcripts SHALL use a single append-only JSONL event log at
   file-backed text event
 - **AND** the ACP Skill run record and live controller SHALL NOT retain the full
   accumulated assistant text.
+
+#### Scenario: Live delta respects historical page browsing
+
+- **WHEN** the ACP Skills UI is displaying a historical transcript page
+- **AND** live transcript deltas arrive for the selected run
+- **THEN** new off-page items SHALL NOT be appended to the visible historical
+  page
+- **AND** missing-target deltas SHALL NOT force a tail-page reload.
 
 #### Scenario: Assistant turn text is file-backed
 

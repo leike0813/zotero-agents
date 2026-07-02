@@ -16,14 +16,28 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
+  PLUGIN_TASK_DOMAIN_ACP,
+  getPluginTaskRequestEntry,
+  listPluginTaskRowEntries,
   listPluginRunStoreEntries,
   resetPluginStateStoreForTests,
 } from "../../src/modules/pluginStateStore";
+import {
+  loadAcpConversationState,
+  saveAcpConversationState,
+} from "../../src/modules/acpConversationStore";
+import {
+  appendAcpChatTranscriptEvent,
+  readAcpChatTranscriptPage,
+  resolveAcpChatTranscriptPaths,
+} from "../../src/modules/acpConversationTranscriptStore";
+import { createEmptyAcpConversationSnapshot } from "../../src/modules/acpTypes";
 import {
   appendAcpSkillRunTranscriptEvent,
   readAcpSkillRunTranscriptPage as readTranscriptRuntimePage,
   rebuildAcpSkillRunTranscriptIndex,
 } from "../../src/modules/acpSkillRunTranscriptStore";
+import { appendBoundedTranscriptDelta } from "../../src/modules/assistantWorkspaceSidebar";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -55,6 +69,180 @@ describe("ACP runtime memory governance", function () {
     await flushAcpSkillRunRuntimeFileWritesForTests();
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
+  });
+
+  it("persists ACP chat conversations as metadata-only while storing transcript text in JSONL", async function () {
+    const root = await mkTempRoot();
+    const conversationStorageDir = path.join(root, "conversation");
+    const transcriptPaths = resolveAcpChatTranscriptPaths(
+      conversationStorageDir,
+    );
+    const hugeText = "chat-body-".repeat(2048);
+    try {
+      await appendAcpChatTranscriptEvent({
+        conversationStorageDir,
+        op: "upsert_item",
+        itemId: "chat-user-1",
+        item: {
+          id: "chat-user-1",
+          kind: "message",
+          role: "user",
+          text: hugeText,
+          state: "complete",
+          createdAt: "2026-07-02T00:00:00.000Z",
+        },
+        createdAt: "2026-07-02T00:00:00.000Z",
+      });
+      const snapshot = createEmptyAcpConversationSnapshot();
+      snapshot.backendId = "acp-opencode";
+      snapshot.conversationId = "conversation-memory";
+      snapshot.conversationTitle = "Memory governance";
+      snapshot.conversationStorageDir = conversationStorageDir;
+      snapshot.transcriptPath = transcriptPaths.transcriptPath;
+      snapshot.transcriptIndexPath = transcriptPaths.transcriptIndexPath;
+      snapshot.transcriptRevision = 1;
+      snapshot.transcriptEventSeq = 1;
+      snapshot.transcriptItemCount = 1;
+      snapshot.transcriptPreview = "chat preview";
+      snapshot.items = [
+        {
+          id: "should-not-persist",
+          kind: "message",
+          role: "assistant",
+          text: hugeText,
+          state: "complete",
+          createdAt: "2026-07-02T00:00:01.000Z",
+        },
+      ];
+
+      saveAcpConversationState(snapshot);
+
+      const request = getPluginTaskRequestEntry(
+        PLUGIN_TASK_DOMAIN_ACP,
+        "conversation:acp-opencode:conversation-memory",
+      );
+      assert.isOk(request);
+      const payload = JSON.parse(String(request?.payload || "{}"));
+      assert.notProperty(payload, "items");
+      assert.notInclude(String(request?.payload || ""), hugeText);
+      assert.lengthOf(
+        listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, "active").filter(
+          (entry) => entry.requestId === request?.requestId,
+        ),
+        0,
+      );
+
+      const restored = loadAcpConversationState(
+        "acp-opencode",
+        "conversation-memory",
+      );
+      assert.lengthOf(restored.items, 0);
+      assert.equal(restored.snapshot.transcriptItemCount, 1);
+      assert.equal(
+        restored.snapshot.transcriptPath,
+        transcriptPaths.transcriptPath,
+      );
+
+      const page = await readAcpChatTranscriptPage({
+        conversationStorageDir,
+      });
+      assert.equal(page.items[0]?.kind, "message");
+      assert.equal(
+        page.items.find((entry) => entry.kind === "message")?.text,
+        hugeText,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds live transcript delta batches with explicit resync sentinels", function () {
+    let batch:
+      | Array<{
+          backendId: string;
+          conversationId: string;
+          eventSeq: number;
+          transcriptRevision: number;
+          op: "append_text";
+          itemId: string;
+          text?: string;
+          patch?: Record<string, unknown>;
+          item?: Record<string, unknown>;
+          createdAt: string;
+          resyncRequired?: boolean;
+        }>
+      | undefined;
+    for (let index = 0; index <= 200; index += 1) {
+      batch = appendBoundedTranscriptDelta(batch, {
+        backendId: "acp-opencode",
+        conversationId: "conversation-overflow",
+        eventSeq: index + 1,
+        transcriptRevision: index + 1,
+        op: "append_text",
+        itemId: "assistant-1",
+        text: String(index),
+        createdAt: "2026-07-03T00:00:00.000Z",
+      });
+    }
+
+    assert.lengthOf(batch || [], 1);
+    assert.equal(batch?.[0]?.resyncRequired, true);
+    assert.equal(batch?.[0]?.eventSeq, 201);
+    assert.notProperty(batch?.[0] || {}, "text");
+
+    const large = appendBoundedTranscriptDelta(undefined, {
+      backendId: "acp-opencode",
+      conversationId: "conversation-overflow",
+      eventSeq: 202,
+      transcriptRevision: 202,
+      op: "append_text" as const,
+      itemId: "assistant-1",
+      text: "x".repeat(70 * 1024),
+      createdAt: "2026-07-03T00:00:00.000Z",
+    });
+    assert.lengthOf(large, 1);
+    assert.equal(large[0].resyncRequired, true);
+    assert.notProperty(large[0], "text");
+  });
+
+  it("indexes ACP chat plan transcript previews through the shared JSONL store", async function () {
+    const root = await mkTempRoot();
+    const conversationStorageDir = path.join(root, "conversation-plan");
+    try {
+      await appendAcpChatTranscriptEvent({
+        conversationStorageDir,
+        op: "upsert_item",
+        itemId: "plan-1",
+        item: {
+          id: "plan-1",
+          kind: "plan",
+          entries: [
+            { content: "Read source files", priority: "high", status: "done" },
+            { content: "Write patch", priority: "high", status: "pending" },
+          ],
+          createdAt: "2026-07-03T00:00:00.000Z",
+        },
+        createdAt: "2026-07-03T00:00:00.000Z",
+      });
+
+      const paths = resolveAcpChatTranscriptPaths(conversationStorageDir);
+      const indexBeforeRebuild = JSON.parse(
+        await fs.readFile(paths.transcriptIndexPath || "", "utf8"),
+      );
+      assert.equal(
+        indexBeforeRebuild.items.find((item: any) => item.itemId === "plan-1")
+          ?.preview,
+        "Read source files Write patch",
+      );
+
+      await fs.rm(paths.transcriptIndexPath || "", { force: true });
+      const rebuilt = await rebuildAcpSkillRunTranscriptIndex({
+        runtimeDir: conversationStorageDir,
+      });
+      assert.equal(rebuilt?.preview, "Read source files Write patch");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("persists ACP skill run history as metadata-only while writing large payloads to runtime files", async function () {

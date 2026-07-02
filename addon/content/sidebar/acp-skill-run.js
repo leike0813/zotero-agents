@@ -103,6 +103,17 @@
     });
   }
 
+  function isTranscriptTailPage() {
+    return state.transcriptNextCursor === null;
+  }
+
+  function requestTranscriptResync(run) {
+    const tailPage = isTranscriptTailPage();
+    const cursor = tailPage ? undefined : state.transcriptStartCursor;
+    resetTranscriptPageState();
+    requestTranscriptPage(run, typeof cursor === "number" ? cursor : undefined);
+  }
+
   function handleTranscriptPage(payload) {
     const page =
       payload &&
@@ -140,6 +151,80 @@
     state.transcriptLoadedRevision =
       Number(page.transcriptRevision || page.eventSeq) || 0;
     state.transcriptLoadingKey = "";
+    state.transcriptRevision = null;
+    renderTranscript(selectedRunFromSnapshot() || {});
+  }
+
+  function handleTranscriptDeltas(payload) {
+    const requestId = safeText(payload && payload.requestId);
+    if (!requestId || requestId !== state.transcriptRunId) return;
+    const deltas = Array.isArray(payload && payload.transcriptDeltas)
+      ? payload.transcriptDeltas
+      : [];
+    if (!deltas.length) return;
+    const tailPage = isTranscriptTailPage();
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index] || {};
+      const nextSeq = Number(delta.eventSeq) || 0;
+      if (
+        delta.resyncRequired ||
+        (state.transcriptLoadedRevision &&
+          nextSeq &&
+          nextSeq !== state.transcriptLoadedRevision + 1)
+      ) {
+        requestTranscriptResync(selectedRunFromSnapshot() || {});
+        return;
+      }
+      const itemId = safeText(delta.itemId);
+      if (delta.op === "upsert_item" && delta.item) {
+        const existingIndex = state.transcriptItems.findIndex(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (existingIndex >= 0) {
+          state.transcriptItems[existingIndex] = delta.item;
+        } else if (tailPage) {
+          state.transcriptItems.push(delta.item);
+        }
+      } else if (delta.op === "append_text") {
+        const target = state.transcriptItems.find(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (!target || typeof target.text !== "string") {
+          state.transcriptLoadedRevision =
+            nextSeq || state.transcriptLoadedRevision;
+          if (tailPage) {
+            requestTranscriptPage(selectedRunFromSnapshot() || {}, undefined);
+            return;
+          }
+          continue;
+        }
+        target.text += String(delta.text || "");
+        target.updatedAt = delta.createdAt || target.updatedAt;
+      } else if (delta.op === "patch_item" && delta.patch) {
+        const patchTarget = state.transcriptItems.find(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (!patchTarget) {
+          state.transcriptLoadedRevision =
+            nextSeq || state.transcriptLoadedRevision;
+          if (tailPage) {
+            requestTranscriptPage(selectedRunFromSnapshot() || {}, undefined);
+            return;
+          }
+          continue;
+        }
+        Object.assign(patchTarget, delta.patch, {
+          id: patchTarget.id,
+          kind: patchTarget.kind,
+        });
+      } else if (delta.op === "delete_item") {
+        state.transcriptItems = state.transcriptItems.filter(function (item) {
+          return safeText(item && item.id) !== itemId;
+        });
+      }
+      state.transcriptLoadedRevision =
+        nextSeq || state.transcriptLoadedRevision;
+    }
     state.transcriptRevision = null;
     renderTranscript(selectedRunFromSnapshot() || {});
   }
@@ -575,13 +660,17 @@
       state.transcriptRunId = requestId;
       resetTranscriptRenderState();
     }
-    const revision = Number(run && run.transcriptRevision) || 0;
+    const sourceRevision = Number(run && run.transcriptRevision) || 0;
+    const revision = Math.max(
+      sourceRevision,
+      Number(state.transcriptLoadedRevision) || 0,
+    );
     const canRefreshTail =
       state.transcriptLoadedRevision === null ||
       state.transcriptNextCursor === null;
     if (
       requestId &&
-      state.transcriptLoadedRevision !== revision &&
+      state.transcriptLoadedRevision !== sourceRevision &&
       !state.transcriptLoadingKey &&
       canRefreshTail
     ) {
@@ -715,6 +804,10 @@
     }
     if (data.type === "acp-skill-run:transcript-page") {
       handleTranscriptPage(data.payload || {});
+      return;
+    }
+    if (data.type === "acp-skill-run:transcript-delta") {
+      handleTranscriptDeltas(data.payload || {});
     }
   });
 

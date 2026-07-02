@@ -27,6 +27,13 @@ import {
   saveAcpConversationState,
   saveAcpFrontendState,
 } from "./acpConversationStore";
+import {
+  appendAcpChatTranscriptEvent,
+  emitAcpChatTranscriptDelta,
+  readAcpChatTranscriptPage,
+  resolveAcpChatTranscriptPaths,
+  type AcpChatTranscriptDelta,
+} from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
   buildAcpRuntimeOptionsStateFromConfigOptions,
@@ -104,6 +111,11 @@ export type AcpSessionSlot = {
   activeAssistantItemId: string;
   activeThoughtItemId: string;
   activePlanItemId: string;
+  transcriptItemCount: number;
+  transcriptEventSeq: number;
+  transcriptPreview: string;
+  transcriptItemsById: Map<string, AcpConversationItem>;
+  transcriptToolItemIds: Map<string, string>;
   pendingPermissionResolver:
     | ((outcome: RequestPermissionOutcome) => void)
     | null;
@@ -133,6 +145,7 @@ let cachedAcpBackends: BackendInstance[] = [];
 const slots = new Map<string, AcpSessionSlot>();
 const listeners = new Set<AcpSnapshotListener>();
 const frontendListeners = new Set<AcpFrontendSnapshotListener>();
+const chatTranscriptWrites = new Set<Promise<unknown>>();
 const MAX_DIAGNOSTICS = 40;
 const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
 const STREAMING_PERSIST_THROTTLE_MS = 1500;
@@ -281,7 +294,7 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
     ...createEmptyAcpConversationSnapshot(),
     ...restored.snapshot,
     backendId,
-    items: restored.items,
+    items: [],
     updatedAt: restored.snapshot.updatedAt || nowIso(),
   };
   if (snapshot.conversationId && !snapshot.conversationCreatedAt) {
@@ -296,6 +309,25 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
   snapshot.sessionCwd = paths.agentWorkspaceDir;
   snapshot.workspaceDir = paths.agentWorkspaceDir;
   snapshot.runtimeDir = paths.runtimeDir;
+  const transcriptPaths = resolveAcpChatTranscriptPaths(
+    snapshot.conversationStorageDir,
+  );
+  snapshot.transcriptPath =
+    snapshot.transcriptPath || transcriptPaths.transcriptPath;
+  snapshot.transcriptIndexPath =
+    snapshot.transcriptIndexPath || transcriptPaths.transcriptIndexPath;
+  snapshot.transcriptEventSeq = Math.max(
+    0,
+    Math.floor(
+      Number(snapshot.transcriptEventSeq || snapshot.transcriptRevision || 0) ||
+        0,
+    ),
+  );
+  snapshot.transcriptRevision = snapshot.transcriptEventSeq;
+  snapshot.transcriptItemCount = Math.max(
+    0,
+    Math.floor(Number(snapshot.transcriptItemCount || 0) || 0),
+  );
   snapshot.sessionId = "";
   snapshot.remoteSessionId = String(snapshot.remoteSessionId || "").trim();
   snapshot.remoteSessionRestoreStatus =
@@ -325,6 +357,14 @@ function resetSlotTransientState(slot: AcpSessionSlot) {
   slot.activeAssistantItemId = "";
   slot.activeThoughtItemId = "";
   slot.activePlanItemId = "";
+  slot.transcriptItemCount = Math.max(
+    0,
+    slot.snapshot.transcriptItemCount || 0,
+  );
+  slot.transcriptEventSeq = Math.max(0, slot.snapshot.transcriptEventSeq || 0);
+  slot.transcriptPreview = String(slot.snapshot.transcriptPreview || "");
+  slot.transcriptItemsById.clear();
+  slot.transcriptToolItemIds.clear();
   slot.pendingPermissionResolver = null;
   slot.suppressSessionLoadReplay = false;
 }
@@ -359,12 +399,18 @@ function getOrCreateSlot(backendIdRaw?: string) {
     activeAssistantItemId: "",
     activeThoughtItemId: "",
     activePlanItemId: "",
+    transcriptItemCount: 0,
+    transcriptEventSeq: 0,
+    transcriptPreview: "",
+    transcriptItemsById: new Map(),
+    transcriptToolItemIds: new Map(),
     pendingPermissionResolver: null,
     suppressSessionLoadReplay: false,
     uiEmitTimer: null,
     persistTimer: null,
     lastLiveActivityMs: Date.now(),
   };
+  resetSlotTransientState(slot);
   slots.set(backendId, slot);
   return slot;
 }
@@ -484,7 +530,11 @@ function clonePublishedSlotSnapshot(slot: AcpSessionSlot) {
     slot.uiSnapshot,
   ) as AcpConversationSnapshot & Record<string, unknown>;
   cloned.uiRevision = slot.uiRevision;
-  cloned.transcriptRevision = slot.uiTranscriptRevision;
+  cloned.transcriptRevision = slot.snapshot.transcriptRevision;
+  cloned.transcriptEventSeq = slot.snapshot.transcriptEventSeq;
+  cloned.transcriptItemCount = slot.snapshot.transcriptItemCount;
+  cloned.transcriptPreview = slot.snapshot.transcriptPreview;
+  cloned.items = [];
   return cloned;
 }
 
@@ -519,28 +569,9 @@ function mergeStructuralConversationItems(
   slot: AcpSessionSlot,
   previous: AcpConversationSnapshot | null,
 ) {
-  const previousById = new Map(
-    (previous?.items || []).map((entry) => [entry.id, entry]),
-  );
-  let hasHeldStreamingText = false;
-  const items: AcpConversationItem[] = [];
-  for (const entry of slot.snapshot.items) {
-    if (
-      slot.uiHasUnpublishedTranscript &&
-      (entry.kind === "message" || entry.kind === "thought") &&
-      entry.state === "streaming"
-    ) {
-      hasHeldStreamingText = true;
-      const previousEntry = previousById.get(entry.id);
-      if (previousEntry) {
-        items.push(cloneAcpConversationItem(previousEntry));
-      }
-      continue;
-    }
-    items.push(cloneAcpConversationItem(entry));
-  }
-  slot.uiHasUnpublishedTranscript = hasHeldStreamingText;
-  return items;
+  void slot;
+  void previous;
+  return [] as AcpConversationItem[];
 }
 
 function updatePublishedSlotSnapshot(
@@ -549,15 +580,16 @@ function updatePublishedSlotSnapshot(
 ) {
   const previous = slot.uiSnapshot;
   const next = cloneSnapshotValue(slot.snapshot);
+  next.items = [];
   if (publishMode === "metadata" && previous) {
-    next.items = previous.items.map((entry) => cloneAcpConversationItem(entry));
+    next.items = [];
   } else if (publishMode === "structural") {
     next.items = mergeStructuralConversationItems(slot, previous);
   }
   slot.uiSnapshot = next;
   slot.uiRevision += 1;
   if (publishMode !== "metadata") {
-    slot.uiTranscriptRevision += 1;
+    slot.uiTranscriptRevision = slot.snapshot.transcriptRevision;
     if (publishMode === "full") {
       slot.uiHasUnpublishedTranscript = false;
     }
@@ -768,6 +800,230 @@ function appendErrorDiagnostic(args: {
   });
 }
 
+function truncateAcpChatPreview(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > 8 * 1024
+    ? `${text.slice(0, 8 * 1024)}...<truncated>`
+    : text;
+}
+
+function acpChatPreviewFromItem(item: AcpConversationItem) {
+  if (item.kind === "message" || item.kind === "thought") {
+    return truncateAcpChatPreview(item.text);
+  }
+  if (item.kind === "status") {
+    return truncateAcpChatPreview(item.text);
+  }
+  if (item.kind === "tool_call") {
+    return truncateAcpChatPreview(
+      item.summary || item.resultSummary || item.inputSummary || item.title,
+    );
+  }
+  if (item.kind === "plan") {
+    return truncateAcpChatPreview(
+      item.entries
+        .map((entry) => entry.content)
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+  return "";
+}
+
+function applyChatTranscriptMetadata(
+  slot: AcpSessionSlot,
+  args: {
+    item?: AcpConversationItem;
+    text?: string;
+    newItem?: boolean;
+  },
+) {
+  const paths = resolveAcpChatTranscriptPaths(
+    slot.snapshot.conversationStorageDir,
+  );
+  if (args.newItem) {
+    slot.transcriptItemCount += 1;
+  }
+  slot.transcriptEventSeq += 1;
+  slot.snapshot.transcriptPath = paths.transcriptPath;
+  slot.snapshot.transcriptIndexPath = paths.transcriptIndexPath;
+  slot.snapshot.transcriptRevision = slot.transcriptEventSeq;
+  slot.snapshot.transcriptEventSeq = slot.transcriptEventSeq;
+  slot.snapshot.transcriptItemCount = slot.transcriptItemCount;
+  const preview = args.text
+    ? truncateAcpChatPreview(args.text)
+    : args.item
+      ? acpChatPreviewFromItem(args.item)
+      : "";
+  if (preview) {
+    slot.transcriptPreview = preview;
+    slot.snapshot.transcriptPreview = preview;
+  }
+}
+
+function rememberTranscriptItem(
+  slot: AcpSessionSlot,
+  item: AcpConversationItem,
+) {
+  if (item.kind === "message" || item.kind === "thought") {
+    slot.transcriptItemsById.set(item.id, {
+      ...item,
+      text: "",
+    } as AcpConversationItem);
+    return;
+  }
+  slot.transcriptItemsById.set(item.id, cloneAcpConversationItem(item));
+  if (item.kind === "tool_call" && item.toolCallId) {
+    slot.transcriptToolItemIds.set(item.toolCallId, item.id);
+  }
+}
+
+function queueChatTranscriptEvent(
+  slot: AcpSessionSlot,
+  args: {
+    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+    itemId: string;
+    item?: AcpConversationItem;
+    text?: string;
+    patch?: Partial<AcpConversationItem>;
+    createdAt: string;
+    newItem?: boolean;
+  },
+) {
+  applyChatTranscriptMetadata(slot, {
+    item: args.item,
+    text: args.text,
+    newItem: args.newItem,
+  });
+  const delta: AcpChatTranscriptDelta = {
+    backendId: slot.backendId,
+    conversationId: slot.snapshot.conversationId,
+    eventSeq: slot.transcriptEventSeq,
+    transcriptRevision: slot.transcriptEventSeq,
+    op: args.op,
+    itemId: args.itemId,
+    item: args.item ? cloneAcpConversationItem(args.item) : undefined,
+    text: args.text,
+    patch: args.patch,
+    createdAt: args.createdAt,
+  };
+  emitAcpChatTranscriptDelta(delta);
+  const write = appendAcpChatTranscriptEvent({
+    conversationStorageDir: slot.snapshot.conversationStorageDir,
+    op: args.op,
+    itemId: args.itemId,
+    item: args.item,
+    text: args.text,
+    patch: args.patch,
+    createdAt: args.createdAt,
+  }).catch(() => undefined);
+  chatTranscriptWrites.add(write);
+  void write.finally(() => {
+    chatTranscriptWrites.delete(write);
+  });
+}
+
+function upsertTranscriptItem(slot: AcpSessionSlot, item: AcpConversationItem) {
+  rememberTranscriptItem(slot, item);
+  queueChatTranscriptEvent(slot, {
+    op: "upsert_item",
+    itemId: item.id,
+    item,
+    createdAt: item.createdAt || nowIso(),
+    newItem: true,
+  });
+}
+
+function patchTranscriptItem(
+  slot: AcpSessionSlot,
+  itemId: string,
+  patch: Partial<AcpConversationItem>,
+) {
+  const current = slot.transcriptItemsById.get(itemId);
+  if (current) {
+    slot.transcriptItemsById.set(itemId, {
+      ...current,
+      ...patch,
+      id: current.id,
+      kind: current.kind,
+    } as AcpConversationItem);
+  }
+  queueChatTranscriptEvent(slot, {
+    op: "patch_item",
+    itemId,
+    patch,
+    createdAt: nowIso(),
+  });
+}
+
+function appendTranscriptText(
+  slot: AcpSessionSlot,
+  item: AcpConversationMessageItem | AcpConversationThoughtItem,
+  text: string,
+) {
+  queueChatTranscriptEvent(slot, {
+    op: "append_text",
+    itemId: item.id,
+    text,
+    createdAt: nowIso(),
+  });
+}
+
+function appendStreamingTranscriptText(
+  slot: AcpSessionSlot,
+  args:
+    | {
+        kind: "message";
+        role: AcpConversationMessageItem["role"];
+        text: string;
+      }
+    | {
+        kind: "thought";
+        text: string;
+      },
+) {
+  if (args.kind === "message") {
+    let target = getLatestActiveAssistantItem(slot);
+    if (!target) {
+      const createdAt = nowIso();
+      target = {
+        id: nextOpaqueId("acp-msg-assistant"),
+        kind: "message",
+        role: args.role,
+        text: args.text,
+        createdAt,
+        updatedAt: createdAt,
+        state: "streaming",
+      };
+      slot.activeAssistantItemId = target.id;
+      pushItem(slot, target);
+      return;
+    }
+    appendTranscriptText(slot, target, args.text);
+    return;
+  }
+
+  let target = getLatestActiveThoughtItem(slot);
+  if (!target) {
+    const createdAt = nowIso();
+    target = {
+      id: nextOpaqueId("acp-thought"),
+      kind: "thought",
+      text: args.text,
+      createdAt,
+      updatedAt: createdAt,
+      state: "streaming",
+    };
+    slot.activeThoughtItemId = target.id;
+    pushItem(slot, target);
+    return;
+  }
+  appendTranscriptText(slot, target, args.text);
+}
+
 function upsertStatusItem(
   slot: AcpSessionSlot,
   args: {
@@ -784,29 +1040,31 @@ function upsertStatusItem(
     text: args.text,
     createdAt: nowIso(),
   };
-  slot.snapshot.items = [...slot.snapshot.items, item];
+  upsertTranscriptItem(slot, item);
 }
 
 function pushItem(slot: AcpSessionSlot, item: AcpConversationItem) {
-  slot.snapshot.items = [...slot.snapshot.items, item];
+  upsertTranscriptItem(slot, item);
 }
 
 function getLatestConversationItem(slot: AcpSessionSlot) {
-  return slot.snapshot.items[slot.snapshot.items.length - 1];
+  const activeId =
+    slot.activeAssistantItemId ||
+    slot.activeThoughtItemId ||
+    slot.activePlanItemId;
+  return activeId ? slot.transcriptItemsById.get(activeId) : undefined;
 }
 
 function getLatestActiveAssistantItem(slot: AcpSessionSlot) {
-  const latest = getLatestConversationItem(slot);
-  return latest?.kind === "message" &&
-    latest.role === "assistant" &&
-    latest.id === slot.activeAssistantItemId
+  const latest = slot.transcriptItemsById.get(slot.activeAssistantItemId);
+  return latest?.kind === "message" && latest.role === "assistant"
     ? (latest as AcpConversationMessageItem)
     : undefined;
 }
 
 function getLatestActiveThoughtItem(slot: AcpSessionSlot) {
-  const latest = getLatestConversationItem(slot);
-  return latest?.kind === "thought" && latest.id === slot.activeThoughtItemId
+  const latest = slot.transcriptItemsById.get(slot.activeThoughtItemId);
+  return latest?.kind === "thought"
     ? (latest as AcpConversationThoughtItem)
     : undefined;
 }
@@ -1025,11 +1283,11 @@ function upsertToolCallItem(
   const inputSummary = extractToolInputSummary(update, title);
   const resultSummary = extractToolResultSummary(update);
   const now = nowIso();
-  const target = toolCallId
-    ? (slot.snapshot.items.find(
-        (entry) =>
-          entry.kind === "tool_call" && entry.toolCallId === toolCallId,
-      ) as AcpConversationToolCallItem | undefined)
+  const targetId = toolCallId ? slot.transcriptToolItemIds.get(toolCallId) : "";
+  const target = targetId
+    ? (slot.transcriptItemsById.get(targetId) as
+        | AcpConversationToolCallItem
+        | undefined)
     : undefined;
   if (!target) {
     const frozenInputSummary = inputSummary || undefined;
@@ -1048,36 +1306,39 @@ function upsertToolCallItem(
     });
     return;
   }
+  const patch: Partial<AcpConversationToolCallItem> = {};
   if (
     !isGenericToolDisplayText(title) ||
     isGenericToolDisplayText(target.title)
   ) {
-    target.title = title || target.title;
+    patch.title = title || target.title;
   }
   if (toolKind) {
-    target.toolKind = toolKind;
+    patch.toolKind = toolKind;
   }
   if (
     !isGenericToolDisplayText(toolName) ||
     isGenericToolDisplayText(target.toolName)
   ) {
-    target.toolName = toolName || target.toolName;
+    patch.toolName = toolName || target.toolName;
   }
   if (inputSummary && !target.inputSummary) {
-    target.inputSummary = inputSummary;
+    patch.inputSummary = inputSummary;
   }
   if (resultSummary) {
-    target.resultSummary = resultSummary;
+    patch.resultSummary = resultSummary;
   }
-  if (target.inputSummary) {
-    target.summary = target.inputSummary;
+  const nextInputSummary = patch.inputSummary || target.inputSummary;
+  if (nextInputSummary) {
+    patch.summary = nextInputSummary;
   } else if (resultSummary && !target.summary) {
-    target.summary = resultSummary;
+    patch.summary = resultSummary;
   }
   if (toolCallStateRank(nextState) >= toolCallStateRank(target.state)) {
-    target.state = nextState;
+    patch.state = nextState;
   }
-  target.updatedAt = now;
+  patch.updatedAt = now;
+  patchTranscriptItem(slot, target.id, patch as Partial<AcpConversationItem>);
 }
 
 function finalizeStreamingItems(
@@ -1086,41 +1347,35 @@ function finalizeStreamingItems(
   planTerminalStatus: "cancelled" | "skipped" = "skipped",
 ) {
   if (slot.activeAssistantItemId) {
-    const target = slot.snapshot.items.find(
-      (entry) =>
-        entry.id === slot.activeAssistantItemId && entry.kind === "message",
-    ) as AcpConversationMessageItem | undefined;
-    if (target) {
-      target.state = finalState;
-      target.updatedAt = nowIso();
-    }
+    patchTranscriptItem(slot, slot.activeAssistantItemId, {
+      state: finalState,
+      updatedAt: nowIso(),
+    } as Partial<AcpConversationItem>);
     slot.activeAssistantItemId = "";
   }
   if (slot.activeThoughtItemId) {
-    const target = slot.snapshot.items.find(
-      (entry) =>
-        entry.id === slot.activeThoughtItemId && entry.kind === "thought",
-    ) as AcpConversationThoughtItem | undefined;
-    if (target) {
-      target.state = finalState;
-      target.updatedAt = nowIso();
-    }
+    patchTranscriptItem(slot, slot.activeThoughtItemId, {
+      state: finalState,
+      updatedAt: nowIso(),
+    } as Partial<AcpConversationItem>);
     slot.activeThoughtItemId = "";
   }
   if (slot.activePlanItemId) {
-    const target = slot.snapshot.items.find(
-      (entry) => entry.id === slot.activePlanItemId && entry.kind === "plan",
-    ) as AcpConversationPlanItem | undefined;
+    const target = slot.transcriptItemsById.get(slot.activePlanItemId) as
+      | AcpConversationPlanItem
+      | undefined;
     if (target) {
-      target.entries = target.entries.map((entry) =>
-        isTerminalPlanStatus(entry.status)
-          ? entry
-          : {
-              ...entry,
-              status: planTerminalStatus,
-            },
-      );
-      target.updatedAt = nowIso();
+      patchTranscriptItem(slot, target.id, {
+        entries: target.entries.map((entry) =>
+          isTerminalPlanStatus(entry.status)
+            ? entry
+            : {
+                ...entry,
+                status: planTerminalStatus,
+              },
+        ),
+        updatedAt: nowIso(),
+      } as Partial<AcpConversationItem>);
     }
     slot.activePlanItemId = "";
   }
@@ -1651,6 +1906,7 @@ function handleSessionUpdate(
   switch (String(update.sessionUpdate || "").trim()) {
     case "agent_message_chunk": {
       slot.snapshot.lastLifecycleEvent = "agent_message_chunk";
+      slot.activeThoughtItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -1661,23 +1917,11 @@ function handleSessionUpdate(
       if (!chunk) {
         return;
       }
-      let target = getLatestActiveAssistantItem(slot);
-      if (!target) {
-        const createdAt = nowIso();
-        target = {
-          id: nextOpaqueId("acp-msg-assistant"),
-          kind: "message",
-          role: "assistant",
-          text: "",
-          createdAt,
-          updatedAt: createdAt,
-          state: "streaming",
-        };
-        slot.activeAssistantItemId = target.id;
-        pushItem(slot, target);
-      }
-      target.text += chunk;
-      target.state = "streaming";
+      appendStreamingTranscriptText(slot, {
+        kind: "message",
+        role: "assistant",
+        text: chunk,
+      });
       markSlotTranscriptUnpublished(slot);
       emitSlotSnapshot(slot, {
         throttlePersist: true,
@@ -1689,6 +1933,7 @@ function handleSessionUpdate(
     }
     case "agent_thought_chunk": {
       slot.snapshot.lastLifecycleEvent = "agent_thought_chunk";
+      slot.activeAssistantItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -1699,22 +1944,10 @@ function handleSessionUpdate(
       if (!chunk) {
         return;
       }
-      let target = getLatestActiveThoughtItem(slot);
-      if (!target) {
-        const createdAt = nowIso();
-        target = {
-          id: nextOpaqueId("acp-thought"),
-          kind: "thought",
-          text: "",
-          createdAt,
-          updatedAt: createdAt,
-          state: "streaming",
-        };
-        slot.activeThoughtItemId = target.id;
-        pushItem(slot, target);
-      }
-      target.text += chunk;
-      target.state = "streaming";
+      appendStreamingTranscriptText(slot, {
+        kind: "thought",
+        text: chunk,
+      });
       markSlotTranscriptUnpublished(slot);
       emitSlotSnapshot(slot, {
         throttlePersist: true,
@@ -1726,6 +1959,8 @@ function handleSessionUpdate(
     }
     case "tool_call": {
       slot.snapshot.lastLifecycleEvent = "tool_call";
+      slot.activeAssistantItemId = "";
+      slot.activeThoughtItemId = "";
       upsertToolCallItem(slot, update);
       emitSlotSnapshot(slot, {
         uiReason: "boundary",
@@ -1735,6 +1970,8 @@ function handleSessionUpdate(
     }
     case "tool_call_update": {
       slot.snapshot.lastLifecycleEvent = "tool_call_update";
+      slot.activeAssistantItemId = "";
+      slot.activeThoughtItemId = "";
       upsertToolCallItem(slot, update);
       emitSlotSnapshot(slot, {
         uiReason: "boundary",
@@ -1744,6 +1981,8 @@ function handleSessionUpdate(
     }
     case "plan": {
       slot.snapshot.lastLifecycleEvent = "plan";
+      slot.activeAssistantItemId = "";
+      slot.activeThoughtItemId = "";
       const entries = Array.isArray(update.entries)
         ? update.entries.map((entry) => ({
             content: String(entry?.content || ""),
@@ -1751,9 +1990,9 @@ function handleSessionUpdate(
             status: String(entry?.status || ""),
           }))
         : [];
-      let target = slot.snapshot.items.find(
-        (entry) => entry.id === slot.activePlanItemId && entry.kind === "plan",
-      ) as AcpConversationPlanItem | undefined;
+      let target = slot.transcriptItemsById.get(slot.activePlanItemId) as
+        | AcpConversationPlanItem
+        | undefined;
       if (!target) {
         target = {
           id: nextOpaqueId("acp-plan"),
@@ -1764,8 +2003,10 @@ function handleSessionUpdate(
         slot.activePlanItemId = target.id;
         pushItem(slot, target);
       } else {
-        target.entries = entries;
-        target.updatedAt = nowIso();
+        patchTranscriptItem(slot, target.id, {
+          entries,
+          updatedAt: nowIso(),
+        } as Partial<AcpConversationItem>);
       }
       emitSlotSnapshot(slot, {
         uiReason: "boundary",
@@ -2384,7 +2625,7 @@ function buildBackendSummary(
       slot.adapter !== null,
     messageCount:
       sessions.reduce((sum, entry) => sum + entry.messageCount, 0) ||
-      slot.snapshot.items.length,
+      slot.snapshot.transcriptItemCount,
     lastError,
     updatedAt: slot.snapshot.updatedAt,
   };
@@ -2485,6 +2726,32 @@ export function getAcpConversationUiSnapshot(backendId?: string) {
   );
 }
 
+async function flushPendingChatTranscriptWrites() {
+  if (chatTranscriptWrites.size > 0) {
+    await Promise.allSettled(Array.from(chatTranscriptWrites));
+  }
+}
+
+export async function readAcpConversationTranscriptPage(args: {
+  backendId?: string;
+  conversationId?: string;
+  cursor?: number;
+  limit?: number;
+}) {
+  ensureInitialized();
+  await flushPendingChatTranscriptWrites();
+  const backendId = normalizeBackendId(args.backendId || activeBackendId);
+  const conversationId =
+    normalizeBackendId(args.conversationId) ||
+    getOrCreateSlot(backendId).snapshot.conversationId;
+  const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
+  return readAcpChatTranscriptPage({
+    conversationStorageDir: paths.conversationStorageDir,
+    cursor: args.cursor,
+    limit: args.limit,
+  });
+}
+
 export function subscribeAcpConversationSnapshots(
   listener: AcpSnapshotListener,
 ) {
@@ -2536,6 +2803,9 @@ function createNewLocalConversationSnapshot(args: {
   const createdAt = args.createdAt || nowIso();
   const conversationId = nextOpaqueId("acp-conversation");
   const paths = resolveAcpChatRuntimePaths(args.backendId, conversationId);
+  const transcriptPaths = resolveAcpChatTranscriptPaths(
+    paths.conversationStorageDir,
+  );
   return {
     ...createEmptyAcpConversationSnapshot(),
     backend: args.backend,
@@ -2551,6 +2821,12 @@ function createNewLocalConversationSnapshot(args: {
     sessionCwd: paths.agentWorkspaceDir,
     workspaceDir: paths.agentWorkspaceDir,
     runtimeDir: paths.runtimeDir,
+    transcriptPath: transcriptPaths.transcriptPath,
+    transcriptIndexPath: transcriptPaths.transcriptIndexPath,
+    transcriptRevision: 0,
+    transcriptEventSeq: 0,
+    transcriptItemCount: 0,
+    transcriptPreview: undefined,
     updatedAt: createdAt,
   };
 }
@@ -2635,7 +2911,7 @@ export async function sendAcpConversationPrompt(args: {
   if (
     (!slot.snapshot.conversationTitle ||
       slot.snapshot.conversationTitle === "New Conversation") &&
-    slot.snapshot.items.length === 0
+    slot.snapshot.transcriptItemCount === 0
   ) {
     slot.snapshot.conversationTitle =
       message.length > 48 ? `${message.slice(0, 48)}...` : message;
@@ -2671,6 +2947,7 @@ export async function sendAcpConversationPrompt(args: {
     slot.snapshot.lastStopReason = String(response.stopReason || "").trim();
     finalizeStreamingItems(slot, "complete", "skipped");
     emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+    await flushPendingChatTranscriptWrites();
   } catch (error) {
     slot.snapshot.busy = false;
     finalizeStreamingItems(slot, "error", "cancelled");
@@ -2687,6 +2964,7 @@ export async function sendAcpConversationPrompt(args: {
         slot.snapshot.prerequisiteError || slot.snapshot.lastError;
     }
     emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+    await flushPendingChatTranscriptWrites();
     throw error;
   }
 }
@@ -3158,9 +3436,7 @@ export function buildAcpDiagnosticsBundle(
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),
     diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })),
-    recentItems: snapshot.items
-      .slice(-12)
-      .map((entry) => cloneAcpConversationItem(entry)),
+    recentItems: [],
     lastHostContext: snapshot.lastHostContext
       ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
       : null,

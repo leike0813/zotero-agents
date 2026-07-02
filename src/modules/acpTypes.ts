@@ -307,6 +307,12 @@ export type AcpConversationSnapshot = {
   usage: AcpUsageSummary | null;
   pendingPermissionRequest: AcpPendingPermissionRequest | null;
   diagnostics: AcpDiagnosticsEntry[];
+  transcriptPath: string;
+  transcriptIndexPath: string;
+  transcriptRevision: number;
+  transcriptEventSeq: number;
+  transcriptItemCount: number;
+  transcriptPreview?: string;
   items: AcpConversationItem[];
   lastHostContext: AcpHostContext | null;
   agentWorkspaceDir: string;
@@ -453,6 +459,12 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     usage: null,
     pendingPermissionRequest: null,
     diagnostics: [],
+    transcriptPath: "",
+    transcriptIndexPath: "",
+    transcriptRevision: 0,
+    transcriptEventSeq: 0,
+    transcriptItemCount: 0,
+    transcriptPreview: undefined,
     items: [],
     lastHostContext: null,
     agentWorkspaceDir: "",

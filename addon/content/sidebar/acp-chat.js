@@ -11,6 +11,15 @@
     transcriptMode: "",
     transcriptRevision: null,
     transcriptRenderedMode: "",
+    transcriptBackendId: "",
+    transcriptConversationId: "",
+    transcriptItems: [],
+    transcriptStartCursor: null,
+    transcriptPrevCursor: null,
+    transcriptNextCursor: null,
+    transcriptTotal: 0,
+    transcriptLoadingKey: "",
+    transcriptLoadedRevision: null,
     markdownParser: undefined,
     toolActivityExpandedIds: new Set(),
     permissionRequestDetails: null,
@@ -76,6 +85,187 @@
         // Ignore cross-window messaging failures.
       }
     });
+  }
+
+  function resetTranscriptCache() {
+    state.transcriptNodeMap.clear();
+    state.transcriptOrderKey = "";
+    state.transcriptMode = "";
+    state.transcriptRevision = null;
+    state.transcriptRenderedMode = "";
+    state.transcriptItems = [];
+    state.transcriptStartCursor = null;
+    state.transcriptPrevCursor = null;
+    state.transcriptNextCursor = null;
+    state.transcriptTotal = 0;
+    state.transcriptLoadingKey = "";
+    state.transcriptLoadedRevision = null;
+  }
+
+  function requestTranscriptPage(snapshot, cursor) {
+    const backendId = safeText(snapshot && snapshot.backendId);
+    const conversationId = safeText(snapshot && snapshot.conversationId);
+    if (!conversationId) return;
+    const key =
+      backendId +
+      ":" +
+      conversationId +
+      ":" +
+      (cursor == null ? "tail" : cursor);
+    if (state.transcriptLoadingKey === key) return;
+    state.transcriptLoadingKey = key;
+    sendAction("load-chat-transcript-page", {
+      backendId,
+      conversationId,
+      cursor: typeof cursor === "number" ? cursor : undefined,
+      limit: 80,
+    });
+  }
+
+  function isTranscriptTailPage() {
+    return state.transcriptNextCursor === null;
+  }
+
+  function requestTranscriptResync(snapshot, backendId, conversationId) {
+    const tailPage = isTranscriptTailPage();
+    const cursor = tailPage ? undefined : state.transcriptStartCursor;
+    resetTranscriptCache();
+    state.transcriptBackendId = backendId;
+    state.transcriptConversationId = conversationId;
+    requestTranscriptPage(
+      snapshot,
+      typeof cursor === "number" ? cursor : undefined,
+    );
+  }
+
+  function handleTranscriptPage(payload) {
+    const backendId = safeText(payload && payload.backendId);
+    const conversationId = safeText(payload && payload.conversationId);
+    if (
+      backendId !== state.transcriptBackendId ||
+      conversationId !== state.transcriptConversationId
+    )
+      return;
+    const page =
+      payload &&
+      payload.transcriptPage &&
+      typeof payload.transcriptPage === "object"
+        ? payload.transcriptPage
+        : null;
+    if (!page) return;
+    const items = Array.isArray(page.items) ? page.items : [];
+    const cursor = Number(page.cursor) || 0;
+    const prepend =
+      state.transcriptStartCursor !== null &&
+      cursor < state.transcriptStartCursor;
+    if (prepend) {
+      const existingIds = new Set(
+        state.transcriptItems.map(function (item) {
+          return safeText(item && item.id);
+        }),
+      );
+      state.transcriptItems = items
+        .filter(function (item) {
+          return !existingIds.has(safeText(item && item.id));
+        })
+        .concat(state.transcriptItems);
+    } else {
+      state.transcriptItems = items;
+    }
+    state.transcriptStartCursor = cursor;
+    state.transcriptPrevCursor =
+      typeof page.prevCursor === "number" ? page.prevCursor : null;
+    state.transcriptNextCursor =
+      typeof page.nextCursor === "number" ? page.nextCursor : null;
+    state.transcriptTotal = Number(page.total) || state.transcriptItems.length;
+    state.transcriptLoadedRevision =
+      Number(page.transcriptRevision || page.eventSeq) || 0;
+    state.transcriptLoadingKey = "";
+    state.transcriptRevision = null;
+    render(state.snapshot || {});
+  }
+
+  function handleTranscriptDeltas(payload) {
+    const backendId = safeText(payload && payload.backendId);
+    const conversationId = safeText(payload && payload.conversationId);
+    if (
+      backendId !== state.transcriptBackendId ||
+      conversationId !== state.transcriptConversationId
+    )
+      return;
+    const deltas = Array.isArray(payload && payload.transcriptDeltas)
+      ? payload.transcriptDeltas
+      : [];
+    if (!deltas.length) return;
+    const tailPage = isTranscriptTailPage();
+    for (let index = 0; index < deltas.length; index += 1) {
+      const delta = deltas[index] || {};
+      const nextSeq = Number(delta.eventSeq) || 0;
+      if (
+        delta.resyncRequired ||
+        (state.transcriptLoadedRevision &&
+          nextSeq &&
+          nextSeq !== state.transcriptLoadedRevision + 1)
+      ) {
+        requestTranscriptResync(
+          state.snapshot || {},
+          backendId,
+          conversationId,
+        );
+        return;
+      }
+      const itemId = safeText(delta.itemId);
+      if (delta.op === "upsert_item" && delta.item) {
+        const existingIndex = state.transcriptItems.findIndex(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (existingIndex >= 0) {
+          state.transcriptItems[existingIndex] = delta.item;
+        } else if (tailPage) {
+          state.transcriptItems.push(delta.item);
+        }
+      } else if (delta.op === "append_text") {
+        const target = state.transcriptItems.find(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (!target || typeof target.text !== "string") {
+          state.transcriptLoadedRevision =
+            nextSeq || state.transcriptLoadedRevision;
+          if (tailPage) {
+            requestTranscriptPage(state.snapshot || {}, undefined);
+            return;
+          }
+          continue;
+        }
+        target.text += String(delta.text || "");
+        target.updatedAt = delta.createdAt || target.updatedAt;
+      } else if (delta.op === "patch_item" && delta.patch) {
+        const patchTarget = state.transcriptItems.find(function (item) {
+          return safeText(item && item.id) === itemId;
+        });
+        if (!patchTarget) {
+          state.transcriptLoadedRevision =
+            nextSeq || state.transcriptLoadedRevision;
+          if (tailPage) {
+            requestTranscriptPage(state.snapshot || {}, undefined);
+            return;
+          }
+          continue;
+        }
+        Object.assign(patchTarget, delta.patch, {
+          id: patchTarget.id,
+          kind: patchTarget.kind,
+        });
+      } else if (delta.op === "delete_item") {
+        state.transcriptItems = state.transcriptItems.filter(function (item) {
+          return safeText(item && item.id) !== itemId;
+        });
+      }
+      state.transcriptLoadedRevision =
+        nextSeq || state.transcriptLoadedRevision;
+    }
+    state.transcriptRevision = null;
+    render(state.snapshot || {});
   }
 
   function assistantConversationView() {
@@ -163,10 +353,13 @@
   function projectConversationView(snapshot) {
     const helper = assistantConversationView();
     if (helper && typeof helper.projectAcpChatConversationView === "function") {
-      return helper.projectAcpChatConversationView(snapshot || {});
+      return helper.projectAcpChatConversationView({
+        ...(snapshot || {}),
+        items: state.transcriptItems,
+      });
     }
     return {
-      items: Array.isArray(snapshot && snapshot.items) ? snapshot.items : [],
+      items: state.transcriptItems,
       plan: { entries: [], activeEntries: [], active: false },
       interaction: { kind: "hidden" },
       usage: snapshot && snapshot.usage ? snapshot.usage : null,
@@ -367,10 +560,37 @@
   }
 
   function renderTranscript(snapshot) {
+    const backendId = safeText(snapshot && snapshot.backendId);
+    const conversationId = safeText(snapshot && snapshot.conversationId);
+    if (
+      backendId !== state.transcriptBackendId ||
+      conversationId !== state.transcriptConversationId
+    ) {
+      state.transcriptBackendId = backendId;
+      state.transcriptConversationId = conversationId;
+      resetTranscriptCache();
+      state.transcriptBackendId = backendId;
+      state.transcriptConversationId = conversationId;
+    }
     const view = projectConversationView(snapshot || {});
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
+    const revision = Math.max(
+      Number(snapshot && snapshot.transcriptRevision) || 0,
+      Number(state.transcriptLoadedRevision) || 0,
+    );
+    const shouldRequestTail =
+      conversationId &&
+      (state.transcriptLoadedRevision === null ||
+        state.transcriptNextCursor === null);
+    if (
+      shouldRequestTail &&
+      state.transcriptLoadedRevision !==
+        (Number(snapshot && snapshot.transcriptRevision) || 0) &&
+      !state.transcriptLoadingKey
+    ) {
+      requestTranscriptPage(snapshot, undefined);
+    }
     if (
       state.transcriptRevision === revision &&
       state.transcriptRenderedMode === mode
@@ -437,6 +657,18 @@
         state.transcriptRenderedMode = mode;
       },
     });
+    if (state.transcriptPrevCursor !== null) {
+      const button = el(
+        "button",
+        "asst-button assistant-transcript-load-earlier",
+        "Load earlier",
+      );
+      button.type = "button";
+      button.addEventListener("click", function () {
+        requestTranscriptPage(snapshot, state.transcriptPrevCursor);
+      });
+      transcriptEl.insertBefore(button, transcriptEl.firstChild);
+    }
   }
 
   function render(snapshot) {
@@ -498,10 +730,19 @@
       closeAllDrawers();
       return;
     }
-    if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
-      return;
+    if (!data) return;
     const payload =
       data.payload && typeof data.payload === "object" ? data.payload : {};
+    if (data && data.type === "acp:transcript-page") {
+      handleTranscriptPage(payload);
+      return;
+    }
+    if (data && data.type === "acp:transcript-delta") {
+      handleTranscriptDeltas(payload);
+      return;
+    }
+    if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
+      return;
     queueRender(payload);
   });
 

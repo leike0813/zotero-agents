@@ -139,6 +139,48 @@ export type AcpSkillRunMessageRevisionSummary = {
   latestRepairRound: number;
 };
 
+export type AcpSkillRunTranscriptDelta = {
+  requestId: string;
+  eventSeq: number;
+  transcriptRevision: number;
+  op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+  itemId: string;
+  item?: AcpSkillRunTranscriptItem;
+  text?: string;
+  patch?: Partial<AcpSkillRunTranscriptItem>;
+  createdAt: string;
+  resyncRequired?: boolean;
+};
+
+type AcpSkillRunTranscriptDeltaListener = (
+  delta: AcpSkillRunTranscriptDelta,
+) => void;
+
+const transcriptDeltaListeners = new Set<AcpSkillRunTranscriptDeltaListener>();
+
+export function subscribeAcpSkillRunTranscriptDeltas(
+  listener: AcpSkillRunTranscriptDeltaListener,
+) {
+  transcriptDeltaListeners.add(listener);
+  return () => {
+    transcriptDeltaListeners.delete(listener);
+  };
+}
+
+function emitAcpSkillRunTranscriptDelta(delta: AcpSkillRunTranscriptDelta) {
+  for (const listener of transcriptDeltaListeners) {
+    listener({
+      ...delta,
+      item: delta.item
+        ? ({ ...delta.item } as AcpSkillRunTranscriptItem)
+        : undefined,
+      patch: delta.patch
+        ? ({ ...delta.patch } as Partial<AcpSkillRunTranscriptItem>)
+        : undefined,
+    });
+  }
+}
+
 export type AcpSkillRunEvent = {
   ts: string;
   stage: string;
@@ -684,6 +726,17 @@ function queueTranscriptEvent(
     item: args.item,
     textPreview: args.textPreview,
     newItem: args.newItem,
+  });
+  emitAcpSkillRunTranscriptDelta({
+    requestId: record.requestId,
+    eventSeq: record.transcriptEventSeq || 0,
+    transcriptRevision: record.transcriptRevision || 0,
+    op: args.op,
+    itemId: args.itemId,
+    item: args.item,
+    text: args.text,
+    patch: args.patch,
+    createdAt: args.createdAt,
   });
   if (!normalizeString(record.runtimeDir)) {
     return;
