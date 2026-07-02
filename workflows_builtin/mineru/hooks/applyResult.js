@@ -425,7 +425,9 @@ function stringifyUnknownError(error) {
     return parts.join(", ");
   }
   try {
-    return JSON.stringify(error);
+    const serialized = JSON.stringify(error);
+    if (serialized === "{}") return "unknown object error";
+    return serialized;
   } catch {
     return "unknown object error";
   }

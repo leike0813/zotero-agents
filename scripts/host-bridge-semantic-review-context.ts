@@ -1,0 +1,190 @@
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+export type HostBridgeSemanticReviewContext = {
+  schema: "host-bridge.semantic-review-context.v1";
+  changedFiles: string[];
+  specLayerChanges: string[];
+  semanticSourceChanges: string[];
+  generatedTargetChanges: string[];
+  unclassifiedChanges: string[];
+  reviewRequired: boolean;
+  recommendedFocus: string[];
+};
+
+function normalizePath(path: string) {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+}
+
+function sortedUnique(paths: string[]) {
+  return Array.from(new Set(paths.map(normalizePath).filter(Boolean))).sort(
+    (left, right) => left.localeCompare(right),
+  );
+}
+
+function gitLines(args: string[]) {
+  try {
+    return execFileSync("git", args, { encoding: "utf8" })
+      .split(/\r?\n/)
+      .map(normalizePath)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function collectChangedFiles() {
+  return sortedUnique([
+    ...gitLines(["diff", "--name-only"]),
+    ...gitLines(["diff", "--name-only", "--cached"]),
+    ...gitLines(["ls-files", "--others", "--exclude-standard"]),
+  ]);
+}
+
+function isSemanticSource(path: string) {
+  return (
+    path.startsWith("skills_src/zotero-bridge-cli/semantic/") ||
+    path.startsWith("profiles_src/hermes/zotero-librarian/")
+  );
+}
+
+function isGeneratedTarget(path: string) {
+  return (
+    path === "doc/host-bridge-cli.md" ||
+    path.startsWith("skills_builtin/zotero-bridge-cli/") ||
+    path.startsWith("profiles/hermes/zotero-librarian/") ||
+    path ===
+      "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2" ||
+    path.startsWith("skills_builtin/create-topic-synthesis-prepare/") ||
+    path.startsWith("skills_builtin/update-topic-synthesis-prepare/") ||
+    path.startsWith("skills_builtin/topic-synthesis-core-enrichment/") ||
+    path.startsWith("skills_builtin/topic-synthesis-finalize/")
+  );
+}
+
+function isHostBridgeOpenSpec(path: string) {
+  return (
+    path.startsWith("openspec/specs/host-bridge") ||
+    path.includes("/specs/host-bridge") ||
+    path.startsWith("openspec/specs/workflow-execution-runtime/") ||
+    path.startsWith("openspec/specs/workflow-execution-seams/") ||
+    path.startsWith("openspec/specs/workflow-runtime/") ||
+    path.startsWith("openspec/specs/host-bridge-release-pipeline/")
+  );
+}
+
+function isWorkflowCatalog(path: string) {
+  return (
+    path === "workflows_builtin/manifest.json" ||
+    (path.startsWith("workflows_builtin/") &&
+      (path.endsWith("/workflow.json") ||
+        path.endsWith("/workflow-package.json")))
+  );
+}
+
+function isSpecLayer(path: string) {
+  return (
+    path === "src/modules/hostBridgeCapabilityRegistry.ts" ||
+    path === "src/modules/hostBridgeServer.ts" ||
+    path === "src/modules/hostBridgeProtocol.ts" ||
+    path === "src/modules/hostBridgeWorkflowControl.ts" ||
+    path === "src/modules/hostBridgeWorkflowAgentRun.ts" ||
+    path === "src/modules/hostBridgePermissionManager.ts" ||
+    path === "src/modules/hostBridgeFileRegistry.ts" ||
+    path === "src/modules/hostBridgeWriteAutoApprovalRegistry.ts" ||
+    path === "src/modules/workflowExecute.ts" ||
+    path === "src/modules/workflowExecuteMessage.ts" ||
+    path.startsWith("src/modules/workflowExecution/") ||
+    path === "cli/zotero-bridge/src/args.rs" ||
+    path === "cli/zotero-bridge/src/commands.rs" ||
+    path === "scripts/host-bridge-surface-catalog.ts" ||
+    isWorkflowCatalog(path) ||
+    isHostBridgeOpenSpec(path)
+  );
+}
+
+function focusFor(
+  specLayerChanges: string[],
+  semanticSourceChanges: string[],
+  generatedTargetChanges: string[],
+) {
+  const focus: string[] = [];
+  if (specLayerChanges.length) {
+    focus.push(
+      "Review Host Bridge wrapper semantic source against changed capability, CLI, workflow, endpoint, or OpenSpec contracts.",
+    );
+    focus.push(
+      "Review Zotero Librarian profile semantic source for workflow lifecycle, handle model, approval, and operating-principle changes.",
+    );
+  }
+  if (semanticSourceChanges.length) {
+    focus.push(
+      "Review edited semantic sources for current-state wording and alignment with the generated Host Bridge surface.",
+    );
+  }
+  if (
+    generatedTargetChanges.length &&
+    !specLayerChanges.length &&
+    !semanticSourceChanges.length
+  ) {
+    focus.push(
+      "Generated targets changed without spec or semantic source changes; verify render or publish drift before release.",
+    );
+  }
+  if (!focus.length) {
+    focus.push(
+      "No Host Bridge semantic review focus detected from changed files.",
+    );
+  }
+  return focus;
+}
+
+export function classifyChangedFiles(
+  changedFiles: string[],
+): HostBridgeSemanticReviewContext {
+  const normalized = sortedUnique(changedFiles);
+  const specLayerChanges: string[] = [];
+  const semanticSourceChanges: string[] = [];
+  const generatedTargetChanges: string[] = [];
+  const unclassifiedChanges: string[] = [];
+
+  for (const path of normalized) {
+    if (isSemanticSource(path)) {
+      semanticSourceChanges.push(path);
+    } else if (isGeneratedTarget(path)) {
+      generatedTargetChanges.push(path);
+    } else if (isSpecLayer(path)) {
+      specLayerChanges.push(path);
+    } else {
+      unclassifiedChanges.push(path);
+    }
+  }
+
+  return {
+    schema: "host-bridge.semantic-review-context.v1",
+    changedFiles: normalized,
+    specLayerChanges,
+    semanticSourceChanges,
+    generatedTargetChanges,
+    unclassifiedChanges,
+    reviewRequired:
+      specLayerChanges.length > 0 || semanticSourceChanges.length > 0,
+    recommendedFocus: focusFor(
+      specLayerChanges,
+      semanticSourceChanges,
+      generatedTargetChanges,
+    ),
+  };
+}
+
+function isMainModule() {
+  return process.argv[1]
+    ? resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+    : false;
+}
+
+if (isMainModule()) {
+  const context = classifyChangedFiles(collectChangedFiles());
+  process.stdout.write(`${JSON.stringify(context, null, 2)}\n`);
+}

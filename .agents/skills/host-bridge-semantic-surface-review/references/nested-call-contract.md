@@ -1,0 +1,34 @@
+# Nested Call Contract
+
+The Host Bridge release pipeline calls this skill before rendering Host Bridge surfaces.
+
+## Pipeline Entry
+
+The release pipeline should call this skill when changed files include Host Bridge capability, endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge specs, wrapper semantic source, or Zotero Librarian profile semantic source files.
+
+The first command inside this skill is:
+
+```powershell
+npx tsx scripts/host-bridge-semantic-review-context.ts
+```
+
+## Return Shape
+
+Report the result in plain text with these fields:
+
+```text
+semantic review ran: yes
+context reviewRequired: true|false
+semantic source edits: <file list or none>
+alignment result: aligned|edits applied|blocked
+next commands: <render/check commands>
+blocker: <only when blocked>
+```
+
+## Responsibilities
+
+This skill may edit semantic sources when review finds a mismatch.
+
+This skill must not publish releases, run GitHub workflows, sync prebuilds, or treat generated output as source-of-truth content.
+
+The release pipeline remains responsible for rendering, checks, publication, release workflow tracking, and final reporting.

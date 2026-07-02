@@ -19,14 +19,25 @@ profile repository.
 
 ## Commands
 
-1. Render Host Bridge surfaces after capability, CLI, wrapper skill, profile,
-   workflow catalog, or documentation changes:
+1. Before rendering, run semantic surface review when Host Bridge capability,
+   endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge
+   specs, wrapper semantic source, or Zotero Librarian profile semantic source
+   files changed. Use `$host-bridge-semantic-surface-review`, starting with:
+
+```powershell
+npx tsx scripts/host-bridge-semantic-review-context.ts
+```
+
+Continue only after the semantic review reports either aligned semantic sources
+or semantic-source edits applied.
+
+2. Render Host Bridge surfaces after semantic review completes:
 
 ```powershell
 npm run render:host-bridge-surface
 ```
 
-2. Run the relevant local checks for the changed files. For Host Bridge CLI
+3. Run the relevant local checks for the changed files. For Host Bridge CLI
    packaging and profile surface changes, use:
 
 ```powershell
@@ -36,7 +47,7 @@ npm run check:zotero-librarian-profile
 npx tsx node_modules/mocha/bin/mocha "test/core/139-host-bridge-cli-packaging.test.ts" --require test/setup/zotero-mock.ts
 ```
 
-3. Publish the source changes to `main` through the normal repository flow.
+4. Publish the source changes to `main` through the normal repository flow.
    CLI build-input changes use `build-zotero-bridge-cli.yml`; wrapper, profile,
    broker, and surface-only changes use `publish-host-bridge-surfaces.yml`.
    Use the automatically created `push` workflow run as the release run.
@@ -68,7 +79,7 @@ the restored binaries with `npm run check:host-bridge-cli-prebuild-freshness`,
 then runs `npm run test:gate:release` and builds the XPI. The CLI freshness
 check is a release workflow gate, not part of `test:gate:release`.
 
-4. After the GitHub workflow succeeds, sync the GitHub-built prebuilds back to
+5. After the GitHub workflow succeeds, sync the GitHub-built prebuilds back to
    the local checkout when local `addon/bin` artifacts are needed:
 
 ```powershell
@@ -77,8 +88,10 @@ npm run sync:host-bridge-cli-prebuilds
 
 ## Report
 
-After running, report which local commands ran, whether publication used an
-automatic `push` run or a manual dispatch run, the GitHub workflow run used for
+After running, report which local commands ran, whether semantic surface review
+ran, whether semantic source files changed, whether the review found a
+specification-to-semantic mismatch, whether publication used an automatic
+`push` run or a manual dispatch run, the GitHub workflow run used for
 publication, the reason for any manual dispatch, whether
 `host-bridge-cli-prebuilds` was updated, whether
 `host-bridge/zotero-bridge-cli-bundle` was updated, whether

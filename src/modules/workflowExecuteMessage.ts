@@ -88,8 +88,21 @@ export function normalizeErrorMessage(
   if (typeof error === "string") {
     return truncateLine(error);
   }
+  if (error && typeof error === "object") {
+    const rec = error as Record<string, unknown>;
+    if (typeof rec.message === "string" && rec.message.trim()) {
+      return truncateLine(rec.message);
+    }
+  }
   try {
-    return truncateLine(JSON.stringify(error));
+    const serialized = JSON.stringify(error);
+    if (serialized === "{}") {
+      const fallback = String(error);
+      return truncateLine(
+        fallback !== "[object Object]" ? fallback : resolved.unknownError,
+      );
+    }
+    return truncateLine(serialized);
   } catch {
     const normalized = String(error);
     return truncateLine(normalized || resolved.unknownError);

@@ -67,6 +67,10 @@ const CURRENT_STATE_ONLY_DOCS = [
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+  ".agents/skills/host-bridge-semantic-surface-review/SKILL.md",
+  ".agents/skills/host-bridge-semantic-surface-review/references/surface-map.md",
+  ".agents/skills/host-bridge-semantic-surface-review/references/review-playbook.md",
+  ".agents/skills/host-bridge-semantic-surface-review/references/nested-call-contract.md",
 ];
 
 const FORBIDDEN_TEXT = [

@@ -762,6 +762,22 @@ async function fileExists(path: string, runtime: RuntimeLike) {
   }
 }
 
+async function filterMissingSourceFiles(
+  attachments: AttachmentLike[],
+  runtime: RuntimeLike,
+) {
+  if (!attachments.length) return attachments;
+  const result: AttachmentLike[] = [];
+  for (const entry of attachments) {
+    const sourcePath = await resolveAttachmentSourcePath(entry, runtime);
+    if (!sourcePath) continue;
+    if (await fileExists(sourcePath, runtime)) {
+      result.push(entry);
+    }
+  }
+  return result;
+}
+
 async function filterArtifactConflicts(
   attachments: AttachmentLike[],
   args: EvaluateWorkflowSelectionArgs,
@@ -1107,8 +1123,9 @@ async function selectByValidateSelectionPolicy(args: {
     const candidates = collectAttachmentCandidates(args.selection).filter((entry) =>
       isPdfAttachment(entry, args.runtime),
     );
+    const withSourceFiles = await filterMissingSourceFiles(candidates, args.runtime);
     const withoutArtifacts = await filterArtifactConflicts(
-      candidates,
+      withSourceFiles,
       { ...args.rootArgs, manifest: args.manifest },
       args.runtime,
     );

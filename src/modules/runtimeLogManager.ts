@@ -499,6 +499,18 @@ function normalizeError(error: unknown) {
       cause,
     };
   }
+  if (typeof error === "object" && error !== null) {
+    const rec = error as Record<string, unknown>;
+    if (typeof rec.message === "string" && rec.message.trim()) {
+      return {
+        name: String(rec.name || "Error"),
+        message: sanitizeString(rec.message),
+        stack: typeof rec.stack === "string" ? rec.stack : undefined,
+        category,
+        cause,
+      };
+    }
+  }
   try {
     return {
       name: "Error",

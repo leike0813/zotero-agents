@@ -757,8 +757,14 @@ function stringifyUnknownError(error: unknown) {
   if (!error || typeof error !== "object") {
     return String(error || "unknown error");
   }
+  const record = error as Record<string, unknown>;
+  if (typeof record.message === "string" && record.message.trim()) {
+    return record.message;
+  }
   try {
-    return JSON.stringify(error);
+    const serialized = JSON.stringify(error);
+    if (serialized === "{}") return "unknown object error";
+    return serialized;
   } catch {
     return "unknown object error";
   }
