@@ -110,6 +110,7 @@ export type AcpSessionSlot = {
   suppressSessionLoadReplay: boolean;
   uiEmitTimer: ReturnType<typeof setTimeout> | null;
   persistTimer: ReturnType<typeof setTimeout> | null;
+  lastLiveActivityMs: number;
 };
 
 type AcpEmitOptions = {
@@ -133,6 +134,7 @@ const slots = new Map<string, AcpSessionSlot>();
 const listeners = new Set<AcpSnapshotListener>();
 const frontendListeners = new Set<AcpFrontendSnapshotListener>();
 const MAX_DIAGNOSTICS = 40;
+const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
 const STREAMING_PERSIST_THROTTLE_MS = 1500;
 const HOST_BRIDGE_CLI_WRAPPER_SKILL_ID = "zotero-bridge-cli";
 
@@ -361,9 +363,54 @@ function getOrCreateSlot(backendIdRaw?: string) {
     suppressSessionLoadReplay: false,
     uiEmitTimer: null,
     persistTimer: null,
+    lastLiveActivityMs: Date.now(),
   };
   slots.set(backendId, slot);
   return slot;
+}
+
+function touchLiveAcpChatSlot(slot: AcpSessionSlot) {
+  slot.lastLiveActivityMs = Date.now();
+}
+
+function isBusyLiveAcpChatSlot(slot: AcpSessionSlot) {
+  return (
+    slot.snapshot.busy ||
+    slot.snapshot.status === "prompting" ||
+    slot.snapshot.status === "permission-required"
+  );
+}
+
+async function enforceAcpChatLiveAdapterLimit(targetSlot: AcpSessionSlot) {
+  const liveSlots = Array.from(slots.values()).filter(
+    (slot) => !!slot.adapter && slot !== targetSlot,
+  );
+  if (liveSlots.length < MAX_LIVE_ACP_CHAT_ADAPTERS) {
+    return;
+  }
+  const idle = liveSlots
+    .filter((slot) => !isBusyLiveAcpChatSlot(slot))
+    .sort((left, right) => left.lastLiveActivityMs - right.lastLiveActivityMs);
+  const evicted = idle[0];
+  if (!evicted) {
+    throw new Error(
+      "ACP Chat live session limit reached; all live sessions are busy.",
+    );
+  }
+  appendDiagnostic(evicted, {
+    id: nextOpaqueId("acp-diag"),
+    ts: nowIso(),
+    kind: "live_session_evicted",
+    level: "info",
+    message:
+      "ACP Chat local connection disconnected because the live session limit was reached.",
+    detail: `limit=${MAX_LIVE_ACP_CHAT_ADAPTERS}`,
+  });
+  await disconnectSlotAdapter(evicted);
+  evicted.snapshot.sessionId = "";
+  evicted.snapshot.busy = false;
+  evicted.snapshot.status = "idle";
+  emitSlotSnapshot(evicted);
 }
 
 function setSlotPendingPermissionRequest(
@@ -1798,6 +1845,7 @@ function handleSessionUpdate(
 
 function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
   slot.unsubscribeUpdate = nextAdapter.onUpdate(async (event) => {
+    touchLiveAcpChatSlot(slot);
     handleSessionUpdate(
       slot,
       event as Parameters<typeof handleSessionUpdate>[1],
@@ -1841,6 +1889,7 @@ function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
     emitSlotSnapshot(slot);
   });
   slot.unsubscribeDiagnostics = nextAdapter.onDiagnostics((entry) => {
+    touchLiveAcpChatSlot(slot);
     appendDiagnostic(slot, entry);
     emitSlotSnapshot(slot, {
       persist: false,
@@ -2017,6 +2066,7 @@ async function ensureAdapter(backendId?: string) {
   ensureInitialized();
   const slot = getOrCreateSlot(backendId || activeBackendId);
   if (slot.adapter) {
+    touchLiveAcpChatSlot(slot);
     return { slot, adapter: slot.adapter };
   }
   const backend = await resolveBackendForSlot(slot);
@@ -2073,6 +2123,7 @@ async function ensureAdapter(backendId?: string) {
       backend,
       injection: hostBridgeCliInjection,
     });
+    await enforceAcpChatLiveAdapterLimit(slot);
     const nextAdapter = await adapterFactory({
       backend: backendWithHostBridgeCli,
       agentWorkspaceDir: slot.snapshot.agentWorkspaceDir,
@@ -2081,6 +2132,7 @@ async function ensureAdapter(backendId?: string) {
       runtimeDir: slot.snapshot.runtimeDir,
     });
     bindAdapter(slot, nextAdapter);
+    touchLiveAcpChatSlot(slot);
     slot.snapshot.status = "spawning";
     emitSlotSnapshot(slot);
     const initializedAdapter = await nextAdapter.initialize();
@@ -2145,6 +2197,7 @@ function applyAttachedSessionResult(
     models?: Parameters<typeof applyModelState>[1] | null;
   },
 ) {
+  touchLiveAcpChatSlot(slot);
   slot.snapshot.sessionId = String(result.sessionId || "").trim();
   slot.snapshot.remoteSessionId =
     slot.snapshot.sessionId ||
@@ -2575,6 +2628,7 @@ export async function sendAcpConversationPrompt(args: {
   const { slot, adapter } = await ensureSession(
     args.backendId || activeBackendId,
   );
+  touchLiveAcpChatSlot(slot);
   if (!slot.snapshot.conversationId) {
     slot.snapshot.conversationId = nextOpaqueId("acp-conversation");
   }

@@ -596,7 +596,9 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
 }
 
 async function waitForAcpConversationSnapshot(
-  predicate: (snapshot: ReturnType<typeof getAcpConversationSnapshot>) => boolean,
+  predicate: (
+    snapshot: ReturnType<typeof getAcpConversationSnapshot>,
+  ) => boolean,
 ) {
   let snapshot = getAcpConversationSnapshot();
   for (let index = 0; index < 40; index += 1) {
@@ -1761,6 +1763,108 @@ describe("acp session manager", function () {
       getAcpConversationSnapshot("acp-two").conversationId,
       beforeNew,
     );
+  });
+
+  it("evicts the least recently active idle ACP chat adapter when the live cap is reached", async function () {
+    const backendIds = ["acp-one", "acp-two", "acp-three", "acp-four"];
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: backendIds.map((id) => ({
+          id,
+          displayName: id,
+          type: "acp",
+          command: "node",
+          args: [`${id}.js`],
+        })),
+      }),
+      true,
+    );
+    const adapters = new Map<string, FakeAcpConnectionAdapter>();
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      const adapter = new FakeAcpConnectionAdapter();
+      adapters.set(args.backend.id, adapter);
+      return adapter;
+    });
+
+    for (const backendId of backendIds.slice(0, 3)) {
+      await setActiveAcpBackend({ backendId });
+      await sendAcpConversationPrompt({ message: `hello ${backendId}` });
+    }
+    assert.equal(adapters.get("acp-one")?.closeCalls, 0);
+
+    await setActiveAcpBackend({ backendId: "acp-four" });
+    await sendAcpConversationPrompt({ message: "hello acp-four" });
+
+    assert.equal(adapters.get("acp-one")?.closeCalls, 1);
+    assert.equal(adapters.get("acp-two")?.closeCalls, 0);
+    assert.equal(adapters.get("acp-three")?.closeCalls, 0);
+    assert.equal(adapters.get("acp-four")?.closeCalls, 0);
+  });
+
+  it("rejects a fourth ACP chat adapter when all live adapters are busy", async function () {
+    const backendIds = ["acp-one", "acp-two", "acp-three", "acp-four"];
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: backendIds.map((id) => ({
+          id,
+          displayName: id,
+          type: "acp",
+          command: "node",
+          args: [`${id}.js`],
+        })),
+      }),
+      true,
+    );
+    const adapters = new Map<string, FakeAcpConnectionAdapter>();
+    const releases: Array<() => void> = [];
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      const adapter = new FakeAcpConnectionAdapter();
+      if (args.backend.id !== "acp-four") {
+        adapter.holdPromptUntil = new Promise<void>((resolve) => {
+          releases.push(resolve);
+        });
+      }
+      adapters.set(args.backend.id, adapter);
+      return adapter;
+    });
+
+    const prompts: Array<Promise<unknown>> = [];
+    for (const backendId of backendIds.slice(0, 3)) {
+      await setActiveAcpBackend({ backendId });
+      prompts.push(
+        sendAcpConversationPrompt({ message: `busy ${backendId}` }).catch(
+          (error) => error,
+        ),
+      );
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (getAcpConversationSnapshot(backendId).busy) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.isTrue(getAcpConversationSnapshot(backendId).busy);
+    }
+
+    let rejected: unknown = null;
+    try {
+      await setActiveAcpBackend({ backendId: "acp-four" });
+      await sendAcpConversationPrompt({ message: "busy acp-four" });
+    } catch (error) {
+      rejected = error;
+    } finally {
+      releases.forEach((release) => release());
+      await Promise.all(prompts);
+    }
+
+    assert.instanceOf(rejected, Error);
+    assert.match((rejected as Error).message, /live session limit reached/i);
+    assert.equal(adapters.get("acp-one")?.closeCalls, 0);
+    assert.equal(adapters.get("acp-two")?.closeCalls, 0);
+    assert.equal(adapters.get("acp-three")?.closeCalls, 0);
   });
 
   it("creates a new local conversation without deleting the previous transcript", async function () {

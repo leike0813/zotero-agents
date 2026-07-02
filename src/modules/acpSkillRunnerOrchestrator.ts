@@ -70,6 +70,7 @@ import {
   writeAcpSkillRunnerResultEnvelope,
   type AcpSkillOutputConvergenceResult,
 } from "./acpSkillOutputConvergence";
+import { readAcpSkillRunContextPayload } from "./acpSkillRunPayloadStore";
 import { validateAcpSkillRunRequestAgainstSchemas } from "./acpSkillSchemaAssets";
 import { resolveAcpSkillResultFileFallback } from "./acpSkillResultFileFallback";
 import {
@@ -2042,7 +2043,7 @@ function canContinueRecoveredWorkflowTask(
     (record.status === "running" ||
       record.status === "repairing" ||
       record.status === "failed_retriable") &&
-    !!record.runnerJson &&
+    (!!record.runnerJson || !!normalizeString(record.runContextPath)) &&
     !!normalizeString(record.primarySkillDir)
   );
 }
@@ -2175,6 +2176,17 @@ export async function recoverAcpSkillRunConversation(args: {
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
+  const recoveredContext = await readAcpSkillRunContextPayload(
+    record.runtimeDir,
+  );
+  const contextRequest =
+    recoveredContext?.requestPayload &&
+    isJsonObject(recoveredContext.requestPayload)
+      ? recoveredContext.requestPayload
+      : undefined;
+  const contextRunnerJson = isJsonObject(recoveredContext?.runnerJson)
+    ? recoveredContext?.runnerJson
+    : undefined;
   const recoveredRuntimeOptions = resolveRecoveredRuntimeOptions(record);
   const recoveredRequest =
     record.requestPayload &&
@@ -2183,14 +2195,24 @@ export async function recoverAcpSkillRunConversation(args: {
     (record.requestPayload as { kind?: unknown }).kind ===
       ACP_SKILL_RUN_REQUEST_KIND
       ? (record.requestPayload as AcpSkillRunRequestV1)
-      : null;
+      : contextRequest &&
+          (contextRequest as { kind?: unknown }).kind ===
+            ACP_SKILL_RUN_REQUEST_KIND
+        ? (contextRequest as AcpSkillRunRequestV1)
+        : null;
   const recoveredRequiredMcpTools = recoveredRequest
     ? resolveRequiredMcpTools({
         request: recoveredRequest,
-        runnerJson: (record.runnerJson || {}) as Record<string, unknown>,
+        runnerJson: (record.runnerJson || contextRunnerJson || {}) as Record<
+          string,
+          unknown
+        >,
       })
     : resolveRunnerRequiredMcpTools(
-        (record.runnerJson || {}) as Record<string, unknown>,
+        (record.runnerJson || contextRunnerJson || {}) as Record<
+          string,
+          unknown
+        >,
       );
   const sessionId = normalizeString(record.sessionId);
   if (!sessionId) {
@@ -2227,7 +2249,7 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   const backend = await resolveBackendForRecoveredRun(record.backendId);
   rememberAcpSkillRunRuntimeOptions({ requestId, backend });
-  const runnerJson = record.runnerJson || {};
+  const runnerJson = record.runnerJson || contextRunnerJson || {};
   const recoveredEffectiveRuntimeOptions =
     resolveAcpSkillRunEffectiveRuntimeOptions({
       request:
@@ -2728,6 +2750,7 @@ export async function recoverAcpSkillRunConversation(args: {
           primarySkillDir,
           workspaceDir: normalizeString(latest.workspaceDir),
         });
+        promptOutcome.assistantText = "";
       }
       if (convergence.kind === "pending") {
         projectAcpSkillRunOutputEnvelopeToTranscript({
@@ -4558,6 +4581,7 @@ export async function executeAcpSkillRunnerJob(args: {
             primarySkillDir: materialization.primarySkillDir,
             workspaceDir: workspace.workspaceDir,
           });
+          promptOutcome.assistantText = "";
         }
         if (detachedConvergence.kind === "pending") {
           const replyPromise = waitForInteractiveReply();
@@ -4957,6 +4981,7 @@ export async function executeAcpSkillRunnerJob(args: {
         primarySkillDir: materialization.primarySkillDir,
         workspaceDir: workspace.workspaceDir,
       });
+      promptResult.assistantText = "";
       if (convergence.kind === "final") {
         await writeAcpSkillRunnerResultEnvelope({
           resultJsonPath: workspace.resultJsonPath,

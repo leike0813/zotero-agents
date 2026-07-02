@@ -13,6 +13,7 @@ import {
 import {
   registerAcpSkillRunsMemoryClearer,
   registerAcpSkillRunsRetentionCleaner,
+  writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
@@ -51,6 +52,17 @@ import {
 } from "./acpModelOptionFolding";
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
+import {
+  resolveAcpSkillRunTranscriptPaths,
+  writeAcpSkillRunTranscriptSnapshot,
+  type AcpSkillRunTranscriptMetadata,
+} from "./acpSkillRunTranscriptStore";
+import {
+  resolveAcpSkillRunPayloadPaths,
+  writeAcpSkillRunContextPayload,
+  writeAcpSkillRunOutputRevisions,
+  type AcpSkillRunPayloadRefs,
+} from "./acpSkillRunPayloadStore";
 
 export type AcpSkillRunStatus =
   | "queued"
@@ -198,6 +210,8 @@ export type AcpSkillRunPendingInteraction = {
   message: string;
   uiHints: Record<string, unknown>;
   candidateText?: string;
+  candidateRef?: string;
+  candidatePreview?: string;
 };
 
 export type AcpSkillRunHostBridgeCliState = {
@@ -267,6 +281,7 @@ export type AcpSkillRunRecord = {
   validationErrors?: string[];
   outputConvergenceState?: "pending" | "final" | "invalid";
   lastTurnOutput?: string;
+  lastTurnOutputPreview?: string;
   pendingInteraction?: AcpSkillRunPendingInteraction;
   conversationState?: AcpSkillRunConversationState;
   conversationRecoveryState?: AcpSkillRunRecoveryState;
@@ -283,6 +298,9 @@ export type AcpSkillRunRecord = {
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
   outputRevisions: AcpSkillRunOutputRevision[];
+  outputRevisionsPath?: string;
+  outputRevisionCount?: number;
+  outputRevisionPreview?: string;
   error?: string;
   usage?: {
     used: number;
@@ -292,6 +310,13 @@ export type AcpSkillRunRecord = {
   archivedAt?: string;
   planEntries?: AcpSkillRunPlanEntry[];
   transcriptItems: AcpSkillRunTranscriptItem[];
+  transcriptPath?: string;
+  transcriptIndexPath?: string;
+  transcriptRevision?: number;
+  transcriptEventSeq?: number;
+  transcriptItemCount?: number;
+  transcriptPreview?: string;
+  runContextPath?: string;
   createdAt: string;
   updatedAt: string;
   events: AcpSkillRunEvent[];
@@ -432,6 +457,11 @@ type AcpSkillRunTranscriptPublishMode = "full" | "metadata" | "structural";
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const publishedTranscripts = new Map<string, AcpSkillRunPublishedTranscript>();
 const controllers = new Map<string, AcpSkillRunController>();
+const waitingUserDetachTimers = new Map<
+  string,
+  ReturnType<typeof setTimeout>
+>();
+const runtimeFileWrites = new Set<Promise<unknown>>();
 const runtimeOptionsByRequestId = new Map<
   string,
   AcpSkillRunRuntimeOptionsSnapshot
@@ -450,12 +480,157 @@ let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
 const activeRunRequestIds = new Set<string>();
 const ACP_SKILL_RUN_PANEL_RUN_LIMIT = 100;
+const ACP_SKILL_RUN_PREVIEW_LIMIT = 8 * 1024;
+const ACP_SKILL_RUN_WAITING_USER_LIVE_TTL_MS = 30 * 60 * 1000;
 const acpSkillRunSummaryDiagnostics = {
   summaryQueryCount: 0,
   fullRunRecordScanCount: 0,
   activeIndexScanCount: 0,
   runCandidateReadCount: 0,
 };
+
+function truncateAcpSkillRunPreview(value: unknown) {
+  const text = normalizeString(value);
+  if (!text) {
+    return undefined;
+  }
+  return text.length > ACP_SKILL_RUN_PREVIEW_LIMIT
+    ? `${text.slice(0, ACP_SKILL_RUN_PREVIEW_LIMIT)}...<truncated>`
+    : text;
+}
+
+function sanitizeAcpSkillRunPersistedValue(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (typeof value === "string") {
+    return truncateAcpSkillRunPreview(value) || "";
+  }
+  if (value === null || typeof value === "undefined") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (depth > 6) {
+    return "[truncated]";
+  }
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 100)
+      .map((entry) =>
+        sanitizeAcpSkillRunPersistedValue(entry, depth + 1, seen),
+      );
+  }
+  if (typeof value === "object") {
+    if (seen.has(value)) {
+      return "[circular]";
+    }
+    seen.add(value);
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value).slice(0, 200)) {
+      result[key] = sanitizeAcpSkillRunPersistedValue(entry, depth + 1, seen);
+    }
+    seen.delete(value);
+    return result;
+  }
+  return String(value);
+}
+
+function transcriptPreviewFromItems(items: AcpSkillRunTranscriptItem[]) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item.kind === "message" || item.kind === "thought") {
+      const preview = truncateAcpSkillRunPreview(item.text);
+      if (preview) {
+        return preview;
+      }
+    }
+    if (item.kind === "status") {
+      const preview = truncateAcpSkillRunPreview(item.text);
+      if (preview) {
+        return preview;
+      }
+    }
+  }
+  return undefined;
+}
+
+function outputRevisionPreviewFromRevisions(
+  revisions: AcpSkillRunOutputRevision[],
+) {
+  const latest = revisions[revisions.length - 1];
+  return latest ? truncateAcpSkillRunPreview(latest.candidateText) : undefined;
+}
+
+function deriveAcpSkillRunRuntimeFileMetadata(record: AcpSkillRunRecord) {
+  const transcriptPaths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
+  const payloadRefs = resolveAcpSkillRunPayloadPaths(record.runtimeDir);
+  const transcriptItems = Array.isArray(record.transcriptItems)
+    ? record.transcriptItems
+    : [];
+  const outputRevisions = Array.isArray(record.outputRevisions)
+    ? record.outputRevisions
+    : [];
+  return {
+    ...transcriptPaths,
+    ...payloadRefs,
+    transcriptRevision:
+      record.transcriptRevision ?? Math.max(0, transcriptItems.length),
+    transcriptEventSeq:
+      record.transcriptEventSeq ?? Math.max(0, transcriptItems.length),
+    transcriptItemCount: transcriptItems.length,
+    transcriptPreview:
+      record.transcriptPreview || transcriptPreviewFromItems(transcriptItems),
+    outputRevisionCount: outputRevisions.length,
+    outputRevisionPreview:
+      record.outputRevisionPreview ||
+      outputRevisionPreviewFromRevisions(outputRevisions),
+  } satisfies AcpSkillRunTranscriptMetadata &
+    AcpSkillRunPayloadRefs & {
+      outputRevisionCount: number;
+      outputRevisionPreview?: string;
+    };
+}
+
+function hasLargeAcpSkillRunPayload(raw: Record<string, unknown>) {
+  return (
+    Array.isArray(raw.transcriptItems) ||
+    Array.isArray(raw.outputRevisions) ||
+    typeof raw.resultJson !== "undefined" ||
+    typeof raw.requestPayload !== "undefined" ||
+    typeof raw.runnerJson !== "undefined" ||
+    !!normalizeString(raw.lastTurnOutput)
+  );
+}
+
+function shouldExternalizeTranscript(record: AcpSkillRunRecord) {
+  return (
+    !!normalizeString(record.runtimeDir) &&
+    Array.isArray(record.transcriptItems) &&
+    record.transcriptItems.length > 0
+  );
+}
+
+function shouldExternalizeOutputRevisions(record: AcpSkillRunRecord) {
+  return (
+    !!normalizeString(record.runtimeDir) &&
+    Array.isArray(record.outputRevisions) &&
+    record.outputRevisions.length > 0
+  );
+}
+
+function shouldExternalizeRunContext(record: AcpSkillRunRecord) {
+  return (
+    !!normalizeString(record.runtimeDir) &&
+    (typeof record.requestPayload !== "undefined" ||
+      typeof record.runnerJson !== "undefined" ||
+      typeof record.resultJson !== "undefined" ||
+      (isRecord(record.providerOptions) &&
+        Object.keys(record.providerOptions).length > 0))
+  );
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -532,15 +707,65 @@ function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
 }
 
 function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
-  runRecords.set(record.requestId, record);
+  const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
+  const next = {
+    ...record,
+    transcriptPath: metadata.transcriptPath || record.transcriptPath,
+    transcriptIndexPath:
+      metadata.transcriptIndexPath || record.transcriptIndexPath,
+    transcriptRevision: metadata.transcriptRevision,
+    transcriptEventSeq: metadata.transcriptEventSeq,
+    transcriptItemCount: metadata.transcriptItemCount,
+    transcriptPreview: metadata.transcriptPreview,
+    outputRevisionsPath:
+      metadata.outputRevisionsPath || record.outputRevisionsPath,
+    outputRevisionCount: metadata.outputRevisionCount,
+    outputRevisionPreview: metadata.outputRevisionPreview,
+    runContextPath: metadata.runContextPath || record.runContextPath,
+  };
+  runRecords.set(record.requestId, next);
   if (!publishedTranscripts.has(record.requestId)) {
     publishedTranscripts.set(record.requestId, {
-      transcriptItems: record.transcriptItems.map((item) => ({ ...item })),
+      transcriptItems: next.transcriptItems.map((item) => ({ ...item })),
       transcriptRevision: 0,
       hasUnpublishedTranscript: false,
     });
   }
-  syncAcpSkillRunActiveIndex(record);
+  syncAcpSkillRunActiveIndex(next);
+  syncWaitingUserDetachTimer(next);
+}
+
+function clearWaitingUserDetachTimer(requestId: string) {
+  const timer = waitingUserDetachTimers.get(requestId);
+  if (timer) {
+    clearTimeout(timer);
+    waitingUserDetachTimers.delete(requestId);
+  }
+}
+
+function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
+  const requestId = record.requestId;
+  if (record.status !== "waiting_user" || !controllers.has(requestId)) {
+    clearWaitingUserDetachTimer(requestId);
+    return;
+  }
+  if (waitingUserDetachTimers.has(requestId)) {
+    return;
+  }
+  waitingUserDetachTimers.set(
+    requestId,
+    setTimeout(() => {
+      waitingUserDetachTimers.delete(requestId);
+      const current = runRecords.get(requestId);
+      const controller = controllers.get(requestId);
+      if (current?.status !== "waiting_user" || !controller?.disconnect) {
+        return;
+      }
+      void controller.disconnect().catch(() => {
+        registerAcpSkillRunController(requestId, null);
+      });
+    }, ACP_SKILL_RUN_WAITING_USER_LIVE_TTL_MS),
+  );
 }
 
 function markAcpSkillRunTranscriptUnpublished(requestIdRaw: string) {
@@ -665,6 +890,7 @@ function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
   publishedTranscripts.delete(requestId);
   activeRunRequestIds.delete(requestId);
+  clearWaitingUserDetachTimer(requestId);
   return removed;
 }
 
@@ -672,6 +898,10 @@ function clearAcpSkillRunRecords() {
   runRecords.clear();
   publishedTranscripts.clear();
   activeRunRequestIds.clear();
+  for (const timer of waitingUserDetachTimers.values()) {
+    clearTimeout(timer);
+  }
+  waitingUserDetachTimers.clear();
 }
 
 function normalizeOptionalNonNegativeInteger(value: unknown) {
@@ -830,6 +1060,11 @@ function parsePendingInteraction(
     message,
     uiHints: isRecord(value.uiHints) ? { ...value.uiHints } : {},
     candidateText: normalizeString(value.candidateText) || undefined,
+    candidateRef: normalizeString(value.candidateRef) || undefined,
+    candidatePreview:
+      normalizeString(value.candidatePreview) ||
+      truncateAcpSkillRunPreview(value.candidateText) ||
+      undefined,
   };
 }
 
@@ -1424,6 +1659,10 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
         ? raw.outputConvergenceState
         : undefined,
     lastTurnOutput: normalizeString(raw.lastTurnOutput) || undefined,
+    lastTurnOutputPreview:
+      normalizeString(raw.lastTurnOutputPreview) ||
+      truncateAcpSkillRunPreview(raw.lastTurnOutput) ||
+      undefined,
     pendingInteraction: parsePendingInteraction(raw.pendingInteraction),
     conversationState: normalizeConversationState(raw.conversationState),
     conversationRecoveryState: normalizeRecoveryState(
@@ -1474,6 +1713,13 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
       : null,
     resultJson: raw.resultJson,
     outputRevisions: parseOutputRevisions(raw.outputRevisions),
+    outputRevisionsPath: normalizeString(raw.outputRevisionsPath) || undefined,
+    outputRevisionCount: Math.max(
+      0,
+      Math.floor(Number(raw.outputRevisionCount || 0) || 0),
+    ),
+    outputRevisionPreview:
+      normalizeString(raw.outputRevisionPreview) || undefined,
     error: normalizeString(raw.error) || undefined,
     usage: isRecord(raw.usage)
       ? {
@@ -1485,6 +1731,22 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     archivedAt: normalizeString(raw.archivedAt) || undefined,
     planEntries: parsePlanEntries(raw.planEntries),
     transcriptItems: parseTranscriptItems(raw.transcriptItems, updatedAt),
+    transcriptPath: normalizeString(raw.transcriptPath) || undefined,
+    transcriptIndexPath: normalizeString(raw.transcriptIndexPath) || undefined,
+    transcriptRevision: Math.max(
+      0,
+      Math.floor(Number(raw.transcriptRevision || 0) || 0),
+    ),
+    transcriptEventSeq: Math.max(
+      0,
+      Math.floor(Number(raw.transcriptEventSeq || 0) || 0),
+    ),
+    transcriptItemCount: Math.max(
+      0,
+      Math.floor(Number(raw.transcriptItemCount || 0) || 0),
+    ),
+    transcriptPreview: normalizeString(raw.transcriptPreview) || undefined,
+    runContextPath: normalizeString(raw.runContextPath) || undefined,
     createdAt,
     updatedAt,
     events: rawEvents.filter(isRecord).map((entry) => ({
@@ -1508,31 +1770,173 @@ function ensureHydrated() {
   hydrated = true;
   for (const row of listPluginRunStoreEntries("acp")) {
     try {
-      const parsed = parseRunRecord(JSON.parse(row.payload || "{}"));
+      const raw = JSON.parse(row.payload || "{}") as Record<string, unknown>;
+      const legacyLargePayload = hasLargeAcpSkillRunPayload(raw);
+      const parsed = parseRunRecord(raw);
       if (!parsed) {
         continue;
       }
       setAcpSkillRunRecord(parsed);
+      if (legacyLargePayload) {
+        persistRun(parsed);
+      }
     } catch {
       continue;
     }
   }
 }
 
+function persistAcpSkillRunRuntimeFiles(record: AcpSkillRunRecord) {
+  const runtimeDir = normalizeString(record.runtimeDir);
+  if (!runtimeDir) {
+    return;
+  }
+  const writes: Array<Promise<unknown>> = [];
+  if (
+    Array.isArray(record.transcriptItems) &&
+    record.transcriptItems.length &&
+    (shouldExternalizeTranscript(record) ||
+      shouldExternalizeOutputRevisions(record) ||
+      shouldExternalizeRunContext(record))
+  ) {
+    writes.push(
+      writeAcpSkillRunTranscriptSnapshot({
+        runtimeDir,
+        items: record.transcriptItems,
+        updatedAt: record.updatedAt,
+      }),
+    );
+  }
+  if (
+    Array.isArray(record.outputRevisions) &&
+    record.outputRevisions.length &&
+    shouldExternalizeOutputRevisions(record)
+  ) {
+    writes.push(
+      writeAcpSkillRunOutputRevisions({
+        runtimeDir,
+        revisions: record.outputRevisions,
+      }),
+    );
+  }
+  if (shouldExternalizeRunContext(record)) {
+    writes.push(
+      writeAcpSkillRunContextPayload({
+        runtimeDir,
+        updatedAt: record.updatedAt,
+        payload: {
+          requestPayload: record.requestPayload,
+          runnerJson: record.runnerJson,
+          providerOptions: record.providerOptions,
+          primarySkillDir: record.primarySkillDir,
+          requestedSkillId: record.requestedSkillId || record.skillId,
+          requestedSkillProxyPath: record.requestedSkillProxyPath,
+          sharedSkillCatalogPath: record.sharedSkillCatalogPath,
+          proxySkillRoots: record.proxySkillRoots,
+          executionMode: record.executionMode,
+          workspaceDir: record.workspaceDir,
+          runtimeDir: record.runtimeDir,
+          inputManifestPath: record.inputManifestPath,
+          resultJsonPath: record.resultJsonPath,
+        },
+      }),
+    );
+    const resultJsonPath = normalizeString(record.resultJsonPath);
+    if (resultJsonPath && typeof record.resultJson !== "undefined") {
+      writes.push(
+        writeRuntimeTextFile(resultJsonPath, JSON.stringify(record.resultJson)),
+      );
+    }
+  }
+  if (writes.length > 0) {
+    const write = Promise.all(writes).catch(() => undefined);
+    runtimeFileWrites.add(write);
+    void write.finally(() => {
+      runtimeFileWrites.delete(write);
+    });
+  }
+}
+
+export async function flushAcpSkillRunRuntimeFileWritesForTests() {
+  while (runtimeFileWrites.size > 0) {
+    await Promise.all(Array.from(runtimeFileWrites)).catch(() => undefined);
+  }
+}
+
+function buildPersistedAcpSkillRunPayload(record: AcpSkillRunRecord) {
+  const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
+  const externalizeOutputRevisions = shouldExternalizeOutputRevisions(record);
+  const externalizeRunContext = shouldExternalizeRunContext(record);
+  const externalizeTranscript =
+    shouldExternalizeTranscript(record) ||
+    externalizeOutputRevisions ||
+    externalizeRunContext;
+  const externalizeLastTurnOutput = !!normalizeString(record.lastTurnOutput);
+  const pendingInteraction = record.pendingInteraction
+    ? {
+        ...record.pendingInteraction,
+        candidatePreview:
+          record.pendingInteraction.candidatePreview ||
+          truncateAcpSkillRunPreview(record.pendingInteraction.candidateText),
+      }
+    : undefined;
+  if (pendingInteraction) {
+    delete (pendingInteraction as Record<string, unknown>).candidateText;
+  }
+  const persisted = sanitizeAcpSkillRunPersistedValue({
+    ...record,
+    transcriptPath: metadata.transcriptPath || record.transcriptPath,
+    transcriptIndexPath:
+      metadata.transcriptIndexPath || record.transcriptIndexPath,
+    transcriptRevision: metadata.transcriptRevision,
+    transcriptEventSeq: metadata.transcriptEventSeq,
+    transcriptItemCount: metadata.transcriptItemCount,
+    transcriptPreview: metadata.transcriptPreview,
+    outputRevisionsPath:
+      metadata.outputRevisionsPath || record.outputRevisionsPath,
+    outputRevisionCount: metadata.outputRevisionCount,
+    outputRevisionPreview: metadata.outputRevisionPreview,
+    runContextPath: metadata.runContextPath || record.runContextPath,
+    lastTurnOutputPreview:
+      record.lastTurnOutputPreview ||
+      truncateAcpSkillRunPreview(record.lastTurnOutput),
+    pendingInteraction,
+  }) as Record<string, unknown>;
+  if (externalizeTranscript) {
+    delete persisted.transcriptItems;
+  }
+  if (externalizeOutputRevisions) {
+    delete persisted.outputRevisions;
+  }
+  if (externalizeRunContext) {
+    delete persisted.requestPayload;
+    delete persisted.runnerJson;
+    delete persisted.resultJson;
+  }
+  if (externalizeLastTurnOutput) {
+    delete persisted.lastTurnOutput;
+  }
+  return persisted;
+}
+
 function persistRun(record: AcpSkillRunRecord) {
   if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
     return;
   }
+  persistAcpSkillRunRuntimeFiles(record);
   upsertPluginRunStoreEntry("acp", {
     runKey: record.requestId,
     requestId: record.requestId,
     backendId: record.backendId,
     state: record.status,
     updatedAt: record.updatedAt,
-    payload: JSON.stringify(record),
+    payload: JSON.stringify(buildPersistedAcpSkillRunPayload(record)),
   });
   const latestEvent = record.events[record.events.length - 1];
   if (latestEvent) {
+    const persistedEvent = sanitizeAcpSkillRunPersistedValue(
+      latestEvent,
+    ) as AcpSkillRunEvent;
     appendPluginRunEventStoreEntry("acp", {
       eventId: `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`,
       runKey: record.requestId,
@@ -1540,7 +1944,7 @@ function persistRun(record: AcpSkillRunRecord) {
       backendId: record.backendId,
       type: latestEvent.stage,
       createdAt: latestEvent.ts || record.updatedAt,
-      payload: JSON.stringify(latestEvent),
+      payload: JSON.stringify(persistedEvent),
     });
   }
 }
@@ -2911,6 +3315,7 @@ export function registerAcpSkillRunController(
   }
   if (!controller) {
     controllers.delete(requestId);
+    clearWaitingUserDetachTimer(requestId);
     for (const [permissionRequestId, entry] of permissionResolvers.entries()) {
       if (entry.runRequestId === requestId) {
         permissionResolvers.delete(permissionRequestId);
@@ -2925,6 +3330,10 @@ export function registerAcpSkillRunController(
     connectionActionState: "idle",
     lastRecoveryError: "",
   });
+  const record = runRecords.get(requestId);
+  if (record) {
+    syncWaitingUserDetachTimer(record);
+  }
   clearStaleAcpSkillRunPermissionRequest({
     runRequestId: requestId,
     reason: "controller_registered_without_resolver",
@@ -3898,6 +4307,16 @@ export function markAcpSkillRunApplyResult(args: {
       level: args.state === "failed" ? "error" : "info",
     },
   });
+  if (args.state === "succeeded") {
+    const controller = controllers.get(requestId);
+    if (controller?.disconnect) {
+      void controller.disconnect().catch(() => {
+        registerAcpSkillRunController(requestId, null);
+      });
+    } else {
+      registerAcpSkillRunController(requestId, null);
+    }
+  }
 }
 
 export function selectAcpSkillRun(requestIdRaw: string) {

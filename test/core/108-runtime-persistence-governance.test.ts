@@ -669,6 +669,26 @@ describe("runtime persistence governance", function () {
         "utf8",
       );
     }
+    const expiredRuntimeDir = path.join(expiredWorkspace, ".acp");
+    const freshRuntimeDir = path.join(freshWorkspace, ".acp");
+    for (const runtimeDir of [expiredRuntimeDir, freshRuntimeDir]) {
+      await fs.mkdir(runtimeDir, { recursive: true });
+      await fs.writeFile(
+        path.join(runtimeDir, "transcript.jsonl"),
+        '{"seq":1}\n',
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(runtimeDir, "output-revisions.jsonl"),
+        '{"seq":1}\n',
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(runtimeDir, "run-context.json"),
+        "{}",
+        "utf8",
+      );
+    }
 
     upsertAcpSkillRun({
       requestId: "expired-terminal",
@@ -705,7 +725,25 @@ describe("runtime persistence governance", function () {
     assert.isNotNull(getAcpSkillRunRecord("fresh-terminal"));
     assert.isNotNull(getAcpSkillRunRecord("stale-active"));
     assert.isFalse(await pathExists(expiredWorkspace));
+    assert.isFalse(
+      await pathExists(path.join(expiredRuntimeDir, "transcript.jsonl")),
+    );
+    assert.isFalse(
+      await pathExists(path.join(expiredRuntimeDir, "output-revisions.jsonl")),
+    );
+    assert.isFalse(
+      await pathExists(path.join(expiredRuntimeDir, "run-context.json")),
+    );
     assert.isTrue(await pathExists(freshWorkspace));
+    assert.isTrue(
+      await pathExists(path.join(freshRuntimeDir, "transcript.jsonl")),
+    );
+    assert.isTrue(
+      await pathExists(path.join(freshRuntimeDir, "output-revisions.jsonl")),
+    );
+    assert.isTrue(
+      await pathExists(path.join(freshRuntimeDir, "run-context.json")),
+    );
     assert.isTrue(await pathExists(activeWorkspace));
     assert.equal((cleanup.details as any).acpSkillRunRowsDeleted, 1);
     assert.deepEqual((cleanup.details as any).acpSkillRunRequestIds, [

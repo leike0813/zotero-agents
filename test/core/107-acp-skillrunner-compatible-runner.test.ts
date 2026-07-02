@@ -18,6 +18,7 @@ import {
   connectAcpSkillRun,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
+  flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRuns,
@@ -174,6 +175,14 @@ function restoreGlobalProperty(key: string, descriptor?: PropertyDescriptor) {
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+const originalFsRm = fs.rm.bind(fs) as (...args: any[]) => Promise<void>;
+(fs as unknown as { rm: (...args: any[]) => Promise<void> }).rm = async (
+  ...args: any[]
+) => {
+  await flushAcpSkillRunRuntimeFileWritesForTests();
+  return originalFsRm(...args);
+};
 
 async function waitForAcpSkillRun(
   requestId: string,
@@ -8111,10 +8120,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
     assert.instanceOf(rejectedReply, Error);
     assert.equal(promptCount, 2);
-    assert.deepEqual(promptSessionIds, [
-      "session-shared",
-      "session-shared",
-    ]);
+    assert.deepEqual(promptSessionIds, ["session-shared", "session-shared"]);
     assert.equal(closeCount, 0);
 
     await endAcpSkillRunSession(result.requestId);
