@@ -1917,15 +1917,19 @@ function confirmProtectedRebuildCommand(
   command: SynthesisUiActionOperation["command"],
   win?: _ZoteroTypes.MainWindow,
 ) {
-  const label = getSynthesisUiOperationLabel(command);
+  let messageKey: SynthesisWorkbenchMessageKey =
+    "synthesis-confirm-rebuild-local-indexes";
+  if (command === "refreshReferenceSidecarNow") {
+    messageKey = "synthesis-confirm-refresh-reference-sidecar";
+  }
   if (command === "runAdvancedReferenceMatchingNow") {
-    return confirmWorkbenchAction(
-      `${label} will run a heavier reference matching pass over unbound references. Zotero may respond more slowly while this runs. Existing accepted facts will not be deleted. Continue?`,
-      win,
-    );
+    messageKey = "synthesis-confirm-advanced-reference-matching";
   }
   return confirmWorkbenchAction(
-    `${label} will rebuild local Synthesis indexes. Zotero may respond more slowly while this runs. Canonical Synthesis data will not be deleted. Continue?`,
+    resolveSynthesisWorkbenchMessage(
+      messageKey,
+      SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[messageKey],
+    ),
     win,
   );
 }
@@ -2926,7 +2930,12 @@ function handleAction(
     const topicId = String(commandArgs.topicId || "").trim();
     if (
       !confirmWorkbenchAction(
-        "Delete this synthesis artifact? It will be hidden and kept for later purge.",
+        resolveSynthesisWorkbenchMessage(
+          "synthesis-confirm-delete-topic-artifact",
+          SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[
+            "synthesis-confirm-delete-topic-artifact"
+          ],
+        ),
         runtime.window,
       )
     ) {
@@ -2947,7 +2956,12 @@ function handleAction(
   if (result.hostCommand?.command === "purgeDeletedTopicArtifacts") {
     if (
       !confirmWorkbenchAction(
-        "Permanently purge deleted synthesis artifacts? This cannot be undone.",
+        resolveSynthesisWorkbenchMessage(
+          "synthesis-confirm-purge-deleted-topic-artifacts",
+          SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES[
+            "synthesis-confirm-purge-deleted-topic-artifacts"
+          ],
+        ),
         runtime.window,
       )
     ) {

@@ -53,6 +53,26 @@
   -moz-context-properties: unset !important;
 }
 
+.zs-library-artifacts-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 14px;
+  gap: 1px;
+  line-height: 0;
+  vertical-align: middle;
+}
+
+.zs-library-artifact-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  min-width: 12px;
+  min-height: 12px;
+  object-fit: contain;
+}
+
 .zs-assistant-sidebar-button[data-zs-selected="true"],
 .zs-skillrunner-sidebar-button[data-zs-selected="true"] {
   filter: saturate(1.2);

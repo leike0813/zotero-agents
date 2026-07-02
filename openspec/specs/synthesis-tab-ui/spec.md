@@ -420,6 +420,16 @@ Synthesis i18n message dictionary supplied by the host bridge.
 - **THEN** it SHALL resolve the displayed text from the Synthesis i18n
   dictionary or the default English fallback.
 
+#### Scenario: Index artifact availability is rendered
+
+- **WHEN** the Synthesis Index renders digest, references, or citation-analysis
+  availability for a registry row
+- **THEN** it SHALL use the artifact icon assets instead of D/R/C text badges
+- **AND** available or missing state SHALL continue to come from the registry row
+  artifact coverage/status data.
+- **AND** the icon title and accessible label SHALL identify the artifact and
+  its availability.
+
 ### Requirement: Synthesis Workbench MUST preserve protocol values while localizing controlled enum labels
 
 Controlled enum labels SHALL display localized text while preserving their original protocol values.

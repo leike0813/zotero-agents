@@ -41,6 +41,10 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+function shouldPreferImportESModule(specifier: string) {
+  return /\.(?:sys\.)?mjs$/i.test(specifier);
+}
+
 export async function delay(ms: number) {
   const wait = Math.max(0, Math.floor(Number(ms) || 0));
   if (wait <= 0) {
@@ -117,8 +121,11 @@ export function probeMozillaRuntimeModules(args: {
       continue;
     }
     try {
+      const shouldUseESModule =
+        args.useESModule?.(specifier) === true ||
+        shouldPreferImportESModule(specifier);
       const imported =
-        args.useESModule?.(specifier) === true &&
+        shouldUseESModule &&
         typeof runtime.ChromeUtils?.importESModule === "function"
           ? runtime.ChromeUtils.importESModule(specifier)
           : typeof runtime.ChromeUtils?.import === "function"

@@ -95,6 +95,15 @@ type ZoteroMock = {
   Libraries: {
     userLibraryID: number;
   };
+  ItemTreeManager?: {
+    registerColumn: (options: Record<string, unknown>) => Promise<string>;
+    registerColumns: (
+      options: Record<string, unknown> | Array<Record<string, unknown>>,
+    ) => Promise<string[]>;
+    unregisterColumn: (dataKey: string) => Promise<boolean>;
+    unregisterColumns: (dataKeys: string | string[]) => Promise<boolean[]>;
+    refreshColumns: () => void;
+  };
   getTempDirectory: () => MockFile;
   isWin: boolean;
   __parity?: MockParityDescriptor;
@@ -224,6 +233,8 @@ class MockItem {
   private collections: Array<number | string> = [];
   relatedItems: string[] = [];
   private filePath: string | null = null;
+  attachmentFilename = "";
+  attachmentContentType = "";
   private creators: Array<{
     firstName?: string;
     lastName?: string;
@@ -371,6 +382,43 @@ class MockItem {
     return this.filePath;
   }
 
+  getFilePath() {
+    return this.filePath || false;
+  }
+
+  isPDFAttachment() {
+    if (!this.isAttachment()) {
+      return false;
+    }
+    if (
+      String(this.attachmentContentType || "").toLowerCase() ===
+      "application/pdf"
+    ) {
+      return true;
+    }
+    const filename = String(this.attachmentFilename || "").toLowerCase();
+    if (filename.endsWith(".pdf")) {
+      return true;
+    }
+    return String(this.filePath || "")
+      .toLowerCase()
+      .endsWith(".pdf");
+  }
+
+  async getBestAttachment() {
+    if (!this.isRegularItem()) {
+      return false;
+    }
+    const attachments = this.getAttachments()
+      .map((id) => itemsById.get(id))
+      .filter((item): item is MockItem => !!item);
+    return (
+      attachments.find((item) => item.isPDFAttachment()) ||
+      attachments[0] ||
+      false
+    );
+  }
+
   toJSON() {
     const parent = this.parentItemID ? itemsById.get(this.parentItemID) : null;
     const data: Record<string, unknown> = {
@@ -454,6 +502,9 @@ class MockItem {
 
   setFilePath(filePath: string) {
     this.filePath = filePath;
+    if (!this.attachmentFilename) {
+      this.attachmentFilename = path.basename(filePath);
+    }
   }
 }
 
@@ -2520,8 +2571,7 @@ function createZoteroMock(): ZoteroMock {
         attachment.setField("url", url);
         attachment.setField("contentType", contentType || "text/html");
         (attachment as any).attachmentLinkMode = 3;
-        (attachment as any).attachmentContentType =
-          contentType || "text/html";
+        (attachment as any).attachmentContentType = contentType || "text/html";
         (attachment as any).getAttachmentLinkMode = () => 3;
         await attachment.saveTx();
         return attachment;
@@ -2606,7 +2656,20 @@ function createZoteroMock(): ZoteroMock {
       register: () => {},
     },
     ItemTreeManager: {
-      registerColumns: async () => {},
+      registerColumn: async (options: Record<string, unknown>) =>
+        String(options.dataKey || ""),
+      registerColumns: async (
+        options: Record<string, unknown> | Array<Record<string, unknown>>,
+      ) => {
+        const entries = Array.isArray(options) ? options : [options];
+        return entries.map((entry) => String(entry.dataKey || ""));
+      },
+      unregisterColumn: async () => true,
+      unregisterColumns: async (dataKeys: string | string[]) => {
+        const entries = Array.isArray(dataKeys) ? dataKeys : [dataKeys];
+        return entries.map(() => true);
+      },
+      refreshColumns: () => {},
     },
     ItemPaneManager: {
       registerInfoRow: () => {},

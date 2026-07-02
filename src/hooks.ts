@@ -50,6 +50,11 @@ import {
   installMarkdownAttachmentOpenProbe,
   uninstallMarkdownAttachmentOpenProbe,
 } from "./modules/markdownAttachmentOpenProbe";
+import {
+  notifyLibraryArtifactsColumnItemsChanged,
+  registerLibraryArtifactsColumn,
+  unregisterLibraryArtifactsColumn,
+} from "./modules/libraryArtifactsColumn";
 import { resolveRuntimeToolkit } from "./utils/runtimeBridge";
 import { openFolderInSystemFileManager } from "./utils/fileSystem";
 import { startSkillRunnerModelCacheAutoRefresh } from "./providers/skillrunner/modelCache";
@@ -756,6 +761,7 @@ async function onStartup() {
   }
 
   registerPrefsPane();
+  await registerLibraryArtifactsColumn();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -872,6 +878,7 @@ async function onShutdown(): Promise<void> {
   closeVisibleWorkflowToasts();
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
+  await unregisterLibraryArtifactsColumn();
   uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
   // Remove addon object
@@ -891,6 +898,9 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
+  if (type === "item") {
+    notifyLibraryArtifactsColumnItemsChanged(ids);
+  }
   if (
     isSynthesisLibraryReadModelInvalidationEvent({
       event,

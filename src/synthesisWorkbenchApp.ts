@@ -7408,9 +7408,13 @@ function renderReferenceProposalPendingControls() {
 }
 
 const registryArtifactBadges = [
-  ["digest", "D", "Digest artifact"],
-  ["references", "R", "References artifact"],
-  ["citation_analysis", "C", "Citation analysis artifact"],
+  ["digest", "Digest artifact", "icon_artifact_digest.svg"],
+  ["references", "References artifact", "icon_artifact_references.svg"],
+  [
+    "citation_analysis",
+    "Citation analysis artifact",
+    "icon_artifact_citation_analysis.svg",
+  ],
 ] as const;
 
 function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
@@ -7429,12 +7433,20 @@ function hasRegistryArtifact(row: Record<string, unknown>, artifact: string) {
 
 function renderRegistryArtifacts(row: Record<string, unknown>) {
   const wrap = el("div", "registry-artifact-badges");
-  registryArtifactBadges.forEach(([artifact, label, title]) => {
+  registryArtifactBadges.forEach(([artifact, title, icon]) => {
     const available = hasRegistryArtifact(row, artifact);
-    const node = badge(label, available ? "ok" : "danger");
-    node.classList.add("registry-artifact-badge");
+    const node = el(
+      "span",
+      `registry-artifact-icon-shell ${available ? "available" : "missing"}`,
+    );
     node.title = `${title}: ${available ? "available" : "missing"}`;
     node.setAttribute("aria-label", node.title);
+    const image = document.createElement("img");
+    image.className = "registry-artifact-icon";
+    image.src = `../icons/${icon}`;
+    image.alt = "";
+    image.setAttribute("aria-hidden", "true");
+    node.appendChild(image);
     wrap.appendChild(node);
   });
   return wrap;
@@ -14729,6 +14741,8 @@ function compactRegistryRowSignature(row: Record<string, unknown>) {
     row.title,
     row.year,
     row.artifactCoverage,
+    row.missing_artifacts,
+    row.artifacts,
     row.index_scope,
     row.reference_count,
     row.unbound_reference_count,

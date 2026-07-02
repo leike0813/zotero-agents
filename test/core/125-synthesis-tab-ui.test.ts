@@ -4230,9 +4230,20 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, '"(Total/Unbound)"');
     assert.include(source, "registryArtifactBadges");
     assert.include(source, "renderRegistryArtifacts");
+    assert.include(source, "icon_artifact_digest.svg");
+    assert.include(source, "icon_artifact_references.svg");
+    assert.include(source, "icon_artifact_citation_analysis.svg");
+    assert.include(source, "registry-artifact-icon");
+    assert.include(source, "registry-artifact-icon-shell");
     assert.include(source, '"Digest artifact"');
     assert.include(source, '"References artifact"');
     assert.include(source, '"Citation analysis artifact"');
+    const registryArtifactsBlock = extractFunctionBlock(
+      source,
+      "renderRegistryArtifacts",
+    );
+    assert.include(registryArtifactsBlock, 'document.createElement("img")');
+    assert.notInclude(registryArtifactsBlock, "badge(label");
     assert.include(source, "registry-artifacts-header");
     assert.include(source, "registry-references-header");
     assert.include(source, "registry-reference-count");
@@ -4543,6 +4554,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, 'dataset.synthesisSurface = "index-review-drawer"');
     assert.include(app, 'dataset.synthesisSurface = "reference-review-table"');
     assert.include(app, "compactRegistryRowSignature");
+    assert.include(app, "row.missing_artifacts");
+    assert.include(app, "row.artifacts");
     assert.include(app, "compactReferenceProposalSignature");
     const renderSurfaceBlock = extractFunctionBlock(app, "renderSurface");
     assert.notInclude(renderSurfaceBlock, "clear(root)");
@@ -4841,6 +4854,7 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/service.ts",
       "utf8",
     );
+    const i18n = await fs.readFile("src/synthesisWorkbenchI18n.ts", "utf8");
     const protectedCommands = [
       "refreshReferenceSidecarNow",
       "rebuildCitationGraphCacheNow",
@@ -4852,6 +4866,24 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "isProtectedRebuildCommand");
     assert.include(host, "confirmProtectedRebuildCommand");
     assert.include(host, "confirmWorkbenchAction");
+    assert.include(host, "resolveSynthesisWorkbenchMessage(");
+    assert.include(host, "synthesis-confirm-refresh-reference-sidecar");
+    assert.include(host, "synthesis-confirm-advanced-reference-matching");
+    assert.include(host, "synthesis-confirm-rebuild-local-indexes");
+    assert.include(host, "synthesis-confirm-delete-topic-artifact");
+    assert.include(host, "synthesis-confirm-purge-deleted-topic-artifacts");
+    assert.include(i18n, "synthesis-confirm-refresh-reference-sidecar");
+    assert.include(i18n, "synthesis-confirm-advanced-reference-matching");
+    assert.include(i18n, "synthesis-confirm-rebuild-local-indexes");
+    assert.include(i18n, "synthesis-confirm-delete-topic-artifact");
+    assert.include(i18n, "synthesis-confirm-purge-deleted-topic-artifacts");
+    assert.notInclude(
+      host,
+      "will run a heavier reference matching pass over unbound references",
+    );
+    assert.notInclude(host, "will rebuild local Synthesis indexes");
+    assert.notInclude(host, "Delete this synthesis artifact?");
+    assert.notInclude(host, "Permanently purge deleted synthesis artifacts?");
     assert.include(host, "deferStart?: boolean");
     assert.include(host, "globalThis.setTimeout(() => void start(), 0)");
     assert.include(host, "SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS");
