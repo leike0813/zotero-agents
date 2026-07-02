@@ -216,6 +216,7 @@ let acpSkillRunsRetentionCleaner:
       rowsDeleted: number;
       requestIds: string[];
       workspaceDirs: string[];
+      runtimeDirs?: string[];
     })
   | null = null;
 
@@ -307,6 +308,7 @@ export function registerAcpSkillRunsRetentionCleaner(
         rowsDeleted: number;
         requestIds: string[];
         workspaceDirs: string[];
+        runtimeDirs?: string[];
       })
     | null,
 ) {
@@ -1181,6 +1183,90 @@ export async function readRuntimeTextFile(pathRaw: string) {
   return "";
 }
 
+function runtimeFileFromPath(path: string, runtime: any) {
+  const existing = runtime.Zotero?.File?.pathToFile?.(path);
+  if (existing) {
+    return existing;
+  }
+  const localFileFactory =
+    runtime.Components?.classes?.["@mozilla.org/file/local;1"];
+  const localFile = localFileFactory?.createInstance?.(
+    runtime.Components?.interfaces?.nsIFile,
+  );
+  if (localFile && typeof localFile.initWithPath === "function") {
+    localFile.initWithPath(path);
+    return localFile;
+  }
+  return null;
+}
+
+export async function readRuntimeTextRange(
+  pathRaw: string,
+  offsetRaw: number,
+  lengthRaw: number,
+) {
+  const path = normalizeString(pathRaw);
+  const offset = Math.max(0, Math.floor(Number(offsetRaw || 0) || 0));
+  const length = Math.max(0, Math.floor(Number(lengthRaw || 0) || 0));
+  if (!path || length <= 0 || !(await runtimePathExists(path))) {
+    return "";
+  }
+  assertNativeRuntimeFsPath(path, "read text runtime file range");
+  const decoder = new TextDecoder("utf-8");
+  const fs = await tryNodeFs();
+  if (fs?.open) {
+    const handle = await fs.open(path, "r");
+    try {
+      const buffer = new Uint8Array(length);
+      const result = await handle.read(buffer, 0, length, offset);
+      return decoder.decode(buffer.subarray(0, result.bytesRead));
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
+  }
+  const runtime = globalThis as any;
+  const classes = runtime.Components?.classes;
+  const interfaces = runtime.Components?.interfaces;
+  const file = runtimeFileFromPath(path, runtime);
+  const inputStream = classes?.[
+    "@mozilla.org/network/file-input-stream;1"
+  ]?.createInstance?.(interfaces?.nsIFileInputStream);
+  const binaryStream = classes?.[
+    "@mozilla.org/binaryinputstream;1"
+  ]?.createInstance?.(interfaces?.nsIBinaryInputStream);
+  if (file && inputStream && binaryStream) {
+    try {
+      inputStream.init(file, 0x01, 0o444, 0);
+      const seekable =
+        typeof inputStream.QueryInterface === "function"
+          ? inputStream.QueryInterface(interfaces?.nsISeekableStream)
+          : inputStream;
+      if (seekable && typeof seekable.seek === "function") {
+        seekable.seek(interfaces?.nsISeekableStream?.NS_SEEK_SET ?? 0, offset);
+      }
+      binaryStream.setInputStream(inputStream);
+      const available =
+        typeof binaryStream.available === "function"
+          ? Math.min(length, Math.max(0, binaryStream.available()))
+          : length;
+      const bytes = binaryStream.readByteArray(available);
+      return decoder.decode(new Uint8Array(bytes));
+    } finally {
+      try {
+        binaryStream.close?.();
+      } catch {
+        // ignore cleanup failure
+      }
+      try {
+        inputStream.close?.();
+      } catch {
+        // ignore cleanup failure
+      }
+    }
+  }
+  return (await readRuntimeTextFile(path)).slice(offset, offset + length);
+}
+
 export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -1218,6 +1304,41 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   if (fs) {
     await fs.writeFile(path, content, "utf8");
   }
+}
+
+export async function appendRuntimeTextFile(pathRaw: string, content: string) {
+  const path = normalizeString(pathRaw);
+  if (!path || !content) {
+    return;
+  }
+  assertNativeRuntimeFsPath(path, "append text runtime file");
+  await ensureRuntimeDirectory(parentPath(path));
+  const fs = await tryNodeFs();
+  if (fs?.appendFile) {
+    await fs.appendFile(path, content, "utf8");
+    return;
+  }
+  const runtime = globalThis as any;
+  const classes = runtime.Components?.classes;
+  const interfaces = runtime.Components?.interfaces;
+  const file = runtimeFileFromPath(path, runtime);
+  const outputStream = classes?.[
+    "@mozilla.org/network/file-output-stream;1"
+  ]?.createInstance?.(interfaces?.nsIFileOutputStream);
+  const converter = classes?.[
+    "@mozilla.org/intl/converter-output-stream;1"
+  ]?.createInstance?.(interfaces?.nsIConverterOutputStream);
+  if (file && outputStream && converter) {
+    outputStream.init(file, 0x02 | 0x08 | 0x10, 0o644, 0);
+    converter.init(outputStream, "UTF-8", 0, 0);
+    converter.writeString(content);
+    converter.close();
+    return;
+  }
+  await writeRuntimeTextFile(
+    path,
+    `${await readRuntimeTextFile(path)}${content}`,
+  );
 }
 
 export async function statRuntimePath(pathRaw: string): Promise<{
@@ -1716,12 +1837,18 @@ export async function cleanupRuntimePersistenceRetention(args?: {
   });
   details.acpSkillRunRowsDeleted = cleanerResult?.rowsDeleted || 0;
   details.acpSkillRunRequestIds = cleanerResult?.requestIds || [];
-  for (const workspaceDir of cleanerResult?.workspaceDirs || []) {
-    if (!isPathWithinRoot(paths.acpSkillRunsDir, workspaceDir)) {
+  const acpSkillRunDirs = Array.from(
+    new Set([
+      ...(cleanerResult?.workspaceDirs || []),
+      ...(cleanerResult?.runtimeDirs || []),
+    ]),
+  ).sort((left, right) => left.length - right.length);
+  for (const runtimeDir of acpSkillRunDirs) {
+    if (!isPathWithinRoot(paths.acpSkillRunsDir, runtimeDir)) {
       continue;
     }
-    if (await removeRuntimePath(workspaceDir)) {
-      removedPaths.push(workspaceDir);
+    if (await removeRuntimePath(runtimeDir)) {
+      removedPaths.push(runtimeDir);
     }
   }
   const expiredAssets = await collectExpiredRuntimeAssets({ nowMs });

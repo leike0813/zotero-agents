@@ -2143,7 +2143,7 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "function projectAcpSkillRunView(run)");
     assert.include(
       acpSkillRunJs,
-      "projectAcpSkillRunConversationView(run || {})",
+      "projectAcpSkillRunConversationView(sourceRun)",
     );
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
@@ -2486,11 +2486,15 @@ describe("acp ui smoke", function () {
       "projectAcpSkillRunOutputEnvelopeToTranscript",
     );
     assert.include(acpSkillRunStore, "recordAcpSkillRunOutputRevision");
-    assert.include(acpSkillRunStore, "outputRevisions");
+    assert.include(acpSkillRunStore, "readAcpSkillRunTranscriptPage");
+    assert.include(acpSkillRunStore, "transcriptItemCount");
+    assert.include(acpSkillRunStore, "outputRevisionCount");
+    assert.include(acpSkillRunStore, "delete persisted.transcriptItems");
+    assert.include(acpSkillRunStore, "delete persisted.outputRevisions");
+    assert.notInclude(acpSkillRunStore, "publishedTranscripts");
     assert.include(acpSkillRunStore, "replacementReason");
     assert.include(acpSkillRunStore, "function replaceLatestAssistantMessage");
     assert.include(acpSkillRunStore, "function formatFinalEnvelopeMarkdown");
-    assert.include(acpSkillRunStore, "transcriptItems");
     assert.include(acpSkillRunStore, "planEntries");
     assert.include(acpSkillRunStore, 'upsertPluginRunStoreEntry("acp"');
     assert.notInclude(acpSkillRunStore, "projectedEntries");
@@ -2512,6 +2516,10 @@ describe("acp ui smoke", function () {
       "assistant-transcript-revision-badge",
     );
     assert.notInclude(acpSkillRunJs, "outputRevisions");
+    assert.include(acpSkillRunJs, '"load-transcript-page"');
+    assert.include(acpSkillRunJs, '"acp-skill-run:transcript-page"');
+    assert.include(assistantSidebar, "postAcpSkillRunTranscriptPage");
+    assert.include(assistantSidebar, 'phase: "transcript-page"');
     assert.notInclude(acpChatJs, "outputRevisions");
     assert.include(acpSkillRunStore, "setAcpSkillRunPermissionRequest");
     assert.include(acpSkillRunStore, "resolveAcpSkillRunPermissionRequest");
@@ -2519,6 +2527,9 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunner, "recordAcpSkillRunOutputRevision");
     assert.include(acpSkillRunner, "resumeSession");
     assert.include(acpSkillRunner, "loadSession");
+    assert.include(acpSkillRunner, "createAssistantTurnCapture");
+    assert.include(acpSkillRunner, ".assistant.txt");
+    assert.notInclude(acpSkillRunner, "currentTurnAssistantText");
     assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
     assert.include(assistantSidebar, "wrappedJSObject");
     assert.include(assistantSidebar, "installShellBridge");

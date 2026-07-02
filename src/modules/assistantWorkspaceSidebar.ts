@@ -54,6 +54,7 @@ import {
   endAcpSkillRunSession,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
+  readAcpSkillRunTranscriptPage,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
@@ -633,6 +634,41 @@ function postAcpSkillRunSnapshot(
   });
 }
 
+async function postAcpSkillRunTranscriptPage(
+  host: AssistantWorkspaceHostRuntime,
+  pane: MountedSidebarPane,
+  payload: Record<string, unknown>,
+) {
+  const requestId = String(payload.requestId || "").trim();
+  const cursorValue = payload.cursor;
+  const cursor =
+    typeof cursorValue === "number" && Number.isFinite(cursorValue)
+      ? cursorValue
+      : undefined;
+  const limitValue = payload.limit;
+  const limit =
+    typeof limitValue === "number" && Number.isFinite(limitValue)
+      ? limitValue
+      : undefined;
+  const page = await readAcpSkillRunTranscriptPage({
+    requestId,
+    cursor,
+    limit,
+  });
+  postShellMessage(pane, "assistant-workspace:child-snapshot", {
+    tab: "acp-skills",
+    phase: "transcript-page",
+    snapshot: {
+      scopeKey: host.scopeKey,
+      activeTab: host.activeTab,
+      tab: "acp-skills",
+      revision: host.snapshotRevision,
+      requestId,
+      transcriptPage: page,
+    },
+  });
+}
+
 async function postFreshAcpChatSnapshot(
   host: AssistantWorkspaceHostRuntime,
   pane: MountedSidebarPane,
@@ -975,6 +1011,14 @@ async function handleChildAction(
     return;
   }
   if (tab === "acp-skills") {
+    if (action === "load-transcript-page") {
+      await postAcpSkillRunTranscriptPage(
+        host,
+        target === "reader" ? host.reader : host.library,
+        childPayload,
+      );
+      return;
+    }
     await handleAcpSkillRunAction(host, action, childPayload);
     postAcpSkillRunSnapshot(
       host,

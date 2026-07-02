@@ -393,8 +393,9 @@ describe("separated ACP and SkillRunner run stores", function () {
       message: "Approved",
     });
 
-    const [fullRun] = listAcpSkillRuns();
-    assert.isAbove(fullRun.transcriptItems.length, 0);
+    const [fullRun] = listAcpSkillRuns() as any[];
+    assert.notProperty(fullRun, "transcriptItems");
+    assert.notProperty(fullRun, "outputRevisions");
     assert.isAbove(fullRun.events.length, 0);
 
     const [summary] = listAcpSkillRunSummaries({ activeOnly: true });

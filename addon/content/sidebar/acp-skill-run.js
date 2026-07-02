@@ -14,6 +14,13 @@
     transcriptRevision: null,
     transcriptRenderedMode: "",
     transcriptRunId: "",
+    transcriptItems: [],
+    transcriptStartCursor: null,
+    transcriptPrevCursor: null,
+    transcriptNextCursor: null,
+    transcriptTotal: 0,
+    transcriptLoadingKey: "",
+    transcriptLoadedRevision: null,
     toolActivityExpandedIds: new Set(),
     drawerCompletedCollapsed: true,
     replyDrafts: new Map(),
@@ -72,6 +79,71 @@
     return String(value || "").trim();
   }
 
+  function resetTranscriptPageState() {
+    state.transcriptItems = [];
+    state.transcriptStartCursor = null;
+    state.transcriptPrevCursor = null;
+    state.transcriptNextCursor = null;
+    state.transcriptTotal = 0;
+    state.transcriptLoadingKey = "";
+    state.transcriptLoadedRevision = null;
+  }
+
+  function requestTranscriptPage(run, cursor) {
+    const requestId = safeText(run && run.requestId);
+    if (!requestId) return;
+    const key =
+      requestId + ":" + (typeof cursor === "number" ? cursor : "tail");
+    if (state.transcriptLoadingKey === key) return;
+    state.transcriptLoadingKey = key;
+    sendAction("load-transcript-page", {
+      requestId,
+      cursor: typeof cursor === "number" ? cursor : undefined,
+      limit: 80,
+    });
+  }
+
+  function handleTranscriptPage(payload) {
+    const page =
+      payload &&
+      payload.transcriptPage &&
+      typeof payload.transcriptPage === "object"
+        ? payload.transcriptPage
+        : null;
+    const requestId = safeText(page && page.requestId);
+    if (!page || requestId !== state.transcriptRunId) return;
+    const items = Array.isArray(page.items) ? page.items : [];
+    const cursor = Number(page.cursor) || 0;
+    if (
+      state.transcriptStartCursor !== null &&
+      cursor < state.transcriptStartCursor
+    ) {
+      const seen = new Set(
+        items.map(function (item) {
+          return safeText(item && item.id);
+        }),
+      );
+      state.transcriptItems = items.concat(
+        state.transcriptItems.filter(function (item) {
+          return !seen.has(safeText(item && item.id));
+        }),
+      );
+    } else {
+      state.transcriptItems = items;
+    }
+    state.transcriptStartCursor = cursor;
+    state.transcriptPrevCursor =
+      typeof page.prevCursor === "number" ? page.prevCursor : null;
+    state.transcriptNextCursor =
+      typeof page.nextCursor === "number" ? page.nextCursor : null;
+    state.transcriptTotal = Number(page.total) || state.transcriptItems.length;
+    state.transcriptLoadedRevision =
+      Number(page.transcriptRevision || page.eventSeq) || 0;
+    state.transcriptLoadingKey = "";
+    state.transcriptRevision = null;
+    renderTranscript(selectedRunFromSnapshot() || {});
+  }
+
   function formatTime(value) {
     const text = safeText(value);
     if (!text) return "";
@@ -109,14 +181,17 @@
 
   function projectAcpSkillRunView(run) {
     const helper = assistantConversationView();
+    const sourceRun = Object.assign({}, run || {}, {
+      transcriptItems: state.transcriptItems,
+    });
     if (
       helper &&
       typeof helper.projectAcpSkillRunConversationView === "function"
     ) {
-      return helper.projectAcpSkillRunConversationView(run || {});
+      return helper.projectAcpSkillRunConversationView(sourceRun);
     }
     const items = (
-      Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []
+      Array.isArray(sourceRun.transcriptItems) ? sourceRun.transcriptItems : []
     ).map(function (item) {
       if (item && item.kind === "thought") {
         return Object.assign({}, item, { kind: "process", label: "Thinking" });
@@ -230,6 +305,7 @@
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
     state.toolActivityExpandedIds.clear();
+    resetTranscriptPageState();
   }
 
   function handleAssistantPanelAction(action, payload) {
@@ -500,6 +576,17 @@
       resetTranscriptRenderState();
     }
     const revision = Number(run && run.transcriptRevision) || 0;
+    const canRefreshTail =
+      state.transcriptLoadedRevision === null ||
+      state.transcriptNextCursor === null;
+    if (
+      requestId &&
+      state.transcriptLoadedRevision !== revision &&
+      !state.transcriptLoadingKey &&
+      canRefreshTail
+    ) {
+      requestTranscriptPage(run);
+    }
     if (
       state.transcriptRevision === revision &&
       state.transcriptRenderedMode === state.chatDisplayMode
@@ -541,6 +628,15 @@
         state.transcriptRenderedMode = state.chatDisplayMode;
       },
     });
+    if (state.transcriptPrevCursor !== null) {
+      const button = el("button", "assistant-panel-ghost-button");
+      button.type = "button";
+      button.textContent = "Load earlier";
+      button.addEventListener("click", function () {
+        requestTranscriptPage(run, state.transcriptPrevCursor);
+      });
+      transcript.insertBefore(button, transcript.firstChild);
+    }
     renderChatDisplayMode();
   }
 
@@ -615,6 +711,10 @@
       data.type === "acp-skill-run:snapshot"
     ) {
       queueRender(data.payload || {});
+      return;
+    }
+    if (data.type === "acp-skill-run:transcript-page") {
+      handleTranscriptPage(data.payload || {});
     }
   });
 

@@ -53,14 +53,16 @@ import {
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import {
+  appendAcpSkillRunTranscriptEvent,
+  readAcpSkillRunTranscriptPage as readAcpSkillRunTranscriptPageFromStore,
   resolveAcpSkillRunTranscriptPaths,
-  writeAcpSkillRunTranscriptSnapshot,
   type AcpSkillRunTranscriptMetadata,
+  type AcpSkillRunTranscriptPage,
 } from "./acpSkillRunTranscriptStore";
 import {
+  appendAcpSkillRunOutputRevision,
   resolveAcpSkillRunPayloadPaths,
   writeAcpSkillRunContextPayload,
-  writeAcpSkillRunOutputRevisions,
   type AcpSkillRunPayloadRefs,
 } from "./acpSkillRunPayloadStore";
 
@@ -209,9 +211,12 @@ export type AcpSkillRunPlanEntry = {
 export type AcpSkillRunPendingInteraction = {
   message: string;
   uiHints: Record<string, unknown>;
-  candidateText?: string;
   candidateRef?: string;
   candidatePreview?: string;
+};
+
+type AcpSkillRunPendingInteractionUpdate = AcpSkillRunPendingInteraction & {
+  candidateText?: string;
 };
 
 export type AcpSkillRunHostBridgeCliState = {
@@ -297,7 +302,6 @@ export type AcpSkillRunRecord = {
   activePrompt?: boolean;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
-  outputRevisions: AcpSkillRunOutputRevision[];
   outputRevisionsPath?: string;
   outputRevisionCount?: number;
   outputRevisionPreview?: string;
@@ -309,7 +313,6 @@ export type AcpSkillRunRecord = {
   removedAt?: string;
   archivedAt?: string;
   planEntries?: AcpSkillRunPlanEntry[];
-  transcriptItems: AcpSkillRunTranscriptItem[];
   transcriptPath?: string;
   transcriptIndexPath?: string;
   transcriptRevision?: number;
@@ -326,6 +329,7 @@ export type AcpSkillRunRetentionCleanupResult = {
   rowsDeleted: number;
   requestIds: string[];
   workspaceDirs: string[];
+  runtimeDirs: string[];
 };
 
 export type AcpSkillRunSummary = Pick<
@@ -447,15 +451,38 @@ type AcpSkillRunRecoveryHandler = (args: {
   reason: "connect" | "reply";
 }) => Promise<void>;
 
-type AcpSkillRunPublishedTranscript = {
-  transcriptItems: AcpSkillRunTranscriptItem[];
-  transcriptRevision: number;
-  hasUnpublishedTranscript: boolean;
+type AcpSkillRunTranscriptLiveState = {
+  itemCount: number;
+  eventSeq: number;
+  lastTextItem?: {
+    id: string;
+    kind: "message" | "thought";
+    role: "assistant" | "user";
+    state: "streaming" | "complete";
+  };
+  lastAssistantMessageId?: string;
+  lastStatus?: {
+    id: string;
+    label: string;
+    text: string;
+  };
+  permissionItemIds: Map<string, string>;
+  toolItemIds: Map<string, string>;
+  toolItems: Map<
+    string,
+    {
+      id: string;
+      title?: string;
+      toolKind?: string;
+      toolName?: string;
+      inputSummary?: string;
+      summary?: string;
+    }
+  >;
 };
-type AcpSkillRunTranscriptPublishMode = "full" | "metadata" | "structural";
 
 const runRecords = new Map<string, AcpSkillRunRecord>();
-const publishedTranscripts = new Map<string, AcpSkillRunPublishedTranscript>();
+const transcriptLiveStates = new Map<string, AcpSkillRunTranscriptLiveState>();
 const controllers = new Map<string, AcpSkillRunController>();
 const waitingUserDetachTimers = new Map<
   string,
@@ -538,55 +565,49 @@ function sanitizeAcpSkillRunPersistedValue(
   return String(value);
 }
 
-function transcriptPreviewFromItems(items: AcpSkillRunTranscriptItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item.kind === "message" || item.kind === "thought") {
-      const preview = truncateAcpSkillRunPreview(item.text);
-      if (preview) {
-        return preview;
-      }
-    }
-    if (item.kind === "status") {
-      const preview = truncateAcpSkillRunPreview(item.text);
-      if (preview) {
-        return preview;
-      }
-    }
+function transcriptPreviewFromItem(item: AcpSkillRunTranscriptItem) {
+  if (item.kind === "message" || item.kind === "thought") {
+    return truncateAcpSkillRunPreview(item.text);
+  }
+  if (item.kind === "status") {
+    return truncateAcpSkillRunPreview(item.text);
+  }
+  if (item.kind === "permission") {
+    return truncateAcpSkillRunPreview(item.summary || item.title);
+  }
+  if (item.kind === "tool_call") {
+    return truncateAcpSkillRunPreview(
+      item.summary || item.resultSummary || item.inputSummary || item.title,
+    );
   }
   return undefined;
-}
-
-function outputRevisionPreviewFromRevisions(
-  revisions: AcpSkillRunOutputRevision[],
-) {
-  const latest = revisions[revisions.length - 1];
-  return latest ? truncateAcpSkillRunPreview(latest.candidateText) : undefined;
 }
 
 function deriveAcpSkillRunRuntimeFileMetadata(record: AcpSkillRunRecord) {
   const transcriptPaths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
   const payloadRefs = resolveAcpSkillRunPayloadPaths(record.runtimeDir);
-  const transcriptItems = Array.isArray(record.transcriptItems)
-    ? record.transcriptItems
-    : [];
-  const outputRevisions = Array.isArray(record.outputRevisions)
-    ? record.outputRevisions
-    : [];
+  const liveState = transcriptLiveStates.get(record.requestId);
+  const transcriptItemCount = Math.max(
+    0,
+    record.transcriptItemCount || liveState?.itemCount || 0,
+  );
+  const transcriptEventSeq = Math.max(
+    0,
+    record.transcriptEventSeq ||
+      record.transcriptRevision ||
+      liveState?.eventSeq ||
+      0,
+  );
+  const outputRevisionCount = Math.max(0, record.outputRevisionCount || 0);
   return {
     ...transcriptPaths,
     ...payloadRefs,
-    transcriptRevision:
-      record.transcriptRevision ?? Math.max(0, transcriptItems.length),
-    transcriptEventSeq:
-      record.transcriptEventSeq ?? Math.max(0, transcriptItems.length),
-    transcriptItemCount: transcriptItems.length,
-    transcriptPreview:
-      record.transcriptPreview || transcriptPreviewFromItems(transcriptItems),
-    outputRevisionCount: outputRevisions.length,
-    outputRevisionPreview:
-      record.outputRevisionPreview ||
-      outputRevisionPreviewFromRevisions(outputRevisions),
+    transcriptRevision: transcriptEventSeq,
+    transcriptEventSeq,
+    transcriptItemCount,
+    transcriptPreview: record.transcriptPreview,
+    outputRevisionCount,
+    outputRevisionPreview: record.outputRevisionPreview,
   } satisfies AcpSkillRunTranscriptMetadata &
     AcpSkillRunPayloadRefs & {
       outputRevisionCount: number;
@@ -594,30 +615,102 @@ function deriveAcpSkillRunRuntimeFileMetadata(record: AcpSkillRunRecord) {
     };
 }
 
+function getAcpSkillRunTranscriptLiveState(record: AcpSkillRunRecord) {
+  const requestId = record.requestId;
+  let state = transcriptLiveStates.get(requestId);
+  if (!state) {
+    state = {
+      itemCount: Math.max(0, record.transcriptItemCount || 0),
+      eventSeq: Math.max(0, record.transcriptEventSeq || 0),
+      permissionItemIds: new Map(),
+      toolItemIds: new Map(),
+      toolItems: new Map(),
+    };
+    transcriptLiveStates.set(requestId, state);
+  }
+  return state;
+}
+
+function nextTranscriptItemId(
+  record: AcpSkillRunRecord,
+  prefix: string,
+  state = getAcpSkillRunTranscriptLiveState(record),
+) {
+  return `acp-skill-${prefix}-${state.itemCount + 1}`;
+}
+
+function applyTranscriptMetadata(
+  record: AcpSkillRunRecord,
+  args: {
+    item?: AcpSkillRunTranscriptItem;
+    textPreview?: string;
+    newItem?: boolean;
+  } = {},
+) {
+  const paths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  state.eventSeq += 1;
+  if (args.newItem) {
+    state.itemCount += 1;
+  }
+  record.transcriptPath = paths.transcriptPath || record.transcriptPath;
+  record.transcriptIndexPath =
+    paths.transcriptIndexPath || record.transcriptIndexPath;
+  record.transcriptRevision = state.eventSeq;
+  record.transcriptEventSeq = state.eventSeq;
+  record.transcriptItemCount = state.itemCount;
+  const preview =
+    args.textPreview ||
+    (args.item ? transcriptPreviewFromItem(args.item) : undefined);
+  if (preview) {
+    record.transcriptPreview = preview;
+  }
+}
+
+function queueTranscriptEvent(
+  record: AcpSkillRunRecord,
+  args: {
+    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+    itemId: string;
+    item?: AcpSkillRunTranscriptItem;
+    text?: string;
+    patch?: Partial<AcpSkillRunTranscriptItem>;
+    createdAt: string;
+    newItem?: boolean;
+    textPreview?: string;
+  },
+) {
+  applyTranscriptMetadata(record, {
+    item: args.item,
+    textPreview: args.textPreview,
+    newItem: args.newItem,
+  });
+  if (!normalizeString(record.runtimeDir)) {
+    return;
+  }
+  const write = appendAcpSkillRunTranscriptEvent({
+    runtimeDir: record.runtimeDir,
+    op: args.op,
+    itemId: args.itemId,
+    item: args.item,
+    text: args.text,
+    patch: args.patch,
+    createdAt: args.createdAt,
+  }).catch(() => undefined);
+  runtimeFileWrites.add(write);
+  void write.finally(() => {
+    runtimeFileWrites.delete(write);
+  });
+}
+
 function hasLargeAcpSkillRunPayload(raw: Record<string, unknown>) {
   return (
-    Array.isArray(raw.transcriptItems) ||
-    Array.isArray(raw.outputRevisions) ||
     typeof raw.resultJson !== "undefined" ||
     typeof raw.requestPayload !== "undefined" ||
     typeof raw.runnerJson !== "undefined" ||
-    !!normalizeString(raw.lastTurnOutput)
-  );
-}
-
-function shouldExternalizeTranscript(record: AcpSkillRunRecord) {
-  return (
-    !!normalizeString(record.runtimeDir) &&
-    Array.isArray(record.transcriptItems) &&
-    record.transcriptItems.length > 0
-  );
-}
-
-function shouldExternalizeOutputRevisions(record: AcpSkillRunRecord) {
-  return (
-    !!normalizeString(record.runtimeDir) &&
-    Array.isArray(record.outputRevisions) &&
-    record.outputRevisions.length > 0
+    !!normalizeString(raw.lastTurnOutput) ||
+    (isRecord(raw.pendingInteraction) &&
+      !!normalizeString(raw.pendingInteraction.candidateText))
   );
 }
 
@@ -629,6 +722,30 @@ function shouldExternalizeRunContext(record: AcpSkillRunRecord) {
       typeof record.resultJson !== "undefined" ||
       (isRecord(record.providerOptions) &&
         Object.keys(record.providerOptions).length > 0))
+  );
+}
+
+const ACP_SKILL_RUN_CONTEXT_UPDATE_KEYS = [
+  "requestPayload",
+  "providerOptions",
+  "executionMode",
+  "workspaceDir",
+  "runtimeDir",
+  "inputManifestPath",
+  "resultJsonPath",
+  "sharedSkillCatalogPath",
+  "proxySkillRoots",
+  "requestedSkillId",
+  "requestedSkillProxyPath",
+  "primarySkillDir",
+  "runnerJson",
+] as const;
+
+function updateTouchesAcpSkillRunContext(
+  update: Record<string, unknown>,
+): boolean {
+  return ACP_SKILL_RUN_CONTEXT_UPDATE_KEYS.some((key) =>
+    Object.prototype.hasOwnProperty.call(update, key),
   );
 }
 
@@ -710,6 +827,14 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
   const next = {
     ...record,
+    requestPayload: undefined,
+    runnerJson: undefined,
+    resultJson: undefined,
+    lastTurnOutput: undefined,
+    lastTurnOutputPreview:
+      record.lastTurnOutputPreview ||
+      truncateAcpSkillRunPreview(record.lastTurnOutput),
+    pendingInteraction: parsePendingInteraction(record.pendingInteraction),
     transcriptPath: metadata.transcriptPath || record.transcriptPath,
     transcriptIndexPath:
       metadata.transcriptIndexPath || record.transcriptIndexPath,
@@ -723,14 +848,9 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
     outputRevisionPreview: metadata.outputRevisionPreview,
     runContextPath: metadata.runContextPath || record.runContextPath,
   };
+  delete (next as Record<string, unknown>).transcriptItems;
+  delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
-  if (!publishedTranscripts.has(record.requestId)) {
-    publishedTranscripts.set(record.requestId, {
-      transcriptItems: next.transcriptItems.map((item) => ({ ...item })),
-      transcriptRevision: 0,
-      hasUnpublishedTranscript: false,
-    });
-  }
   syncAcpSkillRunActiveIndex(next);
   syncWaitingUserDetachTimer(next);
 }
@@ -768,127 +888,46 @@ function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
   );
 }
 
-function markAcpSkillRunTranscriptUnpublished(requestIdRaw: string) {
-  const requestId = normalizeString(requestIdRaw);
-  if (!requestId) {
-    return;
-  }
-  const record = runRecords.get(requestId);
-  if (!record) {
-    return;
-  }
-  const view =
-    publishedTranscripts.get(requestId) ||
-    ({
-      transcriptItems: record.transcriptItems.map((item) => ({ ...item })),
-      transcriptRevision: 0,
-      hasUnpublishedTranscript: false,
-    } satisfies AcpSkillRunPublishedTranscript);
-  view.hasUnpublishedTranscript = true;
-  publishedTranscripts.set(requestId, view);
-}
-
-function cloneAcpSkillRunTranscriptItem(item: AcpSkillRunTranscriptItem) {
-  return { ...item };
-}
-
-function mergeAcpSkillRunStructuralTranscript(
-  record: AcpSkillRunRecord,
-  current?: AcpSkillRunPublishedTranscript,
-) {
-  const previousById = new Map(
-    (current?.transcriptItems || []).map((item) => [item.id, item]),
-  );
-  let hasHeldStreamingText = false;
-  const transcriptItems: AcpSkillRunTranscriptItem[] = [];
-  for (const item of record.transcriptItems) {
-    if (
-      current?.hasUnpublishedTranscript &&
-      (item.kind === "message" || item.kind === "thought") &&
-      item.state === "streaming"
-    ) {
-      hasHeldStreamingText = true;
-      const previous = previousById.get(item.id);
-      if (previous) {
-        transcriptItems.push(cloneAcpSkillRunTranscriptItem(previous));
-      }
-      continue;
-    }
-    transcriptItems.push(cloneAcpSkillRunTranscriptItem(item));
-  }
-  return {
-    transcriptItems,
-    hasUnpublishedTranscript: hasHeldStreamingText,
-  };
-}
-
-function publishAcpSkillRunTranscript(
-  requestIdRaw: string,
-  mode: AcpSkillRunTranscriptPublishMode = "full",
-) {
-  const requestId = normalizeString(requestIdRaw);
-  const record = requestId ? runRecords.get(requestId) : undefined;
-  if (!record) {
-    return;
-  }
-  const current = publishedTranscripts.get(requestId);
-  if (mode === "metadata") {
-    return;
-  }
-  const merged =
-    mode === "structural"
-      ? mergeAcpSkillRunStructuralTranscript(record, current)
-      : {
-          transcriptItems: record.transcriptItems.map((item) =>
-            cloneAcpSkillRunTranscriptItem(item),
-          ),
-          hasUnpublishedTranscript: false,
-        };
-  publishedTranscripts.set(requestId, {
-    transcriptItems: merged.transcriptItems,
-    transcriptRevision: (current?.transcriptRevision || 0) + 1,
-    hasUnpublishedTranscript: merged.hasUnpublishedTranscript,
-  });
-}
-
 function publishPendingAcpSkillRunTranscripts() {
-  for (const [requestId, view] of publishedTranscripts) {
-    if (view.hasUnpublishedTranscript) {
-      publishAcpSkillRunTranscript(requestId);
-    }
-  }
+  // Transcript pages are loaded asynchronously from JSONL; there is no
+  // in-memory published transcript mirror to flush.
 }
 
 function cloneAcpSkillRunRecord(record: AcpSkillRunRecord) {
   return {
     ...record,
-    transcriptItems: record.transcriptItems.map((item) => ({ ...item })),
-    outputRevisions: record.outputRevisions.map((item) => ({ ...item })),
+    pendingInteraction: record.pendingInteraction
+      ? { ...record.pendingInteraction }
+      : undefined,
     planEntries: record.planEntries?.map((item) => ({ ...item })),
     events: record.events.map((event) => ({ ...event })),
   };
 }
 
-function projectAcpSkillRunRecordForPanel(record: AcpSkillRunRecord) {
+function projectAcpSkillRunMetadataRecord(record: AcpSkillRunRecord) {
   const cloned = cloneAcpSkillRunRecord(record) as AcpSkillRunRecord &
     Record<string, unknown>;
-  const published =
-    publishedTranscripts.get(record.requestId) ||
-    ({
-      transcriptItems: record.transcriptItems.map((item) => ({ ...item })),
-      transcriptRevision: 0,
-      hasUnpublishedTranscript: false,
-    } satisfies AcpSkillRunPublishedTranscript);
-  cloned.transcriptItems = published.transcriptItems.map((item) => ({
-    ...item,
-  }));
-  cloned.transcriptRevision = published.transcriptRevision;
-  return cloned;
+  delete cloned.requestPayload;
+  delete cloned.runnerJson;
+  delete cloned.resultJson;
+  delete cloned.lastTurnOutput;
+  delete cloned.transcriptItems;
+  delete cloned.outputRevisions;
+  if (cloned.pendingInteraction) {
+    cloned.pendingInteraction = parsePendingInteraction(
+      cloned.pendingInteraction,
+    );
+  }
+  return cloned as AcpSkillRunRecord;
+}
+
+function projectAcpSkillRunRecordForPanel(record: AcpSkillRunRecord) {
+  return projectAcpSkillRunMetadataRecord(record);
 }
 
 function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
-  publishedTranscripts.delete(requestId);
+  transcriptLiveStates.delete(requestId);
   activeRunRequestIds.delete(requestId);
   clearWaitingUserDetachTimer(requestId);
   return removed;
@@ -896,7 +935,7 @@ function deleteAcpSkillRunRecord(requestId: string) {
 
 function clearAcpSkillRunRecords() {
   runRecords.clear();
-  publishedTranscripts.clear();
+  transcriptLiveStates.clear();
   activeRunRequestIds.clear();
   for (const timer of waitingUserDetachTimers.values()) {
     clearTimeout(timer);
@@ -1059,85 +1098,11 @@ function parsePendingInteraction(
   return {
     message,
     uiHints: isRecord(value.uiHints) ? { ...value.uiHints } : {},
-    candidateText: normalizeString(value.candidateText) || undefined,
     candidateRef: normalizeString(value.candidateRef) || undefined,
     candidatePreview:
       normalizeString(value.candidatePreview) ||
       truncateAcpSkillRunPreview(value.candidateText) ||
       undefined,
-  };
-}
-
-function normalizeOutputRevisionStatus(
-  value: unknown,
-): AcpSkillRunOutputRevisionStatus | undefined {
-  const normalized = normalizeString(value);
-  return normalized === "invalid" ||
-    normalized === "pending" ||
-    normalized === "final"
-    ? normalized
-    : undefined;
-}
-
-function parseMessageRevision(
-  value: unknown,
-): AcpSkillRunMessageRevisionSummary | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-  const latestStatus = normalizeOutputRevisionStatus(value.latestStatus);
-  const count = Math.max(0, Math.floor(Number(value.count || 0) || 0));
-  if (!latestStatus || count <= 0) {
-    return undefined;
-  }
-  return {
-    count,
-    latestStatus,
-    latestRepairRound: Math.max(
-      0,
-      Math.floor(Number(value.latestRepairRound || 0) || 0),
-    ),
-  };
-}
-
-function parseOutputRevisions(value: unknown): AcpSkillRunOutputRevision[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter(isRecord)
-    .reduce<AcpSkillRunOutputRevision[]>((acc, raw, index) => {
-      const status = normalizeOutputRevisionStatus(raw.status);
-      if (!status) {
-        return acc;
-      }
-      const createdAt = normalizeString(raw.createdAt) || nowIso();
-      acc.push({
-        id: normalizeString(raw.id) || `revision-${index + 1}`,
-        candidateText: normalizeString(raw.candidateText),
-        repairRound: Math.max(0, Math.floor(Number(raw.repairRound || 0) || 0)),
-        status,
-        errors: parseStringArray(raw.errors),
-        replacementReason: normalizeString(raw.replacementReason) || undefined,
-        createdAt,
-      });
-      return acc;
-    }, [])
-    .slice(-50);
-}
-
-function buildOutputRevisionSummary(
-  revisions: AcpSkillRunOutputRevision[],
-): AcpSkillRunMessageRevisionSummary | undefined {
-  const valid = revisions.filter((entry) => entry.status);
-  const latest = valid[valid.length - 1];
-  if (!latest) {
-    return undefined;
-  }
-  return {
-    count: valid.length,
-    latestStatus: latest.status,
-    latestRepairRound: latest.repairRound,
   };
 }
 
@@ -1171,14 +1136,6 @@ function normalizeToolCallState(
     return "in_progress";
   }
   return "pending";
-}
-
-function toolStateRank(state: unknown) {
-  const normalized = normalizeString(state).toLowerCase();
-  if (normalized === "failed") return 4;
-  if (normalized === "completed") return 3;
-  if (normalized === "in_progress") return 2;
-  return 1;
 }
 
 function isGenericToolText(value: unknown) {
@@ -1292,47 +1249,36 @@ function upsertPermissionTranscriptItem(
   if (!permissionRequestId) {
     return false;
   }
-  const existingIndex = record.transcriptItems.findIndex(
-    (item) =>
-      item.kind === "permission" &&
-      item.permissionRequestId === permissionRequestId,
-  );
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  const previousId = state.permissionItemIds.get(permissionRequestId);
   const status =
     event.stage === "permission-resolved"
       ? permissionStatusFromResolution(details)
       : "pending";
-  const previous =
-    existingIndex >= 0 ? record.transcriptItems[existingIndex] : null;
+  const itemId =
+    previousId || nextTranscriptItemId(record, "permission", state);
   const item: AcpSkillRunTranscriptItem = {
-    id:
-      previous?.kind === "permission"
-        ? previous.id
-        : `acp-skill-permission-${record.transcriptItems.length + 1}`,
+    id: itemId,
     kind: "permission",
     permissionRequestId,
     status,
-    title:
-      normalizeString(details.toolTitle) ||
-      (previous?.kind === "permission" ? previous.title : "") ||
-      "Permission request",
+    title: normalizeString(details.toolTitle) || "Permission request",
     summary:
       normalizeString(details.summary) ||
-      (previous?.kind === "permission" ? previous.summary : "") ||
       normalizeString(event.message) ||
       "ACP backend requests approval.",
-    source:
-      normalizeString(details.source) ||
-      (previous?.kind === "permission" ? previous.source : undefined),
-    createdAt: previous?.kind === "permission" ? previous.createdAt : event.ts,
+    source: normalizeString(details.source) || undefined,
+    createdAt: event.ts,
     updatedAt: event.ts,
   };
-  if (existingIndex >= 0) {
-    record.transcriptItems = record.transcriptItems.map((entry, index) =>
-      index === existingIndex ? item : entry,
-    );
-  } else {
-    record.transcriptItems = [...record.transcriptItems, item].slice(-200);
-  }
+  state.permissionItemIds.set(permissionRequestId, itemId);
+  queueTranscriptEvent(record, {
+    op: "upsert_item",
+    itemId,
+    item,
+    createdAt: event.ts,
+    newItem: !previousId,
+  });
   return true;
 }
 
@@ -1351,17 +1297,19 @@ function appendStatusTranscriptItem(
   ) {
     return true;
   }
-  const last = record.transcriptItems[record.transcriptItems.length - 1];
-  if (
-    last?.kind === "status" &&
-    last.label === event.stage &&
-    last.text === text
-  ) {
-    last.updatedAt = event.ts;
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  const last = state.lastStatus;
+  if (last && last.label === event.stage && last.text === text) {
+    queueTranscriptEvent(record, {
+      op: "patch_item",
+      itemId: last.id,
+      patch: { updatedAt: event.ts },
+      createdAt: event.ts,
+    });
     return true;
   }
   const item: AcpSkillRunTranscriptItem = {
-    id: `acp-skill-status-${record.transcriptItems.length + 1}`,
+    id: nextTranscriptItemId(record, "status", state),
     kind: "status",
     level: event.level,
     label: event.stage,
@@ -1372,103 +1320,19 @@ function appendStatusTranscriptItem(
     details: event.details ? { ...event.details } : undefined,
     createdAt: event.ts,
   };
-  record.transcriptItems = [...record.transcriptItems, item].slice(-200);
+  state.lastStatus = {
+    id: item.id,
+    label: item.label,
+    text: item.text,
+  };
+  queueTranscriptEvent(record, {
+    op: "upsert_item",
+    itemId: item.id,
+    item,
+    createdAt: event.ts,
+    newItem: true,
+  });
   return true;
-}
-
-function parseTranscriptItems(value: unknown, updatedAt: string) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter(isRecord)
-    .reduce<AcpSkillRunTranscriptItem[]>((acc, raw) => {
-      const kind = normalizeString(raw.kind);
-      const id = normalizeString(raw.id);
-      const createdAt = normalizeString(raw.createdAt) || updatedAt;
-      const updatedAtValue = normalizeString(raw.updatedAt) || undefined;
-      if (!id) {
-        return acc;
-      }
-      if (kind === "message") {
-        const role = raw.role === "user" ? "user" : "assistant";
-        acc.push({
-          id,
-          kind,
-          role,
-          text: normalizeString(raw.text),
-          state: raw.state === "complete" ? "complete" : "streaming",
-          revision: parseMessageRevision(raw.revision),
-          createdAt,
-          updatedAt: updatedAtValue,
-        });
-        return acc;
-      }
-      if (kind === "thought") {
-        acc.push({
-          id,
-          kind,
-          text: normalizeString(raw.text),
-          state: raw.state === "complete" ? "complete" : "streaming",
-          createdAt,
-          updatedAt: updatedAtValue,
-        });
-        return acc;
-      }
-      if (kind === "tool_call") {
-        const state = normalizeToolCallState(raw.state);
-        acc.push({
-          id,
-          kind,
-          toolCallId: normalizeString(raw.toolCallId) || id,
-          title: normalizeString(raw.title) || undefined,
-          state,
-          toolKind: normalizeString(raw.toolKind) || undefined,
-          toolName: normalizeString(raw.toolName) || undefined,
-          inputSummary: normalizeString(raw.inputSummary) || undefined,
-          resultSummary: normalizeString(raw.resultSummary) || undefined,
-          summary: normalizeString(raw.summary) || undefined,
-          createdAt,
-          updatedAt: updatedAtValue,
-        });
-        return acc;
-      }
-      if (kind === "status") {
-        acc.push({
-          id,
-          kind,
-          level:
-            raw.level === "error" || raw.level === "warn" ? raw.level : "info",
-          label: normalizeString(raw.label) || "Status",
-          text: normalizeString(raw.text),
-          details: isRecord(raw.details) ? { ...raw.details } : undefined,
-          createdAt,
-          updatedAt: updatedAtValue,
-        });
-        return acc;
-      }
-      if (kind === "permission") {
-        const status = normalizeString(raw.status);
-        acc.push({
-          id,
-          kind,
-          permissionRequestId: normalizeString(raw.permissionRequestId),
-          status:
-            status === "approved" ||
-            status === "denied" ||
-            status === "cancelled"
-              ? status
-              : "pending",
-          title: normalizeString(raw.title) || "Permission request",
-          summary:
-            normalizeString(raw.summary) || "ACP backend requests approval.",
-          source: normalizeString(raw.source) || undefined,
-          createdAt,
-          updatedAt: updatedAtValue,
-        });
-      }
-      return acc;
-    }, []);
 }
 
 function parsePlanEntries(value: unknown) {
@@ -1712,7 +1576,6 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
         } as AcpPendingPermissionRequest)
       : null,
     resultJson: raw.resultJson,
-    outputRevisions: parseOutputRevisions(raw.outputRevisions),
     outputRevisionsPath: normalizeString(raw.outputRevisionsPath) || undefined,
     outputRevisionCount: Math.max(
       0,
@@ -1730,7 +1593,6 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
     removedAt: normalizeString(raw.removedAt) || undefined,
     archivedAt: normalizeString(raw.archivedAt) || undefined,
     planEntries: parsePlanEntries(raw.planEntries),
-    transcriptItems: parseTranscriptItems(raw.transcriptItems, updatedAt),
     transcriptPath: normalizeString(raw.transcriptPath) || undefined,
     transcriptIndexPath: normalizeString(raw.transcriptIndexPath) || undefined,
     transcriptRevision: Math.max(
@@ -1786,40 +1648,19 @@ function ensureHydrated() {
   }
 }
 
-function persistAcpSkillRunRuntimeFiles(record: AcpSkillRunRecord) {
+function persistAcpSkillRunRuntimeFiles(
+  record: AcpSkillRunRecord,
+  options?: {
+    writeRunContext?: boolean;
+    writeResultJson?: boolean;
+  },
+) {
   const runtimeDir = normalizeString(record.runtimeDir);
   if (!runtimeDir) {
     return;
   }
   const writes: Array<Promise<unknown>> = [];
-  if (
-    Array.isArray(record.transcriptItems) &&
-    record.transcriptItems.length &&
-    (shouldExternalizeTranscript(record) ||
-      shouldExternalizeOutputRevisions(record) ||
-      shouldExternalizeRunContext(record))
-  ) {
-    writes.push(
-      writeAcpSkillRunTranscriptSnapshot({
-        runtimeDir,
-        items: record.transcriptItems,
-        updatedAt: record.updatedAt,
-      }),
-    );
-  }
-  if (
-    Array.isArray(record.outputRevisions) &&
-    record.outputRevisions.length &&
-    shouldExternalizeOutputRevisions(record)
-  ) {
-    writes.push(
-      writeAcpSkillRunOutputRevisions({
-        runtimeDir,
-        revisions: record.outputRevisions,
-      }),
-    );
-  }
-  if (shouldExternalizeRunContext(record)) {
+  if (options?.writeRunContext && shouldExternalizeRunContext(record)) {
     writes.push(
       writeAcpSkillRunContextPayload({
         runtimeDir,
@@ -1841,6 +1682,8 @@ function persistAcpSkillRunRuntimeFiles(record: AcpSkillRunRecord) {
         },
       }),
     );
+  }
+  if (options?.writeResultJson) {
     const resultJsonPath = normalizeString(record.resultJsonPath);
     if (resultJsonPath && typeof record.resultJson !== "undefined") {
       writes.push(
@@ -1857,32 +1700,21 @@ function persistAcpSkillRunRuntimeFiles(record: AcpSkillRunRecord) {
   }
 }
 
-export async function flushAcpSkillRunRuntimeFileWritesForTests() {
+export async function flushAcpSkillRunRuntimeFileWrites() {
   while (runtimeFileWrites.size > 0) {
     await Promise.all(Array.from(runtimeFileWrites)).catch(() => undefined);
   }
 }
 
+export async function flushAcpSkillRunRuntimeFileWritesForTests() {
+  await flushAcpSkillRunRuntimeFileWrites();
+}
+
 function buildPersistedAcpSkillRunPayload(record: AcpSkillRunRecord) {
   const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
-  const externalizeOutputRevisions = shouldExternalizeOutputRevisions(record);
   const externalizeRunContext = shouldExternalizeRunContext(record);
-  const externalizeTranscript =
-    shouldExternalizeTranscript(record) ||
-    externalizeOutputRevisions ||
-    externalizeRunContext;
   const externalizeLastTurnOutput = !!normalizeString(record.lastTurnOutput);
-  const pendingInteraction = record.pendingInteraction
-    ? {
-        ...record.pendingInteraction,
-        candidatePreview:
-          record.pendingInteraction.candidatePreview ||
-          truncateAcpSkillRunPreview(record.pendingInteraction.candidateText),
-      }
-    : undefined;
-  if (pendingInteraction) {
-    delete (pendingInteraction as Record<string, unknown>).candidateText;
-  }
+  const pendingInteraction = parsePendingInteraction(record.pendingInteraction);
   const persisted = sanitizeAcpSkillRunPersistedValue({
     ...record,
     transcriptPath: metadata.transcriptPath || record.transcriptPath,
@@ -1902,12 +1734,8 @@ function buildPersistedAcpSkillRunPayload(record: AcpSkillRunRecord) {
       truncateAcpSkillRunPreview(record.lastTurnOutput),
     pendingInteraction,
   }) as Record<string, unknown>;
-  if (externalizeTranscript) {
-    delete persisted.transcriptItems;
-  }
-  if (externalizeOutputRevisions) {
-    delete persisted.outputRevisions;
-  }
+  delete persisted.transcriptItems;
+  delete persisted.outputRevisions;
   if (externalizeRunContext) {
     delete persisted.requestPayload;
     delete persisted.runnerJson;
@@ -1919,11 +1747,17 @@ function buildPersistedAcpSkillRunPayload(record: AcpSkillRunRecord) {
   return persisted;
 }
 
-function persistRun(record: AcpSkillRunRecord) {
+function persistRun(
+  record: AcpSkillRunRecord,
+  options?: {
+    writeRunContext?: boolean;
+    writeResultJson?: boolean;
+  },
+) {
   if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
     return;
   }
-  persistAcpSkillRunRuntimeFiles(record);
+  persistAcpSkillRunRuntimeFiles(record, options);
   upsertPluginRunStoreEntry("acp", {
     runKey: record.requestId,
     requestId: record.requestId,
@@ -2289,7 +2123,7 @@ export function upsertAcpSkillRun(update: {
   validationErrors?: string[];
   outputConvergenceState?: AcpSkillRunRecord["outputConvergenceState"];
   lastTurnOutput?: string;
-  pendingInteraction?: AcpSkillRunPendingInteraction | null;
+  pendingInteraction?: AcpSkillRunPendingInteractionUpdate | null;
   conversationState?: AcpSkillRunConversationState;
   conversationRecoveryState?: AcpSkillRunRecoveryState;
   conversationError?: string;
@@ -2337,8 +2171,6 @@ export function upsertAcpSkillRun(update: {
       repairRounds: 0,
       createdAt: now,
       updatedAt: now,
-      outputRevisions: [],
-      transcriptItems: [],
       events: [],
     }),
     updatedAt: now,
@@ -2497,7 +2329,9 @@ export function upsertAcpSkillRun(update: {
     next.outputConvergenceState = update.outputConvergenceState;
   }
   if (Object.prototype.hasOwnProperty.call(update, "pendingInteraction")) {
-    next.pendingInteraction = update.pendingInteraction || undefined;
+    next.pendingInteraction = parsePendingInteraction(
+      update.pendingInteraction,
+    );
   }
   if (update.conversationState)
     next.conversationState = update.conversationState;
@@ -2522,7 +2356,6 @@ export function upsertAcpSkillRun(update: {
   if (typeof update.archivedAt === "string") {
     next.archivedAt = normalizeString(update.archivedAt) || undefined;
   }
-  let transcriptEventChanged = false;
   if (update.event) {
     const event = {
       ts: update.event.ts || now,
@@ -2532,22 +2365,19 @@ export function upsertAcpSkillRun(update: {
       details: update.event.details,
     };
     next.events = [...next.events, event].slice(-80);
-    transcriptEventChanged = appendStatusTranscriptItem(next, event);
+    appendStatusTranscriptItem(next, event);
   }
   setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
-  if (transcriptEventChanged) {
-    publishAcpSkillRunTranscript(requestId, "structural");
-  }
-  persistRun(next);
+  persistRun(next, {
+    writeRunContext: updateTouchesAcpSkillRunContext(
+      update as Record<string, unknown>,
+    ),
+    writeResultJson: Object.prototype.hasOwnProperty.call(update, "resultJson"),
+  });
   syncWorkflowTaskForAcpSkillRun(next);
   emitChanged();
-  return {
-    ...next,
-    transcriptItems: next.transcriptItems.map((entry) => ({ ...entry })),
-    outputRevisions: next.outputRevisions.map((entry) => ({ ...entry })),
-    events: next.events.map((entry) => ({ ...entry })),
-  };
+  return projectAcpSkillRunMetadataRecord(next);
 }
 
 export function appendAcpSkillRunUserReply(args: {
@@ -2565,8 +2395,9 @@ export function appendAcpSkillRunUserReply(args: {
     return;
   }
   const now = nowIso();
+  const state = getAcpSkillRunTranscriptLiveState(existing);
   const item: AcpSkillRunTranscriptItem = {
-    id: `acp-skill-message-${existing.transcriptItems.length + 1}`,
+    id: nextTranscriptItemId(existing, "message", state),
     kind: "message",
     role: "user",
     text: message,
@@ -2576,8 +2407,20 @@ export function appendAcpSkillRunUserReply(args: {
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,
-    transcriptItems: [...existing.transcriptItems, item].slice(-200),
   };
+  state.lastTextItem = {
+    id: item.id,
+    kind: "message",
+    role: "user",
+    state: "complete",
+  };
+  queueTranscriptEvent(next, {
+    op: "upsert_item",
+    itemId: item.id,
+    item,
+    createdAt: now,
+    newItem: true,
+  });
   setAcpSkillRunRecord(next);
   persistRun(next);
   scheduleChangedEmit();
@@ -2672,29 +2515,31 @@ function replaceLatestAssistantMessage(args: {
   if (!text) {
     return;
   }
-  const existingIndex = args.record.transcriptItems
-    .map((entry, index) => ({ entry, index }))
-    .reverse()
-    .find(
-      ({ entry }) => entry.kind === "message" && entry.role === "assistant",
-    )?.index;
-  if (typeof existingIndex === "number") {
-    args.record.transcriptItems = args.record.transcriptItems.map(
-      (entry, index) =>
-        index === existingIndex && entry.kind === "message"
-          ? {
-              ...entry,
-              text,
-              state: "complete",
-              revision: args.revision || entry.revision,
-              updatedAt: args.now,
-            }
-          : entry,
-    );
+  const state = getAcpSkillRunTranscriptLiveState(args.record);
+  const existingId = state.lastAssistantMessageId;
+  if (existingId) {
+    queueTranscriptEvent(args.record, {
+      op: "patch_item",
+      itemId: existingId,
+      patch: {
+        text,
+        state: "complete",
+        revision: args.revision,
+        updatedAt: args.now,
+      } as Partial<AcpSkillRunTranscriptItem>,
+      createdAt: args.now,
+      textPreview: text,
+    });
+    state.lastTextItem = {
+      id: existingId,
+      kind: "message",
+      role: "assistant",
+      state: "complete",
+    };
     return;
   }
   const item: AcpSkillRunTranscriptItem = {
-    id: `acp-skill-message-${args.record.transcriptItems.length + 1}`,
+    id: nextTranscriptItemId(args.record, "message", state),
     kind: "message",
     role: "assistant",
     text,
@@ -2702,9 +2547,20 @@ function replaceLatestAssistantMessage(args: {
     revision: args.revision,
     createdAt: args.now,
   };
-  args.record.transcriptItems = [...args.record.transcriptItems, item].slice(
-    -200,
-  );
+  state.lastAssistantMessageId = item.id;
+  state.lastTextItem = {
+    id: item.id,
+    kind: "message",
+    role: "assistant",
+    state: "complete",
+  };
+  queueTranscriptEvent(args.record, {
+    op: "upsert_item",
+    itemId: item.id,
+    item,
+    createdAt: args.now,
+    newItem: true,
+  });
 }
 
 function removeLatestAssistantCandidateMessage(
@@ -2715,28 +2571,18 @@ function removeLatestAssistantCandidateMessage(
   if (!normalizedCandidate) {
     return;
   }
-  const latestAssistantIndex = record.transcriptItems
-    .map((entry, index) => ({ entry, index }))
-    .reverse()
-    .find(
-      ({ entry }) => entry.kind === "message" && entry.role === "assistant",
-    )?.index;
-  if (typeof latestAssistantIndex !== "number") {
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  const latestAssistantId = state.lastAssistantMessageId;
+  if (!latestAssistantId) {
     return;
   }
-  const latest = record.transcriptItems[latestAssistantIndex];
-  if (latest.kind !== "message") {
-    return;
-  }
-  const latestText = String(latest.text || "").trim();
-  if (
-    latestText === normalizedCandidate ||
-    latestText.includes("__SKILL_DONE__")
-  ) {
-    record.transcriptItems = record.transcriptItems.filter(
-      (_, index) => index !== latestAssistantIndex,
-    );
-  }
+  queueTranscriptEvent(record, {
+    op: "delete_item",
+    itemId: latestAssistantId,
+    createdAt: nowIso(),
+  });
+  state.lastAssistantMessageId = undefined;
+  state.lastTextItem = undefined;
 }
 
 function appendOutputRevision(args: {
@@ -2748,28 +2594,35 @@ function appendOutputRevision(args: {
   replacementReason?: string;
   now: string;
 }) {
-  const existing = Array.isArray(args.record.outputRevisions)
-    ? args.record.outputRevisions
-    : [];
-  const nextRevisions = existing.map((entry) => ({ ...entry }));
-  if (args.status !== "invalid") {
-    for (const entry of nextRevisions) {
-      if (entry.status === "invalid" && !entry.replacementReason) {
-        entry.replacementReason = `Replaced by ${args.status} output.`;
-      }
-    }
-  }
-  nextRevisions.push({
-    id: `revision-${nextRevisions.length + 1}`,
+  const count = Math.max(0, args.record.outputRevisionCount || 0);
+  const revision: AcpSkillRunOutputRevision = {
+    id: `revision-${count + 1}`,
     candidateText: normalizeString(args.candidateText),
     repairRound: Math.max(0, Math.floor(Number(args.repairRound || 0) || 0)),
     status: args.status,
     errors: Array.isArray(args.errors) ? [...args.errors] : [],
     replacementReason: normalizeString(args.replacementReason) || undefined,
     createdAt: args.now,
-  });
-  args.record.outputRevisions = nextRevisions.slice(-50);
-  return buildOutputRevisionSummary(args.record.outputRevisions);
+  };
+  const refs = resolveAcpSkillRunPayloadPaths(args.record.runtimeDir);
+  args.record.outputRevisionsPath =
+    refs.outputRevisionsPath || args.record.outputRevisionsPath;
+  args.record.outputRevisionCount = count + 1;
+  args.record.outputRevisionPreview = truncateAcpSkillRunPreview(
+    revision.candidateText,
+  );
+  const write = appendAcpSkillRunOutputRevision({
+    runtimeDir: args.record.runtimeDir,
+    revision,
+    seq: count + 1,
+  }).catch(() => undefined);
+  runtimeFileWrites.add(write);
+  void write.finally(() => runtimeFileWrites.delete(write));
+  return {
+    count: count + 1,
+    latestStatus: args.status,
+    latestRepairRound: revision.repairRound,
+  } satisfies AcpSkillRunMessageRevisionSummary;
 }
 
 export function recordAcpSkillRunOutputRevision(args: {
@@ -2793,8 +2646,6 @@ export function recordAcpSkillRunOutputRevision(args: {
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,
-    outputRevisions: existing.outputRevisions.map((entry) => ({ ...entry })),
-    transcriptItems: [...existing.transcriptItems],
   };
   appendOutputRevision({
     record: next,
@@ -2807,7 +2658,6 @@ export function recordAcpSkillRunOutputRevision(args: {
   });
   removeLatestAssistantCandidateMessage(next, args.candidateText);
   setAcpSkillRunRecord(next);
-  publishAcpSkillRunTranscript(requestId, "structural");
   persistRun(next);
   emitChanged();
 }
@@ -2844,8 +2694,6 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,
-    outputRevisions: existing.outputRevisions.map((entry) => ({ ...entry })),
-    transcriptItems: [...existing.transcriptItems],
   };
   const canonicalText =
     args.kind === "pending"
@@ -2870,82 +2718,30 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
     revision,
   });
   setAcpSkillRunRecord(next);
-  publishAcpSkillRunTranscript(requestId, "structural");
   persistRun(next);
   emitChanged();
-}
-
-function getLatestTranscriptItem(record: AcpSkillRunRecord) {
-  return record.transcriptItems[record.transcriptItems.length - 1];
-}
-
-function isSkippableInterleavedStatus(
-  entry: AcpSkillRunTranscriptItem | undefined,
-) {
-  return entry?.kind === "status" && entry.label === "workspace-activity";
-}
-
-function isMatchingStreamingTextItem(args: {
-  entry: AcpSkillRunTranscriptItem | undefined;
-  kind: "message" | "thought";
-  role: "assistant" | "user";
-}) {
-  const { entry } = args;
-  if (args.kind === "message") {
-    return (
-      entry?.kind === "message" &&
-      entry.role === args.role &&
-      entry.state === "streaming"
-    );
-  }
-  return entry?.kind === "thought" && entry.state === "streaming";
-}
-
-function findAppendableStreamingTextItem(args: {
-  record: AcpSkillRunRecord;
-  kind: "message" | "thought";
-  role: "assistant" | "user";
-}) {
-  for (
-    let index = args.record.transcriptItems.length - 1;
-    index >= 0;
-    index -= 1
-  ) {
-    const entry = args.record.transcriptItems[index];
-    if (isSkippableInterleavedStatus(entry)) {
-      continue;
-    }
-    return isMatchingStreamingTextItem({
-      entry,
-      kind: args.kind,
-      role: args.role,
-    })
-      ? entry
-      : undefined;
-  }
-  return undefined;
 }
 
 function completeOpenStreamingTextItems(
   record: AcpSkillRunRecord,
   now: string,
 ) {
-  let changed = false;
-  record.transcriptItems = record.transcriptItems.map((entry) => {
-    if (
-      (entry.kind === "message" || entry.kind === "thought") &&
-      entry.state === "streaming"
-    ) {
-      changed = true;
-      return {
-        ...entry,
-        state: "complete",
-        updatedAt: entry.updatedAt || now,
-      };
-    }
-    return entry;
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  const item = state.lastTextItem;
+  if (!item || item.state !== "streaming") {
+    return false;
+  }
+  queueTranscriptEvent(record, {
+    op: "patch_item",
+    itemId: item.id,
+    patch: {
+      state: "complete",
+      updatedAt: now,
+    } as Partial<AcpSkillRunTranscriptItem>,
+    createdAt: now,
   });
-  return changed;
+  state.lastTextItem = { ...item, state: "complete" };
+  return true;
 }
 
 function appendTextChunk(args: {
@@ -2960,34 +2756,24 @@ function appendTextChunk(args: {
     return;
   }
   const role = args.role || "assistant";
-  const latest =
-    findAppendableStreamingTextItem({
-      record: args.record,
-      kind: args.kind,
-      role,
-    }) || getLatestTranscriptItem(args.record);
+  const state = getAcpSkillRunTranscriptLiveState(args.record);
+  const latest = state.lastTextItem;
   if (
-    args.kind === "message" &&
-    latest?.kind === "message" &&
+    latest &&
+    latest.kind === args.kind &&
     latest.role === role &&
     latest.state === "streaming"
   ) {
-    latest.text += text;
-    latest.state = "streaming";
-    latest.updatedAt = args.now;
+    queueTranscriptEvent(args.record, {
+      op: "append_text",
+      itemId: latest.id,
+      text,
+      createdAt: args.now,
+      textPreview: text,
+    });
     return;
   }
-  if (
-    args.kind === "thought" &&
-    latest?.kind === "thought" &&
-    latest.state === "streaming"
-  ) {
-    latest.text += text;
-    latest.state = "streaming";
-    latest.updatedAt = args.now;
-    return;
-  }
-  const id = `acp-skill-${args.kind}-${args.record.transcriptItems.length + 1}`;
+  const id = nextTranscriptItemId(args.record, args.kind, state);
   const item: AcpSkillRunTranscriptItem =
     args.kind === "message"
       ? {
@@ -3005,15 +2791,25 @@ function appendTextChunk(args: {
           state: "streaming",
           createdAt: args.now,
         };
-  args.record.transcriptItems = [...args.record.transcriptItems, item].slice(
-    -200,
-  );
+  if (args.kind === "message" && role === "assistant") {
+    state.lastAssistantMessageId = id;
+  }
+  state.lastTextItem = {
+    id,
+    kind: args.kind,
+    role,
+    state: "streaming",
+  };
+  queueTranscriptEvent(args.record, {
+    op: "upsert_item",
+    itemId: id,
+    item,
+    createdAt: args.now,
+    newItem: true,
+  });
 }
 
-function extractToolName(
-  update: AcpToolCall,
-  current?: AcpSkillRunTranscriptItem,
-) {
+function extractToolName(update: AcpToolCall) {
   return (
     firstToolText([
       update.name,
@@ -3025,7 +2821,6 @@ function extractToolName(
         "",
       update.title,
       update.kind,
-      current?.kind === "tool_call" ? current.toolName : "",
     ]) || "Tool"
   );
 }
@@ -3087,43 +2882,50 @@ function upsertTranscriptToolCall(
   update: AcpToolCall,
   now: string,
 ) {
+  const liveState = getAcpSkillRunTranscriptLiveState(record);
   const toolCallId =
     normalizeString(update.toolCallId) ||
     normalizeString(update.title) ||
-    `tool-${record.transcriptItems.length + 1}`;
-  const existingIndex = record.transcriptItems.findIndex(
-    (entry) => entry.kind === "tool_call" && entry.toolCallId === toolCallId,
-  );
-  const existing =
-    existingIndex >= 0 ? record.transcriptItems[existingIndex] : undefined;
-  const current = existing?.kind === "tool_call" ? existing : undefined;
+    `tool-${liveState.itemCount + 1}`;
+  const existingId = liveState.toolItemIds.get(toolCallId);
+  const existing = liveState.toolItems.get(toolCallId);
   const nextState = inferToolCallState(update);
-  const state =
-    current && toolStateRank(current.state) > toolStateRank(nextState)
-      ? current.state
-      : nextState;
-  const inputSummary = current?.inputSummary || extractToolInputSummary(update);
+  const title = firstToolText([update.title]) || existing?.title;
+  const toolKind = firstToolText([update.kind]) || existing?.toolKind;
+  const toolName = extractToolName(update) || existing?.toolName;
+  const inputSummary =
+    extractToolInputSummary(update) || existing?.inputSummary;
+  const summary = firstToolText([update.summary]) || existing?.summary;
   const next: AcpSkillRunTranscriptItem = {
-    id: current?.id || `acp-skill-tool-${record.transcriptItems.length + 1}`,
+    id: existingId || nextTranscriptItemId(record, "tool", liveState),
     kind: "tool_call",
     toolCallId,
-    title: firstToolText([update.title, current?.title]) || undefined,
-    state,
-    toolKind: firstToolText([update.kind, current?.toolKind]) || undefined,
-    toolName: extractToolName(update, current),
+    title: title || undefined,
+    state: nextState,
+    toolKind: toolKind || undefined,
+    toolName: toolName || undefined,
     inputSummary: inputSummary || undefined,
-    resultSummary: extractToolResultSummary(update) || current?.resultSummary,
-    summary: firstToolText([update.summary, current?.summary]) || undefined,
-    createdAt: current?.createdAt || now,
+    resultSummary: extractToolResultSummary(update) || undefined,
+    summary: summary || undefined,
+    createdAt: now,
     updatedAt: now,
   };
-  if (existingIndex >= 0) {
-    record.transcriptItems = record.transcriptItems.map((entry, index) =>
-      index === existingIndex ? next : entry,
-    );
-    return;
-  }
-  record.transcriptItems = [...record.transcriptItems, next].slice(-200);
+  liveState.toolItemIds.set(toolCallId, next.id);
+  liveState.toolItems.set(toolCallId, {
+    id: next.id,
+    title: next.title,
+    toolKind: next.toolKind,
+    toolName: next.toolName,
+    inputSummary: next.inputSummary,
+    summary: next.summary,
+  });
+  queueTranscriptEvent(record, {
+    op: "upsert_item",
+    itemId: next.id,
+    item: next,
+    createdAt: now,
+    newItem: !existingId,
+  });
 }
 
 export function recordAcpSkillRunSessionUpdate(
@@ -3149,7 +2951,6 @@ export function recordAcpSkillRunSessionUpdate(
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: isTextChunkUpdate ? existing.updatedAt : now,
-    transcriptItems: [...existing.transcriptItems],
     planEntries: existing.planEntries ? [...existing.planEntries] : undefined,
     usage: existing.usage ? { ...existing.usage } : undefined,
   };
@@ -3197,17 +2998,15 @@ export function recordAcpSkillRunSessionUpdate(
   }
   setAcpSkillRunRecord(next);
   if (isTextChunkUpdate) {
-    markAcpSkillRunTranscriptUnpublished(requestId);
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
+      persistRun(next);
       return;
     }
-    publishAcpSkillRunTranscript(requestId, "full");
     persistRun(next);
     emitChanged();
     return;
   }
   if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
-    publishAcpSkillRunTranscript(requestId, "structural");
     persistRun(next);
     emitChanged();
     return;
@@ -3238,13 +3037,11 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,
-    transcriptItems: [...existing.transcriptItems],
   };
   if (!completeOpenStreamingTextItems(next, now)) {
     return;
   }
   setAcpSkillRunRecord(next);
-  publishAcpSkillRunTranscript(requestId);
   persistRun(next);
   emitChanged();
 }
@@ -3274,16 +3071,13 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
       },
     },
   );
-  const last = existing.transcriptItems[existing.transcriptItems.length - 1];
-  if (
-    last?.kind === "status" &&
-    last.label === "hard-timeout-disconnect" &&
-    last.text === text
-  ) {
+  const state = getAcpSkillRunTranscriptLiveState(existing);
+  const last = state.lastStatus;
+  if (last && last.label === "hard-timeout-disconnect" && last.text === text) {
     return;
   }
   const item: AcpSkillRunTranscriptItem = {
-    id: `acp-skill-status-${existing.transcriptItems.length + 1}`,
+    id: nextTranscriptItemId(existing, "status", state),
     kind: "status",
     level: "warn",
     label: "hard-timeout-disconnect",
@@ -3298,8 +3092,19 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
   const next: AcpSkillRunRecord = {
     ...existing,
     updatedAt: now,
-    transcriptItems: [...existing.transcriptItems, item].slice(-200),
   };
+  state.lastStatus = {
+    id: item.id,
+    label: item.label,
+    text: item.text,
+  };
+  queueTranscriptEvent(next, {
+    op: "upsert_item",
+    itemId: item.id,
+    item,
+    createdAt: now,
+    newItem: true,
+  });
   setAcpSkillRunRecord(next);
   persistRun(next);
   emitChanged();
@@ -4328,13 +4133,7 @@ export function selectAcpSkillRun(requestIdRaw: string) {
 export function listAcpSkillRuns() {
   ensureHydrated();
   return Array.from(runRecords.values())
-    .map((entry) => ({
-      ...entry,
-      transcriptItems: entry.transcriptItems.map((item) => ({ ...item })),
-      outputRevisions: entry.outputRevisions.map((item) => ({ ...item })),
-      planEntries: entry.planEntries?.map((item) => ({ ...item })),
-      events: entry.events.map((event) => ({ ...event })),
-    }))
+    .map((entry) => projectAcpSkillRunRecordForPanel(entry))
     .sort((a, b) => {
       const created = b.createdAt.localeCompare(a.createdAt);
       if (created !== 0) return created;
@@ -4462,12 +4261,14 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
       rowsDeleted: 0,
       requestIds: [],
       workspaceDirs: [],
+      runtimeDirs: [],
     };
   }
   const nowMs = Math.max(0, Number(args.nowMs || 0) || 0) || Date.now();
   const thresholdMs = nowMs - retentionMs;
   const requestIds: string[] = [];
   const workspaceDirs: string[] = [];
+  const runtimeDirs: string[] = [];
   for (const record of Array.from(runRecords.values())) {
     if (!isAcpSkillRunRetentionEligible({ record, thresholdMs })) {
       continue;
@@ -4476,6 +4277,10 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     const workspaceDir = normalizeString(record.workspaceDir);
     if (workspaceDir) {
       workspaceDirs.push(workspaceDir);
+    }
+    const runtimeDir = normalizeString(record.runtimeDir);
+    if (runtimeDir) {
+      runtimeDirs.push(runtimeDir);
     }
     deletePluginRunStoreEntry("acp", record.requestId);
     deleteAcpSkillRunRecord(record.requestId);
@@ -4496,6 +4301,7 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     rowsDeleted: requestIds.length,
     requestIds,
     workspaceDirs: Array.from(new Set(workspaceDirs)),
+    runtimeDirs: Array.from(new Set(runtimeDirs)),
   };
 }
 
@@ -4503,15 +4309,46 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
   ensureHydrated();
   const requestId = normalizeString(requestIdRaw);
   const entry = requestId ? runRecords.get(requestId) : undefined;
-  return entry
-    ? {
-        ...entry,
-        transcriptItems: entry.transcriptItems.map((item) => ({ ...item })),
-        outputRevisions: entry.outputRevisions.map((item) => ({ ...item })),
-        planEntries: entry.planEntries?.map((item) => ({ ...item })),
-        events: entry.events.map((event) => ({ ...event })),
-      }
-    : null;
+  if (!entry) {
+    return null;
+  }
+  return projectAcpSkillRunMetadataRecord(entry);
+}
+
+export async function readAcpSkillRunTranscriptPage(args: {
+  requestId: string;
+  cursor?: number;
+  limit?: number;
+}): Promise<
+  AcpSkillRunTranscriptPage & {
+    requestId: string;
+    transcriptRevision: number;
+  }
+> {
+  ensureHydrated();
+  const requestId = normalizeString(args.requestId);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  if (!record) {
+    return {
+      requestId,
+      items: [],
+      cursor: 0,
+      total: 0,
+      eventSeq: 0,
+      transcriptRevision: 0,
+    };
+  }
+  await flushAcpSkillRunRuntimeFileWrites();
+  const page = await readAcpSkillRunTranscriptPageFromStore({
+    runtimeDir: record.runtimeDir,
+    cursor: args.cursor,
+    limit: args.limit,
+  });
+  return {
+    ...page,
+    requestId,
+    transcriptRevision: record.transcriptRevision || page.eventSeq,
+  };
 }
 
 function findTaskForRun(run: AcpSkillRunRecord) {

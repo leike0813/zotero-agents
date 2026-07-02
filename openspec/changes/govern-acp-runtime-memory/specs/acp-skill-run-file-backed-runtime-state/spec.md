@@ -16,23 +16,38 @@ the plugin run store payload as the canonical storage for those large values.
 - **AND** it SHALL NOT contain the complete transcript
 - **AND** it SHALL NOT contain full candidate text
 - **AND** it SHALL NOT contain complete `resultJson`, `requestPayload`, or
-  `runnerJson`.
+  `runnerJson`
+- **AND** pending interaction state SHALL contain only bounded previews and file
+  references, not complete candidate text.
 
-#### Scenario: Transcript is read on demand
+#### Scenario: Panel snapshot is metadata-only
 
 - **GIVEN** ACP Skill run history contains many runs
-- **WHEN** a summary or panel snapshot is built without opening a transcript
+- **WHEN** a summary, panel snapshot, or selected run detail is built
 - **THEN** the system SHALL NOT load every run's transcript into memory
-- **AND** only the selected run's transcript page MAY be loaded for display.
+- **AND** the snapshot SHALL NOT contain a `transcriptItems` array
+- **AND** the snapshot SHALL NOT contain an `outputRevisions` array
+- **AND** the snapshot SHALL NOT contain `requestPayload`, `runnerJson`,
+  `resultJson`, `lastTurnOutput`, or `pendingInteraction.candidateText`
+- **AND** transcript display SHALL require an explicit asynchronous transcript
+  page request.
 
-#### Scenario: Legacy embedded payload is migrated lazily
+#### Scenario: Runtime context is dirty-written
 
-- **GIVEN** an existing ACP Skill run database payload contains embedded
-  transcript or candidate text
-- **WHEN** the run is selected, updated, or otherwise needs detail loading
-- **THEN** the large values SHALL be written to runtime files
-- **AND** the database payload SHALL be rewritten as metadata-only after a
-  successful migration.
+- **GIVEN** an ACP Skill run has written `run-context.json`
+- **WHEN** streaming transcript chunks, usage, plan, or tool updates arrive
+- **THEN** those updates SHALL NOT rewrite `run-context.json`
+- **AND** context writes SHALL occur only when request, runner, provider
+  options, workspace/runtime references, or materialization references change.
+
+#### Scenario: Legacy embedded payload is not migrated
+
+- **GIVEN** an old ACP Skill run database payload contains embedded transcript
+  or candidate text
+- **WHEN** ACP Skill run history is hydrated
+- **THEN** hydration SHALL NOT fold or retain those large embedded values
+- **AND** local test data cleanup SHALL remove affected old ACP Skill run rows
+  instead of relying on compatibility migration.
 
 ### Requirement: Transcript JSONL is the canonical transcript source
 
@@ -44,8 +59,9 @@ ACP Skill transcripts SHALL use a single append-only JSONL event log at
 - **WHEN** an ACP Skill run records a transcript message, status, permission, or
   tool call update
 - **THEN** the update SHALL append a JSON object containing `seq`, `op`,
-  `itemId`, `item`, and `createdAt`
-- **AND** rendering SHALL fold those events into the visible transcript.
+  `itemId`, `createdAt`, and the operation payload
+- **AND** supported operations SHALL include `upsert_item`, `append_text`,
+  `patch_item`, and `delete_item`.
 
 #### Scenario: Transcript index is derived
 
@@ -53,6 +69,39 @@ ACP Skill transcripts SHALL use a single append-only JSONL event log at
 - **WHEN** the transcript is read
 - **THEN** the index MAY be rebuilt from `transcript.jsonl`
 - **AND** deleting the index SHALL NOT delete transcript truth.
+
+#### Scenario: Transcript preview is indexed
+
+- **WHEN** a transcript event is appended
+- **THEN** the rebuildable transcript index SHALL update bounded item/root
+  previews from the event payload
+- **AND** append-time preview generation SHALL NOT reread and fold transcript
+  JSONL items from disk.
+
+#### Scenario: Transcript page loads asynchronously
+
+- **GIVEN** an ACP Skill run has a transcript with more than one page of items
+- **WHEN** the UI requests a transcript page without a cursor
+- **THEN** the transcript store SHALL return the tail page
+- **AND** the response SHALL include `items`, `cursor`, `prevCursor`,
+  `nextCursor`, `total`, and `eventSeq`
+- **AND** the store SHALL materialize only items in the requested page during a
+  normal indexed read.
+
+#### Scenario: Streaming chunks do not accumulate in memory
+
+- **WHEN** assistant streaming text arrives for an ACP Skill run
+- **THEN** each chunk SHALL be appended to the transcript event log or a
+  file-backed text event
+- **AND** the ACP Skill run record and live controller SHALL NOT retain the full
+  accumulated assistant text.
+
+#### Scenario: Assistant turn text is file-backed
+
+- **WHEN** the ACP runner captures assistant chunks for output convergence
+- **THEN** chunks SHALL be appended to `<runtimeDir>/turns/<turnId>.assistant.txt`
+- **AND** convergence SHALL read the turn file at the prompt boundary
+- **AND** the controller SHALL NOT accumulate the turn in an unbounded string.
 
 ### Requirement: Runtime file retention follows run workspace retention
 

@@ -25,6 +25,14 @@ directory so they are governed by the same retention lifecycle.
   output revision, and continuation context files because they live under that
   workspace.
 
+#### Scenario: Terminal ACP Skills run has a separate runtime directory
+
+- **WHEN** an expired terminal ACP Skills run has `runtimeDir` under
+  `runtime/acp/skill-runs` but no deletable `workspaceDir`
+- **THEN** retention cleanup MUST delete the persisted ACP skill run row
+- **AND** retention cleanup MUST delete that `runtimeDir` after validating it is
+  inside `runtime/acp/skill-runs`.
+
 #### Scenario: Active ACP Skills run exceeds retention
 
 - **WHEN** an ACP Skills run is non-terminal or still recoverable

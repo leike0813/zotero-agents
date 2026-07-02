@@ -1,5 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import { listBackendInstances } from "../backends/registry";
+import { joinPath } from "../utils/path";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../config/defaults";
 import type {
   AcpSkillRunRequestV1,
@@ -86,6 +87,7 @@ import {
   appendAcpSkillRunUserReply,
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
+  flushAcpSkillRunRuntimeFileWrites,
   getAcpSkillRunRecord,
   isRecoverablePromptFailure,
   markAcpSkillRunApplyResult,
@@ -111,9 +113,12 @@ import {
   updateWorkflowTaskStateByRequest,
 } from "./taskRuntime";
 import {
+  appendRuntimeTextFile,
+  getRuntimePersistencePaths,
   listRuntimeChildren,
   readRuntimeTextFile,
   statRuntimePath,
+  writeRuntimeTextFile,
 } from "./runtimePersistence";
 import {
   appendAcpSkillRunAuditDiagnostic,
@@ -253,6 +258,88 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+let assistantTurnCaptureSeq = 0;
+
+function fileSafeId(value: unknown) {
+  return (
+    normalizeString(value)
+      .replace(/[^A-Za-z0-9_.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "run"
+  );
+}
+
+function createAssistantTurnCapture(args: {
+  requestId: string;
+  runtimeDir?: string;
+}) {
+  const runtimeDir = normalizeString(args.runtimeDir);
+  const safeRequestId = fileSafeId(args.requestId);
+  const turnId = `${Date.now()}-${++assistantTurnCaptureSeq}`;
+  const primaryPath = runtimeDir
+    ? joinPath(runtimeDir, "turns", `${safeRequestId}-${turnId}.assistant.txt`)
+    : "";
+  const fallbackPath = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "acp-skill-turns",
+    `${safeRequestId}-${turnId}.assistant.txt`,
+  );
+  let activePath = primaryPath || fallbackPath;
+  let writeChain = Promise.resolve();
+  const waitForWrites = async () => {
+    await writeChain.catch(() => undefined);
+  };
+  const writeActiveTextFile = async (content: string, append: boolean) => {
+    try {
+      if (append) {
+        await appendRuntimeTextFile(activePath, content);
+      } else {
+        await writeRuntimeTextFile(activePath, content);
+      }
+    } catch {
+      if (activePath === fallbackPath) {
+        return;
+      }
+      activePath = fallbackPath;
+      if (append) {
+        await appendRuntimeTextFile(activePath, content).catch(() => undefined);
+      } else {
+        await writeRuntimeTextFile(activePath, content).catch(() => undefined);
+      }
+    }
+  };
+  return {
+    get path() {
+      return activePath;
+    },
+    async reset() {
+      if (!activePath) {
+        return;
+      }
+      writeChain = writeChain
+        .catch(() => undefined)
+        .then(() => writeActiveTextFile("", false));
+      await waitForWrites();
+    },
+    append(text: unknown) {
+      const chunk = String(text || "");
+      if (!activePath || !chunk) {
+        return;
+      }
+      writeChain = writeChain
+        .catch(() => undefined)
+        .then(() => writeActiveTextFile(chunk, true));
+    },
+    async read() {
+      if (!activePath) {
+        return "";
+      }
+      await waitForWrites();
+      return readRuntimeTextFile(activePath);
+    },
+  };
+}
+
 function isObservableAcpPromptOutputUpdateKind(value: unknown) {
   return ACP_OBSERVABLE_PROMPT_OUTPUT_UPDATE_KINDS.has(normalizeString(value));
 }
@@ -387,8 +474,9 @@ function buildAcpSkillOutputValidationFailureDetails(args: {
   detachedReply?: boolean;
   recovered?: boolean;
 }) {
-  const assistantText = String(args.promptOutcome?.assistantText || "");
   const candidateText = String(args.convergence.candidateText || "");
+  const assistantText =
+    String(args.promptOutcome?.assistantText || "") || candidateText;
   const details: Record<string, unknown> = {
     errors: args.convergence.errors,
     repairRound: args.repairRound,
@@ -1243,6 +1331,7 @@ async function runPrompt(args: {
 }): Promise<{
   sessionId: string;
   stopReason: string;
+  assistantText?: string;
   cancelRequested?: boolean;
   observedAcpActivity?: boolean;
   standardAssistantTextSeen?: boolean;
@@ -1447,8 +1536,15 @@ async function applyRecoveredAcpSkillResult(args: {
       `workflow not found for ACP skill recovery apply: requestId=${args.record.requestId}; storedWorkflowId=${normalizeString(args.record.workflowId) || "(empty)"}; skillId=${normalizeString(args.record.skillId) || "(empty)"}; attempted=${attempted}`,
     );
   }
-  const request = args.record.requestPayload;
-  const targetParentID = resolveTargetParentIDFromRequest(request);
+  await flushAcpSkillRunRuntimeFileWrites();
+  const recoveredContext = await readAcpSkillRunContextPayload(
+    args.record.runtimeDir,
+  );
+  const request =
+    args.record.requestPayload || recoveredContext?.requestPayload;
+  const targetParentID = request
+    ? resolveTargetParentIDFromRequest(request)
+    : "";
   const applyParent = targetParentID || null;
   if (!applyParent && !canWorkflowRunWithoutSelection(workflow.manifest)) {
     throw new Error(
@@ -2176,6 +2272,7 @@ export async function recoverAcpSkillRunConversation(args: {
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
+  await flushAcpSkillRunRuntimeFileWrites();
   const recoveredContext = await readAcpSkillRunContextPayload(
     record.runtimeDir,
   );
@@ -2310,7 +2407,6 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   let cleanupDone = false;
   let captureAssistantText = false;
-  let currentTurnAssistantText = "";
   let currentTurnObservedAcpActivity = false;
   let promptChain = Promise.resolve();
   let liveSessionId = sessionId;
@@ -2326,6 +2422,10 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredHardTimeoutMonitor: ReturnType<
     typeof createAcpHardTimeoutMonitor
   > | null = null;
+  const assistantTurnCapture = createAssistantTurnCapture({
+    requestId,
+    runtimeDir: record.runtimeDir,
+  });
   const pendingPermissionPauseIds = new Set<string>();
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
@@ -2485,7 +2585,7 @@ export async function recoverAcpSkillRunConversation(args: {
   const promptRecoveredSession = async (
     message: string,
   ): Promise<AcpPromptOutcome> => {
-    currentTurnAssistantText = "";
+    await assistantTurnCapture.reset();
     currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
     recoveredPromptActive = true;
@@ -2533,16 +2633,17 @@ export async function recoverAcpSkillRunConversation(args: {
         return {
           sessionId: liveSessionId,
           stopReason: "cancelled",
-          assistantText: currentTurnAssistantText,
+          assistantText: await assistantTurnCapture.read(),
           observedAcpActivity: currentTurnObservedAcpActivity,
           cancelRequested: true,
         };
       }
       const result = guarded.value;
       liveSessionId = result.sessionId;
+      const assistantText = await assistantTurnCapture.read();
       return {
         ...result,
-        assistantText: currentTurnAssistantText,
+        assistantText: assistantText || result.assistantText || "",
         observedAcpActivity:
           currentTurnObservedAcpActivity || result.observedAcpActivity === true,
       };
@@ -2676,8 +2777,10 @@ export async function recoverAcpSkillRunConversation(args: {
     if (!shouldContinueWorkflow) {
       return;
     }
-    const runnerJsonForConvergence = latest.runnerJson;
-    const primarySkillDir = normalizeString(latest.primarySkillDir);
+    const runnerJsonForConvergence = latest.runnerJson || contextRunnerJson;
+    const primarySkillDir =
+      normalizeString(latest.primarySkillDir) ||
+      normalizeString(recoveredContext?.primarySkillDir);
     if (!runnerJsonForConvergence || !primarySkillDir) {
       throw new Error(
         "Recovered waiting run is missing output convergence context.",
@@ -2750,7 +2853,6 @@ export async function recoverAcpSkillRunConversation(args: {
           primarySkillDir,
           workspaceDir: normalizeString(latest.workspaceDir),
         });
-        promptOutcome.assistantText = "";
       }
       if (convergence.kind === "pending") {
         projectAcpSkillRunOutputEnvelopeToTranscript({
@@ -2970,7 +3072,7 @@ export async function recoverAcpSkillRunConversation(args: {
         update as { content?: { type?: string | null; text?: string | null } }
       ).content;
       if (normalizeString(content?.type) === "text") {
-        currentTurnAssistantText += String(content?.text || "");
+        assistantTurnCapture.append(content?.text || "");
       }
     }
     recordAcpSkillRunSessionUpdate(requestId, event);
@@ -3673,7 +3775,6 @@ export async function executeAcpSkillRunnerJob(args: {
   let disconnectRequested = false;
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
-  let currentTurnAssistantText = "";
   let currentTurnObservedAcpActivity = false;
   let workspaceActivityTimer: ReturnType<typeof setInterval> | null = null;
   let workspaceActivitySignature = "";
@@ -3690,6 +3791,10 @@ export async function executeAcpSkillRunnerJob(args: {
   const pendingPermissionPauseIds = new Set<string>();
   let autoHardTimeoutStarted = false;
   let activePromptTimeoutDrain: Promise<unknown> | null = null;
+  const assistantTurnCapture = createAssistantTurnCapture({
+    requestId: workspace.requestId,
+    runtimeDir: workspace.runtimeDir,
+  });
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
     conversationState?: "ended" | "closed" | "error";
@@ -3938,7 +4043,7 @@ export async function executeAcpSkillRunnerJob(args: {
   const promptExistingSession = async (
     message: string,
   ): Promise<AcpPromptOutcome> => {
-    currentTurnAssistantText = "";
+    await assistantTurnCapture.reset();
     currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
     startWorkspaceActivityHeartbeat();
@@ -3996,16 +4101,17 @@ export async function executeAcpSkillRunnerJob(args: {
         return {
           sessionId: liveSessionId,
           stopReason: "cancelled",
-          assistantText: currentTurnAssistantText,
+          assistantText: await assistantTurnCapture.read(),
           observedAcpActivity: currentTurnObservedAcpActivity,
           cancelRequested: true,
         };
       }
       const result = guarded.value;
       liveSessionId = result.sessionId;
+      const assistantText = await assistantTurnCapture.read();
       return {
         ...result,
-        assistantText: currentTurnAssistantText,
+        assistantText: assistantText || result.assistantText || "",
         observedAcpActivity:
           currentTurnObservedAcpActivity || result.observedAcpActivity === true,
       };
@@ -4282,7 +4388,7 @@ export async function executeAcpSkillRunnerJob(args: {
         update as { content?: { type?: string | null; text?: string | null } }
       ).content;
       if (normalizeString(content?.type) === "text") {
-        currentTurnAssistantText += String(content?.text || "");
+        assistantTurnCapture.append(content?.text || "");
       }
     }
     recordAcpSkillRunSessionUpdate(workspace.requestId, event);
@@ -4581,7 +4687,6 @@ export async function executeAcpSkillRunnerJob(args: {
             primarySkillDir: materialization.primarySkillDir,
             workspaceDir: workspace.workspaceDir,
           });
-          promptOutcome.assistantText = "";
         }
         if (detachedConvergence.kind === "pending") {
           const replyPromise = waitForInteractiveReply();

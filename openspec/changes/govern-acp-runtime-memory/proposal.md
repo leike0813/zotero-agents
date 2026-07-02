@@ -13,8 +13,10 @@ records, and UI snapshots.
   own only active connection resources.
 - Move ACP Skill transcripts, output revision candidates, and run continuation
   context out of database payloads into files under the run runtime directory.
-- Keep run store persistence and hydration metadata-only, with bounded previews
-  for UI summaries.
+- Keep run store persistence, hydration, panel snapshots, and selected run
+  detail metadata-only, with bounded previews for UI summaries.
+- Load ACP Skill transcripts through an explicit asynchronous page request from
+  the UI instead of embedding transcript items in snapshots.
 - Detach successful ACP Skills runs after workflow apply while preserving
   recoverability through `sessionId`.
 - Bound `waiting_user` live handles to 30 minutes before local detach.
@@ -43,7 +45,9 @@ records, and UI snapshots.
 ## Impact
 
 - Affected modules: ACP Skill run store, ACP Skill runner orchestrator, ACP Chat
-  session manager, runtime persistence, and ACP Skill panel snapshot model.
-- Affected data: existing ACP Skill run payloads with embedded transcript or
-  candidate text are lazily migrated to runtime files.
+  session manager, runtime persistence, ACP Skill panel snapshot model, and ACP
+  Skills sidebar bridge.
+- Affected data: local ACP Skill test history in the configured Zotero data
+  directory is reset after taking a database backup; old embedded transcript
+  payloads are not migrated for compatibility.
 - No new external dependency is required.

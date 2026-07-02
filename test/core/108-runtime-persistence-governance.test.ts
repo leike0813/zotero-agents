@@ -657,6 +657,7 @@ describe("runtime persistence governance", function () {
     const expiredWorkspace = path.join(paths.acpSkillRunsDir, "expired-run");
     const freshWorkspace = path.join(paths.acpSkillRunsDir, "fresh-run");
     const activeWorkspace = path.join(paths.acpSkillRunsDir, "active-run");
+    const runtimeOnlyDir = path.join(paths.acpSkillRunsDir, "runtime-only-run");
     for (const workspace of [
       expiredWorkspace,
       freshWorkspace,
@@ -671,7 +672,12 @@ describe("runtime persistence governance", function () {
     }
     const expiredRuntimeDir = path.join(expiredWorkspace, ".acp");
     const freshRuntimeDir = path.join(freshWorkspace, ".acp");
-    for (const runtimeDir of [expiredRuntimeDir, freshRuntimeDir]) {
+    const runtimeOnlyAcpDir = path.join(runtimeOnlyDir, ".acp");
+    for (const runtimeDir of [
+      expiredRuntimeDir,
+      freshRuntimeDir,
+      runtimeOnlyAcpDir,
+    ]) {
       await fs.mkdir(runtimeDir, { recursive: true });
       await fs.writeFile(
         path.join(runtimeDir, "transcript.jsonl"),
@@ -696,6 +702,7 @@ describe("runtime persistence governance", function () {
       backendId: "backend-acp",
       backendType: "acp",
       workspaceDir: expiredWorkspace,
+      runtimeDir: expiredRuntimeDir,
       removedAt: expiredAt,
       archivedAt: expiredAt,
       updatedAt: expiredAt,
@@ -706,6 +713,7 @@ describe("runtime persistence governance", function () {
       backendId: "backend-acp",
       backendType: "acp",
       workspaceDir: freshWorkspace,
+      runtimeDir: freshRuntimeDir,
       removedAt: freshAt,
       archivedAt: freshAt,
       updatedAt: freshAt,
@@ -718,10 +726,21 @@ describe("runtime persistence governance", function () {
       workspaceDir: activeWorkspace,
       updatedAt: expiredAt,
     });
+    upsertAcpSkillRun({
+      requestId: "expired-runtime-only",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      runtimeDir: runtimeOnlyAcpDir,
+      removedAt: expiredAt,
+      archivedAt: expiredAt,
+      updatedAt: expiredAt,
+    });
 
     const cleanup = await cleanupRuntimePersistenceRetention({ nowMs });
 
     assert.isNull(getAcpSkillRunRecord("expired-terminal"));
+    assert.isNull(getAcpSkillRunRecord("expired-runtime-only"));
     assert.isNotNull(getAcpSkillRunRecord("fresh-terminal"));
     assert.isNotNull(getAcpSkillRunRecord("stale-active"));
     assert.isFalse(await pathExists(expiredWorkspace));
@@ -734,6 +753,9 @@ describe("runtime persistence governance", function () {
     assert.isFalse(
       await pathExists(path.join(expiredRuntimeDir, "run-context.json")),
     );
+    assert.isFalse(
+      await pathExists(path.join(runtimeOnlyAcpDir, "transcript.jsonl")),
+    );
     assert.isTrue(await pathExists(freshWorkspace));
     assert.isTrue(
       await pathExists(path.join(freshRuntimeDir, "transcript.jsonl")),
@@ -745,8 +767,9 @@ describe("runtime persistence governance", function () {
       await pathExists(path.join(freshRuntimeDir, "run-context.json")),
     );
     assert.isTrue(await pathExists(activeWorkspace));
-    assert.equal((cleanup.details as any).acpSkillRunRowsDeleted, 1);
-    assert.deepEqual((cleanup.details as any).acpSkillRunRequestIds, [
+    assert.equal((cleanup.details as any).acpSkillRunRowsDeleted, 2);
+    assert.deepEqual((cleanup.details as any).acpSkillRunRequestIds.sort(), [
+      "expired-runtime-only",
       "expired-terminal",
     ]);
   });

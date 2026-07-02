@@ -1,5 +1,6 @@
 import { joinPath } from "../utils/path";
 import {
+  appendRuntimeTextFile,
   readRuntimeTextFile,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
@@ -59,9 +60,20 @@ export async function writeAcpSkillRunContextPayload(args: {
   if (!refs.runContextPath) {
     return refs;
   }
+  const existing = await readAcpSkillRunContextPayload(args.runtimeDir);
+  const merged: Omit<AcpSkillRunContextPayload, "schema" | "updatedAt"> = {
+    ...(existing || {}),
+  };
+  delete (merged as Partial<AcpSkillRunContextPayload>).schema;
+  delete (merged as Partial<AcpSkillRunContextPayload>).updatedAt;
+  for (const [key, value] of Object.entries(args.payload)) {
+    if (typeof value !== "undefined") {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
   const payload: AcpSkillRunContextPayload = {
     schema: ACP_SKILL_RUN_CONTEXT_SCHEMA,
-    ...args.payload,
+    ...merged,
     updatedAt: normalizeString(args.updatedAt) || new Date().toISOString(),
   };
   await writeRuntimeTextFile(refs.runContextPath, JSON.stringify(payload));
@@ -105,6 +117,25 @@ export async function writeAcpSkillRunOutputRevisions(args: {
     refs.outputRevisionsPath,
     lines.length > 0 ? `${lines.join("\n")}\n` : "",
   );
+  return refs;
+}
+
+export async function appendAcpSkillRunOutputRevision(args: {
+  runtimeDir?: string;
+  revision: AcpSkillRunOutputRevision;
+  seq: number;
+}) {
+  const refs = resolveAcpSkillRunPayloadPaths(args.runtimeDir);
+  if (!refs.outputRevisionsPath) {
+    return refs;
+  }
+  const line = JSON.stringify({
+    schema: ACP_SKILL_RUN_OUTPUT_REVISION_SCHEMA,
+    seq: Math.max(1, Math.floor(Number(args.seq || 1) || 1)),
+    revision: args.revision,
+    createdAt: args.revision.createdAt,
+  });
+  await appendRuntimeTextFile(refs.outputRevisionsPath, `${line}\n`);
   return refs;
 }
 
