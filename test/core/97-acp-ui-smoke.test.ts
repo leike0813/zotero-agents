@@ -2822,7 +2822,7 @@ describe("acp ui smoke", function () {
         agentWorkingMessage: "Agent 正在处理",
         agentRepairingMessage: "Agent 正在修复输出",
         runResultReady: "结果已就绪",
-        runCanceledContinue: "任务已取消，可继续对话",
+        runCanceledContinue: "任务已取消",
       },
     };
 
@@ -3621,13 +3621,15 @@ describe("acp ui smoke", function () {
     const failedConnectedSkillPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
         requestId: "acp-skill-failed-connected",
-        status: "failed",
+        status: "failed_retriable",
         conversationState: "closed",
         conversationRecoveryState: "connected",
         replyError: "Provider quota exceeded.",
         transcriptItems: [],
       },
-      runs: [{ requestId: "acp-skill-failed-connected", status: "failed" }],
+      runs: [
+        { requestId: "acp-skill-failed-connected", status: "failed_retriable" },
+      ],
       logs: [],
     });
     assert.notEqual(failedConnectedSkillPanel.interaction.kind, "completed");
@@ -3814,7 +3816,7 @@ describe("acp ui smoke", function () {
         conversationError: "File Closed",
         transcriptItems: [],
       });
-    assert.equal(continuingConversation.interaction.kind, "running");
+    assert.equal(continuingConversation.interaction.kind, "notice");
     assert.notInclude(
       continuingConversation.interaction.message,
       "File Closed",
@@ -3836,9 +3838,8 @@ describe("acp ui smoke", function () {
     });
     assert.equal(canceledPanel.interaction.kind, "notice");
     assert.notInclude(canceledPanel.interaction.message, "File Closed");
-    assert.equal(canceledPanel.reply.enabled, true);
-    assert.equal(canceledPanel.reply.inputEnabled, true);
-    assert.equal(canceledPanel.reply.action, "reply-run");
+    assert.equal(canceledPanel.reply.enabled, false);
+    assert.equal(canceledPanel.reply.inputEnabled, false);
 
     const continuingPanel = model.projectAcpSkillRunPanelSnapshot({
       selectedRun: {
@@ -3854,10 +3855,9 @@ describe("acp ui smoke", function () {
       runs: [{ requestId: "acp-skill-canceled-reply", status: "canceled" }],
       logs: [],
     });
-    assert.equal(continuingPanel.interaction.kind, "running");
-    assert.equal(continuingPanel.reply.enabled, true);
+    assert.equal(continuingPanel.interaction.kind, "notice");
+    assert.equal(continuingPanel.reply.enabled, false);
     assert.equal(continuingPanel.reply.inputEnabled, false);
-    assert.equal(continuingPanel.reply.action, "interrupt-run-turn");
   });
 
   it("keeps managed context drawers grouped and rectangular-button styled", async function () {
@@ -3918,12 +3918,25 @@ describe("acp ui smoke", function () {
       "renderAssistantWorkspaceTaskDrawer",
     );
     assert.include(assistantPanelRendererJs, "workspaceDrawerStableSignature");
+    assert.include(assistantPanelRendererJs, "safeText(drawers.notice)");
+    assert.include(
+      assistantPanelRendererJs,
+      'sectionId === "running" && noticeText',
+    );
+    assert.include(
+      assistantPanelRendererJs,
+      "assistant-workspace-drawer-history-notice",
+    );
     assert.include(assistantPanelRendererJs, "updateWorkspaceDrawerLiveFields");
     assert.include(
       assistantPanelRendererJs,
       "data-assistant-workspace-drawer-signature",
     );
     assert.include(assistantPanelRendererJs, "data-assistant-task-key");
+    assert.include(
+      assistantPanelModelJs,
+      "panel.labels && panel.labels.runningTasksTitle",
+    );
     assert.match(
       assistantPanelRendererJs,
       /safeText\(panel\.drawers && panel\.drawers\.layout\)\s*===\s*"workspace-task-drawer"/,
@@ -3931,6 +3944,10 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-group");
     assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-active");
     assert.include(sharedPanelCss, ".assistant-workspace-drawer-section");
+    assert.include(
+      sharedPanelCss,
+      ".assistant-workspace-drawer-history-notice",
+    );
     assert.include(
       sharedPanelCss,
       ".assistant-workspace-drawer-section.is-completed",

@@ -41,6 +41,15 @@ export type ExecuteWithProvider = (args: {
   orchestrationContext?: ProviderOrchestrationContext;
 }) => Promise<ProviderExecutionResult>;
 
+export type SequenceStepSucceededObserver = (args: {
+  state: SequenceRunState;
+  step: SkillRunnerSequenceStepV1;
+  stepIndex: number;
+  requestId: string;
+  stepResult: Extract<ProviderExecutionResult, { status: "succeeded" }>;
+  output: unknown;
+}) => void | Promise<void>;
+
 export type StepOutput = {
   stepId: string;
   requestId: string;
@@ -1182,6 +1191,7 @@ async function executeSequenceFromState(args: {
   applySequenceStepResult?: ApplySequenceStepResult;
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
+  onSequenceStepSucceeded?: SequenceStepSucceededObserver;
 }) {
   const backendType = normalizeString(args.backend.type);
   if (
@@ -1447,6 +1457,14 @@ async function executeSequenceFromState(args: {
       output,
       result: stepResult,
     });
+    await args.onSequenceStepSucceeded?.({
+      state: args.state,
+      step,
+      stepIndex: index,
+      requestId: stepResult.requestId,
+      stepResult,
+      output,
+    });
     args.onProgress?.({
       type: "sequence-step-succeeded",
       requestId: stepResult.requestId,
@@ -1553,6 +1571,7 @@ export async function executeSkillRunnerSequence(args: {
   applySequenceStepResult?: ApplySequenceStepResult;
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
+  onSequenceStepSucceeded?: SequenceStepSucceededObserver;
 }) {
   const state = initializeSequenceRunState({
     request: args.request,
@@ -1573,6 +1592,7 @@ export async function executeSkillRunnerSequence(args: {
     applySequenceStepResult: args.applySequenceStepResult,
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
+    onSequenceStepSucceeded: args.onSequenceStepSucceeded,
   });
 }
 
@@ -1585,6 +1605,7 @@ export async function continueSkillRunnerSequence(args: {
   applySequenceStepResult?: ApplySequenceStepResult;
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
+  onSequenceStepSucceeded?: SequenceStepSucceededObserver;
 }) {
   markSequenceRunContinuing(args.sequenceRunId);
   const state = getSequenceRunState(args.sequenceRunId);
@@ -1600,5 +1621,6 @@ export async function continueSkillRunnerSequence(args: {
     applySequenceStepResult: args.applySequenceStepResult,
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
+    onSequenceStepSucceeded: args.onSequenceStepSucceeded,
   });
 }

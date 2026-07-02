@@ -193,6 +193,117 @@ ACP Skills task drawer rows MUST indicate tasks requiring user action.
 - **WHEN** a run first enters `waiting_user` or permission-required state
 - **THEN** the UI SHALL emit one toast for that transition
 - **AND** repeated snapshots SHALL NOT emit duplicate toasts.
+### Requirement: ACP SkillRunner-compatible runs SHALL use the ACP Skills run-status state machine as SSOT
+
+ACP SkillRunner-compatible runs SHALL use `queued`, `running`, `waiting_user`,
+`repairing`, `failed_retriable`, `succeeded`, `failed`, and `canceled` as the ACP
+Skills run status domain. `succeeded`, `failed`, and `canceled` SHALL be
+terminal absorbing statuses. `failed_retriable` SHALL be a non-terminal active
+and recoverable status, not a `JobState` expansion.
+
+#### Scenario: Recoverable prompt failure enters failed retriable
+
+- **GIVEN** an ACP SkillRunner-compatible run has an established `sessionId`
+- **AND** the session recovery state is `available`, `connected`, `connecting`,
+  or otherwise retryable by the ACP Skills recovery contract
+- **WHEN** a prompt/session failure occurs before the run reaches a terminal
+  outcome
+- **THEN** the ACP Skills run status SHALL become `failed_retriable`
+- **AND** the run SHALL remain visible in active ACP summaries
+- **AND** reconnect and cancel task actions SHALL remain available.
+
+#### Scenario: Non-recoverable prompt failure enters terminal failed
+
+- **GIVEN** an ACP SkillRunner-compatible run has no recoverable ACP session
+- **WHEN** a prompt/session failure occurs
+- **THEN** the ACP Skills run status SHALL become terminal `failed`
+- **AND** reply, recovery, apply, and sequence continuation paths SHALL NOT
+  transition that run back to a non-terminal status.
+
+#### Scenario: Terminal statuses are absorbing
+
+- **GIVEN** an ACP Skills run status is `succeeded`, `failed`, or `canceled`
+- **WHEN** a later reply, reconnect, apply result, workflow projection, or
+  sequence continuation path observes the run
+- **THEN** the main run status SHALL remain unchanged
+- **AND** any unsupported action SHALL be rejected or recorded without reviving
+  the terminal run.
+
+#### Scenario: Legacy recoverable failed record is normalized
+
+- **GIVEN** a persisted ACP Skills run has status `failed`
+- **AND** it is not archived or removed
+- **AND** it has a `sessionId`
+- **AND** its conversation and recovery axes describe a retryable detached or
+  connected session
+- **WHEN** ACP Skills hydrates or normalizes the record
+- **THEN** the run status SHALL be normalized to `failed_retriable`
+- **AND** unrecoverable or unsupported failed records SHALL remain terminal
+  `failed`.
+
+### Requirement: ACP skills active task projections SHALL use ACP status classifiers
+
+ACP Skills SHALL classify dashboard, toolbar, run drawer, workflow task sync,
+and Host Bridge active task liveness through the shared ACP status helpers.
+`failed_retriable` SHALL be visible as active/recoverable. Terminal
+`succeeded`, `failed`, and `canceled` SHALL be excluded from active task lists
+unless a view explicitly requests history.
+
+#### Scenario: Failed retriable remains active
+
+- **GIVEN** an ACP Skills run has status `failed_retriable`
+- **WHEN** dashboard, toolbar, ACP panel, or Host Bridge active task summaries
+  are computed
+- **THEN** the run SHALL remain visible as an active or actionable task
+- **AND** the summary SHALL expose connect and cancel task affordances when the
+  recovery/session axes allow them.
+
+#### Scenario: Terminal failed is not active
+
+- **GIVEN** an ACP Skills run has terminal status `failed`
+- **WHEN** active task summaries are computed
+- **THEN** the run SHALL be excluded from active lists
+- **AND** it SHALL NOT be offered as an auto-continuation candidate.
+
+#### Scenario: Workflow task state does not expand
+
+- **GIVEN** an ACP Skills run has status `failed_retriable`
+- **WHEN** the run is projected into workflow task rows or Host Bridge active
+  task handles
+- **THEN** the projection SHALL use existing workflow task states such as
+  `running` or `waiting_user`
+- **AND** recoverability SHALL be expressed through ACP summary status,
+  liveness, and action flags.
+
+### Requirement: ACP SkillRunner-compatible runs SHALL validate ACP status transitions at write boundaries
+
+ACP Skills SHALL centralize status classification and transition validation in
+the run store. Production code that writes a new status SHALL provide an
+explicit transition reason. Invalid transitions SHALL fail at the write
+boundary instead of being silently projected into later UI or recovery state.
+
+#### Scenario: Production status write includes reason
+
+- **WHEN** production ACP Skills code changes a run's main status
+- **THEN** the write SHALL include a status transition reason
+- **AND** the store SHALL validate the transition against the ACP Skills
+  state-machine contract.
+
+#### Scenario: Invalid terminal revival is rejected
+
+- **GIVEN** an ACP Skills run has terminal status `succeeded`, `failed`, or
+  `canceled`
+- **WHEN** production code attempts to write `running`, `waiting_user`,
+  `repairing`, or `failed_retriable`
+- **THEN** the store SHALL reject the transition.
+
+#### Scenario: Test fixtures can construct historical states
+
+- **WHEN** tests need to represent persisted historical or intentionally invalid
+  state
+- **THEN** they MAY use dedicated fixture helpers
+- **AND** production transition validation SHALL remain strict.
+
 ### Requirement: ACP skill runner MUST execute ACP skill run requests
 
 
@@ -301,10 +412,22 @@ and MUST NOT mark the run as `failed` or `canceled`.
 
 #### Scenario: Recovered session reapplies timeout monitoring
 
+
 - **GIVEN** an ACP skill run is reconnected through session recovery
 - **WHEN** a recovered agent turn starts
 - **THEN** the runner SHALL recompute effective runtime options
 - **AND** it SHALL apply hard timeout monitoring to that recovered turn.
+
+#### Scenario: Recoverable disconnect preserves the current main status
+
+
+- **GIVEN** an ACP skill run is `running`, `waiting_user`, `repairing`, or
+  `failed_retriable`
+- **WHEN** hard timeout or recoverable disconnect detaches the local controller
+  without terminal cancellation
+- **THEN** the ACP Skills run status SHALL remain in the same main state
+- **AND** the conversation/recovery axes SHALL express whether reconnect or user
+  reply is required.
 ### Requirement: ACP Skills transcript signal governance
 
 
@@ -610,10 +733,10 @@ SkillRunner output contract failures and SHALL NOT trigger output repair.
 #### Scenario: Prompt failure remains recoverable when the session is recoverable
 
 - **GIVEN** the ACP run has an established session that can be reattached
-- **WHEN** prompt failure governance fails the run
-- **THEN** the run SHALL be terminal `failed`
-- **AND** the conversation SHALL be `closed`
-- **AND** recovery SHALL remain `available`.
+- **WHEN** prompt failure governance fails the current prompt chain
+- **THEN** the run SHALL become non-terminal `failed_retriable`
+- **AND** the conversation SHALL retain recovery information needed to reconnect
+- **AND** active ACP summaries SHALL continue to expose the run as recoverable.
 
 #### Scenario: ACP-visible backend prompt error produces no repair
 
@@ -654,6 +777,15 @@ SkillRunner output contract failures and SHALL NOT trigger output repair.
 - **AND** the run SHALL remain non-terminal unless the user separately cancels
   the task.
 
+#### Scenario: Task cancel during prompting becomes terminal canceled
+
+- **GIVEN** an ACP Skills run has an active prompt turn
+- **WHEN** the user activates task-level `Cancel Task`
+- **AND** the adapter later reports `cancelRequested`
+- **THEN** the run SHALL settle to terminal `canceled`
+- **AND** it SHALL NOT transition to `waiting_user`
+- **AND** later user replies SHALL NOT continue that canceled run.
+
 #### Scenario: User-interrupted sequence step does not continue downstream
 
 - **GIVEN** an ACP Skills run is executing as a non-final
@@ -691,6 +823,14 @@ ACP skill run startup reconciliation SHALL preserve recoverable non-terminal run
 - **WHEN** startup reconciliation runs after a plugin restart
 - **THEN** the run SHALL be marked `failed`
 - **AND** the associated workflow task projection SHALL leave active task lists.
+
+#### Scenario: Failed retriable ACP run survives startup reconciliation
+
+- **GIVEN** an ACP skill run has status `failed_retriable`
+- **AND** its conversation recovery state remains retryable
+- **WHEN** startup reconciliation runs after a plugin restart
+- **THEN** the run SHALL remain `failed_retriable`
+- **AND** reconnect or cancel task actions SHALL remain available.
 
 ### Requirement: ACP runner-owned files are namespaced per skill run
 
@@ -735,7 +875,7 @@ as detached recoverable runs, not as active prompt turns.
 
 #### Scenario: Detached running run needs user reconnect
 
-- **GIVEN** an ACP Skills run is `running`, `repairing`, or recoverable `failed`
+- **GIVEN** an ACP Skills run is `running`, `repairing`, or `failed_retriable`
 - **AND** the run has a remote `sessionId`
 - **AND** `conversationState` is `closed`
 - **AND** `conversationRecoveryState` is `available`

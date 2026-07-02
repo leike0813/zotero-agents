@@ -2,6 +2,7 @@ import { JobQueueManager, type JobRecord } from "../../jobQueue/manager";
 import { executeWithProvider } from "../../providers/registry";
 import {
   ACP_SKILL_RUN_REQUEST_KIND,
+  ACP_BACKEND_TYPE,
   DEFAULT_BACKEND_TYPE,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../../config/defaults";
@@ -10,7 +11,10 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import { selectAcpSkillRun } from "../acpSkillRunStore";
+import {
+  markAcpSkillRunApplyResult,
+  selectAcpSkillRun,
+} from "../acpSkillRunStore";
 import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
@@ -23,6 +27,7 @@ import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import {
   executeSkillRunnerSequence,
   type ApplySequenceStepResult,
+  type SequenceStepSucceededObserver,
 } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
 import type { ProviderProgressEvent } from "../../providers/types";
@@ -314,6 +319,21 @@ export function runWorkflowExecutionSeam(
                 });
               }
             : undefined;
+        const onSequenceStepSucceeded: SequenceStepSucceededObserver | undefined =
+          backendType === ACP_BACKEND_TYPE
+            ? (event) => {
+                if (
+                  event.step.id === event.state.request.final_step_id ||
+                  event.step.apply_result
+                ) {
+                  return;
+                }
+                markAcpSkillRunApplyResult({
+                  requestId: event.requestId,
+                  state: "succeeded",
+                });
+              }
+            : undefined;
         return executeSkillRunnerSequence({
           request: job.request as SkillRunnerSequenceRequestV1,
           backend: args.prepared.executionContext.backend,
@@ -326,6 +346,7 @@ export function runWorkflowExecutionSeam(
           executeWithProvider: resolved.executeWithProvider,
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
+          onSequenceStepSucceeded,
           onProgress: (event) => {
             runtime.reportProgress(event);
           },

@@ -1600,7 +1600,7 @@
     ].join("|");
   }
 
-  function workspaceDrawerStableSignature(sections) {
+  function workspaceDrawerStableSignature(sections, noticeText) {
     return (Array.isArray(sections) ? sections : [])
       .map(function (section) {
         const groups = Array.isArray(section && section.groups)
@@ -1633,7 +1633,8 @@
             .join("||"),
         ].join("::");
       })
-      .join("###");
+      .join("###")
+      .concat("###notice::", safeText(noticeText));
   }
 
   function updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey) {
@@ -1751,7 +1752,8 @@
         ? drawers.skillrunnerSections
         : [];
     const selectedTaskKey = safeText(drawers.selectedTaskKey);
-    const nextSignature = workspaceDrawerStableSignature(sections);
+    const noticeText = safeText(drawers.notice);
+    const nextSignature = workspaceDrawerStableSignature(sections, noticeText);
     if (
       target.getAttribute("data-assistant-workspace-drawer") === "true" &&
       target.getAttribute("data-assistant-workspace-drawer-signature") ===
@@ -1792,17 +1794,6 @@
     });
     header.appendChild(close);
     target.appendChild(header);
-
-    const noticeText = safeText(drawers.notice);
-    if (noticeText) {
-      target.appendChild(
-        el(
-          "div",
-          "assistant-workspace-drawer-context-note skillrunner-workspace-context-note",
-          noticeText,
-        ),
-      );
-    }
 
     const body = el(
       "div",
@@ -1876,6 +1867,15 @@
       }
       sectionBox.appendChild(sectionBody);
       body.appendChild(sectionBox);
+      if (sectionId === "running" && noticeText) {
+        body.appendChild(
+          el(
+            "div",
+            "assistant-workspace-drawer-history-notice skillrunner-workspace-history-notice",
+            noticeText,
+          ),
+        );
+      }
     });
     if (availableTaskCount === 0) {
       body.appendChild(

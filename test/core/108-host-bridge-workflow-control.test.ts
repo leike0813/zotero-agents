@@ -1485,7 +1485,7 @@ describe("host bridge workflow control", function () {
     });
     upsertAcpSkillRun({
       requestId: "acp-retriable-1",
-      status: "failed",
+      status: "failed_retriable",
       runId: "run-acp-retriable",
       workflowId: "bridge-workflow",
       taskName: "Recoverable ACP Task",
@@ -1688,7 +1688,7 @@ describe("host bridge workflow control", function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     upsertAcpSkillRun({
       requestId: "acp-connect-1",
-      status: "failed",
+      status: "failed_retriable",
       runId: "run-connect-1",
       workflowId: "bridge-workflow",
       taskName: "Recoverable ACP Task",

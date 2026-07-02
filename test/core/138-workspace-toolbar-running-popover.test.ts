@@ -25,9 +25,7 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(helper, "run.pendingPermission");
     assert.include(helper, "PASS_THROUGH_BACKEND_TYPE");
     assert.include(helper, "getVisibleAcpSkillRunRequestIds");
-    assert.include(helper, 'run.status !== "succeeded"');
-    assert.include(helper, 'run.status !== "failed"');
-    assert.include(helper, 'run.status !== "canceled"');
+    assert.include(helper, "isActiveAcpSkillRunStatus(run.status)");
     assert.include(dashboard, "filterDashboardActiveTasks");
     assert.notInclude(dashboard, "function isVisibleDashboardActiveTask");
     assert.include(popover, "listDashboardActiveTasksForPopover");

@@ -158,6 +158,9 @@
     ) {
       return "error";
     }
+    if (token === "failed-retriable") {
+      return "warning";
+    }
     if (
       [
         "waiting-user",
@@ -243,6 +246,9 @@
       token === "completed"
     ) {
       return labelFrom(source, "status.succeeded", "Succeeded");
+    }
+    if (token === "failed-retriable") {
+      return labelFrom(source, "status.failedRetriable", "Recoverable failure");
     }
     if (token === "failed" || token === "error" || token === "errored") {
       return labelFrom(source, "status.failed", "Failed");
@@ -2965,7 +2971,9 @@
       return [
         {
           id: "running",
-          title: "Running",
+          title:
+            safeText(panel.labels && panel.labels.runningTasksTitle) ||
+            labelFrom(panel, "drawer.running", "Running"),
           collapsed: false,
           groups: Object.keys(groupsBySection.running).map(function (key) {
             return groupsBySection.running[key];
@@ -3087,8 +3095,9 @@
       status === "waiting-auth" ||
       (hasPendingInteraction && !activePrompt && !activeContinuation) ||
       connectedIdleRun;
-    const busyRun = activePrompt || activeContinuation;
     const terminalRun = isTerminalStatus(status);
+    const busyRun = !terminalRun && (activePrompt || activeContinuation);
+    const recoverableFailedRun = status === "failed-retriable";
     const runtimeOptions =
       panel.selectedRuntimeOptions &&
       typeof panel.selectedRuntimeOptions === "object"
@@ -3183,7 +3192,7 @@
       run &&
       !run.pendingPermission &&
       safeText(interaction && interaction.kind) === "hidden" &&
-      status === "failed"
+      (status === "failed" || recoverableFailedRun)
     ) {
       interaction = {
         kind: "disconnected",
@@ -3208,7 +3217,7 @@
         message: labelFrom(
           panel,
           "interaction.runCanceledContinue",
-          "Run canceled. You can send a new instruction to continue this conversation.",
+          "Run canceled.",
         ),
       };
     }
@@ -3216,7 +3225,7 @@
       Boolean(run) &&
       !run.pendingPermission &&
       !busyRun &&
-      (waitingForUser || terminalRun) &&
+      (waitingForUser || recoverableFailedRun) &&
       connected;
     return normalizeAssistantPanelSnapshot({
       kind: "acp-skills",

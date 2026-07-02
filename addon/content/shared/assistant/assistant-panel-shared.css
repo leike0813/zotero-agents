@@ -1431,6 +1431,16 @@ summary,
   line-height: 1.45;
 }
 
+.assistant-workspace-drawer-history-notice {
+  align-self: start;
+  min-height: 0;
+  padding: 0 10px;
+  color: var(--asst-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .assistant-workspace-drawer-sections {
   display: grid;
   grid-auto-rows: max-content;
@@ -1481,6 +1491,9 @@ summary,
   align-items: center;
   align-self: start;
   padding: 0 10px;
+  border: 1px solid #d6deea;
+  border-radius: 10px;
+  background: #f8fbff;
   color: var(--asst-text);
   font: 700 12px/1.35 var(--asst-font-sans);
   letter-spacing: 0.01em;
@@ -2480,6 +2493,7 @@ details.assistant-panel-details-section[open]
 :root[data-zs-theme="dark"] .assistant-panel-permission-drawer-command,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-context-note,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-section.is-completed,
+:root[data-zs-theme="dark"] .assistant-workspace-drawer-section-title,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-section-toggle:hover,
 :root[data-zs-theme="dark"] .assistant-workspace-drawer-group-header,
 :root[data-zs-theme="dark"]
@@ -2562,6 +2576,7 @@ details.assistant-panel-details-section[open]
   :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-context-note,
   :root:not([data-zs-theme="light"])
     .assistant-workspace-drawer-section.is-completed,
+  :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-section-title,
   :root:not([data-zs-theme="light"])
     .assistant-workspace-drawer-section-toggle:hover,
   :root:not([data-zs-theme="light"]) .assistant-workspace-drawer-group-header,

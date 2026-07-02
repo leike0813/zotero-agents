@@ -95,9 +95,7 @@ describe("dashboard home columns", function () {
     assert.include(activeTasksTs, "visibleAcpRequestIds.has(requestId)");
     assert.include(activeTasksTs, 'taskId.startsWith("acp-skill-run:")');
     assert.include(activeTasksTs, "return false;");
-    assert.include(activeTasksTs, 'run.status !== "succeeded"');
-    assert.include(activeTasksTs, 'run.status !== "failed"');
-    assert.include(activeTasksTs, 'run.status !== "canceled"');
+    assert.include(activeTasksTs, "isActiveAcpSkillRunStatus(run.status)");
   });
 
   it("coalesces noisy dashboard task refreshes to keep running-list scrolling stable", async function () {

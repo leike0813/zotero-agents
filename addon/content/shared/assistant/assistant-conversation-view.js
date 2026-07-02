@@ -354,10 +354,13 @@
     const failed = status === "failed";
     const canceled = ["canceled", "cancelled"].indexOf(status) >= 0;
     const activeContinuation =
-      source.activePrompt === true ||
-      ["submitted", "accepted", "sending"].indexOf(
-        safeText(source.replyState),
-      ) >= 0;
+      !succeeded &&
+      !failed &&
+      !canceled &&
+      (source.activePrompt === true ||
+        ["submitted", "accepted", "sending"].indexOf(
+          safeText(source.replyState),
+        ) >= 0);
     const errorText = failed
       ? safeText(
           source.error ||
@@ -417,7 +420,7 @@
             ? labelFrom(
                 source,
                 "interaction.runCanceledContinue",
-                "Run canceled. You can send a new instruction to continue this conversation.",
+                "Run canceled.",
               )
             : "",
       }),

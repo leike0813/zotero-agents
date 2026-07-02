@@ -256,7 +256,7 @@ export function buildAssistantPanelLabels() {
       ),
       runCanceledContinue: l(
         "assistant-panel-interaction-run-canceled-continue",
-        "Run canceled. You can send a new instruction to continue this conversation.",
+        "Run canceled.",
       ),
       waitingRequestId: l(
         "assistant-panel-interaction-waiting-request-id",

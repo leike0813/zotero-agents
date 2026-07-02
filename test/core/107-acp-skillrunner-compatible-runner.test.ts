@@ -89,7 +89,10 @@ import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
 import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
-import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  resetPluginStateStoreForTests,
+  upsertPluginRunStoreEntry,
+} from "../../src/modules/pluginStateStore";
 import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import {
   SKILL_RUN_FEEDBACK_ASSET_ID,
@@ -853,18 +856,23 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isOk(updates.find((entry) => entry.updateKind === "tool_call"));
       assert.isOk(updates.find((entry) => entry.updateKind === "usage_update"));
 
-      const timelineText = await waitForTextFile(files.timeline, /succeeded/);
+      const timelineText = await waitForTextFile(
+        files.timeline,
+        /output-validation-succeeded/,
+      );
       const timeline = parseNdjson(timelineText);
       assert.isOk(
         timeline.find((entry) => entry.stage === "workspace-created"),
       );
-      assert.isOk(timeline.find((entry) => entry.stage === "succeeded"));
+      assert.isOk(
+        timeline.find((entry) => entry.stage === "output-validation-succeeded"),
+      );
 
       const finalState = JSON.parse(
-        await waitForTextFile(files.finalState, /succeeded/),
+        await waitForTextFile(files.finalState, /running/),
       );
       assert.equal(finalState.schema, "zotero-skills.acp.final-state.v1");
-      assert.equal(finalState.status, "succeeded");
+      assert.equal(finalState.status, "running");
 
       const transportAudit = await waitForTextFile(
         files.transport,
@@ -1514,7 +1522,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       const stages = (record?.events || []).map((event) => event.stage);
       assert.equal(promptCount, 1);
       assert.equal(cancelCount, 0);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.notInclude(stages, "hard-timeout-disconnect-requested");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -1891,6 +1899,43 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(task?.state, "failed");
   });
 
+  it("migrates legacy recoverable failed ACP run records on hydrate", function () {
+    const updatedAt = "2026-06-12T08:00:00.000Z";
+    upsertPluginRunStoreEntry("acp", {
+      runKey: "acp-legacy-recoverable-failed",
+      requestId: "acp-legacy-recoverable-failed",
+      backendId: "backend-acp",
+      state: "failed",
+      updatedAt,
+      payload: JSON.stringify({
+        requestId: "acp-legacy-recoverable-failed",
+        status: "failed",
+        backendStatus: "failed",
+        backendId: "backend-acp",
+        backendType: "acp",
+        sessionId: "session-legacy",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        createdAt: updatedAt,
+        updatedAt,
+        events: [],
+      }),
+    });
+
+    const record = getAcpSkillRunRecord("acp-legacy-recoverable-failed");
+
+    assert.equal(record?.status, "failed_retriable");
+    assert.equal(record?.backendStatus, "failed_retriable");
+    assert.include(
+      listAcpSkillRuns({ activeOnly: true }).map((run) => run.requestId),
+      "acp-legacy-recoverable-failed",
+    );
+    assert.include(
+      (record?.events || []).map((event) => event.stage),
+      "legacy-status-migrated",
+    );
+  });
+
   it("keeps ACP skill run listing stable by creation time and interrupts without canceling the run", async function () {
     upsertAcpSkillRun({
       requestId: "run-old",
@@ -2056,6 +2101,96 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isUndefined(record?.removedAt);
   });
 
+  it("cancels an active ACP skill prompt as a terminal task cancel", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let cancelCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-cancel-task" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        releasePrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+
+    try {
+      const runPromise = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await promptStarted;
+      const requestId = listAcpSkillRuns()[0]?.requestId || "";
+
+      await cancelAcpSkillRun(requestId);
+      const result = await runPromise;
+      const record = getAcpSkillRunRecord(requestId);
+
+      assert.equal(cancelCalls, 1);
+      assert.equal(result.status, "canceled");
+      assert.deepInclude(result.responseJson as Record<string, unknown>, {
+        provider: "acp",
+        requestId,
+        status: "canceled",
+      });
+      assert.equal(record?.status, "canceled");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(record?.replyState, "idle");
+      assert.equal(record?.conversationState, "ended");
+      assert.equal(record?.conversationRecoveryState, "unavailable");
+    } finally {
+      releasePrompt?.();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("ignores stale assistant text returned after current turn cancel", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
@@ -2208,7 +2343,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "failed");
+      assert.equal(record?.status, "failed_retriable");
       assert.equal(record?.conversationState, "closed");
       assert.equal(record?.conversationRecoveryState, "available");
       assert.equal(record?.repairRounds, 0);
@@ -2252,7 +2387,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "failed");
+      assert.equal(record?.status, "failed_retriable");
       assert.equal(record?.repairRounds, 0);
       assert.deepEqual(record?.outputRevisions, []);
       assert.include(stages, "acp-prompt-no-output");
@@ -2286,7 +2421,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 0);
       assert.equal(record?.validationStatus, "valid");
       assert.notInclude(stages, "acp-prompt-no-output");
@@ -2322,7 +2457,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 2);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 1);
       assert.include(stages, "output-validation-failed");
       assert.include(stages, "repair-started");
@@ -2370,7 +2505,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 2);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 1);
       assert.include(stages, "output-validation-failed");
       assert.include(stages, "repair-started");
@@ -2449,7 +2584,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
         assert.instanceOf(caught, Error);
         assert.equal(getPromptCount(), 1);
-        assert.equal(record?.status, "failed");
+        assert.equal(record?.status, "failed_retriable");
         assert.equal(record?.conversationState, "closed");
         assert.equal(record?.conversationRecoveryState, "available");
         assert.equal(record?.repairRounds, 0);
@@ -2489,7 +2624,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "failed");
+      assert.equal(record?.status, "failed_retriable");
       assert.equal(record?.conversationState, "closed");
       assert.equal(record?.conversationRecoveryState, "available");
       assert.equal(record?.repairRounds, 0);
@@ -2532,7 +2667,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "failed");
+      assert.equal(record?.status, "failed_retriable");
       assert.equal(record?.conversationState, "closed");
       assert.equal(record?.conversationRecoveryState, "available");
       assert.equal(record?.repairRounds, 0);
@@ -2571,7 +2706,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 0);
       assert.notInclude(stages, "acp-prompt-failed");
       assert.notInclude(stages, "repair-started");
@@ -2611,7 +2746,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 0);
       assert.notInclude(stages, "acp-prompt-failed");
       assert.notInclude(stages, "repair-started");
@@ -2657,7 +2792,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 2);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 1);
       assert.include(stages, "output-validation-failed");
       assert.include(stages, "repair-started");
@@ -2685,7 +2820,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "failed");
+      assert.equal(record?.status, "failed_retriable");
       assert.equal(record?.conversationState, "closed");
       assert.equal(record?.conversationRecoveryState, "available");
       assert.equal(record?.repairRounds, 0);
@@ -2727,7 +2862,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(result.status, "succeeded");
       assert.equal(getPromptCount(), 1);
-      assert.equal(record?.status, "succeeded");
+      assert.equal(record?.status, "running");
       assert.equal(record?.repairRounds, 0);
       assert.include(stages, "result-file-fallback-succeeded");
       assert.notInclude(stages, "acp-prompt-no-output");
@@ -3624,7 +3759,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(newSessionCount, 1);
     assert.equal(promptCount, 1);
     const run = listAcpSkillRuns()[0];
-    assert.equal(run.status, "succeeded");
+    assert.equal(run.status, "running");
     assert.isFalse(
       run.events.some((event) => event.stage === "mcp-preflight-failed"),
     );
@@ -3725,7 +3860,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(newSessionCount, 1);
     assert.equal(promptCount, 1);
     const run = listAcpSkillRuns()[0];
-    assert.equal(run.status, "succeeded");
+    assert.equal(run.status, "running");
     assert.isFalse(
       run.events.some((event) => event.stage === "mcp-preflight-failed"),
     );
@@ -5709,7 +5844,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
-  it("clears stale ACP close errors when a canceled run accepts a continuation reply", async function () {
+  it("rejects continuation replies for terminal canceled ACP runs", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
       requestId: "run-canceled-continue",
@@ -5733,27 +5868,33 @@ describe("ACP SkillRunner-compatible runner", function () {
       disconnect: async () => undefined,
     });
 
-    await replyAcpSkillRun({
-      requestId: "run-canceled-continue",
-      message: "continue with the next step",
-    });
+    let caught: unknown;
+    try {
+      await replyAcpSkillRun({
+        requestId: "run-canceled-continue",
+        message: "continue with the next step",
+      });
+    } catch (error) {
+      caught = error;
+    }
 
     const record = getAcpSkillRunRecord("run-canceled-continue");
-    assert.equal(replied, "continue with the next step");
-    assert.equal(record?.replyState, "idle");
+    assert.instanceOf(caught, Error);
+    assert.equal(replied, "");
+    assert.equal(record?.status, "canceled");
     assert.equal(record?.conversationState, "active");
     assert.equal(record?.conversationRecoveryState, "connected");
-    assert.isUndefined(record?.error);
-    assert.isUndefined(record?.conversationError);
+    assert.equal(record?.error, "File Closed");
+    assert.equal(record?.conversationError, "File Closed");
     assert.isUndefined(record?.lastRecoveryError);
-    assert.isUndefined(record?.replyError);
+    assert.equal(record?.replyError, "File Closed");
   });
 
   it("allows a recoverable failed pending run to submit a reply", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
       requestId: "run-failed-pending-reply",
-      status: "failed",
+      status: "failed_retriable",
       backendId: "backend-acp",
       backendType: "acp",
       sessionId: "session-1",
@@ -5997,7 +6138,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         workflowId: "topic-synthesis-finalize",
@@ -6219,7 +6360,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         workflowId: "demo-skill",
@@ -6359,7 +6500,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         skillId: "demo-skill",
@@ -6445,7 +6586,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         skillId: "demo-skill",
@@ -6488,7 +6629,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       const stages = (recovered?.events || []).map((event) => event.stage);
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 1);
-      assert.equal(recovered?.status, "failed");
+      assert.equal(recovered?.status, "failed_retriable");
       assert.equal(recovered?.conversationState, "closed");
       assert.equal(recovered?.conversationRecoveryState, "available");
       assert.equal(recovered?.repairRounds, 0);
@@ -6521,7 +6662,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         skillId: "demo-skill",
@@ -6623,7 +6764,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         skillId: "demo-skill",
@@ -6759,7 +6900,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         workflowId: "topic-synthesis-finalize",
@@ -6918,7 +7059,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "running",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         workflowId: recoveryWorkflow.workflowId,
@@ -7107,7 +7248,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       resetAcpSkillRunsForTests();
       upsertAcpSkillRun({
         requestId: workspace.requestId,
-        status: "succeeded",
+        status: "failed_retriable",
         backendId: ACP_OPENCODE_BACKEND_ID,
         backendType: "acp",
         skillId: "demo-skill",
@@ -7903,7 +8044,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isObject(panelSnapshot.mcpServer);
     assert.isObject(panelSnapshot.mcpHealth);
     assert.equal(panelSnapshot.selectedRun?.requestId, result.requestId);
-    assert.equal(panelSnapshot.selectedRun?.status, "succeeded");
+    assert.equal(panelSnapshot.selectedRun?.status, "running");
     assert.equal(panelSnapshot.selectedRun?.workflowId, "demo-skill");
     assert.equal(panelSnapshot.selectedRun?.conversationState, "active");
     assert.equal(panelSnapshot.selectedRun?.applyResultState, "pending");
@@ -7959,29 +8100,21 @@ describe("ACP SkillRunner-compatible runner", function () {
       "Generate structured result",
     );
 
-    await replyAcpSkillRun({
-      requestId: result.requestId,
-      message: "Explain the generated digest.",
-    });
-    assert.equal(promptCount, 3);
+    let rejectedReply: unknown;
+    try {
+      await replyAcpSkillRun({
+        requestId: result.requestId,
+        message: "Explain the generated digest.",
+      });
+    } catch (error) {
+      rejectedReply = error;
+    }
+    assert.instanceOf(rejectedReply, Error);
+    assert.equal(promptCount, 2);
     assert.deepEqual(promptSessionIds, [
       "session-shared",
       "session-shared",
-      "session-shared",
     ]);
-    const afterReply = buildAcpSkillRunPanelSnapshot({
-      selectedRequestId: result.requestId,
-    }).selectedRun;
-    assert.isTrue(
-      (afterReply?.transcriptItems || []).some(
-        (item) =>
-          item.kind === "message" &&
-          item.role === "user" &&
-          item.text === "Explain the generated digest.",
-      ),
-    );
-    assert.equal(afterReply?.status, "succeeded");
-    assert.equal(afterReply?.conversationState, "active");
     assert.equal(closeCount, 0);
 
     await endAcpSkillRunSession(result.requestId);
@@ -7989,7 +8122,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const ended = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
     }).selectedRun;
-    assert.equal(ended?.status, "succeeded");
+    assert.equal(ended?.status, "running");
     assert.equal(ended?.conversationState, "ended");
   });
 
@@ -8176,7 +8309,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const finished = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
     }).selectedRun;
-    assert.equal(finished?.status, "succeeded");
+    assert.equal(finished?.status, "running");
     assert.equal(finished?.conversationState, "active");
     assert.equal(finished?.applyResultState, "pending");
     assert.equal(finished?.pendingInteraction, undefined);

@@ -1715,6 +1715,9 @@ function isRecoverableAcpSummary(summary?: AcpSkillRunSummary | null) {
   if (!summary) {
     return false;
   }
+  if (summary.status === "failed_retriable") {
+    return true;
+  }
   const recovery = normalizeString(summary.conversationRecoveryState);
   return (
     summary.status === "failed" &&
@@ -1723,6 +1726,21 @@ function isRecoverableAcpSummary(summary?: AcpSkillRunSummary | null) {
       recovery === "connected" ||
       recovery === "failed")
   );
+}
+
+function acpSummaryWorkflowTaskState(
+  summary: AcpSkillRunSummary,
+): WorkflowTaskRecord["state"] {
+  if (summary.status === "repairing") {
+    return "running";
+  }
+  if (summary.pendingPermission) {
+    return "waiting_user";
+  }
+  if (summary.status === "failed_retriable") {
+    return summary.pendingInteraction ? "waiting_user" : "running";
+  }
+  return summary.status;
 }
 
 function livenessForSkillRun(args: {
@@ -1753,7 +1771,9 @@ function actionsForSkillRun(args: {
   const failedRetriable = isRecoverableAcpSummary(args.acp);
   return {
     canReply:
-      args.state === "waiting_user" && (!!args.acp || args.canReply === true),
+      (args.state === "waiting_user" ||
+        (failedRetriable && !!args.acp?.pendingInteraction)) &&
+      (!!args.acp || args.canReply === true),
     canConnect: failedRetriable,
     canCancelWorkflow:
       !isTerminalTaskState(args.state) ||
@@ -2113,7 +2133,7 @@ function summarizeTasks(
 function acpSummaryToSkillRun(
   summary: AcpSkillRunSummary,
 ): HostBridgeSkillRunDto {
-  const state = summary.status === "repairing" ? "running" : summary.status;
+  const state = acpSummaryWorkflowTaskState(summary);
   return {
     skillRunId: summary.requestId,
     workflowRunId: summary.runId || summary.requestId,

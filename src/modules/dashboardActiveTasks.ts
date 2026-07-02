@@ -2,7 +2,10 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
-import type { AcpSkillRunSummary } from "./acpSkillRunStore";
+import {
+  isActiveAcpSkillRunStatus,
+  type AcpSkillRunSummary,
+} from "./acpSkillRunStore";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 
 export type DashboardActiveTaskRow = WorkflowTaskRecord;
@@ -26,9 +29,7 @@ function isVisibleAcpSkillRun(run: AcpSkillRunSummary) {
   return (
     !run.removedAt &&
     !run.archivedAt &&
-    run.status !== "succeeded" &&
-    run.status !== "failed" &&
-    run.status !== "canceled"
+    isActiveAcpSkillRunStatus(run.status)
   );
 }
 
@@ -77,6 +78,9 @@ function normalizeText(value: unknown) {
 function resolveAcpSkillRunTaskState(run: AcpSkillRunSummary) {
   if (run.pendingPermission) {
     return "waiting_user";
+  }
+  if (run.status === "failed_retriable") {
+    return run.pendingInteraction ? "waiting_user" : "running";
   }
   return normalizeText(run.status) || "running";
 }

@@ -595,6 +595,20 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 }
 
+async function waitForAcpConversationSnapshot(
+  predicate: (snapshot: ReturnType<typeof getAcpConversationSnapshot>) => boolean,
+) {
+  let snapshot = getAcpConversationSnapshot();
+  for (let index = 0; index < 40; index += 1) {
+    if (predicate(snapshot)) {
+      return snapshot;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    snapshot = getAcpConversationSnapshot();
+  }
+  return snapshot;
+}
+
 describe("acp session manager", function () {
   let lastAdapter: FakeAcpConnectionAdapter | null;
   let lastFactoryArgs: AcpConnectionAdapterFactoryArgs | null;
@@ -2307,9 +2321,10 @@ describe("acp session manager", function () {
     const promptPromise = sendAcpConversationPrompt({
       message: "Need permission",
     });
-    await new Promise((resolve) => setTimeout(resolve, 120));
 
-    let snapshot = getAcpConversationSnapshot();
+    let snapshot = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
     assert.equal(snapshot.status, "permission-required");
     assert.isOk(snapshot.pendingPermissionRequest);
     assert.equal(snapshot.pendingPermissionRequest?.toolTitle, "Inspect notes");
@@ -2364,9 +2379,10 @@ describe("acp session manager", function () {
     const promptPromise = sendAcpConversationPrompt({
       message: "Need custom permission",
     });
-    await new Promise((resolve) => setTimeout(resolve, 120));
 
-    const snapshot = getAcpConversationSnapshot();
+    const snapshot = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
     assert.deepEqual(
       snapshot.pendingPermissionRequest?.options.map((entry) => entry.optionId),
       ["approve-session", "edit-command", "deny-session"],

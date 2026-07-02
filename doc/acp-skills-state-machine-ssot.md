@@ -64,6 +64,7 @@ export type AcpSkillRunStatus =
   | "running"
   | "waiting_user"
   | "repairing"
+  | "failed_retriable"
   | "succeeded"
   | "failed"
   | "canceled";
@@ -73,8 +74,10 @@ export type AcpSkillRunStatus =
 - `running` — run is actively executing.
 - `waiting_user` — run is paused, waiting for user input.
 - `repairing` — run is in output repair/revision loop.
+- `failed_retriable` — non-terminal: prompt/session failed, but the ACP
+  session remains recoverable and can be reconnected or canceled.
 - `succeeded` — terminal: run completed successfully.
-- `failed` — terminal: run finished with an error.
+- `failed` — terminal: run finished with an unrecoverable error.
 - `canceled` — terminal: run was canceled by user or provider.
 
 Normalized by `normalizeStatus` (line 441, default: `"running"`). Terminal
@@ -174,7 +177,10 @@ The five axes evolve independently but have well-defined constraints:
 Run Status:    queued → running → wait_user ──→ succeeded
                   │         │   │   ↑             │  failed
                   │         │   │   └── repairing ─┘  canceled
-                  │         │   └──────→ (terminal)
+                  │         │   └────→ failed_retriable
+                  │         │             │
+                  │         └─────────────┘
+                  │              recover/reply/cancel/terminalize
                   └──── running (when dequeued)
 
 Conversation:  starting → active → ended → closed
@@ -205,7 +211,8 @@ Reply:        idle → submitted → accepted → idle
 - `status === "repairing"` implies `outputRevisionStatus` is not `"final"`.
 - A terminal run status (`succeeded | failed | canceled`) implies
   `conversationState` should eventually be `closed` or `ended`.
-- `status in running | repairing | failed`, `conversationState === "closed"`,
+- `status === "failed_retriable"` or `status in running | repairing`,
+  `conversationState === "closed"`,
   `conversationRecoveryState === "available"`, a non-empty `sessionId`, and
   `activePrompt !== true` means a detached recoverable run. It is not an active
   prompt turn and must not be projected as a busy interrupt state.
@@ -313,7 +320,8 @@ does not automatically attach remote sessions.
 
 Canceling the task terminates the ACP Skills job.
 
-- Stops the active prompt turn when one exists (`interruptTurn`).
+- Stops the active prompt turn when one exists through the task-level cancel
+  controller, not through current-turn `interruptTurn`.
 - Sets `connectionActionState = "disconnecting"`.
 - Disconnects the ACP connection (`conversationState → "closed"`).
 - Marks the run `status = "canceled"` and clears recovery state
@@ -344,11 +352,14 @@ Canceling the task terminates the ACP Skills job.
    "succeeded"`. Reconnect/reply should treat that state as a deferred
    continuation, not as completed workflow apply.
 
-6. **Run status lifecycle** — `queued → running` is the only entry path.
+6. **Run status lifecycle** — `queued → running` is the normal entry path.
    From `running`, valid transitions are: `waiting_user`, `repairing`,
-   `succeeded`, `failed`, `canceled`. From `waiting_user`: back to `running`,
-   or `repairing`, or terminal. From `repairing`: back to `running`, or
-   `waiting_user`, or terminal. Terminal states are absorbing.
+   `failed_retriable`, `succeeded`, `failed`, `canceled`. From
+   `waiting_user`: back to `running`, or `repairing`, or
+   `failed_retriable`, or terminal. From `repairing`: back to `running`, or
+   `waiting_user`, or `failed_retriable`, or terminal. From
+   `failed_retriable`: back to `running`, `waiting_user`, or `repairing`, or
+   terminal. Terminal states are absorbing.
 
 7. **Conversation state lifecycle** — `starting → active → ended → closed`
    is the happy path. `active → error` is possible when the backend encounters

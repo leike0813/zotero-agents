@@ -1,10 +1,10 @@
-# acp-skills-session-recovery Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change recover-acp-skills-sessions-and-replies. Update Purpose after archive.
-## Requirements
 ### Requirement: ACP Skills SHALL preserve recoverable remote sessions
-ACP Skills SHALL detach local controllers on plugin shutdown without ending remote ACP sessions when a run has a session id and was not explicitly ended or canceled.
+
+ACP Skills SHALL detach local controllers on plugin shutdown without ending
+remote ACP sessions when a run has a session id and was not explicitly ended or
+canceled.
 
 #### Scenario: Shutdown preserves session
 - **GIVEN** an ACP Skill run has `sessionId`
@@ -31,7 +31,10 @@ ACP Skills SHALL detach local controllers on plugin shutdown without ending remo
   state.
 
 ### Requirement: ACP Skills SHALL recover before replying
-ACP Skills SHALL attempt to restore a missing live controller before sending a reply only for statuses that are allowed by the ACP Skills run status state machine.
+
+ACP Skills SHALL attempt to restore a missing live controller before sending a
+reply only for statuses that are allowed by the ACP Skills run status state
+machine.
 
 #### Scenario: Reply recovers controller from waiting run
 - **GIVEN** a run is `waiting_user`
@@ -56,7 +59,10 @@ ACP Skills SHALL attempt to restore a missing live controller before sending a r
 - **AND** the terminal run status SHALL remain `failed`.
 
 ### Requirement: ACP Skills SHALL preserve continuation context on recovered workflow replies
-When a recoverable ACP Skill workflow has not completed apply, replies sent after recovery SHALL be wrapped with a continuation guard before being sent to the ACP backend.
+
+ACP Skills SHALL wrap recovered workflow replies or continuations with a
+continuation guard when the workflow has not completed apply. Terminal runs
+SHALL NOT receive recovered workflow continuation guards.
 
 #### Scenario: Recovered workflow reply uses continuation guard
 - **GIVEN** an ACP Skill run has status `waiting_user` or `failed_retriable`
@@ -64,14 +70,18 @@ When a recoverable ACP Skill workflow has not completed apply, replies sent afte
 - **AND** the live controller has been lost or detached
 - **WHEN** the user sends a reply and recovery succeeds
 - **THEN** the runner sends the reply to the original `sessionId`
-- **AND** the backend prompt includes a continuation guard identifying the same ACP Skills run and same remote ACP session
-- **AND** the guard includes the run workspace, input manifest, requested skill, execution mode, and output-contract reminder
-- **AND** the guard instructs the agent not to restart the task, discard prior work, or switch skills.
+- **AND** the backend prompt includes a continuation guard identifying the same
+  ACP Skills run and same remote ACP session
+- **AND** the guard includes the run workspace, input manifest, requested skill,
+  execution mode, and output-contract reminder
+- **AND** the guard instructs the agent not to restart the task, discard prior
+  work, or switch skills.
 
 #### Scenario: Recovered succeeded conversation does not use workflow guard
 - **GIVEN** workflow apply already succeeded for an ACP Skill run
 - **WHEN** the user sends a follow-up reply after recovery
-- **THEN** the runner sends the user text to the recovered session without the workflow continuation guard
+- **THEN** the runner sends the user text to the recovered session without the
+  workflow continuation guard
 - **AND** workflow apply is not triggered again.
 
 #### Scenario: Terminal failed conversation does not use workflow guard
@@ -79,29 +89,3 @@ When a recoverable ACP Skill workflow has not completed apply, replies sent afte
 - **WHEN** reconnect or reply is attempted
 - **THEN** ACP Skills SHALL NOT send a recovered workflow continuation guard
 - **AND** workflow apply or sequence continuation SHALL NOT restart.
-
-### Requirement: ACP Skills SHALL expose connection controls
-The ACP Skills panel SHALL show current connection/recovery state and provide Connect and Disconnect controls.
-
-#### Scenario: Explicit connect
-- **GIVEN** a selected run is recoverable
-- **WHEN** the user clicks Connect
-- **THEN** ACP Skills restores the session without sending a reply.
-
-### Requirement: ACP Skills replies SHALL be observable
-ACP Skills SHALL record reply receipt, acceptance, and rejection events.
-
-#### Scenario: Reply action is visible
-- **WHEN** the user submits a reply
-- **THEN** the run records `reply-submitted`
-- **AND** records either `reply-accepted` or a visible failure event.
-
-### Requirement: ACP Skills recovery SHALL keep forensic evidence out of the UI transcript
-ACP Skills SHALL keep user-facing transcript text separate from backend prompt wrappers.
-
-#### Scenario: Backend prompt wrapper is not displayed as user text
-- **GIVEN** a recovered workflow reply is wrapped with a continuation guard
-- **WHEN** the ACP Skills transcript is rendered
-- **THEN** the user message shows the original user reply
-- **AND** the continuation guard is not rendered as the user-facing message body
-- **AND** backend transcripts or diagnostics MAY retain the full wrapped prompt for investigation.

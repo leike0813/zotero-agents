@@ -57,9 +57,29 @@ export type AcpSkillRunStatus =
   | "running"
   | "waiting_user"
   | "repairing"
+  | "failed_retriable"
   | "succeeded"
   | "failed"
   | "canceled";
+
+export type AcpSkillRunStatusTransitionReason =
+  | "create"
+  | "start"
+  | "waiting_user"
+  | "interrupt_turn"
+  | "cancel_task"
+  | "repair_start"
+  | "validation_succeeded"
+  | "validation_failed"
+  | "prompt_failed_retriable"
+  | "prompt_failed_terminal"
+  | "recovery_continue"
+  | "recovery_failed"
+  | "apply_succeeded"
+  | "apply_failed"
+  | "disconnect"
+  | "startup_reconcile"
+  | "legacy_migration";
 
 export type AcpSkillRunConversationState =
   | "starting"
@@ -313,6 +333,7 @@ export type AcpSkillRunSummary = Pick<
   | "replyState"
   | "connectionActionState"
   | "applyResultState"
+  | "pendingInteraction"
   | "pendingPermission"
   | "activePrompt"
   | "error"
@@ -361,6 +382,7 @@ export type AcpSkillRunPanelSnapshot = {
   labels?: {
     assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
     title?: string;
+    runningTasksTitle?: string;
     completedTasksTitle?: string;
     panelRendererUnavailable?: string;
     panelRendererFailed?: string;
@@ -443,13 +465,61 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
+export function isTerminalAcpSkillRunStatus(
+  status: AcpSkillRunStatus,
+): status is "succeeded" | "failed" | "canceled" {
+  return status === "succeeded" || status === "failed" || status === "canceled";
+}
+
+export function isActiveAcpSkillRunStatus(status: AcpSkillRunStatus) {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "waiting_user" ||
+    status === "repairing" ||
+    status === "failed_retriable"
+  );
+}
+
+export function isRecoverableAcpSkillRunStatus(status: AcpSkillRunStatus) {
+  return (
+    status === "running" ||
+    status === "waiting_user" ||
+    status === "repairing" ||
+    status === "failed_retriable"
+  );
+}
+
+function isRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
+  return (
+    state === "available" || state === "connecting" || state === "connected"
+  );
+}
+
+function isLegacyRecoverableAcpRecoveryState(state: AcpSkillRunRecoveryState) {
+  return isRecoverableAcpRecoveryState(state) || state === "failed";
+}
+
+export function isRecoverablePromptFailure(
+  record: Pick<
+    AcpSkillRunRecord,
+    "sessionId" | "conversationRecoveryState" | "removedAt" | "archivedAt"
+  >,
+) {
+  const recoveryState = record.conversationRecoveryState || "unavailable";
+  return (
+    !record.removedAt &&
+    !record.archivedAt &&
+    !!normalizeString(record.sessionId) &&
+    isRecoverableAcpRecoveryState(recoveryState)
+  );
+}
+
 function isActiveAcpSkillRunRecordForSummary(record: AcpSkillRunRecord) {
   return (
     !record.removedAt &&
     !record.archivedAt &&
-    record.status !== "succeeded" &&
-    record.status !== "failed" &&
-    record.status !== "canceled"
+    isActiveAcpSkillRunStatus(record.status)
   );
 }
 
@@ -684,6 +754,7 @@ function normalizeStatus(value: unknown): AcpSkillRunStatus {
     normalized === "running" ||
     normalized === "waiting_user" ||
     normalized === "repairing" ||
+    normalized === "failed_retriable" ||
     normalized === "succeeded" ||
     normalized === "failed" ||
     normalized === "canceled"
@@ -1219,6 +1290,49 @@ function parseAuditTrailState(
   };
 }
 
+function shouldMigrateLegacyFailedRunToRetriable(record: AcpSkillRunRecord) {
+  const recoveryState = record.conversationRecoveryState || "unavailable";
+  return (
+    record.status === "failed" &&
+    !record.removedAt &&
+    !record.archivedAt &&
+    !!normalizeString(record.sessionId) &&
+    (record.conversationState === "closed" ||
+      record.conversationState === "active" ||
+      record.conversationState === "error") &&
+    isLegacyRecoverableAcpRecoveryState(recoveryState)
+  );
+}
+
+function migrateLegacyAcpSkillRunStatus(record: AcpSkillRunRecord) {
+  if (!shouldMigrateLegacyFailedRunToRetriable(record)) {
+    return record;
+  }
+  const event: AcpSkillRunEvent = {
+    ts: nowIso(),
+    stage: "legacy-status-migrated",
+    message:
+      "Legacy recoverable ACP failed run migrated to failed_retriable status.",
+    level: "info",
+    details: {
+      previousStatus: "failed",
+      nextStatus: "failed_retriable",
+      conversationState: record.conversationState,
+      conversationRecoveryState: record.conversationRecoveryState,
+    },
+  };
+  return {
+    ...record,
+    status: "failed_retriable" as AcpSkillRunStatus,
+    backendStatus:
+      record.backendStatus === "failed"
+        ? ("failed_retriable" as AcpSkillRunStatus)
+        : record.backendStatus,
+    updatedAt: event.ts,
+    events: [...record.events, event].slice(-80),
+  };
+}
+
 function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
   if (!isRecord(raw)) {
     return null;
@@ -1230,7 +1344,7 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
   const createdAt = normalizeString(raw.createdAt) || nowIso();
   const updatedAt = normalizeString(raw.updatedAt) || createdAt;
   const rawEvents = Array.isArray(raw.events) ? raw.events : [];
-  return {
+  const parsed: AcpSkillRunRecord = {
     requestId,
     status: normalizeStatus(raw.status),
     backendStatus: raw.backendStatus
@@ -1384,6 +1498,7 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
       details: isRecord(entry.details) ? { ...entry.details } : undefined,
     })),
   };
+  return migrateLegacyAcpSkillRunStatus(parsed);
 }
 
 function ensureHydrated() {
@@ -1428,12 +1543,6 @@ function persistRun(record: AcpSkillRunRecord) {
       payload: JSON.stringify(latestEvent),
     });
   }
-}
-
-function isTerminalAcpSkillRunStatus(
-  status: AcpSkillRunStatus,
-): status is "succeeded" | "failed" | "canceled" {
-  return status === "succeeded" || status === "failed" || status === "canceled";
 }
 
 function retentionTimestampMs(record: AcpSkillRunRecord) {
@@ -1510,6 +1619,9 @@ function acpRunStatusToWorkflowTaskState(
     record.status === "succeeded"
   ) {
     return record.status;
+  }
+  if (record.status === "failed_retriable") {
+    return record.pendingInteraction ? "waiting_user" : "running";
   }
   return "running";
 }
@@ -1598,6 +1710,7 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
     upsertAcpSkillRun({
       requestId,
       status: "failed",
+      statusReason: "startup_reconcile",
       activePrompt: false,
       conversationState: "error",
       conversationRecoveryState: "unavailable",
@@ -1645,9 +1758,87 @@ function scheduleChangedEmit() {
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
 }
 
+function isAllowedNonTerminalAcpSkillRunTransition(args: {
+  current: AcpSkillRunStatus;
+  next: AcpSkillRunStatus;
+  reason: AcpSkillRunStatusTransitionReason;
+}) {
+  const { current, next, reason } = args;
+  if (current === next) {
+    return true;
+  }
+  if (reason === "cancel_task") {
+    return next === "canceled";
+  }
+  if (reason === "interrupt_turn") {
+    return next === "waiting_user";
+  }
+  if (reason === "prompt_failed_retriable") {
+    return next === "failed_retriable";
+  }
+  if (reason === "prompt_failed_terminal") {
+    return next === "failed";
+  }
+  if (current === "queued") {
+    return next === "running" || next === "failed" || next === "canceled";
+  }
+  if (current === "failed_retriable") {
+    return (
+      next === "running" ||
+      next === "waiting_user" ||
+      next === "repairing" ||
+      next === "failed" ||
+      next === "canceled"
+    );
+  }
+  if (
+    current === "running" ||
+    current === "waiting_user" ||
+    current === "repairing"
+  ) {
+    return (
+      next === "running" ||
+      next === "waiting_user" ||
+      next === "repairing" ||
+      next === "failed_retriable" ||
+      next === "succeeded" ||
+      next === "failed" ||
+      next === "canceled"
+    );
+  }
+  return false;
+}
+
+function resolveAcpSkillRunStatusTransition(args: {
+  requestId: string;
+  current?: AcpSkillRunStatus;
+  next: AcpSkillRunStatus;
+  reason?: AcpSkillRunStatusTransitionReason;
+}) {
+  const { current, next, reason } = args;
+  if (!current || current === next) {
+    return next;
+  }
+  if (isTerminalAcpSkillRunStatus(current)) {
+    throw new Error(
+      `Illegal ACP skill run status transition for ${args.requestId}: terminal ${current} cannot transition to ${next}.`,
+    );
+  }
+  if (!reason) {
+    return next;
+  }
+  if (isAllowedNonTerminalAcpSkillRunTransition({ current, next, reason })) {
+    return next;
+  }
+  throw new Error(
+    `Illegal ACP skill run status transition for ${args.requestId}: ${current} -> ${next} (${reason}).`,
+  );
+}
+
 export function upsertAcpSkillRun(update: {
   requestId: string;
   status?: AcpSkillRunStatus;
+  statusReason?: AcpSkillRunStatusTransitionReason;
   backendStatus?: AcpSkillRunStatus;
   backendId?: string;
   backendType?: string;
@@ -1759,7 +1950,14 @@ export function upsertAcpSkillRun(update: {
   };
   assignString("createdAt", update.createdAt);
   assignString("updatedAt", update.updatedAt);
-  if (update.status) next.status = update.status;
+  if (update.status) {
+    next.status = resolveAcpSkillRunStatusTransition({
+      requestId,
+      current: existing?.status,
+      next: update.status,
+      reason: update.statusReason,
+    });
+  }
   if (update.backendStatus) {
     next.backendStatus = update.backendStatus;
   } else if (
@@ -2843,6 +3041,7 @@ export function setAcpSkillRunPermissionRequest(
   upsertAcpSkillRun({
     requestId: runRequestId,
     status: "running",
+    statusReason: "start",
     pendingPermission: normalizeAcpSkillRunPendingPermission(
       request,
       permissionRequestId,
@@ -2884,6 +3083,7 @@ export function autoApproveAcpSkillRunPermissionRequest(args: {
   upsertAcpSkillRun({
     requestId: runRequestId,
     status: "running",
+    statusReason: "start",
     pendingPermission: null,
     event: {
       stage: "permission-requested",
@@ -2898,6 +3098,7 @@ export function autoApproveAcpSkillRunPermissionRequest(args: {
   upsertAcpSkillRun({
     requestId: runRequestId,
     status: "running",
+    statusReason: "start",
     pendingPermission: null,
     event: {
       stage: "permission-resolved",
@@ -2962,7 +3163,6 @@ function clearStaleAcpSkillRunPermissionRequest(args: {
     return false;
   }
   const recoverableStatus = new Set<AcpSkillRunStatus>([
-    "queued",
     "running",
     "repairing",
   ]).has(stale.record.status)
@@ -2971,6 +3171,8 @@ function clearStaleAcpSkillRunPermissionRequest(args: {
   upsertAcpSkillRun({
     requestId: stale.record.requestId,
     status: recoverableStatus,
+    statusReason:
+      recoverableStatus === stale.record.status ? undefined : "waiting_user",
     activePrompt: false,
     pendingPermission: null,
     replyState: "idle",
@@ -3065,9 +3267,13 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     if (!existing) {
       throw new Error("No ACP skill run record is available for cancellation.");
     }
+    if (isTerminalAcpSkillRunStatus(existing.status)) {
+      return;
+    }
     upsertAcpSkillRun({
       requestId,
       status: "canceled",
+      statusReason: "cancel_task",
       activePrompt: false,
       conversationState: "ended",
       conversationRecoveryState: "unavailable",
@@ -3083,9 +3289,14 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
     return;
   }
   await controller.cancel();
+  const afterCancel = getAcpSkillRunRecord(requestId);
+  if (afterCancel && isTerminalAcpSkillRunStatus(afterCancel.status)) {
+    return;
+  }
   upsertAcpSkillRun({
     requestId,
     status: "canceled",
+    statusReason: "cancel_task",
     activePrompt: false,
     conversationState: "ended",
     conversationRecoveryState: "unavailable",
@@ -3104,6 +3315,10 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   if (!requestId) {
     throw new Error("requestId is required");
   }
+  const existing = getAcpSkillRunRecord(requestId);
+  if (existing && isTerminalAcpSkillRunStatus(existing.status)) {
+    throw new Error("Terminal ACP skill runs cannot be interrupted.");
+  }
   const controller = controllers.get(requestId);
   if (!controller) {
     throw new Error(
@@ -3118,6 +3333,7 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   upsertAcpSkillRun({
     requestId,
     status: "waiting_user",
+    statusReason: "interrupt_turn",
     activePrompt: false,
     replyState: "idle",
     event: {
@@ -3168,6 +3384,21 @@ export async function replyAcpSkillRun(args: {
   }
   if (!message) {
     throw new Error("reply message is required");
+  }
+  const existing = getAcpSkillRunRecord(requestId);
+  if (!existing) {
+    throw new Error("No ACP skill run record is available for reply.");
+  }
+  if (isTerminalAcpSkillRunStatus(existing.status)) {
+    throw new Error("Terminal ACP skill runs cannot accept replies.");
+  }
+  if (
+    existing.status !== "waiting_user" &&
+    existing.status !== "failed_retriable"
+  ) {
+    throw new Error(
+      "ACP skill run replies are only accepted for waiting or recoverable failed runs.",
+    );
   }
   upsertAcpSkillRun({
     requestId,
@@ -3630,14 +3861,23 @@ export function markAcpSkillRunApplyResult(args: {
     (isTerminalAcpSkillRunStatus(existing.status)
       ? existing.status
       : "succeeded");
+  const terminal = isTerminalAcpSkillRunStatus(existing.status);
+  const nextStatus = terminal
+    ? undefined
+    : args.state === "failed"
+      ? "failed"
+      : args.state === "succeeded"
+        ? "succeeded"
+        : undefined;
   upsertAcpSkillRun({
     requestId,
-    status:
-      args.state === "failed"
-        ? "failed"
-        : args.state === "succeeded"
-          ? "succeeded"
-          : existing.status,
+    status: nextStatus,
+    statusReason:
+      nextStatus === "failed"
+        ? "apply_failed"
+        : nextStatus === "succeeded"
+          ? "apply_succeeded"
+          : undefined,
     backendStatus,
     applyResultState: args.state,
     appliedAt: args.state === "succeeded" ? nowIso() : undefined,
@@ -3956,6 +4196,10 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     title: getStringOrFallback(
       "task-dashboard-home-acp-skill-runs-title" as any,
       "ACP Skill Runs",
+    ),
+    runningTasksTitle: getStringOrFallback(
+      "task-dashboard-run-running-tasks-title" as any,
+      "Running",
     ),
     completedTasksTitle: getStringOrFallback(
       "task-dashboard-run-completed-tasks-title" as any,

@@ -950,7 +950,11 @@ function mapAcpSkillRunToWorkflowTask(
       ? "running"
       : run.pendingPermission
         ? "waiting_user"
-        : run.status;
+        : run.status === "failed_retriable"
+          ? run.pendingInteraction
+            ? "waiting_user"
+            : "running"
+          : run.status;
   return {
     id: `acp-skill-run:${run.requestId}`,
     runId: String(run.runId || run.requestId || "").trim() || run.requestId,
