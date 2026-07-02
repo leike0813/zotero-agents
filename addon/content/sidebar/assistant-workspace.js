@@ -226,6 +226,13 @@
     if (cached.snapshot) postToChild(tab, "snapshot", cached.snapshot);
   }
 
+  function announceInitializedChildFramesReady() {
+    tabs.forEach(function (tab) {
+      if (!state.initializedFrames.has(tab)) return;
+      sendChildAction(tab, "ready", {});
+    });
+  }
+
   function normalizeTab(tab, fallback) {
     if (tabs.indexOf(tab) >= 0) return tab;
     if (tabs.indexOf(fallback) >= 0) return fallback;
@@ -320,6 +327,7 @@
         notify: false,
         fallback: state.activeTab,
       });
+      announceInitializedChildFramesReady();
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {

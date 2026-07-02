@@ -190,7 +190,7 @@ describe("dashboard toolbar button", function () {
 
     skillRunnerButton!.dispatch("command");
     assert.lengthOf(calls, 1);
-    assert.equal(calls[0].type, "toggleSkillRunnerSidebar");
+    assert.equal(calls[0].type, "toggleAssistantSidebar");
     assert.deepEqual(calls[0].data, { window: win });
 
     dashboardButton!.dispatch("command");

@@ -16,15 +16,124 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/assistantWorkspaceSidebar.ts",
     );
     assert.include(ts, "FRAME_WINDOW_WAIT_TIMEOUT_MS");
-    assert.include(ts, "waitForPaneFrameWindow");
+    assert.include(ts, "waitForShellFrameWindow");
+    assert.include(ts, "MountedSidebarDock");
     assert.include(ts, "createSidebarContainer");
     assert.include(ts, "createSidebarFrame");
     assert.include(ts, "resolveSidebarFrameWindow");
     assert.include(ts, "setSidebarContainerVisible");
     assert.include(ts, "assistant-workspace.html");
+    assert.include(ts, "shell:");
+    assert.include(ts, "loaded: false");
+    assert.include(ts, "ready: false");
+    assert.include(ts, "pendingInitialSync: false");
+    assert.include(ts, "dockAssistantWorkspaceShell");
+    assert.include(ts, "flushActiveShellInit");
+    assert.strictEqual(
+      ts.match(/createSidebarFrame\(doc, resolveSidebarPageUrl\(\)\)/g)
+        ?.length,
+      1,
+    );
+    assert.notInclude(ts, "host.library.frame");
+    assert.notInclude(ts, "host.reader.frame");
     assert.include(ts, "installAssistantWorkspaceSidebarShell");
     assert.include(ts, "openAssistantWorkspaceSidebar");
     assert.include(ts, "toggleAssistantWorkspaceSidebar");
+  });
+
+  it("rejects fallback shell messages unless they come from the single shell frame window", async function () {
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const resolverStart = ts.indexOf("function resolveTargetFromSource");
+    const resolverEnd = ts.indexOf("function postShellMessage", resolverStart);
+    const resolverBody = ts.slice(resolverStart, resolverEnd);
+    assert.isAtLeast(resolverStart, 0);
+    assert.isAbove(resolverEnd, resolverStart);
+    assert.include(
+      resolverBody,
+      "if (!source || !frameWindow || source !== frameWindow)",
+    );
+    assert.include(resolverBody, "return null;");
+    assert.include(resolverBody, "return host.activeTarget;");
+  });
+
+  it("commits the active Assistant target only after the shell docks", async function () {
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const dockStart = ts.indexOf("async function dockAssistantWorkspaceShell");
+    const dockEnd = ts.indexOf(
+      "function commitAssistantWorkspaceTarget",
+      dockStart,
+    );
+    const dockBody = ts.slice(dockStart, dockEnd);
+    assert.isAtLeast(dockStart, 0);
+    assert.isAbove(dockEnd, dockStart);
+    assert.notInclude(dockBody, "host.activeTarget =");
+    assert.notInclude(dockBody, "setShellActiveTarget(host, target)");
+
+    const activateStart = ts.indexOf("async function activateTarget");
+    const activateEnd = ts.indexOf(
+      "export function installAssistantWorkspaceSidebarShell",
+      activateStart,
+    );
+    const activateBody = ts.slice(activateStart, activateEnd);
+    const libraryDockIndex = activateBody.indexOf(
+      'const docked = await dockAssistantWorkspaceShell(host, "library");',
+    );
+    const libraryCommitIndex = activateBody.indexOf(
+      'commitAssistantWorkspaceTarget(host, "library");',
+    );
+    const readerDockIndex = activateBody.indexOf(
+      'const docked = await dockAssistantWorkspaceShell(host, "reader");',
+    );
+    const readerCommitIndex = activateBody.indexOf(
+      'commitAssistantWorkspaceTarget(host, "reader");',
+    );
+    assert.isAtLeast(activateStart, 0);
+    assert.isAbove(activateEnd, activateStart);
+    assert.isAtLeast(libraryDockIndex, 0);
+    assert.isAbove(libraryCommitIndex, libraryDockIndex);
+    assert.isAtLeast(readerDockIndex, 0);
+    assert.isAbove(readerCommitIndex, readerDockIndex);
+  });
+
+  it("flushes the initial Assistant shell snapshot after load, ready, and target commit converge", async function () {
+    const ts = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const flushStart = ts.indexOf("function flushActiveShellInit");
+    const flushEnd = ts.indexOf(
+      "function ensureAssistantWorkspaceShell",
+      flushStart,
+    );
+    const flushBody = ts.slice(flushStart, flushEnd);
+    assert.isAtLeast(flushStart, 0);
+    assert.isAbove(flushEnd, flushStart);
+    assert.include(flushBody, "const target = host.activeTarget;");
+    assert.include(flushBody, "host.shell.pendingInitialSync");
+    assert.include(flushBody, "host.shell.loaded || host.shell.ready");
+    assert.include(flushBody, "postShellInit(host, host.activeTab);");
+    assert.include(
+      flushBody,
+      'postFreshAcpChatSnapshot(host, target, "init");',
+    );
+    assert.include(flushBody, 'postAcpSkillRunSnapshot(host, "init");');
+
+    const loadStart = ts.indexOf("const frameLoadHandler = () => {");
+    const loadEnd = ts.indexOf("frame.addEventListener", loadStart);
+    const loadBody = ts.slice(loadStart, loadEnd);
+    assert.include(loadBody, "host.shell.loaded = true;");
+    assert.include(loadBody, "host.shell.pendingInitialSync = true;");
+    assert.include(loadBody, "flushActiveShellInit(host);");
+
+    const readyStart = ts.indexOf("function acceptAssistantShellReady");
+    const readyEnd = ts.indexOf("function installShellBridge", readyStart);
+    const readyBody = ts.slice(readyStart, readyEnd);
+    assert.include(readyBody, "host.shell.ready = true;");
+    assert.include(readyBody, "host.shell.pendingInitialSync = true;");
+    assert.include(readyBody, "flushActiveShellInit(host);");
   });
 
   it("keeps SkillRunner, ACP Chat, and ACP Skills wired through the workspace host bridge", async function () {
@@ -314,7 +423,7 @@ describe("skillrunner sidebar host runtime", function () {
       shellActionStart,
       shellActionEnd,
     );
-    assert.include(shellActionBody, "scheduleSkillRunnerSidebarRefresh");
+    assert.include(shellActionBody, "flushActiveShellInit(host)");
     assert.notInclude(shellActionBody, "await focusSkillRunnerWorkspace");
     assert.notInclude(shellActionBody, "await attachSkillRunnerToPane");
 
@@ -322,7 +431,8 @@ describe("skillrunner sidebar host runtime", function () {
       "export async function toggleAssistantWorkspaceSidebar",
     );
     const toggleBody = workspaceHost.slice(toggleStart);
-    assert.include(toggleBody, "scheduleSkillRunnerSidebarRefresh");
+    assert.include(toggleBody, "openAssistantWorkspaceSidebar({");
+    assert.include(toggleBody, "flushActiveShellInit(host)");
     assert.notInclude(toggleBody, "await focusSkillRunnerWorkspace");
     assert.notInclude(toggleBody, "await attachSkillRunnerToPane");
 
@@ -447,6 +557,10 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(sidebarTs, "close-sidebar");
     assert.include(sidebarTs, "closeActiveSidebarHost");
     assert.include(sidebarTs, "applySidebarPaneContainerStyles");
+    assert.include(sidebarTs, "data-zs-assistant-dock-target");
+    assert.include(sidebarTs, "data-zs-assistant-shell");
+    assert.include(sidebarTs, "data-zs-assistant-active-target");
+    assert.include(sidebarTs, "dockAssistantWorkspaceShell");
     assert.include(
       sidebarTs,
       "createSidebarFrame(doc, resolveSidebarPageUrl())",

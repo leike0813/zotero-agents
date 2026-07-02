@@ -14,6 +14,7 @@
     transcriptRevision: null,
     transcriptRenderedMode: "",
     transcriptRunId: "",
+    transcriptStates: new Map(),
     transcriptItems: [],
     transcriptStartCursor: null,
     transcriptPrevCursor: null,
@@ -152,6 +153,7 @@
       Number(page.transcriptRevision || page.eventSeq) || 0;
     state.transcriptLoadingKey = "";
     state.transcriptRevision = null;
+    persistCurrentTranscriptState();
     renderTranscript(selectedRunFromSnapshot() || {});
   }
 
@@ -226,6 +228,7 @@
         nextSeq || state.transcriptLoadedRevision;
     }
     state.transcriptRevision = null;
+    persistCurrentTranscriptState();
     renderTranscript(selectedRunFromSnapshot() || {});
   }
 
@@ -353,6 +356,20 @@
     return (state.snapshot && state.snapshot.selectedRun) || null;
   }
 
+  function selectedRunRequestId(snapshot) {
+    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
+    return safeText(source.selectedRun && source.selectedRun.requestId);
+  }
+
+  function findPendingRunSummary(snapshot, requestId) {
+    const runs =
+      snapshot && Array.isArray(snapshot.runs) ? snapshot.runs : [];
+    const matched = runs.find(function (run) {
+      return safeText(run && run.requestId) === requestId;
+    });
+    return matched ? Object.assign({}, matched) : { requestId: requestId };
+  }
+
   function captureReplyDraft() {
     const run = selectedRunFromSnapshot();
     const requestId = safeText(run && run.requestId);
@@ -391,6 +408,58 @@
     state.transcriptRenderedMode = "";
     state.toolActivityExpandedIds.clear();
     resetTranscriptPageState();
+  }
+
+  function captureTranscriptState() {
+    return {
+      nodeMap: new Map(state.transcriptNodeMap),
+      orderKey: state.transcriptOrderKey,
+      mode: state.transcriptMode,
+      revision: state.transcriptRevision,
+      renderedMode: state.transcriptRenderedMode,
+      items: state.transcriptItems.slice(),
+      startCursor: state.transcriptStartCursor,
+      prevCursor: state.transcriptPrevCursor,
+      nextCursor: state.transcriptNextCursor,
+      total: state.transcriptTotal,
+      loadingKey: "",
+      loadedRevision: state.transcriptLoadedRevision,
+      expandedIds: new Set(state.toolActivityExpandedIds),
+    };
+  }
+
+  function restoreTranscriptState(cached) {
+    if (!cached) {
+      resetTranscriptRenderState();
+      return;
+    }
+    state.transcriptNodeMap = new Map(cached.nodeMap || []);
+    state.transcriptOrderKey = safeText(cached.orderKey);
+    state.transcriptMode = safeText(cached.mode);
+    state.transcriptRevision = cached.revision;
+    state.transcriptRenderedMode = safeText(cached.renderedMode);
+    state.transcriptItems = Array.isArray(cached.items)
+      ? cached.items.slice()
+      : [];
+    state.transcriptStartCursor =
+      typeof cached.startCursor === "number" ? cached.startCursor : null;
+    state.transcriptPrevCursor =
+      typeof cached.prevCursor === "number" ? cached.prevCursor : null;
+    state.transcriptNextCursor =
+      typeof cached.nextCursor === "number" ? cached.nextCursor : null;
+    state.transcriptTotal = Number(cached.total) || state.transcriptItems.length;
+    state.transcriptLoadingKey = safeText(cached.loadingKey);
+    state.transcriptLoadedRevision =
+      typeof cached.loadedRevision === "number"
+        ? cached.loadedRevision
+        : null;
+    state.toolActivityExpandedIds = new Set(cached.expandedIds || []);
+  }
+
+  function persistCurrentTranscriptState() {
+    const requestId = safeText(state.transcriptRunId);
+    if (!requestId) return;
+    state.transcriptStates.set(requestId, captureTranscriptState());
   }
 
   function handleAssistantPanelAction(action, payload) {
@@ -627,17 +696,32 @@
     const source = snapshot || {};
     const pendingRequestId = safeText(state.pendingSelectedRequestId);
     if (!pendingRequestId) return source;
-    if (source.selectedRequestId === pendingRequestId) {
+    if (selectedRunRequestId(source) === pendingRequestId) {
       state.pendingSelectedRequestId = "";
       return source;
     }
+    const pendingRun = findPendingRunSummary(source, pendingRequestId);
     return Object.assign({}, source, {
       selectedRequestId: pendingRequestId,
+      selectedRun: pendingRun,
+      selectedRuntimeOptions: undefined,
+      logs: [],
     });
+  }
+
+  function syncTranscriptRun(run) {
+    const requestId = safeText(run && run.requestId);
+    if (requestId !== state.transcriptRunId) {
+      persistCurrentTranscriptState();
+      state.transcriptRunId = requestId;
+      restoreTranscriptState(state.transcriptStates.get(requestId));
+    }
+    return requestId;
   }
 
   function renderTranscript(run) {
     const transcript = $("acp-skill-run-transcript");
+    const requestId = syncTranscriptRun(run);
     const view = projectAcpSkillRunView(run);
     const renderer = assistantTranscriptRenderer();
     if (!renderer || typeof renderer.renderAssistantTranscript !== "function") {
@@ -647,18 +731,13 @@
           "div",
           "empty-state compact",
           safeText(
-            state.panelSnapshot &&
-              state.panelSnapshot.labels &&
-              state.panelSnapshot.labels.transcriptRendererUnavailable,
+            state.snapshot &&
+              state.snapshot.labels &&
+              state.snapshot.labels.transcriptRendererUnavailable,
           ),
         ),
       );
       return;
-    }
-    const requestId = safeText(run && run.requestId);
-    if (requestId !== state.transcriptRunId) {
-      state.transcriptRunId = requestId;
-      resetTranscriptRenderState();
     }
     const sourceRevision = Number(run && run.transcriptRevision) || 0;
     const revision = Math.max(
@@ -695,12 +774,12 @@
       renderMarkdown,
       formatTime,
       labels:
-        state.panelSnapshot?.labels?.assistantPanel?.transcript ||
-        state.panelSnapshot?.labels?.transcript ||
+        state.snapshot?.labels?.assistantPanel?.transcript ||
+        state.snapshot?.labels?.transcript ||
         {},
       emptyText:
-        state.panelSnapshot?.labels?.assistantPanel?.transcript?.empty ||
-        state.panelSnapshot?.labels?.transcript?.empty ||
+        state.snapshot?.labels?.assistantPanel?.transcript?.empty ||
+        state.snapshot?.labels?.transcript?.empty ||
         "Waiting for agent transcript...",
       onToggleExpanded: function (id) {
         if (state.toolActivityExpandedIds.has(id)) {

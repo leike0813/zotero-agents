@@ -89,7 +89,9 @@ import {
 import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
 import { flushRuntimeLogsPersistence } from "./modules/runtimeLogManager";
 import {
+  closeAssistantWorkspaceSidebar,
   installAssistantWorkspaceSidebarShell,
+  isAssistantWorkspaceSidebarOpen,
   openAssistantWorkspaceSidebar,
   removeAssistantWorkspaceSidebarShell,
   toggleAssistantWorkspaceSidebar,
@@ -1119,6 +1121,16 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
             ? data.requestId.trim() || undefined
             : undefined,
       });
+      break;
+    case "toggleAssistantSidebar":
+      if (isAssistantWorkspaceSidebarOpen({ window: data.window })) {
+        closeAssistantWorkspaceSidebar({ window: data.window });
+      } else {
+        await openAssistantWorkspaceSidebar({
+          window: data.window,
+          tab: "acp-chat",
+        });
+      }
       break;
     case "toggleSkillRunnerSidebar":
       await toggleAssistantWorkspaceSidebar({

@@ -1843,6 +1843,35 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(persisted?.state, "succeeded");
   });
 
+  it("keeps workflow task rows synchronized with non-terminal ACP skill run connection state", function () {
+    recordWorkflowTaskUpdate(
+      makeAcpWorkflowTaskJob({
+        requestId: "acp-waiting-sync",
+        state: "running",
+      }),
+    );
+
+    upsertAcpSkillRun({
+      requestId: "acp-waiting-sync",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "waiting_user",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      connectionActionState: "idle",
+      activePrompt: false,
+    });
+
+    const persisted = listWorkflowTasks().find(
+      (entry) => entry.requestId === "acp-waiting-sync",
+    );
+    assert.equal(persisted?.state, "waiting_user");
+    assert.include(
+      listActiveWorkflowTasks().map((entry) => entry.requestId),
+      "acp-waiting-sync",
+    );
+  });
+
   it("removes workflow task rows when ACP skill runs are archived or removed", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
@@ -5328,6 +5357,34 @@ describe("ACP SkillRunner-compatible runner", function () {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("keeps panel snapshot selection reads from mutating the globally selected ACP skill run", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-selected-original",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      taskName: "Original run",
+    });
+    upsertAcpSkillRun({
+      requestId: "run-readonly-target",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      taskName: "Readonly target",
+    });
+    selectAcpSkillRun("run-selected-original");
+
+    const targetSnapshot = buildAcpSkillRunPanelSnapshot({
+      selectedRequestId: "run-readonly-target",
+    });
+    assert.equal(targetSnapshot.selectedRun?.requestId, "run-readonly-target");
+    assert.equal(
+      buildAcpSkillRunPanelSnapshot({}).selectedRun?.requestId,
+      "run-selected-original",
+    );
   });
 
   it("surfaces workspace activity as visible status while ACP prompt is active", async function () {

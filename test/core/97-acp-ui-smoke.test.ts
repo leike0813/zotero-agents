@@ -1365,6 +1365,8 @@ describe("acp ui smoke", function () {
     );
     assert.notInclude(assistantJs, "assistantSkillrunnerLayout");
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
+    assert.include(assistantJs, "announceInitializedChildFramesReady");
+    assert.include(assistantJs, 'sendChildAction(tab, "ready", {})');
     assert.include(assistantJs, 'if (tab === "skillrunner" && !cached.init)');
     assert.include(
       assistantJs,
@@ -2266,6 +2268,16 @@ describe("acp ui smoke", function () {
       assistantSidebar,
       "function handleAssistantWorkspaceMessage(",
     );
+    assert.include(assistantSidebar, "MountedSidebarDock");
+    assert.include(assistantSidebar, "shell:");
+    assert.include(assistantSidebar, "dockAssistantWorkspaceShell");
+    assert.include(assistantSidebar, "data-zs-assistant-dock-target");
+    assert.include(assistantSidebar, "data-zs-assistant-shell");
+    assert.include(assistantSidebar, "data-zs-assistant-active-target");
+    assert.include(assistantSidebar, "activeTarget: host.activeTarget");
+    assert.include(assistantSidebar, "scopeKey: host.scopeKey");
+    assert.notInclude(assistantSidebar, "host.library.frame");
+    assert.notInclude(assistantSidebar, "host.reader.frame");
     assert.include(assistantSidebar, "AssistantWorkspaceBridgeResult");
     assert.include(assistantSidebar, "logAssistantShellAction");
     assert.include(assistantSidebar, 'component: "assistant-shell"');
@@ -2273,7 +2285,7 @@ describe("acp ui smoke", function () {
       assistantSidebar,
       "return { ok: false, actionId, error: message }",
     );
-    assert.include(assistantSidebar, "clearShellBridge(host.library)");
+    assert.include(assistantSidebar, "clearShellBridge(host.shell)");
     assert.include(assistantSidebar, "attachSkillRunnerSidebarHost");
     assert.include(assistantSidebar, "buildDecoratedSkillRunnerSnapshot");
     assert.include(assistantSidebar, "createSkillRunnerHostActionHandler");
@@ -2412,6 +2424,12 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "pendingSelectedRequestId");
     assert.include(acpSkillRunJs, "function applyPendingSelection(snapshot)");
     assert.include(acpSkillRunJs, "state.pendingSelectedRequestId = requestId");
+    assert.include(acpSkillRunJs, "findPendingRunSummary(source, pendingRequestId)");
+    assert.include(acpSkillRunJs, "selectedRun: pendingRun");
+    assert.notInclude(
+      acpSkillRunJs,
+      "if (source.selectedRequestId === pendingRequestId)",
+    );
     assert.include(
       acpSkillRunJs,
       "function renderPanelRuntimeFailure(message)",
@@ -2419,6 +2437,9 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "panelRendererFailed");
     assert.include(acpSkillRunJs, "data-assistant-interaction");
     assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
+    assert.include(acpSkillRunJs, "transcriptStates: new Map()");
+    assert.include(acpSkillRunJs, "function persistCurrentTranscriptState()");
+    assert.include(acpSkillRunJs, "function restoreTranscriptState(cached)");
     assert.include(acpSkillRunJs, "transcriptOrderKey");
     assert.include(acpSkillRunJs, "transcriptMode");
     assert.include(acpSkillRunJs, "toolActivityExpandedIds");
@@ -2426,6 +2447,12 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "orderKey: state.transcriptOrderKey");
     assert.include(acpSkillRunJs, "modeKey: state.transcriptMode");
     assert.include(acpSkillRunJs, "onRendered: function (result)");
+    assert.include(acpSkillRunJs, "const requestId = syncTranscriptRun(run);");
+    assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run);");
+    assert.include(
+      acpSkillRunJs,
+      "restoreTranscriptState(state.transcriptStates.get(requestId))",
+    );
     assert.include(acpSkillRunJs, "resetTranscriptRenderState");
     assert.include(acpSkillRunJs, "function formatTime(value)");
     assert.include(acpSkillRunJs, "formatTime,");
@@ -2563,11 +2590,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "await refreshAcpConversationBackends();");
     assert.include(
       assistantSidebar,
-      "await postFreshAcpChatSnapshot(host, pane, target);",
+      'void postFreshAcpChatSnapshot(host, target, "init");',
     );
     assert.include(
       assistantSidebar,
-      "postAcpChatSnapshot(host, pane, target);\n    return;",
+      "postAcpChatSnapshot(host, target);\n    return;",
     );
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
@@ -2587,7 +2614,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "toggle-status-details");
     assert.include(
       assistantSidebar,
-      'postShellMessage(pane, "assistant-workspace:child-snapshot"',
+      'postShellMessage(host.shell, "assistant-workspace:child-snapshot"',
     );
     assert.include(sidebarModel, "chatDisplayMode");
     assert.include(sidebarModel, "statusExpanded");

@@ -407,6 +407,10 @@ export type AcpSkillRunSummary = Pick<
   | "pendingInteraction"
   | "pendingPermission"
   | "activePrompt"
+  | "transcriptRevision"
+  | "transcriptEventSeq"
+  | "transcriptItemCount"
+  | "transcriptPreview"
   | "error"
   | "removedAt"
   | "archivedAt"
@@ -1870,14 +1874,11 @@ function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
     });
     return;
   }
-  if (!isTerminalAcpSkillRunStatus(record.status)) {
-    return;
-  }
   updateWorkflowTaskStateByRequest({
     backendId: record.backendId,
     backendType: ACP_BACKEND_TYPE,
     requestId,
-    state: record.status,
+    state: acpRunStatusToWorkflowTaskState(record),
     backendStatus: record.backendStatus,
     error: record.error || record.conversationError,
     updatedAt: record.updatedAt,
@@ -4446,6 +4447,10 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
       ? { ...run.pendingPermission }
       : null,
     activePrompt: run.activePrompt,
+    transcriptRevision: run.transcriptRevision,
+    transcriptEventSeq: run.transcriptEventSeq,
+    transcriptItemCount: run.transcriptItemCount,
+    transcriptPreview: run.transcriptPreview,
     error: run.error,
     removedAt: run.removedAt,
     archivedAt: run.archivedAt,
@@ -4484,7 +4489,7 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
       ...runs.filter((run) => run.requestId !== requestedRecord.requestId),
     ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   }
-  selectedRequestId = selected?.requestId || "";
+  const snapshotSelectedRequestId = selected?.requestId || "";
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
     ? listRuntimeLogs({
@@ -4530,7 +4535,7 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
   return {
     generatedAt: nowIso(),
     labels,
-    selectedRequestId,
+    selectedRequestId: snapshotSelectedRequestId,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),

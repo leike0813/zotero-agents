@@ -453,9 +453,7 @@ async function enforceAcpChatLiveAdapterLimit(targetSlot: AcpSessionSlot) {
     detail: `limit=${MAX_LIVE_ACP_CHAT_ADAPTERS}`,
   });
   await disconnectSlotAdapter(evicted);
-  evicted.snapshot.sessionId = "";
-  evicted.snapshot.busy = false;
-  evicted.snapshot.status = "idle";
+  markSlotConnectionIdle(evicted);
   emitSlotSnapshot(evicted);
 }
 
@@ -519,6 +517,30 @@ function updateSnapshotTimestamp(slot: AcpSessionSlot) {
 function persistSlotSnapshotNow(slot: AcpSessionSlot) {
   if (slot.snapshot.backendId && slot.snapshot.conversationId) {
     saveAcpConversationState(slot.snapshot);
+  }
+}
+
+function markSlotConnectionIdle(
+  slot: AcpSessionSlot,
+  options: {
+    clearErrors?: boolean;
+    clearStderrTail?: boolean;
+    lifecycleEvent?: string;
+  } = {},
+) {
+  slot.snapshot.sessionId = "";
+  slot.snapshot.busy = false;
+  slot.snapshot.status = "idle";
+  slot.snapshot.pendingPermissionRequest = null;
+  if (options.clearErrors) {
+    slot.snapshot.lastError = "";
+    slot.snapshot.prerequisiteError = "";
+  }
+  if (options.clearStderrTail) {
+    slot.snapshot.stderrTail = "";
+  }
+  if (options.lifecycleEvent) {
+    slot.snapshot.lastLifecycleEvent = options.lifecycleEvent;
   }
 }
 
@@ -2882,12 +2904,7 @@ export async function disconnectAcpConversation(args?: { backendId?: string }) {
   ensureInitialized();
   const slot = getOrCreateSlot(args?.backendId || activeBackendId);
   await disconnectSlotAdapter(slot);
-  slot.snapshot.sessionId = "";
-  slot.snapshot.busy = false;
-  slot.snapshot.status = "idle";
-  slot.snapshot.lastError = "";
-  slot.snapshot.prerequisiteError = "";
-  slot.snapshot.pendingPermissionRequest = null;
+  markSlotConnectionIdle(slot, { clearErrors: true });
   emitSlotSnapshot(slot);
 }
 
@@ -3186,13 +3203,7 @@ export async function reconnectAcpConversation(args?: { backendId?: string }) {
   ensureInitialized();
   const slot = getOrCreateSlot(args?.backendId || activeBackendId);
   await disconnectSlotAdapter(slot);
-  slot.snapshot.sessionId = "";
-  slot.snapshot.busy = false;
-  slot.snapshot.status = "idle";
-  slot.snapshot.lastError = "";
-  slot.snapshot.prerequisiteError = "";
-  slot.snapshot.stderrTail = "";
-  slot.snapshot.pendingPermissionRequest = null;
+  markSlotConnectionIdle(slot, { clearErrors: true, clearStderrTail: true });
   emitSlotSnapshot(slot);
   await ensureSession(slot.backendId);
 }
@@ -3484,7 +3495,14 @@ export async function shutdownAcpSessionManager() {
     if (slot.persistTimer) {
       flushPendingPersistence(slot);
     }
-    pending.push(disconnectSlotAdapter(slot));
+    pending.push(
+      disconnectSlotAdapter(slot).finally(() => {
+        markSlotConnectionIdle(slot, {
+          lifecycleEvent: "shutdown-disconnected",
+        });
+        emitSlotSnapshot(slot, { notifyUi: false });
+      }),
+    );
   }
   await Promise.allSettled(pending);
   await shutdownZoteroMcpServer();

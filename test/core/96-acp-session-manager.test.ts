@@ -30,6 +30,7 @@ import {
   setAcpConversationModel,
   setAcpConversationMode,
   setAcpConversationReasoningEffort,
+  shutdownAcpSessionManager,
   subscribeAcpConversationSnapshots,
   subscribeAcpFrontendSnapshots,
   setAcpConnectionAdapterFactoryForTests,
@@ -1078,6 +1079,33 @@ describe("acp session manager", function () {
     assert.equal(snapshot.status, "idle");
     assert.equal(snapshot.sessionId, "");
     assert.equal(snapshot.remoteSessionId, "session-1");
+    assert.equal(lastAdapter?.closeCalls, 1);
+  });
+
+  it("persists ACP conversation idle state during manager shutdown", async function () {
+    await connectAcpConversation();
+
+    const snapshot = getAcpConversationSnapshot();
+    const requestId = `conversation:${snapshot.backendId}:${snapshot.conversationId}`;
+    let entry = getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
+    assert.equal(entry?.state, "connected");
+
+    await shutdownAcpSessionManager();
+
+    entry = getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
+    assert.equal(entry?.state, "idle");
+    const payload = JSON.parse(String(entry?.payload || "{}")) as {
+      status?: string;
+      busy?: boolean;
+      sessionId?: string;
+      remoteSessionId?: string;
+      lastLifecycleEvent?: string;
+    };
+    assert.equal(payload.status, "idle");
+    assert.equal(payload.busy, false);
+    assert.equal(payload.sessionId, "");
+    assert.equal(payload.remoteSessionId, "session-1");
+    assert.equal(payload.lastLifecycleEvent, "shutdown-disconnected");
     assert.equal(lastAdapter?.closeCalls, 1);
   });
 

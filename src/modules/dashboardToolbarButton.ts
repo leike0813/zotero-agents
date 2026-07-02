@@ -344,7 +344,7 @@ function ensureSkillRunnerToolbarButton(
     );
   });
   button.addEventListener("command", () => {
-    void addon.hooks.onPrefsEvent("toggleSkillRunnerSidebar", { window: win });
+    void addon.hooks.onPrefsEvent("toggleAssistantSidebar", { window: win });
   });
   const anchor = resolveInsertAfterSearchAnchor(host, doc);
   insertWithAnchor(

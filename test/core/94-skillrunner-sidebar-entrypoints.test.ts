@@ -90,13 +90,22 @@ describe("skillrunner sidebar entrypoints", function () {
   it("routes the main toolbar button through the unified sidebar toggle entrypoint", async function () {
     const ts = await readProjectFile("src/modules/dashboardToolbarButton.ts");
     const hooks = await readProjectFile("src/hooks.ts");
-    assert.include(ts, 'onPrefsEvent("toggleSkillRunnerSidebar"');
+    assert.include(ts, 'onPrefsEvent("toggleAssistantSidebar"');
+    assert.notInclude(ts, 'onPrefsEvent("toggleSkillRunnerSidebar"');
     assert.notInclude(
       ts,
       'onPrefsEvent("openSkillRunnerSidebar", { window: win })',
     );
+    assert.include(hooks, 'case "toggleAssistantSidebar":');
+    assert.include(hooks, "isAssistantWorkspaceSidebarOpen({");
+    assert.include(hooks, "closeAssistantWorkspaceSidebar({");
+    assert.include(hooks, "openAssistantWorkspaceSidebar({");
+    assert.include(
+      hooks,
+      'case "toggleAssistantSidebar":\n      if (isAssistantWorkspaceSidebarOpen({ window: data.window }))',
+    );
+    assert.include(hooks, 'tab: "acp-chat"');
     assert.include(hooks, 'case "toggleSkillRunnerSidebar":');
-    assert.include(hooks, "toggleAssistantWorkspaceSidebar({");
     assert.include(
       hooks,
       'case "toggleSkillRunnerSidebar":\n      await toggleAssistantWorkspaceSidebar({\n        window: data.window,\n        tab: "skillrunner",',
