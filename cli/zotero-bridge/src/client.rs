@@ -63,6 +63,74 @@ pub fn post(config: &BridgeConfig, path: &str, body: Value) -> Result<Value, Cli
     request_json(config, "POST", path, Some(body), true)
 }
 
+pub fn upload(
+    config: &BridgeConfig,
+    path: &str,
+    bytes: &[u8],
+    display_name: Option<&str>,
+    content_type: Option<&str>,
+) -> Result<Value, CliError> {
+    let endpoint = parse_endpoint(&config.endpoint)?;
+    let target = format!("{}{}", endpoint.base_path, path);
+    let scope_text = config
+        .scope
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| CliError::internal("internal_json_error", error.to_string()))?;
+    let request = build_http_request_bytes(
+        "POST",
+        &endpoint.host,
+        &target,
+        Some(config.require_token()?),
+        scope_text.as_deref(),
+        config.connection_mode.as_deref(),
+        content_type.unwrap_or("application/octet-stream"),
+        display_name.map(sanitize_header_value).as_deref(),
+        bytes,
+    );
+    let raw = send_http_bytes(&endpoint, &request)?;
+    let parsed = parse_http_response_bytes(&raw)?;
+    let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
+        CliError::protocol(
+            "invalid_bridge_json",
+            "Bridge response body is not valid UTF-8 JSON",
+        )
+        .with_details(json!({ "message": error.to_string(), "status": parsed.status }))
+    })?;
+    let json = serde_json::from_str::<Value>(&response_body).map_err(|error| {
+        CliError::protocol(
+            "invalid_bridge_json",
+            "Bridge response body is not valid JSON",
+        )
+        .with_details(json!({ "message": error.to_string(), "status": parsed.status }))
+    })?;
+    if parsed.status == 401 {
+        return Err(CliError::auth(
+            "unauthorized",
+            "Host Bridge rejected the bearer token",
+        ));
+    }
+    if parsed.status >= 400 {
+        return Err(bridge_error_from_value(parsed.status, json));
+    }
+    if json.get("status").and_then(Value::as_str) != Some("ok") {
+        return Err(CliError::protocol(
+            "invalid_bridge_envelope",
+            "Bridge response envelope is not status=ok",
+        )
+        .with_details(json!({ "bridge": json })));
+    }
+    Ok(json.get("result").cloned().unwrap_or(Value::Null))
+}
+
+fn sanitize_header_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch == '\r' || ch == '\n' { ' ' } else { ch })
+        .collect()
+}
+
 pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, CliError> {
     let endpoint = parse_endpoint(&config.endpoint)?;
     let target = format!("{}{}", endpoint.base_path, path);
@@ -324,18 +392,22 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         "workflow_not_found"
         | "workflow_run_not_found"
         | "workflow_submit_failed"
+        | "backend_not_found"
         | "skill_run_not_found"
         | "skill_run_not_waiting"
         | "skill_run_not_recoverable"
         | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
         "workflow_submit_requires_approval"
         | "approval_required"
+        | "permission_request_not_found"
         | "permission_denied"
         | "permission_timeout"
         | "permission_ui_unavailable" => crate::error::ErrorCategory::Permission,
-        "file_not_found" | "file_handle_expired" | "file_unavailable" | "download_failed" => {
-            crate::error::ErrorCategory::Download
-        }
+        "file_not_found"
+        | "file_handle_expired"
+        | "file_unavailable"
+        | "download_failed"
+        | "upload_failed" => crate::error::ErrorCategory::Download,
         "invalid_capability_input"
         | "invalid_workflow_agent_run_request"
         | "invalid_workflow_input"
@@ -343,6 +415,9 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
         | "invalid_workflow_describe_request"
         | "invalid_skill_run_id"
         | "invalid_file_id"
+        | "upload_empty"
+        | "upload_too_large"
+        | "unsupported_cache_scope"
         | "bad_request" => crate::error::ErrorCategory::Validation,
         _ => crate::error::ErrorCategory::Protocol,
     };
@@ -424,7 +499,51 @@ fn build_http_request(
     lines.join("\r\n")
 }
 
+fn build_http_request_bytes(
+    method: &str,
+    host: &str,
+    path: &str,
+    token: Option<&str>,
+    scope: Option<&str>,
+    connection_mode: Option<&str>,
+    content_type: &str,
+    display_name: Option<&str>,
+    body: &[u8],
+) -> Vec<u8> {
+    let mut lines = vec![
+        format!("{method} {path} HTTP/1.1"),
+        format!("Host: {host}"),
+        "Accept: application/json".to_string(),
+        format!("Content-Type: {content_type}"),
+        "Connection: close".to_string(),
+    ];
+    if let Some(token) = token {
+        lines.push(format!("Authorization: Bearer {token}"));
+    }
+    if let Some(scope) = scope {
+        lines.push(format!("X-Zotero-Bridge-Scope: {scope}"));
+    }
+    if let Some(connection_mode) = connection_mode {
+        lines.push(format!(
+            "X-Zotero-Bridge-Connection-Mode: {connection_mode}"
+        ));
+    }
+    if let Some(display_name) = display_name {
+        lines.push(format!("X-Zotero-Bridge-Display-Name: {display_name}"));
+    }
+    lines.push(format!("Content-Length: {}", body.len()));
+    lines.push(String::new());
+    lines.push(String::new());
+    let mut request = lines.join("\r\n").into_bytes();
+    request.extend_from_slice(body);
+    request
+}
+
 fn send_http(endpoint: &ParsedEndpoint, request: &str) -> Result<Vec<u8>, CliError> {
+    send_http_bytes(endpoint, request.as_bytes())
+}
+
+fn send_http_bytes(endpoint: &ParsedEndpoint, request: &[u8]) -> Result<Vec<u8>, CliError> {
     let address = format!("{}:{}", endpoint.host, endpoint.port);
     let mut stream = TcpStream::connect(address).map_err(|error| {
         CliError::connection("bridge_unavailable", "Cannot connect to Host Bridge")
@@ -436,7 +555,7 @@ fn send_http(endpoint: &ParsedEndpoint, request: &str) -> Result<Vec<u8>, CliErr
             CliError::connection("connection_timeout_setup_failed", error.to_string())
         })?;
     stream
-        .write_all(request.as_bytes())
+        .write_all(request)
         .map_err(|error| CliError::connection("bridge_request_failed", error.to_string()))?;
     let mut raw = Vec::new();
     stream

@@ -33,6 +33,7 @@ fn run(cli: Cli) -> Result<serde_json::Value, CliError> {
         Command::Bridge(args) => commands::bridge(&config, args),
         Command::Call(args) => commands::call(&config, args),
         Command::Library(args) => commands::library(&config, args),
+        Command::Context(args) => commands::context(&config, args),
         Command::Synthesis(args) => commands::synthesis(&config, args),
         Command::Mutation(args) => commands::mutation(&config, args),
         Command::Workflow(args) => commands::workflow(&config, args),

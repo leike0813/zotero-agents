@@ -2692,6 +2692,7 @@ export async function recoverAcpSkillRunConversation(args: {
     while (true) {
       const promptFailure = classifyAcpPromptFailure(promptOutcome);
       let convergence: AcpSkillOutputConvergenceResult;
+      let promptOutcomeForDiagnostics = promptOutcome;
       if (promptFailure?.stage === "acp-prompt-no-output") {
         const fallback = await resolveAcpSkillResultFileFallback({
           skillId:
@@ -2750,6 +2751,7 @@ export async function recoverAcpSkillRunConversation(args: {
           primarySkillDir,
           workspaceDir: normalizeString(latest.workspaceDir),
         });
+        promptOutcomeForDiagnostics = { ...promptOutcome };
         promptOutcome.assistantText = "";
       }
       if (convergence.kind === "pending") {
@@ -2858,7 +2860,7 @@ export async function recoverAcpSkillRunConversation(args: {
       const outputValidationFailureDetails =
         buildAcpSkillOutputValidationFailureDetails({
           convergence,
-          promptOutcome,
+          promptOutcome: promptOutcomeForDiagnostics,
           repairRound,
           maxRepairRounds,
           recovered: true,
@@ -4562,6 +4564,7 @@ export async function executeAcpSkillRunnerJob(args: {
         }
         const promptFailure = classifyAcpPromptFailure(promptOutcome);
         let detachedConvergence: AcpSkillOutputConvergenceResult;
+        let promptOutcomeForDiagnostics = promptOutcome;
         if (promptFailure?.stage === "acp-prompt-no-output") {
           const fallbackConvergence =
             await resolveResultFileFallbackForCurrentTurn(detachedRepairRound);
@@ -4581,6 +4584,7 @@ export async function executeAcpSkillRunnerJob(args: {
             primarySkillDir: materialization.primarySkillDir,
             workspaceDir: workspace.workspaceDir,
           });
+          promptOutcomeForDiagnostics = { ...promptOutcome };
           promptOutcome.assistantText = "";
         }
         if (detachedConvergence.kind === "pending") {
@@ -4715,7 +4719,7 @@ export async function executeAcpSkillRunnerJob(args: {
         const outputValidationFailureDetails =
           buildAcpSkillOutputValidationFailureDetails({
             convergence: detachedConvergence,
-            promptOutcome,
+            promptOutcome: promptOutcomeForDiagnostics,
             repairRound: detachedRepairRound,
             maxRepairRounds,
             detachedReply: true,
@@ -4974,6 +4978,7 @@ export async function executeAcpSkillRunnerJob(args: {
       if (promptFailure) {
         await failCurrentAcpPrompt(promptFailure);
       }
+      let promptOutcomeForDiagnostics = promptResult;
       convergence = await convergeAcpSkillTurnOutput({
         assistantText: promptResult.assistantText,
         executionMode,
@@ -4981,6 +4986,7 @@ export async function executeAcpSkillRunnerJob(args: {
         primarySkillDir: materialization.primarySkillDir,
         workspaceDir: workspace.workspaceDir,
       });
+      promptOutcomeForDiagnostics = { ...promptResult };
       promptResult.assistantText = "";
       if (convergence.kind === "final") {
         await writeAcpSkillRunnerResultEnvelope({
@@ -5105,7 +5111,7 @@ export async function executeAcpSkillRunnerJob(args: {
       const outputValidationFailureDetails =
         buildAcpSkillOutputValidationFailureDetails({
           convergence,
-          promptOutcome: promptResult,
+          promptOutcome: promptOutcomeForDiagnostics,
           repairRound,
           maxRepairRounds,
         });

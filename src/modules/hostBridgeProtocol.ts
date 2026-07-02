@@ -31,25 +31,37 @@ export type HostBridgeErrorCode =
   | "capability_failed"
   | "capability_not_found"
   | "approval_required"
+  | "backend_not_found"
   | "download_failed"
   | "file_handle_expired"
   | "file_not_found"
   | "file_unavailable"
+  | "collection_not_found"
+  | "context_navigation_failed"
   | "invalid_capability_input"
   | "invalid_file_id"
+  | "invalid_object_ref"
   | "invalid_request_body"
   | "invalid_skill_run_id"
   | "invalid_workflow_agent_run_request"
   | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
   | "invalid_workflow_submit_request"
+  | "item_not_found"
   | "internal_error"
   | "method_not_allowed"
+  | "navigation_unavailable"
+  | "note_not_found"
   | "not_found"
   | "permission_denied"
   | "permission_timeout"
   | "permission_ui_unavailable"
+  | "permission_request_not_found"
   | "request_body_too_large"
+  | "unsupported_cache_scope"
+  | "upload_empty"
+  | "upload_failed"
+  | "upload_too_large"
   | "unauthorized"
   | "workflow_not_found"
   | "workflow_run_not_found"
@@ -201,12 +213,25 @@ export type HostBridgeManifest = {
     explicitInputRequired?: boolean;
     submitRequiresApproval?: boolean;
   };
+  contextControl?: {
+    supported: boolean;
+    endpoints?: string[];
+    approvalRequired?: boolean;
+  };
   fileDownloads: {
     supported: boolean;
     endpoint?: string;
     urlTemplate?: string;
     auth?: "bearer";
     supportsRemoteClients?: boolean;
+    arbitraryPathAllowed?: boolean;
+    approvalRequired?: boolean;
+  };
+  fileUploads?: {
+    supported: boolean;
+    endpoint?: string;
+    auth?: "bearer";
+    maxBytes?: number;
     arbitraryPathAllowed?: boolean;
     approvalRequired?: boolean;
   };

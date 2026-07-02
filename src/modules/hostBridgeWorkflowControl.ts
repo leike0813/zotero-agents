@@ -61,6 +61,15 @@ import {
   resolveTaskNameFromRequest,
 } from "./workflowExecution/requestMeta";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
+import {
+  acknowledgeHostBridgeNotificationEvents,
+  listHostBridgeNotificationEvents,
+  projectSkillRunNotification,
+  projectWorkflowRunNotifications,
+  type HostBridgeNotificationAckResult,
+  type HostBridgeNotificationFilters,
+  type HostBridgeNotificationListResult,
+} from "./hostBridgeNotificationInbox";
 
 export type HostBridgeWorkflowControlManifest = {
   supported: true;
@@ -217,6 +226,21 @@ export type HostBridgeWorkflowDescribeResult = {
   blockedReason?: string;
 };
 
+export type HostBridgeWorkflowValidateRequest = HostBridgeWorkflowSubmitRequest;
+
+export type HostBridgeWorkflowValidateResult = {
+  workflowId: string;
+  workflowLabel: string;
+  ready: boolean;
+  selection: HostBridgeWorkflowSubmitPlan["selection"];
+  workflowOptions: Record<string, unknown>;
+  providerProfile: {
+    backendId?: string;
+    providerOptions: Record<string, unknown>;
+  };
+  diagnostics: Array<{ code: string; message: string }>;
+};
+
 export type HostBridgeTaskFilters = {
   workflowId?: string;
   backendId?: string;
@@ -226,6 +250,7 @@ export type HostBridgeTaskFilters = {
   state?: string;
   includeHistory?: boolean;
   activeOnly?: boolean;
+  limit?: number;
 };
 
 export type HostBridgeWorkflowTaskDto = {
@@ -343,6 +368,21 @@ export type HostBridgeWorkflowCancelResult = {
   permission: HostBridgePermissionDecision;
 };
 
+export type HostBridgeSkillRunEventDto = {
+  eventId: string;
+  type: string;
+  createdAt: string;
+  updatedAt: string;
+  workflowRunId?: string;
+  skillRunId: string;
+  workflowId?: string;
+  taskName?: string;
+  state?: string;
+  liveness?: HostBridgeRunLiveness;
+  summary: string;
+  actions?: HostBridgeSkillRunActions;
+};
+
 export type HostBridgeTaskSummary = {
   total: number;
   queued: number;
@@ -381,16 +421,24 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
     endpoints: [
       "GET /bridge/v1/workflows",
       "POST /bridge/v1/workflows/describe",
+      "POST /bridge/v1/workflows/validate",
+      "POST /bridge/v1/workflows/requirements",
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
       "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+      "GET /bridge/v1/workflows/runs",
       "GET /bridge/v1/workflows/runs/{workflowRunId}",
       "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
       "GET /bridge/v1/tasks",
       "GET /bridge/v1/tasks/active",
+      "GET /bridge/v1/tasks/recent",
       "GET /bridge/v1/skill-runs/{skillRunId}",
+      "GET /bridge/v1/skill-runs/{skillRunId}/events",
+      "GET /bridge/v1/skill-runs/recent",
       "POST /bridge/v1/skill-runs/{skillRunId}/reply",
       "POST /bridge/v1/skill-runs/{skillRunId}/connect",
+      "GET /bridge/v1/notifications",
+      "POST /bridge/v1/notifications/ack",
     ],
     explicitInputRequired: true,
     submitRequiresApproval:
@@ -781,6 +829,32 @@ export async function describeHostBridgeWorkflow(
       ? { blockedReason: descriptor.blockedReason }
       : {}),
   };
+}
+
+export async function validateHostBridgeWorkflow(
+  payload: HostBridgeWorkflowValidateRequest,
+): Promise<HostBridgeWorkflowValidateResult> {
+  const { plan, workflow } = await prepareHostBridgeWorkflowSubmit(payload);
+  return {
+    workflowId: workflow.manifest.id,
+    workflowLabel: localizeWorkflowLabel(workflow),
+    ready: true,
+    selection: plan.selection,
+    workflowOptions: { ...(plan.executionOptions.workflowParams || {}) },
+    providerProfile: {
+      ...(plan.providerProfile.backendId
+        ? { backendId: plan.providerProfile.backendId }
+        : {}),
+      providerOptions: { ...plan.providerProfile.providerOptions },
+    },
+    diagnostics: [],
+  };
+}
+
+export async function requirementsForHostBridgeWorkflow(
+  payload: HostBridgeWorkflowDescribeRequest,
+): Promise<HostBridgeWorkflowDescribeResult> {
+  return describeHostBridgeWorkflow(payload);
 }
 
 function resolveZoteroItemRef(ref: HostBridgeWorkflowItemRef) {
@@ -1738,7 +1812,7 @@ function acpSummaryWorkflowTaskState(
     return "waiting_user";
   }
   if (summary.status === "failed_retriable") {
-    return summary.pendingInteraction ? "waiting_user" : "running";
+    return summary.pendingInteraction ? "waiting_user" : "failed";
   }
   return summary.status;
 }
@@ -2063,6 +2137,23 @@ export function listHostBridgeTasks(
   );
 }
 
+function historyLimit(value: unknown, fallback = 20) {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.max(1, Math.min(200, Math.floor(parsed)));
+  }
+  return fallback;
+}
+
+export function listHostBridgeRecentTasks(filters: HostBridgeTaskFilters = {}) {
+  return {
+    tasks: listHostBridgeTasks({
+      ...filters,
+      includeHistory: true,
+    }).slice(0, historyLimit(filters.limit)),
+  };
+}
+
 function summarizeRunState(tasks: HostBridgeWorkflowTaskDto[]) {
   if (tasks.length === 0) {
     return "unknown" as const;
@@ -2224,6 +2315,28 @@ export function getHostBridgeWorkflowRunStatus(
   };
 }
 
+export function listHostBridgeWorkflowRuns(
+  filters: HostBridgeTaskFilters = {},
+) {
+  const tasks = listHostBridgeTasks({
+    ...filters,
+    includeHistory: true,
+  });
+  const runIds = new Set<string>();
+  const runs: HostBridgeWorkflowRunStatus[] = [];
+  for (const task of tasks) {
+    const runId = normalizeString(task.workflowRunId || task.runId);
+    if (!runId || runIds.has(runId)) {
+      continue;
+    }
+    runIds.add(runId);
+    runs.push(getHostBridgeWorkflowRunStatus(runId));
+  }
+  return {
+    runs: runs.slice(0, historyLimit(filters.limit)),
+  };
+}
+
 export function listHostBridgeActiveTasks(): HostBridgeActiveTaskDto[] {
   const tasks = listHostBridgeTasks({
     includeHistory: false,
@@ -2280,6 +2393,43 @@ export function listHostBridgeActiveTasks(): HostBridgeActiveTaskDto[] {
   return Array.from(rows.values()).sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt),
   );
+}
+
+export function listHostBridgeRecentSkillRuns(
+  filters: HostBridgeTaskFilters = {},
+) {
+  const acpByRequest = acpSummaryByRequestId();
+  const byId = new Map<string, HostBridgeSkillRunDto>();
+  for (const task of listHostBridgeTasks({
+    ...filters,
+    includeHistory: true,
+  })) {
+    const skillRun = buildSkillRunFromTask(task, acpByRequest);
+    if (skillRun && (!filters.state || skillRun.state === filters.state)) {
+      byId.set(skillRun.skillRunId, skillRun);
+    }
+  }
+  for (const summary of acpByRequest.values()) {
+    const skillRun = acpSummaryToSkillRun(summary);
+    if (filters.workflowId && skillRun.workflowId !== filters.workflowId) {
+      continue;
+    }
+    if (filters.backendId && skillRun.backendId !== filters.backendId) {
+      continue;
+    }
+    if (filters.backendType && skillRun.backendType !== filters.backendType) {
+      continue;
+    }
+    if (filters.state && skillRun.state !== filters.state) {
+      continue;
+    }
+    byId.set(skillRun.skillRunId, skillRun);
+  }
+  return {
+    skillRuns: Array.from(byId.values())
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, historyLimit(filters.limit)),
+  };
 }
 
 function skillRunError(code: string, message: string, details?: unknown) {
@@ -2349,6 +2499,104 @@ export function getHostBridgeSkillRun(
   throw skillRunError("skill_run_not_found", "Skill run not found", {
     skillRunId,
   });
+}
+
+export function listHostBridgeSkillRunEvents(
+  skillRunIdRaw: string,
+  filters: { sinceUpdatedAt?: string; limit?: number } = {},
+) {
+  const skillRun = getHostBridgeSkillRun(skillRunIdRaw);
+  refreshHostBridgeNotificationProjection({ skillRunId: skillRun.skillRunId });
+  const notifications = listHostBridgeNotificationEvents({
+    skillRunId: skillRun.skillRunId,
+    limit: historyLimit(filters.limit),
+  }).notifications;
+  const sinceUpdatedAt = normalizeString(filters.sinceUpdatedAt);
+  const events = notifications
+    .filter((event) => !sinceUpdatedAt || event.createdAt > sinceUpdatedAt)
+    .map(
+      (event): HostBridgeSkillRunEventDto => ({
+        eventId: event.eventId,
+        type: event.type,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+        workflowRunId: event.workflowRunId,
+        skillRunId: skillRun.skillRunId,
+        workflowId: event.workflowId,
+        taskName: event.taskName,
+        state: event.state,
+        liveness: event.liveness,
+        summary: event.summary,
+        actions: event.actions,
+      }),
+    );
+  return {
+    skillRun,
+    events,
+    returned: events.length,
+  };
+}
+
+function refreshHostBridgeNotificationProjection(
+  filters: HostBridgeNotificationFilters = {},
+) {
+  const workflowRunId = normalizeString(filters.workflowRunId);
+  const skillRunId = normalizeString(filters.skillRunId);
+  const runIds = new Set<string>();
+
+  if (workflowRunId) {
+    projectWorkflowRunNotifications(
+      getHostBridgeWorkflowRunStatus(workflowRunId),
+    );
+    return;
+  }
+
+  if (skillRunId) {
+    try {
+      const skillRun = getHostBridgeSkillRun(skillRunId);
+      projectSkillRunNotification(skillRun);
+      if (skillRun.workflowRunId) {
+        runIds.add(skillRun.workflowRunId);
+      }
+    } catch {
+      return;
+    }
+  } else {
+    const acpByRequest = acpSummaryByRequestId();
+    for (const task of listHostBridgeTasks({ includeHistory: true })) {
+      if (task.workflowRunId) {
+        runIds.add(task.workflowRunId);
+      }
+      const skillRun = buildSkillRunFromTask(task, acpByRequest);
+      if (skillRun) {
+        projectSkillRunNotification(skillRun);
+      }
+    }
+    for (const acp of acpByRequest.values()) {
+      const skillRun = acpSummaryToSkillRun(acp);
+      projectSkillRunNotification(skillRun);
+      if (skillRun.workflowRunId) {
+        runIds.add(skillRun.workflowRunId);
+      }
+    }
+  }
+
+  for (const runId of runIds) {
+    projectWorkflowRunNotifications(getHostBridgeWorkflowRunStatus(runId));
+  }
+}
+
+export function listHostBridgeNotifications(
+  filters: HostBridgeNotificationFilters = {},
+): HostBridgeNotificationListResult {
+  refreshHostBridgeNotificationProjection(filters);
+  return listHostBridgeNotificationEvents(filters);
+}
+
+export function ackHostBridgeNotifications(
+  eventIds: string[],
+): HostBridgeNotificationAckResult {
+  return acknowledgeHostBridgeNotificationEvents(eventIds);
 }
 
 function scopedCancelDecision(args: {

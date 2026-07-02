@@ -14,7 +14,10 @@ import {
 import type { SynthesisMcpService } from "./synthesis/mcpService";
 import {
   describeHostBridgeWorkflow,
+  requirementsForHostBridgeWorkflow,
+  validateHostBridgeWorkflow,
   buildHostBridgeWorkflowAgentRun,
+  ackHostBridgeNotifications,
   cancelHostBridgeWorkflowRun,
   connectHostBridgeSkillRun,
   getHostBridgeWorkflowControlManifest,
@@ -22,7 +25,12 @@ import {
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
   listHostBridgeActiveTasks,
+  listHostBridgeNotifications,
+  listHostBridgeRecentSkillRuns,
+  listHostBridgeRecentTasks,
+  listHostBridgeSkillRunEvents,
   listHostBridgeTasks,
+  listHostBridgeWorkflowRuns,
   listHostBridgeWorkflows,
   replyHostBridgeSkillRun,
   submitHostBridgeWorkflow,
@@ -35,17 +43,29 @@ import {
 import {
   getHostBridgeFileDownloadManifest,
   HostBridgeFileRegistryError,
+  registerHostBridgeUploadedFile,
   resolveHostBridgeFileDownload,
 } from "./hostBridgeFileRegistry";
 import {
   HostBridgePermissionError,
+  getHostBridgePermissionProjection,
+  listHostBridgePendingPermissions,
   parseHostBridgePermissionScope,
   requestHostBridgePermission,
 } from "./hostBridgePermissionManager";
+import type { HostBridgeNotificationFilters } from "./hostBridgeNotificationInbox";
 import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import {
+  createZoteroHostCapabilityBrokerApis,
+  ZoteroCollectionNotFoundError,
+  ZoteroInvalidObjectRefError,
+  ZoteroItemNotFoundError,
+  ZoteroNavigationUnavailableError,
+  ZoteroNoteNotFoundError,
+} from "./zoteroHostCapabilityBroker";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
@@ -65,6 +85,9 @@ import {
   type HostBridgeAdvertisedHostSource,
 } from "./hostBridgeProtocol";
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
+import { loadBackendsRegistry } from "../backends/registry";
+import type { BackendInstance } from "../backends/types";
+import { invalidateDefaultSynthesisService } from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
 
 export { redactHostBridgeToken };
@@ -79,6 +102,7 @@ const PINNED_PORT_MAX = 65535;
 const RECOVERY_DELAY_MS = 1000;
 const SUPERVISOR_INTERVAL_MS = 30000;
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const MAX_UPLOAD_BODY_BYTES = 16 * 1024 * 1024;
 const WORKFLOW_PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 type HostBridgeServerState = {
@@ -118,6 +142,7 @@ type HttpRequest = {
   query: Record<string, string>;
   headers: Record<string, string>;
   body: string;
+  bodyBytes: Uint8Array;
   bodyByteLength: number;
   parseError?: string;
 };
@@ -533,13 +558,17 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
   const boundedBodyBytes =
     contentLength > 0 ? bodyBytes.slice(0, contentLength) : new Uint8Array();
   const body = decodeUtf8Body(boundedBodyBytes);
-  const bodyParseError = body === null ? "invalid_utf8_body" : "";
+  const bodyParseError =
+    body === null && parsedPath.path !== "/bridge/v1/files/upload"
+      ? "invalid_utf8_body"
+      : "";
   return {
     method: method.toUpperCase(),
     path: parsedPath.path,
     query: parsedPath.query,
     headers,
     body: body || "",
+    bodyBytes: boundedBodyBytes,
     bodyByteLength: boundedBodyBytes.byteLength,
     parseError: parsedPath.parseError || bodyParseError,
   };
@@ -807,6 +836,20 @@ function buildMutationApprovalPrompt(input: unknown) {
     };
   }
 
+  if (operation === "item.attachFile") {
+    const fileId = cleanPromptText(request.fileId) || "uploaded file";
+    return {
+      title: "Approve Zotero file attachment?",
+      summary: `Attach ${fileId} to ${targetsText}.`,
+      detail: [
+        "Action: attach uploaded Host Bridge file to Zotero item.",
+        `Targets: ${targetsText}.`,
+        `File handle: ${fileId}.`,
+        sourceLine,
+      ].join("\n"),
+    };
+  }
+
   if (operation === "note.createChild") {
     return {
       title: "Approve Zotero note creation?",
@@ -857,6 +900,22 @@ function buildMutationApprovalPrompt(input: unknown) {
       detail: [
         `Action: ${verb.toLowerCase()} Zotero collection membership.`,
         `Targets: ${targetsText}.`,
+        sourceLine,
+      ].join("\n"),
+    };
+  }
+
+  if (operation === "collection.create") {
+    const name =
+      cleanPromptText(request.name) ||
+      cleanPromptText(request.collectionName) ||
+      "new collection";
+    return {
+      title: "Approve Zotero collection creation?",
+      summary: `Create Zotero collection "${name}".`,
+      detail: [
+        "Action: create Zotero collection.",
+        `Collection: ${name}.`,
         sourceLine,
       ].join("\n"),
     };
@@ -1148,8 +1207,28 @@ function manifest(): HostBridgeManifest {
     },
     capabilities: listHostBridgeCapabilities(),
     workflowControl: getHostBridgeWorkflowControlManifest(),
+    contextControl: {
+      supported: true,
+      approvalRequired: false,
+      endpoints: [
+        "GET /bridge/v1/context/current",
+        "GET /bridge/v1/context/selection",
+        "POST /bridge/v1/context/selection/open",
+        "POST /bridge/v1/context/items/open",
+        "POST /bridge/v1/context/collections/open",
+        "POST /bridge/v1/context/notes/open",
+      ],
+    },
     fileDownloads: {
       ...getHostBridgeFileDownloadManifest(),
+    },
+    fileUploads: {
+      supported: true,
+      endpoint: "POST /bridge/v1/files/upload",
+      auth: "bearer",
+      maxBytes: MAX_UPLOAD_BODY_BYTES,
+      arbitraryPathAllowed: false,
+      approvalRequired: false,
     },
     ...hostAccessRoutes(),
     cli: {
@@ -1307,6 +1386,239 @@ function parseWorkflowTaskFilters(query: Record<string, string>) {
   return filters;
 }
 
+function parseOptionalBoolean(value: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (["true", "1", "yes"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+}
+
+function parseHostBridgeNotificationFilters(
+  query: Record<string, string>,
+): HostBridgeNotificationFilters {
+  const filters: HostBridgeNotificationFilters = {};
+  const workflowRunId = String(query.workflowRunId || query.runId || "").trim();
+  const skillRunId = String(query.skillRunId || "").trim();
+  const type = String(query.type || "").trim();
+  const sinceEventId = String(query.sinceEventId || "").trim();
+  if (workflowRunId) {
+    filters.workflowRunId = workflowRunId;
+  }
+  if (skillRunId) {
+    filters.skillRunId = skillRunId;
+  }
+  if (type) {
+    filters.type = type;
+  }
+  if (sinceEventId) {
+    filters.sinceEventId = sinceEventId;
+  }
+  const acknowledged = parseOptionalBoolean(query.acknowledged);
+  if (typeof acknowledged === "boolean") {
+    filters.acknowledged = acknowledged;
+  }
+  const limit = Number(query.limit || "");
+  if (Number.isFinite(limit) && limit > 0) {
+    filters.limit = Math.floor(limit);
+  }
+  return filters;
+}
+
+function parsePositiveLimit(query: Record<string, string>, fallback = 20) {
+  const value = Number(query.limit || "");
+  if (Number.isFinite(value) && value > 0) {
+    return Math.max(1, Math.min(200, Math.floor(value)));
+  }
+  return fallback;
+}
+
+function stableTextFingerprint(value: unknown) {
+  const text = JSON.stringify(value);
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a32-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function redactDiagnosticText(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  return text
+    .replace(/[A-Za-z]:[\\/][^\r\n.;,)]*/g, "[redacted-path]")
+    .replace(
+      /\/(?:Users|home|var|tmp|private|Volumes)\/[^\r\n.;,)]*/g,
+      "[redacted-path]",
+    )
+    .replace(/(bearer|token|password|secret)=([^&\s]+)/gi, "$1=[redacted]")
+    .slice(0, 500);
+}
+
+function summarizeRuntimeOptionsCache(backend: BackendInstance) {
+  const cache = backend.acp?.runtimeOptionsCache;
+  return {
+    refreshedAt: cache?.refreshedAt || "",
+    modes: Array.isArray(cache?.modes) ? cache.modes.length : 0,
+    rawModels: Array.isArray(cache?.rawModels) ? cache.rawModels.length : 0,
+    displayModels: Array.isArray(cache?.displayModels)
+      ? cache.displayModels.length
+      : 0,
+    reasoningEfforts: Array.isArray(cache?.reasoningEfforts)
+      ? cache.reasoningEfforts.length
+      : 0,
+  };
+}
+
+function summarizeBackend(backend: BackendInstance) {
+  const connectionTest = backend.acp?.connectionTest;
+  return {
+    backendId: backend.id,
+    id: backend.id,
+    type: backend.type,
+    displayName: backend.displayName || backend.id,
+    enabled: backend.enabled !== false,
+    locality: String(backend.baseUrl || "").startsWith("local://")
+      ? "local"
+      : "remote",
+    commandConfigured: Boolean(backend.command),
+    auth: {
+      configured:
+        Boolean(backend.auth && backend.auth.kind !== "none") ||
+        Boolean(
+          backend.management_auth &&
+          backend.management_auth.kind &&
+          backend.management_auth.kind !== "none",
+        ),
+    },
+    acp: backend.acp
+      ? {
+          agentFamily: backend.acp.agentFamily || "unknown",
+          connectionTest: connectionTest
+            ? {
+                status: connectionTest.status || "untested",
+                testedAt: connectionTest.testedAt || "",
+                configFingerprint: connectionTest.configFingerprint || "",
+                error: redactDiagnosticText(connectionTest.error),
+              }
+            : { status: "untested" },
+          runtimeOptionsCache: summarizeRuntimeOptionsCache(backend),
+        }
+      : undefined,
+  };
+}
+
+async function loadBackendSummaries() {
+  const loaded = await loadBackendsRegistry();
+  return {
+    backends: loaded.backends.map(summarizeBackend),
+    warnings: loaded.warnings.map(redactDiagnosticText).filter(Boolean),
+    errors: loaded.errors.map(redactDiagnosticText).filter(Boolean),
+    invalidBackends: Object.fromEntries(
+      Object.entries(loaded.invalidBackends || {}).map(([key, value]) => [
+        key,
+        redactDiagnosticText(value),
+      ]),
+    ),
+    fatalError: redactDiagnosticText(loaded.fatalError),
+  };
+}
+
+function parseSkillRunEventFilters(query: Record<string, string>) {
+  const sinceUpdatedAt = String(
+    query.sinceUpdatedAt || query["since-updated-at"] || "",
+  ).trim();
+  return {
+    sinceUpdatedAt: sinceUpdatedAt || undefined,
+    limit: parsePositiveLimit(query),
+  };
+}
+
+function asRequestObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function navigationErrorResponse(error: unknown) {
+  if (error instanceof ZoteroInvalidObjectRefError) {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError("invalid_object_ref", error.message, "validation", {
+        ref: error.ref,
+      }),
+      "invalid_object_ref",
+    );
+  }
+  if (error instanceof ZoteroItemNotFoundError) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("item_not_found", error.message, "not_found", {
+        ref: error.ref,
+      }),
+      "item_not_found",
+    );
+  }
+  if (error instanceof ZoteroNoteNotFoundError) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("note_not_found", error.message, "not_found", {
+        ref: error.ref,
+      }),
+      "note_not_found",
+    );
+  }
+  if (error instanceof ZoteroCollectionNotFoundError) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("collection_not_found", error.message, "not_found", {
+        ref: error.ref,
+      }),
+      "collection_not_found",
+    );
+  }
+  if (error instanceof ZoteroNavigationUnavailableError) {
+    return response(
+      503,
+      "Service Unavailable",
+      hostBridgeError("navigation_unavailable", error.message, "internal"),
+      "navigation_unavailable",
+    );
+  }
+  return response(
+    500,
+    "Internal Server Error",
+    hostBridgeError(
+      "context_navigation_failed",
+      errorMessage(error),
+      "internal",
+    ),
+    "context_navigation_failed",
+  );
+}
+
+function parseNavigationBody(request: HttpRequest) {
+  try {
+    return parseJsonBody(request.body || "");
+  } catch {
+    throw new ZoteroInvalidObjectRefError(
+      "navigation request body must be JSON",
+    );
+  }
+}
+
 async function listWorkflows(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow list endpoint only supports GET", "GET");
@@ -1316,6 +1628,113 @@ async function listWorkflows(request: HttpRequest) {
     "OK",
     hostBridgeOk({ workflows: listHostBridgeWorkflows() }),
   );
+}
+
+async function inspectProfile(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Profile inspect endpoint only supports GET",
+      "GET",
+    );
+  }
+  const currentManifest = manifest();
+  const capabilities = currentManifest.capabilities.map((entry) => ({
+    name: entry.name,
+    category: entry.category,
+    approval: entry.approval,
+    input: entry.input.type,
+  }));
+  return response(
+    200,
+    "OK",
+    hostBridgeOk({
+      schema: "host-bridge.profile-inspect.v1",
+      generatedAt: nowIso(),
+      protocol: currentManifest.protocol,
+      endpoint: currentManifest.endpoint,
+      connectionMode: parseConnectionModeHeader(request),
+      capabilities: {
+        count: capabilities.length,
+        fingerprint: stableTextFingerprint(capabilities),
+      },
+      workflowControl: currentManifest.workflowControl,
+      fileDownloads: currentManifest.fileDownloads,
+      fileUploads: currentManifest.fileUploads,
+      safety: {
+        stdout: "single-json-object",
+        tokensRedacted: true,
+        localPrivatePathsRedacted: true,
+        transcriptFree: true,
+      },
+    }),
+  );
+}
+
+async function diagnoseProfile(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Profile diagnose endpoint only supports GET",
+      "GET",
+    );
+  }
+  const backendSummary = await loadBackendSummaries();
+  return response(
+    200,
+    "OK",
+    hostBridgeOk({
+      schema: "host-bridge.profile-diagnose.v1",
+      generatedAt: nowIso(),
+      status: health(),
+      backendSummary: {
+        total: backendSummary.backends.length,
+        enabled: backendSummary.backends.filter((entry) => entry.enabled)
+          .length,
+        warnings: backendSummary.warnings,
+        errors: backendSummary.errors,
+        fatalError: backendSummary.fatalError,
+      },
+    }),
+  );
+}
+
+async function listBackends(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Backend list endpoint only supports GET", "GET");
+  }
+  return response(200, "OK", hostBridgeOk(await loadBackendSummaries()));
+}
+
+async function getBackendStatus(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Backend status endpoint only supports GET", "GET");
+  }
+  const prefix = "/bridge/v1/diagnostics/backends/";
+  const backendId = safeDecodeURIComponent(request.path.slice(prefix.length));
+  if (!backendId) {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "backend_not_found",
+        "Backend id is required",
+        "not_found",
+      ),
+      "backend_not_found",
+    );
+  }
+  const summary = await loadBackendSummaries();
+  const backend = summary.backends.find((entry) => entry.id === backendId);
+  if (!backend) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("backend_not_found", "Backend not found", "not_found", {
+        backendId,
+      }),
+      "backend_not_found",
+    );
+  }
+  return response(200, "OK", hostBridgeOk({ backend }));
 }
 
 async function describeWorkflow(request: HttpRequest) {
@@ -1357,6 +1776,122 @@ async function describeWorkflow(request: HttpRequest) {
           "Workflow not found",
           "workflow",
           { workflowId: String(payload?.workflowId || "").trim() },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_describe_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
+    );
+  }
+}
+
+async function validateWorkflow(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow validate endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowSubmitRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowSubmitRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_submit_request",
+        "Workflow validate request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_submit_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await validateHostBridgeWorkflow(payload)),
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          {
+            workflowId: String(payload?.workflowId || "").trim(),
+          },
+        ),
+        "workflow_not_found",
+      );
+    }
+    const validationCode = workflowValidationErrorCode(
+      error,
+      "invalid_workflow_submit_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      validationCode,
+    );
+  }
+}
+
+async function workflowRequirements(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow requirements endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeWorkflowDescribeRequest;
+  try {
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowDescribeRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_workflow_describe_request",
+        "Workflow requirements request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_workflow_describe_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await requirementsForHostBridgeWorkflow(payload)),
+    );
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "workflow_not_found") {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "workflow_not_found",
+          "Workflow not found",
+          "workflow",
+          {
+            workflowId: String(payload?.workflowId || "").trim(),
+          },
         ),
         "workflow_not_found",
       );
@@ -1738,6 +2273,40 @@ async function listTasks(request: HttpRequest) {
   return response(200, "OK", hostBridgeOk({ tasks }));
 }
 
+async function listRecentTasks(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Recent task endpoint only supports GET", "GET");
+  }
+  const filters = parseWorkflowTaskFilters(request.query);
+  filters.limit = parsePositiveLimit(request.query);
+  return response(200, "OK", hostBridgeOk(listHostBridgeRecentTasks(filters)));
+}
+
+async function listWorkflowRuns(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Workflow runs endpoint only supports GET", "GET");
+  }
+  const filters = parseWorkflowTaskFilters(request.query);
+  filters.limit = parsePositiveLimit(request.query);
+  return response(200, "OK", hostBridgeOk(listHostBridgeWorkflowRuns(filters)));
+}
+
+async function listRecentSkillRuns(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Recent skill-run endpoint only supports GET",
+      "GET",
+    );
+  }
+  const filters = parseWorkflowTaskFilters(request.query);
+  filters.limit = parsePositiveLimit(request.query);
+  return response(
+    200,
+    "OK",
+    hostBridgeOk(listHostBridgeRecentSkillRuns(filters)),
+  );
+}
+
 async function listActiveTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Active task endpoint only supports GET", "GET");
@@ -1746,6 +2315,264 @@ async function listActiveTasks(request: HttpRequest) {
     200,
     "OK",
     hostBridgeOk({ tasks: listHostBridgeActiveTasks() }),
+  );
+}
+
+async function listPendingPermissions(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Permission pending endpoint only supports GET",
+      "GET",
+    );
+  }
+  return response(
+    200,
+    "OK",
+    hostBridgeOk({ permissions: listHostBridgePendingPermissions() }),
+  );
+}
+
+async function getPermission(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Permission get endpoint only supports GET", "GET");
+  }
+  const prefix = "/bridge/v1/permissions/";
+  const permissionRequestId =
+    safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
+  const permission = getHostBridgePermissionProjection(permissionRequestId);
+  if (!permission) {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "permission_request_not_found",
+        "Permission request not found",
+        "not_found",
+        { permissionRequestId },
+      ),
+      "permission_request_not_found",
+    );
+  }
+  return response(200, "OK", hostBridgeOk({ permission }));
+}
+
+async function getCurrentContext(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Context current endpoint only supports GET",
+      "GET",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(
+        createZoteroHostCapabilityBrokerApis().context.getCurrentView(),
+      ),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function getCurrentSelection(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Context selection endpoint only supports GET",
+      "GET",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        items:
+          createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+      }),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function openContextItem(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Context item open endpoint only supports POST",
+      "POST",
+    );
+  }
+  try {
+    const payload = parseNavigationBody(request);
+    const object = asRequestObject(payload);
+    const ref =
+      object.item ??
+      object.ref ??
+      object.target ??
+      (typeof payload === "string" ? payload : object);
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(
+        await createZoteroHostCapabilityBrokerApis().context.openItem(
+          ref as never,
+        ),
+      ),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function openContextNote(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Context note open endpoint only supports POST",
+      "POST",
+    );
+  }
+  try {
+    const payload = parseNavigationBody(request);
+    const object = asRequestObject(payload);
+    const ref =
+      object.note ??
+      object.ref ??
+      object.target ??
+      (typeof payload === "string" ? payload : object);
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(
+        await createZoteroHostCapabilityBrokerApis().context.openNote(
+          ref as never,
+        ),
+      ),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function openContextCollection(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Context collection open endpoint only supports POST",
+      "POST",
+    );
+  }
+  try {
+    const payload = parseNavigationBody(request);
+    const object = asRequestObject(payload);
+    const collection = asRequestObject(object.collection);
+    const libraryId =
+      typeof object.libraryId === "string" ||
+      typeof object.libraryId === "number"
+        ? object.libraryId
+        : typeof object.libraryID === "string" ||
+            typeof object.libraryID === "number"
+          ? object.libraryID
+          : typeof collection.libraryId === "string" ||
+              typeof collection.libraryId === "number"
+            ? collection.libraryId
+            : undefined;
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(
+        await createZoteroHostCapabilityBrokerApis().context.openCollection({
+          key: String(
+            object.key || object.collectionKey || collection.key || "",
+          ),
+          libraryId,
+        }),
+      ),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function openContextSelection(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Context selection open endpoint only supports POST",
+      "POST",
+    );
+  }
+  try {
+    const payload = parseNavigationBody(request);
+    const object = asRequestObject(payload);
+    const items = Array.isArray(object.items)
+      ? object.items
+      : Array.isArray(payload)
+        ? payload
+        : [];
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(
+        await createZoteroHostCapabilityBrokerApis().context.openSelection({
+          items: items as never[],
+        }),
+      ),
+    );
+  } catch (error) {
+    return navigationErrorResponse(error);
+  }
+}
+
+async function listNotifications(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Notification list endpoint only supports GET",
+      "GET",
+    );
+  }
+  return response(
+    200,
+    "OK",
+    hostBridgeOk(
+      listHostBridgeNotifications(
+        parseHostBridgeNotificationFilters(request.query),
+      ),
+    ),
+  );
+}
+
+async function ackNotifications(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Notification ack endpoint only supports POST",
+      "POST",
+    );
+  }
+  const payload = parseJsonBody(request.body || "");
+  const object =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {};
+  const eventIds = Array.isArray(object.eventIds)
+    ? object.eventIds.map((entry) => String(entry || "").trim())
+    : [String(object.eventId || "").trim()];
+  const normalized = eventIds.filter(Boolean);
+  if (normalized.length === 0) {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_request_body",
+        "notification ack requires body.eventId or body.eventIds",
+        "validation",
+      ),
+      "invalid_request_body",
+    );
+  }
+  return response(
+    200,
+    "OK",
+    hostBridgeOk(ackHostBridgeNotifications(normalized)),
   );
 }
 
@@ -1834,6 +2661,24 @@ async function handleSkillRun(request: HttpRequest) {
         hostBridgeOk(await connectHostBridgeSkillRun({ skillRunId })),
       );
     }
+    if (action === "events") {
+      if (request.method !== "GET") {
+        return methodNotAllowed(
+          "Skill run events endpoint only supports GET",
+          "GET",
+        );
+      }
+      return response(
+        200,
+        "OK",
+        hostBridgeOk(
+          listHostBridgeSkillRunEvents(
+            skillRunId,
+            parseSkillRunEventFilters(request.query),
+          ),
+        ),
+      );
+    }
     return response(
       404,
       "Not Found",
@@ -1905,6 +2750,173 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
   }
 }
 
+async function uploadFile(request: HttpRequest): Promise<RawHttpResponse> {
+  if (request.method !== "POST") {
+    return methodNotAllowed("File upload endpoint only supports POST", "POST");
+  }
+  if ((request.bodyByteLength || 0) <= 0) {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "upload_empty",
+        "Uploaded file body is empty",
+        "validation",
+      ),
+      "upload_empty",
+    );
+  }
+  if ((request.bodyByteLength || 0) > MAX_UPLOAD_BODY_BYTES) {
+    return response(
+      413,
+      "Payload Too Large",
+      hostBridgeError(
+        "upload_too_large",
+        "Uploaded file body is too large",
+        "validation",
+        { maxBytes: MAX_UPLOAD_BODY_BYTES },
+      ),
+      "upload_too_large",
+    );
+  }
+  try {
+    const descriptor = await registerHostBridgeUploadedFile({
+      bytes: request.bodyBytes,
+      displayName:
+        request.headers["x-zotero-bridge-display-name"] ||
+        request.query.displayName,
+      contentType:
+        request.headers["content-type"] ||
+        request.headers["x-zotero-bridge-content-type"] ||
+        "application/octet-stream",
+    });
+    return response(200, "OK", hostBridgeOk({ file: descriptor }));
+  } catch (error) {
+    if (error instanceof HostBridgeFileRegistryError) {
+      return fileDownloadErrorResponse(error);
+    }
+    return response(
+      500,
+      "Internal Server Error",
+      hostBridgeError(
+        "upload_failed",
+        "Host Bridge file upload failed",
+        "internal",
+        { message: errorMessage(error) },
+      ),
+      "upload_failed",
+    );
+  }
+}
+
+function synthesisMaintenanceStatus(kind: "cache" | "index") {
+  return {
+    schema: `host-bridge.synthesis-${kind}-status.v1`,
+    generatedAt: nowIso(),
+    status: "available",
+    readOnly: true,
+    cacheView: true,
+    supportedInvalidateScopes: ["topic", "graph", "index"],
+  };
+}
+
+async function getSynthesisCacheStatus(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Synthesis cache status endpoint only supports GET",
+      "GET",
+    );
+  }
+  return response(200, "OK", hostBridgeOk(synthesisMaintenanceStatus("cache")));
+}
+
+async function getSynthesisIndexStatus(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Synthesis index status endpoint only supports GET",
+      "GET",
+    );
+  }
+  return response(
+    200,
+    "OK",
+    hostBridgeOk({
+      ...synthesisMaintenanceStatus("index"),
+      indexes: ["library", "reference", "topic", "graph"],
+    }),
+  );
+}
+
+async function invalidateSynthesisCache(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Synthesis cache invalidate endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = asRequestObject(parseJsonBody(request.body || ""));
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_request_body",
+        "Synthesis cache invalidate body must be valid JSON",
+        "validation",
+      ),
+      "invalid_request_body",
+    );
+  }
+  const scope = String(payload.scope || "").trim();
+  if (!["topic", "graph", "index"].includes(scope)) {
+    return response(
+      422,
+      "Unprocessable Entity",
+      hostBridgeError(
+        "unsupported_cache_scope",
+        "Unsupported synthesis cache invalidate scope",
+        "validation",
+        { scope },
+      ),
+      "unsupported_cache_scope",
+    );
+  }
+  try {
+    await requestHostBridgePermission({
+      action: "synthesis.cache.invalidate",
+      title: "Invalidate Synthesis cache",
+      summary: `Invalidate Synthesis cache scope: ${scope}`,
+      detail: payload.id ? `Target id: ${String(payload.id)}` : undefined,
+      source: "host-bridge-cli",
+      scope: parsePermissionScopeHeader(request),
+    });
+    invalidateDefaultSynthesisService();
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        invalidated: true,
+        scope,
+        id: typeof payload.id === "string" ? payload.id : undefined,
+        effect: "default_synthesis_service_invalidated",
+        invalidatedAt: nowIso(),
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgePermissionError) {
+      return permissionErrorResponse(error);
+    }
+    return response(
+      500,
+      "Internal Server Error",
+      hostBridgeError("internal_error", errorMessage(error), "internal"),
+      "internal_error",
+    );
+  }
+}
+
 async function handleHttpRequest(request: HttpRequest) {
   updateState({
     requestCount: state.requestCount + 1,
@@ -1969,7 +2981,10 @@ async function handleHttpRequest(request: HttpRequest) {
     );
   }
 
-  if ((request.bodyByteLength || 0) > MAX_REQUEST_BODY_BYTES) {
+  if (
+    request.path !== "/bridge/v1/files/upload" &&
+    (request.bodyByteLength || 0) > MAX_REQUEST_BODY_BYTES
+  ) {
     return response(
       413,
       "Payload Too Large",
@@ -2000,8 +3015,48 @@ async function handleHttpRequest(request: HttpRequest) {
     return response(200, "OK", hostBridgeOk(manifest()));
   }
 
+  if (request.path === "/bridge/v1/diagnostics/profile") {
+    return inspectProfile(request);
+  }
+
+  if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
+    return diagnoseProfile(request);
+  }
+
+  if (request.path === "/bridge/v1/diagnostics/backends") {
+    return listBackends(request);
+  }
+
+  if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
+    return getBackendStatus(request);
+  }
+
   if (request.path === "/bridge/v1/call") {
     return callCapability(request);
+  }
+
+  if (request.path === "/bridge/v1/context/current") {
+    return getCurrentContext(request);
+  }
+
+  if (request.path === "/bridge/v1/context/selection") {
+    return getCurrentSelection(request);
+  }
+
+  if (request.path === "/bridge/v1/context/selection/open") {
+    return openContextSelection(request);
+  }
+
+  if (request.path === "/bridge/v1/context/items/open") {
+    return openContextItem(request);
+  }
+
+  if (request.path === "/bridge/v1/context/collections/open") {
+    return openContextCollection(request);
+  }
+
+  if (request.path === "/bridge/v1/context/notes/open") {
+    return openContextNote(request);
   }
 
   if (request.path === "/bridge/v1/workflows") {
@@ -2010,6 +3065,14 @@ async function handleHttpRequest(request: HttpRequest) {
 
   if (request.path === "/bridge/v1/workflows/describe") {
     return describeWorkflow(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/validate") {
+    return validateWorkflow(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/requirements") {
+    return workflowRequirements(request);
   }
 
   if (request.path === "/bridge/v1/workflows/submit") {
@@ -2034,6 +3097,10 @@ async function handleHttpRequest(request: HttpRequest) {
     return cancelWorkflowRun(request);
   }
 
+  if (request.path === "/bridge/v1/workflows/runs") {
+    return listWorkflowRuns(request);
+  }
+
   if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
     return getWorkflowRun(request);
   }
@@ -2042,12 +3109,52 @@ async function handleHttpRequest(request: HttpRequest) {
     return listActiveTasks(request);
   }
 
+  if (request.path === "/bridge/v1/tasks/recent") {
+    return listRecentTasks(request);
+  }
+
   if (request.path === "/bridge/v1/tasks") {
     return listTasks(request);
   }
 
+  if (request.path === "/bridge/v1/permissions/pending") {
+    return listPendingPermissions(request);
+  }
+
+  if (request.path.startsWith("/bridge/v1/permissions/")) {
+    return getPermission(request);
+  }
+
+  if (request.path === "/bridge/v1/notifications") {
+    return listNotifications(request);
+  }
+
+  if (request.path === "/bridge/v1/notifications/ack") {
+    return ackNotifications(request);
+  }
+
+  if (request.path === "/bridge/v1/skill-runs/recent") {
+    return listRecentSkillRuns(request);
+  }
+
   if (request.path.startsWith("/bridge/v1/skill-runs/")) {
     return handleSkillRun(request);
+  }
+
+  if (request.path === "/bridge/v1/synthesis/cache/status") {
+    return getSynthesisCacheStatus(request);
+  }
+
+  if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
+    return invalidateSynthesisCache(request);
+  }
+
+  if (request.path === "/bridge/v1/synthesis/index/status") {
+    return getSynthesisIndexStatus(request);
+  }
+
+  if (request.path === "/bridge/v1/files/upload") {
+    return uploadFile(request);
   }
 
   if (request.path.startsWith("/bridge/v1/files/")) {
@@ -2486,6 +3593,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     query: parsedPath.query,
     headers: normalizeTestHeaders(args.headers),
     body,
+    bodyBytes: new TextEncoder().encode(body),
     bodyByteLength: utf8ByteLength(body),
     parseError: parsedPath.parseError,
   };

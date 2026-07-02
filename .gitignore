@@ -29,6 +29,7 @@ logs
 .codex/
 .claude/
 .kilo/
+.kilocode/
 .qwen/
 .codegraph/
 .agents/*

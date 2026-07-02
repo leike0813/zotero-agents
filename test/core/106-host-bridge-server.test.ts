@@ -236,6 +236,242 @@ describe("host bridge server phase 1", function () {
     assert.notInclude(parsed.body, "handler");
   });
 
+  it("serves redacted Host Bridge profile diagnostics for agents", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "profile-secret-token",
+      endpoint: "http://127.0.0.1:26570/bridge/v1",
+    });
+
+    const inspect = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/diagnostics/profile",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-zotero-bridge-connection-mode": "local",
+        },
+      }),
+    );
+
+    assert.strictEqual(inspect.status, 200);
+    assert.strictEqual(
+      inspect.json.result.schema,
+      "host-bridge.profile-inspect.v1",
+    );
+    assert.deepInclude(inspect.json.result.safety, {
+      stdout: "single-json-object",
+      tokensRedacted: true,
+      localPrivatePathsRedacted: true,
+      transcriptFree: true,
+    });
+    assert.isString(inspect.json.result.capabilities.fingerprint);
+    assert.notInclude(inspect.body, token);
+    assert.notInclude(inspect.body, "profile-secret-token");
+
+    const diagnose = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/diagnostics/profile/diagnose",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    );
+
+    assert.strictEqual(diagnose.status, 200);
+    assert.strictEqual(
+      diagnose.json.result.schema,
+      "host-bridge.profile-diagnose.v1",
+    );
+    assert.isNumber(diagnose.json.result.backendSummary.total);
+    assert.isArray(diagnose.json.result.backendSummary.warnings);
+    assert.notInclude(diagnose.body, token);
+  });
+
+  it("uploads a binary file body as an opaque Host Bridge handle", async function () {
+    const token = configureHostBridgeServerForTests({ token: "upload-token" });
+    const raw = await handleHostBridgeHttpRequestForTests({
+      method: "POST",
+      path: "/bridge/v1/files/upload",
+      rawRequestBytes: rawHttpRequestBytes({
+        method: "POST",
+        path: "/bridge/v1/files/upload",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/octet-stream",
+          "X-Zotero-Bridge-Display-Name": "result.bin",
+        },
+        bodyBytes: new Uint8Array([0xff, 0x00, 0x41]),
+      }),
+    });
+
+    const parsed = parseRawHttpResponse(raw);
+    assert.strictEqual(parsed.status, 200);
+    assert.match(parsed.json.result.file.fileId, /^file-/);
+    assert.strictEqual(parsed.json.result.file.displayName, "result.bin");
+    assert.strictEqual(parsed.json.result.file.size, 3);
+    assert.notInclude(JSON.stringify(parsed.json), "zotero-agents");
+
+    const empty = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v1/files/upload",
+        headers: { authorization: `Bearer ${token}` },
+        body: "",
+      }),
+    );
+    assert.strictEqual(empty.status, 400);
+    assert.strictEqual(empty.json.error.code, "upload_empty");
+  });
+
+  it("serves context read and restricted navigation endpoints", async function () {
+    const item = new Zotero.Item("book");
+    item.setField("title", "Navigation Target");
+    await item.saveTx();
+    const note = new Zotero.Item("note");
+    note.parentItemID = item.id;
+    note.setNote("<p>Navigation Note</p>");
+    await note.saveTx();
+    const collection = new Zotero.Collection();
+    collection.name = "Navigation Collection";
+    collection.libraryID = Zotero.Libraries.userLibraryID;
+    await collection.saveTx();
+
+    const selectedItemIds: number[][] = [];
+    const selectedCollections: Array<number | string> = [];
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    (Zotero as any).getMainWindow = () => ({
+      focus: () => {},
+      ZoteroPane: {
+        getSelectedItems: () => [item],
+        getSelectedLibraryID: () => Zotero.Libraries.userLibraryID,
+        selectItem: async (itemId: number) => {
+          selectedItemIds.push([itemId]);
+        },
+        selectItems: async (itemIds: number[]) => {
+          selectedItemIds.push(itemIds);
+        },
+        collectionsView: {
+          selectCollection: async (collectionId: number | string) => {
+            selectedCollections.push(collectionId);
+          },
+        },
+      },
+      Zotero_Tabs: {
+        selectedID: "",
+      },
+    });
+
+    try {
+      const token = configureHostBridgeServerForTests({
+        token: "context-token",
+      });
+      const auth = { authorization: `Bearer ${token}` };
+
+      const current = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "GET",
+          path: "/bridge/v1/context/current",
+          headers: auth,
+        }),
+      );
+      assert.strictEqual(current.status, 200);
+      assert.strictEqual(current.json.result.selectedItems[0].key, item.key);
+
+      const selection = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "GET",
+          path: "/bridge/v1/context/selection",
+          headers: auth,
+        }),
+      );
+      assert.strictEqual(selection.status, 200);
+      assert.strictEqual(selection.json.result.items[0].key, item.key);
+
+      const openedItem = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v1/context/items/open",
+          headers: auth,
+          body: JSON.stringify({ item: `${item.libraryID}:${item.key}` }),
+        }),
+      );
+      assert.strictEqual(openedItem.status, 200);
+      assert.deepInclude(openedItem.json.result, {
+        opened: true,
+        found: true,
+      });
+      assert.strictEqual(openedItem.json.result.target.item.key, item.key);
+
+      const openedNote = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v1/context/notes/open",
+          headers: auth,
+          body: JSON.stringify({
+            note: { key: note.key, libraryId: note.libraryID },
+          }),
+        }),
+      );
+      assert.strictEqual(openedNote.status, 200);
+      assert.strictEqual(openedNote.json.result.target.kind, "note");
+      assert.strictEqual(openedNote.json.result.target.item.key, note.key);
+
+      const openedCollection = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v1/context/collections/open",
+          headers: auth,
+          body: JSON.stringify({
+            key: collection.key,
+            libraryId: collection.libraryID,
+          }),
+        }),
+      );
+      assert.strictEqual(openedCollection.status, 200);
+      assert.strictEqual(
+        openedCollection.json.result.target.collection.key,
+        collection.key,
+      );
+
+      const openedSelection = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "POST",
+          path: "/bridge/v1/context/selection/open",
+          headers: auth,
+          body: JSON.stringify({ items: [item.key, { id: note.id }] }),
+        }),
+      );
+      assert.strictEqual(openedSelection.status, 200);
+      assert.strictEqual(openedSelection.json.result.target.kind, "selection");
+      assert.deepEqual(selectedItemIds, [
+        [item.id],
+        [note.id],
+        [item.id, note.id],
+      ]);
+      assert.deepEqual(selectedCollections, [collection.id]);
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
+  });
+
+  it("rejects unsafe context navigation refs", async function () {
+    const token = configureHostBridgeServerForTests({ token: "context-token" });
+    const parsed = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v1/context/items/open",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ item: "file:///tmp/paper.pdf" }),
+      }),
+    );
+
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_object_ref");
+  });
+
   it("invalidates the old bearer token after rotation", async function () {
     const oldToken = configureHostBridgeServerForTests({ token: "old-token" });
     const rotated = rotateHostBridgeToken();

@@ -40,6 +40,7 @@ import {
   resetHostBridgeFileRegistryForTests,
   resolveHostBridgeFileDownload,
 } from "../../src/modules/hostBridgeFileRegistry";
+import { resetHostBridgeNotificationInboxForTests } from "../../src/modules/hostBridgeNotificationInbox";
 import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   installRuntimeBridgeOverrideForTests,
@@ -171,6 +172,7 @@ describe("host bridge workflow control", function () {
     resetSkillRunnerRunStoreForTests();
     resetTaskDashboardHistory();
     resetHostBridgeFileRegistryForTests();
+    resetHostBridgeNotificationInboxForTests();
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
@@ -856,6 +858,58 @@ describe("host bridge workflow control", function () {
     );
   });
 
+  it("validates workflow input and reports requirements without starting a run", async function () {
+    const entry = workflow("bridge-workflow");
+    entry.manifest.parameters = {
+      language: {
+        type: "string",
+        default: "zh-CN",
+        enum: ["zh-CN", "en-US"],
+      },
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const requirements = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/requirements",
+      body: {
+        workflowId: "bridge-workflow",
+      },
+    });
+    assert.strictEqual(requirements.status, 200);
+    assert.strictEqual(requirements.json.result.workflowId, "bridge-workflow");
+    assert.strictEqual(requirements.json.result.selection.inputUnit, "parent");
+
+    const validate = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/validate",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ key: "ABCD1234", libraryId: 1 }],
+        },
+        workflowOptions: {
+          language: "en-US",
+        },
+      },
+    });
+
+    assert.strictEqual(validate.status, 200);
+    assert.deepInclude(validate.json.result, {
+      workflowId: "bridge-workflow",
+      ready: true,
+    });
+    assert.deepEqual(validate.json.result.workflowOptions, {
+      language: "en-US",
+    });
+    assert.notInclude(JSON.stringify(validate.json.result), "requestId");
+  });
+
   it("rejects unsafe provider profile fields before workflow describe", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({
@@ -1532,6 +1586,242 @@ describe("host bridge workflow control", function () {
     });
   });
 
+  it("lists recent runs and skill-run lifecycle events without transcript payloads", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    recordWorkflowTaskUpdate({
+      id: "job-recent-running",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-recent-1",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Recent Task",
+        requestId: "request-recent-1",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
+    recordWorkflowTaskUpdate({
+      id: "job-recent-done",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-recent-2",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Done Task",
+        requestId: "request-recent-2",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "succeeded",
+      createdAt: now,
+      updatedAt: now,
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-events-1",
+      status: "waiting_user",
+      runId: "run-events-1",
+      workflowId: "bridge-workflow",
+      taskName: "Waiting ACP Events",
+      backendId: "backend-acp",
+      workspaceDir: "D:/private/workspace",
+      transcriptFile: "D:/private/transcript.jsonl",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const recentTasks = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/tasks/recent?workflowId=bridge-workflow&limit=5",
+    });
+    assert.strictEqual(recentTasks.status, 200);
+    assert.isAtLeast(recentTasks.json.result.tasks.length, 2);
+    assert.notInclude(JSON.stringify(recentTasks.json.result), "transcript");
+    assert.notInclude(JSON.stringify(recentTasks.json.result), "workspace");
+
+    const workflowRuns = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows/runs?workflowId=bridge-workflow&limit=5",
+    });
+    assert.strictEqual(workflowRuns.status, 200);
+    assert.include(
+      workflowRuns.json.result.runs.map(
+        (entry: Record<string, unknown>) => entry.workflowRunId,
+      ),
+      "run-recent-1",
+    );
+
+    const skillRuns = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/skill-runs/recent?state=waiting_user&limit=5",
+    });
+    assert.strictEqual(skillRuns.status, 200);
+    assert.include(
+      skillRuns.json.result.skillRuns.map(
+        (entry: Record<string, unknown>) => entry.skillRunId,
+      ),
+      "acp-events-1",
+    );
+
+    const events = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/skill-runs/acp-events-1/events?limit=5",
+    });
+    assert.strictEqual(events.status, 200);
+    assert.include(
+      events.json.result.events.map(
+        (entry: Record<string, unknown>) => entry.type,
+      ),
+      "skill_run.waiting_user",
+    );
+    assert.notInclude(JSON.stringify(events.json.result), "transcript");
+    assert.notInclude(JSON.stringify(events.json.result), "D:/private");
+  });
+
+  it("lists and acknowledges lightweight workflow notifications", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    recordWorkflowTaskUpdate({
+      id: "job-notify-running",
+      workflowId: "bridge-workflow",
+      request: {},
+      meta: {
+        runId: "run-notify-1",
+        workflowLabel: "Bridge Workflow",
+        taskName: "Notify Task",
+        requestId: "request-notify-1",
+        backendId: "backend-1",
+        backendType: "generic-http",
+        providerId: "generic-http",
+      },
+      state: "running",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const listed = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+    });
+
+    assert.strictEqual(listed.status, 200);
+    const notifications = listed.json.result.notifications as Array<
+      Record<string, unknown>
+    >;
+    assert.sameMembers(
+      notifications.map((entry) => entry.type),
+      ["skill_run.started", "workflow.run.started"],
+    );
+    for (const notification of notifications) {
+      assert.isString(notification.eventId);
+      assert.strictEqual(notification.workflowRunId, "run-notify-1");
+      assert.strictEqual(notification.acknowledgedAt, null);
+      assert.notProperty(notification, "workspaceDir");
+      assert.notProperty(notification, "transcript");
+      assert.notProperty(notification, "providerPayload");
+    }
+
+    const eventId = String(notifications[0].eventId);
+    const ack = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/notifications/ack",
+      body: { eventIds: [eventId] },
+    });
+    assert.strictEqual(ack.status, 200);
+    assert.deepEqual(ack.json.result.acknowledged, [eventId]);
+
+    const acknowledged = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=true",
+    });
+    assert.strictEqual(acknowledged.status, 200);
+    assert.deepEqual(
+      acknowledged.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+      [eventId],
+    );
+    assert.isString(acknowledged.json.result.notifications[0].acknowledgedAt);
+  });
+
+  it("projects waiting and recoverable ACP skill-run notifications", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    upsertAcpSkillRun({
+      requestId: "acp-wait-notify",
+      status: "waiting_user",
+      runId: "run-wait-notify",
+      workflowId: "bridge-workflow",
+      taskName: "Waiting ACP Task",
+      backendId: "backend-acp",
+      createdAt: now,
+      updatedAt: now,
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-retriable-notify",
+      status: "failed_retriable",
+      runId: "run-retriable-notify",
+      workflowId: "bridge-workflow",
+      taskName: "Recoverable ACP Task",
+      backendId: "backend-acp",
+      conversationRecoveryState: "available",
+      workspaceDir: "D:/private/workspace",
+      error: "private backend error",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const waiting = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?skillRunId=acp-wait-notify",
+    });
+    assert.strictEqual(waiting.status, 200);
+    assert.deepInclude(waiting.json.result.notifications[0], {
+      type: "skill_run.waiting_user",
+      skillRunId: "acp-wait-notify",
+      workflowRunId: "run-wait-notify",
+      state: "waiting_user",
+      liveness: "waiting",
+    });
+    assert.deepInclude(waiting.json.result.notifications[0].actions, {
+      canReply: true,
+    });
+
+    const retriable = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?skillRunId=acp-retriable-notify",
+    });
+    assert.strictEqual(retriable.status, 200);
+    assert.deepInclude(retriable.json.result.notifications[0], {
+      type: "skill_run.failed_retriable",
+      skillRunId: "acp-retriable-notify",
+      workflowRunId: "run-retriable-notify",
+      state: "failed",
+      liveness: "failed_retriable",
+    });
+    assert.deepInclude(retriable.json.result.notifications[0].actions, {
+      canConnect: true,
+      isFailedRetriable: true,
+    });
+    assert.notProperty(retriable.json.result.notifications[0], "workspaceDir");
+    assert.notProperty(retriable.json.result.notifications[0], "error");
+  });
+
   it("records workflow cancel as an intent against workflow-level handles", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     let cancelCalls = 0;
@@ -1573,6 +1863,96 @@ describe("host bridge workflow control", function () {
       "acp-cancel-1",
     );
     assert.strictEqual(cancelCalls, 1);
+  });
+
+  it("exposes permission projections for approved cache invalidation", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    let permissionRequestId = "";
+    let approve: (() => void) | null = null;
+    configureHostBridgeGlobalApprovalHandlerForTests(
+      (request) =>
+        new Promise((resolve) => {
+          permissionRequestId = request.requestId;
+          approve = () =>
+            resolve({
+              outcome: "approved",
+              requestId: request.requestId,
+              channel: "global",
+            });
+        }),
+    );
+
+    const pendingInvalidate = bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/synthesis/cache/invalidate",
+      body: {
+        scope: "graph",
+        id: "metrics",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.match(permissionRequestId, /^host-bridge-permission-/);
+    const pending = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/permissions/pending",
+    });
+    assert.strictEqual(pending.status, 200);
+    assert.deepInclude(pending.json.result.permissions[0], {
+      permissionRequestId,
+      action: "synthesis.cache.invalidate",
+      state: "pending",
+    });
+    assert.notProperty(pending.json.result.permissions[0], "payload");
+
+    approve?.();
+    const invalidated = await pendingInvalidate;
+    assert.strictEqual(invalidated.status, 200);
+    assert.deepInclude(invalidated.json.result, {
+      invalidated: true,
+      scope: "graph",
+      id: "metrics",
+    });
+
+    const resolved = await bridgeRequest({
+      token,
+      method: "GET",
+      path: `/bridge/v1/permissions/${permissionRequestId}`,
+    });
+    assert.strictEqual(resolved.status, 200);
+    assert.deepInclude(resolved.json.result.permission, {
+      permissionRequestId,
+      action: "synthesis.cache.invalidate",
+      state: "approved",
+    });
+  });
+
+  it("rejects unsupported cache invalidation scopes before approval", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    let requested = false;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      requested = true;
+      return {
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      };
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/synthesis/cache/invalidate",
+      body: {
+        scope: "sql",
+      },
+    });
+
+    assert.strictEqual(parsed.status, 422);
+    assert.strictEqual(parsed.json.error.code, "unsupported_cache_scope");
+    assert.strictEqual(requested, false);
   });
 
   it("targets skill-run reply by explicit skillRunId", async function () {

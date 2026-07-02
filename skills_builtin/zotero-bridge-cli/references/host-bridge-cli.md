@@ -44,14 +44,21 @@ zotero-bridge workflow --help
 zotero-bridge run --help
 zotero-bridge mutation --help
 zotero-bridge file --help
+zotero-bridge context --help
 ```
 
 ### Semantic mappings
 
 | CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
+| `bridge backend list` | `GET /bridge/v1/diagnostics/backends` | endpoint | - |
+| `bridge backend status` | `GET /bridge/v1/diagnostics/backends/{backendId}` | endpoint | - |
 | `bridge manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `bridge profile diagnose` | `GET /bridge/v1/diagnostics/profile/diagnose` | endpoint | - |
+| `bridge profile inspect` | `GET /bridge/v1/diagnostics/profile` | endpoint | - |
 | `bridge status` | `GET /bridge/v1/health` | endpoint | - |
+| `library annotation export` | `library.export_annotations` | capability | - |
+| `library annotation list` | `library.list_annotations` | capability | - |
 | `library item attachments` | `library.get_item_attachments` | capability | - |
 | `library item get` | `library.get_item_detail` | capability | - |
 | `library item notes` | `library.get_item_notes` | capability | - |
@@ -65,6 +72,8 @@ zotero-bridge file --help
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
+| `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -76,6 +85,7 @@ zotero-bridge file --help
 | `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
+| `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
 | `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
 | `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
 | `synthesis schema get` | `schemas.get` | capability | - |
@@ -88,18 +98,48 @@ zotero-bridge file --help
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
+| `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
+| `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |
 | `run active` | `GET /bridge/v1/tasks/active` | endpoint | - |
 | `run cancel` | `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
 | `run get` | `GET /bridge/v1/workflows/runs/{workflowRunId}` | endpoint | - |
 | `run list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run notification ack` | `POST /bridge/v1/notifications/ack` | endpoint | - |
+| `run notification list` | `GET /bridge/v1/notifications` | endpoint | - |
+| `run notification wait` | `GET /bridge/v1/notifications` | endpoint | - |
+| `run permission get` | `GET /bridge/v1/permissions/{permissionRequestId}` | endpoint | - |
+| `run permission pending` | `GET /bridge/v1/permissions/pending` | endpoint | - |
+| `run recent` | `GET /bridge/v1/tasks/recent` | endpoint | - |
 | `run skill connect` | `POST /bridge/v1/skill-runs/{skillRunId}/connect` | endpoint | - |
+| `run skill events` | `GET /bridge/v1/skill-runs/{skillRunId}/events` | endpoint | - |
 | `run skill get` | `GET /bridge/v1/skill-runs/{skillRunId}` | endpoint | - |
+| `run skill recent` | `GET /bridge/v1/skill-runs/recent` | endpoint | - |
 | `run skill reply` | `POST /bridge/v1/skill-runs/{skillRunId}/reply` | endpoint | - |
+| `run workflow recent` | `GET /bridge/v1/workflows/runs` | endpoint | - |
 | `mutation apply` | `mutation.execute` | capability | - |
+| `mutation collection add-items` | `mutation.execute` | capability | - |
+| `mutation collection create` | `mutation.execute` | capability | - |
+| `mutation collection remove-items` | `mutation.execute` | capability | - |
+| `mutation item attach-file` | `mutation.execute` | capability | - |
+| `mutation item update` | `mutation.execute` | capability | - |
 | `mutation literature-ingest` | `mutation.execute` | capability | - |
+| `mutation note create` | `mutation.execute` | capability | - |
+| `mutation note update` | `mutation.execute` | capability | - |
+| `mutation note upsert-payload` | `mutation.execute` | capability | - |
 | `mutation preview` | `mutation.preview` | capability | - |
+| `mutation tag add` | `mutation.execute` | capability | - |
+| `mutation tag remove` | `mutation.execute` | capability | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
+| `file upload` | `POST /bridge/v1/files/upload` | endpoint | - |
+| `context collection open` | `POST /bridge/v1/context/collections/open` | endpoint | - |
+| `context current` | `GET /bridge/v1/context/current` | endpoint | - |
+| `context current` | `context.get_current_view` | capability | - |
+| `context item open` | `POST /bridge/v1/context/items/open` | endpoint | - |
+| `context note open` | `POST /bridge/v1/context/notes/open` | endpoint | - |
+| `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
+| `context selection get` | `context.get_selected_items` | capability | - |
+| `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
 
 ### Library guidance
 
@@ -141,8 +181,6 @@ zotero-bridge file --help
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
-| `context.get_current_view` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `context.get_selected_items` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `debug.acpSkillRun.reapplyResult` | debug | `none` | `object` | `debug acp-skill-run reapply-result` | debug-only, mcp-mirror |

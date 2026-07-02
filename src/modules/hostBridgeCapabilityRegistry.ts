@@ -780,6 +780,27 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       toBridgeAttachmentDescriptorsWithContext(input, context),
   ),
   capability(
+    "library.list_annotations",
+    "library",
+    "List reader annotations for one Zotero item when the Zotero runtime exposes them.",
+    { type: "item-ref", required: true },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.listAnnotations(
+        itemRefFromInput(input),
+      ),
+  ),
+  capability(
+    "library.export_annotations",
+    "library",
+    "Export reader annotations for one Zotero item as markdown or JSON.",
+    { type: "object", required: true },
+    (input, context) =>
+      resolveHostBridgeApis(context).library.exportAnnotations(
+        itemRefFromInput(input),
+        asObject(input) as { format?: string },
+      ),
+  ),
+  capability(
     "mutation.preview",
     "mutation",
     "Preview a supported Zotero mutation without executing it.",

@@ -21,6 +21,8 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.list_note_payloads",
   "library.get_note_payload",
   "library.get_item_attachments",
+  "library.list_annotations",
+  "library.export_annotations",
   "mutation.preview",
   "diagnostic.get_status",
 ]);
@@ -63,6 +65,23 @@ export type HostBridgePermissionDecision =
       reason: string;
     };
 
+export type HostBridgePermissionProjection = {
+  permissionRequestId: string;
+  action: string;
+  title: string;
+  summary: string;
+  source: string;
+  scope?: HostBridgePermissionScope | null;
+  workflowRunId?: string;
+  skillRunId?: string;
+  requestId?: string;
+  createdAt: string;
+  updatedAt: string;
+  state: "pending" | "approved" | "denied" | "timeout" | "ui_unavailable";
+  channel?: HostBridgePermissionDecision["channel"];
+  reason?: string;
+};
+
 export class HostBridgePermissionError extends Error {
   readonly code:
     | "permission_denied"
@@ -91,6 +110,7 @@ type GlobalApprovalHandler = (
 
 let globalApprovalHandlerForTests: GlobalApprovalHandler | null = null;
 let requestSequence = 0;
+const permissionProjections = new Map<string, HostBridgePermissionProjection>();
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -99,6 +119,10 @@ function normalizeString(value: unknown) {
 function nextPermissionRequestId() {
   requestSequence += 1;
   return `host-bridge-permission-${Date.now().toString(36)}-${requestSequence}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function hostBridgeWriteApprovalDisabled() {
@@ -171,6 +195,70 @@ function skillRunnerRunRequestId(scope?: HostBridgePermissionScope | null) {
     return "";
   }
   return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
+}
+
+function relatedWorkflowRunId(scope?: HostBridgePermissionScope | null) {
+  const kind = normalizeString(scope?.kind);
+  if (kind === "skillrunner-run") {
+    return normalizeString(scope?.runId) || undefined;
+  }
+  return normalizeString(scope?.runId) || undefined;
+}
+
+function relatedSkillRunId(scope?: HostBridgePermissionScope | null) {
+  const kind = normalizeString(scope?.kind);
+  if (kind === "acp-skill-run" || kind === "skillrunner-run") {
+    return normalizeString(scope?.requestId) || undefined;
+  }
+  return undefined;
+}
+
+function registerPermissionProjection(
+  request: HostBridgePermissionRequest & { requestId: string },
+) {
+  const createdAt = nowIso();
+  permissionProjections.set(request.requestId, {
+    permissionRequestId: request.requestId,
+    action: normalizeString(request.action),
+    title: normalizeString(request.title),
+    summary: normalizeString(request.summary),
+    source: normalizeString(request.source) || "host-bridge",
+    scope: request.scope || null,
+    workflowRunId: relatedWorkflowRunId(request.scope),
+    skillRunId: relatedSkillRunId(request.scope),
+    requestId:
+      normalizeString(request.scope?.requestId) ||
+      normalizeString(request.scope?.runId) ||
+      undefined,
+    createdAt,
+    updatedAt: createdAt,
+    state: "pending",
+  });
+}
+
+function resolvePermissionProjection(decision: HostBridgePermissionDecision) {
+  const projection = permissionProjections.get(decision.requestId);
+  if (!projection) {
+    return;
+  }
+  permissionProjections.set(decision.requestId, {
+    ...projection,
+    state: decision.outcome,
+    channel: decision.channel,
+    reason: "reason" in decision ? decision.reason : undefined,
+    updatedAt: nowIso(),
+  });
+}
+
+export function listHostBridgePendingPermissions() {
+  return Array.from(permissionProjections.values())
+    .filter((entry) => entry.state === "pending")
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export function getHostBridgePermissionProjection(permissionRequestId: string) {
+  const id = normalizeString(permissionRequestId);
+  return id ? permissionProjections.get(id) || null : null;
 }
 
 function requestGlobalPermissionWithPrompt(
@@ -495,21 +583,41 @@ export async function requestHostBridgePermission(
     ...request,
     requestId: nextPermissionRequestId(),
   };
+  registerPermissionProjection(requestWithId);
   const chatConversationId = acpChatConversationId(request.scope);
   const runRequestId = acpRunRequestId(request.scope);
   const skillRunnerRequestId = skillRunnerRunRequestId(request.scope);
-  const decision = chatConversationId
-    ? await requestAcpChatScopedPermission(requestWithId, chatConversationId)
-    : runRequestId
-      ? await requestAcpRunScopedPermission(requestWithId, runRequestId)
-      : skillRunnerRequestId
-        ? await requestSkillRunnerRunScopedPermission(
-            requestWithId,
-            skillRunnerRequestId,
-          )
-        : await (
-            globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
-          )(requestWithId);
+  let decision: HostBridgePermissionDecision;
+  try {
+    decision = chatConversationId
+      ? await requestAcpChatScopedPermission(requestWithId, chatConversationId)
+      : runRequestId
+        ? await requestAcpRunScopedPermission(requestWithId, runRequestId)
+        : skillRunnerRequestId
+          ? await requestSkillRunnerRunScopedPermission(
+              requestWithId,
+              skillRunnerRequestId,
+            )
+          : await (
+              globalApprovalHandlerForTests || requestGlobalPermissionWithPrompt
+            )(requestWithId);
+  } catch (error) {
+    const failedDecision: HostBridgePermissionDecision = {
+      outcome: "ui_unavailable",
+      requestId: requestWithId.requestId,
+      channel: chatConversationId
+        ? "acp-chat"
+        : runRequestId
+          ? "acp-skill-run"
+          : skillRunnerRequestId
+            ? "skillrunner-run"
+            : "global",
+      reason: error instanceof Error ? error.message : String(error || ""),
+    };
+    resolvePermissionProjection(failedDecision);
+    throw error;
+  }
+  resolvePermissionProjection(decision);
   if (decision.outcome !== "approved") {
     throw new HostBridgePermissionError(decision);
   }
@@ -525,5 +633,6 @@ export function configureHostBridgeGlobalApprovalHandlerForTests(
 export function resetHostBridgePermissionManagerForTests() {
   globalApprovalHandlerForTests = null;
   requestSequence = 0;
+  permissionProjections.clear();
   resetSkillRunnerHostBridgePermissionRegistryForTests();
 }

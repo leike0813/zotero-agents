@@ -20,8 +20,8 @@
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "4b432464b56d82d07032a1d8b9afa335f67d8d6c127d35921596d0963eba5eef",
+    "catalogChecksum": "3d63df5a04429d76eb97eb2eb1eed6dd5dc645970e365287901e5757577f098b",
     "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
-    "semanticSourceChecksum": "0d703ce5455c6fa2b3f1d6bf34555c0c7728a6f9425bb722345f2f6d01b069c2"
+    "semanticSourceChecksum": "0c5baa295dbc4396216263c81ccaed49c766b18e1767ef54b34cccdedb424733"
   }
 }
