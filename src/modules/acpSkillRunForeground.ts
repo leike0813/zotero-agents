@@ -5,7 +5,7 @@ import { resolveSkillRunnerExecutionModeFromRequest } from "./skillRunnerExecuti
 
 export type AcpSkillRunForegroundDeps = {
   upsertAcpSkillRun: typeof upsertAcpSkillRun;
-  selectAcpSkillRun: typeof selectAcpSkillRun;
+  selectAcpSkillRun: (requestId: string) => void | Promise<void>;
   openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
 };
 
@@ -81,7 +81,7 @@ export function requestAcpSkillRunForeground(args: {
     skillId: normalizeString(args.skillId) || requestSkillId || undefined,
     requestPayload: args.request,
   });
-  deps.selectAcpSkillRun(requestId);
+  void deps.selectAcpSkillRun(requestId);
   if (
     resolveSkillRunnerExecutionModeFromRequest(args.request, "auto") ===
     "interactive"

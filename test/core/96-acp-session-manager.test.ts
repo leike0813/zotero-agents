@@ -137,6 +137,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   failResumeSession = false;
   emitReplayOnLoad = false;
   emitPermissionDuringPrompt = false;
+  closeNeverSettles = false;
   streamingChunkCount = 0;
   emitUsageAfterEachStreamingChunk = false;
   streamingChunkDelayMs = 0;
@@ -608,6 +609,10 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   async close() {
     this.closeCalls += 1;
+    if (this.closeNeverSettles) {
+      await new Promise(() => undefined);
+      return;
+    }
     for (const listener of this.closeListeners) {
       listener();
     }
@@ -1106,6 +1111,39 @@ describe("acp session manager", function () {
     assert.equal(payload.sessionId, "");
     assert.equal(payload.remoteSessionId, "session-1");
     assert.equal(payload.lastLifecycleEvent, "shutdown-disconnected");
+    assert.equal(lastAdapter?.closeCalls, 1);
+  });
+
+  it("bounds ACP conversation shutdown when adapter close never settles", async function () {
+    this.timeout(5000);
+    await connectAcpConversation();
+    lastAdapter!.closeNeverSettles = true;
+
+    const snapshot = getAcpConversationSnapshot();
+    const requestId = `conversation:${snapshot.backendId}:${snapshot.conversationId}`;
+    const startedAt = Date.now();
+
+    await shutdownAcpSessionManager();
+
+    assert.isBelow(Date.now() - startedAt, 2800);
+    const entry = getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
+    assert.equal(entry?.state, "idle");
+    const payload = JSON.parse(String(entry?.payload || "{}")) as {
+      status?: string;
+      busy?: boolean;
+      sessionId?: string;
+      lastLifecycleEvent?: string;
+      diagnostics?: Array<{ kind?: string }>;
+    };
+    assert.equal(payload.status, "idle");
+    assert.equal(payload.busy, false);
+    assert.equal(payload.sessionId, "");
+    assert.equal(payload.lastLifecycleEvent, "shutdown-disconnected");
+    assert.isTrue(
+      (payload.diagnostics || []).some(
+        (entry) => entry.kind === "shutdown_timeout",
+      ),
+    );
     assert.equal(lastAdapter?.closeCalls, 1);
   });
 

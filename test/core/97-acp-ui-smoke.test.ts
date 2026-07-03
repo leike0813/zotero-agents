@@ -1346,7 +1346,6 @@ describe("acp ui smoke", function () {
       assistantJs,
       'Object.assign({}, source, { hostMode: "sidebar" })',
     );
-    assert.include(assistantJs, "function ensureSkillRunnerSidebarLayout()");
     assert.include(assistantJs, "const normalizedPayload =");
     assert.include(assistantJs, "function normalizeTab(tab, fallback)");
     assert.include(assistantJs, "function closeDrawersForTab(tab)");
@@ -1359,15 +1358,46 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "actionTrace");
     assert.include(assistantJs, "function traceAction(stage, details)");
     assert.include(assistantJs, "function nextActionId(tab, action)");
+    assert.notInclude(assistantJs, "init-ack");
+    assert.notInclude(assistantJs, "host-init-received");
+    assert.notInclude(assistantJs, "host-child-snapshot-received");
+    assert.include(assistantJs, 'data.type === "run-dialog:action"');
     assert.notInclude(
       assistantJs,
       "function installSkillRunnerSidebarLayoutFallback()",
     );
+    assert.notInclude(assistantJs, "function ensureSkillRunnerSidebarLayout()");
+    assert.notInclude(assistantJs, "normalizeSkillRunnerSidebarPayload({})");
     assert.notInclude(assistantJs, "assistantSkillrunnerLayout");
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
-    assert.include(assistantJs, "announceInitializedChildFramesReady");
-    assert.include(assistantJs, 'sendChildAction(tab, "ready", {})');
-    assert.include(assistantJs, 'if (tab === "skillrunner" && !cached.init)');
+    assert.include(assistantJs, "function acceptChildReady(tab, payload)");
+    assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
+    assert.include(assistantJs, "state.initializedFrames.add(normalizedTab)");
+    assert.include(assistantJs, "replayCachedChildPayload(normalizedTab)");
+    assert.include(
+      assistantJs,
+      "const firstReady = !state.initializedFrames.has(normalizedTab)",
+    );
+    assert.include(
+      assistantJs,
+      'if (firstReady) {\n      sendChildAction(normalizedTab, "ready", payload || {});',
+    );
+    assert.notInclude(assistantJs, "announceInitializedChildFramesReady");
+    assert.include(assistantJs, 'if (data.action === "ready")');
+    assert.include(assistantJs, 'acceptChildReady("acp-chat", data.payload || {})');
+    assert.include(
+      assistantJs,
+      'acceptChildReady("acp-skills", data.payload || {})',
+    );
+    assert.include(
+      assistantJs,
+      'acceptChildReady("skillrunner", data.payload || {})',
+    );
+    assert.include(assistantJs, 'data.type === "skillrunner-sidebar:init"');
+    assert.include(
+      assistantJs,
+      'data.type === "skillrunner-sidebar:snapshot"',
+    );
     assert.include(
       assistantJs,
       'cacheChildPayload("skillrunner", "init", payload)',
@@ -2159,15 +2189,14 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "function projectAcpSkillRunView(run)");
     assert.include(
       acpSkillRunJs,
-      "projectAcpSkillRunConversationView(sourceRun)",
+      "projectAcpSkillRunConversationView(run || {})",
     );
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
-    assert.include(acpSkillRunJs, "function isTranscriptTailPage()");
-    assert.include(acpSkillRunJs, "function requestTranscriptResync(run)");
-    assert.include(
-      acpSkillRunJs,
-      "} else if (tailPage) {\n          state.transcriptItems.push(delta.item);",
-    );
+    assert.notInclude(acpSkillRunJs, "function isTranscriptTailPage()");
+    assert.notInclude(acpSkillRunJs, "function requestTranscriptResync(run)");
+    assert.notInclude(acpSkillRunJs, "function handleTranscriptPage");
+    assert.notInclude(acpSkillRunJs, "function handleTranscriptDeltas");
+    assert.notInclude(acpSkillRunJs, "state.transcriptItems.push(delta.item)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
     assert.include(acpSkillRunJs, 'variant: "skillrunner"');
@@ -2189,6 +2218,10 @@ describe("acp ui smoke", function () {
       acpSkillRunJs,
       "function renderAssistantPanelRuntime(snapshot)",
     );
+    assert.include(acpSkillRunJs, "function buildPanelRenderKey(snapshot)");
+    assert.include(acpSkillRunJs, "state.panelRenderKey === renderKey");
+    assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
+    assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
     assert.include(
       acpSkillRunJs,
       "const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {})",
@@ -2213,6 +2246,27 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "managedRegions");
     assert.include(acpSkillRunJs, "toolbar: true");
     assert.include(acpSkillRunJs, "plan: true");
+    assert.notInclude(acpSkillRunJs, "pageRevision < loadedRevision");
+    assert.notInclude(acpSkillRunJs, "pageRevision <= loadedRevision");
+    assert.notInclude(acpSkillRunJs, "pageRevision === 0");
+    {
+      const renderStart = acpSkillRunJs.indexOf(
+        "function renderTranscript(run)",
+      );
+      const renderEnd = acpSkillRunJs.indexOf(
+        "function renderSelectedRun",
+        renderStart,
+      );
+      const renderBody = acpSkillRunJs.slice(renderStart, renderEnd);
+      assert.notInclude(renderBody, "sourceRevision > loadedRevision");
+      assert.notInclude(
+        renderBody,
+        "state.transcriptLoadedRevision !== sourceRevision",
+      );
+    }
+    assert.include(hooks, "runShutdownStepWithTimeout(");
+    assert.include(hooks, "shutdownAcpWebSocketBridgeService");
+    assert.include(hooks, '"acp-websocket-bridge-shutdown"');
     assert.include(acpSkillRunJs, "hint: true");
     assert.include(acpSkillRunJs, "details: true");
     assert.include(acpSkillRunJs, 'action === "select-run"');
@@ -2287,6 +2341,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantSidebar, "clearShellBridge(host.shell)");
     assert.include(assistantSidebar, "attachSkillRunnerSidebarHost");
+    assert.include(assistantSidebar, "publishSnapshot");
     assert.include(assistantSidebar, "buildDecoratedSkillRunnerSnapshot");
     assert.include(assistantSidebar, "createSkillRunnerHostActionHandler");
     assert.include(assistantSidebar, "selectedIndex > 0");
@@ -2307,7 +2362,7 @@ describe("acp ui smoke", function () {
       "await startNewAcpConversation({ backendId });",
     );
     assert.include(assistantSidebar, "buildAcpSidebarViewSnapshot");
-    assert.include(assistantSidebar, "buildAcpSkillRunPanelSnapshot");
+    assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
     assert.notInclude(
       assistantSidebar,
       "postShellInit(pane, host.activeTab);\n  postAcpChatSnapshot",
@@ -2421,14 +2476,9 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, 'action === "close-permission-request"');
     assert.notInclude(acpChatJs, "permissionRequestDetailsSection");
     assert.notInclude(acpSkillRunJs, "permissionRequestDetailsSection");
-    assert.include(acpSkillRunJs, "pendingSelectedRequestId");
-    assert.include(acpSkillRunJs, "function applyPendingSelection(snapshot)");
-    assert.include(acpSkillRunJs, "state.pendingSelectedRequestId = requestId");
-    assert.include(acpSkillRunJs, "findPendingRunSummary(source, pendingRequestId)");
-    assert.include(acpSkillRunJs, "selectedRun: pendingRun");
     assert.notInclude(
       acpSkillRunJs,
-      "if (source.selectedRequestId === pendingRequestId)",
+      "pendingSelectedRequestId",
     );
     assert.include(
       acpSkillRunJs,
@@ -2437,9 +2487,9 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "panelRendererFailed");
     assert.include(acpSkillRunJs, "data-assistant-interaction");
     assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
-    assert.include(acpSkillRunJs, "transcriptStates: new Map()");
-    assert.include(acpSkillRunJs, "function persistCurrentTranscriptState()");
-    assert.include(acpSkillRunJs, "function restoreTranscriptState(cached)");
+    assert.notInclude(acpSkillRunJs, "transcriptStates: new Map()");
+    assert.notInclude(acpSkillRunJs, "function persistCurrentTranscriptState()");
+    assert.notInclude(acpSkillRunJs, "function restoreTranscriptState(cached)");
     assert.include(acpSkillRunJs, "transcriptOrderKey");
     assert.include(acpSkillRunJs, "transcriptMode");
     assert.include(acpSkillRunJs, "toolActivityExpandedIds");
@@ -2447,11 +2497,11 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "orderKey: state.transcriptOrderKey");
     assert.include(acpSkillRunJs, "modeKey: state.transcriptMode");
     assert.include(acpSkillRunJs, "onRendered: function (result)");
-    assert.include(acpSkillRunJs, "const requestId = syncTranscriptRun(run);");
+    assert.include(acpSkillRunJs, "syncTranscriptRun(run);");
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run);");
     assert.include(
       acpSkillRunJs,
-      "restoreTranscriptState(state.transcriptStates.get(requestId))",
+      "Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []",
     );
     assert.include(acpSkillRunJs, "resetTranscriptRenderState");
     assert.include(acpSkillRunJs, "function formatTime(value)");
@@ -2511,7 +2561,7 @@ describe("acp ui smoke", function () {
     assert.notInclude(acpSkillRunCss, "\n.btn {");
     assert.notInclude(acpSkillRunCss, ".btn.primary");
     assert.notInclude(acpSkillRunCss, ".btn.danger");
-    assert.include(assistantSidebar, "buildAcpSkillRunPanelSnapshot");
+    assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
     assert.include(assistantSidebar, "cancelAcpSkillRun");
     assert.include(assistantSidebar, "replyAcpSkillRun");
     assert.include(assistantSidebar, "connectAcpSkillRun");
@@ -2536,7 +2586,7 @@ describe("acp ui smoke", function () {
       "projectAcpSkillRunOutputEnvelopeToTranscript",
     );
     assert.include(acpSkillRunStore, "recordAcpSkillRunOutputRevision");
-    assert.include(acpSkillRunStore, "readAcpSkillRunTranscriptPage");
+    assert.include(acpSkillRunStore, "prepareAcpSkillRunPanelSnapshot");
     assert.include(acpSkillRunStore, "transcriptItemCount");
     assert.include(acpSkillRunStore, "outputRevisionCount");
     assert.include(acpSkillRunStore, "delete persisted.transcriptItems");
@@ -2566,10 +2616,11 @@ describe("acp ui smoke", function () {
       "assistant-transcript-revision-badge",
     );
     assert.notInclude(acpSkillRunJs, "outputRevisions");
-    assert.include(acpSkillRunJs, '"load-transcript-page"');
-    assert.include(acpSkillRunJs, '"acp-skill-run:transcript-page"');
-    assert.include(assistantSidebar, "postAcpSkillRunTranscriptPage");
-    assert.include(assistantSidebar, 'phase: "transcript-page"');
+    assert.notInclude(acpSkillRunJs, '"load-transcript-page"');
+    assert.notInclude(acpSkillRunJs, '"acp-skill-run:transcript-page"');
+    assert.notInclude(acpSkillRunJs, '"acp-skill-run:transcript-delta"');
+    assert.notInclude(assistantSidebar, "postAcpSkillRunTranscriptPage");
+    assert.notInclude(assistantSidebar, 'tab: "acp-skills",\n    phase: "transcript-page"');
     assert.notInclude(acpChatJs, "outputRevisions");
     assert.include(acpSkillRunStore, "setAcpSkillRunPermissionRequest");
     assert.include(acpSkillRunStore, "resolveAcpSkillRunPermissionRequest");
@@ -2590,11 +2641,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "await refreshAcpConversationBackends();");
     assert.include(
       assistantSidebar,
-      'void postFreshAcpChatSnapshot(host, target, "init");',
+      "void postFreshAcpChatSnapshot(host, target, phase);",
     );
     assert.include(
       assistantSidebar,
-      "postAcpChatSnapshot(host, target);\n    return;",
+      "postAcpChatSnapshot(host, target, phase);",
     );
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
@@ -2614,7 +2665,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "toggle-status-details");
     assert.include(
       assistantSidebar,
-      'postShellMessage(host.shell, "assistant-workspace:child-snapshot"',
+      'postShellMessage(host, "assistant-workspace:child-snapshot"',
     );
     assert.include(sidebarModel, "chatDisplayMode");
     assert.include(sidebarModel, "statusExpanded");

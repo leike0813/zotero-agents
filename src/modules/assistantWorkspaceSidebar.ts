@@ -48,23 +48,20 @@ import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
   archiveAcpSkillRun,
-  buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   connectAcpSkillRun,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
-  readAcpSkillRunTranscriptPage,
+  prepareAcpSkillRunPanelSnapshot,
   replyAcpSkillRun,
   resolveAcpSkillRunPermissionRequest,
   selectAcpSkillRun,
   setAcpSkillRunMode,
   setAcpSkillRunModel,
   setAcpSkillRunReasoningEffort,
-  subscribeAcpSkillRunTranscriptDeltas,
   subscribeAcpSkillRunSnapshots,
-  type AcpSkillRunTranscriptDelta,
 } from "./acpSkillRunStore";
 import {
   subscribeAcpChatTranscriptDeltas,
@@ -75,6 +72,7 @@ import {
   detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
   focusSkillRunnerWorkspace,
+  refreshSkillRunnerSidebarHostSnapshot,
   refreshSkillRunnerWorkspacePresentation,
   type RunWorkspaceSnapshot,
 } from "./skillRunnerRunDialog";
@@ -124,7 +122,6 @@ type AssistantWorkspaceShell = {
   frameLoadHandler?: () => void;
   loaded: boolean;
   ready: boolean;
-  pendingInitialSync: boolean;
 };
 type AssistantWorkspaceHostRuntime = {
   win: _ZoteroTypes.MainWindow;
@@ -139,7 +136,6 @@ type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpSnapshotSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
-  removeAcpSkillRunTranscriptDeltaSubscription?: () => void;
   removeAcpChatTranscriptDeltaSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
@@ -149,8 +145,6 @@ type AssistantWorkspaceHostRuntime = {
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
   pendingAcpChatTranscriptDeltas?: AcpChatTranscriptDelta[];
   acpChatTranscriptDeltaTimer?: ReturnType<typeof setTimeout> | null;
-  pendingAcpSkillRunTranscriptDeltas?: AcpSkillRunTranscriptDelta[];
-  acpSkillRunTranscriptDeltaTimer?: ReturnType<typeof setTimeout> | null;
   scopeKey: string;
   snapshotRevision: number;
   lastAcpSkillWaitingToastKeys: Set<string>;
@@ -230,9 +224,8 @@ async function waitForShellFrameWindow(
 ) {
   const startedAt = Date.now();
   while (Date.now() - startedAt <= timeoutMs) {
-    const frameWindow = resolveSidebarFrameWindow(host.shell.frame);
+    const frameWindow = resolveCurrentShellWindow(host);
     if (frameWindow) {
-      host.shell.frameWindow = frameWindow;
       return frameWindow;
     }
     await waitForTimeout(40);
@@ -514,11 +507,24 @@ function createSkillRunnerHostActionHandler(
 function resolveTargetFromSource(
   host: AssistantWorkspaceHostRuntime,
   source: Window | null,
+  type?: string,
 ): AcpSidebarTarget | null {
-  const frameWindow =
-    host.shell.frameWindow || resolveSidebarFrameWindow(host.shell.frame);
-  if (frameWindow) {
-    host.shell.frameWindow = frameWindow;
+  const frameWindow = resolveCurrentShellWindow(host);
+  if (
+    source &&
+    frameWindow &&
+    source !== frameWindow &&
+    String(type || "").startsWith("assistant-workspace:")
+  ) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "assistant-shell",
+      operation: "source-check",
+      phase: "rejected",
+      stage: "stale-shell-window",
+      message: "Assistant shell message source did not match the current shell window.",
+    });
   }
   if (!source || !frameWindow || source !== frameWindow) {
     return null;
@@ -527,16 +533,15 @@ function resolveTargetFromSource(
 }
 
 function postShellMessage(
-  shell: AssistantWorkspaceShell,
+  host: AssistantWorkspaceHostRuntime,
   type: string,
   payload?: Record<string, unknown>,
 ) {
-  const frameWindow =
-    shell.frameWindow || resolveSidebarFrameWindow(shell.frame);
+  const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
     return;
   }
-  shell.frameWindow = frameWindow;
+  installShellBridge(host);
   frameWindow.postMessage(
     {
       type,
@@ -560,6 +565,30 @@ function writeAssistantWorkspaceBridgeTarget(
   delete target[ASSISTANT_WORKSPACE_BRIDGE_KEY];
 }
 
+function clearAssistantWorkspaceBridgeWindow(frameWindow: Window | null) {
+  if (!frameWindow) {
+    return;
+  }
+  const directTarget = frameWindow as Window & Record<string, unknown>;
+  const wrappedTarget =
+    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
+    "object"
+      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
+          .wrappedJSObject as Record<string, unknown>)
+      : null;
+  writeAssistantWorkspaceBridgeTarget(directTarget, undefined);
+  writeAssistantWorkspaceBridgeTarget(wrappedTarget, undefined);
+}
+
+function resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime) {
+  const current = resolveSidebarFrameWindow(host.shell.frame);
+  if (current && current !== host.shell.frameWindow) {
+    clearAssistantWorkspaceBridgeWindow(host.shell.frameWindow);
+    host.shell.frameWindow = current;
+  }
+  return current || null;
+}
+
 function isAssistantShellReadyEnvelope(
   type: string,
   payload?: Record<string, unknown>,
@@ -572,21 +601,25 @@ function isAssistantShellReadyEnvelope(
 
 function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
   host.shell.ready = true;
-  host.shell.pendingInitialSync = true;
-  flushActiveShellInit(host);
+  publishAssistantWorkspaceStatePulse(host, "shell-ready");
 }
 
 function installShellBridge(
   host: AssistantWorkspaceHostRuntime,
 ) {
-  const frameWindow =
-    host.shell.frameWindow || resolveSidebarFrameWindow(host.shell.frame);
+  const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
     return false;
   }
-  host.shell.frameWindow = frameWindow;
+  const bridgeWindow = frameWindow;
   const bridge: AssistantWorkspaceBridge = {
     postMessage: async (type, payload) => {
+      if (resolveCurrentShellWindow(host) !== bridgeWindow) {
+        return {
+          ok: false,
+          error: "Assistant Workspace bridge is stale.",
+        };
+      }
       const activeTarget = host.activeTarget;
       if (!activeTarget) {
         if (isAssistantShellReadyEnvelope(type, payload)) {
@@ -620,20 +653,7 @@ function installShellBridge(
 }
 
 function clearShellBridge(shell: AssistantWorkspaceShell) {
-  const frameWindow =
-    shell.frameWindow || resolveSidebarFrameWindow(shell.frame);
-  if (!frameWindow) {
-    return;
-  }
-  const directTarget = frameWindow as Window & Record<string, unknown>;
-  const wrappedTarget =
-    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
-    "object"
-      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
-          .wrappedJSObject as Record<string, unknown>)
-      : null;
-  writeAssistantWorkspaceBridgeTarget(directTarget, undefined);
-  writeAssistantWorkspaceBridgeTarget(wrappedTarget, undefined);
+  clearAssistantWorkspaceBridgeWindow(shell.frameWindow);
 }
 
 function postChildSnapshot(
@@ -652,7 +672,7 @@ function postChildSnapshot(
     full: tab === host.activeTab,
     snapshot,
   });
-  postShellMessage(host.shell, "assistant-workspace:child-snapshot", {
+  postShellMessage(host, "assistant-workspace:child-snapshot", {
     tab,
     phase,
     snapshot: payload,
@@ -678,47 +698,14 @@ function postAcpChatSnapshot(
   postChildSnapshot(host, "acp-chat", phase, buildAcpSnapshot(target));
 }
 
-function postAcpSkillRunSnapshot(
+async function postAcpSkillRunSnapshot(
   host: AssistantWorkspaceHostRuntime,
   phase: "init" | "snapshot" = "snapshot",
 ) {
+  const snapshot = await prepareAcpSkillRunPanelSnapshot();
   postChildSnapshot(host, "acp-skills", phase, {
-    ...(buildAcpSkillRunPanelSnapshot() as unknown as Record<string, unknown>),
+    ...(snapshot as unknown as Record<string, unknown>),
     streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
-  });
-}
-
-async function postAcpSkillRunTranscriptPage(
-  host: AssistantWorkspaceHostRuntime,
-  payload: Record<string, unknown>,
-) {
-  const requestId = String(payload.requestId || "").trim();
-  const cursorValue = payload.cursor;
-  const cursor =
-    typeof cursorValue === "number" && Number.isFinite(cursorValue)
-      ? cursorValue
-      : undefined;
-  const limitValue = payload.limit;
-  const limit =
-    typeof limitValue === "number" && Number.isFinite(limitValue)
-      ? limitValue
-      : undefined;
-  const page = await readAcpSkillRunTranscriptPage({
-    requestId,
-    cursor,
-    limit,
-  });
-  postShellMessage(host.shell, "assistant-workspace:child-snapshot", {
-    tab: "acp-skills",
-    phase: "transcript-page",
-    snapshot: {
-      scopeKey: host.scopeKey,
-      activeTab: host.activeTab,
-      tab: "acp-skills",
-      revision: host.snapshotRevision,
-      requestId,
-      transcriptPage: page,
-    },
   });
 }
 
@@ -745,7 +732,7 @@ async function postAcpChatTranscriptPage(
     cursor,
     limit,
   });
-  postShellMessage(host.shell, "assistant-workspace:child-snapshot", {
+  postShellMessage(host, "assistant-workspace:child-snapshot", {
     tab: "acp-chat",
     phase: "transcript-page",
     snapshot: {
@@ -812,7 +799,7 @@ function flushAcpChatTranscriptDeltas(host: AssistantWorkspaceHostRuntime) {
   if (matching.length === 0) {
     return;
   }
-  postShellMessage(host.shell, "assistant-workspace:child-snapshot", {
+  postShellMessage(host, "assistant-workspace:child-snapshot", {
     tab: "acp-chat",
     phase: "transcript-delta",
     snapshot: {
@@ -843,63 +830,6 @@ function queueAcpChatTranscriptDelta(
   }, 33);
 }
 
-function flushAcpSkillRunTranscriptDeltas(host: AssistantWorkspaceHostRuntime) {
-  if (host.acpSkillRunTranscriptDeltaTimer) {
-    clearTimeout(host.acpSkillRunTranscriptDeltaTimer);
-    host.acpSkillRunTranscriptDeltaTimer = null;
-  }
-  const deltas = host.pendingAcpSkillRunTranscriptDeltas || [];
-  host.pendingAcpSkillRunTranscriptDeltas = [];
-  if (deltas.length === 0 || host.activeTab !== "acp-skills") {
-    return;
-  }
-  const target = host.activeTarget;
-  if (!target) {
-    return;
-  }
-  const panel = buildAcpSkillRunPanelSnapshot() as {
-    selectedRun?: { requestId?: string };
-  };
-  const requestId = String(panel.selectedRun?.requestId || "").trim();
-  if (!requestId) {
-    return;
-  }
-  const matching = deltas.filter(
-    (delta) => String(delta.requestId || "").trim() === requestId,
-  );
-  if (matching.length === 0) {
-    return;
-  }
-  postShellMessage(host.shell, "assistant-workspace:child-snapshot", {
-    tab: "acp-skills",
-    phase: "transcript-delta",
-    snapshot: {
-      scopeKey: host.scopeKey,
-      activeTab: host.activeTab,
-      tab: "acp-skills",
-      revision: host.snapshotRevision,
-      requestId,
-      transcriptDeltas: matching,
-    },
-  });
-}
-
-function queueAcpSkillRunTranscriptDelta(
-  host: AssistantWorkspaceHostRuntime,
-  delta: AcpSkillRunTranscriptDelta,
-) {
-  host.pendingAcpSkillRunTranscriptDeltas = appendBoundedTranscriptDelta(
-    host.pendingAcpSkillRunTranscriptDeltas,
-    delta,
-  );
-  if (host.acpSkillRunTranscriptDeltaTimer) {
-    return;
-  }
-  host.acpSkillRunTranscriptDeltaTimer = setTimeout(() => {
-    flushAcpSkillRunTranscriptDeltas(host);
-  }, 33);
-}
-
 async function postFreshAcpChatSnapshot(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
@@ -909,37 +839,88 @@ async function postFreshAcpChatSnapshot(
   postAcpChatSnapshot(host, target, phase);
 }
 
+function postSkillRunnerSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  if (!host.activeTarget || host.activeTab !== "skillrunner") {
+    return;
+  }
+  attachSkillRunnerToShell(host);
+  void refreshSkillRunnerSidebarHostSnapshot({
+    forceInit: phase === "init",
+  });
+}
+
+function postSnapshotForTab(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  tab: AssistantWorkspaceTab,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  if (tab === "acp-chat") {
+    void postFreshAcpChatSnapshot(host, target, phase);
+    return;
+  }
+  if (tab === "acp-skills") {
+    void postAcpSkillRunSnapshot(host, phase);
+    return;
+  }
+  postSkillRunnerSnapshot(host, phase);
+}
+
+function canPublishAssistantWorkspaceStatePulse(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  if (!host.activeTarget) {
+    return false;
+  }
+  return !!resolveCurrentShellWindow(host);
+}
+
 function postShellInit(
   host: AssistantWorkspaceHostRuntime,
   activeTab: AssistantWorkspaceTab,
 ) {
-  postShellMessage(host.shell, "assistant-workspace:init", {
+  postShellMessage(host, "assistant-workspace:init", {
     activeTab,
     activeTarget: host.activeTarget,
     scopeKey: host.scopeKey,
   });
 }
 
-function postActiveShellInit(host: AssistantWorkspaceHostRuntime) {
-  if (!host.activeTarget) {
-    return;
+function publishAssistantWorkspaceStatePulse(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+  tab?: AssistantWorkspaceTab,
+  phase: "init" | "snapshot" = "init",
+) {
+  if (!canPublishAssistantWorkspaceStatePulse(host)) {
+    return false;
   }
-  host.shell.pendingInitialSync = true;
-  flushActiveShellInit(host);
+  const target = host.activeTarget;
+  if (!target) {
+    return false;
+  }
+  installShellBridge(host);
+  if (phase === "init" && reason !== "child-ready") {
+    postShellInit(host, host.activeTab);
+  }
+  if (tab) {
+    postSnapshotForTab(host, target, tab, phase);
+    return true;
+  }
+  postSnapshotForTab(host, target, host.activeTab, phase);
+  return true;
 }
 
 function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
-  const target = host.activeTarget;
-  if (!target) {
-    return;
-  }
-  if (host.activeTab === "acp-chat") {
-    postAcpChatSnapshot(host, target);
-    return;
-  }
-  if (host.activeTab === "acp-skills") {
-    postAcpSkillRunSnapshot(host);
-  }
+  publishAssistantWorkspaceStatePulse(
+    host,
+    "store-change",
+    undefined,
+    "snapshot",
+  );
 }
 
 function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
@@ -961,11 +942,7 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
     if (!data || typeof data.type !== "string") {
       return;
     }
-    const frameWindow =
-      host.shell.frameWindow || resolveSidebarFrameWindow(host.shell.frame);
-    if (frameWindow) {
-      host.shell.frameWindow = frameWindow;
-    }
+    const frameWindow = resolveCurrentShellWindow(host);
     if (
       isAssistantShellReadyEnvelope(data.type, data.payload) &&
       event.source &&
@@ -975,7 +952,11 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
       acceptAssistantShellReady(host);
       return;
     }
-    const target = resolveTargetFromSource(host, event.source as Window | null);
+    const target = resolveTargetFromSource(
+      host,
+      event.source as Window | null,
+      data.type,
+    );
     if (!target) {
       return;
     }
@@ -1168,7 +1149,7 @@ function scheduleSkillRunnerSidebarRefresh(
 
 async function handleShellAction(
   host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
+  _target: AcpSidebarTarget,
   payload: Record<string, unknown>,
 ) {
   const action = String(payload.action || "").trim();
@@ -1183,8 +1164,7 @@ async function handleShellAction(
       clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerSidebarHost({ hostWindow: host.win });
     }
-    host.shell.pendingInitialSync = true;
-    flushActiveShellInit(host);
+    publishAssistantWorkspaceStatePulse(host, "tab-switch", tab);
     return;
   }
   if (action === "close-sidebar") {
@@ -1213,6 +1193,13 @@ async function handleChildAction(
     !Array.isArray(payload.payload)
       ? (payload.payload as Record<string, unknown>)
       : {};
+  if (action === "ready") {
+    if (tab !== host.activeTab) {
+      return;
+    }
+    publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "snapshot");
+    return;
+  }
   if (tab === "skillrunner") {
     if (action === "set-streaming-render-enabled") {
       setAssistantStreamingRenderEnabled(childPayload.enabled === true);
@@ -1236,15 +1223,8 @@ async function handleChildAction(
     return;
   }
   if (tab === "acp-skills") {
-    if (action === "load-transcript-page") {
-      await postAcpSkillRunTranscriptPage(
-        host,
-        childPayload,
-      );
-      return;
-    }
     await handleAcpSkillRunAction(host, action, childPayload);
-    postAcpSkillRunSnapshot(host);
+    await postAcpSkillRunSnapshot(host);
     return;
   }
   if (action === "load-chat-transcript-page") {
@@ -1274,7 +1254,7 @@ async function handleAcpSkillRunAction(
       return;
     }
     if (action === "select-run") {
-      selectAcpSkillRun(String(payload.requestId || "").trim());
+      await selectAcpSkillRun(String(payload.requestId || "").trim());
       return;
     }
     if (action === "cancel-run") {
@@ -1334,7 +1314,7 @@ async function handleAcpSkillRunAction(
     }
     if (action === "copy-diagnostics") {
       const requestId = String(payload.requestId || "").trim();
-      const snapshot = buildAcpSkillRunPanelSnapshot({
+      const snapshot = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: requestId,
       });
       copyText(JSON.stringify(snapshot, null, 2));
@@ -1533,18 +1513,24 @@ async function handleAcpChatAction(
 }
 
 function attachSkillRunnerToShell(host: AssistantWorkspaceHostRuntime) {
-  if (host.activeTab !== "skillrunner" || !host.activeTarget) {
+  if (!host.activeTarget || host.activeTab !== "skillrunner") {
     return;
   }
-  const frameWindow =
-    host.shell.frameWindow || resolveSidebarFrameWindow(host.shell.frame);
+  const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
     return;
   }
-  host.shell.frameWindow = frameWindow;
+  installShellBridge(host);
   attachSkillRunnerSidebarHost({
     hostWindow: host.win,
     frameWindow,
+    publishSnapshot: (phase, snapshot) => {
+      postShellMessage(host, "assistant-workspace:child-snapshot", {
+        tab: "skillrunner",
+        phase,
+        snapshot,
+      });
+    },
     alertWindow: host.win,
     focusHost: () => host.win.focus(),
     isHostAlive: () => hosts.get(host.win) === host,
@@ -1589,29 +1575,6 @@ function setShellActiveTarget(
   }
 }
 
-function flushActiveShellInit(host: AssistantWorkspaceHostRuntime) {
-  const target = host.activeTarget;
-  if (!target) {
-    return;
-  }
-  if (!host.shell.pendingInitialSync) {
-    return;
-  }
-  const shellReady = host.shell.loaded || host.shell.ready;
-  if (!shellReady) {
-    return;
-  }
-  host.shell.pendingInitialSync = false;
-  postShellInit(host, host.activeTab);
-  void postFreshAcpChatSnapshot(host, target, "init");
-  postAcpSkillRunSnapshot(host, "init");
-  if (host.activeTab === "skillrunner") {
-    scheduleSkillRunnerSidebarRefresh(host, target, {
-      selectionChanged: true,
-    });
-  }
-}
-
 function ensureAssistantWorkspaceShell(host: AssistantWorkspaceHostRuntime) {
   if (host.shell.frame) {
     return host.shell.frame;
@@ -1620,11 +1583,10 @@ function ensureAssistantWorkspaceShell(host: AssistantWorkspaceHostRuntime) {
   const frame = createSidebarFrame(doc, resolveSidebarPageUrl());
   frame.setAttribute("data-zs-assistant-shell", "true");
   const frameLoadHandler = () => {
-    host.shell.frameWindow = resolveSidebarFrameWindow(frame);
+    resolveCurrentShellWindow(host);
     host.shell.loaded = true;
-    host.shell.pendingInitialSync = true;
     installShellBridge(host);
-    flushActiveShellInit(host);
+    publishAssistantWorkspaceStatePulse(host, "shell-load");
   };
   frame.addEventListener("load", frameLoadHandler);
   host.shell = {
@@ -1633,7 +1595,6 @@ function ensureAssistantWorkspaceShell(host: AssistantWorkspaceHostRuntime) {
     frameLoadHandler,
     loaded: false,
     ready: false,
-    pendingInitialSync: true,
   };
   return frame;
 }
@@ -1663,11 +1624,10 @@ function commitAssistantWorkspaceTarget(
   target: AcpSidebarTarget,
 ) {
   host.activeTarget = target;
-  host.shell.pendingInitialSync = true;
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
   setDockActive(host.reader, "reader", target === "reader");
-  flushActiveShellInit(host);
+  publishAssistantWorkspaceStatePulse(host, "target-commit");
 }
 
 function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
@@ -1840,7 +1800,6 @@ export function installAssistantWorkspaceSidebarShell(
       frameWindow: null,
       loaded: false,
       ready: false,
-      pendingInitialSync: false,
     },
     lastAcpSkillWaitingToastKeys: new Set<string>(),
   };
@@ -1854,10 +1813,6 @@ export function installAssistantWorkspaceSidebarShell(
     schedulePostSnapshot(host);
     updateAssistantAttentionIndicator(host);
   });
-  host.removeAcpSkillRunTranscriptDeltaSubscription =
-    subscribeAcpSkillRunTranscriptDeltas((delta) => {
-      queueAcpSkillRunTranscriptDelta(host, delta);
-    });
   host.removeAcpChatTranscriptDeltaSubscription =
     subscribeAcpChatTranscriptDeltas((delta) => {
       queueAcpChatTranscriptDelta(host, delta);
@@ -1889,7 +1844,6 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpSnapshotSubscription?.();
   host.removeAcpSkillRunSubscription?.();
-  host.removeAcpSkillRunTranscriptDeltaSubscription?.();
   host.removeAcpChatTranscriptDeltaSubscription?.();
   host.removeTaskSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();
@@ -1901,10 +1855,6 @@ export function removeAssistantWorkspaceSidebarShell(
   if (host.acpChatTranscriptDeltaTimer) {
     clearTimeout(host.acpChatTranscriptDeltaTimer);
     host.acpChatTranscriptDeltaTimer = null;
-  }
-  if (host.acpSkillRunTranscriptDeltaTimer) {
-    clearTimeout(host.acpSkillRunTranscriptDeltaTimer);
-    host.acpSkillRunTranscriptDeltaTimer = null;
   }
   clearSkillRunnerSidebarRefresh(host);
   if (host.shell.frame && host.shell.frameLoadHandler) {
@@ -1932,16 +1882,23 @@ export async function openAssistantWorkspaceSidebar(args?: {
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
   if (!win) return false;
   const host = installAssistantWorkspaceSidebarShell(win);
-  if (args && "tab" in args && args.tab) {
-    host.activeTab = normalizeTab(args.tab);
+  const hasExplicitTab = Boolean(args && "tab" in args && args.tab);
+  if (hasExplicitTab || !host.activeTarget) {
+    host.activeTab = hasExplicitTab ? normalizeTab(args?.tab) : DEFAULT_TAB;
     if (host.activeTab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerSidebarHost({ hostWindow: host.win });
     }
-    postActiveShellInit(host);
+    if (host.activeTarget) {
+      publishAssistantWorkspaceStatePulse(
+        host,
+        "open-tab-request",
+        host.activeTab,
+      );
+    }
   }
   if (host.activeTab === "acp-skills" && args?.requestId) {
-    selectAcpSkillRun(args.requestId);
+    await selectAcpSkillRun(args.requestId);
   }
   const target = args?.target || resolvePreferredTarget(win);
   const activated = await activateTarget(host, target);
@@ -1995,8 +1952,11 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
           clearSkillRunnerSidebarRefresh(host);
           detachSkillRunnerSidebarHost({ hostWindow: host.win });
         }
-        host.shell.pendingInitialSync = true;
-        flushActiveShellInit(host);
+        publishAssistantWorkspaceStatePulse(
+          host,
+          "toggle-tab-request",
+          host.activeTab,
+        );
         return true;
       }
     }

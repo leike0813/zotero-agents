@@ -15,7 +15,7 @@ import {
   registerAcpSkillRunsRetentionCleaner,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { listRuntimeLogs } from "./runtimeLogManager";
+import { appendRuntimeLog, listRuntimeLogs } from "./runtimeLogManager";
 import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
@@ -53,9 +53,10 @@ import {
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import {
-  appendAcpSkillRunTranscriptEvent,
+  appendAcpSkillRunTranscriptEvents,
   readAcpSkillRunTranscriptPage as readAcpSkillRunTranscriptPageFromStore,
   resolveAcpSkillRunTranscriptPaths,
+  type AcpSkillRunTranscriptEventInput,
   type AcpSkillRunTranscriptMetadata,
   type AcpSkillRunTranscriptPage,
 } from "./acpSkillRunTranscriptStore";
@@ -138,48 +139,6 @@ export type AcpSkillRunMessageRevisionSummary = {
   latestStatus: AcpSkillRunOutputRevisionStatus;
   latestRepairRound: number;
 };
-
-export type AcpSkillRunTranscriptDelta = {
-  requestId: string;
-  eventSeq: number;
-  transcriptRevision: number;
-  op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
-  itemId: string;
-  item?: AcpSkillRunTranscriptItem;
-  text?: string;
-  patch?: Partial<AcpSkillRunTranscriptItem>;
-  createdAt: string;
-  resyncRequired?: boolean;
-};
-
-type AcpSkillRunTranscriptDeltaListener = (
-  delta: AcpSkillRunTranscriptDelta,
-) => void;
-
-const transcriptDeltaListeners = new Set<AcpSkillRunTranscriptDeltaListener>();
-
-export function subscribeAcpSkillRunTranscriptDeltas(
-  listener: AcpSkillRunTranscriptDeltaListener,
-) {
-  transcriptDeltaListeners.add(listener);
-  return () => {
-    transcriptDeltaListeners.delete(listener);
-  };
-}
-
-function emitAcpSkillRunTranscriptDelta(delta: AcpSkillRunTranscriptDelta) {
-  for (const listener of transcriptDeltaListeners) {
-    listener({
-      ...delta,
-      item: delta.item
-        ? ({ ...delta.item } as AcpSkillRunTranscriptItem)
-        : undefined,
-      patch: delta.patch
-        ? ({ ...delta.patch } as Partial<AcpSkillRunTranscriptItem>)
-        : undefined,
-    });
-  }
-}
 
 export type AcpSkillRunEvent = {
   ts: string;
@@ -344,6 +303,7 @@ export type AcpSkillRunRecord = {
   activePrompt?: boolean;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
+  transcriptItems?: AcpSkillRunTranscriptItem[];
   outputRevisionsPath?: string;
   outputRevisionCount?: number;
   outputRevisionPreview?: string;
@@ -429,6 +389,11 @@ export type AcpSkillRunSummaryListOptions = {
 export type AcpSkillRunPanelSnapshot = {
   generatedAt: string;
   selectedRequestId: string;
+  selectedTranscript?: {
+    requestId: string;
+    state: "ready" | "loading" | "failed";
+    error?: string;
+  };
   mcpServer?: ZoteroMcpServerStatusSnapshot;
   mcpHealth?: AcpMcpHealthSnapshot;
   hostBridge?: HostBridgeStatusSnapshot;
@@ -497,9 +462,18 @@ type AcpSkillRunRecoveryHandler = (args: {
   reason: "connect" | "reply";
 }) => Promise<void>;
 
+const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
+
 type AcpSkillRunTranscriptLiveState = {
   itemCount: number;
   eventSeq: number;
+  itemsById: Map<string, AcpSkillRunTranscriptItem>;
+  itemIds: string[];
+  mirrorLoaded: boolean;
+  needsHydrate?: boolean;
+  hydrateState?: "loading" | "failed";
+  hydrateError?: string;
+  hydratePromise?: Promise<unknown>;
   lastTextItem?: {
     id: string;
     kind: "message" | "thought";
@@ -535,6 +509,14 @@ const waitingUserDetachTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 const runtimeFileWrites = new Set<Promise<unknown>>();
+const transcriptWriteBatches = new Map<
+  string,
+  {
+    events: AcpSkillRunTranscriptEventInput[];
+    timer: ReturnType<typeof setTimeout> | null;
+    flushing: Promise<void> | null;
+  }
+>();
 const runtimeOptionsByRequestId = new Map<
   string,
   AcpSkillRunRuntimeOptionsSnapshot
@@ -546,6 +528,24 @@ const permissionResolvers = new Map<
     resolve: (outcome: RequestPermissionOutcome) => void;
   }
 >();
+
+async function waitForAcpSkillRunShutdownTask(
+  task: Promise<unknown>,
+  timeoutMs = ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS,
+) {
+  if (timeoutMs <= 0) {
+    return { timedOut: true as const };
+  }
+  return Promise.race([
+    task.then(
+      () => ({ timedOut: false as const }),
+      (error) => ({ timedOut: false as const, error }),
+    ),
+    new Promise<{ timedOut: true }>((resolve) => {
+      setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+    }),
+  ]);
+}
 const listeners = new Set<AcpSkillRunListener>();
 let hydrated = false;
 let selectedRequestId = "";
@@ -554,6 +554,8 @@ let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
 const activeRunRequestIds = new Set<string>();
 const ACP_SKILL_RUN_PANEL_RUN_LIMIT = 100;
 const ACP_SKILL_RUN_PREVIEW_LIMIT = 8 * 1024;
+const ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
+const ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT = 200;
 const ACP_SKILL_RUN_WAITING_USER_LIVE_TTL_MS = 30 * 60 * 1000;
 const acpSkillRunSummaryDiagnostics = {
   summaryQueryCount: 0,
@@ -629,6 +631,216 @@ function transcriptPreviewFromItem(item: AcpSkillRunTranscriptItem) {
   return undefined;
 }
 
+function cloneAcpSkillRunTranscriptItem<T extends AcpSkillRunTranscriptItem>(
+  item: T,
+): T {
+  if (item.kind === "status") {
+    return {
+      ...item,
+      details: item.details ? { ...item.details } : undefined,
+    } as T;
+  }
+  if (item.kind === "message") {
+    return {
+      ...item,
+      revision: item.revision ? { ...item.revision } : undefined,
+    } as T;
+  }
+  return { ...item };
+}
+
+function extractTranscriptItemOrdinal(itemId: string) {
+  const match = /-(\d+)$/.exec(itemId);
+  if (!match) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(Number(match[1]) || 0));
+}
+
+function normalizeTranscriptPageLimit(value: unknown) {
+  return Math.max(
+    1,
+    Math.min(
+      ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+      Math.floor(Number(value || ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT)),
+    ),
+  );
+}
+
+function resetTranscriptItemMirror(state: AcpSkillRunTranscriptLiveState) {
+  state.itemsById.clear();
+  state.itemIds = [];
+  state.mirrorLoaded = false;
+}
+
+function resetTranscriptContinuityState(state: AcpSkillRunTranscriptLiveState) {
+  state.lastTextItem = undefined;
+  state.lastAssistantMessageId = undefined;
+  state.lastStatus = undefined;
+  state.permissionItemIds.clear();
+  state.toolItemIds.clear();
+  state.toolItems.clear();
+}
+
+function rememberTranscriptItemContinuity(
+  state: AcpSkillRunTranscriptLiveState,
+  item: AcpSkillRunTranscriptItem,
+) {
+  if (item.kind === "message" || item.kind === "thought") {
+    state.lastTextItem = {
+      id: item.id,
+      kind: item.kind,
+      role: item.kind === "message" ? item.role : "assistant",
+      state: item.state || "complete",
+    };
+    if (item.kind === "message" && item.role === "assistant") {
+      state.lastAssistantMessageId = item.id;
+    }
+    return;
+  }
+  if (item.kind === "status") {
+    state.lastStatus = {
+      id: item.id,
+      label: item.label,
+      text: item.text,
+    };
+    return;
+  }
+  if (item.kind === "permission") {
+    state.permissionItemIds.set(item.permissionRequestId, item.id);
+    return;
+  }
+  if (item.kind === "tool_call") {
+    state.toolItemIds.set(item.toolCallId, item.id);
+    state.toolItems.set(item.toolCallId, {
+      id: item.id,
+      title: item.title,
+      toolKind: item.toolKind,
+      toolName: item.toolName,
+      inputSummary: item.inputSummary,
+      summary: item.summary,
+    });
+  }
+}
+
+function ensureTranscriptMirrorForEvent(
+  state: AcpSkillRunTranscriptLiveState,
+) {
+  if (state.mirrorLoaded) {
+    return;
+  }
+  state.itemsById.clear();
+  state.itemIds = [];
+  state.mirrorLoaded = true;
+  state.needsHydrate = false;
+  state.hydrateState = undefined;
+  state.hydrateError = undefined;
+}
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "unknown");
+}
+
+function applyTranscriptEventToMirror(
+  state: AcpSkillRunTranscriptLiveState,
+  args: {
+    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+    itemId: string;
+    item?: AcpSkillRunTranscriptItem;
+    text?: string;
+    patch?: Partial<AcpSkillRunTranscriptItem>;
+    createdAt?: string;
+  },
+) {
+  ensureTranscriptMirrorForEvent(state);
+  if (args.op === "delete_item") {
+    state.itemsById.delete(args.itemId);
+    state.itemIds = state.itemIds.filter((itemId) => itemId !== args.itemId);
+    return;
+  }
+  if (args.op === "append_text") {
+    const current = state.itemsById.get(args.itemId);
+    if (
+      current &&
+      (current.kind === "message" || current.kind === "thought")
+    ) {
+      state.itemsById.set(args.itemId, {
+        ...current,
+        text: `${current.text || ""}${args.text || ""}`,
+        updatedAt: args.createdAt,
+      } as AcpSkillRunTranscriptItem);
+    }
+    return;
+  }
+  if (args.op === "patch_item") {
+    const current = state.itemsById.get(args.itemId);
+    if (current && args.patch) {
+      state.itemsById.set(args.itemId, {
+        ...current,
+        ...args.patch,
+        id: current.id,
+        kind: current.kind,
+      } as AcpSkillRunTranscriptItem);
+    }
+    return;
+  }
+  if (!args.item) {
+    return;
+  }
+  if (!state.itemsById.has(args.itemId)) {
+    state.itemIds.push(args.itemId);
+  }
+  state.itemsById.set(args.itemId, cloneAcpSkillRunTranscriptItem(args.item));
+}
+
+function readTranscriptMirrorPage(args: {
+  requestId: string;
+  state: AcpSkillRunTranscriptLiveState;
+  cursor?: number;
+  limit?: number;
+}): AcpSkillRunTranscriptPage & {
+  requestId: string;
+  transcriptRevision: number;
+} {
+  const limit = normalizeTranscriptPageLimit(args.limit);
+  const total = args.state.itemIds.length;
+  const requestedCursor =
+    typeof args.cursor === "number" && Number.isFinite(args.cursor)
+      ? Math.max(0, Math.floor(args.cursor))
+      : Math.max(0, total - limit);
+  const cursor = Math.min(requestedCursor, total);
+  const itemIds = args.state.itemIds.slice(cursor, cursor + limit);
+  const items = itemIds
+    .map((itemId) => args.state.itemsById.get(itemId))
+    .filter((item): item is AcpSkillRunTranscriptItem => !!item)
+    .map((item) => cloneAcpSkillRunTranscriptItem(item));
+  const prevCursor = cursor > 0 ? Math.max(0, cursor - limit) : undefined;
+  const nextCursor =
+    cursor + itemIds.length < total ? cursor + itemIds.length : undefined;
+  return {
+    requestId: args.requestId,
+    items,
+    cursor,
+    prevCursor,
+    nextCursor,
+    total,
+    eventSeq: args.state.eventSeq,
+    transcriptRevision: args.state.eventSeq,
+  };
+}
+
+function readTranscriptMirrorItems(
+  state: AcpSkillRunTranscriptLiveState,
+): AcpSkillRunTranscriptItem[] {
+  if (!state.mirrorLoaded) {
+    return [];
+  }
+  return state.itemIds
+    .map((itemId) => state.itemsById.get(itemId))
+    .filter((item): item is AcpSkillRunTranscriptItem => !!item)
+    .map((item) => cloneAcpSkillRunTranscriptItem(item));
+}
+
 function deriveAcpSkillRunRuntimeFileMetadata(record: AcpSkillRunRecord) {
   const transcriptPaths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
   const payloadRefs = resolveAcpSkillRunPayloadPaths(record.runtimeDir);
@@ -668,6 +880,9 @@ function getAcpSkillRunTranscriptLiveState(record: AcpSkillRunRecord) {
     state = {
       itemCount: Math.max(0, record.transcriptItemCount || 0),
       eventSeq: Math.max(0, record.transcriptEventSeq || 0),
+      itemsById: new Map(),
+      itemIds: [],
+      mirrorLoaded: false,
       permissionItemIds: new Map(),
       toolItemIds: new Map(),
       toolItems: new Map(),
@@ -675,6 +890,255 @@ function getAcpSkillRunTranscriptLiveState(record: AcpSkillRunRecord) {
     transcriptLiveStates.set(requestId, state);
   }
   return state;
+}
+
+function loadTranscriptMirrorFromItems(args: {
+  record: AcpSkillRunRecord;
+  state: AcpSkillRunTranscriptLiveState;
+  items: AcpSkillRunTranscriptItem[];
+  eventSeq: number;
+}) {
+  resetTranscriptItemMirror(args.state);
+  resetTranscriptContinuityState(args.state);
+  let maxOrdinal = 0;
+  for (const item of args.items) {
+    const cloned = cloneAcpSkillRunTranscriptItem(item);
+    if (!args.state.itemsById.has(cloned.id)) {
+      args.state.itemIds.push(cloned.id);
+    }
+    args.state.itemsById.set(cloned.id, cloned);
+    maxOrdinal = Math.max(maxOrdinal, extractTranscriptItemOrdinal(cloned.id));
+    rememberTranscriptItemContinuity(args.state, cloned);
+  }
+  args.state.mirrorLoaded = true;
+  args.state.needsHydrate = false;
+  args.state.hydrateState = undefined;
+  args.state.hydrateError = undefined;
+  args.state.itemCount = Math.max(
+    args.state.itemCount,
+    args.record.transcriptItemCount || 0,
+    args.items.length,
+    maxOrdinal,
+  );
+  args.state.eventSeq = Math.max(
+    args.state.eventSeq,
+    args.record.transcriptEventSeq || 0,
+    args.record.transcriptRevision || 0,
+    args.eventSeq,
+  );
+  args.record.transcriptRevision = args.state.eventSeq;
+  args.record.transcriptEventSeq = args.state.eventSeq;
+  args.record.transcriptItemCount = args.state.itemCount;
+  const latestPreview = [...args.state.itemIds]
+    .reverse()
+    .map((itemId) => args.state.itemsById.get(itemId))
+    .map((item) => (item ? transcriptPreviewFromItem(item) : undefined))
+    .find((preview) => !!preview);
+  if (latestPreview) {
+    args.record.transcriptPreview = latestPreview;
+  }
+}
+
+function hasDurableAcpSkillRunTranscript(
+  record: AcpSkillRunRecord,
+  state = transcriptLiveStates.get(record.requestId),
+) {
+  return (
+    !!normalizeString(record.runtimeDir) &&
+    Math.max(
+      0,
+      record.transcriptEventSeq || 0,
+      record.transcriptRevision || 0,
+      record.transcriptItemCount || 0,
+      state?.eventSeq || 0,
+      state?.itemCount || 0,
+    ) > 0
+  );
+}
+
+function isAcpSkillRunLifecycleOpen(record: AcpSkillRunRecord) {
+  if (record.removedAt || record.archivedAt) {
+    return false;
+  }
+  if (!isTerminalAcpSkillRunStatus(record.status)) {
+    return true;
+  }
+  if (record.activePrompt) {
+    return true;
+  }
+  if (record.applyResultState === "pending") {
+    return true;
+  }
+  if (record.pendingInteraction || record.pendingPermission) {
+    return true;
+  }
+  if (record.replyState === "submitted" || record.replyState === "accepted") {
+    return true;
+  }
+  if (
+    record.connectionActionState === "connecting" ||
+    record.connectionActionState === "disconnecting"
+  ) {
+    return true;
+  }
+  return (
+    record.conversationRecoveryState === "connecting" ||
+    record.conversationRecoveryState === "connected"
+  );
+}
+
+function shouldRetainAcpSkillRunTranscriptMirror(record: AcpSkillRunRecord) {
+  return (
+    record.requestId === selectedRequestId || isAcpSkillRunLifecycleOpen(record)
+  );
+}
+
+function releaseAcpSkillRunTranscriptMirror(
+  record: AcpSkillRunRecord,
+  state: AcpSkillRunTranscriptLiveState,
+) {
+  const hasDurableTranscript = hasDurableAcpSkillRunTranscript(record, state);
+  resetTranscriptItemMirror(state);
+  resetTranscriptContinuityState(state);
+  state.needsHydrate = hasDurableTranscript;
+  state.hydrateState = undefined;
+  state.hydrateError = undefined;
+}
+
+function pruneInactiveAcpSkillRunTranscriptMirrors() {
+  for (const [requestId, state] of transcriptLiveStates.entries()) {
+    const record = runRecords.get(requestId);
+    if (!record || shouldRetainAcpSkillRunTranscriptMirror(record)) {
+      continue;
+    }
+    releaseAcpSkillRunTranscriptMirror(record, state);
+  }
+}
+
+async function readFullTranscriptFromStore(record: AcpSkillRunRecord) {
+  const items: AcpSkillRunTranscriptItem[] = [];
+  let cursor: number | undefined = 0;
+  let eventSeq = 0;
+  do {
+    const page = await readAcpSkillRunTranscriptPageFromStore({
+      runtimeDir: record.runtimeDir,
+      cursor,
+      limit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+    });
+    eventSeq = Math.max(eventSeq, page.eventSeq || 0);
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (typeof cursor === "number");
+  return { items, eventSeq };
+}
+
+export async function hydrateAcpSkillRunTranscriptMirror(
+  requestIdRaw: string,
+) {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  if (!record) {
+    return null;
+  }
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  if (state.hydratePromise) {
+    await state.hydratePromise;
+    return readTranscriptMirrorPage({
+      requestId,
+      state,
+      cursor: 0,
+      limit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+    });
+  }
+  const runtimeDir = normalizeString(record.runtimeDir);
+  const hydrate = (async () => {
+    state.hydrateState = "loading";
+    state.hydrateError = undefined;
+    if (runtimeDir) {
+      await flushAcpSkillRunTranscriptWriteBatch(runtimeDir);
+    }
+    const { items, eventSeq } = await readFullTranscriptFromStore(record);
+    loadTranscriptMirrorFromItems({
+      record,
+      state,
+      items,
+      eventSeq,
+    });
+    setAcpSkillRunRecord(record);
+    return readTranscriptMirrorPage({
+      requestId,
+      state,
+      cursor: 0,
+      limit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+    });
+  })();
+  state.hydratePromise = hydrate;
+  try {
+    return await hydrate;
+  } catch (error) {
+    state.hydrateState = "failed";
+    state.hydrateError = errorText(error);
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "acp-skill-run-store",
+      operation: "hydrate-transcript-mirror",
+      stage: "hydrate-failed",
+      requestId,
+      message: state.hydrateError,
+    });
+    throw error;
+  } finally {
+    state.hydratePromise = undefined;
+  }
+}
+
+function scheduleAcpSkillRunTranscriptHydrate(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  if (!record) {
+    return;
+  }
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  if (
+    state.mirrorLoaded ||
+    state.hydratePromise ||
+    !hasDurableAcpSkillRunTranscript(record, state)
+  ) {
+    return;
+  }
+  void hydrateAcpSkillRunTranscriptMirror(requestId)
+    .catch(() => undefined)
+    .finally(() => {
+      emitChanged();
+    });
+}
+
+function selectedTranscriptStateForRun(
+  record: AcpSkillRunRecord | undefined,
+) {
+  if (!record) {
+    return undefined;
+  }
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  if (state.mirrorLoaded || !hasDurableAcpSkillRunTranscript(record, state)) {
+    return {
+      requestId: record.requestId,
+      state: "ready" as const,
+    };
+  }
+  if (state.hydrateState === "failed") {
+    return {
+      requestId: record.requestId,
+      state: "failed" as const,
+      error: state.hydrateError,
+    };
+  }
+  return {
+    requestId: record.requestId,
+    state: "loading" as const,
+  };
 }
 
 function nextTranscriptItemId(
@@ -692,9 +1156,9 @@ function applyTranscriptMetadata(
     textPreview?: string;
     newItem?: boolean;
   } = {},
+  state = getAcpSkillRunTranscriptLiveState(record),
 ) {
   const paths = resolveAcpSkillRunTranscriptPaths(record.runtimeDir);
-  const state = getAcpSkillRunTranscriptLiveState(record);
   state.eventSeq += 1;
   if (args.newItem) {
     state.itemCount += 1;
@@ -711,6 +1175,7 @@ function applyTranscriptMetadata(
   if (preview) {
     record.transcriptPreview = preview;
   }
+  return state;
 }
 
 function queueTranscriptEvent(
@@ -726,38 +1191,156 @@ function queueTranscriptEvent(
     textPreview?: string;
   },
 ) {
-  applyTranscriptMetadata(record, {
-    item: args.item,
-    textPreview: args.textPreview,
-    newItem: args.newItem,
-  });
-  emitAcpSkillRunTranscriptDelta({
-    requestId: record.requestId,
-    eventSeq: record.transcriptEventSeq || 0,
-    transcriptRevision: record.transcriptRevision || 0,
-    op: args.op,
-    itemId: args.itemId,
-    item: args.item,
-    text: args.text,
-    patch: args.patch,
-    createdAt: args.createdAt,
-  });
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  const hadPersistedTranscript =
+    hasDurableAcpSkillRunTranscript(record, state) ||
+    state.eventSeq > 0 ||
+    state.itemCount > 0 ||
+    (record.transcriptEventSeq || 0) > 0 ||
+    (record.transcriptItemCount || 0) > 0;
+  applyTranscriptMetadata(
+    record,
+    {
+      item: args.item,
+      textPreview: args.textPreview,
+      newItem: args.newItem,
+    },
+    state,
+  );
+  if (!state.mirrorLoaded && hadPersistedTranscript) {
+    if (hasDurableAcpSkillRunTranscript(record, state)) {
+      resetTranscriptContinuityState(state);
+      state.needsHydrate = true;
+      state.hydrateState = undefined;
+      state.hydrateError = undefined;
+      if (normalizeString(record.runtimeDir)) {
+        queueAcpSkillRunTranscriptPersistence(record.runtimeDir, {
+          seq: record.transcriptEventSeq || state.eventSeq,
+          op: args.op,
+          itemId: args.itemId,
+          item: args.item,
+          text: args.text,
+          patch: args.patch,
+          createdAt: args.createdAt,
+        });
+      }
+      return;
+    }
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "acp-skill-run-store",
+      operation: "queue-transcript-event",
+      stage: "transcript-mirror-not-hydrated",
+      requestId: record.requestId,
+      message:
+        "ACP Skills transcript event was queued before an existing transcript mirror was hydrated.",
+      details: {
+        transcriptRevision: record.transcriptRevision || 0,
+        transcriptEventSeq: record.transcriptEventSeq || 0,
+      },
+    });
+  }
+  applyTranscriptEventToMirror(
+    state,
+    {
+      op: args.op,
+      itemId: args.itemId,
+      item: args.item,
+      text: args.text,
+      patch: args.patch,
+      createdAt: args.createdAt,
+    },
+  );
   if (!normalizeString(record.runtimeDir)) {
     return;
   }
-  const write = appendAcpSkillRunTranscriptEvent({
-    runtimeDir: record.runtimeDir,
+  queueAcpSkillRunTranscriptPersistence(record.runtimeDir, {
+    seq: record.transcriptEventSeq || state.eventSeq,
     op: args.op,
     itemId: args.itemId,
     item: args.item,
     text: args.text,
     patch: args.patch,
     createdAt: args.createdAt,
-  }).catch(() => undefined);
-  runtimeFileWrites.add(write);
-  void write.finally(() => {
-    runtimeFileWrites.delete(write);
   });
+}
+
+function queueAcpSkillRunTranscriptPersistence(
+  runtimeDirRaw: string | undefined,
+  event: AcpSkillRunTranscriptEventInput,
+) {
+  const runtimeDir = normalizeString(runtimeDirRaw);
+  if (!runtimeDir) {
+    return;
+  }
+  let batch = transcriptWriteBatches.get(runtimeDir);
+  if (!batch) {
+    batch = {
+      events: [],
+      timer: null,
+      flushing: null,
+    };
+    transcriptWriteBatches.set(runtimeDir, batch);
+  }
+  batch.events.push(event);
+  if (batch.timer || batch.flushing) {
+    return;
+  }
+  batch.timer = setTimeout(() => {
+    const current = transcriptWriteBatches.get(runtimeDir);
+    if (current) {
+      current.timer = null;
+    }
+    const write = flushAcpSkillRunTranscriptWriteBatch(runtimeDir).catch(
+      () => undefined,
+    );
+    runtimeFileWrites.add(write);
+    void write.finally(() => {
+      runtimeFileWrites.delete(write);
+    });
+  }, 50);
+}
+
+async function flushAcpSkillRunTranscriptWriteBatch(runtimeDir: string) {
+  const batch = transcriptWriteBatches.get(runtimeDir);
+  if (!batch) {
+    return;
+  }
+  if (batch.flushing) {
+    await batch.flushing;
+    return;
+  }
+  if (batch.timer) {
+    clearTimeout(batch.timer);
+    batch.timer = null;
+  }
+  batch.flushing = (async () => {
+    while (batch.events.length > 0) {
+      const events = batch.events.splice(0, batch.events.length);
+      await appendAcpSkillRunTranscriptEvents({
+        runtimeDir,
+        events,
+      }).catch(() => undefined);
+    }
+  })();
+  try {
+    await batch.flushing;
+  } finally {
+    batch.flushing = null;
+    if (batch.events.length === 0 && !batch.timer) {
+      transcriptWriteBatches.delete(runtimeDir);
+    }
+  }
+}
+
+async function flushAcpSkillRunTranscriptWriteBatches() {
+  const flushes = Array.from(transcriptWriteBatches.keys()).map((runtimeDir) =>
+    flushAcpSkillRunTranscriptWriteBatch(runtimeDir),
+  );
+  if (flushes.length > 0) {
+    await Promise.all(flushes);
+  }
 }
 
 function hasLargeAcpSkillRunPayload(raw: Record<string, unknown>) {
@@ -946,13 +1529,16 @@ function syncWaitingUserDetachTimer(record: AcpSkillRunRecord) {
 }
 
 function publishPendingAcpSkillRunTranscripts() {
-  // Transcript pages are loaded asynchronously from JSONL; there is no
-  // in-memory published transcript mirror to flush.
+  // The store-owned mirror is updated synchronously before transcript deltas
+  // are emitted; JSONL writes remain asynchronous persistence only.
 }
 
 function cloneAcpSkillRunRecord(record: AcpSkillRunRecord) {
   return {
     ...record,
+    transcriptItems: record.transcriptItems?.map((item) =>
+      cloneAcpSkillRunTranscriptItem(item),
+    ),
     pendingInteraction: record.pendingInteraction
       ? { ...record.pendingInteraction }
       : undefined,
@@ -978,8 +1564,35 @@ function projectAcpSkillRunMetadataRecord(record: AcpSkillRunRecord) {
   return cloned as AcpSkillRunRecord;
 }
 
-function projectAcpSkillRunRecordForPanel(record: AcpSkillRunRecord) {
-  return projectAcpSkillRunMetadataRecord(record);
+function projectAcpSkillRunRecordForPanel(
+  record: AcpSkillRunRecord,
+  options?: { includeTranscriptItems?: boolean },
+) {
+  const projected = projectAcpSkillRunMetadataRecord(record);
+  if (options?.includeTranscriptItems) {
+    projected.transcriptItems = readTranscriptMirrorItems(
+      getAcpSkillRunTranscriptLiveState(record),
+    );
+  }
+  return projected;
+}
+
+function isSelectableAcpSkillRunRecord(record: AcpSkillRunRecord | undefined) {
+  return !!record && !record.removedAt && !record.archivedAt;
+}
+
+function resolveAcpSkillRunPanelSelectedRecord(args: {
+  requested?: string;
+  runs: AcpSkillRunSummary[];
+}) {
+  const requestedRecord = args.requested
+    ? runRecords.get(args.requested)
+    : undefined;
+  if (isSelectableAcpSkillRunRecord(requestedRecord)) {
+    return requestedRecord;
+  }
+  const fallbackId = args.runs[0]?.requestId || "";
+  return fallbackId ? runRecords.get(fallbackId) : undefined;
 }
 
 function deleteAcpSkillRunRecord(requestId: string) {
@@ -1758,8 +2371,10 @@ function persistAcpSkillRunRuntimeFiles(
 }
 
 export async function flushAcpSkillRunRuntimeFileWrites() {
+  await flushAcpSkillRunTranscriptWriteBatches();
   while (runtimeFileWrites.size > 0) {
     await Promise.all(Array.from(runtimeFileWrites)).catch(() => undefined);
+    await flushAcpSkillRunTranscriptWriteBatches();
   }
 }
 
@@ -2423,6 +3038,7 @@ export function upsertAcpSkillRun(update: {
   }
   setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
+  pruneInactiveAcpSkillRunTranscriptMirrors();
   persistRun(next, {
     writeRunContext: updateTouchesAcpSkillRunContext(
       update as Record<string, unknown>,
@@ -3723,6 +4339,7 @@ export async function replyAcpSkillRun(args: {
     });
     throw new Error("No active ACP conversation controller is available.");
   }
+  await hydrateAcpSkillRunTranscriptMirror(requestId);
   upsertAcpSkillRun({
     requestId,
     replyState: "accepted",
@@ -4178,9 +4795,13 @@ export function markAcpSkillRunApplyResult(args: {
   }
 }
 
-export function selectAcpSkillRun(requestIdRaw: string) {
+export async function selectAcpSkillRun(requestIdRaw: string) {
   ensureHydrated();
   selectedRequestId = normalizeString(requestIdRaw);
+  if (selectedRequestId) {
+    scheduleAcpSkillRunTranscriptHydrate(selectedRequestId);
+  }
+  pruneInactiveAcpSkillRunTranscriptMirrors();
   emitChanged();
 }
 
@@ -4297,6 +4918,30 @@ export function getAcpSkillRunSummaryDiagnosticsForTests() {
   return { ...acpSkillRunSummaryDiagnostics };
 }
 
+export function getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+  requestIdRaw: string,
+) {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const state = requestId ? transcriptLiveStates.get(requestId) : undefined;
+  if (!state) {
+    return {
+      mirrorLoaded: false,
+      itemCount: 0,
+      eventSeq: 0,
+      needsHydrate: false,
+      hydrateState: undefined,
+    };
+  }
+  return {
+    mirrorLoaded: state.mirrorLoaded,
+    itemCount: state.itemIds.length,
+    eventSeq: state.eventSeq,
+    needsHydrate: state.needsHydrate === true,
+    hydrateState: state.hydrateState,
+  };
+}
+
 export function resetAcpSkillRunSummaryDiagnosticsForTests() {
   acpSkillRunSummaryDiagnostics.summaryQueryCount = 0;
   acpSkillRunSummaryDiagnostics.fullRunRecordScanCount = 0;
@@ -4369,42 +5014,6 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
   return projectAcpSkillRunMetadataRecord(entry);
 }
 
-export async function readAcpSkillRunTranscriptPage(args: {
-  requestId: string;
-  cursor?: number;
-  limit?: number;
-}): Promise<
-  AcpSkillRunTranscriptPage & {
-    requestId: string;
-    transcriptRevision: number;
-  }
-> {
-  ensureHydrated();
-  const requestId = normalizeString(args.requestId);
-  const record = requestId ? runRecords.get(requestId) : undefined;
-  if (!record) {
-    return {
-      requestId,
-      items: [],
-      cursor: 0,
-      total: 0,
-      eventSeq: 0,
-      transcriptRevision: 0,
-    };
-  }
-  await flushAcpSkillRunRuntimeFileWrites();
-  const page = await readAcpSkillRunTranscriptPageFromStore({
-    runtimeDir: record.runtimeDir,
-    cursor: args.cursor,
-    limit: args.limit,
-  });
-  return {
-    ...page,
-    requestId,
-    transcriptRevision: record.transcriptRevision || page.eventSeq,
-  };
-}
-
 function findTaskForRun(run: AcpSkillRunRecord) {
   const requestId = normalizeString(run.requestId);
   if (!requestId) {
@@ -4462,6 +5071,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
 export function buildAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
 }): AcpSkillRunPanelSnapshot {
+  ensureHydrated();
   const listedRuns = listAcpSkillRunSummaries({
     limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
   });
@@ -4469,19 +5079,14 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
   let runs = listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   const requested =
     normalizeString(args?.selectedRequestId) || selectedRequestId;
-  const requestedRecord = requested ? getAcpSkillRunRecord(requested) : null;
-  const selected =
-    (requestedRecord &&
-    !requestedRecord.removedAt &&
-    !requestedRecord.archivedAt
-      ? requestedRecord
-      : null) ||
-    (runs[0] ? getAcpSkillRunRecord(runs[0].requestId) : null) ||
-    undefined;
+  const requestedRecord = requested ? runRecords.get(requested) : undefined;
+  const selected = resolveAcpSkillRunPanelSelectedRecord({
+    requested,
+    runs,
+  });
   if (
     requestedRecord &&
-    !requestedRecord.removedAt &&
-    !requestedRecord.archivedAt &&
+    isSelectableAcpSkillRunRecord(requestedRecord) &&
     !runs.some((run) => run.requestId === requestedRecord.requestId)
   ) {
     runs = [
@@ -4536,6 +5141,7 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     generatedAt: nowIso(),
     labels,
     selectedRequestId: snapshotSelectedRequestId,
+    selectedTranscript: selectedTranscriptStateForRun(selected),
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),
@@ -4561,7 +5167,9 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     },
     runs,
     selectedRun: selected
-      ? projectAcpSkillRunRecordForPanel(selected)
+      ? projectAcpSkillRunRecordForPanel(selected, {
+          includeTranscriptItems: true,
+        })
       : undefined,
     selectedRuntimeOptions: selected
       ? runtimeOptionsForRun(selected)
@@ -4569,6 +5177,25 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
     selectedTask,
     logs,
   };
+}
+
+export async function prepareAcpSkillRunPanelSnapshot(args?: {
+  selectedRequestId?: string;
+}): Promise<AcpSkillRunPanelSnapshot> {
+  ensureHydrated();
+  const listedRuns = listAcpSkillRunSummaries({
+    limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
+  });
+  const requested =
+    normalizeString(args?.selectedRequestId) || selectedRequestId;
+  const selected = resolveAcpSkillRunPanelSelectedRecord({
+    requested,
+    runs: listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT),
+  });
+  if (selected) {
+    scheduleAcpSkillRunTranscriptHydrate(selected.requestId);
+  }
+  return buildAcpSkillRunPanelSnapshot(args);
 }
 
 export function subscribeAcpSkillRunSnapshots(listener: AcpSkillRunListener) {
@@ -4580,13 +5207,22 @@ export function subscribeAcpSkillRunSnapshots(listener: AcpSkillRunListener) {
 
 export async function shutdownAcpSkillRunConversations() {
   const entries = Array.from(controllers.entries());
-  for (const [requestId, controller] of entries) {
-    try {
-      if (controller.disconnect) {
-        await controller.disconnect();
-      } else {
-        registerAcpSkillRunController(requestId, null);
+  await Promise.allSettled(
+    entries.map(async ([requestId, controller]) => {
+      let timedOut = false;
+      let disconnectError: unknown = null;
+      try {
+        if (controller.disconnect) {
+          const result = await waitForAcpSkillRunShutdownTask(
+            controller.disconnect(),
+          );
+          timedOut = result.timedOut;
+          disconnectError = "error" in result ? result.error : null;
+        }
+      } catch (error) {
+        disconnectError = error;
       }
+      registerAcpSkillRunController(requestId, null);
       upsertAcpSkillRun({
         requestId,
         activePrompt: false,
@@ -4594,26 +5230,33 @@ export async function shutdownAcpSkillRunConversations() {
         conversationRecoveryState: "available",
         connectionActionState: "idle",
         event: {
-          stage: "conversation-detached",
+          stage: timedOut
+            ? "conversation-detach-timeout"
+            : disconnectError
+              ? "conversation-detach-error"
+              : "conversation-detached",
           message:
-            "ACP skill run local controller detached during shutdown; remote session remains recoverable.",
-          level: "info",
+            timedOut || disconnectError
+              ? "ACP skill run local controller detach did not complete cleanly during shutdown; remote session remains recoverable."
+              : "ACP skill run local controller detached during shutdown; remote session remains recoverable.",
+          level: timedOut || disconnectError ? "warn" : "info",
+          details:
+            timedOut || disconnectError
+              ? {
+                  timeoutMs: timedOut
+                    ? ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS
+                    : undefined,
+                  error: disconnectError
+                    ? String(
+                        (disconnectError as Error)?.message || disconnectError,
+                      )
+                    : undefined,
+                }
+              : undefined,
         },
       });
-    } catch {
-      upsertAcpSkillRun({
-        requestId,
-        activePrompt: false,
-        conversationState: "error",
-        conversationRecoveryState: "failed",
-        event: {
-          stage: "conversation-error",
-          message: "ACP skill run conversation shutdown failed.",
-          level: "error",
-        },
-      });
-    }
-  }
+    }),
+  );
 }
 
 export function resetAcpSkillRunsForTests() {

@@ -64,7 +64,7 @@ type RunSeamDeps = {
   recordTaskDashboardHistoryFromJob: typeof recordTaskDashboardHistoryFromJob;
   openAssistantWorkspaceSidebar: typeof openAssistantWorkspaceSidebar;
   focusSkillRunnerWorkspace: typeof focusSkillRunnerWorkspace;
-  selectAcpSkillRun: typeof selectAcpSkillRun;
+  selectAcpSkillRun: (requestId: string) => void | Promise<void>;
   getLoadedWorkflowEntries: typeof getLoadedWorkflowEntries;
   executeSequenceStepApply: typeof executeSequenceStepApply;
 };

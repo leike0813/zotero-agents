@@ -111,6 +111,8 @@ export type AcpTransportLifecycle = {
   closedAt?: string;
   closeRequestedAt?: string;
   cleanupKillRequestedAt?: string;
+  cleanupKillTimedOutAt?: string;
+  closeTimedOut?: boolean;
   exitCode: number | null;
   exitSource: AcpTransportExitSource;
   killedByClose: boolean;
@@ -150,6 +152,7 @@ export type AcpTransportDiagnosticCaptureOptions = {
 const ACP_STDERR_MAX_CHARS = 64 * 1024;
 const ACP_PIPE_DRAIN_TIMEOUT_MS = 2_000;
 const ACP_TRANSPORT_CLOSE_GRACE_MS = 250;
+const ACP_TRANSPORT_KILL_WAIT_MS = 1_000;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -609,6 +612,21 @@ function cloneLifecycleState(
   return { ...lifecycle };
 }
 
+async function waitForCleanupKillExit(args: {
+  waitForExit: (timeoutMs: number) => Promise<boolean>;
+  lifecycle: AcpTransportLifecycle;
+  timeoutMs?: number;
+}) {
+  const settled = await args.waitForExit(
+    args.timeoutMs ?? ACP_TRANSPORT_KILL_WAIT_MS,
+  );
+  if (!settled) {
+    args.lifecycle.closeTimedOut = true;
+    args.lifecycle.cleanupKillTimedOutAt ||= nowIso();
+  }
+  return settled;
+}
+
 async function waitForPromiseWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -764,7 +782,7 @@ async function launchMozillaAcpTransport(
       } catch {
         // ignore
       }
-      await closed;
+      await waitForCleanupKillExit({ waitForExit, lifecycle });
     },
     closed,
     waitForExit,
@@ -1029,7 +1047,7 @@ async function launchNodeAcpTransport(
       } catch {
         // ignore
       }
-      await closed;
+      await waitForCleanupKillExit({ waitForExit, lifecycle });
     },
     closed,
     waitForExit,
@@ -1453,11 +1471,16 @@ async function launchWebSocketBridgeAcpTransport(
       } catch {
         // ignore close errors
       }
-      await closedPromise;
-      emitAudit("transport_close_completed", {
-        exitCode: lifecycle.exitCode,
-        exitSource: lifecycle.exitSource,
-      });
+      if (await waitForCleanupKillExit({ waitForExit, lifecycle })) {
+        emitAudit("transport_close_completed", {
+          exitCode: lifecycle.exitCode,
+          exitSource: lifecycle.exitSource,
+        });
+      } else {
+        emitAudit("transport_close_timed_out", {
+          cleanupKillTimedOutAt: lifecycle.cleanupKillTimedOutAt,
+        });
+      }
     },
     closed: closedPromise,
     waitForExit,

@@ -89,6 +89,7 @@ import {
   completeAcpSkillRunTranscriptTurnBoundary,
   flushAcpSkillRunRuntimeFileWrites,
   getAcpSkillRunRecord,
+  hydrateAcpSkillRunTranscriptMirror,
   isRecoverablePromptFailure,
   markAcpSkillRunApplyResult,
   projectAcpSkillRunOutputEnvelopeToTranscript,
@@ -2272,7 +2273,7 @@ export async function recoverAcpSkillRunConversation(args: {
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
-  await flushAcpSkillRunRuntimeFileWrites();
+  await hydrateAcpSkillRunTranscriptMirror(requestId);
   const recoveredContext = await readAcpSkillRunContextPayload(
     record.runtimeDir,
   );

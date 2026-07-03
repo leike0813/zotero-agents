@@ -8,9 +8,9 @@ import {
   getAcpSkillRunRecord,
   hasAcpSkillRunController,
   markAcpSkillRunApplyResult,
+  prepareAcpSkillRunPanelSnapshot,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
-  readAcpSkillRunTranscriptPage,
   registerAcpSkillRunController,
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
@@ -350,7 +350,7 @@ describe("ACP runtime memory governance", function () {
       const snapshot = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory",
       }) as any;
-      assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
+      assert.property(snapshot.selectedRun || {}, "transcriptItems");
       assert.notProperty(snapshot.selectedRun || {}, "outputRevisions");
       assert.notProperty(snapshot.selectedRun || {}, "requestPayload");
       assert.notProperty(snapshot.selectedRun || {}, "runnerJson");
@@ -360,13 +360,13 @@ describe("ACP runtime memory governance", function () {
         snapshot.selectedRun?.pendingInteraction || {},
         "candidateText",
       );
-      const page = await readAcpSkillRunTranscriptPage({
-        requestId: "req-runtime-memory",
-        limit: 20,
+      const prepared = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "req-runtime-memory",
       });
-      assert.isAtLeast(page.items.length, 1);
+      const items = prepared.selectedRun?.transcriptItems || [];
+      assert.isAtLeast(items.length, 1);
       assert.isTrue(
-        page.items.some(
+        items.some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("Need input"),
@@ -457,11 +457,11 @@ describe("ACP runtime memory governance", function () {
         ),
         "small candidate",
       );
-      const page = await readAcpSkillRunTranscriptPage({
-        requestId: "req-runtime-memory-small",
+      const snapshot = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "req-runtime-memory-small",
       });
       assert.isTrue(
-        page.items.some(
+        (snapshot.selectedRun?.transcriptItems || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("Small pending"),

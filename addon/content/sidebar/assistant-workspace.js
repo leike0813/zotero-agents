@@ -1,3 +1,4 @@
+/* global window, document */
 (function () {
   "use strict";
 
@@ -208,29 +209,24 @@
     return Object.assign({}, source, { hostMode: "sidebar" });
   }
 
-  function ensureSkillRunnerSidebarLayout() {
-    const cached = state.latestChildPayloads.get("skillrunner");
-    if (cached && cached.init) return;
-    const payload = normalizeSkillRunnerSidebarPayload({});
-    cacheChildPayload("skillrunner", "init", payload);
-    postToChild("skillrunner", "init", payload);
-  }
-
   function replayCachedChildPayload(tab) {
     const cached = state.latestChildPayloads.get(tab);
     if (!cached) return;
-    if (tab === "skillrunner" && !cached.init) {
-      ensureSkillRunnerSidebarLayout();
-    }
     if (cached.init) postToChild(tab, "init", cached.init);
     if (cached.snapshot) postToChild(tab, "snapshot", cached.snapshot);
   }
 
-  function announceInitializedChildFramesReady() {
-    tabs.forEach(function (tab) {
-      if (!state.initializedFrames.has(tab)) return;
-      sendChildAction(tab, "ready", {});
-    });
+  function acceptChildReady(tab, payload) {
+    const normalizedTab = normalizeTab(tab, state.activeTab);
+    const firstReady = !state.initializedFrames.has(normalizedTab);
+    installChildBridge(normalizedTab);
+    state.loadedFrames.add(normalizedTab);
+    state.initializedFrames.add(normalizedTab);
+    replayCachedChildPayload(normalizedTab);
+    updateLoadingState();
+    if (firstReady) {
+      sendChildAction(normalizedTab, "ready", payload || {});
+    }
   }
 
   function normalizeTab(tab, fallback) {
@@ -268,22 +264,11 @@
   }
 
   function initializeFrame(tab) {
-    installChildBridge(tab);
-    replayCachedChildPayload(tab);
-    if (tab === "skillrunner") {
-      ensureSkillRunnerSidebarLayout();
-    }
-    if (state.initializedFrames.has(tab)) {
-      return;
-    }
-    state.initializedFrames.add(tab);
-    sendChildAction(tab, "ready", {});
+    acceptChildReady(tab, {});
   }
 
   function handleFrameLoad(tab) {
-    state.loadedFrames.add(tab);
     initializeFrame(tab);
-    updateLoadingState();
   }
 
   function attachFrameLoadListeners() {
@@ -299,15 +284,31 @@
   window.addEventListener("message", function (event) {
     const data = event.data || {};
     if (data.type === "acp:action") {
+      if (data.action === "ready") {
+        acceptChildReady("acp-chat", data.payload || {});
+        return;
+      }
       sendChildAction("acp-chat", data.action || "", data.payload || {});
       return;
     }
     if (data.type === "acp-skill-run:action") {
+      if (data.action === "ready") {
+        acceptChildReady("acp-skills", data.payload || {});
+        return;
+      }
       sendChildAction("acp-skills", data.action || "", data.payload || {});
       return;
     }
     if (data.type === "skillrunner-sidebar:action") {
+      if (data.action === "ready") {
+        acceptChildReady("skillrunner", data.payload || {});
+        return;
+      }
       sendChildAction("skillrunner", data.action || "", data.payload || {});
+      return;
+    }
+    if (data.type === "run-dialog:action" && data.action === "ready") {
+      acceptChildReady("skillrunner", data.payload || {});
       return;
     }
     if (data.type === "skillrunner-sidebar:init") {
@@ -327,7 +328,6 @@
         notify: false,
         fallback: state.activeTab,
       });
-      announceInitializedChildFramesReady();
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {

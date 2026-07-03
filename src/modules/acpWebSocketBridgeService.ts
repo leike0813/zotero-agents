@@ -75,6 +75,7 @@ const BRIDGE_RELATIVE_PATH = "bin/win32-x64/zotero-acp-bridge.exe";
 const BRIDGE_SHA_RELATIVE_PATH = "bin/win32-x64/zotero-acp-bridge.exe.sha256";
 const BRIDGE_RUNTIME_DIR = ["tmp", "acp-websocket-bridge"];
 const BRIDGE_READY_TIMEOUT_MS = 5_000;
+const BRIDGE_SHUTDOWN_WAIT_MS = 1_000;
 
 let bridgeServicePromise: Promise<AcpWebSocketBridgeService> | null = null;
 let bridgeService: AcpWebSocketBridgeService | null = null;
@@ -190,6 +191,24 @@ async function waitForReadyFile(path: string) {
       -500,
     )}`,
   );
+}
+
+async function waitForBridgeCloseWithTimeout(
+  closed: Promise<void>,
+  timeoutMs = BRIDGE_SHUTDOWN_WAIT_MS,
+) {
+  if (timeoutMs <= 0) {
+    return false;
+  }
+  return Promise.race([
+    closed.then(
+      () => true,
+      () => true,
+    ),
+    new Promise<boolean>((resolve) => {
+      setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
 }
 
 async function resolveBridgeBinary(runtimeRoot: string) {
@@ -346,18 +365,23 @@ export function getAcpWebSocketBridgeSnapshot(): AcpWebSocketBridgeSnapshot | nu
   };
 }
 
-export async function resetAcpWebSocketBridgeServiceForTests() {
+export async function shutdownAcpWebSocketBridgeService() {
   const service = bridgeService;
   bridgeService = null;
   bridgeServicePromise = null;
-  bridgeTestOverrides = {};
-  if (service && !bridgeTestOverrides.service) {
+  if (service) {
     try {
       service.proc.kill?.(0);
     } catch {
-      // ignore cleanup errors in tests
+      // Bridge shutdown is best-effort.
     }
+    await waitForBridgeCloseWithTimeout(service.closed);
   }
+}
+
+export async function resetAcpWebSocketBridgeServiceForTests() {
+  await shutdownAcpWebSocketBridgeService();
+  bridgeTestOverrides = {};
 }
 
 export function seedAcpWebSocketBridgeServiceForTests(
@@ -432,5 +456,6 @@ export const acpWebSocketBridgeServiceInternalsForTests = {
   parseBridgeSha256Text,
   buildBridgeRuntimeBinaryPath,
   waitForReadyFile,
+  waitForBridgeCloseWithTimeout,
   shouldUseAcpWebSocketBridgeTransport,
 };

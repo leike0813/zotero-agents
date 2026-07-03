@@ -24,6 +24,7 @@ import {
   resetAcpWebSocketBridgeServiceForTests,
   seedAcpWebSocketBridgeServiceForTests,
   setAcpWebSocketBridgeTestOverridesForTests,
+  shutdownAcpWebSocketBridgeService,
   type AcpWebSocketBridgeService,
 } from "../../src/modules/acpWebSocketBridgeService";
 import { resolveWindowsCommandFromPowerShell } from "../../src/modules/windowsCommandResolution";
@@ -642,6 +643,91 @@ describe("acp transport", function () {
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
     }
+  });
+
+  it("bounds Mozilla subprocess transport close after cleanup kill", async function () {
+    let killCount = 0;
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async () => "C:\\Tools\\agent.exe",
+          call: async () => ({
+            stdin: {
+              write: async () => undefined,
+              close: async () => undefined,
+            },
+            stdout: {
+              readString: async () => "",
+            },
+            stderr: {
+              readString: async () => "",
+            },
+            wait: async () => new Promise(() => undefined),
+            kill: () => {
+              killCount += 1;
+            },
+          }),
+        },
+      }),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: true,
+    });
+
+    try {
+      const transport = await launchAcpTransport({
+        backend: {
+          id: "acp-test",
+          displayName: "ACP Test",
+          type: "acp",
+          baseUrl: "local://acp-test",
+          command: "agent",
+          args: ["acp"],
+        } as BackendInstance,
+        cwd: "D:\\ZoteroData",
+      });
+      const startedAt = Date.now();
+
+      await transport.close({ graceMs: 0 });
+
+      assert.isBelow(Date.now() - startedAt, 1600);
+      assert.equal(killCount, 1);
+      assert.include(transport.getLifecycle(), {
+        killedByClose: true,
+        closeTimedOut: true,
+      });
+      assert.isString(transport.getLifecycle().cleanupKillTimedOutAt);
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("bounds ACP WebSocket bridge service shutdown when process wait never settles", async function () {
+    let killCount = 0;
+    const service = {
+      url: "ws://127.0.0.1:34567/v1/acp?token=test-secret-token",
+      pid: 4242,
+      proc: {
+        wait: async () => new Promise(() => undefined),
+        kill: () => {
+          killCount += 1;
+        },
+      },
+      binaryPath: "D:\\Runtime\\bin\\zotero-acp-bridge.exe",
+      readyFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\ready.json",
+      logFile: "D:\\Runtime\\tmp\\acp-websocket-bridge\\bridge.log",
+      startedAt: "2026-06-28T00:00:00.000Z",
+      closed: new Promise<void>(() => undefined),
+    } as AcpWebSocketBridgeService;
+    seedAcpWebSocketBridgeServiceForTests(service);
+    const startedAt = Date.now();
+
+    await shutdownAcpWebSocketBridgeService();
+
+    assert.isBelow(Date.now() - startedAt, 1600);
+    assert.equal(killCount, 1);
+    assert.isNull(getAcpWebSocketBridgeSnapshot());
   });
 
   it("uses the Windows ACP WebSocket bridge when enabled in Zotero runtime", async function () {

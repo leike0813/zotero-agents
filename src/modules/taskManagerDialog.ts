@@ -3281,7 +3281,7 @@ export async function openTaskManagerDialog(args?: {
           requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           taskId.startsWith("acp-skill-run:"))
       ) {
-        selectAcpSkillRun(requestId);
+        await selectAcpSkillRun(requestId);
         await openAssistantWorkspaceSidebar({
           window: getChromeWindow(),
           tab: "acp-skills",
@@ -3304,7 +3304,7 @@ export async function openTaskManagerDialog(args?: {
         })
       ) {
         if (requestId) {
-          selectAcpSkillRun(requestId);
+          await selectAcpSkillRun(requestId);
         }
         await openAssistantWorkspaceSidebar({
           window: getChromeWindow(),
@@ -3341,7 +3341,7 @@ export async function openTaskManagerDialog(args?: {
     if (action === "open-acp-skill-runs") {
       const requestId = String(payload.requestId || "").trim();
       if (requestId) {
-        selectAcpSkillRun(requestId);
+        await selectAcpSkillRun(requestId);
       }
       await openAssistantWorkspaceSidebar({
         window: getChromeWindow(),
@@ -3438,7 +3438,7 @@ export async function openTaskManagerDialog(args?: {
             runKey,
           });
         } else if (backend && isAcpBackend(backend) && requestId) {
-          selectAcpSkillRun(requestId);
+          await selectAcpSkillRun(requestId);
           await openAssistantWorkspaceSidebar({
             window: getChromeWindow(),
             tab: "acp-skills",

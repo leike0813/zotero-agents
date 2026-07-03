@@ -1,3 +1,4 @@
+/* global window, document, FileReader */
 (function () {
   "use strict";
 
@@ -70,10 +71,7 @@
         // Fallback to postMessage below.
       }
     }
-    const prefixes =
-      !state.snapshot && action === "ready"
-        ? ["run-dialog", "skillrunner-sidebar"]
-        : [state.bridgePrefix || "run-dialog"];
+    const prefixes = [state.bridgePrefix || "run-dialog"];
     const targets = [window.parent, window.top, window.opener];
     prefixes.forEach(function (prefix) {
       targets.forEach(function (target) {
@@ -149,7 +147,7 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/\"/g, "&quot;")
+      .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
   }
 
@@ -487,7 +485,7 @@
             kind: "skillrunner",
             context: {
               title: safeText(
-                panelSnapshot.labels && panelSnapshot.labels.title,
+                source.labels && source.labels.title,
               ),
               status: "idle",
             },

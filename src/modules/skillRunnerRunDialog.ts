@@ -454,6 +454,10 @@ type RunWorkspaceState = {
   bridgeType: "run-dialog" | "skillrunner-sidebar";
   hostWindow: Window | null;
   frameWindow: Window | null;
+  publishSnapshot?: (
+    phase: "init" | "snapshot",
+    snapshot: RunWorkspaceSnapshot,
+  ) => void;
   alertWindow: Window | null;
   focusHost?: () => void;
   closeHost?: () => void;
@@ -2749,7 +2753,7 @@ function pushSnapshot(
     runWorkspaceState.pendingRefreshArgs = undefined;
     runWorkspaceState.pendingRefreshReason = undefined;
   }
-  if (!runWorkspaceState.frameWindow) {
+  if (!runWorkspaceState.frameWindow && !runWorkspaceState.publishSnapshot) {
     return;
   }
   if (runWorkspaceState.currentEntry) {
@@ -2775,7 +2779,15 @@ function pushSnapshot(
         buildRunWorkspaceSnapshot(session, selectedTask),
       )
     : buildRunWorkspaceSnapshot(session, selectedTask);
-  runWorkspaceState.frameWindow.postMessage(
+  if (runWorkspaceState.publishSnapshot) {
+    runWorkspaceState.publishSnapshot(messageType, snapshot);
+    return;
+  }
+  const frameWindow = runWorkspaceState.frameWindow;
+  if (!frameWindow) {
+    return;
+  }
+  frameWindow.postMessage(
     {
       type: resolveRunWorkspaceBridgeMessageType(messageType),
       payload: snapshot,
@@ -2953,6 +2965,7 @@ function clearRunWorkspaceHostState() {
   }
   runWorkspaceState.hostWindow = null;
   runWorkspaceState.frameWindow = null;
+  runWorkspaceState.publishSnapshot = undefined;
   runWorkspaceState.alertWindow = null;
   runWorkspaceState.focusHost = undefined;
   runWorkspaceState.closeHost = undefined;
@@ -3027,6 +3040,10 @@ function attachRunWorkspaceHost(args: {
   bridgeType: "run-dialog" | "skillrunner-sidebar";
   hostWindow: Window;
   frameWindow: Window | null;
+  publishSnapshot?: (
+    phase: "init" | "snapshot",
+    snapshot: RunWorkspaceSnapshot,
+  ) => void;
   alertWindow?: Window | null;
   focusHost?: () => void;
   closeHost?: () => void;
@@ -3045,6 +3062,7 @@ function attachRunWorkspaceHost(args: {
   runWorkspaceState.bridgeType = args.bridgeType;
   runWorkspaceState.hostWindow = args.hostWindow;
   runWorkspaceState.frameWindow = args.frameWindow;
+  runWorkspaceState.publishSnapshot = args.publishSnapshot;
   runWorkspaceState.alertWindow = args.alertWindow || args.hostWindow;
   runWorkspaceState.focusHost = args.focusHost;
   runWorkspaceState.closeHost = args.closeHost;
@@ -4805,6 +4823,10 @@ export async function dispatchRunWorkspaceAction(
 export function attachSkillRunnerSidebarHost(args: {
   hostWindow: Window;
   frameWindow: Window | null;
+  publishSnapshot?: (
+    phase: "init" | "snapshot",
+    snapshot: RunWorkspaceSnapshot,
+  ) => void;
   alertWindow?: Window | null;
   focusHost?: () => void;
   isHostAlive?: () => boolean;
@@ -4819,6 +4841,7 @@ export function attachSkillRunnerSidebarHost(args: {
     bridgeType: "skillrunner-sidebar",
     hostWindow: args.hostWindow,
     frameWindow: args.frameWindow,
+    publishSnapshot: args.publishSnapshot,
     alertWindow: args.alertWindow,
     focusHost: args.focusHost,
     isHostAlive: args.isHostAlive,
@@ -4826,7 +4849,25 @@ export function attachSkillRunnerSidebarHost(args: {
     resolveSelectionContext: args.resolveSelectionContext,
     handleHostAction: args.handleHostAction,
   });
-  pushSnapshot("init");
+}
+
+export async function refreshSkillRunnerSidebarHostSnapshot(
+  args: {
+    forceInit?: boolean;
+    runKey?: string;
+    selectionChanged?: boolean;
+  } = {},
+) {
+  if (runWorkspaceState.hostMode !== "sidebar") {
+    return;
+  }
+  await refreshWorkspaceSnapshot({
+    forceInit: args.forceInit === true,
+    runKey: args.runKey,
+    selectionChanged: args.selectionChanged === true,
+    profile: "sidebar-active",
+    publishReason: args.forceInit === true ? "critical" : "live",
+  });
 }
 
 export function detachSkillRunnerSidebarHost(args?: {

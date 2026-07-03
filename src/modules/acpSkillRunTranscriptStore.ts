@@ -62,6 +62,16 @@ export type AcpSkillRunTranscriptMetadata = {
   transcriptPreview?: string;
 };
 
+export type AcpSkillRunTranscriptEventInput = {
+  seq?: number;
+  op: AcpSkillRunTranscriptEvent["op"];
+  itemId: string;
+  item?: AcpSkillRunTranscriptItem;
+  text?: string;
+  patch?: Partial<AcpSkillRunTranscriptItem>;
+  createdAt?: string;
+};
+
 export type AcpSkillRunTranscriptPage = {
   items: AcpSkillRunTranscriptItem[];
   cursor: number;
@@ -559,50 +569,59 @@ async function readOrRebuildTranscriptIndex(
   return rebuildAcpSkillRunTranscriptIndex({ runtimeDir: "" }, paths);
 }
 
-export async function appendAcpSkillRunTranscriptEvent(args: {
+export async function appendAcpSkillRunTranscriptEvents(args: {
   runtimeDir?: string;
-  op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
-  itemId: string;
-  item?: AcpSkillRunTranscriptItem;
-  text?: string;
-  patch?: Partial<AcpSkillRunTranscriptItem>;
-  createdAt?: string;
+  events: AcpSkillRunTranscriptEventInput[];
 }): Promise<AcpSkillRunTranscriptMetadata | null> {
   const paths = resolveAcpSkillRunTranscriptPaths(args.runtimeDir);
   if (!paths.transcriptPath) {
     return null;
   }
-  const createdAt = normalizeString(args.createdAt) || new Date().toISOString();
-  const itemId = normalizeString(args.itemId);
-  if (!itemId) {
+  const pending = args.events
+    .map((event) => ({
+      ...event,
+      itemId: normalizeString(event.itemId),
+      createdAt: normalizeString(event.createdAt) || new Date().toISOString(),
+    }))
+    .filter((event) => !!event.itemId);
+  if (pending.length === 0) {
     return null;
   }
   let metadata: AcpSkillRunTranscriptMetadata | null = null;
   await withWriteQueue(paths.transcriptPath, async () => {
     const currentIndex =
       (await readOrRebuildTranscriptIndex(paths)) ||
-      emptyTranscriptIndex(paths, createdAt);
+      emptyTranscriptIndex(paths, pending[0].createdAt || new Date().toISOString());
     const stat = await statRuntimePath(paths.transcriptPath);
-    const offset = stat.exists ? stat.size : 0;
-    const event: AcpSkillRunTranscriptEvent = {
-      schema: ACP_SKILL_RUN_TRANSCRIPT_SCHEMA,
-      seq: currentIndex.eventSeq + 1,
-      op: args.op,
-      itemId,
-      item: args.item,
-      text: typeof args.text === "string" ? args.text : undefined,
-      patch: args.patch,
-      createdAt,
-    };
-    const line = eventLineWithNewline(event);
-    await appendRuntimeTextFile(paths.transcriptPath, line);
-    const nextIndex = applyEventToIndex({
-      index: currentIndex,
-      event,
-      offset,
-      length: utf8ByteLength(line),
-      updatedAt: createdAt,
-    });
+    let offset = stat.exists ? stat.size : 0;
+    let nextIndex = currentIndex;
+    const lines: string[] = [];
+    for (const input of pending) {
+      const event: AcpSkillRunTranscriptEvent = {
+        schema: ACP_SKILL_RUN_TRANSCRIPT_SCHEMA,
+        seq:
+          typeof input.seq === "number" && Number.isFinite(input.seq)
+            ? Math.max(0, Math.floor(input.seq))
+            : nextIndex.eventSeq + 1,
+        op: input.op,
+        itemId: input.itemId,
+        item: input.item,
+        text: typeof input.text === "string" ? input.text : undefined,
+        patch: input.patch,
+        createdAt: input.createdAt || new Date().toISOString(),
+      };
+      const line = eventLineWithNewline(event);
+      lines.push(line);
+      nextIndex = applyEventToIndex({
+        index: nextIndex,
+        event,
+        offset,
+        length: utf8ByteLength(line),
+        updatedAt: event.createdAt,
+      });
+      offset += utf8ByteLength(line);
+    }
+    await appendRuntimeTextFile(paths.transcriptPath, lines.join(""));
     await writeRuntimeTextFile(
       paths.transcriptIndexPath,
       JSON.stringify(nextIndex),
@@ -617,6 +636,15 @@ export async function appendAcpSkillRunTranscriptEvent(args: {
     };
   });
   return metadata;
+}
+
+export async function appendAcpSkillRunTranscriptEvent(
+  args: AcpSkillRunTranscriptEventInput & { runtimeDir?: string },
+) {
+  return appendAcpSkillRunTranscriptEvents({
+    runtimeDir: args.runtimeDir,
+    events: [args],
+  });
 }
 
 export async function readAcpSkillRunTranscriptPage(args: {

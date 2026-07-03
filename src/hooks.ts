@@ -87,7 +87,10 @@ import {
   stopSkillRunnerBackendReachabilityCoordinator,
 } from "./modules/skillRunnerBackendReachabilityCoordinator";
 import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLifecycle";
-import { flushRuntimeLogsPersistence } from "./modules/runtimeLogManager";
+import {
+  appendRuntimeLog,
+  flushRuntimeLogsPersistence,
+} from "./modules/runtimeLogManager";
 import {
   closeAssistantWorkspaceSidebar,
   installAssistantWorkspaceSidebarShell,
@@ -98,6 +101,7 @@ import {
 } from "./modules/assistantWorkspaceSidebar";
 import { setAssistantStreamingRenderEnabled } from "./modules/assistantStreamingRenderPreference";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
+import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
   shutdownAcpSkillRunConversations,
@@ -865,14 +869,100 @@ async function onMainWindowUnload(win: Window): Promise<void> {
   addon.data.dialog?.window?.close();
 }
 
+const PLUGIN_SHUTDOWN_STEP_TIMEOUT_MS = 3_000;
+
+async function runShutdownStepWithTimeout(
+  stage: string,
+  runner: () => void | Promise<void>,
+  timeoutMs = PLUGIN_SHUTDOWN_STEP_TIMEOUT_MS,
+) {
+  let settled = false;
+  const task = Promise.resolve()
+    .then(() => runner())
+    .then(
+      () => {
+        settled = true;
+        return { ok: true as const };
+      },
+      (error) => {
+        settled = true;
+        return { ok: false as const, error };
+      },
+    );
+  const result = await Promise.race([
+    task,
+    new Promise<{ ok: false; timedOut: true }>((resolve) => {
+      setTimeout(() => {
+        if (!settled) {
+          resolve({ ok: false, timedOut: true });
+        }
+      }, timeoutMs);
+    }),
+  ]);
+  if (result.ok) {
+    return;
+  }
+  const timedOut = "timedOut" in result && result.timedOut;
+  const error = "error" in result ? result.error : undefined;
+  try {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "job",
+      component: "plugin-lifecycle",
+      operation: "shutdown",
+      phase: "cleanup",
+      stage,
+      message: timedOut
+        ? "plugin shutdown step timed out"
+        : "plugin shutdown step failed",
+      error,
+      details: timedOut ? { timeoutMs } : undefined,
+    });
+  } catch {
+    // Runtime logging must not block shutdown.
+  }
+  emitVerboseConsole(
+    "warn",
+    timedOut
+      ? `[shutdown] ${stage} timed out after ${timeoutMs}ms`
+      : `[shutdown] ${stage} failed`,
+    error,
+  );
+}
+
 async function onShutdown(): Promise<void> {
-  stopSkillRunnerBackendReachabilityCoordinator();
-  await shutdownAcpSkillRunConversations();
-  await shutdownAcpSessionManager();
-  await shutdownZoteroMcpServer();
-  await stopHostBridgeSupervisor();
-  await shutdownSkillRunnerAsyncLifecycle();
-  await flushRuntimeLogsPersistence();
+  await runShutdownStepWithTimeout(
+    "reachability-coordinator-stop",
+    stopSkillRunnerBackendReachabilityCoordinator,
+  );
+  await runShutdownStepWithTimeout(
+    "acp-skills-detach",
+    shutdownAcpSkillRunConversations,
+  );
+  await runShutdownStepWithTimeout(
+    "acp-chat-detach",
+    shutdownAcpSessionManager,
+  );
+  await runShutdownStepWithTimeout(
+    "acp-websocket-bridge-shutdown",
+    shutdownAcpWebSocketBridgeService,
+  );
+  await runShutdownStepWithTimeout(
+    "zotero-mcp-shutdown",
+    shutdownZoteroMcpServer,
+  );
+  await runShutdownStepWithTimeout(
+    "host-bridge-supervisor-stop",
+    stopHostBridgeSupervisor,
+  );
+  await runShutdownStepWithTimeout(
+    "skillrunner-async-lifecycle-shutdown",
+    shutdownSkillRunnerAsyncLifecycle,
+  );
+  await runShutdownStepWithTimeout(
+    "runtime-log-flush",
+    flushRuntimeLogsPersistence,
+  );
   for (const win of Zotero.getMainWindows?.() || []) {
     removeDashboardToolbarButton(win);
     removeAssistantWorkspaceSidebarShell(win);

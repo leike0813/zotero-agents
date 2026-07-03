@@ -90,6 +90,8 @@ type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
 type AcpUiPublishMode = "full" | "metadata" | "structural";
 
+const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
+
 export type AcpSessionSlot = {
   backendId: string;
   adapter: AcpConnectionAdapter | null;
@@ -542,6 +544,24 @@ function markSlotConnectionIdle(
   if (options.lifecycleEvent) {
     slot.snapshot.lastLifecycleEvent = options.lifecycleEvent;
   }
+}
+
+async function waitForAcpChatShutdownTask(
+  task: Promise<unknown>,
+  timeoutMs = ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS,
+) {
+  if (timeoutMs <= 0) {
+    return { timedOut: true };
+  }
+  return Promise.race([
+    task.then(
+      () => ({ timedOut: false }),
+      (error) => ({ timedOut: false, error }),
+    ),
+    new Promise<{ timedOut: true }>((resolve) => {
+      setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+    }),
+  ]);
 }
 
 function clonePublishedSlotSnapshot(slot: AcpSessionSlot) {
@@ -3496,7 +3516,18 @@ export async function shutdownAcpSessionManager() {
       flushPendingPersistence(slot);
     }
     pending.push(
-      disconnectSlotAdapter(slot).finally(() => {
+      waitForAcpChatShutdownTask(disconnectSlotAdapter(slot)).then((result) => {
+        if (result.timedOut) {
+          appendDiagnostic(slot, {
+            id: nextOpaqueId("acp-diag"),
+            ts: nowIso(),
+            kind: "shutdown_timeout",
+            level: "warn",
+            message:
+              "ACP Chat adapter close did not finish before shutdown timeout.",
+            detail: `timeoutMs=${ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS}`,
+          });
+        }
         markSlotConnectionIdle(slot, {
           lifecycleEvent: "shutdown-disconnected",
         });
