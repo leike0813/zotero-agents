@@ -209,7 +209,7 @@ summary,
   grid-row: 1;
 }
 
-.asst-banner .assistant-panel-indicators {
+.asst-banner .assistant-panel-banner-status-row {
   grid-column: 1;
   grid-row: 2;
   margin-top: 0;
@@ -217,7 +217,16 @@ summary,
   align-items: center;
   justify-content: flex-start;
   align-self: center;
+  gap: 6px;
   min-width: 0;
+}
+
+.asst-banner .assistant-panel-indicators {
+  margin-top: 0;
+}
+
+.asst-banner .assistant-panel-banner-status {
+  flex: 0 0 auto;
 }
 
 .asst-banner .assistant-panel-context-actions {

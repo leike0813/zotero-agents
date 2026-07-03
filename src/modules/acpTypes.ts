@@ -7,6 +7,7 @@ export type AcpConnectionStatus =
   | "checking-command"
   | "spawning"
   | "initializing"
+  | "disconnecting"
   | "connected"
   | "prompting"
   | "auth-required"
@@ -493,6 +494,8 @@ export function normalizeAcpStatus(value: unknown): AcpConnectionStatus {
       return "spawning";
     case "initializing":
       return "initializing";
+    case "disconnecting":
+      return "disconnecting";
     case "connected":
       return "connected";
     case "prompting":

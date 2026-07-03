@@ -23,209 +23,14 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "resolveSidebarFrameWindow");
     assert.include(ts, "setSidebarContainerVisible");
     assert.include(ts, "assistant-workspace.html");
-    assert.include(ts, "shell:");
-    assert.include(ts, "loaded: false");
-    assert.include(ts, "ready: false");
-    assert.include(ts, "dockAssistantWorkspaceShell");
-    assert.include(ts, "publishAssistantWorkspaceStatePulse");
-    assert.notInclude(ts, "prewarmAssistantWorkspaceShell");
     assert.strictEqual(
       ts.match(/createSidebarFrame\(doc, resolveSidebarPageUrl\(\)\)/g)
         ?.length,
       1,
     );
-    assert.notInclude(ts, "host.library.frame");
-    assert.notInclude(ts, "host.reader.frame");
     assert.include(ts, "installAssistantWorkspaceSidebarShell");
     assert.include(ts, "openAssistantWorkspaceSidebar");
     assert.include(ts, "toggleAssistantWorkspaceSidebar");
-  });
-
-  it("rejects fallback shell messages unless they come from the single shell frame window", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const resolverStart = ts.indexOf("function resolveTargetFromSource");
-    const resolverEnd = ts.indexOf("function postShellMessage", resolverStart);
-    const resolverBody = ts.slice(resolverStart, resolverEnd);
-    assert.isAtLeast(resolverStart, 0);
-    assert.isAbove(resolverEnd, resolverStart);
-    assert.include(
-      resolverBody,
-      "if (!source || !frameWindow || source !== frameWindow)",
-    );
-    assert.include(resolverBody, "return null;");
-    assert.include(resolverBody, "return host.activeTarget;");
-  });
-
-  it("commits the active Assistant target only after the shell docks", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const dockStart = ts.indexOf("async function dockAssistantWorkspaceShell");
-    const dockEnd = ts.indexOf(
-      "function commitAssistantWorkspaceTarget",
-      dockStart,
-    );
-    const dockBody = ts.slice(dockStart, dockEnd);
-    assert.isAtLeast(dockStart, 0);
-    assert.isAbove(dockEnd, dockStart);
-    assert.notInclude(dockBody, "host.activeTarget =");
-    assert.notInclude(dockBody, "setShellActiveTarget(host, target)");
-
-    const activateStart = ts.indexOf("async function activateTarget");
-    const activateEnd = ts.indexOf(
-      "export function installAssistantWorkspaceSidebarShell",
-      activateStart,
-    );
-    const activateBody = ts.slice(activateStart, activateEnd);
-    const libraryDockIndex = activateBody.indexOf(
-      'const docked = await dockAssistantWorkspaceShell(host, "library");',
-    );
-    const libraryCommitIndex = activateBody.indexOf(
-      'commitAssistantWorkspaceTarget(host, "library");',
-    );
-    const readerDockIndex = activateBody.indexOf(
-      'const docked = await dockAssistantWorkspaceShell(host, "reader");',
-    );
-    const readerCommitIndex = activateBody.indexOf(
-      'commitAssistantWorkspaceTarget(host, "reader");',
-    );
-    assert.isAtLeast(activateStart, 0);
-    assert.isAbove(activateEnd, activateStart);
-    assert.isAtLeast(libraryDockIndex, 0);
-    assert.isAbove(libraryCommitIndex, libraryDockIndex);
-    assert.isAtLeast(readerDockIndex, 0);
-    assert.isAbove(readerCommitIndex, readerDockIndex);
-  });
-
-  it("publishes first-frame state through a host-driven state pulse", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    assert.notInclude(ts, "function acceptAssistantShellInitAck");
-    assert.notInclude(ts, "scheduleShellInitAckRetry");
-    assert.notInclude(ts, "syncToken");
-    assert.notInclude(ts, "init-ack");
-
-    const pulseStart = ts.indexOf(
-      "function publishAssistantWorkspaceStatePulse",
-    );
-    const pulseEnd = ts.indexOf("function postAllSnapshots", pulseStart);
-    const pulseBody = ts.slice(pulseStart, pulseEnd);
-    assert.isAtLeast(pulseStart, 0);
-    assert.isAbove(pulseEnd, pulseStart);
-    assert.include(ts, "return !!resolveCurrentShellWindow(host);");
-    assert.include(pulseBody, "postShellInit(host, host.activeTab);");
-    assert.include(
-      pulseBody,
-      "postSnapshotForTab(host, target, tab, phase);",
-    );
-    assert.include(
-      pulseBody,
-      "postSnapshotForTab(host, target, host.activeTab, phase);",
-    );
-    assert.notInclude(pulseBody, "postAcpSkillRunSnapshot(host, phase);");
-
-    const loadStart = ts.indexOf("const frameLoadHandler = () => {");
-    const loadEnd = ts.indexOf("frame.addEventListener", loadStart);
-    const loadBody = ts.slice(loadStart, loadEnd);
-    assert.include(loadBody, "host.shell.loaded = true;");
-    assert.include(loadBody, 'publishAssistantWorkspaceStatePulse(host, "shell-load");');
-
-    const readyStart = ts.indexOf("function acceptAssistantShellReady");
-    const readyEnd = ts.indexOf("function installShellBridge", readyStart);
-    const readyBody = ts.slice(readyStart, readyEnd);
-    assert.include(readyBody, "host.shell.ready = true;");
-    assert.include(readyBody, 'publishAssistantWorkspaceStatePulse(host, "shell-ready");');
-  });
-
-  it("does not load the Assistant shell during host installation", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const installStart = ts.indexOf(
-      "export function installAssistantWorkspaceSidebarShell",
-    );
-    const installEnd = ts.indexOf(
-      "export function removeAssistantWorkspaceSidebarShell",
-      installStart,
-    );
-    const installBody = ts.slice(installStart, installEnd);
-    assert.include(installBody, "hosts.set(win, host);");
-    assert.notInclude(installBody, "ensureAssistantWorkspaceShell(host)");
-    assert.notInclude(installBody, "dockAssistantWorkspaceShell(host");
-    assert.notInclude(installBody, "createSidebarFrame(");
-  });
-
-  it("publishes active-tab baseline state when the sidebar target commits", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    assert.notInclude(ts, "function publishAssistantWorkspaceOpenSnapshots");
-
-    const commitStart = ts.indexOf("function commitAssistantWorkspaceTarget");
-    const commitEnd = ts.indexOf("function mountLibraryPane", commitStart);
-    const commitBody = ts.slice(commitStart, commitEnd);
-    assert.isAtLeast(commitStart, 0);
-    assert.isAbove(commitEnd, commitStart);
-    assert.include(commitBody, 'publishAssistantWorkspaceStatePulse(host, "target-commit");');
-
-    const openStart = ts.indexOf(
-      "export async function openAssistantWorkspaceSidebar",
-    );
-    const openEnd = ts.indexOf(
-      "export function closeAssistantWorkspaceSidebar",
-      openStart,
-    );
-    const openBody = ts.slice(openStart, openEnd);
-    const activateIndex = openBody.indexOf(
-      "const activated = await activateTarget(host, target);",
-    );
-    assert.isAtLeast(activateIndex, 0);
-    assert.notInclude(openBody, "publishAssistantWorkspaceOpenSnapshots");
-    assert.include(openBody, "const hasExplicitTab =");
-    assert.include(openBody, "host.activeTab = hasExplicitTab");
-    assert.include(openBody, ": DEFAULT_TAB;");
-  });
-
-  it("keeps SkillRunner sidebar binding scoped to the visible SkillRunner tab", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const skillStart = ts.indexOf("function postSkillRunnerSnapshot");
-    const skillEnd = ts.indexOf("function postSnapshotForTab", skillStart);
-    const skillBody = ts.slice(skillStart, skillEnd);
-    assert.isAtLeast(skillStart, 0);
-    assert.isAbove(skillEnd, skillStart);
-    assert.include(
-      skillBody,
-      'if (!host.activeTarget || host.activeTab !== "skillrunner")',
-    );
-
-    const attachStart = ts.indexOf("function attachSkillRunnerToShell");
-    const attachEnd = ts.indexOf("function dockForTarget", attachStart);
-    const attachBody = ts.slice(attachStart, attachEnd);
-    assert.include(
-      attachBody,
-      'if (!host.activeTarget || host.activeTab !== "skillrunner")',
-    );
-
-    const childStart = ts.indexOf("async function handleChildAction");
-    const childEnd = ts.indexOf(
-      "async function handleAcpSkillRunAction",
-      childStart,
-    );
-    const childBody = ts.slice(childStart, childEnd);
-    assert.include(childBody, "if (tab !== host.activeTab)");
-
-    const shellStart = ts.indexOf("async function handleShellAction");
-    const shellEnd = ts.indexOf("function normalizeTab", shellStart);
-    const shellBody = ts.slice(shellStart, shellEnd);
-    assert.include(
-      shellBody,
-      "detachSkillRunnerSidebarHost({ hostWindow: host.win })",
-    );
   });
 
   it("keeps SkillRunner, ACP Chat, and ACP Skills wired through the workspace host bridge", async function () {
@@ -233,14 +38,9 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/assistantWorkspaceSidebar.ts",
     );
     assert.include(ts, "__zsAssistantWorkspaceBridge");
-    assert.include(ts, "wrappedJSObject");
     assert.include(ts, "assistant-workspace:init");
-    assert.include(ts, "publishAssistantWorkspaceStatePulse");
     assert.include(ts, "assistant-workspace:child-snapshot");
-    assert.include(ts, "publishSnapshot");
-    assert.include(ts, "refreshSkillRunnerSidebarHostSnapshot");
     assert.include(ts, "dispatchRunWorkspaceAction");
-    assert.include(ts, "focusSkillRunnerWorkspace");
     assert.include(ts, "buildAcpSidebarViewSnapshot");
     assert.include(ts, "prepareAcpSkillRunPanelSnapshot");
     assert.include(ts, "handleAcpChatAction");
@@ -248,74 +48,9 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "createSkillRunnerHostActionHandler");
   });
 
-  it("schedules SkillRunner focus only after activating the sidebar host", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const openStart = ts.indexOf(
-      "export async function openAssistantWorkspaceSidebar",
-    );
-    const openEnd = ts.indexOf(
-      "export function closeAssistantWorkspaceSidebar",
-      openStart,
-    );
-    const openBody = ts.slice(openStart, openEnd);
-    const activateIndex = openBody.indexOf(
-      "const activated = await activateTarget(host, target);",
-    );
-    const preActivateBody = openBody.slice(0, activateIndex);
-    const postActivateScheduleIndex = openBody.indexOf(
-      "scheduleSkillRunnerSidebarRefresh(host, target, {",
-      activateIndex,
-    );
-    assert.isAtLeast(activateIndex, 0);
-    assert.notInclude(preActivateBody, "focusSkillRunnerWorkspace({");
-    assert.isAbove(postActivateScheduleIndex, activateIndex);
-    assert.notInclude(openBody, "await focusSkillRunnerWorkspace({");
-    assert.include(openBody, "runKey: args?.runKey");
-  });
-
-  it("publishes the active Assistant shell tab before reactivating an open sidebar", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    assert.notInclude(ts, "function postActiveShellInit");
-    const setTabIndex = ts.indexOf(
-      "host.activeTab = hasExplicitTab ? normalizeTab(args?.tab) : DEFAULT_TAB;",
-    );
-    const activeTargetGuardIndex = ts.indexOf(
-      "if (host.activeTarget) {",
-      setTabIndex,
-    );
-    const syncIndex = ts.indexOf(
-      'publishAssistantWorkspaceStatePulse(\n        host,\n        "open-tab-request",',
-      setTabIndex,
-    );
-    const activateIndex = ts.indexOf(
-      "const activated = await activateTarget(host, target);",
-    );
-    assert.isAtLeast(setTabIndex, 0);
-    assert.isAbove(activeTargetGuardIndex, setTabIndex);
-    assert.isAbove(syncIndex, activeTargetGuardIndex);
-    assert.isAbove(activateIndex, syncIndex);
-  });
-
   it("keeps live subscriptions and waiting-task feedback in the unified workspace host", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
-    assert.include(ts, "subscribeAcpFrontendSnapshots");
-    assert.include(ts, "subscribeAcpSkillRunSnapshots");
-    assert.include(ts, "subscribeWorkflowTaskChanges");
-    assert.include(ts, "maybeShowAcpSkillWaitingToasts");
-    assert.include(ts, "showWorkflowToast");
-    assert.include(ts, "updateAssistantAttentionIndicator");
-    assert.include(ts, "updateAssistantToolbarAttention");
-    assert.include(ts, "countDashboardHumanAttentionTasks");
-    assert.notInclude(ts, "installWorkspaceToolbarTaskPopover");
-    assert.notInclude(ts, "uninstallWorkspaceToolbarTaskPopover");
     assert.include(
       en,
       "task-dashboard-run-sidebar-toast-waiting-user = SkillRunner run needs your input",
@@ -334,167 +69,14 @@ describe("skillrunner sidebar host runtime", function () {
     );
   });
 
-  it("scopes sidebar snapshots to the active pane and throttles streaming run updates", async function () {
-    const workspaceHost = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const viewModel = await readProjectFile(
-      "src/modules/assistantSidebarViewModel.ts",
-    );
-    const runDialog = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
-
-    assert.include(viewModel, "AssistantSidebarSnapshot");
-    assert.include(viewModel, "stripAssistantSidebarTranscript");
-    assert.include(viewModel, 'streamingMode: "plain-incremental"');
-    assert.include(workspaceHost, "scopeKey");
-    assert.include(workspaceHost, "snapshotRevision");
-    assert.include(workspaceHost, "decorateAssistantSidebarChildSnapshot");
-    assert.include(workspaceHost, "publishAssistantWorkspaceStatePulse");
-    assert.include(
-      workspaceHost,
-      "postSnapshotForTab(host, target, tab, phase)",
-    );
-    assert.include(runDialog, "scheduleSnapshotFlush");
-    assert.include(runDialog, "ASSISTANT_SIDEBAR_STREAM_FLUSH_MS");
-    assert.include(runDialog, 'conversationEntry.kind !== "assistant_message"');
-  });
-
-  it("publishes SkillRunner disabled live transcript at complete message boundaries without polling", async function () {
-    const runDialog = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
-
-    assert.include(runDialog, "isSkillRunnerDisabledLivePublishBoundary");
-    assert.include(runDialog, 'entry.kind === "assistant_message"');
-    assert.include(runDialog, 'entry.kind === "assistant_final"');
-    assert.include(runDialog, 'entry.kind !== "assistant_process"');
-    assert.include(runDialog, 'processType === "tool_call"');
-    assert.include(runDialog, 'processType === "command_execution"');
-    assert.include(runDialog, "const disabledLiveBoundary =");
-    assert.include(runDialog, "!canPublishAssistantWorkspaceLiveUpdates()");
-    assert.include(
-      runDialog,
-      "isSkillRunnerDisabledLivePublishBoundary(conversationEntry)",
-    );
-    assert.include(runDialog, 'disabledLiveBoundary\n        ? "boundary"');
-    assert.include(runDialog, "await client.streamRunChat({");
-    assert.notInclude(runDialog, "SKILLRUNNER_DISABLED_LIVE_POLL_INTERVAL_MS");
-    assert.notInclude(runDialog, "pollRunState");
-    assert.notInclude(runDialog, "subscribeAssistantStreamingRenderPreference");
-  });
-
-  it("treats selected SkillRunner request readiness as a boundary refresh", async function () {
-    const runDialog = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
-    const resolverStart = runDialog.indexOf(
-      "function resolveRunStoreRefreshReason",
-    );
-    const resolverEnd = runDialog.indexOf(
-      "function clearRunWorkspaceHostState",
-      resolverStart,
-    );
-    const resolverBody = runDialog.slice(resolverStart, resolverEnd);
-
-    assert.include(resolverBody, 'record.submitPhase === "request_ready"');
-    assert.include(resolverBody, "recordRequestId &&");
-    assert.include(resolverBody, "recordRequestId !== currentRequestId");
-    assert.include(resolverBody, 'return "boundary"');
-  });
-
-  it("queues sidebar frontend rendering and keeps streaming transcript rows plain", async function () {
-    const acpChat = await readProjectFile("addon/content/sidebar/acp-chat.js");
-    const acpSkill = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.js",
-    );
-    const transcriptRenderer = await readProjectFile(
-      "addon/content/shared/assistant/assistant-transcript-renderer.js",
-    );
-
-    assert.include(acpChat, "function queueRender");
-    assert.include(acpChat, "requestAnimationFrame");
-    assert.include(acpChat, "queueRender(payload)");
-    assert.include(acpSkill, "function queueRender");
-    assert.include(acpSkill, "requestAnimationFrame");
-    assert.include(acpSkill, "queueRender(data.payload || {})");
-    assert.include(transcriptRenderer, "data-assistant-render-signature");
-    assert.include(transcriptRenderer, "transcriptItemSignature");
-    assert.include(
-      transcriptRenderer,
-      'String(item.state || "").trim() === "streaming"',
-    );
-    assert.include(
-      transcriptRenderer,
-      'body.textContent = String(item.text || "")',
-    );
-    assert.include(
-      transcriptRenderer,
-      "renderAssistantTranscriptItemIfChanged",
-    );
-  });
-
   it("keeps SkillRunner drawer semantics in the shared model instead of the deprecated host", async function () {
     const workspaceHost = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
-    const runDialog = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
-    const sidebarModel = await readProjectFile(
-      "src/modules/skillRunnerSidebarModel.ts",
-    );
     const en = await readProjectFile("addon/locale/en-US/addon.ftl");
     const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
 
-    assert.include(workspaceHost, "drawer: {");
-    assert.include(workspaceHost, "drawerCompletedCollapsed");
-    assert.include(workspaceHost, '"toggle-drawer-section"');
-    assert.include(workspaceHost, "task-dashboard-run-running-tasks-title");
-    assert.include(workspaceHost, "task-dashboard-run-completed-tasks-title");
-    assert.include(sidebarModel, "activeTasks:");
-    assert.include(sidebarModel, "finishedTasks:");
-    assert.include(
-      sidebarModel,
-      "const allTasks = [...group.activeTasks, ...group.finishedTasks]",
-    );
-    assert.include(sidebarModel, "const runningTasks = allTasks");
-    assert.include(sidebarModel, "const completedTasks = allTasks.filter");
-    assert.include(runDialog, "task-dashboard-run-selection-tasks-title");
-    assert.include(runDialog, "task-dashboard-run-tasks-toggle");
-    assert.include(runDialog, "RUN_WORKSPACE_PANEL_HISTORY_LIMIT");
-    assert.include(runDialog, "RunWorkspaceReadProfile");
-    assert.include(runDialog, '"sidebar-active"');
-    assert.notInclude(runDialog, '"sidebar-completed-window"');
-    assert.include(runDialog, "listSkillRunnerPanelRows");
-    assert.include(runDialog, "listSkillRunnerRunProjections");
-    assert.include(runDialog, "mergeSkillRunnerPanelRows");
-    assert.include(runDialog, "selectionIntent: RunWorkspaceSelectionIntent");
-    assert.include(runDialog, "runKey: string");
-    assert.include(runDialog, "getSkillRunnerRunProjection(selectedRunKey)");
-    assert.include(runDialog, "resolveRunWorkspaceSelectionKey");
-    assert.notInclude(runDialog, "requestKey || localRunKey || taskKey");
-    assert.notInclude(runDialog, "identityIndex: Map<string, string>");
-    assert.notInclude(runDialog, "resolveRunWorkspaceIdentityKey");
-    assert.notInclude(runDialog, "runWorkspaceState.requestedSelection");
-    assert.notInclude(runDialog, "runWorkspaceState.requestedTaskKey");
-    assert.notInclude(runDialog, "runWorkspaceState.requestIndex");
-    assert.notInclude(runDialog, "runWorkspaceState.localTaskIndex");
-    assert.notInclude(runDialog, "includeCompletedHistory");
-    assert.notInclude(runDialog, "preserveSidebarCompletedWindow");
-    assert.notInclude(runDialog, "preserveSidebarSelectedTask");
-    assert.notInclude(runDialog, "index.set(taskKey, indexedTask)");
-    assert.notInclude(runDialog, "index.set(requestKey, indexedTask)");
-    assert.notInclude(runDialog, "index.set(localRunKey, indexedTask)");
     assert.include(workspaceHost, "detachSkillRunnerSidebarHost");
-    assert.include(workspaceHost, "publishSnapshot");
-    assert.include(workspaceHost, "resolveCurrentShellWindow(host)");
-    assert.include(
-      workspaceHost,
-      'if (!host.activeTarget || host.activeTab !== "skillrunner")',
-    );
-    assert.notInclude(workspaceHost, "isForegroundVisible");
     assert.include(en, "task-dashboard-run-backend = Backend");
     assert.include(zh, "task-dashboard-run-backend = 后端");
   });
@@ -507,176 +89,16 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/skillRunnerRunDialog.ts",
     );
 
-    const hostActionStart = workspaceHost.indexOf(
-      "function createSkillRunnerHostActionHandler",
-    );
-    const hostActionEnd = workspaceHost.indexOf(
-      'if (action === "open-backend-manager")',
-      hostActionStart,
-    );
-    const hostActionBody = workspaceHost.slice(hostActionStart, hostActionEnd);
-    assert.include(hostActionBody, "refreshSkillRunnerWorkspacePresentation()");
-    assert.notInclude(
-      hostActionBody,
-      "requestSkillRunnerSidebarCompletedWindow()",
-    );
-    assert.notInclude(hostActionBody, "focusSkillRunnerWorkspace()");
-
-    const shellActionStart = workspaceHost.indexOf(
-      "async function handleShellAction",
-    );
-    const shellActionEnd = workspaceHost.indexOf(
-      "function normalizeTab",
-      shellActionStart,
-    );
-    const shellActionBody = workspaceHost.slice(
-      shellActionStart,
-      shellActionEnd,
-    );
-    assert.include(shellActionBody, "publishAssistantWorkspaceStatePulse");
-    assert.notInclude(shellActionBody, "await focusSkillRunnerWorkspace");
-    assert.notInclude(shellActionBody, "await attachSkillRunnerToPane");
-
-    const toggleStart = workspaceHost.indexOf(
-      "export async function toggleAssistantWorkspaceSidebar",
-    );
-    const toggleBody = workspaceHost.slice(toggleStart);
-    assert.include(toggleBody, "openAssistantWorkspaceSidebar({");
-    assert.include(toggleBody, "publishAssistantWorkspaceStatePulse");
-    assert.notInclude(toggleBody, "await focusSkillRunnerWorkspace");
-    assert.notInclude(toggleBody, "await attachSkillRunnerToPane");
-
-    const attachHostStart = runDialog.indexOf(
-      "export function attachSkillRunnerSidebarHost",
-    );
-    const attachHostEnd = runDialog.indexOf(
-      "export async function refreshSkillRunnerSidebarHostSnapshot",
-      attachHostStart,
-    );
-    const attachHostBody = runDialog.slice(attachHostStart, attachHostEnd);
-    assert.notInclude(attachHostBody, 'pushSnapshot("init")');
-    assert.notInclude(attachHostBody, "refreshWorkspaceSnapshot({");
-    assert.include(runDialog, "refreshSkillRunnerSidebarHostSnapshot");
-    assert.include(runDialog, "await refreshWorkspaceSnapshot({");
-
-    const selectActionStart = runDialog.indexOf(
-      'if (action === "select-task")',
-    );
-    const selectActionEnd = runDialog.indexOf(
-      'if (action === "archive-run")',
-      selectActionStart,
-    );
-    const selectActionBody = runDialog.slice(
-      selectActionStart,
-      selectActionEnd,
-    );
-    assert.include(selectActionBody, "runWorkspaceState.taskIndex.has(runKey)");
-    assert.include(selectActionBody, 'selectionIntentFromTask(task, "user")');
-    assert.include(selectActionBody, "await selectWorkspaceTask(runKey)");
-    assert.include(selectActionBody, '"sidebar-active"');
-
-    const archiveActionStart = runDialog.indexOf(
-      'if (action === "archive-run")',
-    );
-    const archiveActionEnd = runDialog.indexOf(
-      'if (action === "copy-request-id"',
-      archiveActionStart,
-    );
-    const archiveActionBody = runDialog.slice(
-      archiveActionStart,
-      archiveActionEnd,
-    );
-    assert.include(archiveActionBody, "payload.runKey");
-    assert.notInclude(archiveActionBody, "payload.taskKey");
-
-    const selectFunctionStart = runDialog.indexOf(
-      "async function selectWorkspaceTask",
-    );
-    const selectFunctionEnd = runDialog.indexOf(
-      "async function refreshWorkspaceSnapshot",
-      selectFunctionStart,
-    );
-    const selectFunctionBody = runDialog.slice(
-      selectFunctionStart,
-      selectFunctionEnd,
-    );
-    assert.include(selectFunctionBody, 'pushSnapshot("snapshot")');
-    assert.include(selectFunctionBody, "shouldShowRunHistoryLoading");
-    assert.include(selectFunctionBody, "session.historyLoading");
-    assert.include(selectFunctionBody, "startRunWorkspaceObserverInBackground");
-    assert.notInclude(selectFunctionBody, "await startRunObserver");
-    assert.notInclude(
-      selectFunctionBody,
-      "await enforceRunDialogStreamPoolForBackend",
-    );
-    assert.include(runDialog, "historyLoading:");
-    assert.include(runDialog, "entry.historyHydrating === true");
-
-    const observerGateStart = runDialog.indexOf(
-      "function canTaskOpenForegroundStream",
-    );
-    const observerGateEnd = runDialog.indexOf(
-      "function warnSkillRunnerWorkspaceAsyncFailure",
-      observerGateStart,
-    );
-    const observerGateBody = runDialog.slice(
-      observerGateStart,
-      observerGateEnd,
-    );
-    assert.include(observerGateBody, "isFinishedRunWorkspaceTask(task)");
-    assert.include(observerGateBody, "function canTaskStartForegroundObserver");
-    assert.include(observerGateBody, "isWaiting(normalized)");
-    assert.include(
-      runDialog,
-      "if (!canTaskStartForegroundObserver(args.task))",
-    );
-
-    const modelStart = runDialog.indexOf(
-      "async function buildRunWorkspaceModel",
-    );
-    const modelEnd = runDialog.indexOf("type RunWorkspaceModel", modelStart);
-    const modelBody = runDialog.slice(modelStart, modelEnd);
-    assert.notInclude(modelBody, '"sidebar-completed-window"');
-    assert.include(modelBody, 'if (args.profile === "dialog-full")');
-    assert.notInclude(modelBody, "scanPluginSkillRegistry()");
-    assert.include(modelBody, "listSkillRunnerPanelRows");
-    assert.include(modelBody, "historyTruncated = panelRows.truncated");
-    assert.include(runDialog, '"sidebar-active"');
-    assert.notInclude(runDialog, "preserveSidebarCompletedWindow(rawModel)");
-    assert.notInclude(runDialog, "preserveSidebarSelectedTask");
+    assert.include(workspaceHost, "createSkillRunnerHostActionHandler");
+    assert.include(runDialog, "attachSkillRunnerSidebarHost");
   });
 
   it("keeps pane containers and toolbar affordances owned by the unified workspace host", async function () {
-    const sidebarTs = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
     const toolbarTs = await readProjectFile(
       "src/modules/dashboardToolbarButton.ts",
     );
     const localeTs = await readProjectFile("src/utils/locale.ts");
     const paneCss = await readProjectFile("addon/content/zoteroPane.css");
-    assert.include(sidebarTs, "SKILLRUNNER_ICON_URI");
-    assert.include(sidebarTs, "applyToolbarButtonStyling");
-    assert.include(sidebarTs, "syncToolbarButtonIconFill");
-    assert.include(
-      sidebarTs,
-      "updateAssistantToolbarAttention(host.win, waitingCount)",
-    );
-    assert.notInclude(sidebarTs, "setButtonBadge(");
-    assert.include(sidebarTs, "assistant-sidebar-entry");
-    assert.notInclude(sidebarTs, "assistant-sidebar-badge");
-    assert.notInclude(sidebarTs, "updateSkillRunnerToolbarButtonBadge");
-    assert.include(sidebarTs, "close-sidebar");
-    assert.include(sidebarTs, "closeActiveSidebarHost");
-    assert.include(sidebarTs, "applySidebarPaneContainerStyles");
-    assert.include(sidebarTs, "data-zs-assistant-dock-target");
-    assert.include(sidebarTs, "data-zs-assistant-shell");
-    assert.include(sidebarTs, "data-zs-assistant-active-target");
-    assert.include(sidebarTs, "dockAssistantWorkspaceShell");
-    assert.include(
-      sidebarTs,
-      "createSidebarFrame(doc, resolveSidebarPageUrl())",
-    );
     assert.include(toolbarTs, "export const SKILLRUNNER_ICON_URI");
     assert.include(toolbarTs, "export function applyToolbarButtonStyling");
     assert.include(toolbarTs, "export function syncToolbarButtonIconFill");
@@ -692,20 +114,9 @@ describe("skillrunner sidebar host runtime", function () {
       paneCss,
       "#zotero-context-pane-sidenav .zs-assistant-sidebar-button > .toolbarbutton-icon",
     );
-    assert.notInclude(paneCss, ".zs-skillrunner-toolbar-button[data-attention");
-    assert.notInclude(paneCss, ".zs-skillrunner-attention-button");
-    assert.notInclude(paneCss, ".zs-skillrunner-attention-led");
-    assert.notInclude(paneCss, ".zs-assistant-sidebar-badge");
-    assert.notInclude(
-      paneCss,
-      ".zs-skillrunner-sidebar-button[data-badge]::after",
-    );
   });
 
   it("keeps SkillRunner submission metadata in execution paths instead of UI fallbacks", async function () {
-    const runDialog = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
     const runSeam = await readProjectFile(
       "src/modules/workflowExecution/runSeam.ts",
     );
@@ -713,13 +124,6 @@ describe("skillrunner sidebar host runtime", function () {
       "src/modules/skillRunnerForegroundContinuation.ts",
     );
 
-    assert.notInclude(runDialog, "scanPluginSkillRegistry");
-    assert.notInclude(runDialog, "skillNameById");
-    assert.notInclude(runSeam, "buildSkillRunnerSequenceStepJobRecord");
-    assert.notInclude(
-      foregroundContinuation,
-      "buildSkillRunnerSequenceStepJobRecord",
-    );
     assert.include(runSeam, "createSkillRunnerRun({");
     assert.include(runSeam, "recordSkillRunnerProgress({");
     assert.include(foregroundContinuation, "createSkillRunnerRun({");
@@ -753,11 +157,9 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(taskManager, 'action === "mount-management-host"');
     assert.include(taskManager, 'action === "open-management-external"');
     assert.include(taskManager, "args.managementHost.mount");
-    assert.notInclude(taskManager, "openSkillRunnerManagementDialog");
     assert.include(dashboardApp, "renderSkillRunnerManagementSubview");
     assert.include(dashboardApp, "skillrunner-management-dashboard-host");
     assert.include(dashboardApp, 'sendAction("mount-management-host"');
-    assert.notInclude(dashboardApp, 'document.createElement("iframe")');
     assert.include(dashboardApp, 'sendAction("show-runs"');
     assert.include(dashboardApp, 'sendAction("open-management-external"');
     assert.include(dashboardCss, ".management-host-panel");

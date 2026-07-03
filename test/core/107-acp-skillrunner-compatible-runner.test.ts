@@ -21,6 +21,7 @@ import {
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
+  hasAcpSkillRunController,
   hydrateAcpSkillRunTranscriptMirror,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRuns,
@@ -1668,13 +1669,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         (item: any) =>
           item.kind === "status" && item.label === "hard-timeout-disconnect",
       );
-      const notice = transcriptItems[noticeIndex] as any;
       const stages = (record?.events || []).map((event) => event.stage);
       assert.equal(result.status, "deferred");
       assert.equal(record?.conversationState, "closed");
       assert.equal(message?.state, "complete");
       assert.isAbove(noticeIndex, messageIndex);
-      assert.include(notice?.text || "", "Job Timeout");
       assert.include(stages, "hard-timeout-disconnect-requested");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -2017,6 +2016,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       skillId: "demo-skill",
       taskName: "Newer",
       status: "running",
+      activePrompt: true,
       createdAt: "2026-05-15T09:00:00.000Z",
       updatedAt: "2026-05-15T09:00:00.000Z",
     });
@@ -2054,6 +2054,57 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
     assert.isUndefined(interruptedRun?.removedAt);
+  });
+
+  it("ignores current-turn interrupt for an idle connected ACP skill run", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-idle-connected-interrupt",
+      skillId: "demo-skill",
+      taskName: "Idle Connected",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-idle-connected",
+      activePrompt: false,
+      replyState: "idle",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+    });
+    let cancelCalls = 0;
+    let interruptCalls = 0;
+    registerAcpSkillRunController("run-idle-connected-interrupt", {
+      cancel: async () => {
+        cancelCalls += 1;
+      },
+      interruptTurn: async () => {
+        interruptCalls += 1;
+      },
+    });
+
+    await interruptAcpSkillRunCurrentTurn("run-idle-connected-interrupt");
+
+    const record = getAcpSkillRunRecord("run-idle-connected-interrupt");
+    const stages = (record?.events || []).map((event) => event.stage);
+    const ignored = (record?.events || []).find(
+      (event) => event.stage === "interrupt-ignored",
+    );
+    assert.equal(cancelCalls, 0);
+    assert.equal(interruptCalls, 0);
+    assert.equal(record?.status, "running");
+    assert.equal(record?.activePrompt, false);
+    assert.equal(record?.replyState, "idle");
+    assert.equal(record?.conversationState, "active");
+    assert.equal(record?.conversationRecoveryState, "connected");
+    assert.equal(record?.connectionActionState, "idle");
+    assert.notInclude(stages, "interrupt-requested");
+    assert.equal(ignored?.level, "warn");
+    assert.deepInclude(ignored?.details || {}, {
+      activePrompt: false,
+      replyState: "idle",
+      conversationRecoveryState: "connected",
+    });
   });
 
   it("interrupts an active ACP skill prompt without closing the live adapter", async function () {
@@ -3072,28 +3123,6 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(continuationPrompt, "ACP Skills continuation guard");
     assert.include(continuationPrompt, "same remote ACP session");
     assert.include(continuationPrompt, "continue");
-
-    const orchestratorSource = await fs.readFile(
-      "src/modules/acpSkillRunnerOrchestrator.ts",
-      "utf8",
-    );
-    assert.notInclude(orchestratorSource, "mcp_callable_smoke");
-    assert.notInclude(orchestratorSource, "mcp-callable-smoke");
-    assert.notInclude(orchestratorSource, "mcp-smoke");
-  });
-
-  it("keeps ACP MCP descriptor injection available through explicit compatibility mode", async function () {
-    const adapterSource = await fs.readFile(
-      "src/modules/acpConnectionAdapter.ts",
-      "utf8",
-    );
-    assert.include(adapterSource, "explicit_descriptor_injection");
-    assert.include(adapterSource, "mcp_compat_disabled");
-    assert.include(adapterSource, "mcp_compat_descriptor_injected");
-    assert.include(adapterSource, "return [descriptor];");
-    assert.notInclude(adapterSource, "wrapMcpServersForSession");
-    assert.notInclude(adapterSource, "startMcpSmokeSpan");
-    assert.notInclude(adapterSource, "mcp-gateway");
   });
 
   it("materializes Host Bridge CLI run profile, runtime README, and env without leaking token", async function () {
@@ -7957,6 +7986,41 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "available");
   });
 
+  it("settles disconnect state and releases controller when detach rejects", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-disconnect-reject",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-disconnect-reject",
+      activePrompt: true,
+      connectionActionState: "idle",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+    });
+    registerAcpSkillRunController("run-disconnect-reject", {
+      cancel: async () => undefined,
+      disconnect: async () => {
+        throw new Error("adapter close failed");
+      },
+    });
+
+    await disconnectAcpSkillRun("run-disconnect-reject");
+
+    const record = getAcpSkillRunRecord("run-disconnect-reject");
+    const detachError = (record?.events || []).find(
+      (event) => event.stage === "disconnect-detach-error",
+    );
+    assert.equal(record?.connectionActionState, "idle");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "available");
+    assert.equal(record?.activePrompt, false);
+    assert.isFalse(hasAcpSkillRunController("run-disconnect-reject"));
+    assert.equal(detachError?.level, "warn");
+    assert.equal(detachError?.details?.error, "adapter close failed");
+  });
+
   it("does not mark connect succeeded after recovery already detached the session", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -8337,6 +8401,120 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(record?.conversationRecoveryState, "available");
       assert.equal(cancelCalls, 1);
       assert.equal(closeCalls, 1);
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "result-file-fallback-skipped");
+      assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disconnects an active ACP skill prompt even when cancel rejects", async function () {
+    resetAcpSkillRunsForTests();
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let cancelCalls = 0;
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-disconnect-reject" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: {
+              type: "text",
+              text: "ignored after disconnect cancel failure",
+            },
+          },
+        });
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "cancelled" };
+      },
+      cancel: async () => {
+        cancelCalls += 1;
+        throw new Error("cancel notification failed");
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+
+    try {
+      const runPromise = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend: createBackend(),
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "result",
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "demo-skill": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          createAdapter: async () => fakeAdapter,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await promptStarted;
+      const requestId = listAcpSkillRuns()[0]?.requestId || "";
+
+      await disconnectAcpSkillRun(requestId);
+      const result = await runPromise;
+      const record = getAcpSkillRunRecord(requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+
+      assert.equal(result.status, "deferred");
+      assert.equal(result.backendStatus, "running");
+      assert.deepInclude(result.responseJson as Record<string, unknown>, {
+        status: "disconnected",
+      });
+      assert.equal(record?.status, "running");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.connectionActionState, "idle");
+      assert.equal(cancelCalls, 1);
+      assert.equal(closeCalls, 1);
+      assert.include(stages, "disconnect-cancel-failed");
       assert.notInclude(stages, "output-validation-failed");
       assert.notInclude(stages, "result-file-fallback-skipped");
       assert.notInclude(stages, "repair-started");

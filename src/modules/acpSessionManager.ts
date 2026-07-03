@@ -2628,7 +2628,6 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       sessionRuntime.snapshot.agentWorkspaceDir || sessionRuntime.snapshot.sessionCwd,
     );
     await ensureRuntimeDirectory(sessionRuntime.snapshot.conversationStorageDir);
-    await ensureRuntimeDirectory(sessionRuntime.snapshot.runtimeDir);
     const workspaceDir =
       sessionRuntime.snapshot.agentWorkspaceDir ||
       sessionRuntime.snapshot.workspaceDir ||
@@ -2903,46 +2902,32 @@ function buildBackendSummary(
   backend: BackendInstance,
   options: { ensureSession?: boolean } = {},
 ) {
-  const foregroundSessionRuntime =
-    backend.id === activeBackendId ? getOrCreateSessionRuntime(backend.id) : null;
-  if (foregroundSessionRuntime) {
-    foregroundSessionRuntime.snapshot.backend = backend;
-  }
-  const backendSessionRuntimes = Array.from(sessionRuntimes.values()).filter(
-    (sessionRuntime) => sessionRuntime.backendId === backend.id,
-  );
+  const backendActiveRuntime = getOrCreateSessionRuntime(backend.id);
+  backendActiveRuntime.snapshot.backend = backend;
   const sessions = options.ensureSession
     ? listAcpChatSessions(backend.id)
     : listStoredVisibleAcpChatSessions(backend.id);
   const projectedSessions = sessions.map((entry) =>
     projectAcpChatSessionSummary(backend.id, entry),
   );
-  const liveSessionRuntimes = backendSessionRuntimes.filter((sessionRuntime) => isLiveAcpChatSessionRuntime(sessionRuntime));
-  const statusSource =
-    liveSessionRuntimes.find((sessionRuntime) => sessionRuntime.snapshot.busy) ||
-    liveSessionRuntimes[0] ||
-    foregroundSessionRuntime;
   const lastError =
-    liveSessionRuntimes
-      .map((sessionRuntime) =>
-        (
-          String(sessionRuntime.snapshot.prerequisiteError || "").trim() ||
-          String(sessionRuntime.snapshot.lastError || "").trim()
-        ).trim(),
-      )
-      .find(Boolean) || "";
+    String(backendActiveRuntime.snapshot.prerequisiteError || "").trim() ||
+    String(backendActiveRuntime.snapshot.lastError || "").trim();
   return {
     backendId: backend.id,
     displayName: String(backend.displayName || backend.id).trim(),
-    status: statusSource?.snapshot.status || "idle",
-    busy: liveSessionRuntimes.some((sessionRuntime) => sessionRuntime.snapshot.busy === true),
-    connected: liveSessionRuntimes.length > 0,
+    status: backendActiveRuntime.snapshot.status,
+    busy: backendActiveRuntime.snapshot.busy,
+    connected:
+      backendActiveRuntime.snapshot.status === "connected" ||
+      backendActiveRuntime.snapshot.status === "prompting" ||
+      backendActiveRuntime.adapter !== null,
     messageCount:
       projectedSessions.reduce((sum, entry) => sum + entry.messageCount, 0) ||
-      foregroundSessionRuntime?.snapshot.transcriptItemCount ||
+      backendActiveRuntime.snapshot.transcriptItemCount ||
       0,
     lastError,
-    updatedAt: statusSource?.snapshot.updatedAt || nowIso(),
+    updatedAt: backendActiveRuntime.snapshot.updatedAt,
   };
 }
 
@@ -3264,6 +3249,36 @@ function saveActiveAcpConversationSelection(
   });
 }
 
+function isPlaceholderAcpConversationSnapshot(
+  snapshot: AcpConversationSnapshot,
+) {
+  return (
+    normalizeAcpStatus(snapshot.status) === "idle" &&
+    !normalizeString(snapshot.sessionId) &&
+    !normalizeString(snapshot.remoteSessionId) &&
+    !normalizeString(snapshot.lastError) &&
+    !normalizeString(snapshot.prerequisiteError) &&
+    Math.max(0, Number(snapshot.transcriptItemCount) || 0) === 0 &&
+    Math.max(0, Number(snapshot.transcriptEventSeq) || 0) === 0 &&
+    Math.max(0, Number(snapshot.transcriptRevision) || 0) === 0
+  );
+}
+
+function findPlaceholderAcpConversationId(backendId: string) {
+  const sessions = listAcpChatSessions(backendId);
+  for (const session of sessions) {
+    const conversationId = normalizeConversationId(session.conversationId);
+    if (!conversationId) {
+      continue;
+    }
+    const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+    if (isPlaceholderAcpConversationSnapshot(sessionRuntime.snapshot)) {
+      return conversationId;
+    }
+  }
+  return "";
+}
+
 function createNewLocalConversationSnapshot(args: {
   sessionRuntime: AcpChatSessionRuntime;
   backend: BackendInstance | null;
@@ -3373,8 +3388,28 @@ export async function disconnectAcpConversation(args?: {
   conversationId?: string;
 }) {
   ensureInitialized();
-  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
-  await disconnectSessionRuntimeAdapter(sessionRuntime);
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args?.backendId || activeBackendId,
+    args?.conversationId,
+  );
+  if (sessionRuntime.adapter) {
+    sessionRuntime.snapshot.busy = false;
+    sessionRuntime.snapshot.status = "disconnecting";
+    emitSessionRuntimeSnapshot(sessionRuntime);
+  }
+  try {
+    await disconnectSessionRuntimeAdapter(sessionRuntime);
+  } catch (error) {
+    appendDiagnostic(sessionRuntime, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "disconnect_close_error",
+      level: "warn",
+      message: "ACP Chat adapter close failed during disconnect.",
+      detail: compactError(error),
+      stage: "disconnect",
+    });
+  }
   markSessionRuntimeConnectionIdle(sessionRuntime, { clearErrors: true });
   await flushPendingChatTranscriptWrites(sessionRuntime);
   releaseIdleBackgroundTranscriptMirror(sessionRuntime);
@@ -3488,6 +3523,24 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
   ensureInitialized();
   await refreshAcpBackends();
   const backendId = normalizeBackendId(args?.backendId || activeBackendId);
+  const existingPlaceholderConversationId =
+    findPlaceholderAcpConversationId(backendId);
+  if (existingPlaceholderConversationId) {
+    activeBackendId = backendId;
+    saveAcpFrontendState({ activeBackendId });
+    saveActiveAcpConversationSelection(
+      backendId,
+      existingPlaceholderConversationId,
+    );
+    const existingRuntime = getOrCreateSessionRuntime(
+      backendId,
+      existingPlaceholderConversationId,
+    );
+    pruneIdleBackgroundTranscriptMirrors();
+    notifyConversationListenersNow(existingRuntime);
+    notifyFrontendListenersNow();
+    return;
+  }
   const seedSessionRuntime = getOrCreateSessionRuntime(backendId);
   const preservedBackend =
     cachedAcpBackends.find((entry) => entry.id === backendId) ||

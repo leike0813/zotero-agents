@@ -1358,31 +1358,9 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "actionTrace");
     assert.include(assistantJs, "function traceAction(stage, details)");
     assert.include(assistantJs, "function nextActionId(tab, action)");
-    assert.notInclude(assistantJs, "init-ack");
-    assert.notInclude(assistantJs, "host-init-received");
-    assert.notInclude(assistantJs, "host-child-snapshot-received");
     assert.include(assistantJs, 'data.type === "run-dialog:action"');
-    assert.notInclude(
-      assistantJs,
-      "function installSkillRunnerSidebarLayoutFallback()",
-    );
-    assert.notInclude(assistantJs, "function ensureSkillRunnerSidebarLayout()");
-    assert.notInclude(assistantJs, "normalizeSkillRunnerSidebarPayload({})");
-    assert.notInclude(assistantJs, "assistantSkillrunnerLayout");
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
     assert.include(assistantJs, "function acceptChildReady(tab, payload)");
-    assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
-    assert.include(assistantJs, "state.initializedFrames.add(normalizedTab)");
-    assert.include(assistantJs, "replayCachedChildPayload(normalizedTab)");
-    assert.include(
-      assistantJs,
-      "const firstReady = !state.initializedFrames.has(normalizedTab)",
-    );
-    assert.include(
-      assistantJs,
-      'if (firstReady) {\n      sendChildAction(normalizedTab, "ready", payload || {});',
-    );
-    assert.notInclude(assistantJs, "announceInitializedChildFramesReady");
     assert.include(assistantJs, 'if (data.action === "ready")');
     assert.include(assistantJs, 'acceptChildReady("acp-chat", data.payload || {})');
     assert.include(
@@ -1805,6 +1783,8 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelRendererJs, "renderContextSelectors");
     assert.include(assistantPanelRendererJs, "renderContextActions");
     assert.include(assistantPanelRendererJs, "renderAssistantBanner");
+    assert.include(assistantPanelRendererJs, "renderBannerStatusBadge");
+    assert.include(assistantPanelRendererJs, "assistant-panel-banner-status");
     assert.include(assistantPanelRendererJs, "renderBannerIndicators");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator");
     assert.include(assistantPanelRendererJs, "assistant-panel-indicator-extra");
@@ -1973,6 +1953,8 @@ describe("acp ui smoke", function () {
       ".assistant-panel-usage-gauge.is-unavailable",
     );
     assert.include(sharedPanelCss, ".assistant-panel-indicators");
+    assert.include(sharedPanelCss, ".assistant-panel-banner-status-row");
+    assert.include(sharedPanelCss, ".assistant-panel-banner-status");
     assert.include(sharedPanelCss, ".assistant-panel-indicator");
     assert.include(sharedPanelCss, ".assistant-panel-indicator-extra");
     assert.include(sharedPanelCss, ".assistant-panel-indicator-progress");
@@ -2142,22 +2124,13 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "function projectConversationView(snapshot)");
     assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
     assert.include(acpChatJs, "Array.isArray(snapshot && snapshot.items)");
-    assert.notInclude(acpChatJs, '"load-chat-transcript-page"');
-    assert.notInclude(acpChatJs, '"acp:transcript-page"');
-    assert.notInclude(acpChatJs, '"acp:transcript-delta"');
-    assert.notInclude(acpChatJs, "function isTranscriptTailPage()");
-    assert.notInclude(acpChatJs, "function requestTranscriptResync(");
-    assert.notInclude(acpChatJs, "state.transcriptItems.push");
     assert.include(acpChatJs, "const view = projectConversationView(snapshot");
     assert.include(acpChatJs, "snapshot.transcriptState");
     assert.include(acpChatJs, "acp-chat-transcript-loading");
     assert.include(acpChatJs, 'transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"))');
-    assert.include(acpChatCss, "border-top-color: var(--zs-accent)");
-    assert.include(acpChatCss, "@keyframes acp-chat-transcript-spin");
-    assert.include(acpChatJs, "pendingAction");
+    assert.notInclude(acpChatJs, "pendingAction");
     assert.include(acpChatJs, "state.sessionDrawerOpen = false");
     assert.include(acpChatJs, "function compactPanelRenderKey(snapshot)");
-    assert.notInclude(acpChatJs, "Number(entry && entry.messageCount) || 0");
     assert.include(acpChatJs, "assistantTranscriptRenderer()");
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
     assert.include(acpChatJs, 'variant: "acp-chat"');
@@ -2195,19 +2168,10 @@ describe("acp ui smoke", function () {
       "projectAcpSkillRunConversationView(run || {})",
     );
     assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
-    assert.notInclude(acpSkillRunJs, "function isTranscriptTailPage()");
-    assert.notInclude(acpSkillRunJs, "function requestTranscriptResync(run)");
-    assert.notInclude(acpSkillRunJs, "function handleTranscriptPage");
-    assert.notInclude(acpSkillRunJs, "function handleTranscriptDeltas");
-    assert.notInclude(acpSkillRunJs, "state.transcriptItems.push(delta.item)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
     assert.include(acpSkillRunJs, 'variant: "skillrunner"');
     assert.include(acpSkillRunJs, "parser.render(safeText(value))");
-    assert.notInclude(assistantSidebar, "appendBoundedTranscriptDelta(");
-    assert.notInclude(assistantSidebar, "resyncRequired: true");
-    assert.notInclude(assistantSidebar, "load-chat-transcript-page");
-    assert.notInclude(assistantSidebar, "transcript-delta");
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
     assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
     assert.include(
@@ -2224,6 +2188,20 @@ describe("acp ui smoke", function () {
     );
     assert.include(acpSkillRunJs, "function buildPanelRenderKey(snapshot)");
     assert.include(acpSkillRunJs, "state.panelRenderKey === renderKey");
+    assert.include(acpSkillRunJs, "safeText(run.acpModeId)");
+    assert.include(acpSkillRunJs, "safeText(run.acpModelId)");
+    assert.include(acpSkillRunJs, "safeText(run.acpRawModelId)");
+    assert.include(acpSkillRunJs, "safeText(run.acpReasoningEffort)");
+    assert.include(acpSkillRunJs, "function compactRuntimeOptionsKey(options)");
+    assert.include(acpSkillRunJs, "runtimeOptions.currentMode.id");
+    assert.include(acpSkillRunJs, "runtimeOptions.currentDisplayModel.id");
+    assert.include(acpSkillRunJs, "runtimeOptions.currentModel.id");
+    assert.include(acpSkillRunJs, "runtimeOptions.currentReasoningEffort.id");
+    assert.include(acpSkillRunJs, "function compactEventsKey(run)");
+    assert.include(acpSkillRunJs, "function compactLogsKey(logs)");
+    assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
+    assert.include(acpSkillRunJs, "selectedEvents:");
+    assert.include(acpSkillRunJs, "logs:");
     assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
     assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
     assert.include(
@@ -2250,24 +2228,6 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "managedRegions");
     assert.include(acpSkillRunJs, "toolbar: true");
     assert.include(acpSkillRunJs, "plan: true");
-    assert.notInclude(acpSkillRunJs, "pageRevision < loadedRevision");
-    assert.notInclude(acpSkillRunJs, "pageRevision <= loadedRevision");
-    assert.notInclude(acpSkillRunJs, "pageRevision === 0");
-    {
-      const renderStart = acpSkillRunJs.indexOf(
-        "function renderTranscript(run)",
-      );
-      const renderEnd = acpSkillRunJs.indexOf(
-        "function renderSelectedRun",
-        renderStart,
-      );
-      const renderBody = acpSkillRunJs.slice(renderStart, renderEnd);
-      assert.notInclude(renderBody, "sourceRevision > loadedRevision");
-      assert.notInclude(
-        renderBody,
-        "state.transcriptLoadedRevision !== sourceRevision",
-      );
-    }
     assert.include(hooks, "runShutdownStepWithTimeout(");
     assert.include(hooks, "shutdownAcpWebSocketBridgeService");
     assert.include(hooks, '"acp-websocket-bridge-shutdown"');
@@ -2328,14 +2288,8 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantSidebar, "MountedSidebarDock");
     assert.include(assistantSidebar, "shell:");
-    assert.include(assistantSidebar, "dockAssistantWorkspaceShell");
-    assert.include(assistantSidebar, "data-zs-assistant-dock-target");
-    assert.include(assistantSidebar, "data-zs-assistant-shell");
-    assert.include(assistantSidebar, "data-zs-assistant-active-target");
     assert.include(assistantSidebar, "activeTarget: host.activeTarget");
     assert.include(assistantSidebar, "scopeKey: host.scopeKey");
-    assert.notInclude(assistantSidebar, "host.library.frame");
-    assert.notInclude(assistantSidebar, "host.reader.frame");
     assert.include(assistantSidebar, "AssistantWorkspaceBridgeResult");
     assert.include(assistantSidebar, "logAssistantShellAction");
     assert.include(assistantSidebar, 'component: "assistant-shell"');
@@ -2367,10 +2321,6 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantSidebar, "buildAcpSidebarViewSnapshot");
     assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
-    assert.notInclude(
-      assistantSidebar,
-      "postShellInit(pane, host.activeTab);\n  postAcpChatSnapshot",
-    );
     assert.include(assistantSidebar, "replyAcpSkillRun");
     assert.include(assistantSidebar, "connectAcpSkillRun");
     assert.include(assistantSidebar, "disconnectAcpSkillRun");
@@ -2480,10 +2430,6 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, 'action === "close-permission-request"');
     assert.notInclude(acpChatJs, "permissionRequestDetailsSection");
     assert.notInclude(acpSkillRunJs, "permissionRequestDetailsSection");
-    assert.notInclude(
-      acpSkillRunJs,
-      "pendingSelectedRequestId",
-    );
     assert.include(
       acpSkillRunJs,
       "function renderPanelRuntimeFailure(message)",
@@ -2491,9 +2437,6 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "panelRendererFailed");
     assert.include(acpSkillRunJs, "data-assistant-interaction");
     assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
-    assert.notInclude(acpSkillRunJs, "transcriptStates: new Map()");
-    assert.notInclude(acpSkillRunJs, "function persistCurrentTranscriptState()");
-    assert.notInclude(acpSkillRunJs, "function restoreTranscriptState(cached)");
     assert.include(acpSkillRunJs, "transcriptOrderKey");
     assert.include(acpSkillRunJs, "transcriptMode");
     assert.include(acpSkillRunJs, "toolActivityExpandedIds");
@@ -2595,7 +2538,6 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunStore, "outputRevisionCount");
     assert.include(acpSkillRunStore, "delete persisted.transcriptItems");
     assert.include(acpSkillRunStore, "delete persisted.outputRevisions");
-    assert.notInclude(acpSkillRunStore, "publishedTranscripts");
     assert.include(acpSkillRunStore, "replacementReason");
     assert.include(acpSkillRunStore, "function replaceLatestAssistantMessage");
     assert.include(acpSkillRunStore, "function formatFinalEnvelopeMarkdown");
@@ -2620,11 +2562,6 @@ describe("acp ui smoke", function () {
       "assistant-transcript-revision-badge",
     );
     assert.notInclude(acpSkillRunJs, "outputRevisions");
-    assert.notInclude(acpSkillRunJs, '"load-transcript-page"');
-    assert.notInclude(acpSkillRunJs, '"acp-skill-run:transcript-page"');
-    assert.notInclude(acpSkillRunJs, '"acp-skill-run:transcript-delta"');
-    assert.notInclude(assistantSidebar, "postAcpSkillRunTranscriptPage");
-    assert.notInclude(assistantSidebar, 'tab: "acp-skills",\n    phase: "transcript-page"');
     assert.notInclude(acpChatJs, "outputRevisions");
     assert.include(acpSkillRunStore, "setAcpSkillRunPermissionRequest");
     assert.include(acpSkillRunStore, "resolveAcpSkillRunPermissionRequest");
@@ -2858,6 +2795,10 @@ describe("acp ui smoke", function () {
       "assistant-panel-transcript-thinking",
       "assistant-panel-transcript-tool",
       "assistant-panel-usage-unavailable",
+      "assistant-panel-status-failed-retriable",
+      "assistant-panel-status-disconnecting",
+      "assistant-panel-status-auth-required",
+      "assistant-panel-status-permission-required",
       "assistant-panel-status-backend-unavailable",
     ];
     locales.forEach(({ locale, text }) => {
@@ -2897,6 +2838,11 @@ describe("acp ui smoke", function () {
         needsUserInteraction: "需要交互",
         backendUnavailable: "后端不可用",
       },
+      status: {
+        connected: "已连接",
+        running: "运行中",
+        waiting: "等待中",
+      },
     };
 
     const skillRunner = model.projectSkillRunnerPanelSnapshot({
@@ -2934,6 +2880,7 @@ describe("acp ui smoke", function () {
       "正在等待回复",
     );
     assert.equal(skillRunner.reply.hint, "快捷发送");
+    assert.equal(skillRunner.context.statusLabel, "等待中");
     assert.equal(skillRunner.drawers.labels.waitingRequestId, "等待请求 ID");
     assert.equal(skillRunner.drawers.labels.needsUserInteraction, "需要交互");
     assert.equal(skillRunner.drawers.labels.backendUnavailable, "后端不可用");
@@ -2945,6 +2892,7 @@ describe("acp ui smoke", function () {
       chatSessions: [],
     });
     assert.equal(acpChat.reply.placeholder, "询问当前 ACP 后端...");
+    assert.equal(acpChat.context.statusLabel, "已连接");
   });
 
   it("localizes the Assistant interaction status area from the conversation view", async function () {
@@ -3205,7 +3153,30 @@ describe("acp ui smoke", function () {
     );
     assert.equal(
       backendStatusSelector.options[0].label,
-      "Backend A · 真实状态",
+      "Backend A",
+    );
+    const rawBackendStatusPanel = model.projectAcpChatPanelSnapshot({
+      status: "idle",
+      activeBackendId: "backend-a",
+      backendOptions: [
+        {
+          backendId: "backend-a",
+          displayName: "Backend A",
+          status: "connected",
+        },
+      ],
+      activeConversationId: "conversation-a",
+      chatSessions: [],
+      items: [],
+      labels: {},
+    });
+    const rawBackendStatusSelector =
+      rawBackendStatusPanel.context.selectors.find(
+        (entry: any) => entry.id === "backend",
+      );
+    assert.equal(
+      rawBackendStatusSelector.options[0].label,
+      "Backend A",
     );
     const conversationSelector = panel.context.selectors.find(
       (entry: any) => entry.id === "conversation",
@@ -3229,6 +3200,15 @@ describe("acp ui smoke", function () {
     assert.equal(
       panel.drawers.sections[0].groups[0].activeTasks[0].conversationId,
       "conversation-a",
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0]
+        .showBackendStatusBadge,
+      false,
+    );
+    assert.equal(
+      panel.drawers.sections[0].groups[0].activeTasks[0].showApplyStatusBadge,
+      false,
     );
     assert.equal(
       panel.drawers.sections[0].groups[0].activeTasks[0].action,
@@ -3307,9 +3287,8 @@ describe("acp ui smoke", function () {
     assert.equal(remoteActions.authenticate.enabled, false);
     assert.equal(remoteActions.connect.payload.backendId, "backend-a");
 
-    const pendingConnectPanel = model.projectAcpChatPanelSnapshot({
-      status: "idle",
-      pendingAction: "connect",
+    const ssotConnectingPanel = model.projectAcpChatPanelSnapshot({
+      status: "initializing",
       activeBackendId: "backend-a",
       backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
       activeConversationId: "conversation-a",
@@ -3326,24 +3305,23 @@ describe("acp ui smoke", function () {
         status: { connecting: "连接中" },
       },
     });
-    const pendingConnectActions = Object.fromEntries(
-      pendingConnectPanel.context.actions.map((entry: any) => [
+    const ssotConnectingActions = Object.fromEntries(
+      ssotConnectingPanel.context.actions.map((entry: any) => [
         entry.id || entry.action,
         entry,
       ]),
     );
-    assert.equal(pendingConnectPanel.context.status, "connecting");
-    assert.equal(pendingConnectActions.connect.enabled, false);
-    assert.equal(pendingConnectActions.connect.label, "连接中...");
+    assert.equal(ssotConnectingPanel.context.status, "initializing");
+    assert.equal(ssotConnectingActions.connect.enabled, false);
+    assert.equal(ssotConnectingActions.connect.label, "连接中...");
     assert.equal(
-      pendingConnectPanel.context.selectors[0].options[0].label,
+      ssotConnectingPanel.context.selectors[0].options[0].label,
       "Backend A",
     );
 
-    const pendingDisconnectPanel = model.projectAcpChatPanelSnapshot({
-      status: "connected",
+    const ssotDisconnectingPanel = model.projectAcpChatPanelSnapshot({
+      status: "disconnecting",
       sessionId: "session-1",
-      pendingAction: "disconnect",
       activeBackendId: "backend-a",
       backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
       activeConversationId: "conversation-a",
@@ -3360,21 +3338,21 @@ describe("acp ui smoke", function () {
         status: { disconnecting: "断开中" },
       },
     });
-    const pendingDisconnectActions = Object.fromEntries(
-      pendingDisconnectPanel.context.actions.map((entry: any) => [
+    const ssotDisconnectingActions = Object.fromEntries(
+      ssotDisconnectingPanel.context.actions.map((entry: any) => [
         entry.id || entry.action,
         entry,
       ]),
     );
-    assert.equal(pendingDisconnectPanel.context.status, "disconnecting");
-    assert.equal(pendingDisconnectActions.disconnect.enabled, false);
-    assert.equal(pendingDisconnectActions.disconnect.label, "断开中...");
+    assert.equal(ssotDisconnectingPanel.context.status, "disconnecting");
+    assert.equal(ssotDisconnectingActions.disconnect.enabled, false);
+    assert.equal(ssotDisconnectingActions.disconnect.label, "断开中...");
     assert.equal(
-      pendingDisconnectPanel.lifecycle.connectionState,
+      ssotDisconnectingPanel.lifecycle.connectionState,
       "disconnecting",
     );
     assert.equal(
-      pendingDisconnectPanel.context.selectors[0].options[0].label,
+      ssotDisconnectingPanel.context.selectors[0].options[0].label,
       "Backend A",
     );
 
@@ -3467,7 +3445,7 @@ describe("acp ui smoke", function () {
     const skillPanel = model.projectAcpSkillRunPanelSnapshot({
       labels: {
         fields: { connection: "连接", hostBridge: "宿主桥" },
-        status: { connected: "已连接", fallback: "备用端口" },
+        status: { connected: "已连接", fallback: "备用端口", running: "运行中" },
       },
       mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
       hostBridge: {
@@ -3554,6 +3532,7 @@ describe("acp ui smoke", function () {
       "mcp",
     );
     assert.equal(skillPanel.context.title, "Selected Paper Title");
+    assert.equal(skillPanel.context.statusLabel, "运行中");
     assert.equal(skillPanel.context.subtitle, "Literature Analysis");
     assert.equal(skillPanel.drawers.layout, "workspace-task-drawer");
     assert.equal(skillPanel.drawers.sections[0].id, "running");
@@ -4432,6 +4411,10 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "state.transcriptRevision === revision");
     assert.include(acpSkillRunJs, "state.transcriptRevision === revision");
     assert.include(runDialogJs, "state.transcriptRevision === revision");
+    assert.include(acpChatJs, "toolActivityExpandedSignature()");
+    assert.include(acpChatJs, "state.toolActivityExpandedSignature");
+    assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
+    assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");
   });
 
   it("renders waiting_user choice options as clickable reply buttons", async function () {

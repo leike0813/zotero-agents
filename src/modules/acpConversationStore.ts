@@ -423,14 +423,8 @@ export function resolveAcpChatRuntimePaths(
     conversationStorageDir,
     workspaceDir: agentWorkspaceDir,
     storageDir: conversationStorageDir,
-    runtimeDir: joinPath(paths.acpChatRuntimeDir, backendId),
+    runtimeDir: conversationStorageDir,
   };
-}
-
-export const resolveAcpStoragePaths = resolveAcpChatRuntimePaths;
-
-export function resolveAcpSessionCwd() {
-  return getRuntimePersistencePaths().acpChatWorkspaceDir;
 }
 
 function deriveConversationTitle(args: {
@@ -571,7 +565,6 @@ function writeAcpChatSessionIndex(args: {
 function readStoredAcpChatSessionIndex(backendIdRaw: string) {
   const backendId =
     String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
-  migrateLegacyConversationIfNeeded(backendId);
   const requestEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
     sessionIndexRequestId(backendId),
@@ -596,11 +589,6 @@ function readStoredAcpChatSessionIndex(backendIdRaw: string) {
       ),
     ),
   };
-}
-
-function migrateLegacyConversationIfNeeded(backendId: string) {
-  void backendId;
-  return;
 }
 
 function removeLegacyConversationIfNeeded(backendId: string) {

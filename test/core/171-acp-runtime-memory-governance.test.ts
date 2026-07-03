@@ -585,13 +585,14 @@ describe("ACP runtime memory governance", function () {
       statusReason: "start",
       backendId: "backend-acp",
       backendType: "acp",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
     });
     let disconnectCalls = 0;
     registerAcpSkillRunController("req-apply-detach", {
       cancel: async () => undefined,
       disconnect: async () => {
         disconnectCalls += 1;
-        registerAcpSkillRunController("req-apply-detach", null);
       },
     });
 
@@ -604,7 +605,86 @@ describe("ACP runtime memory governance", function () {
     const record = getAcpSkillRunRecord("req-apply-detach");
     assert.equal(record?.status, "succeeded");
     assert.equal(record?.applyResultState, "succeeded");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "available");
+    assert.equal(record?.connectionActionState, "idle");
     assert.equal(disconnectCalls, 1);
     assert.isFalse(hasAcpSkillRunController("req-apply-detach"));
+  });
+
+  it("detaches a live ACP skill controller after workflow apply fails", async function () {
+    upsertAcpSkillRun({
+      requestId: "req-apply-failed-detach",
+      status: "running",
+      statusReason: "start",
+      backendId: "backend-acp",
+      backendType: "acp",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      activePrompt: true,
+    });
+    let disconnectCalls = 0;
+    registerAcpSkillRunController("req-apply-failed-detach", {
+      cancel: async () => undefined,
+      disconnect: async () => {
+        disconnectCalls += 1;
+      },
+    });
+
+    markAcpSkillRunApplyResult({
+      requestId: "req-apply-failed-detach",
+      state: "failed",
+      error: "apply output failed",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const record = getAcpSkillRunRecord("req-apply-failed-detach");
+    assert.isFalse(hasAcpSkillRunController("req-apply-failed-detach"));
+    assert.equal(record?.status, "failed");
+    assert.equal(record?.backendStatus, "succeeded");
+    assert.equal(record?.applyResultState, "failed");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "unavailable");
+    assert.equal(record?.connectionActionState, "idle");
+    assert.equal(record?.activePrompt, false);
+    assert.equal(disconnectCalls, 1);
+  });
+
+  it("keeps apply-failed ACP skill controllers detached when disconnect fails", async function () {
+    upsertAcpSkillRun({
+      requestId: "req-apply-failed-detach-error",
+      status: "running",
+      statusReason: "start",
+      backendId: "backend-acp",
+      backendType: "acp",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      activePrompt: true,
+    });
+    registerAcpSkillRunController("req-apply-failed-detach-error", {
+      cancel: async () => undefined,
+      disconnect: async () => {
+        throw new Error("adapter close failed");
+      },
+    });
+
+    markAcpSkillRunApplyResult({
+      requestId: "req-apply-failed-detach-error",
+      state: "failed",
+      error: "apply output failed",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const record = getAcpSkillRunRecord("req-apply-failed-detach-error");
+    const stages = (record?.events || []).map((event) => event.stage);
+    assert.isFalse(hasAcpSkillRunController("req-apply-failed-detach-error"));
+    assert.equal(record?.status, "failed");
+    assert.equal(record?.applyResultState, "failed");
+    assert.equal(record?.conversationState, "closed");
+    assert.equal(record?.conversationRecoveryState, "unavailable");
+    assert.equal(record?.connectionActionState, "idle");
+    assert.include(stages, "apply-result-detach-error");
   });
 });

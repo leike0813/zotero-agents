@@ -250,19 +250,68 @@
     if (token === "failed-retriable") {
       return labelFrom(source, "status.failedRetriable", "Recoverable failure");
     }
-    if (token === "failed" || token === "error" || token === "errored") {
+    if (token === "failed") {
       return labelFrom(source, "status.failed", "Failed");
+    }
+    if (token === "error" || token === "errored" || token === "closed") {
+      return labelFrom(source, "status.error", "Error");
     }
     if (token === "canceled" || token === "cancelled") {
       return labelFrom(source, "status.canceled", "Canceled");
     }
+    if (token === "connected" || token === "active") {
+      return labelFrom(source, "status.connected", "Connected");
+    }
+    if (token === "connecting") {
+      return labelFrom(source, "status.connecting", "Connecting");
+    }
+    if (
+      token === "checking-command" ||
+      token === "spawning" ||
+      token === "initializing"
+    ) {
+      return labelFrom(source, "status.starting", "Starting");
+    }
+    if (token === "disconnecting") {
+      return labelFrom(source, "status.disconnecting", "Disconnecting");
+    }
+    if (token === "disconnected") {
+      return labelFrom(source, "status.disconnected", "Disconnected");
+    }
+    if (token === "auth-required" || token === "waiting-auth") {
+      return labelFrom(source, "status.authRequired", "Auth required");
+    }
+    if (token === "permission-required") {
+      return labelFrom(
+        source,
+        "status.permissionRequired",
+        "Permission required",
+      );
+    }
     if (
       token === "waiting-user" ||
-      token === "waiting-auth" ||
-      token === "waiting_user" ||
-      token === "waiting_auth"
+      token === "waiting_user"
     ) {
       return labelFrom(source, "status.waiting", "Waiting");
+    }
+    if (token === "ready") return labelFrom(source, "status.ready", "Ready");
+    if (token === "starting")
+      return labelFrom(source, "status.starting", "Starting");
+    if (token === "recovering")
+      return labelFrom(source, "status.recovering", "Recovering");
+    if (token === "pending" || token === "queued") {
+      return labelFrom(source, "status.pending", "Pending");
+    }
+    if (token === "unavailable") {
+      return labelFrom(source, "status.unavailable", "Unavailable");
+    }
+    if (token === "limited") return labelFrom(source, "status.limited", "Limited");
+    if (token === "backend-unavailable") {
+      return labelFrom(
+        source,
+        "status.backendUnavailable",
+        "Backend unavailable",
+      );
     }
     if (BUSY_STATES.has(token) || token === "queued") {
       return labelFrom(source, "status.running", "Running");
@@ -2416,13 +2465,7 @@
         ? helper.projectAcpChatConversationView(snap)
         : fallbackConversationView(snap.items);
     const status = normalizeStatusToken(snap.status || "idle");
-    const pendingAction = safeText(snap.pendingAction);
-    const effectiveStatus =
-      pendingAction === "connect" || pendingAction === "switching"
-        ? "connecting"
-        : pendingAction === "disconnect"
-          ? "disconnecting"
-          : status;
+    const effectiveStatus = status;
     const isConnecting =
       effectiveStatus === "checking-command" ||
       effectiveStatus === "spawning" ||
@@ -2449,42 +2492,6 @@
         : isConnecting
           ? "connecting"
           : "disconnected";
-    function acpChatStatusLabel(token) {
-      const normalized = normalizeStatusToken(token || "idle");
-      if (normalized === "connected" || normalized === "prompting") {
-        return labelFrom(snap, "status.connected", "Connected");
-      }
-      if (
-        ["connecting", "initializing", "checking-command", "spawning"].indexOf(
-          normalized,
-        ) >= 0
-      ) {
-        return labelFrom(snap, "status.connecting", "Connecting");
-      }
-      if (normalized === "disconnecting") {
-        return labelFrom(snap, "status.disconnecting", "Disconnecting");
-      }
-      if (normalized === "auth-required") {
-        return labelFrom(snap, "status.authRequired", "Auth required");
-      }
-      if (normalized === "permission-required") {
-        return labelFrom(
-          snap,
-          "status.permissionRequired",
-          "Permission required",
-        );
-      }
-      if (["error", "failed", "closed"].indexOf(normalized) >= 0) {
-        return labelFrom(snap, "status.error", "Error");
-      }
-      return labelFrom(snap, "status.disconnected", "Disconnected");
-    }
-    function acpChatBackendOptionStatusLabel(entry) {
-      const explicitLabel = safeText(entry && entry.statusLabel);
-      if (explicitLabel) return explicitLabel;
-      const explicitStatus = safeText(entry && entry.status);
-      return explicitStatus ? acpChatStatusLabel(explicitStatus) : "";
-    }
     const backendOptions = (
       Array.isArray(snap.backendOptions) ? snap.backendOptions : []
     ).map(function (entry) {
@@ -2496,12 +2503,9 @@
       const value = safeText(normalized.value);
       const backendId = safeText(normalized.backendId || normalized.value);
       const baseLabel = safeText(normalized.label) || backendId || value;
-      const optionStatusLabel = acpChatBackendOptionStatusLabel(entry);
       return {
         value,
-        label: optionStatusLabel
-          ? baseLabel + " · " + optionStatusLabel
-          : baseLabel,
+        label: baseLabel,
         backendId,
         rawLabel: baseLabel,
       };
@@ -2573,7 +2577,9 @@
           "Conversation",
         workflowLabel: backendLabel,
         status: statusText,
-        stateLabel: statusText,
+        stateLabel: statusLabel(snap, statusText),
+        showBackendStatusBadge: false,
+        showApplyStatusBadge: false,
         updatedAt: safeText(
           entry &&
             (entry.updatedAt ||
@@ -2669,7 +2675,8 @@
         title: safeText(snap.title) || "ACP Chat",
         subtitle: safeText(snap.labels && snap.labels.subtitle),
         status: effectiveStatus,
-        statusLabel: safeText(snap.statusLabel) || acpChatStatusLabel(effectiveStatus),
+        statusLabel:
+          safeText(snap.statusLabel) || statusLabel(snap, effectiveStatus),
         backendId: safeText(snap.activeBackendId || snap.backendId),
         backendLabel: safeText(snap.backendLabel || snap.agentLabel),
         sessionId: safeText(snap.sessionId || snap.remoteSessionId),
@@ -2737,7 +2744,7 @@
           ),
           contextAction(
             "connect",
-            pendingAction === "connect" || pendingAction === "switching"
+            isConnecting
               ? labelFrom(snap, "actions.connecting", "Connecting...")
               : labels.connect || "Connect",
             {
@@ -2748,7 +2755,7 @@
           ),
           contextAction(
             "disconnect",
-            pendingAction === "disconnect"
+            isDisconnecting
               ? labelFrom(snap, "actions.disconnecting", "Disconnecting...")
               : labels.disconnect || "Disconnect",
             { backendId: activeBackendId, conversationId: activeConversationId },
@@ -3015,7 +3022,7 @@
         title,
         workflowLabel,
         status: statusText,
-        stateLabel: statusText,
+        stateLabel: statusLabel(panel, statusText),
         attention: needsAttention ? "warning" : "",
         attentionLabel: needsAttention
           ? labelFrom(
@@ -3351,7 +3358,7 @@
           "ACP Skill Run",
         subtitle: buildSkillRunSecondaryLabel(run),
         status,
-        statusLabel: status,
+        statusLabel: statusLabel(panel, status),
         backendId: safeText(run && run.backendId),
         backendLabel: safeText(run && run.backendLabel),
         sessionId: safeText(run && run.sessionId),
@@ -3674,7 +3681,7 @@
           safeText(session.title || envelope.title) || "SkillRunner Workspace",
         subtitle: skillRunnerSecondaryLabel || safeText(session.requestId),
         status,
-        statusLabel: status,
+        statusLabel: statusLabel(envelope, status),
         backendId: safeText(session.backendId),
         backendLabel: safeText(session.backendTitle),
         metadata: compactMetadata([

@@ -4203,6 +4203,23 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   if (existing && isTerminalAcpSkillRunStatus(existing.status)) {
     throw new Error("Terminal ACP skill runs cannot be interrupted.");
   }
+  if (existing && !isAcpSkillRunPromptActive(existing)) {
+    upsertAcpSkillRun({
+      requestId,
+      event: {
+        stage: "interrupt-ignored",
+        message:
+          "ACP skill run current turn interruption ignored because no active prompt turn exists.",
+        level: "warn",
+        details: {
+          activePrompt: existing.activePrompt === true,
+          replyState: existing.replyState,
+          conversationRecoveryState: existing.conversationRecoveryState,
+        },
+      },
+    });
+    return;
+  }
   const controller = controllers.get(requestId);
   if (!controller) {
     throw new Error(
@@ -4676,6 +4693,7 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
     throw new Error("requestId is required");
   }
   const controller = controllers.get(requestId);
+  let disconnectError: unknown = null;
   upsertAcpSkillRun({
     requestId,
     connectionActionState: "disconnecting",
@@ -4685,11 +4703,27 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
       level: "info",
     },
   });
-  if (controller?.disconnect) {
-    await controller.disconnect();
-  } else {
-    registerAcpSkillRunController(requestId, null);
+  try {
+    if (controller?.disconnect) {
+      await controller.disconnect();
+    }
+  } catch (error) {
+    disconnectError = error;
+  } finally {
+    const currentController = controllers.get(requestId);
+    if (controller) {
+      if (currentController === controller) {
+        registerAcpSkillRunController(requestId, null);
+      }
+    } else if (!currentController) {
+      registerAcpSkillRunController(requestId, null);
+    }
   }
+  const disconnectErrorMessage = normalizeString(
+    disconnectError instanceof Error
+      ? disconnectError.message
+      : disconnectError,
+  );
   upsertAcpSkillRun({
     requestId,
     activePrompt: false,
@@ -4697,10 +4731,16 @@ export async function disconnectAcpSkillRun(requestIdRaw: string) {
     conversationState: "closed",
     conversationRecoveryState: "available",
     event: {
-      stage: "disconnected",
-      message:
-        "ACP skill run local connection detached; remote session remains recoverable.",
-      level: "info",
+      stage: disconnectError ? "disconnect-detach-error" : "disconnected",
+      message: disconnectError
+        ? "ACP skill run local controller detach did not complete cleanly; remote session remains recoverable."
+        : "ACP skill run local connection detached; remote session remains recoverable.",
+      level: disconnectError ? "warn" : "info",
+      details: disconnectError
+        ? {
+            error: disconnectErrorMessage || "unknown error",
+          }
+        : undefined,
     },
   });
 }
@@ -4726,6 +4766,78 @@ export async function endAcpSkillRunSession(requestIdRaw: string) {
       level: "info",
     },
   });
+}
+
+function applyResultTerminalRecoveryState(state: "succeeded" | "failed") {
+  return state === "failed" ? "unavailable" : "available";
+}
+
+function finalizeAcpSkillRunApplyResultControllerDetach(args: {
+  requestId: string;
+  state: "succeeded" | "failed";
+  stage: "apply-result-detached" | "apply-result-detach-error";
+  level: "info" | "warn";
+  error?: unknown;
+}) {
+  const errorMessage = normalizeString(
+    args.error instanceof Error ? args.error.message : args.error,
+  );
+  upsertAcpSkillRun({
+    requestId: args.requestId,
+    activePrompt: false,
+    conversationState: "closed",
+    conversationRecoveryState: applyResultTerminalRecoveryState(args.state),
+    connectionActionState: "idle",
+    event: {
+      stage: args.stage,
+      message:
+        args.stage === "apply-result-detach-error"
+          ? "ACP skill run controller detach after workflow apply did not complete cleanly."
+          : "ACP skill run controller detached after workflow apply settled.",
+      level: args.level,
+      details: errorMessage ? { error: errorMessage } : undefined,
+    },
+  });
+}
+
+function detachAcpSkillRunControllerAfterApplyResult(args: {
+  requestId: string;
+  state: "pending" | "succeeded" | "failed";
+}) {
+  if (args.state === "pending") {
+    return;
+  }
+  const terminalState: "succeeded" | "failed" = args.state;
+  const controller = controllers.get(args.requestId);
+  registerAcpSkillRunController(args.requestId, null);
+  if (!controller?.disconnect) {
+    finalizeAcpSkillRunApplyResultControllerDetach({
+      requestId: args.requestId,
+      state: terminalState,
+      stage: "apply-result-detached",
+      level: "info",
+    });
+    return;
+  }
+  void controller.disconnect().then(
+    () => {
+      finalizeAcpSkillRunApplyResultControllerDetach({
+        requestId: args.requestId,
+        state: terminalState,
+        stage: "apply-result-detached",
+        level: "info",
+      });
+    },
+    (error) => {
+      finalizeAcpSkillRunApplyResultControllerDetach({
+        requestId: args.requestId,
+        state: terminalState,
+        stage: "apply-result-detach-error",
+        level: "warn",
+        error,
+      });
+    },
+  );
 }
 
 export function markAcpSkillRunApplyResult(args: {
@@ -4767,6 +4879,13 @@ export function markAcpSkillRunApplyResult(args: {
     applyResultState: args.state,
     appliedAt: args.state === "succeeded" ? nowIso() : undefined,
     error: args.state === "failed" ? normalizeString(args.error) : undefined,
+    activePrompt: args.state === "pending" ? undefined : false,
+    conversationState: args.state === "pending" ? undefined : "closed",
+    conversationRecoveryState:
+      args.state === "pending"
+        ? undefined
+        : applyResultTerminalRecoveryState(args.state),
+    connectionActionState: args.state === "pending" ? undefined : "idle",
     event: {
       stage:
         args.state === "succeeded"
@@ -4783,16 +4902,10 @@ export function markAcpSkillRunApplyResult(args: {
       level: args.state === "failed" ? "error" : "info",
     },
   });
-  if (args.state === "succeeded") {
-    const controller = controllers.get(requestId);
-    if (controller?.disconnect) {
-      void controller.disconnect().catch(() => {
-        registerAcpSkillRunController(requestId, null);
-      });
-    } else {
-      registerAcpSkillRunController(requestId, null);
-    }
-  }
+  detachAcpSkillRunControllerAfterApplyResult({
+    requestId,
+    state: args.state,
+  });
 }
 
 export async function selectAcpSkillRun(requestIdRaw: string) {

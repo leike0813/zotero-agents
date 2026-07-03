@@ -15,12 +15,12 @@
     transcriptConversationId: "",
     markdownParser: undefined,
     toolActivityExpandedIds: new Set(),
+    toolActivityExpandedSignature: "",
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
     pendingRenderSnapshot: null,
     renderScheduled: false,
     panelRenderKey: "",
-    pendingAction: null,
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -88,6 +88,12 @@
     state.transcriptMode = "";
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
+    state.toolActivityExpandedSignature = "";
+    state.toolActivityExpandedIds.clear();
+  }
+
+  function toolActivityExpandedSignature() {
+    return Array.from(state.toolActivityExpandedIds).sort().join("\n");
   }
 
   function assistantConversationView() {
@@ -223,7 +229,6 @@
       conversationId: safeText(snap.activeConversationId || snap.conversationId),
       status: safeText(snap.status),
       busy: snap.busy === true,
-      pendingAction: state.pendingAction,
       sessionId: safeText(snap.sessionId || snap.remoteSessionId),
       title: safeText(snap.title || snap.conversationTitle),
       chatDisplayMode: safeText(snap.chatDisplayMode),
@@ -296,8 +301,6 @@
         return;
       }
       state.sessionDrawerOpen = false;
-      state.pendingAction = "switching";
-      render(snapshot);
       sendAction("set-active-conversation", {
         conversationId: safeText(data.conversationId || data.value),
         backendId: safeText(
@@ -318,8 +321,6 @@
       return;
     }
     if (action === "connect") {
-      state.pendingAction = "connect";
-      render(snapshot);
       sendAction("connect", {
         backendId: safeText(
           data.backendId || snapshot.activeBackendId || snapshot.backendId,
@@ -333,8 +334,6 @@
       return;
     }
     if (action === "disconnect") {
-      state.pendingAction = "disconnect";
-      render(snapshot);
       sendAction("disconnect", {
         backendId: safeText(
           data.backendId || snapshot.activeBackendId || snapshot.backendId,
@@ -440,11 +439,7 @@
     )
       return;
     state.panelRenderKey = renderKey;
-    const panelSnapshot = projectPanelSnapshot(
-      Object.assign({}, snapshot || {}, {
-        pendingAction: state.pendingAction,
-      }),
-    );
+    const panelSnapshot = projectPanelSnapshot(snapshot || {});
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
@@ -539,9 +534,11 @@
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
+    const expandedSignature = toolActivityExpandedSignature();
     if (
       state.transcriptRevision === revision &&
-      state.transcriptRenderedMode === mode
+      state.transcriptRenderedMode === mode &&
+      state.toolActivityExpandedSignature === expandedSignature
     ) {
       return;
     }
@@ -603,6 +600,7 @@
         state.transcriptMode = result.modeKey;
         state.transcriptRevision = revision;
         state.transcriptRenderedMode = mode;
+        state.toolActivityExpandedSignature = expandedSignature;
       },
     });
   }
@@ -671,7 +669,6 @@
       data.payload && typeof data.payload === "object" ? data.payload : {};
     if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
       return;
-    state.pendingAction = null;
     queueRender(payload);
   });
 

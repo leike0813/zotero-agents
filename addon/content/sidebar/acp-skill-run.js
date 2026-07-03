@@ -14,6 +14,7 @@
     transcriptRenderedMode: "",
     transcriptRunId: "",
     toolActivityExpandedIds: new Set(),
+    toolActivityExpandedSignature: "",
     drawerCompletedCollapsed: true,
     replyDrafts: new Map(),
     replyFocusedRequestId: "",
@@ -82,10 +83,56 @@
       safeText(run.conversationRecoveryState),
       safeText(run.replyState),
       safeText(run.connectionActionState),
+      safeText(run.acpModeId),
+      safeText(run.acpModelId),
+      safeText(run.acpRawModelId),
+      safeText(run.acpReasoningEffort),
       run.activePrompt === true ? "prompting" : "",
       run.pendingPermission ? "permission" : "",
       run.pendingInteraction ? "interaction" : "",
       safeText(run.taskName || run.workflowLabel || run.skillLabel),
+    ].join(":");
+  }
+
+  function compactRuntimeOptionsKey(options) {
+    const runtimeOptions =
+      options && typeof options === "object" ? options : {};
+    return [
+      safeText(runtimeOptions.currentMode && runtimeOptions.currentMode.id),
+      safeText(
+        runtimeOptions.currentDisplayModel &&
+          runtimeOptions.currentDisplayModel.id,
+      ),
+      safeText(runtimeOptions.currentModel && runtimeOptions.currentModel.id),
+      safeText(
+        runtimeOptions.currentReasoningEffort &&
+          runtimeOptions.currentReasoningEffort.id,
+      ),
+    ].join(":");
+  }
+
+  function compactEventsKey(run) {
+    const events = run && Array.isArray(run.events) ? run.events : [];
+    const latest = events.length ? events[events.length - 1] : null;
+    return [
+      String(events.length),
+      safeText(latest && latest.ts),
+      safeText(latest && latest.stage),
+      safeText(latest && latest.level),
+      safeText(latest && latest.message),
+    ].join(":");
+  }
+
+  function compactLogsKey(logs) {
+    const entries = Array.isArray(logs) ? logs : [];
+    const latest = entries.length ? entries[entries.length - 1] : null;
+    return [
+      String(entries.length),
+      safeText(latest && latest.id),
+      safeText(latest && latest.ts),
+      safeText(latest && latest.level),
+      safeText(latest && latest.stage),
+      safeText(latest && latest.message),
     ].join(":");
   }
 
@@ -95,6 +142,11 @@
     return JSON.stringify({
       selected: compactRunKey(raw.selectedRun),
       selectedRequestId: safeText(raw.selectedRequestId),
+      selectedRuntimeOptions: compactRuntimeOptionsKey(
+        raw.selectedRuntimeOptions,
+      ),
+      selectedEvents: compactEventsKey(raw.selectedRun),
+      logs: compactLogsKey(raw.logs),
       runs: runs.map(compactRunKey),
       runDrawerOpen: state.runDrawerOpen,
       detailsOpen: state.detailsOpen,
@@ -265,6 +317,11 @@
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
     state.toolActivityExpandedIds.clear();
+    state.toolActivityExpandedSignature = "";
+  }
+
+  function toolActivityExpandedSignature() {
+    return Array.from(state.toolActivityExpandedIds).sort().join("\n");
   }
 
   function handleAssistantPanelAction(action, payload) {
@@ -562,9 +619,11 @@
     }
     const sourceRevision = Number(run && run.transcriptRevision) || 0;
     const revision = sourceRevision;
+    const expandedSignature = toolActivityExpandedSignature();
     if (
       state.transcriptRevision === revision &&
-      state.transcriptRenderedMode === state.chatDisplayMode
+      state.transcriptRenderedMode === state.chatDisplayMode &&
+      state.toolActivityExpandedSignature === expandedSignature
     ) {
       renderChatDisplayMode();
       return;
@@ -601,6 +660,7 @@
         state.transcriptMode = result.modeKey;
         state.transcriptRevision = revision;
         state.transcriptRenderedMode = state.chatDisplayMode;
+        state.toolActivityExpandedSignature = expandedSignature;
       },
     });
     renderChatDisplayMode();

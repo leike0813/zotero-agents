@@ -36,7 +36,6 @@ export type RuntimePersistencePaths = {
   acpChatConversationsDir: string;
   /** Legacy ACP Chat private storage path. New writes use acpChatConversationsDir. */
   legacyAcpChatWorkspacesDir: string;
-  acpChatRuntimeDir: string;
   acpSkillRunsDir: string;
   workflowProductsDir: string;
   cacheDir: string;
@@ -719,7 +718,6 @@ export function getRuntimePersistencePaths(
     acpChatWorkspaceDir: joinPath(acpChatRoot, "workspace"),
     acpChatConversationsDir: joinPath(acpChatRoot, "conversations"),
     legacyAcpChatWorkspacesDir: joinPath(acpChatRoot, "workspaces"),
-    acpChatRuntimeDir: joinPath(acpChatRoot, "runtime"),
     acpSkillRunsDir: joinPath(runtimeRoot, "acp", "skill-runs"),
     workflowProductsDir: joinPath(runtimeRoot, "workflow-products"),
     cacheDir: joinPath(runtimeRoot, "cache"),

@@ -42,7 +42,6 @@ import {
   listAcpChatSessions,
   loadAcpConversationState,
   resolveAcpChatRuntimePaths,
-  resolveAcpSessionCwd,
 } from "../../src/modules/acpConversationStore";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import {
@@ -138,6 +137,8 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   emitReplayOnLoad = false;
   emitPermissionDuringPrompt = false;
   closeNeverSettles = false;
+  closeRejectError: Error | null = null;
+  closeHoldUntil: Promise<void> | null = null;
   streamingChunkCount = 0;
   emitUsageAfterEachStreamingChunk = false;
   streamingChunkDelayMs = 0;
@@ -609,6 +610,12 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   async close() {
     this.closeCalls += 1;
+    if (this.closeHoldUntil) {
+      await this.closeHoldUntil;
+    }
+    if (this.closeRejectError) {
+      throw this.closeRejectError;
+    }
     if (this.closeNeverSettles) {
       await new Promise(() => undefined);
       return;
@@ -712,23 +719,6 @@ describe("acp session manager", function () {
     assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(snapshot.backend?.id, ACP_OPENCODE_BACKEND_ID);
     assert.isNull(lastAdapter);
-  });
-
-  it("names ACP Chat runtime state by session identity and hydrates from full JSONL reads", async function () {
-    const source = await fs.readFile(
-      path.join(process.cwd(), "src/modules/acpSessionManager.ts"),
-      "utf8",
-    );
-    assert.include(source, "AcpChatSessionRuntime");
-    assert.include(source, "sessionRuntimes");
-    assert.include(source, "getOrCreateSessionRuntime");
-    assert.include(source, "readFullAcpChatTranscript");
-    assert.include(source, "transcriptMirrorReleasePromise");
-    assert.include(source, "sessionRuntime.transcriptWrites.size > 0");
-    assert.notInclude(source, "AcpSessionSlot");
-    assert.notInclude(source, "getOrCreateSlot");
-    assert.notInclude(source, "const slots");
-    assert.notInclude(source, "while (typeof cursor === \"number\")");
   });
 
   it("projects all configured ACP backends with display names for ACP chat selectors", async function () {
@@ -1118,6 +1108,47 @@ describe("acp session manager", function () {
     assert.equal(snapshot.sessionId, "");
     assert.equal(snapshot.remoteSessionId, "session-1");
     assert.equal(lastAdapter?.closeCalls, 1);
+  });
+
+  it("publishes disconnecting while ACP conversation close is pending", async function () {
+    await connectAcpConversation();
+    let releaseClose: (() => void) | null = null;
+    lastAdapter!.closeHoldUntil = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+
+    const disconnectPromise = disconnectAcpConversation();
+    await Promise.resolve();
+
+    let snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "disconnecting");
+    assert.equal(lastAdapter?.closeCalls, 1);
+
+    releaseClose?.();
+    await disconnectPromise;
+
+    snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "idle");
+    assert.equal(snapshot.sessionId, "");
+    assert.equal(snapshot.remoteSessionId, "session-1");
+  });
+
+  it("settles ACP conversation disconnect to idle when adapter close rejects", async function () {
+    await connectAcpConversation();
+    lastAdapter!.closeRejectError = new Error("close failed");
+
+    await disconnectAcpConversation();
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "idle");
+    assert.equal(snapshot.sessionId, "");
+    assert.equal(lastAdapter?.closeCalls, 1);
+    assert.isOk(
+      snapshot.diagnostics.find(
+        (entry) =>
+          entry.kind === "disconnect_close_error" && entry.level === "warn",
+      ),
+    );
   });
 
   it("persists ACP conversation idle state during manager shutdown", async function () {
@@ -2021,6 +2052,40 @@ describe("acp session manager", function () {
     assert.isAtLeast(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).length, 2);
   });
 
+  it("reuses an unconnected placeholder ACP chat session when New is clicked repeatedly", async function () {
+    await startNewAcpConversation();
+    const firstPlaceholderId = getAcpConversationSnapshot().conversationId;
+    const firstSessionCount = listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).length;
+
+    await startNewAcpConversation();
+    assert.equal(getAcpConversationSnapshot().conversationId, firstPlaceholderId);
+    assert.lengthOf(
+      listAcpChatSessions(ACP_OPENCODE_BACKEND_ID),
+      firstSessionCount,
+    );
+
+    await sendAcpConversationPrompt({
+      message: "Bind first placeholder",
+    });
+    const connectedPlaceholderId = getAcpConversationSnapshot().conversationId;
+    assert.equal(connectedPlaceholderId, firstPlaceholderId);
+    assert.equal(getAcpConversationSnapshot().remoteSessionId, "session-1");
+
+    await startNewAcpConversation();
+    const secondPlaceholderId = getAcpConversationSnapshot().conversationId;
+    assert.notEqual(secondPlaceholderId, connectedPlaceholderId);
+
+    await setActiveAcpConversation({ conversationId: connectedPlaceholderId });
+    await startNewAcpConversation();
+    assert.equal(getAcpConversationSnapshot().conversationId, secondPlaceholderId);
+    assert.lengthOf(
+      listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).filter(
+        (entry) => !entry.archivedAt,
+      ),
+      2,
+    );
+  });
+
   it("keeps same-backend sessions independent while one session is prompting", async function () {
     let releaseFirstPrompt: (() => void) | null = null;
     const adapters: FakeAcpConnectionAdapter[] = [];
@@ -2113,7 +2178,7 @@ describe("acp session manager", function () {
     );
   });
 
-  it("keeps backend summary state separate from a foreground idle ACP chat session", async function () {
+  it("projects backend selector state from the backend active conversation runtime", async function () {
     await sendAcpConversationPrompt({
       message: "Backend summary stays live",
     });
@@ -2131,7 +2196,8 @@ describe("acp session manager", function () {
     assert.equal(foreground.sessionId, "");
     assert.equal(frontend.activeSnapshot.status, "idle");
     assert.equal(frontend.activeSnapshot.sessionId, "");
-    assert.equal(backendSummary?.connected, true);
+    assert.equal(backendSummary?.status, "idle");
+    assert.equal(backendSummary?.connected, false);
   });
 
   it("keeps the foreground transcript after disconnect and hydrates it after switching away and back", async function () {
@@ -3235,7 +3301,7 @@ describe("acp conversation store", function () {
       assert.equal(primary.storageDir, primary.conversationStorageDir);
       assert.equal(
         primary.runtimeDir,
-        "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\runtime\\acp-opencode",
+        primary.conversationStorageDir,
       );
 
       const withConversation = resolveAcpChatRuntimePaths(
@@ -3249,6 +3315,10 @@ describe("acp conversation store", function () {
       assert.equal(
         withConversation.conversationStorageDir,
         "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\conversations\\acp-opencode\\conversation-1",
+      );
+      assert.equal(
+        withConversation.runtimeDir,
+        withConversation.conversationStorageDir,
       );
       assert.isFalse(
         withConversation.conversationStorageDir.startsWith(
@@ -3274,7 +3344,7 @@ describe("acp conversation store", function () {
     };
     try {
       assert.equal(
-        resolveAcpSessionCwd(),
+        resolveAcpChatRuntimePaths(ACP_OPENCODE_BACKEND_ID).workspaceDir,
         "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\workspace",
       );
     } finally {

@@ -304,12 +304,6 @@ export function getPluginStateDatabasePath() {
   return getRuntimePersistencePaths().stateDbPath;
 }
 
-function migrateLegacyStateDatabaseIfNeeded() {
-  // Legacy database migration is now handled only by the explicit one-shot
-  // persistence migration script. Runtime startup must not silently read or copy
-  // the old zotero-skills state database.
-}
-
 function ensureStateDirectory() {
   const runtime = globalThis as {
     Services?: unknown;
@@ -318,7 +312,6 @@ function ensureStateDirectory() {
   const stateDir = getStateDirectoryPath();
   if (runtime.Services && runtime.Zotero) {
     ensureDirectoryZotero(stateDir);
-    migrateLegacyStateDatabaseIfNeeded();
   }
 }
 

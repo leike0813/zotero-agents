@@ -689,6 +689,29 @@
     container.appendChild(row);
   }
 
+  function renderBannerStatusBadge(container, panel) {
+    const context = panel && panel.context ? panel.context : {};
+    const lifecycle = panel && panel.lifecycle ? panel.lifecycle : {};
+    const status = safeText(
+      context.mainStatus || context.status || lifecycle.executionState,
+    );
+    if (!container || !status) return;
+    const label =
+      safeText(context.mainStatusLabel || context.statusLabel || status) ||
+      status;
+    const tone = safeText(context.mainStatusTone || context.statusTone) ||
+      workspaceStatusTone(status);
+    const badge = el(
+      "span",
+      "assistant-panel-banner-status " +
+        "assistant-workspace-drawer-task-main-status is-" +
+        (tone || "muted"),
+      label,
+    );
+    badge.setAttribute("data-assistant-banner-status", status);
+    container.appendChild(badge);
+  }
+
   function adoptPanelRegions(snapshot, options) {
     const root = options && options.root;
     const regions = (options && options.regions) || {};
@@ -811,7 +834,10 @@
       meta.appendChild(pill);
     });
     target.appendChild(meta);
-    renderBannerIndicators(target, panel.context && panel.context.indicators);
+    const statusRow = el("div", "assistant-panel-banner-status-row");
+    renderBannerStatusBadge(statusRow, panel);
+    renderBannerIndicators(statusRow, panel.context && panel.context.indicators);
+    if (statusRow.firstChild) target.appendChild(statusRow);
     if (
       panel.context &&
       Array.isArray(panel.context.selectors) &&
@@ -1442,31 +1468,35 @@
 
   function renderAssistantWorkspaceStatusAxes(item, labels) {
     const axes = el("span", "assistant-workspace-drawer-task-status-axes", "");
-    axes.appendChild(
-      renderAssistantWorkspaceStatusAxis(
-        safeText(
-          labels.statusBackend || labels.backendStatus || labels.backend,
-        ) || "Backend",
-        safeText(
-          item.backendStatusLabel || item.backendStatus || item.backend_status,
-        ) || "-",
-        safeText(item.backendStatusTone) ||
-          workspaceStatusTone(item.backendStatus || item.backend_status),
-      ),
-    );
-    axes.appendChild(
-      renderAssistantWorkspaceStatusAxis(
-        safeText(labels.statusApply || labels.applyStatus || labels.apply) ||
-          "Apply",
-        safeText(
-          item.applyStatusLabel ||
-            item.applyStateLabel ||
-            item.applyStatus ||
-            item.applyState,
-        ) || "-",
-        safeText(item.applyStatusTone || item.applyTone),
-      ),
-    );
+    if (item.showBackendStatusBadge !== false) {
+      axes.appendChild(
+        renderAssistantWorkspaceStatusAxis(
+          safeText(
+            labels.statusBackend || labels.backendStatus || labels.backend,
+          ) || "Backend",
+          safeText(
+            item.backendStatusLabel || item.backendStatus || item.backend_status,
+          ) || "-",
+          safeText(item.backendStatusTone) ||
+            workspaceStatusTone(item.backendStatus || item.backend_status),
+        ),
+      );
+    }
+    if (item.showApplyStatusBadge !== false) {
+      axes.appendChild(
+        renderAssistantWorkspaceStatusAxis(
+          safeText(labels.statusApply || labels.applyStatus || labels.apply) ||
+            "Apply",
+          safeText(
+            item.applyStatusLabel ||
+              item.applyStateLabel ||
+              item.applyStatus ||
+              item.applyState,
+          ) || "-",
+          safeText(item.applyStatusTone || item.applyTone),
+        ),
+      );
+    }
     return axes;
   }
 
@@ -1513,7 +1543,8 @@
       "assistant-workspace-drawer-task-meta skillrunner-workspace-task-meta",
     );
     meta.appendChild(renderAssistantWorkspaceMainStatusBadge(item));
-    meta.appendChild(renderAssistantWorkspaceStatusAxes(item, labels));
+    const statusAxes = renderAssistantWorkspaceStatusAxes(item, labels);
+    if (statusAxes.firstChild) meta.appendChild(statusAxes);
     const updatedAt = safeText(item.updatedAt);
     if (updatedAt)
       meta.appendChild(
@@ -1579,6 +1610,8 @@
       safeText(item.applyStatus || item.apply_status),
       safeText(item.applyStatusLabel || item.apply_status_label),
       safeText(item.applyStatusTone || item.apply_status_tone),
+      item.showBackendStatusBadge === false ? "hide-backend-status" : "",
+      item.showApplyStatusBadge === false ? "hide-apply-status" : "",
       safeText(item.attention),
       safeText(item.relationState),
       safeText(item.applyState || item.apply_state),

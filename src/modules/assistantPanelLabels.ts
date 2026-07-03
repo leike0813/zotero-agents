@@ -359,12 +359,28 @@ export function buildAssistantPanelLabels() {
       pending: l("assistant-panel-status-pending", "Pending"),
       succeeded: l("assistant-panel-status-succeeded", "Succeeded"),
       failed: l("assistant-panel-status-failed", "Failed"),
+      failedRetriable: l(
+        "assistant-panel-status-failed-retriable",
+        "Recoverable failure",
+      ),
       error: l("assistant-panel-status-error", "Error"),
       canceled: l("assistant-panel-status-canceled", "Canceled"),
       idle: l("assistant-panel-status-idle", "Idle"),
       connected: l("assistant-panel-status-connected", "Connected"),
       connecting: l("assistant-panel-status-connecting", "Connecting"),
+      disconnecting: l(
+        "assistant-panel-status-disconnecting",
+        "Disconnecting",
+      ),
       disconnected: l("assistant-panel-status-disconnected", "Disconnected"),
+      authRequired: l(
+        "assistant-panel-status-auth-required",
+        "Auth required",
+      ),
+      permissionRequired: l(
+        "assistant-panel-status-permission-required",
+        "Permission required",
+      ),
       unavailable: l("assistant-panel-status-unavailable", "Unavailable"),
       limited: l("assistant-panel-status-limited", "Limited"),
       backendUnavailable: l(

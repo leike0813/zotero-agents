@@ -3129,7 +3129,35 @@ export async function recoverAcpSkillRunConversation(args: {
       disconnect: async () => {
         recoveredDisconnectRequested = true;
         if (recoveredPromptActive) {
-          await adapter.cancel({ sessionId: liveSessionId });
+          await adapter.cancel({ sessionId: liveSessionId }).catch((error) => {
+            upsertAcpSkillRun({
+              requestId,
+              event: {
+                stage: "disconnect-cancel-failed",
+                message: errorMessage(error),
+                level: "warn",
+                details: {
+                  recovered: true,
+                },
+              },
+            });
+            appendRuntimeLog({
+              level: "warn",
+              scope: "provider",
+              backendId: backend.id,
+              backendType: backend.type,
+              providerId: "acp",
+              requestId,
+              component: "acp-skillrunner",
+              operation: "disconnect-cancel",
+              phase: "terminal",
+              stage: "disconnect-cancel-failed",
+              message: errorMessage(error),
+              details: {
+                recovered: true,
+              },
+            });
+          });
         }
         await detach("closed");
       },
@@ -3742,13 +3770,19 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceActivityTimer = null;
     }
     registerAcpSkillRunController(workspace.requestId, null);
+    const latest = getAcpSkillRunRecord(workspace.requestId);
+    const applyFailedTerminal =
+      latest?.status === "failed" && latest.applyResultState === "failed";
     upsertAcpSkillRun({
       requestId: workspace.requestId,
       activePrompt: false,
       conversationState: options?.conversationState,
       conversationRecoveryState:
-        options?.conversationState === "ended" ? "unavailable" : "available",
+        options?.conversationState === "ended" || applyFailedTerminal
+          ? "unavailable"
+          : "available",
       conversationError: options?.conversationError,
+      connectionActionState: "idle",
     });
     if (options?.closeAdapter !== false) {
       await adapter.close();
@@ -4243,7 +4277,31 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       });
       if (captureAssistantText && current.sessionId) {
-        await adapter.cancel({ sessionId: current.sessionId });
+        await adapter
+          .cancel({ sessionId: current.sessionId })
+          .catch((error) => {
+            upsertAcpSkillRun({
+              requestId: workspace.requestId,
+              event: {
+                stage: "disconnect-cancel-failed",
+                message: errorMessage(error),
+                level: "warn",
+              },
+            });
+            appendRuntimeLog({
+              level: "warn",
+              scope: "provider",
+              backendId: args.backend.id,
+              backendType: args.backend.type,
+              providerId: "acp",
+              requestId: workspace.requestId,
+              component: "acp-skillrunner",
+              operation: "disconnect-cancel",
+              phase: "terminal",
+              stage: "disconnect-cancel-failed",
+              message: errorMessage(error),
+            });
+          });
       }
       await cleanupLiveSession({
         conversationState: "closed",
