@@ -2140,22 +2140,24 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, 'option.sentinel === "show-more"');
     assert.include(acpChatJs, 'sendAction("new-conversation",');
     assert.include(acpChatJs, "function projectConversationView(snapshot)");
-    assert.include(acpChatJs, "items: state.transcriptItems");
-    assert.include(acpChatJs, '"load-chat-transcript-page"');
-    assert.include(acpChatJs, '"acp:transcript-page"');
-    assert.include(acpChatJs, '"acp:transcript-delta"');
-    assert.include(acpChatJs, "function isTranscriptTailPage()");
-    assert.include(acpChatJs, "function requestTranscriptResync(");
-    assert.include(
-      acpChatJs,
-      "} else if (tailPage) {\n          state.transcriptItems.push(delta.item);",
-    );
-    assert.include(
-      acpChatJs,
-      "if (tailPage) {\n            requestTranscriptPage(state.snapshot || {}, undefined);",
-    );
-    assert.include(acpChatJs, "continue;");
+    assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
+    assert.include(acpChatJs, "Array.isArray(snapshot && snapshot.items)");
+    assert.notInclude(acpChatJs, '"load-chat-transcript-page"');
+    assert.notInclude(acpChatJs, '"acp:transcript-page"');
+    assert.notInclude(acpChatJs, '"acp:transcript-delta"');
+    assert.notInclude(acpChatJs, "function isTranscriptTailPage()");
+    assert.notInclude(acpChatJs, "function requestTranscriptResync(");
+    assert.notInclude(acpChatJs, "state.transcriptItems.push");
     assert.include(acpChatJs, "const view = projectConversationView(snapshot");
+    assert.include(acpChatJs, "snapshot.transcriptState");
+    assert.include(acpChatJs, "acp-chat-transcript-loading");
+    assert.include(acpChatJs, 'transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"))');
+    assert.include(acpChatCss, "border-top-color: var(--zs-accent)");
+    assert.include(acpChatCss, "@keyframes acp-chat-transcript-spin");
+    assert.include(acpChatJs, "pendingAction");
+    assert.include(acpChatJs, "state.sessionDrawerOpen = false");
+    assert.include(acpChatJs, "function compactPanelRenderKey(snapshot)");
+    assert.notInclude(acpChatJs, "Number(entry && entry.messageCount) || 0");
     assert.include(acpChatJs, "assistantTranscriptRenderer()");
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
     assert.include(acpChatJs, 'variant: "acp-chat"');
@@ -2168,6 +2170,7 @@ describe("acp ui smoke", function () {
       acpChatJs,
       "renderer.renderAssistantPanelSnapshot(panelSnapshot",
     );
+    assert.include(acpChatJs, "state.panelRenderKey === renderKey");
     assert.include(acpChatJs, "function handlePanelAction(action, payload)");
     assert.include(acpChatJs, "managed: true");
     assert.include(acpChatJs, "managedRegions");
@@ -2201,9 +2204,10 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
     assert.include(acpSkillRunJs, 'variant: "skillrunner"');
     assert.include(acpSkillRunJs, "parser.render(safeText(value))");
-    assert.include(assistantSidebar, "appendBoundedTranscriptDelta(");
-    assert.notInclude(assistantSidebar, ".slice(-200)");
-    assert.include(assistantSidebar, "resyncRequired: true");
+    assert.notInclude(assistantSidebar, "appendBoundedTranscriptDelta(");
+    assert.notInclude(assistantSidebar, "resyncRequired: true");
+    assert.notInclude(assistantSidebar, "load-chat-transcript-page");
+    assert.notInclude(assistantSidebar, "transcript-delta");
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
     assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
     assert.include(
@@ -2628,8 +2632,9 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunner, "recordAcpSkillRunOutputRevision");
     assert.include(acpSkillRunner, "resumeSession");
     assert.include(acpSkillRunner, "loadSession");
-    assert.include(acpSkillRunner, "createAssistantTurnCapture");
-    assert.include(acpSkillRunner, ".assistant.txt");
+    assert.include(acpSkillRunner, "createAssistantTurnAccumulator");
+    assert.notInclude(acpSkillRunner, ".assistant.txt");
+    assert.notInclude(acpSkillRunner, "acp-skill-turns");
     assert.notInclude(acpSkillRunner, "currentTurnAssistantText");
     assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
     assert.include(assistantSidebar, "wrappedJSObject");
@@ -2712,6 +2717,21 @@ describe("acp ui smoke", function () {
     assert.include(sidebarModel, "remoteSessionId");
     assert.include(sidebarModel, "remoteSessionRestoreStatus");
     assert.include(sidebarModel, "backendChatSessions");
+    assert.include(assistantPanelModelJs, "snap.backendChatSessions");
+    assert.include(assistantPanelModelJs, "conversationId: safeText(normalized.conversationId || normalized.value)");
+    assert.include(
+      assistantPanelModelJs,
+      "const backendId = safeText(normalized.backendId || normalized.value)",
+    );
+    assert.notInclude(assistantPanelModelJs, "normalized.label +");
+    assert.notInclude(
+      assistantPanelModelJs,
+      'metadataItem(\n            labelFrom(snap, "fields.updated"',
+    );
+    assert.notInclude(
+      assistantPanelModelJs,
+      "(Array.isArray(snap.chatSessions) ? snap.chatSessions : []).forEach",
+    );
     assert.include(sidebarTypes, "sessionCwd: string");
     assert.include(sidebarTypes, "remoteSessionId: string");
     assert.include(sidebarTypes, "remoteSessionRestoreStatus");
@@ -2719,6 +2739,7 @@ describe("acp ui smoke", function () {
     assert.include(sidebarTypes, "reasoningEffortOptions");
     assert.include(sidebarTypes, "archivedAt?: string");
     assert.include(sidebarTypes, "AcpBackendChatSessions");
+    assert.include(sidebarTypes, "transcriptState?:");
     assert.include(sidebarTypes, "stderrTail: string");
     assert.include(sidebarTypes, "lastLifecycleEvent: string");
     assert.include(sidebarTypes, 'AcpChatDisplayMode = "plain" | "bubble"');
@@ -3156,12 +3177,35 @@ describe("acp ui smoke", function () {
       backendSelector.options.map((entry: any) => [
         entry.value,
         entry.backendId,
-        entry.label,
       ]),
       [
-        ["backend-a", "backend-a", "Backend A"],
-        ["backend-b", "backend-b", "Backend B"],
+        ["backend-a", "backend-a"],
+        ["backend-b", "backend-b"],
       ],
+    );
+    assert.equal(backendSelector.options[0].label, "Backend A");
+    assert.equal(backendSelector.options[1].label, "Backend B");
+    const backendStatusPanel = model.projectAcpChatPanelSnapshot({
+      status: "idle",
+      activeBackendId: "backend-a",
+      backendOptions: [
+        {
+          backendId: "backend-a",
+          displayName: "Backend A",
+          statusLabel: "真实状态",
+        },
+      ],
+      activeConversationId: "conversation-a",
+      chatSessions: [],
+      items: [],
+      labels: {},
+    });
+    const backendStatusSelector = backendStatusPanel.context.selectors.find(
+      (entry: any) => entry.id === "backend",
+    );
+    assert.equal(
+      backendStatusSelector.options[0].label,
+      "Backend A · 真实状态",
     );
     const conversationSelector = panel.context.selectors.find(
       (entry: any) => entry.id === "conversation",
@@ -3262,6 +3306,77 @@ describe("acp ui smoke", function () {
     assert.equal(remoteActions.disconnect.enabled, false);
     assert.equal(remoteActions.authenticate.enabled, false);
     assert.equal(remoteActions.connect.payload.backendId, "backend-a");
+
+    const pendingConnectPanel = model.projectAcpChatPanelSnapshot({
+      status: "idle",
+      pendingAction: "connect",
+      activeBackendId: "backend-a",
+      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
+      activeConversationId: "conversation-a",
+      chatSessions: [
+        {
+          conversationId: "conversation-a",
+          backendId: "backend-a",
+          title: "A",
+        },
+      ],
+      items: [],
+      labels: {
+        actions: { connecting: "连接中..." },
+        status: { connecting: "连接中" },
+      },
+    });
+    const pendingConnectActions = Object.fromEntries(
+      pendingConnectPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    assert.equal(pendingConnectPanel.context.status, "connecting");
+    assert.equal(pendingConnectActions.connect.enabled, false);
+    assert.equal(pendingConnectActions.connect.label, "连接中...");
+    assert.equal(
+      pendingConnectPanel.context.selectors[0].options[0].label,
+      "Backend A",
+    );
+
+    const pendingDisconnectPanel = model.projectAcpChatPanelSnapshot({
+      status: "connected",
+      sessionId: "session-1",
+      pendingAction: "disconnect",
+      activeBackendId: "backend-a",
+      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
+      activeConversationId: "conversation-a",
+      chatSessions: [
+        {
+          conversationId: "conversation-a",
+          backendId: "backend-a",
+          title: "A",
+        },
+      ],
+      items: [],
+      labels: {
+        actions: { disconnecting: "断开中..." },
+        status: { disconnecting: "断开中" },
+      },
+    });
+    const pendingDisconnectActions = Object.fromEntries(
+      pendingDisconnectPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    assert.equal(pendingDisconnectPanel.context.status, "disconnecting");
+    assert.equal(pendingDisconnectActions.disconnect.enabled, false);
+    assert.equal(pendingDisconnectActions.disconnect.label, "断开中...");
+    assert.equal(
+      pendingDisconnectPanel.lifecycle.connectionState,
+      "disconnecting",
+    );
+    assert.equal(
+      pendingDisconnectPanel.context.selectors[0].options[0].label,
+      "Backend A",
+    );
 
     const authRequiredPanel = model.projectAcpChatPanelSnapshot({
       status: "auth-required",

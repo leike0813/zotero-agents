@@ -2,6 +2,9 @@ import { joinPath } from "../utils/path";
 import { getPref, setPref } from "../utils/prefs";
 import {
   getRuntimePersistencePaths,
+  registerAcpConversationRecordsByteEstimator,
+  registerAcpConversationRecordsClearer,
+  registerAcpConversationRecordsCounter,
   registerPluginTaskDomainByteEstimator,
   registerPluginTaskDomainClearer,
   registerPluginTaskDomainExceptRowScopesClearer,
@@ -70,6 +73,10 @@ export type PluginTaskRowEntry = {
   state: string;
   updatedAt: string;
   payload: string;
+};
+
+type PluginTaskRowEntryWithScope = PluginTaskRowEntry & {
+  scope: PluginTaskScope;
 };
 
 export type PluginTaskRowListOptions = {
@@ -2616,6 +2623,98 @@ export function estimatePluginTaskDomainExceptRowScopesBytes(
   );
 }
 
+function listPluginTaskRowsForDomain(
+  domainRaw: string,
+): PluginTaskRowEntryWithScope[] {
+  const domain = normalizeString(domainRaw);
+  if (!domain) {
+    return [];
+  }
+  const db = getAdapter();
+  const rows = db.all(
+    `
+      SELECT scope, task_id, request_id, backend_id, state, updated_at, payload_json
+      FROM plugin_task_rows
+      WHERE domain=@domain
+      ORDER BY updated_at DESC
+    `,
+    { domain },
+  );
+  return rows.map((row) => ({
+    scope: normalizeString(row.scope) as PluginTaskScope,
+    taskId: normalizeString(row.task_id),
+    requestId: normalizeString(row.request_id),
+    backendId: normalizeString(row.backend_id),
+    state: normalizeString(row.state),
+    updatedAt: normalizeString(row.updated_at),
+    payload: ensureJsonPayload(normalizeString(row.payload_json)),
+  }));
+}
+
+function isAcpConversationRecordRef(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  return (
+    requestId.startsWith("conversation:") ||
+    requestId.startsWith("conversation-index:")
+  );
+}
+
+function isAcpConversationTaskRecord(entry: {
+  requestId: string;
+  payload: string;
+}) {
+  const payload = normalizeString(entry.payload).toLowerCase();
+  return (
+    isAcpConversationRecordRef(entry.requestId) ||
+    payload.includes("conversationid")
+  );
+}
+
+function listAcpConversationTaskRecords() {
+  const domain = "acp";
+  const requests = listPluginTaskRequestEntries(domain).filter(
+    isAcpConversationTaskRecord,
+  );
+  const contexts = listPluginTaskContextEntries(domain).filter(
+    isAcpConversationTaskRecord,
+  );
+  const rows = listPluginTaskRowsForDomain(domain).filter(
+    (row) => row.scope !== "skill-runs" && isAcpConversationTaskRecord(row),
+  );
+  return { contexts, domain, requests, rows };
+}
+
+export function clearAcpConversationTaskRecords() {
+  const { contexts, domain, requests, rows } = listAcpConversationTaskRecords();
+  const db = getAdapter();
+  db.transaction(() => {
+    for (const request of requests) {
+      deletePluginTaskRequestEntry(domain, request.requestId);
+    }
+    for (const context of contexts) {
+      deletePluginTaskContextEntry(domain, context.contextId);
+    }
+    for (const row of rows) {
+      deletePluginTaskRowEntry(domain, row.taskId, row.scope);
+    }
+  });
+  return requests.length + contexts.length + rows.length;
+}
+
+export function countAcpConversationTaskRecords() {
+  const { contexts, requests, rows } = listAcpConversationTaskRecords();
+  return requests.length + contexts.length + rows.length;
+}
+
+export function estimateAcpConversationTaskRecordsBytes() {
+  const { contexts, requests, rows } = listAcpConversationTaskRecords();
+  return (
+    estimateEntriesBytes(requests) +
+    estimateEntriesBytes(contexts) +
+    estimateEntriesBytes(rows)
+  );
+}
+
 export function clearPluginTaskScope(domainRaw: string, scopeRaw: string) {
   const domain = normalizeString(domainRaw);
   const scope = normalizeString(scopeRaw);
@@ -2737,15 +2836,20 @@ registerPluginTaskDomainClearer(clearPluginTaskDomain);
 registerPluginTaskDomainExceptRowScopesClearer(
   clearPluginTaskDomainExceptRowScopes,
 );
+registerAcpConversationRecordsClearer(clearAcpConversationTaskRecords);
 registerPluginTaskScopeClearer(clearPluginTaskScope);
 registerPluginTaskDomainCounter(countPluginTaskDomain);
 registerPluginTaskDomainExceptRowScopesCounter(
   countPluginTaskDomainExceptRowScopes,
 );
+registerAcpConversationRecordsCounter(countAcpConversationTaskRecords);
 registerPluginTaskScopeCounter(countPluginTaskScope);
 registerPluginTaskDomainByteEstimator(estimatePluginTaskDomainBytes);
 registerPluginTaskDomainExceptRowScopesByteEstimator(
   estimatePluginTaskDomainExceptRowScopesBytes,
+);
+registerAcpConversationRecordsByteEstimator(
+  estimateAcpConversationTaskRecordsBytes,
 );
 registerPluginTaskScopeByteEstimator(estimatePluginTaskScopeBytes);
 registerPluginRunStoreClearer(clearPluginRunStore);

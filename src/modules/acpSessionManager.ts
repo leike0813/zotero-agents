@@ -19,6 +19,7 @@ import {
   listAllAcpChatSessions,
   listAcpChatSessions,
   listStoredVisibleAcpChatSessions,
+  loadAcpChatSessionIndex,
   loadAcpConversationState,
   loadAcpFrontendState,
   renameAcpConversationState,
@@ -29,10 +30,9 @@ import {
 } from "./acpConversationStore";
 import {
   appendAcpChatTranscriptEvent,
-  emitAcpChatTranscriptDelta,
   readAcpChatTranscriptPage,
+  readFullAcpChatTranscript,
   resolveAcpChatTranscriptPaths,
-  type AcpChatTranscriptDelta,
 } from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
@@ -91,8 +91,8 @@ type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
 type AcpUiPublishMode = "full" | "metadata" | "structural";
 
 const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
-
-export type AcpSessionSlot = {
+export type AcpChatSessionRuntime = {
+  key: string;
   backendId: string;
   adapter: AcpConnectionAdapter | null;
   snapshot: AcpConversationSnapshot;
@@ -117,7 +117,14 @@ export type AcpSessionSlot = {
   transcriptEventSeq: number;
   transcriptPreview: string;
   transcriptItemsById: Map<string, AcpConversationItem>;
+  transcriptItemIds: string[];
   transcriptToolItemIds: Map<string, string>;
+  transcriptMirrorLoaded: boolean;
+  transcriptHydrateState?: "loading" | "failed";
+  transcriptHydrateError?: string;
+  transcriptHydratePromise?: Promise<void>;
+  transcriptMirrorReleasePromise?: Promise<void>;
+  transcriptWrites: Set<Promise<unknown>>;
   pendingPermissionResolver:
     | ((outcome: RequestPermissionOutcome) => void)
     | null;
@@ -144,7 +151,7 @@ let adapterFactory: (
 let initialized = false;
 let activeBackendId = "";
 let cachedAcpBackends: BackendInstance[] = [];
-const slots = new Map<string, AcpSessionSlot>();
+const sessionRuntimes = new Map<string, AcpChatSessionRuntime>();
 const listeners = new Set<AcpSnapshotListener>();
 const frontendListeners = new Set<AcpFrontendSnapshotListener>();
 const chatTranscriptWrites = new Set<Promise<unknown>>();
@@ -169,6 +176,37 @@ function normalizeBackendId(value: unknown) {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function normalizeConversationId(value: unknown) {
+  return String(value || "").trim();
+}
+
+function acpChatSessionKey(backendIdRaw: unknown, conversationIdRaw: unknown) {
+  const backendId =
+    normalizeBackendId(backendIdRaw) ||
+    activeBackendId ||
+    ACP_OPENCODE_BACKEND_ID;
+  const conversationId = normalizeConversationId(conversationIdRaw);
+  return `${backendId}\u0000${conversationId}`;
+}
+
+function resolveActiveConversationId(backendIdRaw: unknown) {
+  const backendId =
+    normalizeBackendId(backendIdRaw) ||
+    activeBackendId ||
+    ACP_OPENCODE_BACKEND_ID;
+  return loadAcpChatSessionIndex(backendId).activeConversationId;
+}
+
+function resolveSessionRuntimeConversationId(
+  backendId: string,
+  conversationIdRaw?: unknown,
+) {
+  return (
+    normalizeConversationId(conversationIdRaw) ||
+    resolveActiveConversationId(backendId)
+  );
 }
 
 function resolveRuntimeCwd() {
@@ -212,31 +250,31 @@ function serializeRuntimeHost() {
   };
 }
 
-function markPromptCancelled(slot: AcpSessionSlot) {
-  slot.snapshot.busy = false;
-  slot.snapshot.status = "connected";
-  slot.snapshot.lastStopReason = "cancelled";
-  slot.snapshot.pendingPermissionRequest = null;
-  finalizeStreamingItems(slot, "complete", "cancelled");
+function markPromptCancelled(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.snapshot.busy = false;
+  sessionRuntime.snapshot.status = "connected";
+  sessionRuntime.snapshot.lastStopReason = "cancelled";
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  finalizeStreamingItems(sessionRuntime, "complete", "cancelled");
 }
 
-function clearPromptCancelCloseExpectation(slot: AcpSessionSlot) {
-  slot.promptCancelInFlight = false;
-  slot.promptCancelCloseExpected = false;
-  if (slot.promptCancelCloseTimer) {
-    clearTimeout(slot.promptCancelCloseTimer);
-    slot.promptCancelCloseTimer = null;
+function clearPromptCancelCloseExpectation(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.promptCancelInFlight = false;
+  sessionRuntime.promptCancelCloseExpected = false;
+  if (sessionRuntime.promptCancelCloseTimer) {
+    clearTimeout(sessionRuntime.promptCancelCloseTimer);
+    sessionRuntime.promptCancelCloseTimer = null;
   }
 }
 
-function expectPromptCancelClose(slot: AcpSessionSlot) {
-  slot.promptCancelCloseExpected = true;
-  if (slot.promptCancelCloseTimer) {
-    clearTimeout(slot.promptCancelCloseTimer);
+function expectPromptCancelClose(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.promptCancelCloseExpected = true;
+  if (sessionRuntime.promptCancelCloseTimer) {
+    clearTimeout(sessionRuntime.promptCancelCloseTimer);
   }
-  slot.promptCancelCloseTimer = setTimeout(() => {
-    slot.promptCancelCloseExpected = false;
-    slot.promptCancelCloseTimer = null;
+  sessionRuntime.promptCancelCloseTimer = setTimeout(() => {
+    sessionRuntime.promptCancelCloseExpected = false;
+    sessionRuntime.promptCancelCloseTimer = null;
   }, 1500);
 }
 
@@ -286,7 +324,7 @@ function ensureInitialized() {
   }
   activeBackendId =
     loadAcpFrontendState().activeBackendId || ACP_OPENCODE_BACKEND_ID;
-  getOrCreateSlot(activeBackendId);
+  getOrCreateSessionRuntime(activeBackendId);
   initialized = true;
 }
 
@@ -355,35 +393,59 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
   return snapshot;
 }
 
-function resetSlotTransientState(slot: AcpSessionSlot) {
-  slot.activeAssistantItemId = "";
-  slot.activeThoughtItemId = "";
-  slot.activePlanItemId = "";
-  slot.transcriptItemCount = Math.max(
+function resetSessionRuntimeTransientState(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.activeAssistantItemId = "";
+  sessionRuntime.activeThoughtItemId = "";
+  sessionRuntime.activePlanItemId = "";
+  sessionRuntime.transcriptItemCount = Math.max(
     0,
-    slot.snapshot.transcriptItemCount || 0,
+    sessionRuntime.snapshot.transcriptItemCount || 0,
   );
-  slot.transcriptEventSeq = Math.max(0, slot.snapshot.transcriptEventSeq || 0);
-  slot.transcriptPreview = String(slot.snapshot.transcriptPreview || "");
-  slot.transcriptItemsById.clear();
-  slot.transcriptToolItemIds.clear();
-  slot.pendingPermissionResolver = null;
-  slot.suppressSessionLoadReplay = false;
+  sessionRuntime.transcriptEventSeq = Math.max(0, sessionRuntime.snapshot.transcriptEventSeq || 0);
+  sessionRuntime.transcriptPreview = String(sessionRuntime.snapshot.transcriptPreview || "");
+  sessionRuntime.transcriptItemsById.clear();
+  sessionRuntime.transcriptItemIds = [];
+  sessionRuntime.transcriptToolItemIds.clear();
+  sessionRuntime.transcriptMirrorLoaded = !hasDurableAcpChatTranscript(sessionRuntime);
+  sessionRuntime.transcriptHydrateState = undefined;
+  sessionRuntime.transcriptHydrateError = undefined;
+  sessionRuntime.transcriptHydratePromise = undefined;
+  sessionRuntime.pendingPermissionResolver = null;
+  sessionRuntime.suppressSessionLoadReplay = false;
 }
 
-function getOrCreateSlot(backendIdRaw?: string) {
+function rekeySessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  const nextKey = acpChatSessionKey(
+    sessionRuntime.backendId,
+    sessionRuntime.snapshot.conversationId,
+  );
+  if (sessionRuntime.key === nextKey) {
+    return;
+  }
+  sessionRuntimes.delete(sessionRuntime.key);
+  sessionRuntime.key = nextKey;
+  sessionRuntimes.set(nextKey, sessionRuntime);
+}
+
+function getOrCreateSessionRuntime(backendIdRaw?: string, conversationIdRaw?: string) {
   const backendId =
     normalizeBackendId(backendIdRaw) ||
     activeBackendId ||
     ACP_OPENCODE_BACKEND_ID;
-  const existing = slots.get(backendId);
+  const conversationId = resolveSessionRuntimeConversationId(
+    backendId,
+    conversationIdRaw,
+  );
+  const key = acpChatSessionKey(backendId, conversationId);
+  const existing = sessionRuntimes.get(key);
   if (existing) {
     return existing;
   }
-  const slot: AcpSessionSlot = {
+  const sessionRuntime: AcpChatSessionRuntime = {
+    key,
     backendId,
     adapter: null,
-    snapshot: hydrateSnapshot(backendId),
+    snapshot: hydrateSnapshot(backendId, conversationId || undefined),
     uiSnapshot: null,
     uiRevision: 0,
     uiTranscriptRevision: 0,
@@ -405,39 +467,42 @@ function getOrCreateSlot(backendIdRaw?: string) {
     transcriptEventSeq: 0,
     transcriptPreview: "",
     transcriptItemsById: new Map(),
+    transcriptItemIds: [],
     transcriptToolItemIds: new Map(),
+    transcriptMirrorLoaded: true,
+    transcriptWrites: new Set(),
     pendingPermissionResolver: null,
     suppressSessionLoadReplay: false,
     uiEmitTimer: null,
     persistTimer: null,
     lastLiveActivityMs: Date.now(),
   };
-  resetSlotTransientState(slot);
-  slots.set(backendId, slot);
-  return slot;
+  resetSessionRuntimeTransientState(sessionRuntime);
+  sessionRuntimes.set(key, sessionRuntime);
+  return sessionRuntime;
 }
 
-function touchLiveAcpChatSlot(slot: AcpSessionSlot) {
-  slot.lastLiveActivityMs = Date.now();
+function touchLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.lastLiveActivityMs = Date.now();
 }
 
-function isBusyLiveAcpChatSlot(slot: AcpSessionSlot) {
+function isBusyLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   return (
-    slot.snapshot.busy ||
-    slot.snapshot.status === "prompting" ||
-    slot.snapshot.status === "permission-required"
+    sessionRuntime.snapshot.busy ||
+    sessionRuntime.snapshot.status === "prompting" ||
+    sessionRuntime.snapshot.status === "permission-required"
   );
 }
 
-async function enforceAcpChatLiveAdapterLimit(targetSlot: AcpSessionSlot) {
-  const liveSlots = Array.from(slots.values()).filter(
-    (slot) => !!slot.adapter && slot !== targetSlot,
+async function enforceAcpChatLiveAdapterLimit(targetRuntime: AcpChatSessionRuntime) {
+  const liveSessionRuntimes = Array.from(sessionRuntimes.values()).filter(
+    (sessionRuntime) => !!sessionRuntime.adapter && sessionRuntime !== targetRuntime,
   );
-  if (liveSlots.length < MAX_LIVE_ACP_CHAT_ADAPTERS) {
+  if (liveSessionRuntimes.length < MAX_LIVE_ACP_CHAT_ADAPTERS) {
     return;
   }
-  const idle = liveSlots
-    .filter((slot) => !isBusyLiveAcpChatSlot(slot))
+  const idle = liveSessionRuntimes
+    .filter((sessionRuntime) => !isBusyLiveAcpChatSessionRuntime(sessionRuntime))
     .sort((left, right) => left.lastLiveActivityMs - right.lastLiveActivityMs);
   const evicted = idle[0];
   if (!evicted) {
@@ -454,19 +519,19 @@ async function enforceAcpChatLiveAdapterLimit(targetSlot: AcpSessionSlot) {
       "ACP Chat local connection disconnected because the live session limit was reached.",
     detail: `limit=${MAX_LIVE_ACP_CHAT_ADAPTERS}`,
   });
-  await disconnectSlotAdapter(evicted);
-  markSlotConnectionIdle(evicted);
-  emitSlotSnapshot(evicted);
+  await disconnectSessionRuntimeAdapter(evicted);
+  markSessionRuntimeConnectionIdle(evicted);
+  emitSessionRuntimeSnapshot(evicted);
 }
 
-function setSlotPendingPermissionRequest(
-  slot: AcpSessionSlot,
+function setSessionRuntimePendingPermissionRequest(
+  sessionRuntime: AcpChatSessionRuntime,
   request: AcpPendingPermissionRequest & {
     resolve: (outcome: RequestPermissionOutcome) => void;
   },
 ) {
-  slot.pendingPermissionResolver = request.resolve;
-  slot.snapshot.pendingPermissionRequest = {
+  sessionRuntime.pendingPermissionResolver = request.resolve;
+  sessionRuntime.snapshot.pendingPermissionRequest = {
     requestId: request.requestId,
     sessionId: request.sessionId,
     toolCallId: request.toolCallId,
@@ -477,72 +542,131 @@ function setSlotPendingPermissionRequest(
     requestedAt: request.requestedAt,
     options: request.options.map((entry) => ({ ...entry })),
   };
-  slot.snapshot.status = "permission-required";
-  slot.snapshot.busy = true;
-  emitSlotSnapshot(slot);
+  sessionRuntime.snapshot.status = "permission-required";
+  sessionRuntime.snapshot.busy = true;
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
-function bindHostBridgePermissionForSlot(slot: AcpSessionSlot) {
-  const conversationId = String(slot.snapshot.conversationId || "").trim();
-  slot.unsubscribeHostBridgePermission?.();
-  slot.unsubscribeHostBridgePermission = null;
+function bindHostBridgePermissionForSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  const conversationId = String(sessionRuntime.snapshot.conversationId || "").trim();
+  sessionRuntime.unsubscribeHostBridgePermission?.();
+  sessionRuntime.unsubscribeHostBridgePermission = null;
   if (!conversationId) {
     return;
   }
-  slot.unsubscribeHostBridgePermission =
+  sessionRuntime.unsubscribeHostBridgePermission =
     registerAcpConversationHostBridgePermissionHandler(
       conversationId,
       (request) => {
-        setSlotPendingPermissionRequest(slot, request);
+        setSessionRuntimePendingPermissionRequest(sessionRuntime, request);
       },
     );
 }
 
-function getActiveSlot() {
+function getForegroundSessionRuntime() {
   ensureInitialized();
-  return getOrCreateSlot(activeBackendId);
+  return getOrCreateSessionRuntime(activeBackendId);
 }
 
-function isActiveSlot(slot: AcpSessionSlot) {
+function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  const activeConversationId = resolveActiveConversationId(activeBackendId);
   return (
-    normalizeBackendId(slot.backendId) === normalizeBackendId(activeBackendId)
+    normalizeBackendId(sessionRuntime.backendId) === normalizeBackendId(activeBackendId) &&
+    normalizeConversationId(sessionRuntime.snapshot.conversationId) ===
+      normalizeConversationId(activeConversationId)
   );
 }
 
-function updateSnapshotTimestamp(slot: AcpSessionSlot) {
-  slot.snapshot.authMethodIds = slot.snapshot.authMethods.map(
+function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  const status = normalizeAcpStatus(sessionRuntime.snapshot.status);
+  return (
+    !!sessionRuntime.adapter ||
+    sessionRuntime.snapshot.busy === true ||
+    status === "checking-command" ||
+    status === "spawning" ||
+    status === "initializing" ||
+    status === "connected" ||
+    status === "prompting" ||
+    status === "permission-required" ||
+    status === "auth-required"
+  );
+}
+
+function updateSnapshotTimestamp(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.snapshot.authMethodIds = sessionRuntime.snapshot.authMethods.map(
     (entry) => entry.id,
   );
-  slot.snapshot.updatedAt = nowIso();
+  sessionRuntime.snapshot.updatedAt = nowIso();
 }
 
-function persistSlotSnapshotNow(slot: AcpSessionSlot) {
-  if (slot.snapshot.backendId && slot.snapshot.conversationId) {
-    saveAcpConversationState(slot.snapshot);
+function persistSessionRuntimeSnapshotNow(sessionRuntime: AcpChatSessionRuntime) {
+  if (sessionRuntime.snapshot.backendId && sessionRuntime.snapshot.conversationId) {
+    const persistent = cloneSnapshotValue(sessionRuntime.snapshot);
+    persistent.items = [];
+    persistent.sessionId = "";
+    persistent.busy = false;
+    persistent.status = "idle";
+    persistent.pendingPermissionRequest = null;
+    persistent.prerequisiteError = "";
+    saveAcpConversationState(persistent);
   }
 }
 
-function markSlotConnectionIdle(
-  slot: AcpSessionSlot,
+function markSessionRuntimeConnectionIdle(
+  sessionRuntime: AcpChatSessionRuntime,
   options: {
     clearErrors?: boolean;
     clearStderrTail?: boolean;
     lifecycleEvent?: string;
   } = {},
 ) {
-  slot.snapshot.sessionId = "";
-  slot.snapshot.busy = false;
-  slot.snapshot.status = "idle";
-  slot.snapshot.pendingPermissionRequest = null;
+  sessionRuntime.snapshot.sessionId = "";
+  sessionRuntime.snapshot.busy = false;
+  sessionRuntime.snapshot.status = "idle";
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
   if (options.clearErrors) {
-    slot.snapshot.lastError = "";
-    slot.snapshot.prerequisiteError = "";
+    sessionRuntime.snapshot.lastError = "";
+    sessionRuntime.snapshot.prerequisiteError = "";
   }
   if (options.clearStderrTail) {
-    slot.snapshot.stderrTail = "";
+    sessionRuntime.snapshot.stderrTail = "";
   }
   if (options.lifecycleEvent) {
-    slot.snapshot.lastLifecycleEvent = options.lifecycleEvent;
+    sessionRuntime.snapshot.lastLifecycleEvent = options.lifecycleEvent;
+  }
+}
+
+function releaseIdleBackgroundTranscriptMirror(sessionRuntime: AcpChatSessionRuntime) {
+  if (isForegroundSessionRuntime(sessionRuntime) || isLiveAcpChatSessionRuntime(sessionRuntime)) {
+    return;
+  }
+  if (sessionRuntime.transcriptWrites.size > 0) {
+    if (!sessionRuntime.transcriptMirrorReleasePromise) {
+      const pending = Array.from(sessionRuntime.transcriptWrites);
+      sessionRuntime.transcriptMirrorReleasePromise = Promise.allSettled(pending)
+        .then(() => {
+          sessionRuntime.transcriptMirrorReleasePromise = undefined;
+          releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+        })
+        .catch(() => {
+          sessionRuntime.transcriptMirrorReleasePromise = undefined;
+        });
+    }
+    return;
+  }
+  resetChatTranscriptMirror(sessionRuntime);
+  sessionRuntime.transcriptMirrorLoaded = false;
+  sessionRuntime.transcriptHydrateState = undefined;
+  sessionRuntime.transcriptHydrateError = undefined;
+  sessionRuntime.transcriptHydratePromise = undefined;
+  sessionRuntime.uiSnapshot = null;
+  sessionRuntime.uiHasUnpublishedTranscript = false;
+  sessionRuntime.uiPendingPublishMode = null;
+}
+
+function pruneIdleBackgroundTranscriptMirrors() {
+  for (const sessionRuntime of sessionRuntimes.values()) {
+    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
   }
 }
 
@@ -564,24 +688,27 @@ async function waitForAcpChatShutdownTask(
   ]);
 }
 
-function clonePublishedSlotSnapshot(slot: AcpSessionSlot) {
-  if (!slot.uiSnapshot) {
-    slot.uiSnapshot = cloneSnapshotValue(slot.snapshot);
+function clonePublishedSessionRuntimeSnapshot(sessionRuntime: AcpChatSessionRuntime) {
+  if (!sessionRuntime.uiSnapshot) {
+    sessionRuntime.uiSnapshot = cloneSnapshotValue(sessionRuntime.snapshot);
   }
   const cloned = cloneSnapshotValue(
-    slot.uiSnapshot,
+    sessionRuntime.uiSnapshot,
   ) as AcpConversationSnapshot & Record<string, unknown>;
-  cloned.uiRevision = slot.uiRevision;
-  cloned.transcriptRevision = slot.snapshot.transcriptRevision;
-  cloned.transcriptEventSeq = slot.snapshot.transcriptEventSeq;
-  cloned.transcriptItemCount = slot.snapshot.transcriptItemCount;
-  cloned.transcriptPreview = slot.snapshot.transcriptPreview;
-  cloned.items = [];
+  cloned.uiRevision = sessionRuntime.uiRevision;
+  cloned.transcriptRevision = sessionRuntime.snapshot.transcriptRevision;
+  cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
+  cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
+  cloned.transcriptPreview = sessionRuntime.snapshot.transcriptPreview;
+  cloned.transcriptState = selectedTranscriptStateForSessionRuntime(sessionRuntime);
+  cloned.items = sessionRuntime.transcriptMirrorLoaded
+    ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
+    : [];
   return cloned;
 }
 
-function markSlotTranscriptUnpublished(slot: AcpSessionSlot) {
-  slot.uiHasUnpublishedTranscript = true;
+function markSessionRuntimeTranscriptUnpublished(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.uiHasUnpublishedTranscript = true;
 }
 
 function resolveAcpUiPublishMode(options: {
@@ -608,41 +735,42 @@ function mergeAcpUiPublishMode(
 }
 
 function mergeStructuralConversationItems(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   previous: AcpConversationSnapshot | null,
 ) {
-  void slot;
+  void sessionRuntime;
   void previous;
   return [] as AcpConversationItem[];
 }
 
-function updatePublishedSlotSnapshot(
-  slot: AcpSessionSlot,
+function updatePublishedSessionRuntimeSnapshot(
+  sessionRuntime: AcpChatSessionRuntime,
   publishMode: AcpUiPublishMode,
 ) {
-  const previous = slot.uiSnapshot;
-  const next = cloneSnapshotValue(slot.snapshot);
-  next.items = [];
-  if (publishMode === "metadata" && previous) {
-    next.items = [];
-  } else if (publishMode === "structural") {
-    next.items = mergeStructuralConversationItems(slot, previous);
+  const previous = sessionRuntime.uiSnapshot;
+  const next = cloneSnapshotValue(sessionRuntime.snapshot);
+  next.transcriptState = selectedTranscriptStateForSessionRuntime(sessionRuntime);
+  next.items = sessionRuntime.transcriptMirrorLoaded
+    ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
+    : [];
+  if (publishMode === "structural" && !sessionRuntime.transcriptMirrorLoaded) {
+    next.items = mergeStructuralConversationItems(sessionRuntime, previous);
   }
-  slot.uiSnapshot = next;
-  slot.uiRevision += 1;
+  sessionRuntime.uiSnapshot = next;
+  sessionRuntime.uiRevision += 1;
   if (publishMode !== "metadata") {
-    slot.uiTranscriptRevision = slot.snapshot.transcriptRevision;
+    sessionRuntime.uiTranscriptRevision = sessionRuntime.snapshot.transcriptRevision;
     if (publishMode === "full") {
-      slot.uiHasUnpublishedTranscript = false;
+      sessionRuntime.uiHasUnpublishedTranscript = false;
     }
   }
 }
 
-function notifyConversationListenersNow(slot: AcpSessionSlot) {
-  if (!isActiveSlot(slot)) {
+function notifyConversationListenersNow(sessionRuntime: AcpChatSessionRuntime) {
+  if (!isForegroundSessionRuntime(sessionRuntime)) {
     return;
   }
-  const cloned = clonePublishedSlotSnapshot(slot);
+  const cloned = clonePublishedSessionRuntimeSnapshot(sessionRuntime);
   for (const listener of listeners) {
     listener(cloned);
   }
@@ -655,62 +783,62 @@ function notifyFrontendListenersNow() {
   }
 }
 
-function flushPendingPersistence(slot: AcpSessionSlot) {
-  if (slot.persistTimer) {
-    clearTimeout(slot.persistTimer);
-    slot.persistTimer = null;
+function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
+  if (sessionRuntime.persistTimer) {
+    clearTimeout(sessionRuntime.persistTimer);
+    sessionRuntime.persistTimer = null;
   }
-  persistSlotSnapshotNow(slot);
+  persistSessionRuntimeSnapshotNow(sessionRuntime);
 }
 
 function flushPendingUiEmit(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   publishMode: AcpUiPublishMode = "full",
 ) {
-  if (slot.uiEmitTimer) {
-    clearTimeout(slot.uiEmitTimer);
-    slot.uiEmitTimer = null;
+  if (sessionRuntime.uiEmitTimer) {
+    clearTimeout(sessionRuntime.uiEmitTimer);
+    sessionRuntime.uiEmitTimer = null;
   }
-  const mode = mergeAcpUiPublishMode(slot.uiPendingPublishMode, publishMode);
-  slot.uiPendingPublishMode = null;
-  updatePublishedSlotSnapshot(slot, mode);
-  notifyConversationListenersNow(slot);
+  const mode = mergeAcpUiPublishMode(sessionRuntime.uiPendingPublishMode, publishMode);
+  sessionRuntime.uiPendingPublishMode = null;
+  updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
+  notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow();
 }
 
-function schedulePersistenceFlush(slot: AcpSessionSlot) {
-  if (slot.persistTimer) {
+function schedulePersistenceFlush(sessionRuntime: AcpChatSessionRuntime) {
+  if (sessionRuntime.persistTimer) {
     return;
   }
-  slot.persistTimer = setTimeout(() => {
-    slot.persistTimer = null;
-    persistSlotSnapshotNow(slot);
+  sessionRuntime.persistTimer = setTimeout(() => {
+    sessionRuntime.persistTimer = null;
+    persistSessionRuntimeSnapshotNow(sessionRuntime);
   }, STREAMING_PERSIST_THROTTLE_MS);
 }
 
 function scheduleUiEmit(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   publishMode: AcpUiPublishMode = "metadata",
 ) {
-  slot.uiPendingPublishMode = mergeAcpUiPublishMode(
-    slot.uiPendingPublishMode,
+  sessionRuntime.uiPendingPublishMode = mergeAcpUiPublishMode(
+    sessionRuntime.uiPendingPublishMode,
     publishMode,
   );
-  if (slot.uiEmitTimer) {
+  if (sessionRuntime.uiEmitTimer) {
     return;
   }
-  slot.uiEmitTimer = setTimeout(() => {
-    slot.uiEmitTimer = null;
-    const mode = slot.uiPendingPublishMode || "metadata";
-    slot.uiPendingPublishMode = null;
-    updatePublishedSlotSnapshot(slot, mode);
-    notifyConversationListenersNow(slot);
+  sessionRuntime.uiEmitTimer = setTimeout(() => {
+    sessionRuntime.uiEmitTimer = null;
+    const mode = sessionRuntime.uiPendingPublishMode || "metadata";
+    sessionRuntime.uiPendingPublishMode = null;
+    updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
+    notifyConversationListenersNow(sessionRuntime);
     notifyFrontendListenersNow();
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
 }
 
-function publishSlotUiSnapshot(
-  slot: AcpSessionSlot,
+function publishSessionRuntimeUiSnapshot(
+  sessionRuntime: AcpChatSessionRuntime,
   reason: AssistantWorkspacePublishReason,
   publishMode: AcpUiPublishMode,
 ) {
@@ -722,29 +850,29 @@ function publishSlotUiSnapshot(
       return;
     }
     if (publishMode === "full") {
-      flushPendingUiEmit(slot, publishMode);
+      flushPendingUiEmit(sessionRuntime, publishMode);
       return;
     }
-    scheduleUiEmit(slot, publishMode);
+    scheduleUiEmit(sessionRuntime, publishMode);
     return;
   }
-  flushPendingUiEmit(slot, publishMode);
+  flushPendingUiEmit(sessionRuntime, publishMode);
 }
 
-function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
+function emitSessionRuntimeSnapshot(sessionRuntime: AcpChatSessionRuntime, options: AcpEmitOptions = {}) {
   if (options.touchUpdatedAt !== false) {
-    updateSnapshotTimestamp(slot);
+    updateSnapshotTimestamp(sessionRuntime);
   } else {
-    slot.snapshot.authMethodIds = slot.snapshot.authMethods.map(
+    sessionRuntime.snapshot.authMethodIds = sessionRuntime.snapshot.authMethods.map(
       (entry) => entry.id,
     );
   }
   const persist = options.persist !== false;
   if (persist) {
     if (options.throttlePersist) {
-      schedulePersistenceFlush(slot);
+      schedulePersistenceFlush(sessionRuntime);
     } else {
-      flushPendingPersistence(slot);
+      flushPendingPersistence(sessionRuntime);
     }
   }
   if (options.notifyUi !== false) {
@@ -753,9 +881,9 @@ function emitSlotSnapshot(slot: AcpSessionSlot, options: AcpEmitOptions = {}) {
     const publishMode = resolveAcpUiPublishMode({
       publishMode: options.publishMode,
       publishTranscript:
-        options.publishTranscript ?? !slot.uiHasUnpublishedTranscript,
+        options.publishTranscript ?? !sessionRuntime.uiHasUnpublishedTranscript,
     });
-    publishSlotUiSnapshot(slot, reason, publishMode);
+    publishSessionRuntimeUiSnapshot(sessionRuntime, reason, publishMode);
   }
 }
 
@@ -773,54 +901,61 @@ async function refreshAcpBackends() {
     saveAcpFrontendState({ activeBackendId });
   }
   for (const backend of cachedAcpBackends) {
-    const slot = getOrCreateSlot(backend.id);
-    slot.snapshot.backend = backend;
-    applyRuntimeOptionsCache(slot, backend);
+    const backendSessionRuntimes = Array.from(sessionRuntimes.values()).filter(
+      (sessionRuntime) => sessionRuntime.backendId === backend.id,
+    );
+    if (backendSessionRuntimes.length === 0 && backend.id === activeBackendId) {
+      backendSessionRuntimes.push(getOrCreateSessionRuntime(backend.id));
+    }
+    for (const sessionRuntime of backendSessionRuntimes) {
+      sessionRuntime.snapshot.backend = backend;
+      applyRuntimeOptionsCache(sessionRuntime, backend);
+    }
   }
   return cachedAcpBackends;
 }
 
-async function resolveBackendForSlot(slot: AcpSessionSlot) {
+async function resolveBackendForSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   const backends = await refreshAcpBackends();
-  const backend = backends.find((entry) => entry.id === slot.backendId) || null;
+  const backend = backends.find((entry) => entry.id === sessionRuntime.backendId) || null;
   if (!backend) {
-    throw new Error(`ACP backend "${slot.backendId}" is not available`);
+    throw new Error(`ACP backend "${sessionRuntime.backendId}" is not available`);
   }
   const paths = resolveAcpChatRuntimePaths(
     backend.id,
-    slot.snapshot.conversationId,
+    sessionRuntime.snapshot.conversationId,
   );
-  slot.snapshot.backend = backend;
-  slot.snapshot.backendId = backend.id;
-  slot.snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
-  slot.snapshot.conversationStorageDir = paths.conversationStorageDir;
-  slot.snapshot.sessionCwd = paths.agentWorkspaceDir;
-  slot.snapshot.workspaceDir = paths.agentWorkspaceDir;
-  slot.snapshot.runtimeDir = paths.runtimeDir;
-  applyRuntimeOptionsCache(slot, backend);
+  sessionRuntime.snapshot.backend = backend;
+  sessionRuntime.snapshot.backendId = backend.id;
+  sessionRuntime.snapshot.agentWorkspaceDir = paths.agentWorkspaceDir;
+  sessionRuntime.snapshot.conversationStorageDir = paths.conversationStorageDir;
+  sessionRuntime.snapshot.sessionCwd = paths.agentWorkspaceDir;
+  sessionRuntime.snapshot.workspaceDir = paths.agentWorkspaceDir;
+  sessionRuntime.snapshot.runtimeDir = paths.runtimeDir;
+  applyRuntimeOptionsCache(sessionRuntime, backend);
   return backend;
 }
 
-function appendDiagnostic(slot: AcpSessionSlot, entry: AcpDiagnosticsEntry) {
-  slot.snapshot.diagnostics = [
-    ...slot.snapshot.diagnostics,
+function appendDiagnostic(sessionRuntime: AcpChatSessionRuntime, entry: AcpDiagnosticsEntry) {
+  sessionRuntime.snapshot.diagnostics = [
+    ...sessionRuntime.snapshot.diagnostics,
     { ...entry },
   ].slice(-MAX_DIAGNOSTICS);
-  slot.snapshot.lastLifecycleEvent = String(entry.kind || "").trim();
+  sessionRuntime.snapshot.lastLifecycleEvent = String(entry.kind || "").trim();
   if (String(entry.kind || "").trim() === "stderr") {
-    slot.snapshot.stderrTail = String(entry.detail || "").trim();
+    sessionRuntime.snapshot.stderrTail = String(entry.detail || "").trim();
   }
 }
 
 function appendErrorDiagnostic(args: {
-  slot: AcpSessionSlot;
+  sessionRuntime: AcpChatSessionRuntime;
   kind: string;
   message: string;
   error: unknown;
   stage: string;
 }) {
   const serialized = serializeAcpError(args.error, args.stage);
-  appendDiagnostic(args.slot, {
+  appendDiagnostic(args.sessionRuntime, {
     id: nextOpaqueId("acp-diag"),
     ts: nowIso(),
     kind: args.kind,
@@ -875,8 +1010,140 @@ function acpChatPreviewFromItem(item: AcpConversationItem) {
   return "";
 }
 
+function hasDurableAcpChatTranscript(sessionRuntime: AcpChatSessionRuntime) {
+  return (
+    (Number(sessionRuntime.snapshot.transcriptItemCount) || 0) > 0 ||
+    (Number(sessionRuntime.snapshot.transcriptEventSeq) || 0) > 0 ||
+    (Number(sessionRuntime.snapshot.transcriptRevision) || 0) > 0
+  );
+}
+
+function rememberTranscriptItemId(sessionRuntime: AcpChatSessionRuntime, itemId: string) {
+  if (!itemId || sessionRuntime.transcriptItemIds.includes(itemId)) {
+    return;
+  }
+  sessionRuntime.transcriptItemIds.push(itemId);
+}
+
+function forgetTranscriptItemId(sessionRuntime: AcpChatSessionRuntime, itemId: string) {
+  sessionRuntime.transcriptItemIds = sessionRuntime.transcriptItemIds.filter((id) => id !== itemId);
+}
+
+function rememberTranscriptToolMapping(
+  sessionRuntime: AcpChatSessionRuntime,
+  item: AcpConversationItem,
+) {
+  if (item.kind === "tool_call" && item.toolCallId) {
+    sessionRuntime.transcriptToolItemIds.set(item.toolCallId, item.id);
+  }
+}
+
+function readSessionRuntimeTranscriptMirrorItems(sessionRuntime: AcpChatSessionRuntime) {
+  return sessionRuntime.transcriptItemIds
+    .map((itemId) => sessionRuntime.transcriptItemsById.get(itemId))
+    .filter((item): item is AcpConversationItem => !!item)
+    .map((item) => cloneAcpConversationItem(item));
+}
+
+function applyChatTranscriptEventToMirror(
+  sessionRuntime: AcpChatSessionRuntime,
+  args: {
+    op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+    itemId: string;
+    item?: AcpConversationItem;
+    text?: string;
+    patch?: Partial<AcpConversationItem>;
+  },
+) {
+  const itemId = normalizeString(args.itemId);
+  if (!itemId) {
+    return;
+  }
+  if (args.op === "upsert_item" && args.item) {
+    const cloned = cloneAcpConversationItem(args.item);
+    rememberTranscriptItemId(sessionRuntime, itemId);
+    sessionRuntime.transcriptItemsById.set(itemId, cloned);
+    rememberTranscriptToolMapping(sessionRuntime, cloned);
+    return;
+  }
+  if (args.op === "append_text") {
+    const current = sessionRuntime.transcriptItemsById.get(itemId);
+    if (current?.kind === "message" || current?.kind === "thought") {
+      sessionRuntime.transcriptItemsById.set(itemId, {
+        ...current,
+        text: `${current.text || ""}${String(args.text || "")}`,
+        updatedAt: nowIso(),
+      } as AcpConversationItem);
+    }
+    return;
+  }
+  if (args.op === "patch_item" && args.patch) {
+    const current = sessionRuntime.transcriptItemsById.get(itemId);
+    if (!current) {
+      return;
+    }
+    const next = {
+      ...current,
+      ...args.patch,
+      id: current.id,
+      kind: current.kind,
+    } as AcpConversationItem;
+    sessionRuntime.transcriptItemsById.set(itemId, next);
+    rememberTranscriptToolMapping(sessionRuntime, next);
+    return;
+  }
+  if (args.op === "delete_item") {
+    const current = sessionRuntime.transcriptItemsById.get(itemId);
+    if (current?.kind === "tool_call" && current.toolCallId) {
+      sessionRuntime.transcriptToolItemIds.delete(current.toolCallId);
+    }
+    sessionRuntime.transcriptItemsById.delete(itemId);
+    forgetTranscriptItemId(sessionRuntime, itemId);
+  }
+}
+
+function resetChatTranscriptMirror(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.transcriptItemsById.clear();
+  sessionRuntime.transcriptItemIds = [];
+  sessionRuntime.transcriptToolItemIds.clear();
+  sessionRuntime.activeAssistantItemId = "";
+  sessionRuntime.activeThoughtItemId = "";
+  sessionRuntime.activePlanItemId = "";
+}
+
+function loadChatTranscriptMirrorFromItems(
+  sessionRuntime: AcpChatSessionRuntime,
+  args: { items: AcpConversationItem[]; eventSeq: number },
+) {
+  resetChatTranscriptMirror(sessionRuntime);
+  for (const item of args.items) {
+    const cloned = cloneAcpConversationItem(item);
+    rememberTranscriptItemId(sessionRuntime, cloned.id);
+    sessionRuntime.transcriptItemsById.set(cloned.id, cloned);
+    rememberTranscriptToolMapping(sessionRuntime, cloned);
+  }
+  sessionRuntime.transcriptItemCount = args.items.length;
+  sessionRuntime.transcriptEventSeq = Math.max(
+    Number(args.eventSeq) || 0,
+    Number(sessionRuntime.snapshot.transcriptEventSeq) || 0,
+  );
+  sessionRuntime.transcriptPreview =
+    args.items
+      .slice()
+      .reverse()
+      .map((item) => acpChatPreviewFromItem(item))
+      .find((text) => !!text) || "";
+  sessionRuntime.snapshot.transcriptItemCount = sessionRuntime.transcriptItemCount;
+  sessionRuntime.snapshot.transcriptEventSeq = sessionRuntime.transcriptEventSeq;
+  sessionRuntime.snapshot.transcriptRevision = sessionRuntime.transcriptEventSeq;
+  sessionRuntime.snapshot.transcriptPreview = sessionRuntime.transcriptPreview || undefined;
+  sessionRuntime.transcriptMirrorLoaded = true;
+  sessionRuntime.transcriptHydrateState = undefined;
+  sessionRuntime.transcriptHydrateError = undefined;
+}
+
 function applyChatTranscriptMetadata(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   args: {
     item?: AcpConversationItem;
     text?: string;
@@ -884,47 +1151,30 @@ function applyChatTranscriptMetadata(
   },
 ) {
   const paths = resolveAcpChatTranscriptPaths(
-    slot.snapshot.conversationStorageDir,
+    sessionRuntime.snapshot.conversationStorageDir,
   );
   if (args.newItem) {
-    slot.transcriptItemCount += 1;
+    sessionRuntime.transcriptItemCount += 1;
   }
-  slot.transcriptEventSeq += 1;
-  slot.snapshot.transcriptPath = paths.transcriptPath;
-  slot.snapshot.transcriptIndexPath = paths.transcriptIndexPath;
-  slot.snapshot.transcriptRevision = slot.transcriptEventSeq;
-  slot.snapshot.transcriptEventSeq = slot.transcriptEventSeq;
-  slot.snapshot.transcriptItemCount = slot.transcriptItemCount;
+  sessionRuntime.transcriptEventSeq += 1;
+  sessionRuntime.snapshot.transcriptPath = paths.transcriptPath;
+  sessionRuntime.snapshot.transcriptIndexPath = paths.transcriptIndexPath;
+  sessionRuntime.snapshot.transcriptRevision = sessionRuntime.transcriptEventSeq;
+  sessionRuntime.snapshot.transcriptEventSeq = sessionRuntime.transcriptEventSeq;
+  sessionRuntime.snapshot.transcriptItemCount = sessionRuntime.transcriptItemCount;
   const preview = args.text
     ? truncateAcpChatPreview(args.text)
     : args.item
       ? acpChatPreviewFromItem(args.item)
       : "";
   if (preview) {
-    slot.transcriptPreview = preview;
-    slot.snapshot.transcriptPreview = preview;
-  }
-}
-
-function rememberTranscriptItem(
-  slot: AcpSessionSlot,
-  item: AcpConversationItem,
-) {
-  if (item.kind === "message" || item.kind === "thought") {
-    slot.transcriptItemsById.set(item.id, {
-      ...item,
-      text: "",
-    } as AcpConversationItem);
-    return;
-  }
-  slot.transcriptItemsById.set(item.id, cloneAcpConversationItem(item));
-  if (item.kind === "tool_call" && item.toolCallId) {
-    slot.transcriptToolItemIds.set(item.toolCallId, item.id);
+    sessionRuntime.transcriptPreview = preview;
+    sessionRuntime.snapshot.transcriptPreview = preview;
   }
 }
 
 function queueChatTranscriptEvent(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   args: {
     op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
     itemId: string;
@@ -935,42 +1185,43 @@ function queueChatTranscriptEvent(
     newItem?: boolean;
   },
 ) {
-  applyChatTranscriptMetadata(slot, {
+  applyChatTranscriptEventToMirror(sessionRuntime, args);
+  applyChatTranscriptMetadata(sessionRuntime, {
     item: args.item,
     text: args.text,
     newItem: args.newItem,
   });
-  const delta: AcpChatTranscriptDelta = {
-    backendId: slot.backendId,
-    conversationId: slot.snapshot.conversationId,
-    eventSeq: slot.transcriptEventSeq,
-    transcriptRevision: slot.transcriptEventSeq,
-    op: args.op,
-    itemId: args.itemId,
-    item: args.item ? cloneAcpConversationItem(args.item) : undefined,
-    text: args.text,
-    patch: args.patch,
-    createdAt: args.createdAt,
-  };
-  emitAcpChatTranscriptDelta(delta);
   const write = appendAcpChatTranscriptEvent({
-    conversationStorageDir: slot.snapshot.conversationStorageDir,
+    conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
     op: args.op,
     itemId: args.itemId,
     item: args.item,
     text: args.text,
     patch: args.patch,
     createdAt: args.createdAt,
-  }).catch(() => undefined);
+  }).catch((error) => {
+    const message = compactError(error);
+    sessionRuntime.transcriptHydrateState = "failed";
+    sessionRuntime.transcriptHydrateError = message;
+    appendDiagnostic(sessionRuntime, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "transcript_persist_failed",
+      level: "warn",
+      message: "ACP Chat transcript persistence failed.",
+      detail: message,
+    });
+  });
   chatTranscriptWrites.add(write);
+  sessionRuntime.transcriptWrites.add(write);
   void write.finally(() => {
     chatTranscriptWrites.delete(write);
+    sessionRuntime.transcriptWrites.delete(write);
   });
 }
 
-function upsertTranscriptItem(slot: AcpSessionSlot, item: AcpConversationItem) {
-  rememberTranscriptItem(slot, item);
-  queueChatTranscriptEvent(slot, {
+function upsertTranscriptItem(sessionRuntime: AcpChatSessionRuntime, item: AcpConversationItem) {
+  queueChatTranscriptEvent(sessionRuntime, {
     op: "upsert_item",
     itemId: item.id,
     item,
@@ -980,20 +1231,11 @@ function upsertTranscriptItem(slot: AcpSessionSlot, item: AcpConversationItem) {
 }
 
 function patchTranscriptItem(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   itemId: string,
   patch: Partial<AcpConversationItem>,
 ) {
-  const current = slot.transcriptItemsById.get(itemId);
-  if (current) {
-    slot.transcriptItemsById.set(itemId, {
-      ...current,
-      ...patch,
-      id: current.id,
-      kind: current.kind,
-    } as AcpConversationItem);
-  }
-  queueChatTranscriptEvent(slot, {
+  queueChatTranscriptEvent(sessionRuntime, {
     op: "patch_item",
     itemId,
     patch,
@@ -1002,11 +1244,11 @@ function patchTranscriptItem(
 }
 
 function appendTranscriptText(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   item: AcpConversationMessageItem | AcpConversationThoughtItem,
   text: string,
 ) {
-  queueChatTranscriptEvent(slot, {
+  queueChatTranscriptEvent(sessionRuntime, {
     op: "append_text",
     itemId: item.id,
     text,
@@ -1015,7 +1257,7 @@ function appendTranscriptText(
 }
 
 function appendStreamingTranscriptText(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   args:
     | {
         kind: "message";
@@ -1028,7 +1270,7 @@ function appendStreamingTranscriptText(
       },
 ) {
   if (args.kind === "message") {
-    let target = getLatestActiveAssistantItem(slot);
+    let target = getLatestActiveAssistantItem(sessionRuntime);
     if (!target) {
       const createdAt = nowIso();
       target = {
@@ -1040,15 +1282,15 @@ function appendStreamingTranscriptText(
         updatedAt: createdAt,
         state: "streaming",
       };
-      slot.activeAssistantItemId = target.id;
-      pushItem(slot, target);
+      sessionRuntime.activeAssistantItemId = target.id;
+      pushItem(sessionRuntime, target);
       return;
     }
-    appendTranscriptText(slot, target, args.text);
+    appendTranscriptText(sessionRuntime, target, args.text);
     return;
   }
 
-  let target = getLatestActiveThoughtItem(slot);
+  let target = getLatestActiveThoughtItem(sessionRuntime);
   if (!target) {
     const createdAt = nowIso();
     target = {
@@ -1059,15 +1301,15 @@ function appendStreamingTranscriptText(
       updatedAt: createdAt,
       state: "streaming",
     };
-    slot.activeThoughtItemId = target.id;
-    pushItem(slot, target);
+    sessionRuntime.activeThoughtItemId = target.id;
+    pushItem(sessionRuntime, target);
     return;
   }
-  appendTranscriptText(slot, target, args.text);
+  appendTranscriptText(sessionRuntime, target, args.text);
 }
 
 function upsertStatusItem(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   args: {
     level: "info" | "warn" | "error";
     label: string;
@@ -1082,30 +1324,30 @@ function upsertStatusItem(
     text: args.text,
     createdAt: nowIso(),
   };
-  upsertTranscriptItem(slot, item);
+  upsertTranscriptItem(sessionRuntime, item);
 }
 
-function pushItem(slot: AcpSessionSlot, item: AcpConversationItem) {
-  upsertTranscriptItem(slot, item);
+function pushItem(sessionRuntime: AcpChatSessionRuntime, item: AcpConversationItem) {
+  upsertTranscriptItem(sessionRuntime, item);
 }
 
-function getLatestConversationItem(slot: AcpSessionSlot) {
+function getLatestConversationItem(sessionRuntime: AcpChatSessionRuntime) {
   const activeId =
-    slot.activeAssistantItemId ||
-    slot.activeThoughtItemId ||
-    slot.activePlanItemId;
-  return activeId ? slot.transcriptItemsById.get(activeId) : undefined;
+    sessionRuntime.activeAssistantItemId ||
+    sessionRuntime.activeThoughtItemId ||
+    sessionRuntime.activePlanItemId;
+  return activeId ? sessionRuntime.transcriptItemsById.get(activeId) : undefined;
 }
 
-function getLatestActiveAssistantItem(slot: AcpSessionSlot) {
-  const latest = slot.transcriptItemsById.get(slot.activeAssistantItemId);
+function getLatestActiveAssistantItem(sessionRuntime: AcpChatSessionRuntime) {
+  const latest = sessionRuntime.transcriptItemsById.get(sessionRuntime.activeAssistantItemId);
   return latest?.kind === "message" && latest.role === "assistant"
     ? (latest as AcpConversationMessageItem)
     : undefined;
 }
 
-function getLatestActiveThoughtItem(slot: AcpSessionSlot) {
-  const latest = slot.transcriptItemsById.get(slot.activeThoughtItemId);
+function getLatestActiveThoughtItem(sessionRuntime: AcpChatSessionRuntime) {
+  const latest = sessionRuntime.transcriptItemsById.get(sessionRuntime.activeThoughtItemId);
   return latest?.kind === "thought"
     ? (latest as AcpConversationThoughtItem)
     : undefined;
@@ -1314,7 +1556,7 @@ function extractToolResultSummary(update: Record<string, unknown>) {
 }
 
 function upsertToolCallItem(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   update: Record<string, unknown>,
 ) {
   const toolCallId = String(update.toolCallId || "").trim();
@@ -1325,15 +1567,15 @@ function upsertToolCallItem(
   const inputSummary = extractToolInputSummary(update, title);
   const resultSummary = extractToolResultSummary(update);
   const now = nowIso();
-  const targetId = toolCallId ? slot.transcriptToolItemIds.get(toolCallId) : "";
+  const targetId = toolCallId ? sessionRuntime.transcriptToolItemIds.get(toolCallId) : "";
   const target = targetId
-    ? (slot.transcriptItemsById.get(targetId) as
+    ? (sessionRuntime.transcriptItemsById.get(targetId) as
         | AcpConversationToolCallItem
         | undefined)
     : undefined;
   if (!target) {
     const frozenInputSummary = inputSummary || undefined;
-    pushItem(slot, {
+    pushItem(sessionRuntime, {
       id: nextOpaqueId("acp-tool"),
       kind: "tool_call",
       toolCallId,
@@ -1380,34 +1622,34 @@ function upsertToolCallItem(
     patch.state = nextState;
   }
   patch.updatedAt = now;
-  patchTranscriptItem(slot, target.id, patch as Partial<AcpConversationItem>);
+  patchTranscriptItem(sessionRuntime, target.id, patch as Partial<AcpConversationItem>);
 }
 
 function finalizeStreamingItems(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   finalState: "complete" | "error",
   planTerminalStatus: "cancelled" | "skipped" = "skipped",
 ) {
-  if (slot.activeAssistantItemId) {
-    patchTranscriptItem(slot, slot.activeAssistantItemId, {
+  if (sessionRuntime.activeAssistantItemId) {
+    patchTranscriptItem(sessionRuntime, sessionRuntime.activeAssistantItemId, {
       state: finalState,
       updatedAt: nowIso(),
     } as Partial<AcpConversationItem>);
-    slot.activeAssistantItemId = "";
+    sessionRuntime.activeAssistantItemId = "";
   }
-  if (slot.activeThoughtItemId) {
-    patchTranscriptItem(slot, slot.activeThoughtItemId, {
+  if (sessionRuntime.activeThoughtItemId) {
+    patchTranscriptItem(sessionRuntime, sessionRuntime.activeThoughtItemId, {
       state: finalState,
       updatedAt: nowIso(),
     } as Partial<AcpConversationItem>);
-    slot.activeThoughtItemId = "";
+    sessionRuntime.activeThoughtItemId = "";
   }
-  if (slot.activePlanItemId) {
-    const target = slot.transcriptItemsById.get(slot.activePlanItemId) as
+  if (sessionRuntime.activePlanItemId) {
+    const target = sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId) as
       | AcpConversationPlanItem
       | undefined;
     if (target) {
-      patchTranscriptItem(slot, target.id, {
+      patchTranscriptItem(sessionRuntime, target.id, {
         entries: target.entries.map((entry) =>
           isTerminalPlanStatus(entry.status)
             ? entry
@@ -1419,7 +1661,7 @@ function finalizeStreamingItems(
         updatedAt: nowIso(),
       } as Partial<AcpConversationItem>);
     }
-    slot.activePlanItemId = "";
+    sessionRuntime.activePlanItemId = "";
   }
 }
 
@@ -1464,7 +1706,7 @@ function normalizeCachedSelectableOptions(
 }
 
 function applyRuntimeOptionsCache(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   backend: BackendInstance,
 ) {
   const cache = backend.acp?.runtimeOptionsCache;
@@ -1472,36 +1714,36 @@ function applyRuntimeOptionsCache(
     return;
   }
 
-  if (slot.snapshot.modeOptions.length === 0) {
+  if (sessionRuntime.snapshot.modeOptions.length === 0) {
     const modeOptions = normalizeCachedSelectableOptions(cache.modes);
     if (modeOptions.length > 0) {
-      slot.snapshot.modeOptions = modeOptions;
+      sessionRuntime.snapshot.modeOptions = modeOptions;
       const currentModeId = String(
-        slot.snapshot.currentMode?.id ||
+        sessionRuntime.snapshot.currentMode?.id ||
           cache.currentModeId ||
           modeOptions[0]?.id ||
           "",
       ).trim();
-      slot.snapshot.currentMode =
+      sessionRuntime.snapshot.currentMode =
         modeOptions.find((entry) => entry.id === currentModeId) ||
         modeOptions[0];
     }
   }
 
-  if (slot.snapshot.modelOptions.length === 0) {
+  if (sessionRuntime.snapshot.modelOptions.length === 0) {
     const rawModelOptions = normalizeCachedSelectableOptions(cache.rawModels);
     if (rawModelOptions.length > 0) {
-      slot.snapshot.modelOptions = rawModelOptions;
+      sessionRuntime.snapshot.modelOptions = rawModelOptions;
       const currentRawModelId = String(
-        slot.snapshot.currentModel?.id ||
+        sessionRuntime.snapshot.currentModel?.id ||
           cache.currentRawModelId ||
           rawModelOptions[0]?.id ||
           "",
       ).trim();
-      slot.snapshot.currentModel =
+      sessionRuntime.snapshot.currentModel =
         rawModelOptions.find((entry) => entry.id === currentRawModelId) ||
         rawModelOptions[0];
-      deriveModelEffortState(slot.snapshot);
+      deriveModelEffortState(sessionRuntime.snapshot);
     }
   }
 }
@@ -1523,7 +1765,7 @@ function applyCurrentReasoningEffort(
 }
 
 function applySessionConfigOptionsState(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   configOptions: unknown,
 ) {
   const state = buildAcpRuntimeOptionsStateFromConfigOptions(
@@ -1544,48 +1786,48 @@ function applySessionConfigOptionsState(
   let modelApplied = false;
   let reasoningApplied = false;
   if (state.modes.length > 0) {
-    slot.snapshot.modeOptions = state.modes.map((entry) => ({ ...entry }));
+    sessionRuntime.snapshot.modeOptions = state.modes.map((entry) => ({ ...entry }));
     const currentModeId = String(
-      state.currentModeId || slot.snapshot.currentMode?.id || "",
+      state.currentModeId || sessionRuntime.snapshot.currentMode?.id || "",
     ).trim();
-    slot.snapshot.currentMode =
-      slot.snapshot.modeOptions.find((entry) => entry.id === currentModeId) ||
-      slot.snapshot.modeOptions[0];
+    sessionRuntime.snapshot.currentMode =
+      sessionRuntime.snapshot.modeOptions.find((entry) => entry.id === currentModeId) ||
+      sessionRuntime.snapshot.modeOptions[0];
     modeApplied = true;
   }
 
   if (state.rawModels.length > 0) {
-    slot.snapshot.modelOptions = state.rawModels.map((entry) => ({ ...entry }));
+    sessionRuntime.snapshot.modelOptions = state.rawModels.map((entry) => ({ ...entry }));
     const currentRawModelId = String(
-      state.currentRawModelId || slot.snapshot.currentModel?.id || "",
+      state.currentRawModelId || sessionRuntime.snapshot.currentModel?.id || "",
     ).trim();
-    slot.snapshot.currentModel =
-      slot.snapshot.modelOptions.find(
+    sessionRuntime.snapshot.currentModel =
+      sessionRuntime.snapshot.modelOptions.find(
         (entry) => entry.id === currentRawModelId,
-      ) || slot.snapshot.modelOptions[0];
-    deriveModelEffortState(slot.snapshot);
+      ) || sessionRuntime.snapshot.modelOptions[0];
+    deriveModelEffortState(sessionRuntime.snapshot);
     if (state.displayModels.length > 0) {
-      slot.snapshot.displayModelOptions = state.displayModels.map((entry) => ({
+      sessionRuntime.snapshot.displayModelOptions = state.displayModels.map((entry) => ({
         ...entry,
       }));
-      slot.snapshot.currentDisplayModel =
-        slot.snapshot.displayModelOptions.find(
+      sessionRuntime.snapshot.currentDisplayModel =
+        sessionRuntime.snapshot.displayModelOptions.find(
           (entry) => entry.id === state.currentDisplayModelId,
-        ) || slot.snapshot.displayModelOptions[0];
+        ) || sessionRuntime.snapshot.displayModelOptions[0];
     }
     modelApplied = true;
   }
 
   if (state.reasoningEfforts.length > 0) {
-    slot.snapshot.reasoningEffortOptions = state.reasoningEfforts.map(
+    sessionRuntime.snapshot.reasoningEffortOptions = state.reasoningEfforts.map(
       (entry) => ({
         ...entry,
       }),
     );
     applyCurrentReasoningEffort(
-      slot.snapshot,
+      sessionRuntime.snapshot,
       state.currentReasoningEffortId ||
-        slot.snapshot.currentReasoningEffort?.id ||
+        sessionRuntime.snapshot.currentReasoningEffort?.id ||
         state.reasoningEfforts[0]?.id ||
         "",
     );
@@ -1600,7 +1842,7 @@ function applySessionConfigOptionsState(
 }
 
 function applyModeState(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   value: {
     currentModeId?: string | null;
     availableModes?: Array<{
@@ -1622,12 +1864,12 @@ function applyModeState(
         .filter((entry) => entry.id && entry.label)
     : [];
   const availableModes =
-    incomingModes.length > 0 ? incomingModes : slot.snapshot.modeOptions;
-  slot.snapshot.modeOptions = availableModes;
+    incomingModes.length > 0 ? incomingModes : sessionRuntime.snapshot.modeOptions;
+  sessionRuntime.snapshot.modeOptions = availableModes;
   const currentModeId = String(
-    value.currentModeId || slot.snapshot.currentMode?.id || "",
+    value.currentModeId || sessionRuntime.snapshot.currentMode?.id || "",
   ).trim();
-  slot.snapshot.currentMode =
+  sessionRuntime.snapshot.currentMode =
     availableModes.find((entry) => entry.id === currentModeId) ||
     (currentModeId
       ? {
@@ -1878,7 +2120,7 @@ function resolveRawModelIdForSelection(
 }
 
 function applyModelState(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   value: {
     currentModelId?: string | null;
     availableModels?: Array<{
@@ -1898,12 +2140,12 @@ function applyModelState(
         .filter((entry) => entry.id && entry.label)
     : [];
   const availableModels =
-    incomingModels.length > 0 ? incomingModels : slot.snapshot.modelOptions;
-  slot.snapshot.modelOptions = availableModels;
+    incomingModels.length > 0 ? incomingModels : sessionRuntime.snapshot.modelOptions;
+  sessionRuntime.snapshot.modelOptions = availableModels;
   const currentModelId = String(
-    value.currentModelId || slot.snapshot.currentModel?.id || "",
+    value.currentModelId || sessionRuntime.snapshot.currentModel?.id || "",
   ).trim();
-  slot.snapshot.currentModel =
+  sessionRuntime.snapshot.currentModel =
     availableModels.find((entry) => entry.id === currentModelId) ||
     (currentModelId
       ? {
@@ -1911,11 +2153,11 @@ function applyModelState(
           label: currentModelId,
         }
       : undefined);
-  deriveModelEffortState(slot.snapshot);
+  deriveModelEffortState(sessionRuntime.snapshot);
 }
 
 function handleSessionUpdate(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   event: {
     sessionId: string;
     update: {
@@ -1926,12 +2168,12 @@ function handleSessionUpdate(
 ) {
   if (
     String(event.sessionId || "").trim() !==
-    String(slot.snapshot.sessionId || "").trim()
+    String(sessionRuntime.snapshot.sessionId || "").trim()
   ) {
     return;
   }
   const update = event.update;
-  if (slot.suppressSessionLoadReplay) {
+  if (sessionRuntime.suppressSessionLoadReplay) {
     switch (String(update.sessionUpdate || "").trim()) {
       case "agent_message_chunk":
       case "agent_thought_chunk":
@@ -1939,7 +2181,7 @@ function handleSessionUpdate(
       case "tool_call":
       case "tool_call_update":
       case "plan":
-        slot.snapshot.lastLifecycleEvent = "session_load_replay_suppressed";
+        sessionRuntime.snapshot.lastLifecycleEvent = "session_load_replay_suppressed";
         return;
       default:
         break;
@@ -1947,8 +2189,8 @@ function handleSessionUpdate(
   }
   switch (String(update.sessionUpdate || "").trim()) {
     case "agent_message_chunk": {
-      slot.snapshot.lastLifecycleEvent = "agent_message_chunk";
-      slot.activeThoughtItemId = "";
+      sessionRuntime.snapshot.lastLifecycleEvent = "agent_message_chunk";
+      sessionRuntime.activeThoughtItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -1959,13 +2201,13 @@ function handleSessionUpdate(
       if (!chunk) {
         return;
       }
-      appendStreamingTranscriptText(slot, {
+      appendStreamingTranscriptText(sessionRuntime, {
         kind: "message",
         role: "assistant",
         text: chunk,
       });
-      markSlotTranscriptUnpublished(slot);
-      emitSlotSnapshot(slot, {
+      markSessionRuntimeTranscriptUnpublished(sessionRuntime);
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         touchUpdatedAt: false,
         uiReason: "live",
@@ -1974,8 +2216,8 @@ function handleSessionUpdate(
       return;
     }
     case "agent_thought_chunk": {
-      slot.snapshot.lastLifecycleEvent = "agent_thought_chunk";
-      slot.activeAssistantItemId = "";
+      sessionRuntime.snapshot.lastLifecycleEvent = "agent_thought_chunk";
+      sessionRuntime.activeAssistantItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -1986,12 +2228,12 @@ function handleSessionUpdate(
       if (!chunk) {
         return;
       }
-      appendStreamingTranscriptText(slot, {
+      appendStreamingTranscriptText(sessionRuntime, {
         kind: "thought",
         text: chunk,
       });
-      markSlotTranscriptUnpublished(slot);
-      emitSlotSnapshot(slot, {
+      markSessionRuntimeTranscriptUnpublished(sessionRuntime);
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         touchUpdatedAt: false,
         uiReason: "live",
@@ -2000,31 +2242,31 @@ function handleSessionUpdate(
       return;
     }
     case "tool_call": {
-      slot.snapshot.lastLifecycleEvent = "tool_call";
-      slot.activeAssistantItemId = "";
-      slot.activeThoughtItemId = "";
-      upsertToolCallItem(slot, update);
-      emitSlotSnapshot(slot, {
+      sessionRuntime.snapshot.lastLifecycleEvent = "tool_call";
+      sessionRuntime.activeAssistantItemId = "";
+      sessionRuntime.activeThoughtItemId = "";
+      upsertToolCallItem(sessionRuntime, update);
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
       });
       return;
     }
     case "tool_call_update": {
-      slot.snapshot.lastLifecycleEvent = "tool_call_update";
-      slot.activeAssistantItemId = "";
-      slot.activeThoughtItemId = "";
-      upsertToolCallItem(slot, update);
-      emitSlotSnapshot(slot, {
+      sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
+      sessionRuntime.activeAssistantItemId = "";
+      sessionRuntime.activeThoughtItemId = "";
+      upsertToolCallItem(sessionRuntime, update);
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
       });
       return;
     }
     case "plan": {
-      slot.snapshot.lastLifecycleEvent = "plan";
-      slot.activeAssistantItemId = "";
-      slot.activeThoughtItemId = "";
+      sessionRuntime.snapshot.lastLifecycleEvent = "plan";
+      sessionRuntime.activeAssistantItemId = "";
+      sessionRuntime.activeThoughtItemId = "";
       const entries = Array.isArray(update.entries)
         ? update.entries.map((entry) => ({
             content: String(entry?.content || ""),
@@ -2032,7 +2274,7 @@ function handleSessionUpdate(
             status: String(entry?.status || ""),
           }))
         : [];
-      let target = slot.transcriptItemsById.get(slot.activePlanItemId) as
+      let target = sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId) as
         | AcpConversationPlanItem
         | undefined;
       if (!target) {
@@ -2042,23 +2284,23 @@ function handleSessionUpdate(
           entries,
           createdAt: nowIso(),
         };
-        slot.activePlanItemId = target.id;
-        pushItem(slot, target);
+        sessionRuntime.activePlanItemId = target.id;
+        pushItem(sessionRuntime, target);
       } else {
-        patchTranscriptItem(slot, target.id, {
+        patchTranscriptItem(sessionRuntime, target.id, {
           entries,
           updatedAt: nowIso(),
         } as Partial<AcpConversationItem>);
       }
-      emitSlotSnapshot(slot, {
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
       });
       return;
     }
     case "available_commands_update": {
-      slot.snapshot.lastLifecycleEvent = "available_commands_update";
-      slot.snapshot.availableCommands = Array.isArray(update.availableCommands)
+      sessionRuntime.snapshot.lastLifecycleEvent = "available_commands_update";
+      sessionRuntime.snapshot.availableCommands = Array.isArray(update.availableCommands)
         ? update.availableCommands
             .map((entry) => ({
               name: String(entry?.name || "").trim(),
@@ -2067,21 +2309,21 @@ function handleSessionUpdate(
             }))
             .filter((entry) => entry.name)
         : [];
-      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "current_mode_update": {
-      slot.snapshot.lastLifecycleEvent = "current_mode_update";
-      applyModeState(slot, {
+      sessionRuntime.snapshot.lastLifecycleEvent = "current_mode_update";
+      applyModeState(sessionRuntime, {
         currentModeId: String(update.currentModeId || "").trim(),
       });
-      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "config_option_update": {
-      slot.snapshot.lastLifecycleEvent = "config_option_update";
+      sessionRuntime.snapshot.lastLifecycleEvent = "config_option_update";
       const applied = applySessionConfigOptionsState(
-        slot,
+        sessionRuntime,
         update.configOptions,
       );
       if (
@@ -2089,36 +2331,36 @@ function handleSessionUpdate(
         !applied.modelApplied &&
         !applied.reasoningApplied
       ) {
-        upsertStatusItem(slot, {
+        upsertStatusItem(sessionRuntime, {
           level: "info",
           label: "Config",
           text: "Session configuration options updated.",
         });
       }
-      emitSlotSnapshot(slot, {
+      emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
       });
       return;
     }
     case "session_info_update": {
-      slot.snapshot.lastLifecycleEvent = "session_info_update";
-      slot.snapshot.sessionTitle = String(update.title || "").trim();
-      slot.snapshot.sessionUpdatedAt = String(update.updatedAt || "").trim();
-      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
+      sessionRuntime.snapshot.lastLifecycleEvent = "session_info_update";
+      sessionRuntime.snapshot.sessionTitle = String(update.title || "").trim();
+      sessionRuntime.snapshot.sessionUpdatedAt = String(update.updatedAt || "").trim();
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     case "usage_update": {
-      slot.snapshot.lastLifecycleEvent = "usage_update";
+      sessionRuntime.snapshot.lastLifecycleEvent = "usage_update";
       const used = Number(update.used || 0);
       const size = Number(update.size || 0);
       if (Number.isFinite(used) && Number.isFinite(size)) {
-        slot.snapshot.usage = {
+        sessionRuntime.snapshot.usage = {
           used: Math.max(0, Math.floor(used)),
           size: Math.max(0, Math.floor(size)),
         };
       }
-      emitSlotSnapshot(slot, { uiReason: "live", publishMode: "metadata" });
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "live", publishMode: "metadata" });
       return;
     }
     default:
@@ -2126,93 +2368,105 @@ function handleSessionUpdate(
   }
 }
 
-function bindAdapter(slot: AcpSessionSlot, nextAdapter: AcpConnectionAdapter) {
-  slot.unsubscribeUpdate = nextAdapter.onUpdate(async (event) => {
-    touchLiveAcpChatSlot(slot);
+function bindAdapter(sessionRuntime: AcpChatSessionRuntime, nextAdapter: AcpConnectionAdapter) {
+  sessionRuntime.unsubscribeUpdate = nextAdapter.onUpdate(async (event) => {
+    touchLiveAcpChatSessionRuntime(sessionRuntime);
     handleSessionUpdate(
-      slot,
+      sessionRuntime,
       event as Parameters<typeof handleSessionUpdate>[1],
     );
   });
-  slot.unsubscribeClose = nextAdapter.onClose((event) => {
-    if (slot.suppressCloseEvent) {
+  sessionRuntime.unsubscribeClose = nextAdapter.onClose((event) => {
+    if (sessionRuntime.suppressCloseEvent) {
       return;
     }
     const cancelledPrompt =
-      slot.promptCancelInFlight === true ||
-      slot.promptCancelCloseExpected === true;
-    slot.adapter = null;
-    slot.pendingPermissionResolver = null;
+      sessionRuntime.promptCancelInFlight === true ||
+      sessionRuntime.promptCancelCloseExpected === true;
+    sessionRuntime.adapter = null;
+    sessionRuntime.pendingPermissionResolver = null;
     if (cancelledPrompt) {
-      clearPromptCancelCloseExpectation(slot);
-      markPromptCancelled(slot);
-      slot.snapshot.lastLifecycleEvent = "prompt_cancelled";
-      emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+      clearPromptCancelCloseExpectation(sessionRuntime);
+      markPromptCancelled(sessionRuntime);
+      sessionRuntime.snapshot.lastLifecycleEvent = "prompt_cancelled";
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "boundary", publishMode: "full" });
       return;
     }
-    slot.snapshot.busy = false;
-    slot.snapshot.pendingPermissionRequest = null;
-    slot.snapshot.status = slot.snapshot.status === "idle" ? "idle" : "error";
-    if (event?.stderrText) {
-      slot.snapshot.stderrTail = event.stderrText;
-      appendDiagnostic(slot, {
+    const closeMessage = String(event?.message || "").trim();
+    const stderrText = String(event?.stderrText || "").trim();
+    const naturalIdleClose =
+      !sessionRuntime.snapshot.busy &&
+      (sessionRuntime.snapshot.status === "connected" || sessionRuntime.snapshot.status === "idle") &&
+      !closeMessage &&
+      !stderrText;
+    sessionRuntime.snapshot.busy = false;
+    sessionRuntime.snapshot.pendingPermissionRequest = null;
+    if (naturalIdleClose) {
+      markSessionRuntimeConnectionIdle(sessionRuntime, { lifecycleEvent: "closed" });
+      emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "boundary", publishMode: "metadata" });
+      return;
+    }
+    sessionRuntime.snapshot.status = sessionRuntime.snapshot.status === "idle" ? "idle" : "error";
+    if (stderrText) {
+      sessionRuntime.snapshot.stderrTail = stderrText;
+      appendDiagnostic(sessionRuntime, {
         id: nextOpaqueId("acp-diag"),
         ts: nowIso(),
         kind: "stderr",
         level: "warn",
         message: "ACP stderr",
-        detail: event.stderrText,
+        detail: stderrText,
       });
     }
-    slot.snapshot.lastLifecycleEvent = "exited";
-    if (!slot.snapshot.lastError) {
-      slot.snapshot.lastError =
-        String(event?.message || "").trim() || "ACP connection closed";
+    sessionRuntime.snapshot.lastLifecycleEvent = "exited";
+    if (!sessionRuntime.snapshot.lastError) {
+      sessionRuntime.snapshot.lastError =
+        closeMessage || "ACP connection closed";
     }
-    emitSlotSnapshot(slot);
+    emitSessionRuntimeSnapshot(sessionRuntime);
   });
-  slot.unsubscribeDiagnostics = nextAdapter.onDiagnostics((entry) => {
-    touchLiveAcpChatSlot(slot);
-    appendDiagnostic(slot, entry);
-    emitSlotSnapshot(slot, {
+  sessionRuntime.unsubscribeDiagnostics = nextAdapter.onDiagnostics((entry) => {
+    touchLiveAcpChatSessionRuntime(sessionRuntime);
+    appendDiagnostic(sessionRuntime, entry);
+    emitSessionRuntimeSnapshot(sessionRuntime, {
       persist: false,
       uiReason: "live",
       publishMode: "metadata",
     });
   });
-  slot.unsubscribePermission = nextAdapter.onPermissionRequest((request) => {
-    setSlotPendingPermissionRequest(slot, request);
+  sessionRuntime.unsubscribePermission = nextAdapter.onPermissionRequest((request) => {
+    setSessionRuntimePendingPermissionRequest(sessionRuntime, request);
   });
 }
 
-async function disconnectSlotAdapter(slot: AcpSessionSlot) {
-  slot.pendingPermissionResolver = null;
-  clearPromptCancelCloseExpectation(slot);
-  if (!slot.adapter) {
+async function disconnectSessionRuntimeAdapter(sessionRuntime: AcpChatSessionRuntime) {
+  sessionRuntime.pendingPermissionResolver = null;
+  clearPromptCancelCloseExpectation(sessionRuntime);
+  if (!sessionRuntime.adapter) {
     return;
   }
-  slot.suppressCloseEvent = true;
-  slot.unsubscribeUpdate?.();
-  slot.unsubscribeClose?.();
-  slot.unsubscribeDiagnostics?.();
-  slot.unsubscribePermission?.();
-  slot.unsubscribeHostBridgePermission?.();
-  slot.unsubscribeUpdate = null;
-  slot.unsubscribeClose = null;
-  slot.unsubscribeDiagnostics = null;
-  slot.unsubscribePermission = null;
-  slot.unsubscribeHostBridgePermission = null;
-  const current = slot.adapter;
-  slot.adapter = null;
+  sessionRuntime.suppressCloseEvent = true;
+  sessionRuntime.unsubscribeUpdate?.();
+  sessionRuntime.unsubscribeClose?.();
+  sessionRuntime.unsubscribeDiagnostics?.();
+  sessionRuntime.unsubscribePermission?.();
+  sessionRuntime.unsubscribeHostBridgePermission?.();
+  sessionRuntime.unsubscribeUpdate = null;
+  sessionRuntime.unsubscribeClose = null;
+  sessionRuntime.unsubscribeDiagnostics = null;
+  sessionRuntime.unsubscribePermission = null;
+  sessionRuntime.unsubscribeHostBridgePermission = null;
+  const current = sessionRuntime.adapter;
+  sessionRuntime.adapter = null;
   try {
     await current.close();
   } finally {
-    slot.suppressCloseEvent = false;
+    sessionRuntime.suppressCloseEvent = false;
   }
 }
 
 async function materializeAcpChatHostBridgeSupportSkill(args: {
-  slot: AcpSessionSlot;
+  sessionRuntime: AcpChatSessionRuntime;
   backend: BackendInstance;
   workspaceDir: string;
 }) {
@@ -2225,7 +2479,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
     workspaceDir,
   });
   if (injectionPlan.skillRoots.length === 0) {
-    appendDiagnostic(args.slot, {
+    appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
       kind: "host_bridge_cli_wrapper_skill_unavailable",
@@ -2261,7 +2515,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
         });
         targetDirs.push(targetDir);
       }
-      appendDiagnostic(args.slot, {
+      appendDiagnostic(args.sessionRuntime, {
         id: nextOpaqueId("acp-diag"),
         ts: nowIso(),
         kind: "host_bridge_cli_wrapper_skill_ready",
@@ -2287,7 +2541,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
     const entry =
       effectiveRegistry.entriesById[HOST_BRIDGE_CLI_WRAPPER_SKILL_ID];
     if (!entry) {
-      appendDiagnostic(args.slot, {
+      appendDiagnostic(args.sessionRuntime, {
         id: nextOpaqueId("acp-diag"),
         ts: nowIso(),
         kind: "host_bridge_cli_wrapper_skill_unavailable",
@@ -2314,7 +2568,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
       });
       targetDirs.push(targetDir);
     }
-    appendDiagnostic(args.slot, {
+    appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
       kind: "host_bridge_cli_wrapper_skill_ready",
@@ -2329,7 +2583,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
       },
     });
   } catch (error) {
-    appendDiagnostic(args.slot, {
+    appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
       kind: "host_bridge_cli_wrapper_skill_unavailable",
@@ -2345,46 +2599,47 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
   }
 }
 
-async function ensureAdapter(backendId?: string) {
+async function ensureAdapter(backendId?: string, conversationId?: string) {
   ensureInitialized();
-  const slot = getOrCreateSlot(backendId || activeBackendId);
-  if (slot.adapter) {
-    touchLiveAcpChatSlot(slot);
-    return { slot, adapter: slot.adapter };
+  const sessionRuntime = getOrCreateSessionRuntime(backendId || activeBackendId, conversationId);
+  if (sessionRuntime.adapter) {
+    touchLiveAcpChatSessionRuntime(sessionRuntime);
+    return { sessionRuntime, adapter: sessionRuntime.adapter };
   }
-  const backend = await resolveBackendForSlot(slot);
-  slot.snapshot.sessionId = "";
-  slot.snapshot.lastError = "";
-  slot.snapshot.prerequisiteError = "";
-  slot.snapshot.stderrTail = "";
-  slot.snapshot.pendingPermissionRequest = null;
-  slot.snapshot.status = "checking-command";
-  emitSlotSnapshot(slot);
+  const backend = await resolveBackendForSessionRuntime(sessionRuntime);
+  sessionRuntime.snapshot.sessionId = "";
+  sessionRuntime.snapshot.lastError = "";
+  sessionRuntime.snapshot.prerequisiteError = "";
+  sessionRuntime.snapshot.stderrTail = "";
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  sessionRuntime.snapshot.status = "checking-command";
+  emitSessionRuntimeSnapshot(sessionRuntime);
   try {
-    if (!slot.snapshot.conversationId) {
-      slot.snapshot = createNewLocalConversationSnapshot({
-        slot,
+    if (!sessionRuntime.snapshot.conversationId) {
+      sessionRuntime.snapshot = createNewLocalConversationSnapshot({
+        sessionRuntime,
         backend,
-        backendId: slot.backendId,
+        backendId: sessionRuntime.backendId,
       });
-      resetSlotTransientState(slot);
+      rekeySessionRuntime(sessionRuntime);
+      resetSessionRuntimeTransientState(sessionRuntime);
     }
     await ensureRuntimeDirectory(
-      slot.snapshot.agentWorkspaceDir || slot.snapshot.sessionCwd,
+      sessionRuntime.snapshot.agentWorkspaceDir || sessionRuntime.snapshot.sessionCwd,
     );
-    await ensureRuntimeDirectory(slot.snapshot.conversationStorageDir);
-    await ensureRuntimeDirectory(slot.snapshot.runtimeDir);
+    await ensureRuntimeDirectory(sessionRuntime.snapshot.conversationStorageDir);
+    await ensureRuntimeDirectory(sessionRuntime.snapshot.runtimeDir);
     const workspaceDir =
-      slot.snapshot.agentWorkspaceDir ||
-      slot.snapshot.workspaceDir ||
-      slot.snapshot.sessionCwd;
+      sessionRuntime.snapshot.agentWorkspaceDir ||
+      sessionRuntime.snapshot.workspaceDir ||
+      sessionRuntime.snapshot.sessionCwd;
     const hostBridgeCliInjection = await materializeHostBridgeCliRunInjection({
       workspaceDir,
-      requestId: slot.snapshot.conversationId || nextOpaqueId("acp-chat"),
+      requestId: sessionRuntime.snapshot.conversationId || nextOpaqueId("acp-chat"),
       scopeKind: "acp-chat",
     });
-    bindHostBridgePermissionForSlot(slot);
-    appendDiagnostic(slot, {
+    bindHostBridgePermissionForSessionRuntime(sessionRuntime);
+    appendDiagnostic(sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
       kind: hostBridgeCliInjection.available
@@ -2398,7 +2653,7 @@ async function ensureAdapter(backendId?: string) {
       raw: summarizeHostBridgeCliRunInjection(hostBridgeCliInjection),
     });
     await materializeAcpChatHostBridgeSupportSkill({
-      slot,
+      sessionRuntime,
       backend,
       workspaceDir,
     });
@@ -2406,31 +2661,31 @@ async function ensureAdapter(backendId?: string) {
       backend,
       injection: hostBridgeCliInjection,
     });
-    await enforceAcpChatLiveAdapterLimit(slot);
+    await enforceAcpChatLiveAdapterLimit(sessionRuntime);
     const nextAdapter = await adapterFactory({
       backend: backendWithHostBridgeCli,
-      agentWorkspaceDir: slot.snapshot.agentWorkspaceDir,
-      sessionCwd: slot.snapshot.sessionCwd,
-      workspaceDir: slot.snapshot.workspaceDir,
-      runtimeDir: slot.snapshot.runtimeDir,
+      agentWorkspaceDir: sessionRuntime.snapshot.agentWorkspaceDir,
+      sessionCwd: sessionRuntime.snapshot.sessionCwd,
+      workspaceDir: sessionRuntime.snapshot.workspaceDir,
+      runtimeDir: sessionRuntime.snapshot.runtimeDir,
     });
-    bindAdapter(slot, nextAdapter);
-    touchLiveAcpChatSlot(slot);
-    slot.snapshot.status = "spawning";
-    emitSlotSnapshot(slot);
+    bindAdapter(sessionRuntime, nextAdapter);
+    touchLiveAcpChatSessionRuntime(sessionRuntime);
+    sessionRuntime.snapshot.status = "spawning";
+    emitSessionRuntimeSnapshot(sessionRuntime);
     const initializedAdapter = await nextAdapter.initialize();
-    slot.snapshot.authMethods = initializedAdapter.authMethods.map((entry) => ({
+    sessionRuntime.snapshot.authMethods = initializedAdapter.authMethods.map((entry) => ({
       ...entry,
     }));
-    slot.snapshot.commandLabel = initializedAdapter.commandLabel;
-    slot.snapshot.commandLine = initializedAdapter.commandLine;
-    slot.snapshot.agentLabel = initializedAdapter.agentName;
-    slot.snapshot.agentVersion = initializedAdapter.agentVersion;
-    slot.snapshot.canLoadRemoteSession =
+    sessionRuntime.snapshot.commandLabel = initializedAdapter.commandLabel;
+    sessionRuntime.snapshot.commandLine = initializedAdapter.commandLine;
+    sessionRuntime.snapshot.agentLabel = initializedAdapter.agentName;
+    sessionRuntime.snapshot.agentVersion = initializedAdapter.agentVersion;
+    sessionRuntime.snapshot.canLoadRemoteSession =
       initializedAdapter.canLoadSession === true;
-    slot.snapshot.canResumeRemoteSession =
+    sessionRuntime.snapshot.canResumeRemoteSession =
       initializedAdapter.canResumeSession === true;
-    appendDiagnostic(slot, {
+    appendDiagnostic(sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
       kind: "zotero_mcp_capabilities",
@@ -2447,30 +2702,30 @@ async function ensureAdapter(backendId?: string) {
         sse: initializedAdapter.canUseSseMcp,
       },
     });
-    slot.snapshot.status = "initializing";
-    slot.adapter = nextAdapter;
-    emitSlotSnapshot(slot);
-    return { slot, adapter: nextAdapter };
+    sessionRuntime.snapshot.status = "initializing";
+    sessionRuntime.adapter = nextAdapter;
+    emitSessionRuntimeSnapshot(sessionRuntime);
+    return { sessionRuntime, adapter: nextAdapter };
   } catch (error) {
-    await disconnectSlotAdapter(slot);
-    slot.snapshot.busy = false;
-    slot.snapshot.status = "error";
-    slot.snapshot.lastError = compactError(error);
-    slot.snapshot.prerequisiteError = slot.snapshot.lastError;
+    await disconnectSessionRuntimeAdapter(sessionRuntime);
+    sessionRuntime.snapshot.busy = false;
+    sessionRuntime.snapshot.status = "error";
+    sessionRuntime.snapshot.lastError = compactError(error);
+    sessionRuntime.snapshot.prerequisiteError = sessionRuntime.snapshot.lastError;
     appendErrorDiagnostic({
-      slot,
+      sessionRuntime,
       kind: "command_check",
       message: "Failed to initialize ACP backend",
       error,
       stage: "ensure_adapter",
     });
-    emitSlotSnapshot(slot);
+    emitSessionRuntimeSnapshot(sessionRuntime);
     throw error;
   }
 }
 
 function applyAttachedSessionResult(
-  slot: AcpSessionSlot,
+  sessionRuntime: AcpChatSessionRuntime,
   result: {
     sessionId: string;
     sessionTitle?: string;
@@ -2480,91 +2735,91 @@ function applyAttachedSessionResult(
     models?: Parameters<typeof applyModelState>[1] | null;
   },
 ) {
-  touchLiveAcpChatSlot(slot);
-  slot.snapshot.sessionId = String(result.sessionId || "").trim();
-  slot.snapshot.remoteSessionId =
-    slot.snapshot.sessionId ||
-    String(slot.snapshot.remoteSessionId || "").trim();
-  slot.snapshot.sessionTitle = String(result.sessionTitle || "").trim();
-  slot.snapshot.sessionUpdatedAt = String(result.sessionUpdatedAt || "").trim();
+  touchLiveAcpChatSessionRuntime(sessionRuntime);
+  sessionRuntime.snapshot.sessionId = String(result.sessionId || "").trim();
+  sessionRuntime.snapshot.remoteSessionId =
+    sessionRuntime.snapshot.sessionId ||
+    String(sessionRuntime.snapshot.remoteSessionId || "").trim();
+  sessionRuntime.snapshot.sessionTitle = String(result.sessionTitle || "").trim();
+  sessionRuntime.snapshot.sessionUpdatedAt = String(result.sessionUpdatedAt || "").trim();
   const configApplied = applySessionConfigOptionsState(
-    slot,
+    sessionRuntime,
     result.configOptions,
   );
   if (!configApplied.modeApplied) {
-    applyModeState(slot, result.modes || {});
+    applyModeState(sessionRuntime, result.modes || {});
   }
   if (!configApplied.modelApplied) {
-    applyModelState(slot, result.models || {});
+    applyModelState(sessionRuntime, result.models || {});
   }
   const backend =
-    slot.snapshot.backend ||
-    cachedAcpBackends.find((entry) => entry.id === slot.backendId);
+    sessionRuntime.snapshot.backend ||
+    cachedAcpBackends.find((entry) => entry.id === sessionRuntime.backendId);
   if (backend) {
-    applyRuntimeOptionsCache(slot, backend);
+    applyRuntimeOptionsCache(sessionRuntime, backend);
   }
-  slot.snapshot.status = "connected";
-  slot.snapshot.busy = false;
+  sessionRuntime.snapshot.status = "connected";
+  sessionRuntime.snapshot.busy = false;
 }
 
-async function ensureSession(backendId?: string) {
-  const { slot, adapter } = await ensureAdapter(backendId);
-  if (slot.snapshot.sessionId) {
-    return { slot, adapter };
+async function ensureSession(backendId?: string, conversationId?: string) {
+  const { sessionRuntime, adapter } = await ensureAdapter(backendId, conversationId);
+  if (sessionRuntime.snapshot.sessionId) {
+    return { sessionRuntime, adapter };
   }
-  const remoteSessionId = String(slot.snapshot.remoteSessionId || "").trim();
+  const remoteSessionId = String(sessionRuntime.snapshot.remoteSessionId || "").trim();
   if (remoteSessionId) {
-    if (slot.snapshot.canResumeRemoteSession) {
-      slot.snapshot.sessionId = remoteSessionId;
-      slot.snapshot.remoteSessionRestoreStatus = "pending";
-      slot.snapshot.remoteSessionRestoreMessage = `Resuming remote ACP session ${remoteSessionId}`;
-      emitSlotSnapshot(slot);
+    if (sessionRuntime.snapshot.canResumeRemoteSession) {
+      sessionRuntime.snapshot.sessionId = remoteSessionId;
+      sessionRuntime.snapshot.remoteSessionRestoreStatus = "pending";
+      sessionRuntime.snapshot.remoteSessionRestoreMessage = `Resuming remote ACP session ${remoteSessionId}`;
+      emitSessionRuntimeSnapshot(sessionRuntime);
       try {
         const resumed = await adapter.resumeSession({
           sessionId: remoteSessionId,
         });
-        applyAttachedSessionResult(slot, resumed);
-        slot.snapshot.remoteSessionRestoreStatus = "resumed";
-        slot.snapshot.remoteSessionRestoreMessage =
+        applyAttachedSessionResult(sessionRuntime, resumed);
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "resumed";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage =
           "Remote ACP session resumed.";
-        emitSlotSnapshot(slot);
-        return { slot, adapter };
+        emitSessionRuntimeSnapshot(sessionRuntime);
+        return { sessionRuntime, adapter };
       } catch (error) {
-        slot.snapshot.sessionId = "";
-        slot.snapshot.remoteSessionRestoreStatus = "failed";
-        slot.snapshot.remoteSessionRestoreMessage = compactError(error);
+        sessionRuntime.snapshot.sessionId = "";
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "failed";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage = compactError(error);
         appendErrorDiagnostic({
-          slot,
+          sessionRuntime,
           kind: "session_restore_failed",
           message: "Remote ACP session resume failed",
           error,
           stage: "session_resume",
         });
       }
-    } else if (slot.snapshot.canLoadRemoteSession) {
-      slot.snapshot.sessionId = remoteSessionId;
-      slot.snapshot.remoteSessionRestoreStatus = "pending";
-      slot.snapshot.remoteSessionRestoreMessage = `Loading remote ACP session ${remoteSessionId}`;
-      emitSlotSnapshot(slot);
+    } else if (sessionRuntime.snapshot.canLoadRemoteSession) {
+      sessionRuntime.snapshot.sessionId = remoteSessionId;
+      sessionRuntime.snapshot.remoteSessionRestoreStatus = "pending";
+      sessionRuntime.snapshot.remoteSessionRestoreMessage = `Loading remote ACP session ${remoteSessionId}`;
+      emitSessionRuntimeSnapshot(sessionRuntime);
       try {
-        slot.suppressSessionLoadReplay = true;
+        sessionRuntime.suppressSessionLoadReplay = true;
         const loaded = await adapter.loadSession({
           sessionId: remoteSessionId,
         });
-        slot.suppressSessionLoadReplay = false;
-        applyAttachedSessionResult(slot, loaded);
-        slot.snapshot.remoteSessionRestoreStatus = "loaded";
-        slot.snapshot.remoteSessionRestoreMessage =
+        sessionRuntime.suppressSessionLoadReplay = false;
+        applyAttachedSessionResult(sessionRuntime, loaded);
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "loaded";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage =
           "Remote ACP session loaded.";
-        emitSlotSnapshot(slot);
-        return { slot, adapter };
+        emitSessionRuntimeSnapshot(sessionRuntime);
+        return { sessionRuntime, adapter };
       } catch (error) {
-        slot.suppressSessionLoadReplay = false;
-        slot.snapshot.sessionId = "";
-        slot.snapshot.remoteSessionRestoreStatus = "failed";
-        slot.snapshot.remoteSessionRestoreMessage = compactError(error);
+        sessionRuntime.suppressSessionLoadReplay = false;
+        sessionRuntime.snapshot.sessionId = "";
+        sessionRuntime.snapshot.remoteSessionRestoreStatus = "failed";
+        sessionRuntime.snapshot.remoteSessionRestoreMessage = compactError(error);
         appendErrorDiagnostic({
-          slot,
+          sessionRuntime,
           kind: "session_restore_failed",
           message: "Remote ACP session load failed",
           error,
@@ -2572,10 +2827,10 @@ async function ensureSession(backendId?: string) {
         });
       }
     } else {
-      slot.snapshot.remoteSessionRestoreStatus = "unsupported";
-      slot.snapshot.remoteSessionRestoreMessage =
+      sessionRuntime.snapshot.remoteSessionRestoreStatus = "unsupported";
+      sessionRuntime.snapshot.remoteSessionRestoreMessage =
         "Remote ACP session restore is not supported by this backend.";
-      appendDiagnostic(slot, {
+      appendDiagnostic(sessionRuntime, {
         id: nextOpaqueId("acp-diag"),
         ts: nowIso(),
         kind: "session_restore_unsupported",
@@ -2588,57 +2843,57 @@ async function ensureSession(backendId?: string) {
   try {
     const created = await adapter.newSession();
     const previousRemoteSessionId = String(
-      slot.snapshot.remoteSessionId || "",
+      sessionRuntime.snapshot.remoteSessionId || "",
     ).trim();
-    applyAttachedSessionResult(slot, created);
+    applyAttachedSessionResult(sessionRuntime, created);
     if (
       previousRemoteSessionId &&
-      previousRemoteSessionId !== slot.snapshot.sessionId
+      previousRemoteSessionId !== sessionRuntime.snapshot.sessionId
     ) {
-      slot.snapshot.remoteSessionRestoreStatus =
-        slot.snapshot.remoteSessionRestoreStatus === "unsupported"
+      sessionRuntime.snapshot.remoteSessionRestoreStatus =
+        sessionRuntime.snapshot.remoteSessionRestoreStatus === "unsupported"
           ? "unsupported"
           : "fallback-new";
-      slot.snapshot.remoteSessionRestoreMessage =
-        slot.snapshot.remoteSessionRestoreStatus === "unsupported"
+      sessionRuntime.snapshot.remoteSessionRestoreMessage =
+        sessionRuntime.snapshot.remoteSessionRestoreStatus === "unsupported"
           ? "Remote ACP session restore is not supported; continued with a new agent session."
           : "Remote session could not be restored; continued with a new agent session.";
-      appendDiagnostic(slot, {
+      appendDiagnostic(sessionRuntime, {
         id: nextOpaqueId("acp-diag"),
         ts: nowIso(),
         kind: "session_new_fallback",
         level: "warn",
         message:
           "Remote session could not be restored; continued with a new agent session.",
-        detail: `previous=${previousRemoteSessionId} new=${slot.snapshot.sessionId}`,
+        detail: `previous=${previousRemoteSessionId} new=${sessionRuntime.snapshot.sessionId}`,
       });
-      upsertStatusItem(slot, {
+      upsertStatusItem(sessionRuntime, {
         level: "warn",
         label: "Remote session",
-        text: slot.snapshot.remoteSessionRestoreMessage,
+        text: sessionRuntime.snapshot.remoteSessionRestoreMessage,
       });
     } else if (!previousRemoteSessionId) {
-      slot.snapshot.remoteSessionRestoreStatus = "none";
-      slot.snapshot.remoteSessionRestoreMessage = "";
+      sessionRuntime.snapshot.remoteSessionRestoreStatus = "none";
+      sessionRuntime.snapshot.remoteSessionRestoreMessage = "";
     }
-    emitSlotSnapshot(slot);
-    return { slot, adapter };
+    emitSessionRuntimeSnapshot(sessionRuntime);
+    return { sessionRuntime, adapter };
   } catch (error) {
     if (error instanceof AcpAuthRequiredError) {
-      slot.snapshot.busy = false;
-      slot.snapshot.status = "auth-required";
-      slot.snapshot.authMethods = error.authMethods.map((entry) => ({
+      sessionRuntime.snapshot.busy = false;
+      sessionRuntime.snapshot.status = "auth-required";
+      sessionRuntime.snapshot.authMethods = error.authMethods.map((entry) => ({
         ...entry,
       }));
-      slot.snapshot.lastError = error.message;
-      emitSlotSnapshot(slot);
+      sessionRuntime.snapshot.lastError = error.message;
+      emitSessionRuntimeSnapshot(sessionRuntime);
     } else {
-      slot.snapshot.busy = false;
-      slot.snapshot.status = "error";
-      slot.snapshot.lastError = compactError(error);
-      slot.snapshot.prerequisiteError =
-        slot.snapshot.prerequisiteError || slot.snapshot.lastError;
-      emitSlotSnapshot(slot);
+      sessionRuntime.snapshot.busy = false;
+      sessionRuntime.snapshot.status = "error";
+      sessionRuntime.snapshot.lastError = compactError(error);
+      sessionRuntime.snapshot.prerequisiteError =
+        sessionRuntime.snapshot.prerequisiteError || sessionRuntime.snapshot.lastError;
+      emitSessionRuntimeSnapshot(sessionRuntime);
     }
     throw error;
   }
@@ -2648,28 +2903,73 @@ function buildBackendSummary(
   backend: BackendInstance,
   options: { ensureSession?: boolean } = {},
 ) {
-  const slot = getOrCreateSlot(backend.id);
-  slot.snapshot.backend = backend;
+  const foregroundSessionRuntime =
+    backend.id === activeBackendId ? getOrCreateSessionRuntime(backend.id) : null;
+  if (foregroundSessionRuntime) {
+    foregroundSessionRuntime.snapshot.backend = backend;
+  }
+  const backendSessionRuntimes = Array.from(sessionRuntimes.values()).filter(
+    (sessionRuntime) => sessionRuntime.backendId === backend.id,
+  );
   const sessions = options.ensureSession
     ? listAcpChatSessions(backend.id)
     : listStoredVisibleAcpChatSessions(backend.id);
+  const projectedSessions = sessions.map((entry) =>
+    projectAcpChatSessionSummary(backend.id, entry),
+  );
+  const liveSessionRuntimes = backendSessionRuntimes.filter((sessionRuntime) => isLiveAcpChatSessionRuntime(sessionRuntime));
+  const statusSource =
+    liveSessionRuntimes.find((sessionRuntime) => sessionRuntime.snapshot.busy) ||
+    liveSessionRuntimes[0] ||
+    foregroundSessionRuntime;
   const lastError =
-    String(slot.snapshot.prerequisiteError || "").trim() ||
-    String(slot.snapshot.lastError || "").trim();
+    liveSessionRuntimes
+      .map((sessionRuntime) =>
+        (
+          String(sessionRuntime.snapshot.prerequisiteError || "").trim() ||
+          String(sessionRuntime.snapshot.lastError || "").trim()
+        ).trim(),
+      )
+      .find(Boolean) || "";
   return {
     backendId: backend.id,
     displayName: String(backend.displayName || backend.id).trim(),
-    status: slot.snapshot.status,
-    busy: slot.snapshot.busy,
-    connected:
-      slot.snapshot.status === "connected" ||
-      slot.snapshot.status === "prompting" ||
-      slot.adapter !== null,
+    status: statusSource?.snapshot.status || "idle",
+    busy: liveSessionRuntimes.some((sessionRuntime) => sessionRuntime.snapshot.busy === true),
+    connected: liveSessionRuntimes.length > 0,
     messageCount:
-      sessions.reduce((sum, entry) => sum + entry.messageCount, 0) ||
-      slot.snapshot.transcriptItemCount,
+      projectedSessions.reduce((sum, entry) => sum + entry.messageCount, 0) ||
+      foregroundSessionRuntime?.snapshot.transcriptItemCount ||
+      0,
     lastError,
-    updatedAt: slot.snapshot.updatedAt,
+    updatedAt: statusSource?.snapshot.updatedAt || nowIso(),
+  };
+}
+
+function projectAcpChatSessionSummary(
+  backendId: string,
+  entry: AcpChatSessionSummary,
+): AcpChatSessionSummary {
+  const sessionRuntime = sessionRuntimes.get(acpChatSessionKey(backendId, entry.conversationId));
+  if (!sessionRuntime) {
+    return {
+      ...entry,
+      status: "idle",
+      lastError: entry.lastError || "",
+    };
+  }
+  const lastError =
+    String(sessionRuntime.snapshot.prerequisiteError || "").trim() ||
+    String(sessionRuntime.snapshot.lastError || "").trim() ||
+    entry.lastError ||
+    "";
+  return {
+    ...entry,
+    title: sessionRuntime.snapshot.conversationTitle || entry.title,
+    messageCount: sessionRuntime.snapshot.transcriptItemCount || entry.messageCount,
+    status: sessionRuntime.snapshot.status,
+    lastError,
+    updatedAt: sessionRuntime.snapshot.updatedAt || entry.updatedAt,
   };
 }
 
@@ -2677,25 +2977,28 @@ function buildFrontendSnapshot(options?: {
   uiVisible?: boolean;
 }): AcpFrontendSnapshot {
   ensureInitialized();
-  const activeSlot = getOrCreateSlot(activeBackendId);
+  const foregroundSessionRuntime = getOrCreateSessionRuntime(activeBackendId);
+  if (options?.uiVisible === true) {
+    scheduleAcpChatTranscriptHydrate(foregroundSessionRuntime);
+  }
   const activeSnapshot =
     options?.uiVisible === true
-      ? clonePublishedSlotSnapshot(activeSlot)
-      : cloneSnapshotValue(activeSlot.snapshot);
+      ? clonePublishedSessionRuntimeSnapshot(foregroundSessionRuntime)
+      : cloneSnapshotValue(foregroundSessionRuntime.snapshot);
   activeSnapshot.mcpServer = getZoteroMcpServerStatus();
   activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
   const chatSessions = listAcpChatSessions(activeBackendId);
   const knownBackends: BackendInstance[] =
     cachedAcpBackends.length > 0
       ? cachedAcpBackends
-      : activeSlot.snapshot.backend
-        ? [activeSlot.snapshot.backend]
+      : foregroundSessionRuntime.snapshot.backend
+        ? [foregroundSessionRuntime.snapshot.backend]
         : [
             {
-              id: activeSlot.backendId,
-              displayName: activeSlot.backendId,
+              id: foregroundSessionRuntime.backendId,
+              displayName: foregroundSessionRuntime.backendId,
               type: ACP_BACKEND_TYPE,
-              baseUrl: `local://${activeSlot.backendId}`,
+              baseUrl: `local://${foregroundSessionRuntime.backendId}`,
               command: "",
             },
           ];
@@ -2703,6 +3006,9 @@ function buildFrontendSnapshot(options?: {
     buildBackendSummary(backend, {
       ensureSession: backend.id === activeBackendId,
     }),
+  );
+  const projectedChatSessions = chatSessions.map((entry) =>
+    projectAcpChatSessionSummary(activeBackendId, entry),
   );
   const sortedBackends = [
     ...knownBackends.filter((backend) => backend.id === activeBackendId),
@@ -2715,8 +3021,10 @@ function buildFrontendSnapshot(options?: {
         backendId: backend.id,
         displayName: String(backend.displayName || backend.id || "").trim(),
         sessions: isActiveBackend
-          ? chatSessions
-          : listStoredVisibleAcpChatSessions(backend.id),
+          ? projectedChatSessions
+          : listStoredVisibleAcpChatSessions(backend.id).map((entry) =>
+              projectAcpChatSessionSummary(backend.id, entry),
+            ),
       };
     })
     .filter(
@@ -2725,8 +3033,8 @@ function buildFrontendSnapshot(options?: {
     );
   return {
     activeBackendId,
-    activeConversationId: activeSlot.snapshot.conversationId,
-    chatSessions,
+    activeConversationId: foregroundSessionRuntime.snapshot.conversationId,
+    chatSessions: projectedChatSessions,
     backendChatSessions,
     backends: summaries,
     activeSnapshot,
@@ -2754,24 +3062,129 @@ export function subscribeAcpFrontendSnapshots(
   };
 }
 
-export function getAcpConversationSnapshot(backendId?: string) {
+export function getAcpConversationSnapshot(
+  backendId?: string,
+  conversationId?: string,
+) {
   ensureInitialized();
   return cloneSnapshotValue(
-    getOrCreateSlot(backendId || activeBackendId).snapshot,
+    getOrCreateSessionRuntime(backendId || activeBackendId, conversationId).snapshot,
   );
 }
 
-export function getAcpConversationUiSnapshot(backendId?: string) {
+export function getAcpConversationUiSnapshot(
+  backendId?: string,
+  conversationId?: string,
+) {
   ensureInitialized();
-  return clonePublishedSlotSnapshot(
-    getOrCreateSlot(backendId || activeBackendId),
-  );
+  const sessionRuntime = getOrCreateSessionRuntime(backendId || activeBackendId, conversationId);
+  scheduleAcpChatTranscriptHydrate(sessionRuntime);
+  return clonePublishedSessionRuntimeSnapshot(sessionRuntime);
 }
 
-async function flushPendingChatTranscriptWrites() {
-  if (chatTranscriptWrites.size > 0) {
-    await Promise.allSettled(Array.from(chatTranscriptWrites));
+async function flushPendingChatTranscriptWrites(sessionRuntime?: AcpChatSessionRuntime) {
+  const pending = sessionRuntime
+    ? Array.from(sessionRuntime.transcriptWrites)
+    : Array.from(chatTranscriptWrites);
+  if (pending.length > 0) {
+    await Promise.allSettled(pending);
   }
+}
+
+async function readFullAcpChatTranscriptFromStore(sessionRuntime: AcpChatSessionRuntime) {
+  const transcript = await readFullAcpChatTranscript({
+    conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
+  });
+  return {
+    items: transcript.items.map((item) => cloneAcpConversationItem(item)),
+    eventSeq: transcript.eventSeq,
+  };
+}
+
+async function hydrateAcpChatTranscriptMirror(sessionRuntime: AcpChatSessionRuntime) {
+  if (sessionRuntime.transcriptMirrorLoaded) {
+    return;
+  }
+  if (sessionRuntime.transcriptHydratePromise) {
+    await sessionRuntime.transcriptHydratePromise;
+    return;
+  }
+  sessionRuntime.transcriptHydrateState = "loading";
+  sessionRuntime.transcriptHydrateError = undefined;
+  const hydrate = (async () => {
+    if (sessionRuntime.transcriptWrites.size > 0) {
+      appendDiagnostic(sessionRuntime, {
+        id: nextOpaqueId("acp-diag"),
+        ts: nowIso(),
+        kind: "transcript_hydrate_waiting_for_writes",
+        level: "warn",
+        message:
+          "ACP Chat transcript hydrate is waiting for pending writes for this session.",
+        detail: `pending=${sessionRuntime.transcriptWrites.size}`,
+      });
+      await flushPendingChatTranscriptWrites(sessionRuntime);
+    }
+    const { items, eventSeq } = await readFullAcpChatTranscriptFromStore(sessionRuntime);
+    loadChatTranscriptMirrorFromItems(sessionRuntime, { items, eventSeq });
+  })();
+  sessionRuntime.transcriptHydratePromise = hydrate;
+  try {
+    await hydrate;
+  } catch (error) {
+    sessionRuntime.transcriptHydrateState = "failed";
+    sessionRuntime.transcriptHydrateError = compactError(error);
+    throw error;
+  } finally {
+    sessionRuntime.transcriptHydratePromise = undefined;
+  }
+}
+
+function scheduleAcpChatTranscriptHydrate(sessionRuntime: AcpChatSessionRuntime) {
+  if (
+    sessionRuntime.transcriptMirrorLoaded ||
+    sessionRuntime.transcriptHydratePromise ||
+    !normalizeString(sessionRuntime.snapshot.conversationId)
+  ) {
+    return;
+  }
+  sessionRuntime.transcriptHydrateState = "loading";
+  void hydrateAcpChatTranscriptMirror(sessionRuntime)
+    .catch(() => undefined)
+    .finally(() => {
+      emitSessionRuntimeSnapshot(sessionRuntime, {
+        persist: false,
+        touchUpdatedAt: false,
+        uiReason: "critical",
+        publishMode: "full",
+      });
+    });
+}
+
+function selectedTranscriptStateForSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
+  const conversationId = normalizeString(sessionRuntime.snapshot.conversationId);
+  if (!conversationId) {
+    return undefined;
+  }
+  if (sessionRuntime.transcriptMirrorLoaded) {
+    return {
+      backendId: sessionRuntime.backendId,
+      conversationId,
+      state: "ready" as const,
+    };
+  }
+  if (sessionRuntime.transcriptHydrateState === "failed") {
+    return {
+      backendId: sessionRuntime.backendId,
+      conversationId,
+      state: "failed" as const,
+      error: sessionRuntime.transcriptHydrateError,
+    };
+  }
+  return {
+    backendId: sessionRuntime.backendId,
+    conversationId,
+    state: "loading" as const,
+  };
 }
 
 export async function readAcpConversationTranscriptPage(args: {
@@ -2785,7 +3198,7 @@ export async function readAcpConversationTranscriptPage(args: {
   const backendId = normalizeBackendId(args.backendId || activeBackendId);
   const conversationId =
     normalizeBackendId(args.conversationId) ||
-    getOrCreateSlot(backendId).snapshot.conversationId;
+    getOrCreateSessionRuntime(backendId).snapshot.conversationId;
   const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
   return readAcpChatTranscriptPage({
     conversationStorageDir: paths.conversationStorageDir,
@@ -2816,17 +3229,21 @@ export async function setActiveAcpBackend(args: { backendId: string }) {
   }
   activeBackendId = backendId;
   saveAcpFrontendState({ activeBackendId });
-  const slot = getOrCreateSlot(backendId);
-  notifyConversationListenersNow(slot);
+  const sessionRuntime = getOrCreateSessionRuntime(backendId);
+  const backend = cachedAcpBackends.find((entry) => entry.id === backendId);
+  if (backend) {
+    sessionRuntime.snapshot.backend = backend;
+    applyRuntimeOptionsCache(sessionRuntime, backend);
+  }
+  pruneIdleBackgroundTranscriptMirrors();
+  scheduleAcpChatTranscriptHydrate(sessionRuntime);
+  notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow();
 }
 
-function assertSessionSwitchAllowed(slot: AcpSessionSlot) {
-  if (
-    slot.snapshot.status === "prompting" ||
-    slot.snapshot.status === "permission-required"
-  ) {
-    throw new Error("Cannot change ACP chat session while a prompt is active");
+function assertAcpConversationArchiveAllowed(sessionRuntime: AcpChatSessionRuntime) {
+  if (isLiveAcpChatSessionRuntime(sessionRuntime) || sessionRuntime.snapshot.status !== "idle") {
+    throw new Error("Only idle ACP chat sessions can be archived");
   }
 }
 
@@ -2836,8 +3253,19 @@ function sortSessionsByUpdatedAt(sessions: AcpChatSessionSummary[]) {
   );
 }
 
+function saveActiveAcpConversationSelection(
+  backendId: string,
+  conversationId: string,
+) {
+  saveAcpChatSessionIndex({
+    backendId,
+    activeConversationId: conversationId,
+    sessions: listAllAcpChatSessions(backendId),
+  });
+}
+
 function createNewLocalConversationSnapshot(args: {
-  slot: AcpSessionSlot;
+  sessionRuntime: AcpChatSessionRuntime;
   backend: BackendInstance | null;
   backendId: string;
   createdAt?: string;
@@ -2855,9 +3283,9 @@ function createNewLocalConversationSnapshot(args: {
     conversationId,
     conversationTitle: "New Conversation",
     conversationCreatedAt: createdAt,
-    showDiagnostics: args.slot.snapshot.showDiagnostics,
-    statusExpanded: args.slot.snapshot.statusExpanded,
-    chatDisplayMode: args.slot.snapshot.chatDisplayMode,
+    showDiagnostics: args.sessionRuntime.snapshot.showDiagnostics,
+    statusExpanded: args.sessionRuntime.snapshot.statusExpanded,
+    chatDisplayMode: args.sessionRuntime.snapshot.chatDisplayMode,
     agentWorkspaceDir: paths.agentWorkspaceDir,
     conversationStorageDir: paths.conversationStorageDir,
     sessionCwd: paths.agentWorkspaceDir,
@@ -2883,77 +3311,105 @@ export async function setActiveAcpConversation(args: {
   if (!backendId || !conversationId) {
     return;
   }
-  const slot = getOrCreateSlot(backendId);
-  if (slot.snapshot.conversationId === conversationId) {
+  if (
+    normalizeBackendId(activeBackendId) === backendId &&
+    normalizeConversationId(resolveActiveConversationId(backendId)) ===
+      conversationId
+  ) {
+    const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+    scheduleAcpChatTranscriptHydrate(sessionRuntime);
+    notifyConversationListenersNow(sessionRuntime);
+    notifyFrontendListenersNow();
     return;
   }
-  assertSessionSwitchAllowed(slot);
-  emitSlotSnapshot(slot, { throttleUi: false });
-  await disconnectSlotAdapter(slot);
-  slot.snapshot = hydrateSnapshot(backendId, conversationId);
-  resetSlotTransientState(slot);
-  saveAcpChatSessionIndex({
-    backendId,
-    activeConversationId: conversationId,
-    sessions: listAllAcpChatSessions(backendId),
-  });
-  emitSlotSnapshot(slot);
+  if (backendId !== activeBackendId) {
+    await refreshAcpBackends();
+    if (!cachedAcpBackends.some((entry) => entry.id === backendId)) {
+      throw new Error(`ACP backend "${backendId}" is not available`);
+    }
+    activeBackendId = backendId;
+    saveAcpFrontendState({ activeBackendId });
+  }
+  saveActiveAcpConversationSelection(backendId, conversationId);
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+  pruneIdleBackgroundTranscriptMirrors();
+  scheduleAcpChatTranscriptHydrate(sessionRuntime);
+  notifyConversationListenersNow(sessionRuntime);
+  notifyFrontendListenersNow();
 }
 
-export async function ensureAcpConversationReady(backendId?: string) {
+export async function ensureAcpConversationReady(
+  backendId?: string,
+  conversationId?: string,
+) {
   ensureInitialized();
   await refreshAcpBackends();
-  await ensureSession(backendId || activeBackendId);
+  await ensureSession(backendId || activeBackendId, conversationId);
 }
 
 export async function refreshAcpConversationBackends() {
   ensureInitialized();
   await refreshAcpBackends();
-  const slot = getOrCreateSlot(activeBackendId);
-  notifyConversationListenersNow(slot);
+  const sessionRuntime = getOrCreateSessionRuntime(activeBackendId);
+  notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow();
 }
 
-export async function connectAcpConversation(args?: { backendId?: string }) {
+export async function connectAcpConversation(args?: {
+  backendId?: string;
+  conversationId?: string;
+}) {
   ensureInitialized();
   await refreshAcpBackends();
-  await ensureSession(args?.backendId || activeBackendId);
+  const ensured = await ensureSession(
+    args?.backendId || activeBackendId,
+    args?.conversationId,
+  );
+  emitSessionRuntimeSnapshot(ensured.sessionRuntime);
 }
 
-export async function disconnectAcpConversation(args?: { backendId?: string }) {
+export async function disconnectAcpConversation(args?: {
+  backendId?: string;
+  conversationId?: string;
+}) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  await disconnectSlotAdapter(slot);
-  markSlotConnectionIdle(slot, { clearErrors: true });
-  emitSlotSnapshot(slot);
+  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
+  await disconnectSessionRuntimeAdapter(sessionRuntime);
+  markSessionRuntimeConnectionIdle(sessionRuntime, { clearErrors: true });
+  await flushPendingChatTranscriptWrites(sessionRuntime);
+  releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export async function sendAcpConversationPrompt(args: {
   message: string;
   hostContext?: AcpHostContext;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
   const message = String(args.message || "").trim();
   if (!message) {
     throw new Error("ACP message is required");
   }
-  const { slot, adapter } = await ensureSession(
+  const { sessionRuntime, adapter } = await ensureSession(
     args.backendId || activeBackendId,
+    args.conversationId,
   );
-  touchLiveAcpChatSlot(slot);
-  if (!slot.snapshot.conversationId) {
-    slot.snapshot.conversationId = nextOpaqueId("acp-conversation");
+  await hydrateAcpChatTranscriptMirror(sessionRuntime);
+  touchLiveAcpChatSessionRuntime(sessionRuntime);
+  if (!sessionRuntime.snapshot.conversationId) {
+    sessionRuntime.snapshot.conversationId = nextOpaqueId("acp-conversation");
   }
   if (
-    (!slot.snapshot.conversationTitle ||
-      slot.snapshot.conversationTitle === "New Conversation") &&
-    slot.snapshot.transcriptItemCount === 0
+    (!sessionRuntime.snapshot.conversationTitle ||
+      sessionRuntime.snapshot.conversationTitle === "New Conversation") &&
+    sessionRuntime.snapshot.transcriptItemCount === 0
   ) {
-    slot.snapshot.conversationTitle =
+    sessionRuntime.snapshot.conversationTitle =
       message.length > 48 ? `${message.slice(0, 48)}...` : message;
   }
-  pushItem(slot, {
+  pushItem(sessionRuntime, {
     id: nextOpaqueId("acp-msg-user"),
     kind: "message",
     role: "user",
@@ -2961,46 +3417,46 @@ export async function sendAcpConversationPrompt(args: {
     createdAt: nowIso(),
     state: "complete",
   });
-  slot.activeAssistantItemId = "";
-  slot.activeThoughtItemId = "";
-  slot.activePlanItemId = "";
-  slot.snapshot.busy = true;
-  slot.snapshot.status = "prompting";
-  slot.snapshot.lastError = "";
-  slot.snapshot.prerequisiteError = "";
-  slot.snapshot.lastStopReason = "";
-  slot.snapshot.pendingPermissionRequest = null;
-  slot.snapshot.lastHostContext = args.hostContext
+  sessionRuntime.activeAssistantItemId = "";
+  sessionRuntime.activeThoughtItemId = "";
+  sessionRuntime.activePlanItemId = "";
+  sessionRuntime.snapshot.busy = true;
+  sessionRuntime.snapshot.status = "prompting";
+  sessionRuntime.snapshot.lastError = "";
+  sessionRuntime.snapshot.prerequisiteError = "";
+  sessionRuntime.snapshot.lastStopReason = "";
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  sessionRuntime.snapshot.lastHostContext = args.hostContext
     ? JSON.parse(JSON.stringify(args.hostContext))
     : null;
-  emitSlotSnapshot(slot);
+  emitSessionRuntimeSnapshot(sessionRuntime);
   try {
     const response = await adapter.prompt({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       message,
     });
-    slot.snapshot.busy = false;
-    slot.snapshot.status = "connected";
-    slot.snapshot.lastStopReason = String(response.stopReason || "").trim();
-    finalizeStreamingItems(slot, "complete", "skipped");
-    emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+    sessionRuntime.snapshot.busy = false;
+    sessionRuntime.snapshot.status = "connected";
+    sessionRuntime.snapshot.lastStopReason = String(response.stopReason || "").trim();
+    finalizeStreamingItems(sessionRuntime, "complete", "skipped");
+    emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "boundary", publishMode: "full" });
     await flushPendingChatTranscriptWrites();
   } catch (error) {
-    slot.snapshot.busy = false;
-    finalizeStreamingItems(slot, "error", "cancelled");
+    sessionRuntime.snapshot.busy = false;
+    finalizeStreamingItems(sessionRuntime, "error", "cancelled");
     if (error instanceof AcpAuthRequiredError) {
-      slot.snapshot.status = "auth-required";
-      slot.snapshot.authMethods = error.authMethods.map((entry) => ({
+      sessionRuntime.snapshot.status = "auth-required";
+      sessionRuntime.snapshot.authMethods = error.authMethods.map((entry) => ({
         ...entry,
       }));
-      slot.snapshot.lastError = error.message;
+      sessionRuntime.snapshot.lastError = error.message;
     } else {
-      slot.snapshot.status = "error";
-      slot.snapshot.lastError = compactError(error);
-      slot.snapshot.prerequisiteError =
-        slot.snapshot.prerequisiteError || slot.snapshot.lastError;
+      sessionRuntime.snapshot.status = "error";
+      sessionRuntime.snapshot.lastError = compactError(error);
+      sessionRuntime.snapshot.prerequisiteError =
+        sessionRuntime.snapshot.prerequisiteError || sessionRuntime.snapshot.lastError;
     }
-    emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+    emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "boundary", publishMode: "full" });
     await flushPendingChatTranscriptWrites();
     throw error;
   }
@@ -3008,54 +3464,60 @@ export async function sendAcpConversationPrompt(args: {
 
 export async function cancelAcpConversationPrompt(args?: {
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  if (!slot.adapter || !slot.snapshot.sessionId) {
+  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
+  if (!sessionRuntime.adapter || !sessionRuntime.snapshot.sessionId) {
     return;
   }
-  slot.promptCancelInFlight = true;
-  expectPromptCancelClose(slot);
+  sessionRuntime.promptCancelInFlight = true;
+  expectPromptCancelClose(sessionRuntime);
   try {
-    await slot.adapter.cancel({
-      sessionId: slot.snapshot.sessionId,
+    await sessionRuntime.adapter.cancel({
+      sessionId: sessionRuntime.snapshot.sessionId,
     });
   } finally {
-    slot.promptCancelInFlight = false;
+    sessionRuntime.promptCancelInFlight = false;
   }
-  markPromptCancelled(slot);
-  emitSlotSnapshot(slot, { uiReason: "boundary", publishMode: "full" });
+  markPromptCancelled(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, { uiReason: "boundary", publishMode: "full" });
 }
 
 export async function startNewAcpConversation(args?: { backendId?: string }) {
   ensureInitialized();
   await refreshAcpBackends();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  assertSessionSwitchAllowed(slot);
-  emitSlotSnapshot(slot, { throttleUi: false });
-  await disconnectSlotAdapter(slot);
+  const backendId = normalizeBackendId(args?.backendId || activeBackendId);
+  const seedSessionRuntime = getOrCreateSessionRuntime(backendId);
   const preservedBackend =
-    cachedAcpBackends.find((entry) => entry.id === slot.backendId) ||
-    slot.snapshot.backend;
-  const preservedBackendId = slot.snapshot.backendId || slot.backendId;
-  const preservedDiagnosticsVisibility = slot.snapshot.showDiagnostics;
-  const preservedStatusExpanded = slot.snapshot.statusExpanded;
-  const preservedChatDisplayMode = slot.snapshot.chatDisplayMode;
+    cachedAcpBackends.find((entry) => entry.id === backendId) ||
+    seedSessionRuntime.snapshot.backend;
+  const preservedDiagnosticsVisibility = seedSessionRuntime.snapshot.showDiagnostics;
+  const preservedStatusExpanded = seedSessionRuntime.snapshot.statusExpanded;
+  const preservedChatDisplayMode = seedSessionRuntime.snapshot.chatDisplayMode;
   const createdAt = nowIso();
-  slot.snapshot = createNewLocalConversationSnapshot({
-    slot,
+  const snapshot = createNewLocalConversationSnapshot({
+    sessionRuntime: seedSessionRuntime,
     backend: preservedBackend,
-    backendId: preservedBackendId,
+    backendId,
     createdAt,
   });
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, snapshot.conversationId);
+  sessionRuntime.snapshot = snapshot;
+  rekeySessionRuntime(sessionRuntime);
   if (preservedBackend) {
-    applyRuntimeOptionsCache(slot, preservedBackend);
+    applyRuntimeOptionsCache(sessionRuntime, preservedBackend);
   }
-  slot.snapshot.showDiagnostics = preservedDiagnosticsVisibility;
-  slot.snapshot.statusExpanded = preservedStatusExpanded;
-  slot.snapshot.chatDisplayMode = preservedChatDisplayMode;
-  resetSlotTransientState(slot);
-  emitSlotSnapshot(slot);
+  sessionRuntime.snapshot.showDiagnostics = preservedDiagnosticsVisibility;
+  sessionRuntime.snapshot.statusExpanded = preservedStatusExpanded;
+  sessionRuntime.snapshot.chatDisplayMode = preservedChatDisplayMode;
+  resetSessionRuntimeTransientState(sessionRuntime);
+  activeBackendId = backendId;
+  saveAcpFrontendState({ activeBackendId });
+  emitSessionRuntimeSnapshot(sessionRuntime, { notifyUi: false });
+  saveActiveAcpConversationSelection(backendId, sessionRuntime.snapshot.conversationId);
+  pruneIdleBackgroundTranscriptMirrors();
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export async function renameAcpConversation(args: {
@@ -3068,20 +3530,20 @@ export async function renameAcpConversation(args: {
   if (!title) {
     return;
   }
-  const slot = getOrCreateSlot(args.backendId || activeBackendId);
-  assertSessionSwitchAllowed(slot);
+  const backendId = normalizeBackendId(args.backendId || activeBackendId);
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, args.conversationId);
   const conversationId =
-    normalizeBackendId(args.conversationId) || slot.snapshot.conversationId;
+    normalizeBackendId(args.conversationId) || sessionRuntime.snapshot.conversationId;
   if (!conversationId) {
     return;
   }
-  if (conversationId === slot.snapshot.conversationId) {
-    slot.snapshot.conversationTitle = title;
-    emitSlotSnapshot(slot);
+  if (conversationId === sessionRuntime.snapshot.conversationId) {
+    sessionRuntime.snapshot.conversationTitle = title;
+    emitSessionRuntimeSnapshot(sessionRuntime);
     return;
   }
   renameAcpConversationState({
-    backendId: slot.backendId,
+    backendId,
     conversationId,
     title,
   });
@@ -3098,8 +3560,8 @@ export async function archiveAcpConversation(args: {
   if (!backendId || !conversationId) {
     return;
   }
-  const slot = getOrCreateSlot(backendId);
-  assertSessionSwitchAllowed(slot);
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+  assertAcpConversationArchiveAllowed(sessionRuntime);
   const archivedAt = nowIso();
   const allSessions = listAllAcpChatSessions(backendId);
   if (
@@ -3122,49 +3584,51 @@ export async function archiveAcpConversation(args: {
   const visibleSessions = sortSessionsByUpdatedAt(
     updatedSessions.filter((entry) => !entry.archivedAt),
   );
-  const isActive = slot.snapshot.conversationId === conversationId;
+  const isActive =
+    backendId === activeBackendId &&
+    resolveActiveConversationId(backendId) === conversationId;
   if (!isActive) {
     saveAcpChatSessionIndex({
       backendId,
-      activeConversationId: slot.snapshot.conversationId,
+      activeConversationId: resolveActiveConversationId(backendId),
       sessions: updatedSessions,
     });
+    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
     notifyFrontendListenersNow();
     return;
   }
 
-  emitSlotSnapshot(slot, { throttleUi: false });
-  await disconnectSlotAdapter(slot);
-  resetSlotTransientState(slot);
   if (visibleSessions.length > 0) {
-    slot.snapshot = hydrateSnapshot(
-      backendId,
-      visibleSessions[0].conversationId,
-    );
     saveAcpChatSessionIndex({
       backendId,
-      activeConversationId: slot.snapshot.conversationId,
+      activeConversationId: visibleSessions[0].conversationId,
       sessions: updatedSessions,
     });
-    emitSlotSnapshot(slot);
+    releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+    const nextSessionRuntime = getOrCreateSessionRuntime(backendId, visibleSessions[0].conversationId);
+    scheduleAcpChatTranscriptHydrate(nextSessionRuntime);
+    notifyConversationListenersNow(nextSessionRuntime);
+    notifyFrontendListenersNow();
     return;
   }
 
-  const preservedBackend = slot.snapshot.backend;
-  const preservedBackendId = slot.snapshot.backendId || slot.backendId;
+  const preservedBackend = sessionRuntime.snapshot.backend;
+  const preservedBackendId = sessionRuntime.snapshot.backendId || sessionRuntime.backendId;
   saveAcpChatSessionIndex({
     backendId,
     activeConversationId: "",
     sessions: updatedSessions,
   });
+  releaseIdleBackgroundTranscriptMirror(sessionRuntime);
+  const emptySessionRuntime = getOrCreateSessionRuntime(preservedBackendId, "");
   const paths = resolveAcpChatRuntimePaths(preservedBackendId);
-  slot.snapshot = {
+  emptySessionRuntime.snapshot = {
     ...createEmptyAcpConversationSnapshot(),
     backend: preservedBackend,
     backendId: preservedBackendId,
-    showDiagnostics: slot.snapshot.showDiagnostics,
-    statusExpanded: slot.snapshot.statusExpanded,
-    chatDisplayMode: slot.snapshot.chatDisplayMode,
+    showDiagnostics: emptySessionRuntime.snapshot.showDiagnostics,
+    statusExpanded: emptySessionRuntime.snapshot.statusExpanded,
+    chatDisplayMode: emptySessionRuntime.snapshot.chatDisplayMode,
     agentWorkspaceDir: paths.agentWorkspaceDir,
     conversationStorageDir: paths.conversationStorageDir,
     sessionCwd: paths.agentWorkspaceDir,
@@ -3172,39 +3636,49 @@ export async function archiveAcpConversation(args: {
     runtimeDir: paths.runtimeDir,
     updatedAt: nowIso(),
   };
-  resetSlotTransientState(slot);
-  emitSlotSnapshot(slot);
+  rekeySessionRuntime(emptySessionRuntime);
+  resetSessionRuntimeTransientState(emptySessionRuntime);
+  notifyConversationListenersNow(emptySessionRuntime);
+  notifyFrontendListenersNow();
 }
 
 export async function deleteActiveAcpConversation(args?: {
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
   const backendId = normalizeBackendId(args?.backendId || activeBackendId);
-  const slot = getOrCreateSlot(backendId);
-  assertSessionSwitchAllowed(slot);
-  const deletedConversationId = slot.snapshot.conversationId;
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, args?.conversationId);
+  const deletedConversationId = sessionRuntime.snapshot.conversationId;
   if (!deletedConversationId) {
     return;
   }
-  await disconnectSlotAdapter(slot);
+  await disconnectSessionRuntimeAdapter(sessionRuntime);
   deleteAcpConversationState(backendId, deletedConversationId);
+  sessionRuntimes.delete(sessionRuntime.key);
   const remaining = sortSessionsByUpdatedAt(listAcpChatSessions(backendId));
   if (remaining.length > 0) {
-    slot.snapshot = hydrateSnapshot(backendId, remaining[0].conversationId);
-    resetSlotTransientState(slot);
     saveAcpChatSessionIndex({
       backendId,
-      activeConversationId: slot.snapshot.conversationId,
+      activeConversationId: remaining[0].conversationId,
       sessions: listAllAcpChatSessions(backendId),
     });
-    emitSlotSnapshot(slot);
+    const nextSessionRuntime = getOrCreateSessionRuntime(backendId, remaining[0].conversationId);
+    scheduleAcpChatTranscriptHydrate(nextSessionRuntime);
+    notifyConversationListenersNow(nextSessionRuntime);
+    notifyFrontendListenersNow();
     return;
   }
-  const preservedBackend = slot.snapshot.backend;
-  const preservedBackendId = slot.snapshot.backendId || slot.backendId;
+  const preservedBackend = sessionRuntime.snapshot.backend;
+  const preservedBackendId = sessionRuntime.snapshot.backendId || sessionRuntime.backendId;
   const paths = resolveAcpChatRuntimePaths(preservedBackendId);
-  slot.snapshot = {
+  saveAcpChatSessionIndex({
+    backendId,
+    activeConversationId: "",
+    sessions: listAllAcpChatSessions(backendId),
+  });
+  const emptySessionRuntime = getOrCreateSessionRuntime(preservedBackendId, "");
+  emptySessionRuntime.snapshot = {
     ...createEmptyAcpConversationSnapshot(),
     backend: preservedBackend,
     backendId: preservedBackendId,
@@ -3215,218 +3689,235 @@ export async function deleteActiveAcpConversation(args?: {
     runtimeDir: paths.runtimeDir,
     updatedAt: nowIso(),
   };
-  resetSlotTransientState(slot);
-  emitSlotSnapshot(slot);
+  rekeySessionRuntime(emptySessionRuntime);
+  resetSessionRuntimeTransientState(emptySessionRuntime);
+  notifyConversationListenersNow(emptySessionRuntime);
+  notifyFrontendListenersNow();
 }
 
-export async function reconnectAcpConversation(args?: { backendId?: string }) {
+export async function reconnectAcpConversation(args?: {
+  backendId?: string;
+  conversationId?: string;
+}) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  await disconnectSlotAdapter(slot);
-  markSlotConnectionIdle(slot, { clearErrors: true, clearStderrTail: true });
-  emitSlotSnapshot(slot);
-  await ensureSession(slot.backendId);
+  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
+  await disconnectSessionRuntimeAdapter(sessionRuntime);
+  markSessionRuntimeConnectionIdle(sessionRuntime, { clearErrors: true, clearStderrTail: true });
+  emitSessionRuntimeSnapshot(sessionRuntime);
+  await ensureSession(sessionRuntime.backendId, sessionRuntime.snapshot.conversationId);
 }
 
 export async function authenticateAcpConversation(args: {
   methodId?: string;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args.backendId || activeBackendId);
+  const sessionRuntime = getOrCreateSessionRuntime(args.backendId || activeBackendId, args.conversationId);
   const methodId =
     String(args.methodId || "").trim() ||
-    slot.snapshot.authMethods[0]?.id ||
+    sessionRuntime.snapshot.authMethods[0]?.id ||
     "";
   if (!methodId) {
     throw new Error("ACP authentication method is required");
   }
-  const ensured = await ensureAdapter(slot.backendId);
-  ensured.slot.snapshot.status = "initializing";
-  ensured.slot.snapshot.lastError = "";
-  ensured.slot.snapshot.prerequisiteError = "";
-  emitSlotSnapshot(ensured.slot);
+  const ensured = await ensureAdapter(sessionRuntime.backendId, sessionRuntime.snapshot.conversationId);
+  ensured.sessionRuntime.snapshot.status = "initializing";
+  ensured.sessionRuntime.snapshot.lastError = "";
+  ensured.sessionRuntime.snapshot.prerequisiteError = "";
+  emitSessionRuntimeSnapshot(ensured.sessionRuntime);
   await ensured.adapter.authenticate({ methodId });
-  ensured.slot.snapshot.sessionId = "";
-  await ensureSession(ensured.slot.backendId);
+  ensured.sessionRuntime.snapshot.sessionId = "";
+  await ensureSession(ensured.sessionRuntime.backendId, ensured.sessionRuntime.snapshot.conversationId);
 }
 
 export async function resolveAcpConversationPermission(args: {
   outcome: "selected" | "cancelled";
   optionId?: string;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args.backendId || activeBackendId);
-  if (!slot.pendingPermissionResolver) {
+  const sessionRuntime = getOrCreateSessionRuntime(args.backendId || activeBackendId, args.conversationId);
+  if (!sessionRuntime.pendingPermissionResolver) {
     return;
   }
-  const resolver = slot.pendingPermissionResolver;
-  slot.pendingPermissionResolver = null;
+  const resolver = sessionRuntime.pendingPermissionResolver;
+  sessionRuntime.pendingPermissionResolver = null;
   const optionId =
     String(args.optionId || "").trim() ||
-    slot.snapshot.pendingPermissionRequest?.options[0]?.optionId ||
+    sessionRuntime.snapshot.pendingPermissionRequest?.options[0]?.optionId ||
     "";
   if (args.outcome === "selected" && optionId) {
     resolver({ outcome: "selected", optionId });
   } else {
     resolver({ outcome: "cancelled" });
   }
-  slot.snapshot.pendingPermissionRequest = null;
-  slot.snapshot.status = "prompting";
-  slot.snapshot.busy = true;
-  emitSlotSnapshot(slot);
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  sessionRuntime.snapshot.status = "prompting";
+  sessionRuntime.snapshot.busy = true;
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export async function setAcpConversationMode(args: {
   modeId: string;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
   const modeId = String(args.modeId || "").trim();
   if (!modeId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(
+  const { sessionRuntime, adapter } = await ensureSession(
     args.backendId || activeBackendId,
+    args.conversationId,
   );
   const applied =
     (await adapter.setConfigOption?.({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       category: "mode",
       value: modeId,
     })) === true;
   if (!applied) {
-    await adapter.setMode({ sessionId: slot.snapshot.sessionId, modeId });
+    await adapter.setMode({ sessionId: sessionRuntime.snapshot.sessionId, modeId });
   }
-  applyModeState(slot, { currentModeId: modeId });
-  emitSlotSnapshot(slot);
+  applyModeState(sessionRuntime, { currentModeId: modeId });
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export async function setAcpConversationModel(args: {
   modelId: string;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
   const modelId = String(args.modelId || "").trim();
   if (!modelId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(
+  const { sessionRuntime, adapter } = await ensureSession(
     args.backendId || activeBackendId,
+    args.conversationId,
   );
-  if (slot.snapshot.busy === true) {
+  if (sessionRuntime.snapshot.busy === true) {
     throw new Error("Cannot change ACP model while a prompt is running.");
   }
   const rawModelId = resolveRawModelIdForSelection(
-    slot.snapshot,
+    sessionRuntime.snapshot,
     modelId,
-    slot.snapshot.currentReasoningEffort?.id,
+    sessionRuntime.snapshot.currentReasoningEffort?.id,
   );
   const applied =
     (await adapter.setConfigOption?.({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       category: "model",
       value: modelId,
     })) === true;
   if (!applied) {
     await adapter.setModel({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       modelId: rawModelId,
     });
   }
-  applyModelState(slot, { currentModelId: applied ? modelId : rawModelId });
-  emitSlotSnapshot(slot);
+  applyModelState(sessionRuntime, { currentModelId: applied ? modelId : rawModelId });
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export async function setAcpConversationReasoningEffort(args: {
   effortId: string;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
   const effortId = normalizeEffortId(args.effortId);
   if (!effortId) {
     return;
   }
-  const { slot, adapter } = await ensureSession(
+  const { sessionRuntime, adapter } = await ensureSession(
     args.backendId || activeBackendId,
+    args.conversationId,
   );
-  if (slot.snapshot.busy === true) {
+  if (sessionRuntime.snapshot.busy === true) {
     throw new Error(
       "Cannot change ACP reasoning effort while a prompt is running.",
     );
   }
   const displayModelId =
-    String(slot.snapshot.currentDisplayModel?.id || "").trim() ||
-    String(slot.snapshot.currentModel?.id || "").trim();
+    String(sessionRuntime.snapshot.currentDisplayModel?.id || "").trim() ||
+    String(sessionRuntime.snapshot.currentModel?.id || "").trim();
   if (!displayModelId) {
     return;
   }
   const rawModelId = resolveRawModelIdForSelection(
-    slot.snapshot,
+    sessionRuntime.snapshot,
     displayModelId,
     effortId,
   );
   const applied =
     (await adapter.setConfigOption?.({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       category: "thought_level",
       value: effortId,
     })) === true;
   if (applied) {
-    applyCurrentReasoningEffort(slot.snapshot, effortId);
+    applyCurrentReasoningEffort(sessionRuntime.snapshot, effortId);
   } else {
     await adapter.setModel({
-      sessionId: slot.snapshot.sessionId,
+      sessionId: sessionRuntime.snapshot.sessionId,
       modelId: rawModelId,
     });
-    applyModelState(slot, { currentModelId: rawModelId });
+    applyModelState(sessionRuntime, { currentModelId: rawModelId });
   }
-  emitSlotSnapshot(slot);
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export function toggleAcpConversationDiagnostics(args?: {
   visible?: boolean;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  slot.snapshot.showDiagnostics =
+  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
+  sessionRuntime.snapshot.showDiagnostics =
     typeof args?.visible === "boolean"
       ? args.visible
-      : !slot.snapshot.showDiagnostics;
-  emitSlotSnapshot(slot);
+      : !sessionRuntime.snapshot.showDiagnostics;
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export function setAcpConversationChatDisplayMode(args: {
   mode: AcpChatDisplayMode;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args.backendId || activeBackendId);
-  slot.snapshot.chatDisplayMode = args.mode === "bubble" ? "bubble" : "plain";
-  emitSlotSnapshot(slot);
+  const sessionRuntime = getOrCreateSessionRuntime(args.backendId || activeBackendId, args.conversationId);
+  sessionRuntime.snapshot.chatDisplayMode = args.mode === "bubble" ? "bubble" : "plain";
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export function toggleAcpConversationStatusDetails(args?: {
   expanded?: boolean;
   backendId?: string;
+  conversationId?: string;
 }) {
   ensureInitialized();
-  const slot = getOrCreateSlot(args?.backendId || activeBackendId);
-  slot.snapshot.statusExpanded =
+  const sessionRuntime = getOrCreateSessionRuntime(args?.backendId || activeBackendId, args?.conversationId);
+  sessionRuntime.snapshot.statusExpanded =
     typeof args?.expanded === "boolean"
       ? args.expanded
-      : !slot.snapshot.statusExpanded;
-  emitSlotSnapshot(slot);
+      : !sessionRuntime.snapshot.statusExpanded;
+  emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
 export function buildAcpDiagnosticsBundle(
   backendId?: string,
+  conversationId?: string,
 ): AcpDiagnosticsBundle {
   ensureInitialized();
-  const slot = getOrCreateSlot(backendId || activeBackendId);
-  const snapshot = slot.snapshot;
+  const sessionRuntime = getOrCreateSessionRuntime(backendId || activeBackendId, conversationId);
+  const snapshot = sessionRuntime.snapshot;
   return {
     schema: "zotero-skills.acp.diagnostics.v1",
     generatedAt: nowIso(),
@@ -3474,20 +3965,24 @@ export function buildAcpDiagnosticsBundle(
   };
 }
 
-export function pruneAcpSessionSlotsForBackends(backends: BackendInstance[]) {
+export function pruneAcpChatSessionRuntimesForBackends(backends: BackendInstance[]) {
   ensureInitialized();
   const remainingAcpIds = new Set(
     backends
       .filter((entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE)
       .map((entry) => entry.id),
   );
-  for (const [backendId, slot] of Array.from(slots.entries())) {
-    if (remainingAcpIds.has(backendId)) {
+  const clearedBackends = new Set<string>();
+  for (const [key, sessionRuntime] of Array.from(sessionRuntimes.entries())) {
+    if (remainingAcpIds.has(sessionRuntime.backendId)) {
       continue;
     }
-    void disconnectSlotAdapter(slot);
-    clearAcpConversationState(backendId);
-    slots.delete(backendId);
+    void disconnectSessionRuntimeAdapter(sessionRuntime);
+    if (!clearedBackends.has(sessionRuntime.backendId)) {
+      clearAcpConversationState(sessionRuntime.backendId);
+      clearedBackends.add(sessionRuntime.backendId);
+    }
+    sessionRuntimes.delete(key);
   }
   cachedAcpBackends = backends.filter(
     (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
@@ -3495,30 +3990,30 @@ export function pruneAcpSessionSlotsForBackends(backends: BackendInstance[]) {
   if (!remainingAcpIds.has(activeBackendId)) {
     activeBackendId = cachedAcpBackends[0]?.id || "";
     if (activeBackendId) {
-      getOrCreateSlot(activeBackendId);
+      getOrCreateSessionRuntime(activeBackendId);
     }
     saveAcpFrontendState({ activeBackendId });
   }
   notifyFrontendListenersNow();
   if (activeBackendId) {
-    notifyConversationListenersNow(getOrCreateSlot(activeBackendId));
+    notifyConversationListenersNow(getOrCreateSessionRuntime(activeBackendId));
   }
 }
 
 export async function shutdownAcpSessionManager() {
   const pending: Promise<unknown>[] = [];
-  for (const slot of slots.values()) {
-    if (slot.uiEmitTimer) {
-      clearTimeout(slot.uiEmitTimer);
-      slot.uiEmitTimer = null;
+  for (const sessionRuntime of sessionRuntimes.values()) {
+    if (sessionRuntime.uiEmitTimer) {
+      clearTimeout(sessionRuntime.uiEmitTimer);
+      sessionRuntime.uiEmitTimer = null;
     }
-    if (slot.persistTimer) {
-      flushPendingPersistence(slot);
+    if (sessionRuntime.persistTimer) {
+      flushPendingPersistence(sessionRuntime);
     }
     pending.push(
-      waitForAcpChatShutdownTask(disconnectSlotAdapter(slot)).then((result) => {
+      waitForAcpChatShutdownTask(disconnectSessionRuntimeAdapter(sessionRuntime)).then((result) => {
         if (result.timedOut) {
-          appendDiagnostic(slot, {
+          appendDiagnostic(sessionRuntime, {
             id: nextOpaqueId("acp-diag"),
             ts: nowIso(),
             kind: "shutdown_timeout",
@@ -3528,17 +4023,17 @@ export async function shutdownAcpSessionManager() {
             detail: `timeoutMs=${ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS}`,
           });
         }
-        markSlotConnectionIdle(slot, {
+        markSessionRuntimeConnectionIdle(sessionRuntime, {
           lifecycleEvent: "shutdown-disconnected",
         });
-        emitSlotSnapshot(slot, { notifyUi: false });
+        emitSessionRuntimeSnapshot(sessionRuntime, { notifyUi: false });
       }),
     );
   }
   await Promise.allSettled(pending);
   await shutdownZoteroMcpServer();
   resetAcpConversationHostBridgePermissionHandlersForTests();
-  slots.clear();
+  sessionRuntimes.clear();
   listeners.clear();
   frontendListeners.clear();
   cachedAcpBackends = [];
@@ -3556,24 +4051,24 @@ export function setAcpConnectionAdapterFactoryForTests(
 }
 
 export function resetAcpSessionManagerForTests() {
-  for (const slot of slots.values()) {
-    if (slot.uiEmitTimer) {
-      clearTimeout(slot.uiEmitTimer);
+  for (const sessionRuntime of sessionRuntimes.values()) {
+    if (sessionRuntime.uiEmitTimer) {
+      clearTimeout(sessionRuntime.uiEmitTimer);
     }
-    if (slot.persistTimer) {
-      clearTimeout(slot.persistTimer);
+    if (sessionRuntime.persistTimer) {
+      clearTimeout(sessionRuntime.persistTimer);
     }
-    if (slot.promptCancelCloseTimer) {
-      clearTimeout(slot.promptCancelCloseTimer);
+    if (sessionRuntime.promptCancelCloseTimer) {
+      clearTimeout(sessionRuntime.promptCancelCloseTimer);
     }
-    slot.unsubscribeUpdate?.();
-    slot.unsubscribeClose?.();
-    slot.unsubscribeDiagnostics?.();
-    slot.unsubscribePermission?.();
-    slot.unsubscribeHostBridgePermission?.();
+    sessionRuntime.unsubscribeUpdate?.();
+    sessionRuntime.unsubscribeClose?.();
+    sessionRuntime.unsubscribeDiagnostics?.();
+    sessionRuntime.unsubscribePermission?.();
+    sessionRuntime.unsubscribeHostBridgePermission?.();
   }
   resetAcpConversationHostBridgePermissionHandlersForTests();
-  slots.clear();
+  sessionRuntimes.clear();
   listeners.clear();
   frontendListeners.clear();
   cachedAcpBackends = [];

@@ -28,7 +28,6 @@ import {
   getAcpConversationUiSnapshot,
   getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
-  readAcpConversationTranscriptPage,
   reconnectAcpConversation,
   renameAcpConversation,
   resolveAcpConversationPermission,
@@ -64,10 +63,6 @@ import {
   subscribeAcpSkillRunSnapshots,
 } from "./acpSkillRunStore";
 import {
-  subscribeAcpChatTranscriptDeltas,
-  type AcpChatTranscriptDelta,
-} from "./acpConversationTranscriptStore";
-import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
@@ -102,15 +97,6 @@ import {
 
 type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type SidebarButtonElement = XULElement | Element;
-const TRANSCRIPT_DELTA_BATCH_MAX_ITEMS = 200;
-const TRANSCRIPT_DELTA_BATCH_MAX_BYTES = 64 * 1024;
-
-type AssistantWorkspaceTranscriptDeltaEnvelope = {
-  item?: unknown;
-  text?: unknown;
-  patch?: unknown;
-  resyncRequired?: boolean;
-};
 
 type MountedSidebarDock = {
   button: SidebarButtonElement | null;
@@ -136,15 +122,12 @@ type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpSnapshotSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
-  removeAcpChatTranscriptDeltaSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshGeneration: number;
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
-  pendingAcpChatTranscriptDeltas?: AcpChatTranscriptDelta[];
-  acpChatTranscriptDeltaTimer?: ReturnType<typeof setTimeout> | null;
   scopeKey: string;
   snapshotRevision: number;
   lastAcpSkillWaitingToastKeys: Set<string>;
@@ -709,127 +692,6 @@ async function postAcpSkillRunSnapshot(
   });
 }
 
-async function postAcpChatTranscriptPage(
-  host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
-  payload: Record<string, unknown>,
-) {
-  const backendId = String(payload.backendId || "").trim();
-  const conversationId = String(payload.conversationId || "").trim();
-  const cursorValue = payload.cursor;
-  const cursor =
-    typeof cursorValue === "number" && Number.isFinite(cursorValue)
-      ? cursorValue
-      : undefined;
-  const limitValue = payload.limit;
-  const limit =
-    typeof limitValue === "number" && Number.isFinite(limitValue)
-      ? limitValue
-      : undefined;
-  const page = await readAcpConversationTranscriptPage({
-    backendId,
-    conversationId,
-    cursor,
-    limit,
-  });
-  postShellMessage(host, "assistant-workspace:child-snapshot", {
-    tab: "acp-chat",
-    phase: "transcript-page",
-    snapshot: {
-      scopeKey: host.scopeKey,
-      activeTab: host.activeTab,
-      tab: "acp-chat",
-      revision: host.snapshotRevision,
-      target,
-      backendId,
-      conversationId,
-      transcriptPage: page,
-    },
-  });
-}
-
-function buildTranscriptResyncDelta<
-  T extends AssistantWorkspaceTranscriptDeltaEnvelope,
->(delta: T): T {
-  const { item: _item, text: _text, patch: _patch, ...rest } = delta;
-  return {
-    ...rest,
-    resyncRequired: true,
-  } as T;
-}
-
-export function appendBoundedTranscriptDelta<
-  T extends AssistantWorkspaceTranscriptDeltaEnvelope,
->(current: T[] | undefined, delta: T): T[] {
-  const next = [...(current || []), delta];
-  if (
-    next.some((entry) => entry.resyncRequired) ||
-    next.length > TRANSCRIPT_DELTA_BATCH_MAX_ITEMS
-  ) {
-    return [buildTranscriptResyncDelta(delta)];
-  }
-  if (JSON.stringify(next).length > TRANSCRIPT_DELTA_BATCH_MAX_BYTES) {
-    return [buildTranscriptResyncDelta(delta)];
-  }
-  return next;
-}
-
-function flushAcpChatTranscriptDeltas(host: AssistantWorkspaceHostRuntime) {
-  if (host.acpChatTranscriptDeltaTimer) {
-    clearTimeout(host.acpChatTranscriptDeltaTimer);
-    host.acpChatTranscriptDeltaTimer = null;
-  }
-  const deltas = host.pendingAcpChatTranscriptDeltas || [];
-  host.pendingAcpChatTranscriptDeltas = [];
-  if (deltas.length === 0 || host.activeTab !== "acp-chat") {
-    return;
-  }
-  const target = host.activeTarget;
-  if (!target) {
-    return;
-  }
-  const active = getAcpConversationUiSnapshot();
-  const activeBackendId = String(active.backendId || "").trim();
-  const activeConversationId = String(active.conversationId || "").trim();
-  const matching = deltas.filter(
-    (delta) =>
-      String(delta.backendId || "").trim() === activeBackendId &&
-      String(delta.conversationId || "").trim() === activeConversationId,
-  );
-  if (matching.length === 0) {
-    return;
-  }
-  postShellMessage(host, "assistant-workspace:child-snapshot", {
-    tab: "acp-chat",
-    phase: "transcript-delta",
-    snapshot: {
-      scopeKey: host.scopeKey,
-      activeTab: host.activeTab,
-      tab: "acp-chat",
-      revision: host.snapshotRevision,
-      backendId: activeBackendId,
-      conversationId: activeConversationId,
-      transcriptDeltas: matching,
-    },
-  });
-}
-
-function queueAcpChatTranscriptDelta(
-  host: AssistantWorkspaceHostRuntime,
-  delta: AcpChatTranscriptDelta,
-) {
-  host.pendingAcpChatTranscriptDeltas = appendBoundedTranscriptDelta(
-    host.pendingAcpChatTranscriptDeltas,
-    delta,
-  );
-  if (host.acpChatTranscriptDeltaTimer) {
-    return;
-  }
-  host.acpChatTranscriptDeltaTimer = setTimeout(() => {
-    flushAcpChatTranscriptDeltas(host);
-  }, 33);
-}
-
 async function postFreshAcpChatSnapshot(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
@@ -1227,14 +1089,6 @@ async function handleChildAction(
     await postAcpSkillRunSnapshot(host);
     return;
   }
-  if (action === "load-chat-transcript-page") {
-    await postAcpChatTranscriptPage(
-      host,
-      target,
-      childPayload,
-    );
-    return;
-  }
   await handleAcpChatAction(host, target, action, childPayload);
   postAcpChatSnapshot(host, target);
 }
@@ -1378,7 +1232,6 @@ async function handleAcpChatAction(
       const conversationId = String(payload.conversationId || "").trim();
       const backendId = String(payload.backendId || "").trim();
       if (!conversationId) return;
-      if (backendId) await setActiveAcpBackend({ backendId });
       await setActiveAcpConversation({ conversationId, backendId });
       return;
     }
@@ -1414,28 +1267,37 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "reconnect") {
-      await reconnectAcpConversation();
+      await reconnectAcpConversation({
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
+      });
       return;
     }
     if (action === "connect") {
       await connectAcpConversation({
         backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
       });
       return;
     }
     if (action === "disconnect") {
       await disconnectAcpConversation({
         backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
       });
       return;
     }
     if (action === "cancel") {
-      await cancelAcpConversationPrompt();
+      await cancelAcpConversationPrompt({
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
+      });
       return;
     }
     if (action === "authenticate") {
       await authenticateAcpConversation({
         backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
         methodId: String(payload.methodId || "").trim(),
       });
       return;
@@ -1447,26 +1309,45 @@ async function handleAcpChatAction(
             ? "selected"
             : "cancelled",
         optionId: String(payload.optionId || "").trim(),
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
       });
       return;
     }
     if (action === "set-mode") {
       const modeId = String(payload.modeId || "").trim();
-      if (modeId) await setAcpConversationMode({ modeId });
+      if (modeId)
+        await setAcpConversationMode({
+          modeId,
+          backendId: String(payload.backendId || "").trim(),
+          conversationId: String(payload.conversationId || "").trim(),
+        });
       return;
     }
     if (action === "set-model") {
       const modelId = String(payload.modelId || "").trim();
-      if (modelId) await setAcpConversationModel({ modelId });
+      if (modelId)
+        await setAcpConversationModel({
+          modelId,
+          backendId: String(payload.backendId || "").trim(),
+          conversationId: String(payload.conversationId || "").trim(),
+        });
       return;
     }
     if (action === "set-reasoning-effort") {
       const effortId = String(payload.effortId || "").trim();
-      if (effortId) await setAcpConversationReasoningEffort({ effortId });
+      if (effortId)
+        await setAcpConversationReasoningEffort({
+          effortId,
+          backendId: String(payload.backendId || "").trim(),
+          conversationId: String(payload.conversationId || "").trim(),
+        });
       return;
     }
     if (action === "toggle-diagnostics") {
       toggleAcpConversationDiagnostics({
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
         visible:
           typeof payload.visible === "boolean"
             ? Boolean(payload.visible)
@@ -1476,6 +1357,8 @@ async function handleAcpChatAction(
     }
     if (action === "toggle-status-details") {
       toggleAcpConversationStatusDetails({
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
         expanded:
           typeof payload.expanded === "boolean"
             ? Boolean(payload.expanded)
@@ -1485,14 +1368,28 @@ async function handleAcpChatAction(
     }
     if (action === "set-chat-display-mode") {
       setAcpConversationChatDisplayMode({
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
         mode:
           String(payload.mode || "").trim() === "bubble" ? "bubble" : "plain",
       });
       return;
     }
     if (action === "copy-diagnostics") {
-      copyText(JSON.stringify(buildAcpDiagnosticsBundle(), null, 2));
-      toggleAcpConversationDiagnostics({ visible: true });
+      const backendId = String(payload.backendId || "").trim();
+      const conversationId = String(payload.conversationId || "").trim();
+      copyText(
+        JSON.stringify(
+          buildAcpDiagnosticsBundle(backendId, conversationId),
+          null,
+          2,
+        ),
+      );
+      toggleAcpConversationDiagnostics({
+        backendId,
+        conversationId,
+        visible: true,
+      });
       return;
     }
     if (action === "open-workspace") {
@@ -1504,6 +1401,8 @@ async function handleAcpChatAction(
       if (!message) return;
       await sendAcpConversationPrompt({
         message,
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
         hostContext: buildAcpHostContext({ window: host.win, target }),
       });
     }
@@ -1813,10 +1712,6 @@ export function installAssistantWorkspaceSidebarShell(
     schedulePostSnapshot(host);
     updateAssistantAttentionIndicator(host);
   });
-  host.removeAcpChatTranscriptDeltaSubscription =
-    subscribeAcpChatTranscriptDeltas((delta) => {
-      queueAcpChatTranscriptDelta(host, delta);
-    });
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
@@ -1844,17 +1739,12 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpSnapshotSubscription?.();
   host.removeAcpSkillRunSubscription?.();
-  host.removeAcpChatTranscriptDeltaSubscription?.();
   host.removeTaskSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();
   detachSkillRunnerSidebarHost({ hostWindow: win as Window });
   if (host.postSnapshotTimer) {
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
-  }
-  if (host.acpChatTranscriptDeltaTimer) {
-    clearTimeout(host.acpChatTranscriptDeltaTimer);
-    host.acpChatTranscriptDeltaTimer = null;
   }
   clearSkillRunnerSidebarRefresh(host);
   if (host.shell.frame && host.shell.frameLoadHandler) {

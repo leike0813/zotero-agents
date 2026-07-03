@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import { rm } from "fs/promises";
+import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 import { isTruthyDiagnosticFlag } from "../src/modules/diagnosticVerbosity";
@@ -19,6 +21,8 @@ const MOCK_HOST = "127.0.0.1";
 const DEFAULT_ZOTERO_TARGET_SCRIPT = "test:zotero:cli";
 const DEFAULT_NODE_TARGET_SCRIPT = "test:node:raw";
 const DEFAULT_TEST_WORKFLOW_DIR = path.join(process.cwd(), "workflows_builtin");
+const TEST_DATA_DIR_ENV = "ZOTERO_TEST_DATA_DIR";
+const TEST_DATA_DIR_MANAGED_ENV = "ZOTERO_TEST_DATA_DIR_MANAGED";
 
 export function normalizeTestMode(value: string) {
   return value.trim().toLowerCase() === "full" ? "full" : "lite";
@@ -127,11 +131,23 @@ export function buildTestEnvironment(
   const workflowDir = String(
     env.ZOTERO_TEST_WORKFLOW_DIR || DEFAULT_TEST_WORKFLOW_DIR,
   ).trim();
+  const providedTestDataDir = String(env[TEST_DATA_DIR_ENV] || "").trim();
+  const testDataDir =
+    providedTestDataDir ||
+    path.join(
+      os.tmpdir(),
+      `zotero-agents-test-data-${process.pid}`,
+      "Zotero_data",
+    );
   const nextEnv: NodeJS.ProcessEnv = {
     ...env,
     ZOTERO_TEST_MODE: testMode,
     ZOTERO_TEST_DOMAIN: testDomain,
+    [TEST_DATA_DIR_ENV]: testDataDir,
   };
+  if (!providedTestDataDir) {
+    nextEnv[TEST_DATA_DIR_MANAGED_ENV] = "1";
+  }
   if (invocation.verbose) {
     nextEnv.ZOTERO_TEST_VERBOSE = "1";
   } else {
@@ -143,6 +159,25 @@ export function buildTestEnvironment(
     delete nextEnv.ZOTERO_TEST_WORKFLOW_DIR;
   }
   return nextEnv;
+}
+
+function isUnderDirectory(child: string, parent: string) {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return (
+    Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
+
+async function cleanupTestDataDir(env: NodeJS.ProcessEnv) {
+  const testDataDir = String(env[TEST_DATA_DIR_ENV] || "").trim();
+  if (env[TEST_DATA_DIR_MANAGED_ENV] !== "1" || !testDataDir) {
+    return;
+  }
+  const testDataParent = path.dirname(path.resolve(testDataDir));
+  if (!isUnderDirectory(testDataParent, os.tmpdir())) {
+    return;
+  }
+  await rm(testDataParent, { recursive: true, force: true });
 }
 
 function spawnNpm(args: string[], options?: SpawnOptions) {
@@ -271,6 +306,7 @@ async function main() {
   const invocation = parseWrappedTestInvocation(process.argv.slice(2));
   const testEnv = buildTestEnvironment(invocation);
   const workflowDir = String(testEnv.ZOTERO_TEST_WORKFLOW_DIR || "").trim();
+  const testDataDir = String(testEnv[TEST_DATA_DIR_ENV] || "").trim();
   console.log(`[test-target] ${invocation.targetScript}`);
   console.log(`[test-mode] ${testEnv.ZOTERO_TEST_MODE}`);
   console.log(`[test-domain] ${testEnv.ZOTERO_TEST_DOMAIN}`);
@@ -279,6 +315,7 @@ async function main() {
       workflowDir || "(default from project/workflows_builtin)"
     }`,
   );
+  console.log(`[test-data-dir] ${testDataDir || "(mock default)"}`);
 
   const mock = spawnNpm(
     ["run", "mock:skillrunner", "--", "--host", MOCK_HOST, "--port", MOCK_PORT],
@@ -296,6 +333,7 @@ async function main() {
     }
     cleaned = true;
     await terminateMock(mock);
+    await cleanupTestDataDir(testEnv);
   };
 
   const trap = async (exitCode: number) => {

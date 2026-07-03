@@ -72,14 +72,7 @@ export function resolveDirectRuntimeRoot(env: NodeJS.ProcessEnv = process.env) {
   if (zoteroDataDir) {
     return resolve(zoteroDataDir, "zotero-agents");
   }
-  const base =
-    env.LOCALAPPDATA ||
-    env.LocalAppData ||
-    env.APPDATA ||
-    env.AppData ||
-    env.TEMP ||
-    env.TMP ||
-    tmpdir();
+  const base = env.TMPDIR || env.TEMP || env.TMP || tmpdir();
   return resolve(base, "Zotero-Agents-Direct-Runtime");
 }
 

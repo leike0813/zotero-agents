@@ -109,12 +109,13 @@ ACP Skill transcripts SHALL use a single append-only JSONL event log at
   page
 - **AND** missing-target deltas SHALL NOT force a tail-page reload.
 
-#### Scenario: Assistant turn text is file-backed
+#### Scenario: Assistant turn text is prompt-local
 
 - **WHEN** the ACP runner captures assistant chunks for output convergence
-- **THEN** chunks SHALL be appended to `<runtimeDir>/turns/<turnId>.assistant.txt`
-- **AND** convergence SHALL read the turn file at the prompt boundary
-- **AND** the controller SHALL NOT accumulate the turn in an unbounded string.
+- **THEN** chunks SHALL be folded into a prompt-lifetime accumulator
+- **AND** convergence SHALL read that accumulator at the prompt boundary
+- **AND** the runner SHALL NOT write a secondary `.assistant.txt` turn capture
+  beside the transcript JSONL.
 
 ### Requirement: Runtime file retention follows run workspace retention
 

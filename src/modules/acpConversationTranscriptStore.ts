@@ -1,6 +1,7 @@
 import type { AcpConversationItem } from "./acpTypes";
 import {
   appendAcpSkillRunTranscriptEvent,
+  readAcpSkillRunTranscriptItems,
   readAcpSkillRunTranscriptPage,
   resolveAcpSkillRunTranscriptPaths,
   type AcpSkillRunTranscriptMetadata,
@@ -11,24 +12,11 @@ export type AcpChatTranscriptMetadata = AcpSkillRunTranscriptMetadata;
 export type AcpChatTranscriptPage = Omit<AcpSkillRunTranscriptPage, "items"> & {
   items: AcpConversationItem[];
 };
-
-export type AcpChatTranscriptDelta = {
-  backendId: string;
-  conversationId: string;
+export type AcpChatTranscriptFull = {
+  items: AcpConversationItem[];
   eventSeq: number;
-  transcriptRevision: number;
-  op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
-  itemId: string;
-  item?: AcpConversationItem;
-  text?: string;
-  patch?: Partial<AcpConversationItem>;
-  createdAt: string;
-  resyncRequired?: boolean;
+  total: number;
 };
-
-type AcpChatTranscriptDeltaListener = (delta: AcpChatTranscriptDelta) => void;
-
-const chatTranscriptDeltaListeners = new Set<AcpChatTranscriptDeltaListener>();
 
 export function resolveAcpChatTranscriptPaths(conversationStorageDir?: string) {
   return resolveAcpSkillRunTranscriptPaths(conversationStorageDir);
@@ -70,23 +58,14 @@ export async function readAcpChatTranscriptPage(args: {
   };
 }
 
-export function subscribeAcpChatTranscriptDeltas(
-  listener: AcpChatTranscriptDeltaListener,
-) {
-  chatTranscriptDeltaListeners.add(listener);
-  return () => {
-    chatTranscriptDeltaListeners.delete(listener);
+export async function readFullAcpChatTranscript(args: {
+  conversationStorageDir?: string;
+}): Promise<AcpChatTranscriptFull> {
+  const transcript = await readAcpSkillRunTranscriptItems({
+    runtimeDir: args.conversationStorageDir,
+  });
+  return {
+    ...transcript,
+    items: transcript.items as unknown as AcpConversationItem[],
   };
-}
-
-export function emitAcpChatTranscriptDelta(delta: AcpChatTranscriptDelta) {
-  for (const listener of chatTranscriptDeltaListeners) {
-    listener({
-      ...delta,
-      item: delta.item ? ({ ...delta.item } as AcpConversationItem) : undefined,
-      patch: delta.patch
-        ? ({ ...delta.patch } as Partial<AcpConversationItem>)
-        : undefined,
-    });
-  }
 }

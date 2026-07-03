@@ -952,9 +952,11 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
     updatedAt: snapshot.updatedAt || nowIso(),
     archivedAt: existingSummary?.archivedAt,
   });
+  const activeConversationId =
+    normalizeString(parsedIndex.activeConversationId) || conversationId;
   writeAcpChatSessionIndex({
     backendId,
-    activeConversationId: conversationId,
+    activeConversationId,
     sessions: summaries,
   });
 }

@@ -27,6 +27,7 @@ type ZoteroMock = {
     delay: (ms: number) => Promise<void>;
   };
   debug: (...args: unknown[]) => void;
+  DataDirectory: { dir: string };
   File: {
     putContentsAsync: (file: MockFile, content: string) => Promise<void>;
     createDirectoryIfMissingAsync: (dir: MockFile) => Promise<void>;
@@ -188,6 +189,53 @@ const prefObservers = new Map<
 >();
 let notifierCounter = 0;
 
+const TEST_DATA_DIR_ENV = "ZOTERO_TEST_DATA_DIR";
+const TEST_DATA_DIR_MANAGED_ENV = "ZOTERO_TEST_DATA_DIR_MANAGED";
+
+const providedTestDataDir = String(process.env[TEST_DATA_DIR_ENV] || "").trim();
+const mockTestDataParent = providedTestDataDir
+  ? path.dirname(path.resolve(providedTestDataDir))
+  : fsSync.mkdtempSync(path.join(os.tmpdir(), "zotero-agents-test-data-"));
+const mockZoteroDataDir = providedTestDataDir
+  ? path.resolve(providedTestDataDir)
+  : path.join(mockTestDataParent, "Zotero_data");
+const shouldCleanupMockTestData =
+  !providedTestDataDir || process.env[TEST_DATA_DIR_MANAGED_ENV] === "1";
+
+fsSync.mkdirSync(mockZoteroDataDir, { recursive: true });
+
+function isUnderDirectory(child: string, parent: string) {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return (
+    Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative)
+  );
+}
+
+function cleanupMockTestDataDir() {
+  if (
+    !shouldCleanupMockTestData ||
+    !isUnderDirectory(mockTestDataParent, os.tmpdir())
+  ) {
+    return;
+  }
+  try {
+    fsSync.rmSync(mockTestDataParent, { recursive: true, force: true });
+  } catch {
+    // ignore best-effort test cleanup failures
+  }
+}
+
+process.once("exit", cleanupMockTestDataDir);
+
+function installDefaultDataDirectory() {
+  const runtime = globalThis as {
+    Zotero?: { DataDirectory?: { dir: string } };
+  };
+  if (runtime.Zotero) {
+    runtime.Zotero.DataDirectory = { dir: mockZoteroDataDir };
+  }
+}
+
 function initializeZoteroMockState() {
   nextItemId = 1;
   nextCollectionId = 1;
@@ -199,6 +247,7 @@ function initializeZoteroMockState() {
   prefsStore.set(`${config.prefsPrefix}.workflowDir`, "");
   prefsStore.set(`${config.prefsPrefix}.skillDir`, "");
   notifierCounter = 0;
+  installDefaultDataDirectory();
 }
 
 function notifyPrefObservers(key: string) {
@@ -2424,6 +2473,7 @@ function createZoteroMock(): ZoteroMock {
         }),
     },
     debug: () => {},
+    DataDirectory: { dir: mockZoteroDataDir },
     File: {
       pathToFile: (filePath: string | MockFile) => {
         if (filePath instanceof MockFile) {

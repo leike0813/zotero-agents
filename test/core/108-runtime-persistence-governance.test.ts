@@ -13,6 +13,7 @@ import {
   validateManagedRelativePath,
   validateManagedRelativePathSet,
 } from "../../src/modules/runtimePersistence";
+import { cleanupRuntimePersistenceCategoryOnDisk } from "../../scripts/cleanup-runtime-persistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import {
   getAcpSkillRunRecord,
@@ -35,11 +36,14 @@ import {
   appendPluginRunEventStoreEntry,
   clearPluginTaskDomain,
   inspectPluginStateStoreCounts,
+  listPluginTaskContextEntries,
+  listPluginTaskRequestEntries,
   listPluginRunEventStoreEntries,
   listPluginRunStoreEntries,
   listPluginTaskRowEntries,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
+  upsertPluginTaskContextEntry,
   upsertPluginTaskRequestEntry,
   upsertPluginTaskRowEntry,
 } from "../../src/modules/pluginStateStore";
@@ -213,6 +217,67 @@ describe("runtime persistence governance", function () {
     }
   });
 
+  it("uses a temporary fallback instead of Windows AppData when no durable root is available", function () {
+    delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const prefKey = "extensions.zotero.zotero-skills.runtimeRoot";
+    const previousPref = (globalThis as any).Zotero.Prefs.get(prefKey, true);
+    const previousDataDirectory = (globalThis as any).Zotero?.DataDirectory;
+    const previousLocalAppData = process.env.LOCALAPPDATA;
+    const previousAppData = process.env.APPDATA;
+    const previousTmpDir = process.env.TMPDIR;
+    const previousTemp = process.env.TEMP;
+    const previousTmp = process.env.TMP;
+    const fallbackTemp = path.join(tempRoot, "system-temp");
+    const appDataRoot = path.join(tempRoot, "local-app-data");
+    try {
+      (globalThis as any).Zotero.Prefs.clear(prefKey, true);
+      delete (globalThis as any).Zotero.DataDirectory;
+      process.env.LOCALAPPDATA = appDataRoot;
+      process.env.APPDATA = path.join(tempRoot, "roaming-app-data");
+      delete process.env.TMPDIR;
+      process.env.TEMP = fallbackTemp;
+      delete process.env.TMP;
+
+      const paths = getRuntimePersistencePaths();
+
+      assert.equal(paths.root, path.join(fallbackTemp, "zotero-agents"));
+      assert.notEqual(paths.root, path.join(appDataRoot, "zotero-agents"));
+    } finally {
+      if (typeof previousPref === "undefined") {
+        (globalThis as any).Zotero.Prefs.clear(prefKey, true);
+      } else {
+        (globalThis as any).Zotero.Prefs.set(prefKey, previousPref, true);
+      }
+      (globalThis as any).Zotero.DataDirectory = previousDataDirectory;
+      if (typeof previousLocalAppData === "undefined") {
+        delete process.env.LOCALAPPDATA;
+      } else {
+        process.env.LOCALAPPDATA = previousLocalAppData;
+      }
+      if (typeof previousAppData === "undefined") {
+        delete process.env.APPDATA;
+      } else {
+        process.env.APPDATA = previousAppData;
+      }
+      if (typeof previousTemp === "undefined") {
+        delete process.env.TEMP;
+      } else {
+        process.env.TEMP = previousTemp;
+      }
+      if (typeof previousTmpDir === "undefined") {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = previousTmpDir;
+      }
+      if (typeof previousTmp === "undefined") {
+        delete process.env.TMP;
+      } else {
+        process.env.TMP = previousTmp;
+      }
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
+    }
+  });
+
   it("uses the launcher-patched runtimeRoot pref before Zotero DataDirectory", function () {
     delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     const prefKey = "extensions.zotero.zotero-skills.runtimeRoot";
@@ -287,11 +352,11 @@ describe("runtime persistence governance", function () {
       payload: '{"event":true}',
     });
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
-      requestId: "acp-chat-req",
+      requestId: "conversation-index:acp-test",
       backendId: "backend",
       state: "running",
       updatedAt: "2026-04-28T00:00:00.000Z",
-      payload: "{}",
+      payload: JSON.stringify({ activeConversationId: "conversation-a" }),
     });
     upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, "skill-runs", {
       taskId: "skill-run-row",
@@ -486,11 +551,11 @@ describe("runtime persistence governance", function () {
       payload: "{}",
     });
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
-      requestId: "acp-req",
+      requestId: "conversation:acp-test:conversation-cleanup",
       backendId: "backend",
       state: "running",
       updatedAt: "2026-04-28T00:00:00.000Z",
-      payload: "{}",
+      payload: JSON.stringify({ conversationId: "conversation-cleanup" }),
     });
 
     const skillRunnerCleanup =
@@ -578,19 +643,57 @@ describe("runtime persistence governance", function () {
 
   it("cleans ACP conversations without deleting ACP skill run rows", async function () {
     upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
-      requestId: "acp-chat-request",
+      requestId: "conversation-index:acp-kilo-npx",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: JSON.stringify({ activeConversationId: "conversation-a" }),
+    });
+    upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      requestId: "conversation:acp-kilo-npx:conversation-a",
+      backendId: "backend",
+      state: "idle",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: JSON.stringify({ conversationId: "conversation-a" }),
+    });
+    upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      requestId: "acp-other-request",
+      backendId: "backend",
+      state: "running",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: "{}",
+    });
+    upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      contextId: "chat-context-by-request",
+      requestId: "conversation:acp-kilo-npx:conversation-a",
+      backendId: "backend",
+      state: "active",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: "{}",
+    });
+    upsertPluginTaskContextEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      contextId: "chat-context-by-payload",
+      requestId: "other-chat-request",
+      backendId: "backend",
+      state: "active",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+      payload: JSON.stringify({ conversationId: "conversation-a" }),
+    });
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, "active", {
+      taskId: "chat-row",
+      requestId: "conversation:acp-kilo-npx:conversation-a",
       backendId: "backend",
       state: "running",
       updatedAt: "2026-04-28T00:00:00.000Z",
       payload: "{}",
     });
     upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, "active", {
-      taskId: "chat-row",
-      requestId: "acp-chat-request",
+      taskId: "chat-row-by-payload",
+      requestId: "other-chat-request",
       backendId: "backend",
       state: "running",
       updatedAt: "2026-04-28T00:00:00.000Z",
-      payload: "{}",
+      payload: JSON.stringify({ conversationId: "conversation-a" }),
     });
     upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_ACP, "skill-runs", {
       taskId: "skill-run-row",
@@ -598,7 +701,7 @@ describe("runtime persistence governance", function () {
       backendId: "backend",
       state: "succeeded",
       updatedAt: "2026-04-28T00:00:00.000Z",
-      payload: "{}",
+      payload: JSON.stringify({ conversationId: "skill-run-conversation" }),
     });
     upsertPluginRunStoreEntry("acp", {
       runKey: "acp-skill-run-store",
@@ -620,6 +723,14 @@ describe("runtime persistence governance", function () {
 
     await cleanupRuntimePersistenceCategory("acp-conversations");
 
+    assert.equal(inspectPluginStateStoreCounts().requestCount, 1);
+    assert.deepEqual(
+      listPluginTaskRequestEntries(PLUGIN_TASK_DOMAIN_ACP).map(
+        (entry) => entry.requestId,
+      ),
+      ["acp-other-request"],
+    );
+    assert.lengthOf(listPluginTaskContextEntries(PLUGIN_TASK_DOMAIN_ACP), 0);
     assert.lengthOf(
       listPluginTaskRowEntries(PLUGIN_TASK_DOMAIN_ACP, "active"),
       0,
@@ -644,6 +755,107 @@ describe("runtime persistence governance", function () {
       }),
       0,
     );
+  });
+
+  it("cleans ACP conversation records from an on-disk runtime SQLite database", async function () {
+    const root = path.join(tempRoot, "offline-cleanup-root");
+    const paths = getRuntimePersistencePaths(root);
+    await fs.mkdir(path.dirname(paths.stateDbPath), { recursive: true });
+    await fs.mkdir(path.join(paths.acpChatRoot, "conversations"), {
+      recursive: true,
+    });
+    const sqlite = (await import("node:sqlite")) as any;
+    const db = new sqlite.DatabaseSync(paths.stateDbPath);
+    try {
+      db.exec(`
+        CREATE TABLE plugin_task_requests (
+          domain TEXT NOT NULL,
+          request_id TEXT NOT NULL,
+          backend_id TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE plugin_task_contexts (
+          domain TEXT NOT NULL,
+          context_id TEXT NOT NULL,
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE plugin_task_rows (
+          domain TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          task_id TEXT NOT NULL,
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT INTO plugin_task_requests
+          (domain, request_id, backend_id, state, updated_at, payload_json)
+        VALUES
+          ('acp', 'conversation-index:acp-kilo-npx', 'backend', 'idle', '2026-04-28T00:00:00.000Z', '{"activeConversationId":"conversation-a"}'),
+          ('acp', 'conversation:acp-kilo-npx:conversation-a', 'backend', 'idle', '2026-04-28T00:00:00.000Z', '{"conversationId":"conversation-a"}'),
+          ('acp', 'acp-other-request', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}');
+        INSERT INTO plugin_task_contexts
+          (domain, context_id, request_id, backend_id, state, updated_at, payload_json)
+        VALUES
+          ('acp', 'chat-context', 'other-request', 'backend', 'active', '2026-04-28T00:00:00.000Z', '{"conversationId":"conversation-a"}');
+        INSERT INTO plugin_task_rows
+          (domain, scope, task_id, request_id, backend_id, state, updated_at, payload_json)
+        VALUES
+          ('acp', 'active', 'chat-row', 'conversation:acp-kilo-npx:conversation-a', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}'),
+          ('acp', 'skill-runs', 'skill-row', 'acp-skill-run', 'backend', 'succeeded', '2026-04-28T00:00:00.000Z', '{"conversationId":"not-chat"}');
+      `);
+    } finally {
+      db.close();
+    }
+
+    const cleanup = await cleanupRuntimePersistenceCategoryOnDisk(
+      "acp-conversations",
+      { root },
+    );
+
+    const verify = new sqlite.DatabaseSync(paths.stateDbPath);
+    try {
+      assert.equal(cleanup.details.rowsDeletedTotal, 4);
+      assert.isFalse(
+        await fs
+          .stat(paths.acpChatRoot)
+          .then(() => true)
+          .catch(() => false),
+      );
+      assert.equal(
+        verify
+          .prepare("SELECT COUNT(*) AS value FROM plugin_task_requests")
+          .get().value,
+        1,
+      );
+      assert.equal(
+        verify
+          .prepare("SELECT COUNT(*) AS value FROM plugin_task_contexts")
+          .get().value,
+        0,
+      );
+      assert.equal(
+        verify
+          .prepare("SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='active'")
+          .get().value,
+        0,
+      );
+      assert.equal(
+        verify
+          .prepare("SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='skill-runs'")
+          .get().value,
+        1,
+      );
+    } finally {
+      verify.close();
+    }
   });
 
   it("cleans expired terminal ACP skill run rows and workspaces by retention", async function () {

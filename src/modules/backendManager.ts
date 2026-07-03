@@ -37,7 +37,7 @@ import {
 } from "./skillRunnerBackendHealthRegistry";
 import { scheduleSkillRunnerBackendReachabilityProbe } from "./skillRunnerBackendReachabilityCoordinator";
 import { purgeSkillRunnerBackendReconcileState } from "./skillRunnerTaskReconciler";
-import { pruneAcpSessionSlotsForBackends } from "./acpSessionManager";
+import { pruneAcpChatSessionRuntimesForBackends } from "./acpSessionManager";
 import {
   computeAcpBackendConfigFingerprint,
   probeAcpBackendRuntimeOptions,
@@ -2170,7 +2170,7 @@ export function persistBackendsConfig(
     mergedBackends,
     refreshModelCache: resolved.refreshModelCache,
   });
-  pruneAcpSessionSlotsForBackends(mergedBackends);
+  pruneAcpChatSessionRuntimesForBackends(mergedBackends);
 }
 
 function getAlertWindow(window?: Window) {

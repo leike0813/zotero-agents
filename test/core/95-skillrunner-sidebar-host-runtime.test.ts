@@ -242,7 +242,7 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "dispatchRunWorkspaceAction");
     assert.include(ts, "focusSkillRunnerWorkspace");
     assert.include(ts, "buildAcpSidebarViewSnapshot");
-    assert.include(ts, "buildAcpSkillRunPanelSnapshot");
+    assert.include(ts, "prepareAcpSkillRunPanelSnapshot");
     assert.include(ts, "handleAcpChatAction");
     assert.include(ts, "handleAcpSkillRunAction");
     assert.include(ts, "createSkillRunnerHostActionHandler");

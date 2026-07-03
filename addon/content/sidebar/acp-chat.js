@@ -13,19 +13,14 @@
     transcriptRenderedMode: "",
     transcriptBackendId: "",
     transcriptConversationId: "",
-    transcriptItems: [],
-    transcriptStartCursor: null,
-    transcriptPrevCursor: null,
-    transcriptNextCursor: null,
-    transcriptTotal: 0,
-    transcriptLoadingKey: "",
-    transcriptLoadedRevision: null,
     markdownParser: undefined,
     toolActivityExpandedIds: new Set(),
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
     pendingRenderSnapshot: null,
     renderScheduled: false,
+    panelRenderKey: "",
+    pendingAction: null,
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -87,185 +82,12 @@
     });
   }
 
-  function resetTranscriptCache() {
+  function resetTranscriptRenderState() {
     state.transcriptNodeMap.clear();
     state.transcriptOrderKey = "";
     state.transcriptMode = "";
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
-    state.transcriptItems = [];
-    state.transcriptStartCursor = null;
-    state.transcriptPrevCursor = null;
-    state.transcriptNextCursor = null;
-    state.transcriptTotal = 0;
-    state.transcriptLoadingKey = "";
-    state.transcriptLoadedRevision = null;
-  }
-
-  function requestTranscriptPage(snapshot, cursor) {
-    const backendId = safeText(snapshot && snapshot.backendId);
-    const conversationId = safeText(snapshot && snapshot.conversationId);
-    if (!conversationId) return;
-    const key =
-      backendId +
-      ":" +
-      conversationId +
-      ":" +
-      (cursor == null ? "tail" : cursor);
-    if (state.transcriptLoadingKey === key) return;
-    state.transcriptLoadingKey = key;
-    sendAction("load-chat-transcript-page", {
-      backendId,
-      conversationId,
-      cursor: typeof cursor === "number" ? cursor : undefined,
-      limit: 80,
-    });
-  }
-
-  function isTranscriptTailPage() {
-    return state.transcriptNextCursor === null;
-  }
-
-  function requestTranscriptResync(snapshot, backendId, conversationId) {
-    const tailPage = isTranscriptTailPage();
-    const cursor = tailPage ? undefined : state.transcriptStartCursor;
-    resetTranscriptCache();
-    state.transcriptBackendId = backendId;
-    state.transcriptConversationId = conversationId;
-    requestTranscriptPage(
-      snapshot,
-      typeof cursor === "number" ? cursor : undefined,
-    );
-  }
-
-  function handleTranscriptPage(payload) {
-    const backendId = safeText(payload && payload.backendId);
-    const conversationId = safeText(payload && payload.conversationId);
-    if (
-      backendId !== state.transcriptBackendId ||
-      conversationId !== state.transcriptConversationId
-    )
-      return;
-    const page =
-      payload &&
-      payload.transcriptPage &&
-      typeof payload.transcriptPage === "object"
-        ? payload.transcriptPage
-        : null;
-    if (!page) return;
-    const items = Array.isArray(page.items) ? page.items : [];
-    const cursor = Number(page.cursor) || 0;
-    const prepend =
-      state.transcriptStartCursor !== null &&
-      cursor < state.transcriptStartCursor;
-    if (prepend) {
-      const existingIds = new Set(
-        state.transcriptItems.map(function (item) {
-          return safeText(item && item.id);
-        }),
-      );
-      state.transcriptItems = items
-        .filter(function (item) {
-          return !existingIds.has(safeText(item && item.id));
-        })
-        .concat(state.transcriptItems);
-    } else {
-      state.transcriptItems = items;
-    }
-    state.transcriptStartCursor = cursor;
-    state.transcriptPrevCursor =
-      typeof page.prevCursor === "number" ? page.prevCursor : null;
-    state.transcriptNextCursor =
-      typeof page.nextCursor === "number" ? page.nextCursor : null;
-    state.transcriptTotal = Number(page.total) || state.transcriptItems.length;
-    state.transcriptLoadedRevision =
-      Number(page.transcriptRevision || page.eventSeq) || 0;
-    state.transcriptLoadingKey = "";
-    state.transcriptRevision = null;
-    render(state.snapshot || {});
-  }
-
-  function handleTranscriptDeltas(payload) {
-    const backendId = safeText(payload && payload.backendId);
-    const conversationId = safeText(payload && payload.conversationId);
-    if (
-      backendId !== state.transcriptBackendId ||
-      conversationId !== state.transcriptConversationId
-    )
-      return;
-    const deltas = Array.isArray(payload && payload.transcriptDeltas)
-      ? payload.transcriptDeltas
-      : [];
-    if (!deltas.length) return;
-    const tailPage = isTranscriptTailPage();
-    for (let index = 0; index < deltas.length; index += 1) {
-      const delta = deltas[index] || {};
-      const nextSeq = Number(delta.eventSeq) || 0;
-      if (
-        delta.resyncRequired ||
-        (state.transcriptLoadedRevision &&
-          nextSeq &&
-          nextSeq !== state.transcriptLoadedRevision + 1)
-      ) {
-        requestTranscriptResync(
-          state.snapshot || {},
-          backendId,
-          conversationId,
-        );
-        return;
-      }
-      const itemId = safeText(delta.itemId);
-      if (delta.op === "upsert_item" && delta.item) {
-        const existingIndex = state.transcriptItems.findIndex(function (item) {
-          return safeText(item && item.id) === itemId;
-        });
-        if (existingIndex >= 0) {
-          state.transcriptItems[existingIndex] = delta.item;
-        } else if (tailPage) {
-          state.transcriptItems.push(delta.item);
-        }
-      } else if (delta.op === "append_text") {
-        const target = state.transcriptItems.find(function (item) {
-          return safeText(item && item.id) === itemId;
-        });
-        if (!target || typeof target.text !== "string") {
-          state.transcriptLoadedRevision =
-            nextSeq || state.transcriptLoadedRevision;
-          if (tailPage) {
-            requestTranscriptPage(state.snapshot || {}, undefined);
-            return;
-          }
-          continue;
-        }
-        target.text += String(delta.text || "");
-        target.updatedAt = delta.createdAt || target.updatedAt;
-      } else if (delta.op === "patch_item" && delta.patch) {
-        const patchTarget = state.transcriptItems.find(function (item) {
-          return safeText(item && item.id) === itemId;
-        });
-        if (!patchTarget) {
-          state.transcriptLoadedRevision =
-            nextSeq || state.transcriptLoadedRevision;
-          if (tailPage) {
-            requestTranscriptPage(state.snapshot || {}, undefined);
-            return;
-          }
-          continue;
-        }
-        Object.assign(patchTarget, delta.patch, {
-          id: patchTarget.id,
-          kind: patchTarget.kind,
-        });
-      } else if (delta.op === "delete_item") {
-        state.transcriptItems = state.transcriptItems.filter(function (item) {
-          return safeText(item && item.id) !== itemId;
-        });
-      }
-      state.transcriptLoadedRevision =
-        nextSeq || state.transcriptLoadedRevision;
-    }
-    state.transcriptRevision = null;
-    render(state.snapshot || {});
   }
 
   function assistantConversationView() {
@@ -353,13 +175,10 @@
   function projectConversationView(snapshot) {
     const helper = assistantConversationView();
     if (helper && typeof helper.projectAcpChatConversationView === "function") {
-      return helper.projectAcpChatConversationView({
-        ...(snapshot || {}),
-        items: state.transcriptItems,
-      });
+      return helper.projectAcpChatConversationView(snapshot || {});
     }
     return {
-      items: state.transcriptItems,
+      items: Array.isArray(snapshot && snapshot.items) ? snapshot.items : [],
       plan: { entries: [], activeEntries: [], active: false },
       interaction: { kind: "hidden" },
       usage: snapshot && snapshot.usage ? snapshot.usage : null,
@@ -383,6 +202,50 @@
             conversation: projectConversationView(snapshot || {}),
           };
     return panel;
+  }
+
+  function compactConversationKey(entry) {
+    return [
+      safeText(entry && (entry.conversationId || entry.id)),
+      safeText(entry && entry.status),
+      safeText(entry && (entry.title || entry.sessionTitle)),
+    ].join(":");
+  }
+
+  function compactPanelRenderKey(snapshot) {
+    const snap = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const pendingPermission = snap.pendingPermissionRequest || null;
+    const backendSessions = Array.isArray(snap.backendChatSessions)
+      ? snap.backendChatSessions
+      : [];
+    return JSON.stringify({
+      backendId: safeText(snap.activeBackendId || snap.backendId),
+      conversationId: safeText(snap.activeConversationId || snap.conversationId),
+      status: safeText(snap.status),
+      busy: snap.busy === true,
+      pendingAction: state.pendingAction,
+      sessionId: safeText(snap.sessionId || snap.remoteSessionId),
+      title: safeText(snap.title || snap.conversationTitle),
+      chatDisplayMode: safeText(snap.chatDisplayMode),
+      selectedMode: safeText(snap.currentMode && snap.currentMode.id),
+      selectedModel: safeText(snap.currentModel && snap.currentModel.id),
+      selectedEffort: safeText(
+        snap.currentReasoningEffort && snap.currentReasoningEffort.id,
+      ),
+      sessionDrawerOpen: state.sessionDrawerOpen,
+      detailsDrawerOpen: state.detailsDrawerOpen,
+      permissionDrawerOpen: state.permissionRequestDrawerOpen,
+      permissionRequestId: safeText(pendingPermission && pendingPermission.requestId),
+      sessions: backendSessions.map(function (entry) {
+        return {
+          backendId: safeText(entry && entry.backendId),
+          sessions: (Array.isArray(entry && entry.sessions)
+            ? entry.sessions
+            : []
+          ).map(compactConversationKey),
+        };
+      }),
+    });
   }
 
   function handlePanelAction(action, payload) {
@@ -432,6 +295,9 @@
         render(snapshot);
         return;
       }
+      state.sessionDrawerOpen = false;
+      state.pendingAction = "switching";
+      render(snapshot);
       sendAction("set-active-conversation", {
         conversationId: safeText(data.conversationId || data.value),
         backendId: safeText(
@@ -452,17 +318,31 @@
       return;
     }
     if (action === "connect") {
+      state.pendingAction = "connect";
+      render(snapshot);
       sendAction("connect", {
         backendId: safeText(
           data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
+        conversationId: safeText(
+          data.conversationId ||
+            snapshot.activeConversationId ||
+            snapshot.conversationId,
         ),
       });
       return;
     }
     if (action === "disconnect") {
+      state.pendingAction = "disconnect";
+      render(snapshot);
       sendAction("disconnect", {
         backendId: safeText(
           data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
+        conversationId: safeText(
+          data.conversationId ||
+            snapshot.activeConversationId ||
+            snapshot.conversationId,
         ),
       });
       return;
@@ -472,38 +352,75 @@
         backendId: safeText(
           data.backendId || snapshot.activeBackendId || snapshot.backendId,
         ),
+        conversationId: safeText(
+          data.conversationId ||
+            snapshot.activeConversationId ||
+            snapshot.conversationId,
+        ),
         methodId: safeText(data.methodId),
       });
       return;
     }
     if (action === "set-mode") {
-      sendAction("set-mode", { modeId: safeText(data.modeId || data.value) });
+      sendAction("set-mode", {
+        modeId: safeText(data.modeId || data.value),
+        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+        conversationId: safeText(
+          snapshot.activeConversationId || snapshot.conversationId,
+        ),
+      });
       return;
     }
     if (action === "set-model") {
       sendAction("set-model", {
         modelId: safeText(data.modelId || data.value),
+        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+        conversationId: safeText(
+          snapshot.activeConversationId || snapshot.conversationId,
+        ),
       });
       return;
     }
     if (action === "set-reasoning-effort") {
       sendAction("set-reasoning-effort", {
         effortId: safeText(data.effortId || data.value),
+        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+        conversationId: safeText(
+          snapshot.activeConversationId || snapshot.conversationId,
+        ),
       });
       return;
     }
     if (action === "send-prompt") {
       const message = safeText(data.message);
-      if (message) sendAction("send-prompt", { message });
+      if (message)
+        sendAction("send-prompt", {
+          message,
+          backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+          conversationId: safeText(
+            snapshot.activeConversationId || snapshot.conversationId,
+          ),
+        });
       return;
     }
     if (action === "cancel") {
-      sendAction("cancel", {});
+      sendAction("cancel", {
+        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+        conversationId: safeText(
+          snapshot.activeConversationId || snapshot.conversationId,
+        ),
+      });
       return;
     }
     if (action === "set-chat-display-mode") {
       state.chatDisplayMode = data.mode === "bubble" ? "bubble" : "plain";
-      sendAction("set-chat-display-mode", { mode: state.chatDisplayMode });
+      sendAction("set-chat-display-mode", {
+        mode: state.chatDisplayMode,
+        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
+        conversationId: safeText(
+          snapshot.activeConversationId || snapshot.conversationId,
+        ),
+      });
       render(snapshot);
       return;
     }
@@ -511,13 +428,23 @@
   }
 
   function renderPanel(snapshot) {
+    const renderKey = compactPanelRenderKey(snapshot || {});
+    if (state.panelRenderKey === renderKey) {
+      syncDrawerVisibility();
+      return;
+    }
     const renderer = assistantPanelRenderer();
     if (
       !renderer ||
       typeof renderer.renderAssistantPanelSnapshot !== "function"
     )
       return;
-    const panelSnapshot = projectPanelSnapshot(snapshot || {});
+    state.panelRenderKey = renderKey;
+    const panelSnapshot = projectPanelSnapshot(
+      Object.assign({}, snapshot || {}, {
+        pendingAction: state.pendingAction,
+      }),
+    );
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
@@ -551,6 +478,10 @@
         details: document.getElementById("acp-chat-details"),
       },
     });
+    syncDrawerVisibility();
+  }
+
+  function syncDrawerVisibility() {
     document
       .getElementById("acp-chat-drawer")
       ?.classList.toggle("hidden", !state.sessionDrawerOpen);
@@ -560,37 +491,54 @@
   }
 
   function renderTranscript(snapshot) {
-    const backendId = safeText(snapshot && snapshot.backendId);
-    const conversationId = safeText(snapshot && snapshot.conversationId);
+    const backendId = safeText(
+      snapshot && (snapshot.activeBackendId || snapshot.backendId),
+    );
+    const conversationId = safeText(
+      snapshot && (snapshot.activeConversationId || snapshot.conversationId),
+    );
     if (
       backendId !== state.transcriptBackendId ||
       conversationId !== state.transcriptConversationId
     ) {
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
-      resetTranscriptCache();
+      resetTranscriptRenderState();
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
+    }
+    const transcriptState =
+      snapshot && snapshot.transcriptState ? snapshot.transcriptState : null;
+    if (
+      transcriptState &&
+      safeText(transcriptState.backendId) === backendId &&
+      safeText(transcriptState.conversationId) === conversationId &&
+      transcriptState.state === "loading"
+    ) {
+      clear(transcriptEl);
+      transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
+      return;
+    }
+    if (
+      transcriptState &&
+      safeText(transcriptState.backendId) === backendId &&
+      safeText(transcriptState.conversationId) === conversationId &&
+      transcriptState.state === "failed"
+    ) {
+      clear(transcriptEl);
+      transcriptEl.appendChild(
+        el(
+          "div",
+          "acp-chat-transcript-error asst-empty-state compact",
+          safeText(transcriptState.error) || "Transcript failed to load.",
+        ),
+      );
+      return;
     }
     const view = projectConversationView(snapshot || {});
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    const revision = Math.max(
-      Number(snapshot && snapshot.transcriptRevision) || 0,
-      Number(state.transcriptLoadedRevision) || 0,
-    );
-    const shouldRequestTail =
-      conversationId &&
-      (state.transcriptLoadedRevision === null ||
-        state.transcriptNextCursor === null);
-    if (
-      shouldRequestTail &&
-      state.transcriptLoadedRevision !==
-        (Number(snapshot && snapshot.transcriptRevision) || 0) &&
-      !state.transcriptLoadingKey
-    ) {
-      requestTranscriptPage(snapshot, undefined);
-    }
+    const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
     if (
       state.transcriptRevision === revision &&
       state.transcriptRenderedMode === mode
@@ -657,18 +605,6 @@
         state.transcriptRenderedMode = mode;
       },
     });
-    if (state.transcriptPrevCursor !== null) {
-      const button = el(
-        "button",
-        "asst-button assistant-transcript-load-earlier",
-        "Load earlier",
-      );
-      button.type = "button";
-      button.addEventListener("click", function () {
-        requestTranscriptPage(snapshot, state.transcriptPrevCursor);
-      });
-      transcriptEl.insertBefore(button, transcriptEl.firstChild);
-    }
   }
 
   function render(snapshot) {
@@ -733,16 +669,9 @@
     if (!data) return;
     const payload =
       data.payload && typeof data.payload === "object" ? data.payload : {};
-    if (data && data.type === "acp:transcript-page") {
-      handleTranscriptPage(payload);
-      return;
-    }
-    if (data && data.type === "acp:transcript-delta") {
-      handleTranscriptDeltas(payload);
-      return;
-    }
     if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
       return;
+    state.pendingAction = null;
     queueRender(payload);
   });
 

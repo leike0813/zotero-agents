@@ -37,7 +37,6 @@ import {
   readAcpSkillRunTranscriptPage as readTranscriptRuntimePage,
   rebuildAcpSkillRunTranscriptIndex,
 } from "../../src/modules/acpSkillRunTranscriptStore";
-import { appendBoundedTranscriptDelta } from "../../src/modules/assistantWorkspaceSidebar";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -154,55 +153,6 @@ describe("ACP runtime memory governance", function () {
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
-  });
-
-  it("bounds live transcript delta batches with explicit resync sentinels", function () {
-    let batch:
-      | Array<{
-          backendId: string;
-          conversationId: string;
-          eventSeq: number;
-          transcriptRevision: number;
-          op: "append_text";
-          itemId: string;
-          text?: string;
-          patch?: Record<string, unknown>;
-          item?: Record<string, unknown>;
-          createdAt: string;
-          resyncRequired?: boolean;
-        }>
-      | undefined;
-    for (let index = 0; index <= 200; index += 1) {
-      batch = appendBoundedTranscriptDelta(batch, {
-        backendId: "acp-opencode",
-        conversationId: "conversation-overflow",
-        eventSeq: index + 1,
-        transcriptRevision: index + 1,
-        op: "append_text",
-        itemId: "assistant-1",
-        text: String(index),
-        createdAt: "2026-07-03T00:00:00.000Z",
-      });
-    }
-
-    assert.lengthOf(batch || [], 1);
-    assert.equal(batch?.[0]?.resyncRequired, true);
-    assert.equal(batch?.[0]?.eventSeq, 201);
-    assert.notProperty(batch?.[0] || {}, "text");
-
-    const large = appendBoundedTranscriptDelta(undefined, {
-      backendId: "acp-opencode",
-      conversationId: "conversation-overflow",
-      eventSeq: 202,
-      transcriptRevision: 202,
-      op: "append_text" as const,
-      itemId: "assistant-1",
-      text: "x".repeat(70 * 1024),
-      createdAt: "2026-07-03T00:00:00.000Z",
-    });
-    assert.lengthOf(large, 1);
-    assert.equal(large[0].resyncRequired, true);
-    assert.notProperty(large[0], "text");
   });
 
   it("indexes ACP chat plan transcript previews through the shared JSONL store", async function () {

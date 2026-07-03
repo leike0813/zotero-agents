@@ -188,18 +188,21 @@ let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesClearer:
   | ((domain: string, preservedRowScopes: string[]) => number)
   | null = null;
+let acpConversationRecordsClearer: (() => number) | null = null;
 let pluginTaskScopeClearer: ((domain: string, scope: string) => number) | null =
   null;
 let pluginTaskDomainCounter: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesCounter:
   | ((domain: string, preservedRowScopes: string[]) => number)
   | null = null;
+let acpConversationRecordsCounter: (() => number) | null = null;
 let pluginTaskScopeCounter: ((domain: string, scope: string) => number) | null =
   null;
 let pluginTaskDomainByteEstimator: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesByteEstimator:
   | ((domain: string, preservedRowScopes: string[]) => number)
   | null = null;
+let acpConversationRecordsByteEstimator: (() => number) | null = null;
 let pluginTaskScopeByteEstimator:
   | ((domain: string, scope: string) => number)
   | null = null;
@@ -236,6 +239,12 @@ export function registerPluginTaskDomainExceptRowScopesClearer(
   pluginTaskDomainExceptRowScopesClearer = clearer;
 }
 
+export function registerAcpConversationRecordsClearer(
+  clearer: (() => number) | null,
+) {
+  acpConversationRecordsClearer = clearer;
+}
+
 export function registerPluginTaskScopeClearer(
   clearer: ((domain: string, scope: string) => number) | null,
 ) {
@@ -254,6 +263,12 @@ export function registerPluginTaskDomainExceptRowScopesCounter(
   pluginTaskDomainExceptRowScopesCounter = counter;
 }
 
+export function registerAcpConversationRecordsCounter(
+  counter: (() => number) | null,
+) {
+  acpConversationRecordsCounter = counter;
+}
+
 export function registerPluginTaskScopeCounter(
   counter: ((domain: string, scope: string) => number) | null,
 ) {
@@ -270,6 +285,12 @@ export function registerPluginTaskDomainExceptRowScopesByteEstimator(
   estimator: ((domain: string, preservedRowScopes: string[]) => number) | null,
 ) {
   pluginTaskDomainExceptRowScopesByteEstimator = estimator;
+}
+
+export function registerAcpConversationRecordsByteEstimator(
+  estimator: (() => number) | null,
+) {
+  acpConversationRecordsByteEstimator = estimator;
 }
 
 export function registerPluginTaskScopeByteEstimator(
@@ -662,37 +683,10 @@ function resolvePlatformDataRoot() {
     return joinPath(zoteroDataDir, INTERNAL_APP_DIR_NAME);
   }
 
-  const platform = getPlatform();
-  if (platform === "win32") {
-    const localAppData =
-      readEnv("LOCALAPPDATA") ||
-      readEnv("LocalAppData") ||
-      readEnv("APPDATA") ||
-      readEnv("AppData");
-    if (localAppData) {
-      return joinPath(localAppData, INTERNAL_APP_DIR_NAME);
-    }
-  }
-
-  if (platform === "darwin") {
-    const home = readEnv("HOME") || readEnv("Home");
-    if (home) {
-      return joinPath(
-        home,
-        "Library",
-        "Application Support",
-        INTERNAL_APP_DIR_NAME,
-      );
-    }
-  }
-
-  const xdgDataHome = readEnv("XDG_DATA_HOME");
-  if (xdgDataHome) {
-    return joinPath(xdgDataHome, INTERNAL_APP_DIR_NAME);
-  }
-  const home = readEnv("HOME") || readEnv("Home") || readEnv("USERPROFILE");
-  if (home) {
-    return joinPath(home, ".local", "share", INTERNAL_APP_DIR_NAME);
+  const tempRoot =
+    readEnv("TMPDIR") || readEnv("TEMP") || readEnv("TMP") || readEnv("Temp");
+  if (tempRoot) {
+    return joinPath(tempRoot, INTERNAL_APP_DIR_NAME);
   }
 
   return joinPath(getRuntimeCwd(), ".zotero-agents");
@@ -1660,9 +1654,12 @@ export async function scanRuntimePersistenceUsage(
       path: paths.acpChatRoot,
       cleanable: true,
       recordCount: () =>
-        pluginTaskDomainExceptRowScopesCounter?.("acp", ["skill-runs"]) || 0,
+        acpConversationRecordsCounter?.() ??
+        pluginTaskDomainExceptRowScopesCounter?.("acp", ["skill-runs"]) ??
+        0,
       recordBytes: () =>
-        pluginTaskDomainExceptRowScopesByteEstimator?.("acp", ["skill-runs"]) ||
+        acpConversationRecordsByteEstimator?.() ??
+        pluginTaskDomainExceptRowScopesByteEstimator?.("acp", ["skill-runs"]) ??
         0,
       fileBacked: true,
     },
@@ -1790,7 +1787,9 @@ export async function cleanupRuntimePersistenceCategory(
     details.legacyRowsDeleted = legacyRowsDeleted;
   } else if (category === "acp-conversations") {
     details.rowsDeleted =
-      pluginTaskDomainExceptRowScopesClearer?.("acp", ["skill-runs"]) || 0;
+      acpConversationRecordsClearer?.() ??
+      pluginTaskDomainExceptRowScopesClearer?.("acp", ["skill-runs"]) ??
+      0;
     await removeAndTrack(paths.acpChatRoot);
   } else if (category === "acp-skill-runs") {
     const runRowsDeleted = pluginRunStoreClearer?.("acp") || 0;

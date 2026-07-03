@@ -691,6 +691,26 @@ export async function readAcpSkillRunTranscriptPage(args: {
   };
 }
 
+export async function readAcpSkillRunTranscriptItems(args: {
+  runtimeDir?: string;
+}): Promise<{
+  items: AcpSkillRunTranscriptItem[];
+  eventSeq: number;
+  total: number;
+}> {
+  const paths = resolveAcpSkillRunTranscriptPaths(args.runtimeDir);
+  if (!paths.transcriptPath) {
+    return { items: [], eventSeq: 0, total: 0 };
+  }
+  const entries = await readTranscriptEventsWithOffsets(paths.transcriptPath);
+  const folded = foldTranscriptEvents(entries.map((entry) => entry.event));
+  return {
+    items: folded.items,
+    eventSeq: folded.eventSeq,
+    total: folded.items.length,
+  };
+}
+
 export async function rebuildAcpSkillRunTranscriptIndex(
   args: {
     runtimeDir?: string;

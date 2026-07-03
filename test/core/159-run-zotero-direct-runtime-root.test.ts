@@ -13,7 +13,7 @@ import {
 } from "../../scripts/run-zotero-start-with-mock";
 
 describe("run-zotero-direct runtime root safety", function () {
-  it("uses the configured Zotero data dir before the generic local-app-data fallback", function () {
+  it("uses the configured Zotero data dir before the temporary fallback", function () {
     const env = {
       ZOTERO_PLUGIN_DATA_DIR:
         "D:\\Workspace\\Artifact\\Zotero-Skills\\Zotero_data",
@@ -33,9 +33,10 @@ describe("run-zotero-direct runtime root safety", function () {
     assert.equal(launchEnv.ZOTERO_SKILLS_RUNTIME_ROOT, runtimeRoot);
   });
 
-  it("sets a project-external runtime root when no data dir is provided", function () {
+  it("sets a temp-scoped runtime root when no data dir is provided", function () {
     const env = {
       LOCALAPPDATA: "C:\\Users\\leike\\AppData\\Local",
+      TEMP: "D:\\Temp",
     } as NodeJS.ProcessEnv;
 
     const runtimeRoot = resolveDirectRuntimeRoot(env);
@@ -43,12 +44,13 @@ describe("run-zotero-direct runtime root safety", function () {
 
     assert.equal(
       runtimeRoot,
-      path.resolve(
-        "C:\\Users\\leike\\AppData\\Local",
-        "Zotero-Agents-Direct-Runtime",
-      ),
+      path.resolve("D:\\Temp", "Zotero-Agents-Direct-Runtime"),
     );
     assert.equal(launchEnv.ZOTERO_SKILLS_RUNTIME_ROOT, runtimeRoot);
+    assert.notInclude(
+      runtimeRoot.replace(/\\/g, "/").toLowerCase(),
+      "appdata/local",
+    );
     assert.notInclude(
       runtimeRoot.replace(/\\/g, "/").toLowerCase(),
       "workspace/code/javascript/zotero-skills",

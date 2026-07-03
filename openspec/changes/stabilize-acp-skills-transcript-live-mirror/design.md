@@ -29,6 +29,8 @@ Transcript events keep their JSONL representation. The store assigns the event s
 
 Cold UI hydrate flushes only the selected run's transcript batch before reading JSONL. Global runtime file flush remains reserved for shutdown, recovery barriers, and tests.
 
+Output convergence reads the current prompt's assistant text from a prompt-lifetime accumulator. The runner does not write a secondary `turns/*.assistant.txt` or `tmp/acp-skill-turns` capture beside the transcript JSONL.
+
 ## Rejected Approaches
 
 The previous per-path read queue tried to make JSONL reads consistent while writes were still active. That still kept disk IO in the live rendering path and did not remove races between stale pages and live deltas. The live path is now memory-first.

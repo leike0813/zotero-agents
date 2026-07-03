@@ -162,6 +162,86 @@ describe("zotero test infrastructure helpers", function () {
         ).includes("--verbose"),
       );
     });
+
+    it("provides a temp-scoped Zotero data dir without overriding runtime root", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:node:raw:core", "lite", "core"],
+        {},
+      );
+      const env = buildTestEnvironment(invocation, {});
+      const dataDir = String(env.ZOTERO_TEST_DATA_DIR || "");
+
+      assert.include(
+        dataDir,
+        path.join(os.tmpdir(), "zotero-agents-test-data-"),
+      );
+      assert.match(dataDir.replace(/\\/g, "/"), /\/Zotero_data$/);
+      assert.equal(env.ZOTERO_SKILLS_RUNTIME_ROOT, undefined);
+      assert.equal(env.ZOTERO_TEST_DATA_DIR_MANAGED, "1");
+    });
+
+    it("preserves caller-provided test data dir", function () {
+      const invocation = parseWrappedTestInvocation(
+        ["test:node:raw:core", "lite", "core"],
+        {},
+      );
+      const provided = path.join(os.tmpdir(), "provided-zotero-data");
+      const env = buildTestEnvironment(invocation, {
+        ZOTERO_TEST_DATA_DIR: provided,
+      });
+
+      assert.equal(env.ZOTERO_TEST_DATA_DIR, provided);
+      assert.equal(env.ZOTERO_TEST_DATA_DIR_MANAGED, undefined);
+    });
+  });
+
+  describe("mock Zotero data directory", function () {
+    it("defaults DataDirectory to the temp-scoped test root", function () {
+      const runtime = globalThis as {
+        Zotero?: { DataDirectory?: { dir?: string } };
+      };
+      const dataDir = String(runtime.Zotero?.DataDirectory?.dir || "");
+
+      assert.isNotEmpty(dataDir);
+      assert.include(
+        path.resolve(dataDir).toLowerCase(),
+        path.resolve(os.tmpdir()).toLowerCase(),
+      );
+      assert.notEqual(
+        path.basename(path.dirname(dataDir)).toLowerCase(),
+        "zotero-agents",
+      );
+    });
+
+    it("still allows tests to override DataDirectory and runtime root", function () {
+      const runtime = globalThis as {
+        Zotero?: { DataDirectory?: { dir?: string } };
+      };
+      const previousDataDirectory = runtime.Zotero?.DataDirectory;
+      const previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      const overrideDir = path.join(os.tmpdir(), "override-zotero-data");
+      try {
+        if (runtime.Zotero) {
+          runtime.Zotero.DataDirectory = { dir: overrideDir };
+        }
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = "D:\\ExplicitRuntime";
+
+        assert.equal(runtime.Zotero?.DataDirectory?.dir, overrideDir);
+        assert.equal(
+          process.env.ZOTERO_SKILLS_RUNTIME_ROOT,
+          "D:\\ExplicitRuntime",
+        );
+      } finally {
+        if (runtime.Zotero) {
+          runtime.Zotero.DataDirectory = previousDataDirectory;
+        }
+        if (typeof previousRuntimeRoot === "undefined") {
+          delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+        } else {
+          process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
+        }
+      }
+    });
   });
 
   describe("toolkit diagnostics", function () {

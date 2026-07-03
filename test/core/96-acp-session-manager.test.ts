@@ -17,6 +17,7 @@ import {
   disconnectAcpConversation,
   getAcpFrontendSnapshot,
   getAcpConversationSnapshot,
+  getAcpConversationUiSnapshot,
   refreshAcpConversationBackends,
   readAcpConversationTranscriptPage,
   reconnectAcpConversation,
@@ -72,7 +73,6 @@ import type {
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
 import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
-import { subscribeAcpChatTranscriptDeltas } from "../../src/modules/acpConversationTranscriptStore";
 
 async function readActiveTranscriptItems(backendId = ACP_OPENCODE_BACKEND_ID) {
   const snapshot = getAcpConversationSnapshot(backendId);
@@ -641,6 +641,22 @@ async function waitForAcpConversationSnapshot(
   return snapshot;
 }
 
+async function waitForAcpConversationUiSnapshot(
+  predicate: (
+    snapshot: ReturnType<typeof getAcpConversationUiSnapshot>,
+  ) => boolean,
+) {
+  let snapshot = getAcpConversationUiSnapshot();
+  for (let index = 0; index < 40; index += 1) {
+    if (predicate(snapshot)) {
+      return snapshot;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    snapshot = getAcpConversationUiSnapshot();
+  }
+  return snapshot;
+}
+
 describe("acp session manager", function () {
   let lastAdapter: FakeAcpConnectionAdapter | null;
   let lastFactoryArgs: AcpConnectionAdapterFactoryArgs | null;
@@ -696,6 +712,23 @@ describe("acp session manager", function () {
     assert.equal(snapshot.backendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(snapshot.backend?.id, ACP_OPENCODE_BACKEND_ID);
     assert.isNull(lastAdapter);
+  });
+
+  it("names ACP Chat runtime state by session identity and hydrates from full JSONL reads", async function () {
+    const source = await fs.readFile(
+      path.join(process.cwd(), "src/modules/acpSessionManager.ts"),
+      "utf8",
+    );
+    assert.include(source, "AcpChatSessionRuntime");
+    assert.include(source, "sessionRuntimes");
+    assert.include(source, "getOrCreateSessionRuntime");
+    assert.include(source, "readFullAcpChatTranscript");
+    assert.include(source, "transcriptMirrorReleasePromise");
+    assert.include(source, "sessionRuntime.transcriptWrites.size > 0");
+    assert.notInclude(source, "AcpSessionSlot");
+    assert.notInclude(source, "getOrCreateSlot");
+    assert.notInclude(source, "const slots");
+    assert.notInclude(source, "while (typeof cursor === \"number\")");
   });
 
   it("projects all configured ACP backends with display names for ACP chat selectors", async function () {
@@ -1093,7 +1126,7 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     const requestId = `conversation:${snapshot.backendId}:${snapshot.conversationId}`;
     let entry = getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
-    assert.equal(entry?.state, "connected");
+    assert.equal(entry?.state, "idle");
 
     await shutdownAcpSessionManager();
 
@@ -1751,7 +1784,7 @@ describe("acp session manager", function () {
     }
   });
 
-  it("keeps parallel ACP backend slots isolated and routes actions to the active backend", async function () {
+  it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
       JSON.stringify({
@@ -1988,6 +2021,157 @@ describe("acp session manager", function () {
     assert.isAtLeast(listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).length, 2);
   });
 
+  it("keeps same-backend sessions independent while one session is prompting", async function () {
+    let releaseFirstPrompt: (() => void) | null = null;
+    const adapters: FakeAcpConnectionAdapter[] = [];
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      const adapter = new FakeAcpConnectionAdapter();
+      if (adapters.length === 0) {
+        adapter.holdPromptUntil = new Promise<void>((resolve) => {
+          releaseFirstPrompt = resolve;
+        });
+      }
+      adapters.push(adapter);
+      return adapter;
+    });
+
+    const firstPrompt = sendAcpConversationPrompt({
+      message: "Long first session",
+    }).catch((error) => error);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (getAcpConversationSnapshot().busy) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const firstConversationId = getAcpConversationSnapshot().conversationId;
+    assert.isTrue(getAcpConversationSnapshot().busy);
+
+    await startNewAcpConversation();
+    const secondConversationId = getAcpConversationSnapshot().conversationId;
+    assert.notEqual(secondConversationId, firstConversationId);
+    assert.equal(
+      getAcpConversationSnapshot(
+        ACP_OPENCODE_BACKEND_ID,
+        firstConversationId,
+      ).status,
+      "prompting",
+    );
+
+    await connectAcpConversation({ conversationId: secondConversationId });
+    assert.lengthOf(adapters, 2);
+    assert.equal(adapters[0].closeCalls, 0);
+    assert.equal(adapters[1].closeCalls, 0);
+    assert.equal(getAcpConversationSnapshot().status, "connected");
+
+    await setActiveAcpConversation({ conversationId: firstConversationId });
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      firstConversationId,
+    );
+    assert.equal(getAcpConversationSnapshot().status, "prompting");
+
+    releaseFirstPrompt?.();
+    const result = await firstPrompt;
+    assert.notInstanceOf(result, Error);
+    assert.include(adapters[0].prompts, "Long first session");
+    assert.equal(adapters[1].closeCalls, 0);
+  });
+
+  it("hydrates a cold selected ACP chat conversation into the foreground snapshot", async function () {
+    await sendAcpConversationPrompt({
+      message: "Cold hydrate chat transcript",
+    });
+    const previousConversationId = getAcpConversationSnapshot().conversationId;
+
+    await startNewAcpConversation();
+    assert.lengthOf(getAcpConversationUiSnapshot().items, 0);
+
+    await setActiveAcpConversation({ conversationId: previousConversationId });
+    const initial = getAcpConversationUiSnapshot();
+    assert.include(
+      ["loading", "ready"],
+      initial.transcriptState?.state || "ready",
+    );
+
+    const ready = await waitForAcpConversationUiSnapshot((snapshot) =>
+      snapshot.items.some(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "user" &&
+          entry.text === "Cold hydrate chat transcript",
+      ),
+    );
+    assert.equal(ready.transcriptState?.state, "ready");
+    assert.isTrue(
+      ready.items.some(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.text.length > 0,
+      ),
+    );
+  });
+
+  it("keeps backend summary state separate from a foreground idle ACP chat session", async function () {
+    await sendAcpConversationPrompt({
+      message: "Backend summary stays live",
+    });
+    const liveConversationId = getAcpConversationSnapshot().conversationId;
+
+    await startNewAcpConversation();
+    const foreground = getAcpConversationSnapshot();
+    const frontend = getAcpFrontendSnapshot();
+    const backendSummary = frontend.backends.find(
+      (entry) => entry.backendId === ACP_OPENCODE_BACKEND_ID,
+    );
+
+    assert.notEqual(foreground.conversationId, liveConversationId);
+    assert.equal(foreground.status, "idle");
+    assert.equal(foreground.sessionId, "");
+    assert.equal(frontend.activeSnapshot.status, "idle");
+    assert.equal(frontend.activeSnapshot.sessionId, "");
+    assert.equal(backendSummary?.connected, true);
+  });
+
+  it("keeps the foreground transcript after disconnect and hydrates it after switching away and back", async function () {
+    await sendAcpConversationPrompt({
+      message: "Disconnect hydrate transcript",
+    });
+    const firstConversationId = getAcpConversationSnapshot().conversationId;
+
+    await disconnectAcpConversation({ conversationId: firstConversationId });
+    const disconnected = getAcpConversationUiSnapshot();
+    assert.equal(disconnected.conversationId, firstConversationId);
+    assert.equal(disconnected.status, "idle");
+    assert.equal(disconnected.transcriptState?.state, "ready");
+    assert.isTrue(
+      disconnected.items.some(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "user" &&
+          entry.text === "Disconnect hydrate transcript",
+      ),
+    );
+
+    await startNewAcpConversation();
+    await setActiveAcpConversation({ conversationId: firstConversationId });
+    const loading = getAcpConversationUiSnapshot();
+    assert.equal(loading.conversationId, firstConversationId);
+    assert.equal(loading.transcriptState?.state, "loading");
+    assert.lengthOf(loading.items, 0);
+
+    const ready = await waitForAcpConversationUiSnapshot((snapshot) =>
+      snapshot.items.some(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "user" &&
+          entry.text === "Disconnect hydrate transcript",
+      ),
+    );
+    assert.equal(ready.transcriptState?.state, "ready");
+  });
+
   it("switches local conversations and rebuilds the remote ACP attachment on demand", async function () {
     await sendAcpConversationPrompt({ message: "First local session" });
     const firstConversationId = getAcpConversationSnapshot().conversationId;
@@ -1996,7 +2180,7 @@ describe("acp session manager", function () {
     await startNewAcpConversation();
     const secondConversationId = getAcpConversationSnapshot().conversationId;
     assert.notEqual(secondConversationId, firstConversationId);
-    assert.equal(firstAdapter?.closeCalls, 1);
+    assert.equal(firstAdapter?.closeCalls, 0);
 
     await sendAcpConversationPrompt({ message: "Second local session" });
     assert.equal(
@@ -2013,10 +2197,10 @@ describe("acp session manager", function () {
 
     const secondAdapter = lastAdapter;
     await setActiveAcpConversation({ conversationId: firstConversationId });
-    assert.equal(secondAdapter?.closeCalls, 1);
+    assert.equal(secondAdapter?.closeCalls, 0);
     let snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.conversationId, firstConversationId);
-    assert.equal(snapshot.sessionId, "");
+    assert.equal(snapshot.sessionId, "session-1");
     assert.include(
       (await readTranscriptItemsForConversation(firstConversationId))
         .filter((entry) => entry.kind === "message")
@@ -2026,6 +2210,7 @@ describe("acp session manager", function () {
     );
 
     await sendAcpConversationPrompt({ message: "Back on first" });
+    assert.include(firstAdapter?.prompts || [], "Back on first");
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.conversationId, firstConversationId);
     assert.include(
@@ -2195,6 +2380,7 @@ describe("acp session manager", function () {
       secondConversationId,
     );
 
+    await disconnectAcpConversation({ conversationId: firstConversationId });
     await archiveAcpConversation({
       conversationId: firstConversationId,
     });
@@ -2210,6 +2396,7 @@ describe("acp session manager", function () {
       "Keep archived transcript",
     );
 
+    await disconnectAcpConversation({ conversationId: secondConversationId });
     await archiveAcpConversation({
       conversationId: secondConversationId,
     });
@@ -2224,10 +2411,18 @@ describe("acp session manager", function () {
       lastAdapter.streamingChunkCount = 100;
       return lastAdapter;
     });
-    let streamingAssistantDeltaCount = 0;
-    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
-      if (delta.op === "append_text" && delta.text) {
-        streamingAssistantDeltaCount += 1;
+    let streamingAssistantSnapshotCount = 0;
+    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
+      if (
+        snapshot.items.some(
+          (entry) =>
+            entry.kind === "message" &&
+            entry.role === "assistant" &&
+            entry.state === "streaming" &&
+            entry.text.length > 0,
+        )
+      ) {
+        streamingAssistantSnapshotCount += 1;
       }
     });
 
@@ -2241,7 +2436,13 @@ describe("acp session manager", function () {
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
-    assert.isAbove(streamingAssistantDeltaCount, 0);
+    assert.isAbove(streamingAssistantSnapshotCount, 0);
+    assert.equal(
+      getAcpConversationUiSnapshot().items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text.length,
+      100,
+    );
     assert.equal(
       (await readActiveTranscriptItems()).find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
@@ -2250,38 +2451,20 @@ describe("acp session manager", function () {
     );
   });
 
-  it("emits ACP chat first streaming chunks as text-bearing upserts", async function () {
+  it("publishes ACP chat first streaming chunks through the selected snapshot", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       lastAdapter = new FakeAcpConnectionAdapter();
       lastAdapter.streamingChunkCount = 2;
       return lastAdapter;
     });
-    const deltas: any[] = [];
-    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
-      deltas.push(delta);
-    });
-
     await sendAcpConversationPrompt({
       message: "stream two chunks",
     });
     await new Promise((resolve) => setTimeout(resolve, 120));
-    unsubscribe();
-
-    const assistantUpsert = deltas.find(
-      (delta) =>
-        delta.op === "upsert_item" &&
-        delta.item?.kind === "message" &&
-        delta.item?.role === "assistant",
+    const snapshotAssistant = getAcpConversationUiSnapshot().items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
     );
-    assert.equal(assistantUpsert?.item?.text, "0");
-    const assistantAppends = deltas.filter(
-      (delta) =>
-        delta.op === "append_text" && delta.itemId === assistantUpsert?.itemId,
-    );
-    assert.deepEqual(
-      assistantAppends.map((delta) => delta.text),
-      ["1"],
-    );
+    assert.equal(snapshotAssistant?.text, "01");
     assert.equal(
       (await readActiveTranscriptItems()).find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
@@ -2345,10 +2528,13 @@ describe("acp session manager", function () {
     });
     const partialLengths: number[] = [];
     const unsubscribe = subscribeAcpFrontendSnapshots((snapshot) => {
-      const leaked = snapshot.activeSnapshot?.items.some(
-        (entry) => entry.kind === "message" && entry.role === "assistant",
+      const leakedStreaming = snapshot.activeSnapshot?.items.some(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.state === "streaming",
       );
-      if (leaked) partialLengths.push(1);
+      if (leakedStreaming) partialLengths.push(1);
     });
 
     await sendAcpConversationPrompt({
@@ -2392,9 +2578,15 @@ describe("acp session manager", function () {
     } as any);
 
     let visible = await readActiveTranscriptItems();
-    assert.isUndefined(
+    assert.equal(
       getAcpFrontendSnapshot().activeSnapshot?.items.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
+      )?.text,
+      "held partial",
+    );
+    assert.isOk(
+      getAcpFrontendSnapshot().activeSnapshot?.items.find(
+        (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
       ),
     );
     let tool = visible.find(
@@ -2436,10 +2628,17 @@ describe("acp session manager", function () {
       lastAdapter.emitUsageAfterEachStreamingChunk = true;
       return lastAdapter;
     });
-    let chunkDeltaCount = 0;
-    const unsubscribe = subscribeAcpChatTranscriptDeltas((delta) => {
-      if (delta.op === "append_text" && delta.text) {
-        chunkDeltaCount += 1;
+    let streamingSnapshotCount = 0;
+    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
+      if (
+        snapshot.items.some(
+          (entry) =>
+            entry.kind === "message" &&
+            entry.role === "assistant" &&
+            entry.state === "streaming",
+        )
+      ) {
+        streamingSnapshotCount += 1;
       }
     });
 
@@ -2449,7 +2648,7 @@ describe("acp session manager", function () {
     await new Promise((resolve) => setTimeout(resolve, 240));
     unsubscribe();
 
-    assert.isAtLeast(chunkDeltaCount, 10);
+    assert.isAtLeast(streamingSnapshotCount, 1);
     const assistant = (await readActiveTranscriptItems()).find(
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
@@ -2678,6 +2877,20 @@ describe("acp session manager", function () {
       snapshot.diagnostics.filter((entry) => entry.kind === "stderr").length,
       1,
     );
+  });
+
+  it("treats a quiet close after an idle connected turn as disconnected idle", async function () {
+    await sendAcpConversationPrompt({
+      message: "Quiet close after connected",
+    });
+
+    lastAdapter?.emitClose();
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.status, "idle");
+    assert.equal(snapshot.busy, false);
+    assert.equal(snapshot.lastLifecycleEvent, "closed");
+    assert.equal(snapshot.lastError, "");
   });
 
   it("allows updating current mode and model for the active session", async function () {

@@ -159,6 +159,9 @@ export function buildAcpSidebarViewSnapshot(args: {
     transcriptRevision: Number(args.snapshot.transcriptRevision || 0),
     transcriptItemCount: Number(args.snapshot.transcriptItemCount || 0),
     transcriptPreview: String(args.snapshot.transcriptPreview || "").trim(),
+    transcriptState: args.snapshot.transcriptState
+      ? { ...args.snapshot.transcriptState }
+      : undefined,
     lastError,
     commandLabel: String(args.snapshot.commandLabel || "").trim(),
     commandLine: String(args.snapshot.commandLine || "").trim(),

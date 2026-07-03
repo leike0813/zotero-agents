@@ -723,6 +723,19 @@
         ),
       );
     }
+    if (token === "disconnecting") {
+      return indicator(
+        "connection",
+        label,
+        labelFrom(source, "status.disconnecting", "Disconnecting"),
+        "accent",
+        labelFrom(
+          source,
+          "indicatorTitles.acpConnectionInactive",
+          "ACP connection is not active.",
+        ),
+      );
+    }
     if (["failed", "error", "closed", "disconnected"].indexOf(token) >= 0) {
       return indicator(
         "connection",
@@ -1009,11 +1022,17 @@
   function buildSessionPickerOptions(options, activeConversationId) {
     const allOptions = (Array.isArray(options) ? options : []).map(
       function (entry) {
-        return normalizeOption(
+        const normalized = normalizeOption(
           entry,
           ["conversationId", "id", "value"],
           ["title", "label"],
         );
+        return {
+          value: safeText(normalized.value),
+          label: safeText(normalized.label),
+          conversationId: safeText(normalized.conversationId || normalized.value),
+          backendId: safeText(normalized.backendId),
+        };
       },
     );
     if (allOptions.length <= SESSION_PICKER_LIMIT) {
@@ -2397,35 +2416,75 @@
         ? helper.projectAcpChatConversationView(snap)
         : fallbackConversationView(snap.items);
     const status = normalizeStatusToken(snap.status || "idle");
+    const pendingAction = safeText(snap.pendingAction);
+    const effectiveStatus =
+      pendingAction === "connect" || pendingAction === "switching"
+        ? "connecting"
+        : pendingAction === "disconnect"
+          ? "disconnecting"
+          : status;
     const isConnecting =
-      status === "checking-command" ||
-      status === "spawning" ||
-      status === "initializing" ||
-      status === "connecting";
+      effectiveStatus === "checking-command" ||
+      effectiveStatus === "spawning" ||
+      effectiveStatus === "initializing" ||
+      effectiveStatus === "connecting";
+    const isDisconnecting = effectiveStatus === "disconnecting";
     const labels = snap.labels || {};
     const activeBackendId = safeText(snap.activeBackendId || snap.backendId);
     const activeConversationId = safeText(
       snap.activeConversationId || snap.conversationId,
     );
-    const activeBackendSummary = (
-      Array.isArray(snap.backendOptions) ? snap.backendOptions : []
-    ).find(function (entry) {
-      return (
-        safeText(entry && (entry.backendId || entry.id || entry.value)) ===
-        activeBackendId
-      );
-    });
-    const adapterConnected =
-      activeBackendSummary && activeBackendSummary.connected === true;
     const connected =
       Boolean(safeText(snap.sessionId)) ||
-      adapterConnected ||
       [
         "connected",
         "prompting",
         "permission-required",
         "auth-required",
       ].indexOf(status) >= 0;
+    const connectionState = isDisconnecting
+      ? "disconnecting"
+      : connected
+        ? "connected"
+        : isConnecting
+          ? "connecting"
+          : "disconnected";
+    function acpChatStatusLabel(token) {
+      const normalized = normalizeStatusToken(token || "idle");
+      if (normalized === "connected" || normalized === "prompting") {
+        return labelFrom(snap, "status.connected", "Connected");
+      }
+      if (
+        ["connecting", "initializing", "checking-command", "spawning"].indexOf(
+          normalized,
+        ) >= 0
+      ) {
+        return labelFrom(snap, "status.connecting", "Connecting");
+      }
+      if (normalized === "disconnecting") {
+        return labelFrom(snap, "status.disconnecting", "Disconnecting");
+      }
+      if (normalized === "auth-required") {
+        return labelFrom(snap, "status.authRequired", "Auth required");
+      }
+      if (normalized === "permission-required") {
+        return labelFrom(
+          snap,
+          "status.permissionRequired",
+          "Permission required",
+        );
+      }
+      if (["error", "failed", "closed"].indexOf(normalized) >= 0) {
+        return labelFrom(snap, "status.error", "Error");
+      }
+      return labelFrom(snap, "status.disconnected", "Disconnected");
+    }
+    function acpChatBackendOptionStatusLabel(entry) {
+      const explicitLabel = safeText(entry && entry.statusLabel);
+      if (explicitLabel) return explicitLabel;
+      const explicitStatus = safeText(entry && entry.status);
+      return explicitStatus ? acpChatStatusLabel(explicitStatus) : "";
+    }
     const backendOptions = (
       Array.isArray(snap.backendOptions) ? snap.backendOptions : []
     ).map(function (entry) {
@@ -2434,10 +2493,18 @@
         ["backendId", "id", "value"],
         ["displayName", "label", "backendId"],
       );
-      normalized.label =
-        normalized.label +
-        (entry && entry.status ? " · " + safeText(entry.status) : "");
-      return normalized;
+      const value = safeText(normalized.value);
+      const backendId = safeText(normalized.backendId || normalized.value);
+      const baseLabel = safeText(normalized.label) || backendId || value;
+      const optionStatusLabel = acpChatBackendOptionStatusLabel(entry);
+      return {
+        value,
+        label: optionStatusLabel
+          ? baseLabel + " · " + optionStatusLabel
+          : baseLabel,
+        backendId,
+        rawLabel: baseLabel,
+      };
     });
     const sessionOptions = buildSessionPickerOptions(
       Array.isArray(snap.chatSessions) ? snap.chatSessions : [],
@@ -2461,17 +2528,13 @@
         : [{ id: "default", label: "Default" }];
     const effectiveReasoning =
       snap.currentReasoningEffort || effectiveReasoningOptions[0];
-    const runtimeControlsAvailable = connected && !isConnecting;
+    const runtimeControlsAvailable =
+      connected && !isConnecting && !isDisconnecting;
     const promptBusy = snap.busy === true;
     const connectionOnlyStatus =
       ["checking-command", "spawning", "initializing", "connecting"].indexOf(
-        status,
+        effectiveStatus,
       ) >= 0;
-    const connectionState = connected
-      ? "connected"
-      : isConnecting
-        ? "connecting"
-        : "disconnected";
     const interaction = buildAcpPermissionInteraction(
       snap,
       connectionOnlyStatus ? { kind: "hidden" } : conversation.interaction,
@@ -2479,7 +2542,10 @@
     const backendLabelById = {};
     backendOptions.forEach(function (entry) {
       const id = safeText(entry && entry.value);
-      if (id) backendLabelById[id] = safeText(entry && entry.label) || id;
+      if (id) {
+        backendLabelById[id] =
+          safeText(entry && (entry.rawLabel || entry.label)) || id;
+      }
     });
     function acpChatConversationTask(entry) {
       const conversationId = safeText(
@@ -2492,8 +2558,13 @@
         backendId ||
         "Backend";
       const statusText = safeText(entry && entry.status) || "idle";
+      const normalizedTaskStatus = normalizeStatusToken(statusText);
+      const canArchive =
+        normalizedTaskStatus === "idle" ||
+        normalizedTaskStatus === "disconnected";
+      const taskKey = [backendId, conversationId].filter(Boolean).join(":");
       return {
-        key: conversationId,
+        key: taskKey || conversationId,
         conversationId,
         action: "set-active-conversation",
         payload: { conversationId, backendId },
@@ -2515,7 +2586,9 @@
         selectable: Boolean(conversationId),
         terminal: false,
         active: Boolean(
-          conversationId && conversationId === activeConversationId,
+          conversationId &&
+            conversationId === activeConversationId &&
+            backendId === activeBackendId,
         ),
         itemActions: conversationId
           ? [
@@ -2523,7 +2596,7 @@
                 "archive-conversation",
                 labels.archiveConversation || "归档",
                 { conversationId, backendId },
-                true,
+                canArchive,
               ),
             ]
           : [],
@@ -2531,9 +2604,35 @@
     }
     function acpChatDrawerSections() {
       const groups = {};
-      (Array.isArray(snap.chatSessions) ? snap.chatSessions : []).forEach(
-        function (entry) {
-          const task = acpChatConversationTask(entry);
+      const sessionGroups =
+        Array.isArray(snap.backendChatSessions) &&
+        snap.backendChatSessions.length
+          ? snap.backendChatSessions
+          : [
+              {
+                backendId: activeBackendId,
+                displayName: backendLabelById[activeBackendId] || activeBackendId,
+                sessions: Array.isArray(snap.chatSessions)
+                  ? snap.chatSessions
+                  : [],
+              },
+            ];
+      sessionGroups.forEach(function (backendGroup) {
+        const backendId = safeText(backendGroup && backendGroup.backendId);
+        const backendDisplayName =
+          safeText(backendGroup && backendGroup.displayName) ||
+          backendLabelById[backendId] ||
+          backendId ||
+          "Backend";
+        (Array.isArray(backendGroup && backendGroup.sessions)
+          ? backendGroup.sessions
+          : []
+        ).forEach(function (entry) {
+          const task = acpChatConversationTask({
+            ...(entry || {}),
+            backendId,
+            backendDisplayName,
+          });
           const groupKey =
             safeText(task.backendId || task.backendDisplayName) || "default";
           if (!groups[groupKey]) {
@@ -2546,8 +2645,8 @@
             };
           }
           groups[groupKey].activeTasks.push(task);
-        },
-      );
+        });
+      });
       return [
         {
           id: "sessions",
@@ -2569,8 +2668,8 @@
         ),
         title: safeText(snap.title) || "ACP Chat",
         subtitle: safeText(snap.labels && snap.labels.subtitle),
-        status,
-        statusLabel: safeText(snap.statusLabel) || status,
+        status: effectiveStatus,
+        statusLabel: safeText(snap.statusLabel) || acpChatStatusLabel(effectiveStatus),
         backendId: safeText(snap.activeBackendId || snap.backendId),
         backendLabel: safeText(snap.backendLabel || snap.agentLabel),
         sessionId: safeText(snap.sessionId || snap.remoteSessionId),
@@ -2593,11 +2692,6 @@
             ),
             snap.agentWorkspaceDir || snap.sessionCwd,
             "workspace",
-          ),
-          metadataItem(
-            labelFrom(snap, "fields.updated", labels.updated || "Updated"),
-            snap.updatedAt,
-            "updatedAt",
           ),
         ]),
         indicators: [
@@ -2639,27 +2733,33 @@
             {
               backendId: activeBackendId,
             },
-            snap.busy !== true,
+            true,
           ),
           contextAction(
             "connect",
-            labels.connect || "Connect",
+            pendingAction === "connect" || pendingAction === "switching"
+              ? labelFrom(snap, "actions.connecting", "Connecting...")
+              : labels.connect || "Connect",
             {
               backendId: activeBackendId,
+              conversationId: activeConversationId,
             },
-            !connected && !isConnecting,
+            !connected && !isConnecting && !isDisconnecting,
           ),
           contextAction(
             "disconnect",
-            labels.disconnect || "Disconnect",
-            { backendId: activeBackendId },
-            connected && !isConnecting,
+            pendingAction === "disconnect"
+              ? labelFrom(snap, "actions.disconnecting", "Disconnecting...")
+              : labels.disconnect || "Disconnect",
+            { backendId: activeBackendId, conversationId: activeConversationId },
+            connected && !isConnecting && !isDisconnecting,
           ),
           contextAction(
             "authenticate",
             labels.authenticate || "Authenticate",
             {
               backendId: activeBackendId,
+              conversationId: activeConversationId,
               methodId:
                 hasAuth && authMethods[0] ? safeText(authMethods[0].id) : "",
             },
@@ -2669,7 +2769,7 @@
       },
       lifecycle: {
         connectionState,
-        executionState: status,
+        executionState: effectiveStatus,
         replyState: snap.busy === true ? "sending" : "idle",
         terminal: false,
       },
@@ -2678,8 +2778,8 @@
       interaction,
       usage: conversation.usage || snap.usage || null,
       reply: {
-        enabled: !isConnecting,
-        inputEnabled: !isConnecting && snap.busy !== true,
+        enabled: !isConnecting && !isDisconnecting,
+        inputEnabled: !isConnecting && !isDisconnecting && snap.busy !== true,
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
           labelFrom(
@@ -2770,24 +2870,38 @@
         contextTitle: labels.sessionManager || "Sessions",
         detailsTitle: labels.diagnostics || "Details",
         labels: assistantDrawerLabels(snap),
-        contexts: (Array.isArray(snap.chatSessions)
-          ? snap.chatSessions
+        contexts: (Array.isArray(snap.backendChatSessions)
+          ? snap.backendChatSessions
           : []
-        ).map(function (entry) {
-          return {
-            title: safeText(entry.title) || "Conversation",
-            action: "set-active-conversation",
-            payload: {
-              conversationId: safeText(entry.conversationId),
-              backendId: safeText(entry.backendId || activeBackendId),
-            },
-            conversationId: safeText(entry.conversationId),
-            backendId: safeText(entry.backendId || activeBackendId),
-            status: safeText(entry.status),
-          };
+        ).flatMap(function (backendGroup) {
+          const backendId = safeText(backendGroup && backendGroup.backendId);
+          const backendDisplayName =
+            safeText(backendGroup && backendGroup.displayName) ||
+            backendLabelById[backendId] ||
+            backendId;
+          return (Array.isArray(backendGroup && backendGroup.sessions)
+            ? backendGroup.sessions
+            : []
+          ).map(function (entry) {
+            const conversationId = safeText(entry.conversationId);
+            return {
+              title: safeText(entry.title) || "Conversation",
+              action: "set-active-conversation",
+              payload: {
+                conversationId,
+                backendId,
+              },
+              conversationId,
+              backendId,
+              backendDisplayName,
+              status: safeText(entry.status),
+            };
+          });
         }),
         sections: acpChatDrawerSections(),
-        selectedTaskKey: activeConversationId,
+        selectedTaskKey: [activeBackendId, activeConversationId]
+          .filter(Boolean)
+          .join(":"),
         details: buildAcpChatDetails(snap),
       },
       raw: snap,
