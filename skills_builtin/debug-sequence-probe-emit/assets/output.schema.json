@@ -11,8 +11,8 @@
   ],
   "properties": {
     "kind": { "const": "debug_sequence_probe_result" },
-    "probe_id": { "type": "string", "minLength": 1 },
-    "status": { "enum": ["ok", "failed"] },
+    "probe_id": { "type": "string", "minLength": 1, "description": "Identifier for this probe run." },
+    "status": { "enum": ["ok", "failed"], "description": "Execution status of this run." },
     "public_marker": { "type": "string" },
     "secret_marker": { "type": "string" },
     "sentinel_path": { "type": "string" },
@@ -22,8 +22,8 @@
       "x-role": "sequence-file-handoff-artifact"
     },
     "workspace_cwd": { "type": "string" },
-    "checks": { "type": "array", "items": { "type": "object" } },
-    "diagnostics": { "type": "array", "items": { "type": "object" } }
+    "checks": { "type": "array", "items": { "type": "object" }, "description": "Array of validation check results." },
+    "diagnostics": { "type": "array", "items": { "type": "object" }, "description": "Diagnostic information. May be an empty array." }
   },
   "additionalProperties": true
 }

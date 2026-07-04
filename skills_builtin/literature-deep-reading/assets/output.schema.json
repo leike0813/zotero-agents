@@ -20,6 +20,7 @@
         "diagnostics_path": {
           "type": "string",
           "minLength": 1,
+          "description": "Path to the diagnostics artifact file.",
           "x-type": "artifact",
           "x-role": "diagnostics"
         },
@@ -27,22 +28,26 @@
         "html_path": {
           "type": "string",
           "minLength": 1,
+          "description": "Path to the final deep-reading HTML output.",
           "x-type": "artifact",
           "x-role": "deep-reading-html"
         },
         "artifact_manifest_path": {
           "type": "string",
           "minLength": 1,
+          "description": "Path to the artifact manifest file.",
           "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         },
         "warnings": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "description": "Non-fatal warning messages. Empty array when none."
         },
         "error": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Error details object. Empty object `{}` on success."
         }
       }
     },
@@ -65,15 +70,17 @@
           "type": "object",
           "additionalProperties": { "type": "string" }
         },
-        "diagnostics_path": { "type": "string" },
-        "final_html_available": { "type": "boolean" },
+        "diagnostics_path": { "type": "string", "description": "Path to the diagnostics artifact file. May be empty." },
+        "final_html_available": { "type": "boolean", "description": "Whether the final HTML output is available." },
         "warnings": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "description": "Non-fatal warning messages. Empty array when none."
         },
         "error": {
           "type": "object",
-          "additionalProperties": true
+          "additionalProperties": true,
+          "description": "Error details object describing the failure."
         }
       }
     }

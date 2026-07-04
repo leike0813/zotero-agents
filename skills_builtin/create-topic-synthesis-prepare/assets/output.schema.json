@@ -20,12 +20,14 @@
         "db_path": {
           "type": "string",
           "minLength": 1,
+          "description": "Path to the runtime state SQLite database.",
           "x-type": "artifact",
           "x-role": "runtime-state-db"
         },
         "handoff_manifest_path": {
           "type": "string",
           "minLength": 1,
+          "description": "Path to the handoff artifact manifest file.",
           "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         },
@@ -39,8 +41,16 @@
       "properties": {
         "kind": { "const": "topic_synthesis_canceled" },
         "status": { "const": "canceled" },
-        "reason": { "type": "string", "minLength": 1 },
-        "message": { "type": "string", "minLength": 1 },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Machine-readable reason code explaining the cancellation or failure."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable explanation message."
+        },
         "duplicate_topic_id": { "type": "string" },
         "topic_seed": { "type": "string" },
         "topic_id": { "type": "string" }

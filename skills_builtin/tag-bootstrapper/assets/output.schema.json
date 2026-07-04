@@ -15,6 +15,7 @@
     },
     "add_tags": {
       "type": "array",
+      "description": "Proposed controlled vocabulary additions. Each item has tag, optional facet, and note.",
       "items": {
         "type": "object",
         "required": ["tag", "note"],
@@ -28,23 +29,28 @@
     },
     "warnings": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "Non-fatal warning messages. Empty array when none."
     },
     "error": {
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "description": "Error details object. Empty object `{}` on success."
     },
     "provenance": {
       "type": "object",
+      "description": "Execution provenance metadata.",
       "properties": {
         "generated_at": {
           "type": "string"
         },
         "input_hash": {
-          "type": "string"
+          "type": "string",
+          "description": "Content hash of the skill inputs for auditability."
         },
         "model": {
-          "type": "string"
+          "type": "string",
+          "description": "Model identifier used for generation."
         },
         "library_index": {
           "type": "object",

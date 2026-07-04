@@ -19,10 +19,12 @@
     },
     "step_id": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "description": "Current step identifier (e.g., alpha, bravo, charlie)."
     },
     "status": {
-      "enum": ["ok", "failed"]
+      "enum": ["ok", "failed"],
+      "description": "Execution status of this run."
     },
     "marker": {
       "type": "string",
@@ -34,7 +36,8 @@
     },
     "countdown_seconds": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 1,
+      "description": "Number of seconds configured for the countdown."
     },
     "countdown_completed": {
       "type": "boolean",

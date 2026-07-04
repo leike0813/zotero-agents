@@ -13,9 +13,10 @@
   ],
   "properties": {
     "kind": { "const": "host_bridge_connectivity_probe_result" },
-    "ok": { "type": "boolean" },
+    "ok": { "type": "boolean", "description": "Whether all connectivity checks passed." },
     "connection": {
       "type": "object",
+      "description": "Host Bridge connection details.",
       "required": [
         "cli_entry",
         "endpoint_source",
@@ -24,15 +25,17 @@
         "token_present"
       ],
       "properties": {
-        "cli_entry": { "type": "string" },
+        "cli_entry": { "type": "string", "description": "Path or command string of the Host Bridge CLI." },
         "endpoint_source": {
-          "enum": ["argument", "env", "profile", "unknown"]
+          "enum": ["argument", "env", "profile", "unknown"],
+          "description": "How the endpoint was resolved."
         },
-        "endpoint": { "type": "string" },
+        "endpoint": { "type": "string", "description": "Resolved Host Bridge endpoint URL." },
         "connection_mode": {
-          "enum": ["local", "remote", "unknown"]
+          "enum": ["local", "remote", "unknown"],
+          "description": "Detected connection mode: local or remote."
         },
-        "token_present": { "type": "boolean" },
+        "token_present": { "type": "boolean", "description": "Whether an authentication token was found." },
         "profile_path": { "type": "string" },
         "profile_present": { "type": "boolean" },
         "env_endpoint_present": { "type": "boolean" }
@@ -41,13 +44,14 @@
     },
     "checks": {
       "type": "array",
+      "description": "Array of per-check results.",
       "items": {
         "type": "object",
         "required": ["id", "status", "duration_ms"],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "status": { "enum": ["passed", "failed", "skipped"] },
-          "duration_ms": { "type": "number" },
+          "id": { "type": "string", "minLength": 1, "description": "Check identifier." },
+          "status": { "enum": ["passed", "failed", "skipped"], "description": "Result of this check: passed, failed, or skipped." },
+          "duration_ms": { "type": "number", "description": "Duration of this check in milliseconds." },
           "failure_code": { "type": "string" },
           "message": { "type": "string" }
         },
@@ -56,6 +60,7 @@
     },
     "diagnostics": {
       "type": "object",
+      "description": "Extended diagnostic data object.",
       "properties": {
         "protocol": { "type": "string" },
         "capability_count": { "type": "number" },
@@ -65,6 +70,7 @@
     },
     "failure_code": {
       "type": "string",
+      "description": "Machine-readable failure code. Empty string on success.",
       "enum": [
         "",
         "cli_not_found",
@@ -80,7 +86,7 @@
         "remote_endpoint_loopback"
       ]
     },
-    "failure_message": { "type": "string" }
+    "failure_message": { "type": "string", "description": "Human-readable failure description. Empty string on success." }
   },
   "additionalProperties": true
 }

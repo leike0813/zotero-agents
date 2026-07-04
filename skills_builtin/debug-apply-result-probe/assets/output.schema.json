@@ -13,12 +13,12 @@
   ],
   "properties": {
     "kind": { "const": "debug_apply_contract_result" },
-    "workflow_id": { "type": "string", "minLength": 1 },
-    "step_id": { "type": "string", "minLength": 1 },
-    "run_key": { "type": "string", "minLength": 1 },
+    "workflow_id": { "type": "string", "minLength": 1, "description": "Workflow identifier for this probe run." },
+    "step_id": { "type": "string", "minLength": 1, "description": "Current step identifier within the workflow." },
+    "run_key": { "type": "string", "minLength": 1, "description": "Unique run key for this workflow execution." },
     "apply_mode": { "const": "result" },
-    "tag": { "type": "string", "minLength": 1 },
-    "message": { "type": "string" }
+    "tag": { "type": "string", "minLength": 1, "description": "Tag value associated with this contract result." },
+    "message": { "type": "string", "description": "Human-readable diagnostic message." }
   },
   "additionalProperties": true
 }
