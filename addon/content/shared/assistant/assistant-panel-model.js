@@ -288,10 +288,7 @@
         "Permission required",
       );
     }
-    if (
-      token === "waiting-user" ||
-      token === "waiting_user"
-    ) {
+    if (token === "waiting-user" || token === "waiting_user") {
       return labelFrom(source, "status.waiting", "Waiting");
     }
     if (token === "ready") return labelFrom(source, "status.ready", "Ready");
@@ -305,7 +302,8 @@
     if (token === "unavailable") {
       return labelFrom(source, "status.unavailable", "Unavailable");
     }
-    if (token === "limited") return labelFrom(source, "status.limited", "Limited");
+    if (token === "limited")
+      return labelFrom(source, "status.limited", "Limited");
     if (token === "backend-unavailable") {
       return labelFrom(
         source,
@@ -1099,7 +1097,9 @@
         return {
           value: safeText(normalized.value),
           label: safeText(normalized.label),
-          conversationId: safeText(normalized.conversationId || normalized.value),
+          conversationId: safeText(
+            normalized.conversationId || normalized.value,
+          ),
           backendId: safeText(normalized.backendId),
         };
       },
@@ -2497,14 +2497,36 @@
     const activeConversationId = safeText(
       snap.activeConversationId || snap.conversationId,
     );
+    const backendAvailability = safeText(snap.backendAvailability);
+    const conversationAvailability = safeText(snap.conversationAvailability);
+    const legacyConversationEvidence =
+      !conversationAvailability &&
+      (Boolean(activeConversationId) ||
+        Boolean(safeText(snap.sessionId || snap.remoteSessionId)) ||
+        snap.busy === true ||
+        [
+          "connected",
+          "prompting",
+          "permission-required",
+          "auth-required",
+        ].indexOf(status) >= 0);
+    const hasBackend =
+      backendAvailability === "selected" ||
+      (!backendAvailability &&
+        (Boolean(activeBackendId) || legacyConversationEvidence));
+    const hasConversation =
+      hasBackend &&
+      (conversationAvailability === "selected" ||
+        (!conversationAvailability && legacyConversationEvidence));
     const connected =
-      Boolean(safeText(snap.sessionId)) ||
-      [
-        "connected",
-        "prompting",
-        "permission-required",
-        "auth-required",
-      ].indexOf(status) >= 0;
+      hasConversation &&
+      (Boolean(safeText(snap.sessionId)) ||
+        [
+          "connected",
+          "prompting",
+          "permission-required",
+          "auth-required",
+        ].indexOf(status) >= 0);
     const connectionState = isDisconnecting
       ? "disconnecting"
       : connected
@@ -2553,7 +2575,7 @@
     const effectiveReasoning =
       snap.currentReasoningEffort || effectiveReasoningOptions[0];
     const runtimeControlsAvailable =
-      connected && !isConnecting && !isDisconnecting;
+      hasConversation && connected && !isConnecting && !isDisconnecting;
     const promptBusy = snap.busy === true;
     const connectionOnlyStatus =
       ["checking-command", "spawning", "initializing", "connecting"].indexOf(
@@ -2561,7 +2583,9 @@
       ) >= 0;
     const interaction = buildAcpPermissionInteraction(
       snap,
-      connectionOnlyStatus ? { kind: "hidden" } : conversation.interaction,
+      !hasConversation || connectionOnlyStatus
+        ? { kind: "hidden" }
+        : conversation.interaction,
     );
     const backendLabelById = {};
     backendOptions.forEach(function (entry) {
@@ -2613,8 +2637,8 @@
         terminal: false,
         active: Boolean(
           conversationId &&
-            conversationId === activeConversationId &&
-            backendId === activeBackendId,
+          conversationId === activeConversationId &&
+          backendId === activeBackendId,
         ),
         itemActions: conversationId
           ? [
@@ -2637,7 +2661,8 @@
           : [
               {
                 backendId: activeBackendId,
-                displayName: backendLabelById[activeBackendId] || activeBackendId,
+                displayName:
+                  backendLabelById[activeBackendId] || activeBackendId,
                 sessions: Array.isArray(snap.chatSessions)
                   ? snap.chatSessions
                   : [],
@@ -2736,7 +2761,7 @@
             activeBackendId,
             backendOptions,
             "set-active-backend",
-            backendOptions.length === 0,
+            !hasBackend || backendOptions.length === 0,
             "backendId",
           ),
           contextSelector(
@@ -2749,7 +2774,8 @@
             activeConversationId,
             sessionOptions.options,
             "set-active-conversation",
-            sessionOptions.options.length <= 1 && !sessionOptions.hasMore,
+            !hasBackend ||
+              (sessionOptions.options.length <= 1 && !sessionOptions.hasMore),
             "conversationId",
           ),
         ],
@@ -2760,7 +2786,7 @@
             {
               backendId: activeBackendId,
             },
-            true,
+            hasBackend && !isConnecting && !isDisconnecting,
           ),
           contextAction(
             "connect",
@@ -2771,15 +2797,18 @@
               backendId: activeBackendId,
               conversationId: activeConversationId,
             },
-            !connected && !isConnecting && !isDisconnecting,
+            hasBackend && !connected && !isConnecting && !isDisconnecting,
           ),
           contextAction(
             "disconnect",
             isDisconnecting
               ? labelFrom(snap, "actions.disconnecting", "Disconnecting...")
               : labels.disconnect || "Disconnect",
-            { backendId: activeBackendId, conversationId: activeConversationId },
-            connected && !isConnecting && !isDisconnecting,
+            {
+              backendId: activeBackendId,
+              conversationId: activeConversationId,
+            },
+            hasConversation && connected && !isConnecting && !isDisconnecting,
           ),
           contextAction(
             "authenticate",
@@ -2790,7 +2819,7 @@
               methodId:
                 hasAuth && authMethods[0] ? safeText(authMethods[0].id) : "",
             },
-            authRequired && hasAuth,
+            hasConversation && authRequired && hasAuth,
           ),
           {
             kind: "switch",
@@ -2825,7 +2854,7 @@
                     "Auto-approve off",
                   ),
             checked: snap.autoApproveAcpPermissions === true,
-            enabled: true,
+            enabled: hasConversation,
             payload: {
               enabled: snap.autoApproveAcpPermissions !== true,
               backendId: activeBackendId,
@@ -2845,8 +2874,12 @@
       interaction,
       usage: conversation.usage || snap.usage || null,
       reply: {
-        enabled: !isConnecting && !isDisconnecting,
-        inputEnabled: !isConnecting && !isDisconnecting && snap.busy !== true,
+        enabled: hasConversation && !isConnecting && !isDisconnecting,
+        inputEnabled:
+          hasConversation &&
+          !isConnecting &&
+          !isDisconnecting &&
+          snap.busy !== true,
         placeholder:
           safeText(snap.labels && snap.labels.composerPlaceholder) ||
           labelFrom(
@@ -2861,7 +2894,7 @@
         sending: snap.busy === true,
         action: snap.busy === true ? "cancel" : "send-prompt",
         tone: snap.busy === true ? "danger" : "primary",
-        showUsageGauge: true,
+        showUsageGauge: hasConversation,
         controls: [
           buildReplySelectControl(
             "mode",
@@ -2898,19 +2931,24 @@
           {
             action: "open-context-drawer",
             label: labels.sessionManager || "Sessions",
+            enabled: hasBackend,
           },
           {
             action: "openDetails",
             label:
               labels.details || labelFrom(snap, "actions.details", "Details"),
+            enabled: hasBackend,
           },
           {
             action: "open-backend-manager",
             label:
               labels.manageBackends ||
               labelFrom(snap, "actions.manageBackends", "Manage"),
+            enabled: hasBackend,
           },
-          buildStreamingRenderToggleAction(snap),
+          Object.assign(buildStreamingRenderToggleAction(snap), {
+            enabled: hasBackend,
+          }),
         ],
         context: [],
         details: [
@@ -2946,9 +2984,10 @@
             safeText(backendGroup && backendGroup.displayName) ||
             backendLabelById[backendId] ||
             backendId;
-          return (Array.isArray(backendGroup && backendGroup.sessions)
-            ? backendGroup.sessions
-            : []
+          return (
+            Array.isArray(backendGroup && backendGroup.sessions)
+              ? backendGroup.sessions
+              : []
           ).map(function (entry) {
             const conversationId = safeText(entry.conversationId);
             return {
@@ -3257,11 +3296,11 @@
           );
         })) ||
         transcriptItems.some(function (item) {
-            const label = safeText(item && (item.label || item.stage));
-            return (
-              label === "interrupt-requested" || label === "interrupt-completed"
-            );
-          })),
+          const label = safeText(item && (item.label || item.stage));
+          return (
+            label === "interrupt-requested" || label === "interrupt-completed"
+          );
+        })),
     );
     const connectedIdleRun = Boolean(
       run &&

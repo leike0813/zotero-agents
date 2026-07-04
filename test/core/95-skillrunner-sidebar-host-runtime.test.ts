@@ -24,8 +24,7 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "setSidebarContainerVisible");
     assert.include(ts, "assistant-workspace.html");
     assert.strictEqual(
-      ts.match(/createSidebarFrame\(doc, resolveSidebarPageUrl\(\)\)/g)
-        ?.length,
+      ts.match(/createSidebarFrame\(doc, resolveSidebarPageUrl\(\)\)/g)?.length,
       1,
     );
     assert.include(ts, "installAssistantWorkspaceSidebarShell");
@@ -46,6 +45,9 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "dispatchRunWorkspaceAction");
     assert.include(ts, "prepareAcpChatPanelSnapshot");
     assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
+    assert.include(ts, "readyTabs");
+    assert.include(ts, "postInitialSnapshotsForAllTabs");
+    assert.notInclude(ts, "refreshAndPostAcpChatPanelSnapshot");
     assert.include(ts, "prepareAcpSkillRunPanelSnapshot");
     assert.include(ts, "handleAcpChatAction");
     assert.include(ts, "handleAcpSkillRunAction");

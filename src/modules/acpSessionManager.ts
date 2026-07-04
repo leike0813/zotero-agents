@@ -1117,6 +1117,13 @@ async function refreshAcpBackends() {
     (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
   );
   const ids = new Set(cachedAcpBackends.map((entry) => entry.id));
+  if (cachedAcpBackends.length === 0) {
+    if (activeBackendId) {
+      activeBackendId = "";
+      saveAcpFrontendState({ activeBackendId });
+    }
+    return cachedAcpBackends;
+  }
   if ((!activeBackendId || !ids.has(activeBackendId)) && cachedAcpBackends[0]) {
     activeBackendId = cachedAcpBackends[0].id;
     saveAcpFrontendState({ activeBackendId });
@@ -3320,15 +3327,7 @@ function buildFrontendSnapshot(options?: {
       ? cachedAcpBackends
       : foregroundSessionRuntime.snapshot.backend
         ? [foregroundSessionRuntime.snapshot.backend]
-        : [
-            {
-              id: foregroundSessionRuntime.backendId,
-              displayName: foregroundSessionRuntime.backendId,
-              type: ACP_BACKEND_TYPE,
-              baseUrl: `local://${foregroundSessionRuntime.backendId}`,
-              command: "",
-            },
-          ];
+        : [];
   const summaries = knownBackends.map((backend) =>
     buildBackendSummary(backend, {
       ensureSession: backend.id === activeBackendId,
@@ -3810,6 +3809,14 @@ export async function ensureAcpConversationReady(
 export async function refreshAcpConversationBackends() {
   ensureInitialized();
   await refreshAcpBackends();
+  if (!activeBackendId) {
+    notifyFrontendListenersNow({
+      active: false,
+      global: true,
+      kinds: ["backend"],
+    });
+    return;
+  }
   const sessionRuntime = getOrCreateSessionRuntime(activeBackendId);
   notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow(

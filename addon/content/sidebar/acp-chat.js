@@ -170,6 +170,24 @@
     );
   }
 
+  function snapshotBackendAvailable(snapshot, backendId) {
+    const availability = safeText(snapshot && snapshot.backendAvailability);
+    if (availability) {
+      return availability === "selected" && Boolean(safeText(backendId));
+    }
+    return Boolean(safeText(backendId));
+  }
+
+  function snapshotConversationAvailable(snapshot, conversationId) {
+    const availability = safeText(
+      snapshot && snapshot.conversationAvailability,
+    );
+    if (availability) {
+      return availability === "selected" && Boolean(safeText(conversationId));
+    }
+    return Boolean(safeText(conversationId));
+  }
+
   function resetTranscriptVirtualState(pageKey) {
     const renderer = assistantTranscriptRenderer();
     if (
@@ -377,8 +395,10 @@
       return;
     }
     if (action === "set-active-backend") {
+      const backendId = safeText(data.backendId || data.value);
+      if (!backendId) return;
       sendAction("set-active-backend", {
-        backendId: safeText(data.backendId || data.value),
+        backendId,
       });
       return;
     }
@@ -390,30 +410,37 @@
         return;
       }
       state.sessionDrawerOpen = false;
+      const backendId = safeText(
+        data.backendId ||
+          option.backendId ||
+          snapshot.activeBackendId ||
+          snapshot.backendId,
+      );
+      const conversationId = safeText(data.conversationId || data.value);
+      if (!backendId || !conversationId) return;
       sendAction("set-active-conversation", {
-        conversationId: safeText(data.conversationId || data.value),
-        backendId: safeText(
-          data.backendId ||
-            option.backendId ||
-            snapshot.activeBackendId ||
-            snapshot.backendId,
-        ),
+        conversationId,
+        backendId,
       });
       return;
     }
     if (action === "new-conversation") {
+      const backendId = safeText(
+        data.backendId || snapshot.activeBackendId || snapshot.backendId,
+      );
+      if (!backendId) return;
       sendAction("new-conversation", {
-        backendId: safeText(
-          data.backendId || snapshot.activeBackendId || snapshot.backendId,
-        ),
+        backendId,
       });
       return;
     }
     if (action === "connect") {
+      const backendId = safeText(
+        data.backendId || snapshot.activeBackendId || snapshot.backendId,
+      );
+      if (!backendId) return;
       sendAction("connect", {
-        backendId: safeText(
-          data.backendId || snapshot.activeBackendId || snapshot.backendId,
-        ),
+        backendId,
         conversationId: safeText(
           data.conversationId ||
             snapshot.activeConversationId ||
@@ -423,106 +450,145 @@
       return;
     }
     if (action === "disconnect") {
+      const backendId = safeText(
+        data.backendId || snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        data.conversationId ||
+          snapshot.activeConversationId ||
+          snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("disconnect", {
-        backendId: safeText(
-          data.backendId || snapshot.activeBackendId || snapshot.backendId,
-        ),
-        conversationId: safeText(
-          data.conversationId ||
-            snapshot.activeConversationId ||
-            snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "authenticate") {
+      const backendId = safeText(
+        data.backendId || snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        data.conversationId ||
+          snapshot.activeConversationId ||
+          snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("authenticate", {
-        backendId: safeText(
-          data.backendId || snapshot.activeBackendId || snapshot.backendId,
-        ),
-        conversationId: safeText(
-          data.conversationId ||
-            snapshot.activeConversationId ||
-            snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
         methodId: safeText(data.methodId),
       });
       return;
     }
     if (action === "set-auto-approve-permissions") {
       const enabled = data.enabled === true;
+      const backendId = safeText(
+        data.backendId || snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        data.conversationId ||
+          snapshot.activeConversationId ||
+          snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("set-auto-approve-permissions", {
         enabled,
-        backendId: safeText(
-          data.backendId || snapshot.activeBackendId || snapshot.backendId,
-        ),
-        conversationId: safeText(
-          data.conversationId ||
-            snapshot.activeConversationId ||
-            snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "set-mode") {
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("set-mode", {
         modeId: safeText(data.modeId || data.value),
-        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-        conversationId: safeText(
-          snapshot.activeConversationId || snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "set-model") {
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("set-model", {
         modelId: safeText(data.modelId || data.value),
-        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-        conversationId: safeText(
-          snapshot.activeConversationId || snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "set-reasoning-effort") {
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("set-reasoning-effort", {
         effortId: safeText(data.effortId || data.value),
-        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-        conversationId: safeText(
-          snapshot.activeConversationId || snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "send-prompt") {
       const message = safeText(data.message);
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       if (message)
         sendAction("send-prompt", {
           message,
-          backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-          conversationId: safeText(
-            snapshot.activeConversationId || snapshot.conversationId,
-          ),
+          backendId,
+          conversationId,
         });
       return;
     }
     if (action === "cancel") {
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       sendAction("cancel", {
-        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-        conversationId: safeText(
-          snapshot.activeConversationId || snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       return;
     }
     if (action === "set-chat-display-mode") {
+      const backendId = safeText(
+        snapshot.activeBackendId || snapshot.backendId,
+      );
+      const conversationId = safeText(
+        snapshot.activeConversationId || snapshot.conversationId,
+      );
+      if (!backendId || !conversationId) return;
       state.chatDisplayMode = data.mode === "bubble" ? "bubble" : "plain";
       sendAction("set-chat-display-mode", {
         mode: state.chatDisplayMode,
-        backendId: safeText(snapshot.activeBackendId || snapshot.backendId),
-        conversationId: safeText(
-          snapshot.activeConversationId || snapshot.conversationId,
-        ),
+        backendId,
+        conversationId,
       });
       render(snapshot);
       return;
@@ -596,6 +662,9 @@
     const conversationId = safeText(
       snapshot && (snapshot.activeConversationId || snapshot.conversationId),
     );
+    const hasBackend = snapshotBackendAvailable(snapshot, backendId);
+    const hasConversation =
+      hasBackend && snapshotConversationAvailable(snapshot, conversationId);
     const pageKey = transcriptPageKey(backendId, conversationId);
     if (
       backendId !== state.transcriptBackendId ||
@@ -609,6 +678,7 @@
       state.transcriptConversationId = conversationId;
     }
     const virtualized =
+      hasConversation &&
       snapshotTranscriptPaginationVirtualizationEnabled(snapshot);
     const page = virtualized
       ? selectedTranscriptPageForConversation(
@@ -621,6 +691,7 @@
     const transcriptState =
       snapshot && snapshot.transcriptState ? snapshot.transcriptState : null;
     if (
+      hasConversation &&
       transcriptState &&
       safeText(transcriptState.backendId) === backendId &&
       safeText(transcriptState.conversationId) === conversationId &&
@@ -631,6 +702,7 @@
       return;
     }
     if (
+      hasConversation &&
       transcriptState &&
       safeText(transcriptState.backendId) === backendId &&
       safeText(transcriptState.conversationId) === conversationId &&

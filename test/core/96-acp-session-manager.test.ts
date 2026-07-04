@@ -7,6 +7,7 @@ import {
   ACP_OPENCODE_BACKEND_ID,
   ACP_PROMPT_REQUEST_KIND,
 } from "../../src/config/defaults";
+import { createBackendsPrefsDocument } from "../../src/backends/registry";
 import {
   authenticateAcpConversation,
   archiveAcpConversation,
@@ -65,6 +66,7 @@ import {
   AcpAuthRequiredError,
   buildAcpPromptTextForTests,
 } from "../../src/modules/acpConnectionAdapter";
+import { createAcpBackendFromPreset } from "../../src/modules/acpBackendPresets";
 import { configureZoteroMcpServerForTests } from "../../src/modules/zoteroMcpServer";
 import type {
   AcpPermissionOption,
@@ -112,6 +114,24 @@ function stripStartupPreambleForEcho(message: string) {
     return message;
   }
   return message.slice(match.index + match[0].length).trim() || message;
+}
+
+function configureDefaultAcpBackendForTests() {
+  Zotero.Prefs.set(
+    `${config.prefsPrefix}.backendsConfigJson`,
+    JSON.stringify(
+      createBackendsPrefsDocument([createAcpBackendFromPreset("opencode")]),
+    ),
+    true,
+  );
+}
+
+function configureNoAcpBackendForTests() {
+  Zotero.Prefs.set(
+    `${config.prefsPrefix}.backendsConfigJson`,
+    JSON.stringify(createBackendsPrefsDocument([])),
+    true,
+  );
 }
 
 class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
@@ -700,6 +720,7 @@ describe("acp session manager", function () {
       `${config.prefsPrefix}.backendsConfigJson`,
       true,
     );
+    configureDefaultAcpBackendForTests();
     resetPluginStateStoreForTests();
     resetAcpSessionManagerForTests();
     setAcpConnectionAdapterFactoryForTests(
@@ -2819,6 +2840,8 @@ describe("acp session manager", function () {
 
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
     assert.equal(panel.streamingRenderEnabled, true);
+    assert.equal(panel.backendAvailability, "selected");
+    assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.activeBackendId, active.backendId);
     assert.equal(panel.activeConversationId, active.conversationId);
     assert.isTrue(
@@ -2860,6 +2883,8 @@ describe("acp session manager", function () {
 
     assert.equal(panel.activeBackendId, active.backendId);
     assert.equal(panel.activeConversationId, active.conversationId);
+    assert.equal(panel.backendAvailability, "selected");
+    assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
     assert.isUndefined(panel.selectedTranscriptPage);
     assert.isAtLeast(
@@ -2868,8 +2893,34 @@ describe("acp session manager", function () {
     );
   });
 
+  it("prepares a disabled ACP chat panel snapshot when no ACP backend exists", async function () {
+    configureNoAcpBackendForTests();
+    resetAcpSessionManagerForTests();
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+
+    let pageReadCount = 0;
+    const panel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      readTranscriptPage: async () => {
+        pageReadCount += 1;
+        throw new Error("empty backend scope must not read a page");
+      },
+    });
+
+    assert.equal(panel.backendAvailability, "none");
+    assert.equal(panel.conversationAvailability, "none");
+    assert.equal(panel.activeBackendId, "");
+    assert.equal(panel.activeConversationId, "");
+    assert.deepEqual(panel.backendOptions, []);
+    assert.deepEqual(panel.chatSessions, []);
+    assert.deepEqual(panel.backendChatSessions, []);
+    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(pageReadCount, 0);
+  });
+
   it("does not read an ACP chat transcript page when no conversation is selected", async function () {
     setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await refreshAcpConversationBackends();
 
     let pageReadCount = 0;
     const panel = await prepareAcpChatPanelSnapshot({
@@ -2880,6 +2931,9 @@ describe("acp session manager", function () {
       },
     });
 
+    assert.equal(panel.backendAvailability, "selected");
+    assert.equal(panel.conversationAvailability, "none");
+    assert.equal(panel.activeBackendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(panel.activeConversationId, "");
     assert.equal(panel.conversationId, "");
     assert.isUndefined(panel.selectedTranscriptPage);

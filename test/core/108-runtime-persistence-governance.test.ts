@@ -13,7 +13,6 @@ import {
   validateManagedRelativePath,
   validateManagedRelativePathSet,
 } from "../../src/modules/runtimePersistence";
-import { cleanupRuntimePersistenceCategoryOnDisk } from "../../scripts/cleanup-runtime-persistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
 import {
   getAcpSkillRunRecord,
@@ -55,6 +54,13 @@ import {
 } from "../../src/modules/runtimeLogManager";
 
 const execFileAsync = promisify(execFile);
+const tsxCli = path.join(
+  process.cwd(),
+  "node_modules",
+  "tsx",
+  "dist",
+  "cli.mjs",
+);
 
 async function pathExists(pathRaw: string) {
   try {
@@ -757,24 +763,56 @@ describe("runtime persistence governance", function () {
     );
   });
 
-  it("cleans ACP conversation records from an on-disk runtime SQLite database", async function () {
-    const root = path.join(tempRoot, "offline-cleanup-root");
+  it("runs standalone cleanup scripts through runtime persistence internals", async function () {
+    const root = path.join(tempRoot, "standalone-cleanup-root");
+    const env = {
+      ...process.env,
+      ZOTERO_SKILLS_RUNTIME_ROOT: root,
+    };
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
+    resetPluginStateStoreForTests();
     const paths = getRuntimePersistencePaths(root);
-    await fs.mkdir(path.dirname(paths.stateDbPath), { recursive: true });
     await fs.mkdir(path.join(paths.acpChatRoot, "conversations"), {
       recursive: true,
     });
+    await fs.mkdir(path.join(paths.acpSkillRunsDir, "run-a"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(paths.acpChatRoot, "conversations", "chat.json"),
+      "{}",
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(paths.acpSkillRunsDir, "run-a", "transcript.json"),
+      "{}",
+      "utf8",
+    );
+    await fs.mkdir(path.dirname(paths.stateDbPath), { recursive: true });
     const sqlite = (await import("node:sqlite")) as any;
-    const db = new sqlite.DatabaseSync(paths.stateDbPath);
+    const readDbCount = (sql: string) => {
+      const db = new sqlite.DatabaseSync(paths.stateDbPath);
+      try {
+        return Number(db.prepare(sql).get().value || 0);
+      } finally {
+        db.close();
+      }
+    };
+    const seedDb = new sqlite.DatabaseSync(paths.stateDbPath);
     try {
-      db.exec(`
+      seedDb.exec(`
+        CREATE TABLE plugin_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
         CREATE TABLE plugin_task_requests (
           domain TEXT NOT NULL,
           request_id TEXT NOT NULL,
           backend_id TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT '',
           updated_at TEXT NOT NULL DEFAULT '',
-          payload_json TEXT NOT NULL DEFAULT '{}'
+          payload_json TEXT NOT NULL,
+          PRIMARY KEY (domain, request_id)
         );
         CREATE TABLE plugin_task_contexts (
           domain TEXT NOT NULL,
@@ -783,7 +821,8 @@ describe("runtime persistence governance", function () {
           backend_id TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT '',
           updated_at TEXT NOT NULL DEFAULT '',
-          payload_json TEXT NOT NULL DEFAULT '{}'
+          payload_json TEXT NOT NULL,
+          PRIMARY KEY (domain, context_id)
         );
         CREATE TABLE plugin_task_rows (
           domain TEXT NOT NULL,
@@ -793,14 +832,54 @@ describe("runtime persistence governance", function () {
           backend_id TEXT NOT NULL DEFAULT '',
           state TEXT NOT NULL DEFAULT '',
           updated_at TEXT NOT NULL DEFAULT '',
-          payload_json TEXT NOT NULL DEFAULT '{}'
+          payload_json TEXT NOT NULL,
+          PRIMARY KEY (domain, scope, task_id)
         );
+        CREATE TABLE plugin_acp_skill_runs (
+          run_key TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL
+        );
+        CREATE TABLE plugin_acp_skill_run_events (
+          event_id TEXT PRIMARY KEY,
+          run_key TEXT NOT NULL DEFAULT '',
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          type TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL
+        );
+        CREATE TABLE plugin_skillrunner_runs (
+          run_key TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          state TEXT NOT NULL DEFAULT '',
+          updated_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL
+        );
+        CREATE TABLE plugin_skillrunner_run_events (
+          event_id TEXT PRIMARY KEY,
+          run_key TEXT NOT NULL DEFAULT '',
+          request_id TEXT NOT NULL DEFAULT '',
+          backend_id TEXT NOT NULL DEFAULT '',
+          type TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT '',
+          payload_json TEXT NOT NULL
+        );
+        INSERT INTO plugin_meta(key, value)
+        VALUES
+          ('migration_task_state_v1', 'done'),
+          ('agent_run_separated_store_hard_cut_reset_v2', 'done');
         INSERT INTO plugin_task_requests
           (domain, request_id, backend_id, state, updated_at, payload_json)
         VALUES
           ('acp', 'conversation-index:acp-kilo-npx', 'backend', 'idle', '2026-04-28T00:00:00.000Z', '{"activeConversationId":"conversation-a"}'),
           ('acp', 'conversation:acp-kilo-npx:conversation-a', 'backend', 'idle', '2026-04-28T00:00:00.000Z', '{"conversationId":"conversation-a"}'),
-          ('acp', 'acp-other-request', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}');
+          ('acp', 'acp-other-request', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}'),
+          ('skillrunner', 'skill-req', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}');
         INSERT INTO plugin_task_contexts
           (domain, context_id, request_id, backend_id, state, updated_at, payload_json)
         VALUES
@@ -810,52 +889,163 @@ describe("runtime persistence governance", function () {
         VALUES
           ('acp', 'active', 'chat-row', 'conversation:acp-kilo-npx:conversation-a', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{}'),
           ('acp', 'skill-runs', 'skill-row', 'acp-skill-run', 'backend', 'succeeded', '2026-04-28T00:00:00.000Z', '{"conversationId":"not-chat"}');
+        INSERT INTO plugin_acp_skill_runs
+          (run_key, request_id, backend_id, state, updated_at, payload_json)
+        VALUES
+          ('acp-skill-run-store', 'acp-skill-run-store-request', 'backend', 'succeeded', '2026-04-28T00:00:00.000Z', '{"kind":"acp"}');
+        INSERT INTO plugin_acp_skill_run_events
+          (event_id, run_key, request_id, backend_id, type, created_at, payload_json)
+        VALUES
+          ('acp-skill-run-store-event', 'acp-skill-run-store', 'acp-skill-run-store-request', 'backend', 'apply.succeeded', '2026-04-28T00:00:01.000Z', '{}');
+        INSERT INTO plugin_skillrunner_runs
+          (run_key, request_id, backend_id, state, updated_at, payload_json)
+        VALUES
+          ('skillrunner-cleanup-run', 'skillrunner-cleanup-request', 'backend', 'running', '2026-04-28T00:00:00.000Z', '{"kind":"skillrunner"}');
+        INSERT INTO plugin_skillrunner_run_events
+          (event_id, run_key, request_id, backend_id, type, created_at, payload_json)
+        VALUES
+          ('skillrunner-cleanup-event', 'skillrunner-cleanup-run', 'skillrunner-cleanup-request', 'backend', 'request.ready', '2026-04-28T00:00:01.000Z', '{}');
       `);
     } finally {
-      db.close();
+      seedDb.close();
     }
 
-    const cleanup = await cleanupRuntimePersistenceCategoryOnDisk(
-      "acp-conversations",
-      { root },
+    const chatCleanup = await execFileAsync(
+      process.execPath,
+      [
+        tsxCli,
+        path.join(process.cwd(), "scripts", "clear-acp-chat-records.ts"),
+        "--root",
+        root,
+      ],
+      { env },
+    );
+    assert.equal(JSON.parse(chatCleanup.stdout).category, "acp-conversations");
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_requests WHERE domain='acp'",
+      ),
+      1,
+    );
+    assert.equal(
+      readDbCount("SELECT COUNT(*) AS value FROM plugin_task_contexts"),
+      0,
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='active'",
+      ),
+      0,
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='skill-runs'",
+      ),
+      1,
+    );
+    assert.equal(
+      readDbCount("SELECT COUNT(*) AS value FROM plugin_acp_skill_runs"),
+      1,
+    );
+    assert.isFalse(await pathExists(paths.acpChatRoot));
+
+    const acpSkillsCleanup = await execFileAsync(
+      process.execPath,
+      [
+        tsxCli,
+        path.join(process.cwd(), "scripts", "clear-acp-skills-records.ts"),
+        "--root",
+        root,
+      ],
+      { env },
+    );
+    assert.equal(
+      JSON.parse(acpSkillsCleanup.stdout).category,
+      "acp-skill-runs",
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='skill-runs'",
+      ),
+      0,
+    );
+    assert.equal(
+      readDbCount("SELECT COUNT(*) AS value FROM plugin_acp_skill_runs"),
+      0,
+    );
+    assert.equal(
+      readDbCount("SELECT COUNT(*) AS value FROM plugin_acp_skill_run_events"),
+      0,
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_requests WHERE domain='skillrunner'",
+      ),
+      1,
+    );
+    assert.isFalse(await pathExists(paths.acpSkillRunsDir));
+
+    const skillRunnerCleanup = await execFileAsync(
+      process.execPath,
+      [
+        tsxCli,
+        path.join(process.cwd(), "scripts", "clear-skillrunner-records.ts"),
+        "--root",
+        root,
+      ],
+      { env },
+    );
+    assert.equal(
+      JSON.parse(skillRunnerCleanup.stdout).category,
+      "skillrunner-ledger",
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_task_requests WHERE domain='skillrunner'",
+      ),
+      0,
+    );
+    assert.equal(
+      readDbCount("SELECT COUNT(*) AS value FROM plugin_skillrunner_runs"),
+      0,
+    );
+    assert.equal(
+      readDbCount(
+        "SELECT COUNT(*) AS value FROM plugin_skillrunner_run_events",
+      ),
+      0,
+    );
+  });
+
+  it("loads ZOTERO_PLUGIN_DATA_DIR from .env for standalone cleanup scripts", async function () {
+    const scriptCwd = path.join(tempRoot, "dotenv-script-cwd");
+    const zoteroDataDir = path.join(tempRoot, "dotenv-zotero-data");
+    await fs.mkdir(scriptCwd, { recursive: true });
+    await fs.writeFile(
+      path.join(scriptCwd, ".env"),
+      `ZOTERO_PLUGIN_DATA_DIR = "${zoteroDataDir}"\n`,
+      "utf8",
+    );
+    const env = { ...process.env };
+    delete env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    delete env.ZOTERO_PLUGIN_DATA_DIR;
+
+    const cleanup = await execFileAsync(
+      process.execPath,
+      [
+        tsxCli,
+        path.join(process.cwd(), "scripts", "clear-acp-chat-records.ts"),
+      ],
+      {
+        cwd: scriptCwd,
+        env,
+      },
     );
 
-    const verify = new sqlite.DatabaseSync(paths.stateDbPath);
-    try {
-      assert.equal(cleanup.details.rowsDeletedTotal, 4);
-      assert.isFalse(
-        await fs
-          .stat(paths.acpChatRoot)
-          .then(() => true)
-          .catch(() => false),
-      );
-      assert.equal(
-        verify
-          .prepare("SELECT COUNT(*) AS value FROM plugin_task_requests")
-          .get().value,
-        1,
-      );
-      assert.equal(
-        verify
-          .prepare("SELECT COUNT(*) AS value FROM plugin_task_contexts")
-          .get().value,
-        0,
-      );
-      assert.equal(
-        verify
-          .prepare("SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='active'")
-          .get().value,
-        0,
-      );
-      assert.equal(
-        verify
-          .prepare("SELECT COUNT(*) AS value FROM plugin_task_rows WHERE scope='skill-runs'")
-          .get().value,
-        1,
-      );
-    } finally {
-      verify.close();
-    }
+    assert.equal(
+      JSON.parse(cleanup.stdout).usage.root,
+      path.join(zoteroDataDir, "zotero-agents"),
+    );
   });
 
   it("cleans expired terminal ACP skill run rows and workspaces by retention", async function () {

@@ -135,6 +135,9 @@ type AssistantWorkspaceHostRuntime = {
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
+  acpChatBackendRefreshTimer?: ReturnType<typeof setTimeout> | null;
+  acpChatBackendRefreshInFlight: boolean;
+  acpChatBackendRefreshRepostQueued: boolean;
   skillRunnerRefreshTimer?: ReturnType<typeof setTimeout> | null;
   skillRunnerRefreshGeneration: number;
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
@@ -144,6 +147,7 @@ type AssistantWorkspaceHostRuntime = {
   acpSkillRunSnapshotBuildSeq: number;
   lastAcpSkillRunSnapshotSignature?: string | null;
   lastAcpSkillWaitingToastKeys: Set<string>;
+  readyTabs: Set<AssistantWorkspaceTab>;
 };
 type SkillRunnerSidebarRefreshRequest = {
   target: AcpSidebarTarget;
@@ -190,6 +194,11 @@ const hosts = new WeakMap<
 >();
 const FRAME_WINDOW_WAIT_TIMEOUT_MS = 2000;
 const DEFAULT_TAB: AssistantWorkspaceTab = "acp-chat";
+const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
+  "acp-chat",
+  "acp-skills",
+  "skillrunner",
+];
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
 const localize = getStringOrFallback;
 
@@ -457,6 +466,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
     return false;
   }
   host.drawerOpen = false;
+  clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   detachSkillRunnerSidebarHost({ hostWindow: host.win });
   deactivateTarget(host, activeTarget);
@@ -802,23 +812,78 @@ async function postAcpSkillRunSnapshot(
   postChildSnapshot(host, "acp-skills", phase, payload);
 }
 
-async function refreshAndPostAcpChatPanelSnapshot(
+async function runAcpChatBackendRefreshBoundary(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
-  phase: "init" | "snapshot" = "snapshot",
 ) {
-  await refreshAcpConversationBackends();
-  await postAcpChatPanelSnapshot(host, target, phase);
+  host.acpChatBackendRefreshInFlight = true;
+  try {
+    await refreshAcpConversationBackends();
+  } catch (error) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "assistant-shell",
+      operation: "acp-chat-backend-refresh",
+      phase: "error",
+      stage: "lifecycle-boundary",
+      message: "ACP Chat backend refresh failed after shell lifecycle event.",
+      error,
+    });
+  } finally {
+    host.acpChatBackendRefreshInFlight = false;
+    host.acpChatBackendRefreshTimer = null;
+    const shouldRepost = host.acpChatBackendRefreshRepostQueued;
+    host.acpChatBackendRefreshRepostQueued = false;
+    if (
+      shouldRepost &&
+      hosts.get(host.win) === host &&
+      host.activeTarget === target
+    ) {
+      void postAcpChatPanelSnapshot(host, target, "snapshot");
+    }
+  }
+}
+
+function scheduleAcpChatBackendRefreshBoundary(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+) {
+  host.acpChatBackendRefreshRepostQueued = true;
+  if (host.acpChatBackendRefreshTimer || host.acpChatBackendRefreshInFlight) {
+    return;
+  }
+  host.acpChatBackendRefreshTimer = setTimeout(() => {
+    void runAcpChatBackendRefreshBoundary(host, target);
+  }, 0);
+}
+
+function clearAcpChatBackendRefreshBoundary(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  if (host.acpChatBackendRefreshTimer) {
+    clearTimeout(host.acpChatBackendRefreshTimer);
+    host.acpChatBackendRefreshTimer = null;
+  }
+  host.acpChatBackendRefreshRepostQueued = false;
 }
 
 function postSkillRunnerSnapshot(
   host: AssistantWorkspaceHostRuntime,
   phase: "init" | "snapshot" = "snapshot",
+  options?: { force?: boolean },
 ) {
-  if (!host.activeTarget || host.activeTab !== "skillrunner") {
+  if (
+    !host.activeTarget ||
+    (host.activeTab !== "skillrunner" &&
+      options?.force !== true &&
+      phase !== "init")
+  ) {
     return;
   }
-  attachSkillRunnerToShell(host);
+  attachSkillRunnerToShell(host, {
+    allowInactive: options?.force === true || phase === "init",
+  });
   void refreshSkillRunnerSidebarHostSnapshot({
     forceInit: phase === "init",
   });
@@ -841,7 +906,7 @@ function postSnapshotForTab(
     });
     return;
   }
-  postSkillRunnerSnapshot(host, phase);
+  postSkillRunnerSnapshot(host, phase, options);
 }
 
 function canPublishAssistantWorkspaceStatePulse(
@@ -855,7 +920,6 @@ function canPublishAssistantWorkspaceStatePulse(
 
 function shouldRefreshAcpChatBackendsForWorkspacePulse(reason: string) {
   return (
-    reason === "child-ready" ||
     reason === "open-tab-request" ||
     reason === "shell-load" ||
     reason === "shell-ready" ||
@@ -875,6 +939,16 @@ function postShellInit(
   });
 }
 
+function postInitialSnapshotsForAllTabs(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  phase: "init" | "snapshot" = "init",
+) {
+  for (const tab of ASSISTANT_WORKSPACE_TABS) {
+    postSnapshotForTab(host, target, tab, phase, { force: true });
+  }
+}
+
 function publishAssistantWorkspaceStatePulse(
   host: AssistantWorkspaceHostRuntime,
   reason: string,
@@ -892,24 +966,20 @@ function publishAssistantWorkspaceStatePulse(
   if (phase === "init" && reason !== "child-ready") {
     postShellInit(host, host.activeTab);
   }
+  if (shouldRefreshAcpChatBackendsForWorkspacePulse(reason)) {
+    scheduleAcpChatBackendRefreshBoundary(host, target);
+  }
   if (tab) {
-    if (
-      tab === "acp-chat" &&
-      shouldRefreshAcpChatBackendsForWorkspacePulse(reason)
-    ) {
-      void refreshAndPostAcpChatPanelSnapshot(host, target, phase);
-      return true;
+    if (reason === "child-ready") {
+      host.readyTabs.add(tab);
     }
     postSnapshotForTab(host, target, tab, phase, {
       force: reason === "child-ready" || reason === "tab-switch",
     });
     return true;
   }
-  if (
-    host.activeTab === "acp-chat" &&
-    shouldRefreshAcpChatBackendsForWorkspacePulse(reason)
-  ) {
-    void refreshAndPostAcpChatPanelSnapshot(host, target, phase);
+  if (phase === "init") {
+    postInitialSnapshotsForAllTabs(host, target, phase);
     return true;
   }
   postSnapshotForTab(host, target, host.activeTab, phase, {
@@ -1198,10 +1268,7 @@ async function handleChildAction(
       ? (payload.payload as Record<string, unknown>)
       : {};
   if (action === "ready") {
-    if (tab !== host.activeTab) {
-      return;
-    }
-    publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "snapshot");
+    publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
     return;
   }
   if (tab === "skillrunner") {
@@ -1417,6 +1484,7 @@ async function handleAcpChatAction(
         window: host.win,
         initialProviderType: "acp",
       });
+      scheduleAcpChatBackendRefreshBoundary(host, target);
       return;
     }
     if (action === "close-sidebar") {
@@ -1596,8 +1664,14 @@ async function handleAcpChatAction(
   }
 }
 
-function attachSkillRunnerToShell(host: AssistantWorkspaceHostRuntime) {
-  if (!host.activeTarget || host.activeTab !== "skillrunner") {
+function attachSkillRunnerToShell(
+  host: AssistantWorkspaceHostRuntime,
+  options?: { allowInactive?: boolean },
+) {
+  if (
+    !host.activeTarget ||
+    (host.activeTab !== "skillrunner" && options?.allowInactive !== true)
+  ) {
     return;
   }
   const frameWindow = resolveCurrentShellWindow(host);
@@ -1879,6 +1953,8 @@ export function installAssistantWorkspaceSidebarShell(
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
+    acpChatBackendRefreshInFlight: false,
+    acpChatBackendRefreshRepostQueued: false,
     skillRunnerRefreshGeneration: 0,
     library: { button: null, container: null },
     reader: { button: null, container: null },
@@ -1889,6 +1965,7 @@ export function installAssistantWorkspaceSidebarShell(
       ready: false,
     },
     lastAcpSkillWaitingToastKeys: new Set<string>(),
+    readyTabs: new Set<AssistantWorkspaceTab>(),
   };
   mountLibraryPane(host);
   mountReaderPane(host);
@@ -1967,6 +2044,7 @@ export function removeAssistantWorkspaceSidebarShell(
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
   }
+  clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   if (host.shell.frame && host.shell.frameLoadHandler) {
     host.shell.frame.removeEventListener("load", host.shell.frameLoadHandler);

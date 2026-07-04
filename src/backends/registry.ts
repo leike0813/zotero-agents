@@ -1,6 +1,5 @@
 import {
   ACP_BACKEND_TYPE,
-  ACP_OPENCODE_BACKEND_ID,
   BACKEND_TYPES,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
@@ -14,7 +13,6 @@ import {
 import { normalizeBackendDisplayName } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
 import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
-import { listBuiltinAcpBackends } from "../modules/acpBackendPresets";
 
 type BackendsDocument = {
   defaultBackendId?: unknown;
@@ -186,42 +184,6 @@ function normalizeAcpOptionArray(value: unknown) {
       description: String(entry.description || "").trim() || undefined,
     }))
     .filter((entry) => entry.id && entry.label);
-}
-
-function upsertBuiltinBackends(backends: BackendInstance[]) {
-  const next = [...backends];
-  let changed = false;
-  for (const builtin of listBuiltinAcpBackends()) {
-    const existingIndex = next.findIndex((entry) => entry.id === builtin.id);
-    if (existingIndex < 0) {
-      next.push(builtin);
-      changed = true;
-      continue;
-    }
-    if (isLegacyAutomaticOpenCodeBackend(next[existingIndex])) {
-      next[existingIndex] = builtin;
-      changed = true;
-    }
-  }
-  return {
-    backends: next,
-    changed,
-  };
-}
-
-function isLegacyAutomaticOpenCodeBackend(backend: BackendInstance) {
-  return (
-    backend.id === ACP_OPENCODE_BACKEND_ID &&
-    backend.type === ACP_BACKEND_TYPE &&
-    backend.enabled !== false &&
-    (!backend.displayName || backend.displayName === "OpenCode ACP") &&
-    backend.baseUrl === `local://${ACP_OPENCODE_BACKEND_ID}` &&
-    backend.command === "npx" &&
-    JSON.stringify(backend.args || []) ===
-      JSON.stringify(["opencode-ai@latest", "acp"]) &&
-    (!backend.env || Object.keys(backend.env).length === 0) &&
-    (!backend.acp?.agentFamily || backend.acp.agentFamily === "opencode")
-  );
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
@@ -786,14 +748,9 @@ export function loadBackendsRegistrySync(): LoadedBackends {
     removedLegacyIds.add(backend.id);
     return false;
   });
-  const builtinMerge = upsertBuiltinBackends(finalBackends);
-  const shouldPersistBuiltinRewrite =
-    builtinMerge.changed && errors.length === 0;
   let cacheRawText = rawText;
-  if (removedLegacyIds.size > 0 || shouldPersistBuiltinRewrite) {
-    cacheRawText = JSON.stringify(
-      createBackendsPrefsDocument(builtinMerge.backends),
-    );
+  if (removedLegacyIds.size > 0) {
+    cacheRawText = JSON.stringify(createBackendsPrefsDocument(finalBackends));
     setPref(BACKENDS_CONFIG_PREF_KEY, cacheRawText);
     backendRegistryReadDiagnostics.builtinRewriteCount += 1;
   }
@@ -809,7 +766,7 @@ export function loadBackendsRegistrySync(): LoadedBackends {
 
   return cacheLoadedBackends(cacheRawText, {
     sourcePath,
-    backends: builtinMerge.backends,
+    backends: finalBackends,
     warnings,
     errors,
     invalidBackends,

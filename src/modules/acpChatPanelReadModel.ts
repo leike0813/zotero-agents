@@ -127,6 +127,89 @@ async function readSelectedAcpChatTranscriptPage(args: {
   });
 }
 
+function normalizeBackendOptionId(entry: unknown) {
+  const option =
+    entry && typeof entry === "object" && !Array.isArray(entry)
+      ? (entry as Record<string, unknown>)
+      : {};
+  return String(option.backendId || option.id || option.value || "").trim();
+}
+
+function applyAcpChatPanelAvailabilityState(payload: Record<string, unknown>) {
+  const backendOptions = Array.isArray(payload.backendOptions)
+    ? payload.backendOptions
+    : [];
+  const selectedBackendId = String(
+    payload.activeBackendId || payload.backendId || "",
+  ).trim();
+  const backendIds = backendOptions.map(normalizeBackendOptionId);
+  const activeBackendId =
+    (selectedBackendId && backendIds.includes(selectedBackendId)
+      ? selectedBackendId
+      : "") ||
+    backendIds.find(Boolean) ||
+    "";
+  if (!activeBackendId) {
+    payload.backendAvailability = "none";
+    payload.conversationAvailability = "none";
+    payload.activeBackendId = "";
+    payload.backendId = "";
+    payload.backendLabel = "";
+    payload.activeConversationId = "";
+    payload.conversationId = "";
+    payload.conversationTitle = "";
+    payload.chatSessions = [];
+    payload.backendChatSessions = [];
+    payload.selectedTranscriptPage = undefined;
+    payload.transcriptState = undefined;
+    payload.transcriptRevision = 0;
+    payload.transcriptItemCount = 0;
+    payload.transcriptPreview = "";
+    payload.items = [];
+    payload.busy = false;
+    payload.status = "idle";
+    return {
+      backendAvailability: "none" as const,
+      conversationAvailability: "none" as const,
+      activeBackendId: "",
+      activeConversationId: "",
+    };
+  }
+  payload.backendAvailability = "selected";
+  payload.activeBackendId = activeBackendId;
+  payload.backendId = activeBackendId;
+  const activeConversationId = String(
+    payload.activeConversationId || payload.conversationId || "",
+  ).trim();
+  if (!activeConversationId) {
+    payload.conversationAvailability = "none";
+    payload.activeConversationId = "";
+    payload.conversationId = "";
+    payload.conversationTitle = "";
+    payload.selectedTranscriptPage = undefined;
+    payload.transcriptState = undefined;
+    payload.transcriptRevision = 0;
+    payload.transcriptItemCount = 0;
+    payload.transcriptPreview = "";
+    payload.items = [];
+    return {
+      backendAvailability: "selected" as const,
+      conversationAvailability: "none" as const,
+      activeBackendId,
+      activeConversationId: "",
+    };
+  }
+  payload.conversationAvailability = "selected";
+  payload.activeConversationId = activeConversationId;
+  payload.conversationId = activeConversationId;
+  return {
+    backendAvailability: "selected" as const,
+    conversationAvailability: "selected" as const,
+    activeBackendId,
+    activeConversationId,
+  };
+}
+
 export async function prepareAcpChatPanelSnapshot(
   args: AcpChatPanelSnapshotArgs,
 ) {
@@ -151,17 +234,20 @@ export async function prepareAcpChatPanelSnapshot(
     transcriptPaginationVirtualizationEnabled:
       transcriptPaginationVirtualizationEnabled,
   };
+  const availability = applyAcpChatPanelAvailabilityState(payload);
   if (!transcriptPaginationVirtualizationEnabled) {
+    return payload;
+  }
+  if (
+    availability.backendAvailability !== "selected" ||
+    availability.conversationAvailability !== "selected"
+  ) {
     return payload;
   }
   try {
     const page = await readSelectedAcpChatTranscriptPage({
-      activeBackendId: String(
-        payload.activeBackendId || payload.backendId || "",
-      ),
-      activeConversationId: String(
-        payload.activeConversationId || payload.conversationId || "",
-      ),
+      activeBackendId: availability.activeBackendId,
+      activeConversationId: availability.activeConversationId,
       request: args.transcriptPage,
       readTranscriptPage:
         args.readTranscriptPage || readAcpConversationTranscriptPage,

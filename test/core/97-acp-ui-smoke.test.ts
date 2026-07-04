@@ -3055,13 +3055,17 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "copyText");
     assert.include(assistantSidebar, "schedulePostSnapshot");
     assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
-    assert.include(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
+    assert.include(assistantSidebar, "readyTabs");
+    assert.include(assistantSidebar, "postInitialSnapshotsForAllTabs");
+    assert.include(assistantSidebar, "scheduleAcpChatBackendRefreshBoundary");
     assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
     assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
     assert.include(
       assistantSidebar,
       "void postAcpChatPanelSnapshot(host, target, phase);",
     );
+    assert.notInclude(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
+    assert.notInclude(assistantSidebar, "if (tab !== host.activeTab)");
     assert.notInclude(assistantSidebar, "postFreshAcpChatSnapshot");
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
@@ -3129,9 +3133,10 @@ describe("acp ui smoke", function () {
     assert.include(sidebarModel, "remoteSessionRestoreStatus");
     assert.include(sidebarModel, "backendChatSessions");
     assert.include(assistantPanelModelJs, "snap.backendChatSessions");
+    assert.include(assistantPanelModelJs, "conversationId: safeText(");
     assert.include(
       assistantPanelModelJs,
-      "conversationId: safeText(normalized.conversationId || normalized.value)",
+      "normalized.conversationId || normalized.value",
     );
     assert.include(
       assistantPanelModelJs,
@@ -3477,7 +3482,7 @@ describe("acp ui smoke", function () {
       );
     assert.equal(placeholderAutoApproveAction.kind, "switch");
     assert.isFalse(placeholderAutoApproveAction.checked);
-    assert.isTrue(placeholderAutoApproveAction.enabled);
+    assert.isFalse(placeholderAutoApproveAction.enabled);
     assert.deepInclude(placeholderAutoApproveAction.payload, {
       enabled: true,
       backendId: "acp-test",
@@ -3497,7 +3502,7 @@ describe("acp ui smoke", function () {
       backendlessAutoApprovePanel.context.actions.find(
         (action: any) => action.action === "set-auto-approve-permissions",
       );
-    assert.isTrue(backendlessAutoApproveAction.enabled);
+    assert.isFalse(backendlessAutoApproveAction.enabled);
   });
 
   it("projects ACP Chat auto-approval state through the sidebar view snapshot", function () {
@@ -3926,6 +3931,85 @@ describe("acp ui smoke", function () {
     assert.equal(remoteActions.disconnect.enabled, false);
     assert.equal(remoteActions.authenticate.enabled, false);
     assert.equal(remoteActions.connect.payload.backendId, "backend-a");
+
+    const noBackendPanel = model.projectAcpChatPanelSnapshot({
+      backendAvailability: "none",
+      conversationAvailability: "none",
+      activeBackendId: "",
+      backendOptions: [],
+      activeConversationId: "",
+      chatSessions: [],
+      items: [],
+      labels: {},
+    });
+    const noBackendActions = Object.fromEntries(
+      noBackendPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    const noBackendToolbar = Object.fromEntries(
+      noBackendPanel.actions.toolbar.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    assert.equal(noBackendPanel.context.selectors[0].disabled, true);
+    assert.equal(noBackendPanel.context.selectors[1].disabled, true);
+    assert.equal(noBackendActions["new-conversation"].enabled, false);
+    assert.equal(noBackendActions.connect.enabled, false);
+    assert.equal(noBackendActions.disconnect.enabled, false);
+    assert.equal(noBackendActions.authenticate.enabled, false);
+    assert.equal(
+      noBackendActions["set-auto-approve-permissions"].enabled,
+      false,
+    );
+    assert.isTrue(
+      Object.values(noBackendToolbar).every(
+        (entry: any) => entry.enabled === false,
+      ),
+    );
+    assert.equal(noBackendPanel.reply.enabled, false);
+    assert.equal(noBackendPanel.reply.inputEnabled, false);
+    assert.isTrue(
+      noBackendPanel.reply.controls.every((entry: any) => entry.disabled),
+    );
+
+    const emptyConversationPanel = model.projectAcpChatPanelSnapshot({
+      backendAvailability: "selected",
+      conversationAvailability: "none",
+      activeBackendId: "backend-a",
+      backendOptions: [
+        { backendId: "backend-a", displayName: "Backend A", connected: false },
+      ],
+      activeConversationId: "",
+      chatSessions: [],
+      authMethods: [{ id: "device", name: "Device login" }],
+      items: [],
+      labels: {},
+    });
+    const emptyConversationActions = Object.fromEntries(
+      emptyConversationPanel.context.actions.map((entry: any) => [
+        entry.id || entry.action,
+        entry,
+      ]),
+    );
+    assert.equal(emptyConversationPanel.context.selectors[0].disabled, false);
+    assert.equal(emptyConversationPanel.context.selectors[1].disabled, true);
+    assert.equal(emptyConversationActions["new-conversation"].enabled, true);
+    assert.equal(emptyConversationActions.connect.enabled, true);
+    assert.deepEqual(emptyConversationActions.connect.payload, {
+      backendId: "backend-a",
+      conversationId: "",
+    });
+    assert.equal(emptyConversationActions.disconnect.enabled, false);
+    assert.equal(emptyConversationActions.authenticate.enabled, false);
+    assert.equal(
+      emptyConversationActions["set-auto-approve-permissions"].enabled,
+      false,
+    );
+    assert.equal(emptyConversationPanel.reply.enabled, false);
+    assert.equal(emptyConversationPanel.reply.inputEnabled, false);
 
     const ssotConnectingPanel = model.projectAcpChatPanelSnapshot({
       status: "initializing",
@@ -5100,6 +5184,41 @@ describe("acp ui smoke", function () {
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 0,
       transcriptItemCount: 0,
+      items: [],
+      labels: {},
+    });
+
+    assert.isNull(transcript.querySelector(".acp-chat-transcript-loading"));
+    const renderCall = sidebar.transcriptRenderCalls.at(-1);
+    assert.equal(renderCall?.virtualized, false);
+    assert.isUndefined(renderCall?.pageKey);
+    assert.deepEqual(renderCall?.items || [], []);
+    assert.isFalse(
+      sidebar.actions.some((entry) => entry.action === "load-transcript-page"),
+    );
+  });
+
+  it("renders ACP Chat empty backend scope without transcript page loading or requests", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      backendAvailability: "none",
+      conversationAvailability: "none",
+      activeBackendId: "",
+      backendId: "",
+      backendOptions: [],
+      activeConversationId: "",
+      conversationId: "",
+      chatSessions: [],
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 0,
+      transcriptItemCount: 0,
+      transcriptState: {
+        backendId: "",
+        conversationId: "",
+        state: "loading",
+      },
       items: [],
       labels: {},
     });
