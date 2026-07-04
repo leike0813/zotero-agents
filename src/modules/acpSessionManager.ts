@@ -3286,24 +3286,74 @@ function selectedTranscriptStateForSessionRuntime(sessionRuntime: AcpChatSession
   };
 }
 
+const ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
+const ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT = 200;
+
+function normalizeAcpChatTranscriptPageLimit(value: unknown) {
+  return Math.max(
+    1,
+    Math.min(
+      ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT,
+      Math.floor(Number(value || ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT)),
+    ),
+  );
+}
+
+export type AcpConversationTranscriptPage = {
+  backendId: string;
+  conversationId: string;
+  requestId: string;
+  items: AcpConversationItem[];
+  cursor: number;
+  prevCursor?: number;
+  nextCursor?: number;
+  total: number;
+  eventSeq: number;
+  transcriptRevision: number;
+  limit: number;
+};
+
 export async function readAcpConversationTranscriptPage(args: {
   backendId?: string;
   conversationId?: string;
   cursor?: number;
   limit?: number;
-}) {
+}): Promise<AcpConversationTranscriptPage> {
   ensureInitialized();
-  await flushPendingChatTranscriptWrites();
-  const backendId = normalizeBackendId(args.backendId || activeBackendId);
+  const backendId =
+    normalizeBackendId(args.backendId || activeBackendId) ||
+    ACP_OPENCODE_BACKEND_ID;
   const conversationId =
-    normalizeBackendId(args.conversationId) ||
-    getOrCreateSessionRuntime(backendId).snapshot.conversationId;
+    normalizeConversationId(args.conversationId) ||
+    normalizeConversationId(
+      getOrCreateSessionRuntime(backendId).snapshot.conversationId,
+    );
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+  await flushPendingChatTranscriptWrites(sessionRuntime);
   const paths = resolveAcpChatRuntimePaths(backendId, conversationId);
-  return readAcpChatTranscriptPage({
-    conversationStorageDir: paths.conversationStorageDir,
+  const page = await readAcpChatTranscriptPage({
+    conversationStorageDir:
+      sessionRuntime.snapshot.conversationStorageDir ||
+      paths.conversationStorageDir,
     cursor: args.cursor,
     limit: args.limit,
   });
+  return {
+    backendId,
+    conversationId,
+    requestId: `${backendId}\n${conversationId}`,
+    items: page.items.map((item) => cloneAcpConversationItem(item)),
+    cursor: page.cursor,
+    prevCursor: page.prevCursor,
+    nextCursor: page.nextCursor,
+    total: page.total,
+    eventSeq: page.eventSeq,
+    transcriptRevision: Math.max(
+      Number(page.eventSeq) || 0,
+      Number(sessionRuntime.snapshot.transcriptRevision) || 0,
+    ),
+    limit: normalizeAcpChatTranscriptPageLimit(args.limit),
+  };
 }
 
 export function subscribeAcpConversationSnapshots(

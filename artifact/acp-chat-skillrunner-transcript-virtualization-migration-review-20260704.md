@@ -24,6 +24,8 @@
 - [x] 新开并完成 OpenSpec change `acp-chat-structural-transcript-snapshot`；当前工作区显示该 change 已进入 `openspec/changes/archive/2026-07-04-acp-chat-structural-transcript-snapshot/`，并已将 ACP Chat structural snapshot 要求同步到主 spec。
 - [x] ACP Chat UI snapshot 读取已支持显式 `itemMode: "structural"`：默认 full 行为保持不变，structural mode 只返回 plan items，并保留 transcript revision/count/preview/state 等 metadata。
 - [x] `publishMode: "structural"` 已修正为即使 transcript mirror loaded，也不会把 message/thought/tool_call 全量 transcript items 写入 published UI snapshot。
+- [x] 新开并完成 OpenSpec change `acp-chat-transcript-page-reader`；当前工作区显示该 change 已进入 `openspec/changes/archive/2026-07-04-acp-chat-transcript-page-reader/`，并已将 ACP Chat transcript page reader 要求同步到主 spec。
+- [x] `readAcpConversationTranscriptPage()` 已原地增强为 ACP Chat page DTO：保留 `.items` 兼容性，补齐 `backendId`、`conversationId`、`requestId`、`transcriptRevision`、`limit`，并把 pending transcript write flush 收窄到目标 session runtime。
 
 已验证：
 
@@ -33,10 +35,13 @@
 - [x] `npm run lint:check` 已运行；失败原因是 15 个非本次改动文件的既有 Prettier 警告，本次改动文件不在剩余警告列表中。
 - [x] `test/core/96-acp-session-manager.test.ts` 单文件完整测试：72 passing。
 - [x] `openspec validate acp-chat-structural-transcript-snapshot --strict` 在归档前通过；归档后主 spec 已包含新增 ACP Chat structural snapshot requirement。
+- [x] `acp-chat-transcript-page-reader` 聚焦测试通过：6 passing，覆盖 scope metadata、后台 conversation page read、目标 session pending write flush、tail/cursor page metadata。
+- [x] `npx tsc --noEmit`、`npx eslint src/modules/acpSessionManager.ts test/core/96-acp-session-manager.test.ts`、`openspec validate acp-chat-transcript-page-reader --strict` 通过；归档同步后 `openspec validate acp-chat-file-backed-transcript-state --strict` 也通过。
+- [x] touched-file Prettier check 已运行；仍被 `src/modules/acpSessionManager.ts` 与 `test/core/96-acp-session-manager.test.ts` 的既有整文件格式漂移拦住，本轮未做 formatter 批量重写。
 
 尚未完成：
 
-- [ ] ACP Chat 的 page reader、workspace sidebar page 编排、child page rendering guard、以及 Skills 风格 publication-path 过滤。
+- [ ] ACP Chat 的 workspace sidebar page 编排、child page rendering guard、以及 Skills 风格 publication-path 过滤。
 
 ## 结论
 
@@ -428,27 +433,29 @@ ACP Chat 的 page request 应优先使用当前内存 mirror，必要时可回�
 - 过滤器只能减少重活，不能吞掉 active scope 的权限请求、错误、连接状态和 conversation 切换。
 - 如果无法在第一步做精细 change object，至少先用 active tab + stable cheap signature 控制投递，避免恢复备份分支的双 subscription。
 
-### 阶段 4：ACP Chat 增加 page reader
+### 阶段 4：ACP Chat 增加 page reader（已完成）
 
 修改：
 
 - `src/modules/acpSessionManager.ts`
-- 可能需要扩展 `src/modules/acpConversationTranscriptStore.ts` 的类型导出。
+- 未扩展 `src/modules/acpConversationTranscriptStore.ts`；本阶段只在 session manager 包装层补齐 UI DTO。
 
 目标：
 
 - 提供 host 读取 ACP Chat transcript page 的单一窄接口。
 - page DTO 带完整 scope 信息，供 child 和 renderer 校验。
 
-建议接口：
+实际接口：
 
 ```ts
-export async function readAcpConversationTranscriptPageForUi(args: {
+export async function readAcpConversationTranscriptPage(args: {
   backendId?: string;
   conversationId?: string;
   cursor?: number;
   limit?: number;
-}): Promise<{
+}): Promise<AcpConversationTranscriptPage>;
+
+export type AcpConversationTranscriptPage = {
   backendId: string;
   conversationId: string;
   requestId: string;
@@ -460,15 +467,15 @@ export async function readAcpConversationTranscriptPageForUi(args: {
   eventSeq: number;
   transcriptRevision: number;
   limit: number;
-}>;
+};
 ```
 
 关键设计：
 
 - `requestId` 可设为 `${backendId}\n${conversationId}`，与 child `pageKey` 一致。
-- 校验 backendId/conversationId 非空。
-- flush 当前 conversation pending transcript writes。
-- 优先使用当前 loaded mirror 可选，但必须可回落到 durable `readAcpChatTranscriptPage()`。
+- 使用 `normalizeConversationId()` 解析 conversation scope。
+- flush 目标 conversation session runtime 的 pending transcript writes，不再全局等待所有 ACP Chat transcript writes。
+- 从 durable `readAcpChatTranscriptPage()` 读取 page；mirror 优化留到后续需要时再设计。
 - 返回的 `transcriptRevision` 使用 page eventSeq 或 snapshot transcriptRevision 中较大值。
 - 备份分支中 `readAcpConversationTranscriptPage` 包装层的两个关键点应保留：显式解析 conversation scope，并按该 session flush pending writes 后再读 durable store。
 
@@ -637,7 +644,7 @@ export async function readAcpConversationTranscriptPageForUi(args: {
 1. [x] 先落 shared renderer items-only virtual source，并用 smoke test 锁住。
 2. [x] 接入 SkillRunner 虚拟化，因为它不牵涉后端分页，风险最低。
 3. [x] 在 ACP session manager 增加窄版 structural snapshot，确保 full 默认行为不变。
-4. [ ] 增加 ACP Chat page reader，保留 per-session pending write flush 和 durable store fallback。
+4. [x] 增加 ACP Chat page reader，保留 per-session pending write flush 和 durable store fallback。
 5. [ ] 在 workspace sidebar 加 ACP Chat selected page 编排、active-tab 分流和 cheap signature。
 6. [ ] 增加 ACP Chat live/background refresh 过滤，复制 ACP Skills 的 publication-path 治理思路。
 7. [ ] 在 ACP Chat child 加 page rendering guard。

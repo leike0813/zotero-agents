@@ -2582,6 +2582,127 @@ describe("acp session manager", function () {
     assert.lengthOf(getAcpConversationSnapshot().items, 0);
   });
 
+  it("reads ACP chat transcript pages with stable scope metadata", async function () {
+    await sendAcpConversationPrompt({
+      message: "transcript page scope metadata",
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    const page = await readAcpConversationTranscriptPage({
+      backendId: snapshot.backendId,
+      conversationId: snapshot.conversationId,
+      limit: 2,
+    });
+
+    assert.equal(page.backendId, snapshot.backendId);
+    assert.equal(page.conversationId, snapshot.conversationId);
+    assert.equal(
+      page.requestId,
+      `${snapshot.backendId}\n${snapshot.conversationId}`,
+    );
+    assert.equal(page.limit, 2);
+    assert.equal(page.eventSeq, snapshot.transcriptEventSeq);
+    assert.equal(page.transcriptRevision, snapshot.transcriptRevision);
+    assert.isAtLeast(page.total, page.items.length);
+    assert.isAtLeast(page.items.length, 1);
+  });
+
+  it("reads explicit background ACP chat transcript pages without switching active conversation", async function () {
+    await sendAcpConversationPrompt({
+      message: "background transcript page",
+    });
+    const backgroundConversationId =
+      getAcpConversationSnapshot().conversationId;
+
+    await startNewAcpConversation();
+    await sendAcpConversationPrompt({
+      message: "active transcript page",
+    });
+    const activeSnapshot = getAcpConversationSnapshot();
+    assert.notEqual(activeSnapshot.conversationId, backgroundConversationId);
+
+    const page = await readAcpConversationTranscriptPage({
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      conversationId: backgroundConversationId,
+      limit: 200,
+    });
+
+    assert.equal(page.conversationId, backgroundConversationId);
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      activeSnapshot.conversationId,
+    );
+    const pageText = page.items
+      .map((entry) => ("text" in entry ? entry.text : ""))
+      .join("\n");
+    assert.include(pageText, "background transcript page");
+    assert.notInclude(pageText, "active transcript page");
+  });
+
+  it("waits for target ACP chat transcript writes before reading a page", async function () {
+    await connectAcpConversation();
+    const snapshot = getAcpConversationSnapshot();
+    assert.isNotEmpty(snapshot.sessionId);
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId: snapshot.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "target pending page flush",
+        },
+      },
+    } as any);
+
+    const page = await readAcpConversationTranscriptPage({
+      backendId: snapshot.backendId,
+      conversationId: snapshot.conversationId,
+      limit: 200,
+    });
+    const assistant = page.items.find(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.include(assistant?.text || "", "target pending page flush");
+  });
+
+  it("preserves ACP chat transcript page boundary metadata", async function () {
+    await sendAcpConversationPrompt({
+      message: "transcript page boundaries",
+    });
+    const snapshot = getAcpConversationSnapshot();
+    const all = await readAcpConversationTranscriptPage({
+      backendId: snapshot.backendId,
+      conversationId: snapshot.conversationId,
+      limit: 200,
+    });
+    assert.isAtLeast(all.total, 3);
+
+    const tail = await readAcpConversationTranscriptPage({
+      backendId: snapshot.backendId,
+      conversationId: snapshot.conversationId,
+      limit: 2,
+    });
+    assert.equal(tail.limit, 2);
+    assert.equal(tail.total, all.total);
+    assert.equal(tail.cursor, Math.max(0, all.total - 2));
+    assert.isUndefined(tail.nextCursor);
+    assert.equal(tail.prevCursor, Math.max(0, tail.cursor - 2));
+    assert.lengthOf(tail.items, Math.min(2, all.total));
+
+    const first = await readAcpConversationTranscriptPage({
+      backendId: snapshot.backendId,
+      conversationId: snapshot.conversationId,
+      cursor: 0,
+      limit: 2,
+    });
+    assert.equal(first.limit, 2);
+    assert.equal(first.cursor, 0);
+    assert.isUndefined(first.prevCursor);
+    assert.equal(first.nextCursor, 2);
+    assert.lengthOf(first.items, 2);
+  });
+
   it("returns plan-only ACP chat structural UI snapshots without changing default full reads", async function () {
     await sendAcpConversationPrompt({
       message: "structural snapshot",
