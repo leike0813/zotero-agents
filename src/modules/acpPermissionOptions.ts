@@ -30,3 +30,25 @@ export function normalizeAcpPermissionOptionKind(
 export function isAcpAllowPermissionKind(value: unknown) {
   return acpAllowPermissionKindSet.has(String(value || "").trim());
 }
+
+export function resolveAutoApproveAcpPermissionOptionId(
+  source: unknown,
+  options: Array<{ kind?: unknown; optionId?: unknown }> | undefined,
+) {
+  if (String(source || "").trim() !== "acp-tool-call") {
+    return "";
+  }
+  const allowOptions = (Array.isArray(options) ? options : []).filter(
+    (option) =>
+      isAcpAllowPermissionKind(option.kind) &&
+      String(option.optionId || "").trim(),
+  );
+  const selected =
+    allowOptions.find(
+      (option) => String(option.kind || "").trim() === "allow_once",
+    ) ||
+    allowOptions.find(
+      (option) => String(option.kind || "").trim() === "allow_always",
+    );
+  return selected ? String(selected.optionId || "").trim() : "";
+}

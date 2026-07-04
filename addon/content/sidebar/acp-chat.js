@@ -96,6 +96,13 @@
     return Array.from(state.toolActivityExpandedIds).sort().join("\n");
   }
 
+  function isStaleTranscriptRevision(revision) {
+    return (
+      typeof state.transcriptRevision === "number" &&
+      revision < state.transcriptRevision
+    );
+  }
+
   function assistantConversationView() {
     return window.AssistantConversationView &&
       typeof window.AssistantConversationView === "object"
@@ -237,6 +244,7 @@
       selectedEffort: safeText(
         snap.currentReasoningEffort && snap.currentReasoningEffort.id,
       ),
+      autoApproveAcpPermissions: snap.autoApproveAcpPermissions === true,
       sessionDrawerOpen: state.sessionDrawerOpen,
       detailsDrawerOpen: state.detailsDrawerOpen,
       permissionDrawerOpen: state.permissionRequestDrawerOpen,
@@ -357,6 +365,21 @@
             snapshot.conversationId,
         ),
         methodId: safeText(data.methodId),
+      });
+      return;
+    }
+    if (action === "set-auto-approve-permissions") {
+      const enabled = data.enabled === true;
+      sendAction("set-auto-approve-permissions", {
+        enabled,
+        backendId: safeText(
+          data.backendId || snapshot.activeBackendId || snapshot.backendId,
+        ),
+        conversationId: safeText(
+          data.conversationId ||
+            snapshot.activeConversationId ||
+            snapshot.conversationId,
+        ),
       });
       return;
     }
@@ -534,6 +557,9 @@
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
+    if (isStaleTranscriptRevision(revision)) {
+      return;
+    }
     const expandedSignature = toolActivityExpandedSignature();
     if (
       state.transcriptRevision === revision &&

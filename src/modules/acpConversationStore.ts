@@ -329,6 +329,8 @@ function normalizeSnapshotPayload(args: {
     snapshot.showDiagnostics = parsed.showDiagnostics === true;
     snapshot.statusExpanded = parsed.statusExpanded === true;
     snapshot.chatDisplayMode = normalizeChatDisplayMode(parsed.chatDisplayMode);
+    snapshot.autoApproveAcpPermissions =
+      parsed.autoApproveAcpPermissions === true;
     snapshot.lastError = String(parsed.lastError || "");
     snapshot.prerequisiteError = String(parsed.prerequisiteError || "");
     snapshot.authMethods = parseAuthMethods(parsed.authMethods);
@@ -851,6 +853,8 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       showDiagnostics: snapshot.showDiagnostics,
       statusExpanded: snapshot.statusExpanded,
       chatDisplayMode: snapshot.chatDisplayMode,
+      autoApproveAcpPermissions:
+        snapshot.autoApproveAcpPermissions === true,
       lastError: snapshot.lastError,
       prerequisiteError: snapshot.prerequisiteError,
       authMethods: snapshot.authMethods.map((entry) => ({ ...entry })),

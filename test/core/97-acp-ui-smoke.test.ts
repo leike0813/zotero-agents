@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import { buildAcpSidebarViewSnapshot } from "../../src/modules/acpSidebarModel";
+import { createEmptyAcpConversationSnapshot } from "../../src/modules/acpTypes";
 import { buildSkillRunnerSidebarSections } from "../../src/modules/skillRunnerSidebarModel";
 
 function isRealZoteroRuntime() {
@@ -74,15 +76,130 @@ async function loadAssistantPanelModelForSmoke(options: any = {}) {
 
 async function loadAssistantPanelRendererForSmoke(document: any) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
-  const code = await readProjectFile(
+  const transcriptCode = await readProjectFile(
+    "addon/content/shared/assistant/assistant-transcript-renderer.js",
+  );
+  const panelCode = await readProjectFile(
     "addon/content/shared/assistant/assistant-panel-renderer.js",
   );
   const context = {
-    window: {},
+    window: {
+      requestAnimationFrame(callback: any) {
+        callback();
+        return 0;
+      },
+    },
     document,
+    setTimeout,
+    clearTimeout,
   };
+  vm.runInNewContext(transcriptCode, context);
+  vm.runInNewContext(panelCode, context);
+  return {
+    ...(context.window as any).AssistantPanelRenderer,
+    ...(context.window as any).AssistantTranscriptRenderer,
+  };
+}
+
+async function loadAcpSkillRunSidebarForSmoke(
+  document: any,
+  options: { useActualTranscriptRenderer?: boolean } = {},
+) {
+  const vm = await dynamicImport<typeof import("vm")>("vm");
+  const code = await readProjectFile("addon/content/sidebar/acp-skill-run.js");
+  const transcriptCode = options.useActualTranscriptRenderer
+    ? await readProjectFile(
+        "addon/content/shared/assistant/assistant-transcript-renderer.js",
+      )
+    : "";
+  const listeners = new Map<string, any[]>();
+  if (typeof document.addEventListener !== "function") {
+    document.addEventListener = () => undefined;
+  }
+  const windowRef: any = {
+    parent: null,
+    top: null,
+    opener: null,
+    wrappedJSObject: null,
+    requestAnimationFrame(callback: any) {
+      callback();
+      return 0;
+    },
+    addEventListener(type: string, handler: any) {
+      const entries = listeners.get(type) || [];
+      entries.push(handler);
+      listeners.set(type, entries);
+    },
+    AssistantPanelModel: {
+      projectAcpSkillRunPanelSnapshot(snapshot: any = {}) {
+        return {
+          kind: "acp-skill",
+          labels: snapshot.labels || {},
+          context: {},
+          drawers: {},
+          reply: {},
+          raw: snapshot,
+        };
+      },
+    },
+    AssistantPanelRenderer: {
+      renderAssistantPanelSnapshot() {
+        return undefined;
+      },
+    },
+  };
+  if (!options.useActualTranscriptRenderer) {
+    windowRef.AssistantTranscriptRenderer = {
+      renderAssistantTranscript(options: any = {}) {
+        const container = options.container;
+        while (container && container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        for (const item of Array.isArray(options.items) ? options.items : []) {
+          const row = document.createElement("div");
+          row.className = "assistant-transcript-row";
+          row.textContent = String(item.text || item.label || item.id || "");
+          container.appendChild(row);
+        }
+        if (typeof options.onRendered === "function") {
+          options.onRendered({ orderKey: "stable", modeKey: "plain" });
+        }
+      },
+    };
+  }
+  const context = {
+    window: windowRef,
+    document,
+    setTimeout,
+    clearTimeout,
+  };
+  if (transcriptCode) {
+    vm.runInNewContext(transcriptCode, context);
+  }
   vm.runInNewContext(code, context);
-  return (context.window as any).AssistantPanelRenderer;
+  return {
+    postSnapshot(snapshot: Record<string, unknown>) {
+      for (const handler of listeners.get("message") || []) {
+        handler({
+          data: {
+            type: "acp-skill-run:snapshot",
+            payload: snapshot,
+          },
+        });
+      }
+    },
+  };
+}
+
+function collectFakeText(node: any): string {
+  if (!node) return "";
+  return (
+    String(node.textContent || "") +
+    String(node.innerHTML || "") +
+    (Array.isArray(node.children)
+      ? node.children.map((child: any) => collectFakeText(child)).join("")
+      : "")
+  );
 }
 
 function createFakeDocumentForAssistantPanel() {
@@ -108,10 +225,13 @@ function createFakeDocumentForAssistantPanel() {
     disabled = false;
     selectionStart: number | null = 0;
     selectionEnd: number | null = 0;
+    scrollTop = 0;
+    scrollHeight = 0;
+    clientHeight = 0;
     type = "";
     onclick: any = null;
     listeners = new Map<string, any[]>();
-    style = {
+    style: any = {
       setProperty: (_name: string, _value: string) => undefined,
     };
     classList = {
@@ -155,6 +275,21 @@ function createFakeDocumentForAssistantPanel() {
       return child;
     }
 
+    insertBefore(child: FakeElement, before: FakeElement | null) {
+      child.parentNode = this;
+      if (!before) {
+        this.children.push(child);
+        return child;
+      }
+      const index = this.children.indexOf(before);
+      if (index < 0) {
+        this.children.push(child);
+      } else {
+        this.children.splice(index, 0, child);
+      }
+      return child;
+    }
+
     removeChild(child: FakeElement) {
       this.children = this.children.filter((entry) => entry !== child);
       child.parentNode = null;
@@ -169,10 +304,26 @@ function createFakeDocumentForAssistantPanel() {
       return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
     }
 
+    removeAttribute(name: string) {
+      this.attributes.delete(name);
+    }
+
     addEventListener(type: string, handler: any) {
       const entries = this.listeners.get(type) || [];
       entries.push(handler);
       this.listeners.set(type, entries);
+    }
+
+    dispatchEventType(type: string) {
+      const event = {
+        preventDefault: () => undefined,
+        stopPropagation: () => undefined,
+        target: this,
+        currentTarget: this,
+      };
+      for (const handler of this.listeners.get(type) || []) {
+        handler(event);
+      }
     }
 
     click() {
@@ -1328,6 +1479,8 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "__zsAcpSkillRunSidebarBridge");
     assert.include(assistantJs, "__zsSkillRunnerSidebarBridge");
     assert.include(assistantJs, "latestChildPayloads");
+    assert.include(assistantJs, "latestChildRevisions");
+    assert.include(assistantJs, "scopeKey");
     assert.include(assistantJs, "loadedFrames");
     assert.include(assistantJs, "function updateLoadingState()");
     assert.include(
@@ -1338,6 +1491,9 @@ describe("acp ui smoke", function () {
       assistantJs,
       "function cacheChildPayload(tab, phase, payload)",
     );
+    assert.include(assistantJs, "function childPayloadRevision(tab, payload)");
+    assert.include(assistantJs, "function syncScopeKeyFromPayload(payload)");
+    assert.include(assistantJs, "revision < latestRevision");
     assert.include(
       assistantJs,
       "function normalizeSkillRunnerSidebarPayload(payload)",
@@ -1362,7 +1518,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
     assert.include(assistantJs, "function acceptChildReady(tab, payload)");
     assert.include(assistantJs, 'if (data.action === "ready")');
-    assert.include(assistantJs, 'acceptChildReady("acp-chat", data.payload || {})');
+    assert.include(
+      assistantJs,
+      'acceptChildReady("acp-chat", data.payload || {})',
+    );
     assert.include(
       assistantJs,
       'acceptChildReady("acp-skills", data.payload || {})',
@@ -1372,10 +1531,7 @@ describe("acp ui smoke", function () {
       'acceptChildReady("skillrunner", data.payload || {})',
     );
     assert.include(assistantJs, 'data.type === "skillrunner-sidebar:init"');
-    assert.include(
-      assistantJs,
-      'data.type === "skillrunner-sidebar:snapshot"',
-    );
+    assert.include(assistantJs, 'data.type === "skillrunner-sidebar:snapshot"');
     assert.include(
       assistantJs,
       'cacheChildPayload("skillrunner", "init", payload)',
@@ -1389,10 +1545,8 @@ describe("acp ui smoke", function () {
       assistantJs,
       'postToChild("skillrunner", "snapshot", payload)',
     );
-    assert.include(
-      assistantJs,
-      "postToChild(tab, phase, normalizedSnapshot || snapshot)",
-    );
+    assert.include(assistantJs, "postToChild(tab, phase, normalizedSnapshot)");
+    assert.include(assistantJs, "if (normalizedSnapshot)");
     assert.include(assistantJs, "assistant-workspace-close");
     assert.include(assistantCss, ".assistant-workspace-tabbar");
     assert.include(assistantCss, ".assistant-workspace-tabs");
@@ -1943,6 +2097,7 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".assistant-panel-reply-controls");
     assert.include(sharedPanelCss, ".assistant-panel-select:disabled");
     assert.include(sharedPanelCss, 'data-assistant-disabled="true"');
+    assert.include(sharedPanelCss, 'data-assistant-switch-pending="true"');
     assert.include(sharedPanelCss, ".assistant-panel-reply-secondary");
     assert.include(sharedPanelCss, ".assistant-panel-usage-gauge");
     assert.include(sharedPanelCss, ".assistant-panel-usage-ring");
@@ -2127,7 +2282,10 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "const view = projectConversationView(snapshot");
     assert.include(acpChatJs, "snapshot.transcriptState");
     assert.include(acpChatJs, "acp-chat-transcript-loading");
-    assert.include(acpChatJs, 'transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"))');
+    assert.include(
+      acpChatJs,
+      'transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"))',
+    );
     assert.notInclude(acpChatJs, "pendingAction");
     assert.include(acpChatJs, "state.sessionDrawerOpen = false");
     assert.include(acpChatJs, "function compactPanelRenderKey(snapshot)");
@@ -2163,13 +2321,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantPanelModelJs, "defaultCollapsed: true");
     assert.include(assistantPanelModelJs, "buildAcpPermissionInteraction");
     assert.include(acpSkillRunJs, "function projectAcpSkillRunView(run)");
-    assert.include(
-      acpSkillRunJs,
-      "projectAcpSkillRunConversationView(run || {})",
-    );
-    assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run)");
     assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
     assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
+    assert.include(acpSkillRunJs, "const virtualized =");
+    assert.include(acpSkillRunJs, "pageKey: requestId");
+    assert.include(acpSkillRunJs, "onRequestPage: function (request)");
     assert.include(acpSkillRunJs, 'variant: "skillrunner"');
     assert.include(acpSkillRunJs, "parser.render(safeText(value))");
     assert.include(acpSkillRunJs, "function assistantPanelModel()");
@@ -2444,9 +2600,42 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "orderKey: state.transcriptOrderKey");
     assert.include(acpSkillRunJs, "modeKey: state.transcriptMode");
     assert.include(acpSkillRunJs, "onRendered: function (result)");
-    assert.include(acpSkillRunJs, "syncTranscriptRun(run);");
-    assert.include(acpSkillRunJs, "const view = projectAcpSkillRunView(run);");
+    assert.include(acpSkillRunJs, "syncTranscriptRun(run, transcript);");
+    assert.include(acpSkillRunJs, "selectedTranscriptPage");
+    assert.include(acpSkillRunJs, "selectedTranscriptPageForRun");
+    assert.include(acpSkillRunJs, "load-transcript-page");
+    assert.include(acpSkillRunJs, "transcriptPaginationVirtualizationEnabled");
+    assert.include(acpSkillRunJs, "resetTranscriptVirtualState");
+    assert.include(acpSkillRunJs, "resetAssistantTranscriptVirtualState");
+    assert.include(acpSkillRunJs, "pendingSelectedRequestId");
+    assert.include(acpSkillRunJs, "function shouldAcceptSnapshot(snapshot)");
+    assert.include(acpSkillRunJs, "snapshotSidebarRevision");
+    assert.include(acpSkillRunJs, "snapshotSelectedRequestId");
     assert.include(
+      acpSkillRunJs,
+      "snapshotTranscriptPaginationVirtualizationEnabled",
+    );
+    assert.include(
+      acpSkillRunJs,
+      "state.transcriptPaginationVirtualizationEnabled !== false",
+    );
+    assert.include(acpSkillRunJs, "if (!virtualized)");
+    assert.notInclude(acpSkillRunJs, "TRANSCRIPT_RENDER_WINDOW_LIMIT");
+    assert.notInclude(acpSkillRunJs, "__virtualTranscriptItems");
+    assert.notInclude(acpSkillRunJs, "virtualTranscriptWindow");
+    assert.notInclude(acpSkillRunJs, "installTranscriptVirtualSpacers");
+    assert.notInclude(acpSkillRunJs, "installTranscriptScrollHandler");
+    assert.include(assistantTranscriptRendererJs, "virtualTranscriptStates");
+    assert.include(assistantTranscriptRendererJs, "virtualized");
+    assert.include(assistantTranscriptRendererJs, "onRequestPage");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "resetAssistantTranscriptVirtualState",
+    );
+    assert.include(assistantTranscriptRendererJs, "pageRejected");
+    assert.include(assistantPanelModelJs, "acpSkillTranscriptItemsFromPanel");
+    assert.include(assistantPanelModelJs, "selectedTranscriptPage");
+    assert.notInclude(
       acpSkillRunJs,
       "Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []",
     );
@@ -2459,6 +2648,14 @@ describe("acp ui smoke", function () {
       'typeof options.formatTime === "function"',
     );
     assert.include(acpSkillRunJs, 'sendAction("select-run"');
+    const selectRunBlock = acpSkillRunJs.slice(
+      acpSkillRunJs.indexOf('action === "select-run"'),
+      acpSkillRunJs.indexOf(
+        'action === "reply"',
+        acpSkillRunJs.indexOf('action === "select-run"'),
+      ),
+    );
+    assert.notInclude(selectRunBlock, "render(state.snapshot || {})");
     assert.include(acpSkillRunJs, 'action === "connect-run"');
     assert.include(acpSkillRunJs, 'action === "disconnect-run"');
     assert.include(acpSkillRunJs, 'action === "cancel-run"');
@@ -2518,6 +2715,54 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "selectAcpSkillRun");
     assert.include(assistantSidebar, "postAcpSkillRunSnapshot");
     assert.include(assistantSidebar, "subscribeAcpSkillRunSnapshots");
+    assert.include(assistantSidebar, "lastAcpSkillRunSnapshotSignature");
+    assert.include(assistantSidebar, "acpSkillRunSnapshotBuildSeq");
+    assert.include(
+      assistantSidebar,
+      "const buildSeq = host.acpSkillRunSnapshotBuildSeq",
+    );
+    assert.include(
+      assistantSidebar,
+      "host.acpSkillRunSnapshotBuildSeq !== buildSeq",
+    );
+    assert.include(
+      assistantSidebar,
+      "const currentSelectedRequestId = getSelectedAcpSkillRunRequestId()",
+    );
+    assert.include(assistantSidebar, "snapshot.selectedRequestId ||");
+    assert.include(
+      assistantSidebar,
+      "isAssistantTranscriptPaginationVirtualizationEnabled",
+    );
+    assert.include(
+      assistantSidebar,
+      "transcriptPaginationVirtualizationEnabled",
+    );
+    assert.include(
+      assistantSidebar,
+      "shouldRefreshAcpSkillRunSnapshotForChange",
+    );
+    assert.include(assistantSidebar, "load-transcript-page");
+    assert.include(assistantSidebar, "getSelectedAcpSkillRunRequestId()");
+    const loadTranscriptPageBlock = assistantSidebar.slice(
+      assistantSidebar.indexOf('action === "load-transcript-page"'),
+      assistantSidebar.indexOf(
+        "await handleAcpSkillRunAction",
+        assistantSidebar.indexOf('action === "load-transcript-page"'),
+      ),
+    );
+    assert.include(
+      loadTranscriptPageBlock,
+      "!requestId || requestId !== selectedRequestId",
+    );
+    assert.notInclude(loadTranscriptPageBlock, "selectedRequestId: requestId");
+    assert.include(
+      assistantSidebar,
+      "setAcpConversationAutoApprovePermissions",
+    );
+    assert.include(assistantSidebar, '"set-auto-approve-permissions"');
+    assert.include(acpChatJs, '"set-auto-approve-permissions"');
+    assert.include(acpChatJs, "autoApproveAcpPermissions");
     assert.include(assistantSidebar, '"acp-skills"');
     assert.include(assistantSidebar, "openAssistantWorkspaceSidebar");
     assert.include(assistantSidebar, "installAssistantWorkspaceSidebarShell");
@@ -2655,7 +2900,10 @@ describe("acp ui smoke", function () {
     assert.include(sidebarModel, "remoteSessionRestoreStatus");
     assert.include(sidebarModel, "backendChatSessions");
     assert.include(assistantPanelModelJs, "snap.backendChatSessions");
-    assert.include(assistantPanelModelJs, "conversationId: safeText(normalized.conversationId || normalized.value)");
+    assert.include(
+      assistantPanelModelJs,
+      "conversationId: safeText(normalized.conversationId || normalized.value)",
+    );
     assert.include(
       assistantPanelModelJs,
       "const backendId = safeText(normalized.backendId || normalized.value)",
@@ -2893,6 +3141,123 @@ describe("acp ui smoke", function () {
     });
     assert.equal(acpChat.reply.placeholder, "询问当前 ACP 后端...");
     assert.equal(acpChat.context.statusLabel, "已连接");
+
+    const autoApprovePanel = model.projectAcpChatPanelSnapshot({
+      labels: {
+        assistantPanel: {
+          actions: {
+            autoApproveAcpPermissions: "自动批准",
+            autoApproveAcpPermissionsOn: "自动批准已开启",
+            autoApproveAcpPermissionsOff: "自动批准已关闭",
+          },
+        },
+      },
+      status: "connected",
+      sessionId: "session-auto-approve",
+      activeBackendId: "acp-test",
+      activeConversationId: "conversation-test",
+      autoApproveAcpPermissions: true,
+      backendOptions: [],
+      chatSessions: [],
+    });
+    const autoApproveAction = autoApprovePanel.context.actions.find(
+      (action: any) => action.action === "set-auto-approve-permissions",
+    );
+    assert.equal(autoApproveAction.kind, "switch");
+    assert.isTrue(autoApproveAction.checked);
+    assert.equal(autoApproveAction.label, "自动批准已开启");
+    assert.deepInclude(autoApproveAction.payload, {
+      enabled: false,
+      backendId: "acp-test",
+      conversationId: "conversation-test",
+    });
+
+    const placeholderAutoApprovePanel = model.projectAcpChatPanelSnapshot({
+      labels: {
+        assistantPanel: {
+          actions: {
+            autoApproveAcpPermissions: "自动批准",
+            autoApproveAcpPermissionsOn: "自动批准已开启",
+            autoApproveAcpPermissionsOff: "自动批准已关闭",
+          },
+        },
+      },
+      status: "idle",
+      activeBackendId: "acp-test",
+      activeConversationId: "",
+      autoApproveAcpPermissions: false,
+      backendOptions: [],
+      chatSessions: [],
+    });
+    const placeholderAutoApproveAction =
+      placeholderAutoApprovePanel.context.actions.find(
+        (action: any) => action.action === "set-auto-approve-permissions",
+      );
+    assert.equal(placeholderAutoApproveAction.kind, "switch");
+    assert.isFalse(placeholderAutoApproveAction.checked);
+    assert.isTrue(placeholderAutoApproveAction.enabled);
+    assert.deepInclude(placeholderAutoApproveAction.payload, {
+      enabled: true,
+      backendId: "acp-test",
+      conversationId: "",
+    });
+
+    const backendlessAutoApprovePanel = model.projectAcpChatPanelSnapshot({
+      labels: placeholderAutoApprovePanel.labels,
+      status: "idle",
+      activeBackendId: "",
+      activeConversationId: "",
+      autoApproveAcpPermissions: false,
+      backendOptions: [],
+      chatSessions: [],
+    });
+    const backendlessAutoApproveAction =
+      backendlessAutoApprovePanel.context.actions.find(
+        (action: any) => action.action === "set-auto-approve-permissions",
+      );
+    assert.isTrue(backendlessAutoApproveAction.enabled);
+  });
+
+  it("projects ACP Chat auto-approval state through the sidebar view snapshot", function () {
+    const snapshot = {
+      ...createEmptyAcpConversationSnapshot(),
+      backendId: "acp-test",
+      conversationId: "conversation-test",
+      autoApproveAcpPermissions: true,
+    };
+
+    const view = buildAcpSidebarViewSnapshot({
+      target: "library",
+      snapshot,
+      frontendSnapshot: {
+        activeBackendId: "acp-test",
+        activeConversationId: "conversation-test",
+        backends: [],
+        backendChatSessions: [],
+        chatSessions: [],
+        connectedCount: 0,
+        errorCount: 0,
+        totalMessageCount: 0,
+      },
+    });
+
+    assert.isTrue(view.autoApproveAcpPermissions);
+  });
+
+  it("wires ACP Chat auto-approval switch state through the child panel", async function () {
+    const [acpChatJs, acpSidebarModel] = await Promise.all([
+      readProjectFile("addon/content/sidebar/acp-chat.js"),
+      readProjectFile("src/modules/acpSidebarModel.ts"),
+    ]);
+
+    assert.include(acpSidebarModel, "autoApproveAcpPermissions");
+    assert.include(acpChatJs, '"set-auto-approve-permissions"');
+    assert.include(acpChatJs, "const enabled = data.enabled === true");
+    assert.include(acpChatJs, 'sendAction("set-auto-approve-permissions"');
+    assert.notInclude(
+      acpChatJs,
+      "snapshot.autoApproveAcpPermissions = enabled",
+    );
   });
 
   it("localizes the Assistant interaction status area from the conversation view", async function () {
@@ -3151,10 +3516,7 @@ describe("acp ui smoke", function () {
     const backendStatusSelector = backendStatusPanel.context.selectors.find(
       (entry: any) => entry.id === "backend",
     );
-    assert.equal(
-      backendStatusSelector.options[0].label,
-      "Backend A",
-    );
+    assert.equal(backendStatusSelector.options[0].label, "Backend A");
     const rawBackendStatusPanel = model.projectAcpChatPanelSnapshot({
       status: "idle",
       activeBackendId: "backend-a",
@@ -3174,10 +3536,7 @@ describe("acp ui smoke", function () {
       rawBackendStatusPanel.context.selectors.find(
         (entry: any) => entry.id === "backend",
       );
-    assert.equal(
-      rawBackendStatusSelector.options[0].label,
-      "Backend A",
-    );
+    assert.equal(rawBackendStatusSelector.options[0].label, "Backend A");
     const conversationSelector = panel.context.selectors.find(
       (entry: any) => entry.id === "conversation",
     );
@@ -3202,8 +3561,7 @@ describe("acp ui smoke", function () {
       "conversation-a",
     );
     assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0]
-        .showBackendStatusBadge,
+      panel.drawers.sections[0].groups[0].activeTasks[0].showBackendStatusBadge,
       false,
     );
     assert.equal(
@@ -3445,7 +3803,11 @@ describe("acp ui smoke", function () {
     const skillPanel = model.projectAcpSkillRunPanelSnapshot({
       labels: {
         fields: { connection: "连接", hostBridge: "宿主桥" },
-        status: { connected: "已连接", fallback: "备用端口", running: "运行中" },
+        status: {
+          connected: "已连接",
+          fallback: "备用端口",
+          running: "运行中",
+        },
       },
       mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
       hostBridge: {
@@ -3654,7 +4016,15 @@ describe("acp ui smoke", function () {
           activePrompt: false,
           replyState: "idle",
           sessionId: "session-connected-idle",
-          transcriptItems: [
+        },
+        selectedTranscriptPage: {
+          requestId: "acp-skill-connected-idle",
+          cursor: 0,
+          total: 1,
+          eventSeq: 1,
+          transcriptRevision: 1,
+          limit: 80,
+          items: [
             {
               kind: "status",
               label: "interrupt-completed",
@@ -4125,7 +4495,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantPanelRendererJs, "workspaceDrawerStableSignature");
     assert.include(assistantPanelRendererJs, "safeText(drawers.notice)");
-    assert.include(
+    assert.notInclude(
       assistantPanelRendererJs,
       'sectionId === "running" && noticeText',
     );
@@ -4212,6 +4582,704 @@ describe("acp ui smoke", function () {
     );
     assert.notInclude(acpSkillRunCss, ".asst-button {");
     assert.notInclude(runDialogCss, ".asst-button {");
+  });
+
+  it("renders workspace drawer notice without a running section", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const drawerRegion = fakeDocument.createElement("div");
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        kind: "acp-skill",
+        drawers: {
+          layout: "workspace-task-drawer",
+          notice: "Showing recent runs only.",
+          sections: [
+            {
+              id: "running",
+              title: "Running",
+              groups: [],
+            },
+            {
+              id: "completed",
+              title: "Completed",
+              groups: [
+                {
+                  backendId: "backend-a",
+                  finishedTasks: [
+                    {
+                      key: "completed-run",
+                      title: "Completed run",
+                      workflowLabel: "ACP Skill",
+                      status: "succeeded",
+                      terminal: true,
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { drawer: true },
+        regions: { drawer: drawerRegion },
+      },
+    );
+
+    const notice = drawerRegion.querySelector(
+      ".assistant-workspace-drawer-history-notice",
+    );
+    assert.ok(notice);
+    assert.include(notice?.textContent || "", "recent runs");
+  });
+
+  it("renders virtualized assistant transcript pages through the shared renderer", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1000;
+    transcript.scrollTop = 700;
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-virtual",
+      page: {
+        requestId: "run-virtual",
+        cursor: 0,
+        total: 2,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-1",
+            kind: "message",
+            role: "assistant",
+            text: "hello virtual transcript",
+          },
+          {
+            id: "thought-2",
+            kind: "thought",
+            text: "thinking",
+          },
+        ],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+
+    assert.lengthOf(
+      transcript.querySelectorAll(".assistant-transcript-row"),
+      2,
+    );
+    assert.lengthOf(
+      transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
+      2,
+    );
+  });
+
+  it("lets users scroll away from a virtualized transcript bottom", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1000;
+    transcript.scrollTop = 700;
+    const basePage = {
+      requestId: "run-scroll",
+      cursor: 0,
+      total: 1,
+      transcriptRevision: 1,
+      limit: 80,
+      items: [
+        {
+          id: "message-1",
+          kind: "message",
+          role: "assistant",
+          text: "first",
+        },
+      ],
+    };
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-scroll",
+      page: basePage,
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+    assert.equal(transcript.scrollTop, 1000);
+
+    transcript.scrollTop = 650;
+    transcript.dispatchEventType("scroll");
+    transcript.scrollHeight = 1200;
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-scroll",
+      page: {
+        ...basePage,
+        transcriptRevision: 2,
+        items: [{ ...basePage.items[0], text: "second" }],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+
+    assert.notEqual(transcript.scrollTop, 1200);
+  });
+
+  it("keeps sticky virtualized transcripts at the bottom when already sticky", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1000;
+    transcript.scrollTop = 700;
+    const page = {
+      requestId: "run-sticky",
+      cursor: 0,
+      total: 1,
+      transcriptRevision: 1,
+      limit: 80,
+      items: [
+        {
+          id: "message-1",
+          kind: "message",
+          role: "assistant",
+          text: "first",
+        },
+      ],
+    };
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-sticky",
+      page,
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+    transcript.scrollHeight = 1200;
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-sticky",
+      page: {
+        ...page,
+        transcriptRevision: 2,
+        items: [{ ...page.items[0], text: "second" }],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+
+    assert.equal(transcript.scrollTop, 1200);
+  });
+
+  it("deduplicates virtualized transcript page requests", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 15000;
+    transcript.scrollTop = 14700;
+    const requests: any[] = [];
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-pages",
+      page: {
+        requestId: "run-pages",
+        cursor: 80,
+        prevCursor: 0,
+        total: 160,
+        transcriptRevision: 1,
+        limit: 80,
+        items: Array.from({ length: 80 }, (_entry, index) => ({
+          id: `message-${80 + index}`,
+          kind: "message",
+          role: "assistant",
+          text: `message ${80 + index}`,
+        })),
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+      onRequestPage: (request: any) => requests.push(request),
+    });
+    transcript.scrollTop = 7050;
+    transcript.dispatchEventType("scroll");
+    transcript.dispatchEventType("scroll");
+
+    assert.deepEqual(
+      requests.map((request) => [request.pageKey, request.cursor]),
+      [["run-pages", 0]],
+    );
+  });
+
+  it("does not render mismatched virtual transcript page fallback items", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1000;
+    transcript.scrollTop = 700;
+    const oldItems = [
+      {
+        id: "message-old",
+        kind: "message",
+        role: "assistant",
+        text: "old run transcript",
+      },
+    ];
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-b",
+      page: {
+        requestId: "run-a",
+        cursor: 0,
+        total: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: oldItems,
+      },
+      items: oldItems,
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+
+    assert.notInclude(collectFakeText(transcript), "old run transcript");
+    assert.ok(transcript.querySelector(".assistant-transcript-empty"));
+  });
+
+  it("resets virtual transcript state so old scroll renders cannot revive prior pages", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 8000;
+    transcript.scrollTop = 7700;
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-a",
+      page: {
+        requestId: "run-a",
+        cursor: 80,
+        total: 81,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-a",
+            kind: "message",
+            role: "assistant",
+            text: "run A transcript",
+          },
+        ],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+    assert.include(collectFakeText(transcript), "run A transcript");
+
+    renderer.resetAssistantTranscriptVirtualState(transcript, "run-b");
+    while (transcript.firstChild) transcript.removeChild(transcript.firstChild);
+    const spinner = fakeDocument.createElement("div");
+    spinner.className = "acp-skill-transcript-loading";
+    spinner.textContent = "loading";
+    transcript.appendChild(spinner);
+    transcript.scrollTop = 0;
+    transcript.dispatchEventType("scroll");
+
+    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "run A transcript");
+  });
+
+  it("sticks a new virtual transcript page key to the tail page on first render", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 12000;
+    transcript.scrollTop = 0;
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-a",
+      page: {
+        requestId: "run-a",
+        cursor: 0,
+        total: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-a",
+            kind: "message",
+            role: "assistant",
+            text: "run A transcript",
+          },
+        ],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+    transcript.scrollTop = 0;
+    transcript.dispatchEventType("scroll");
+    assert.equal(
+      transcript.getAttribute("data-assistant-transcript-stick"),
+      "false",
+    );
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-b",
+      page: {
+        requestId: "run-b",
+        cursor: 80,
+        total: 81,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-b",
+            kind: "message",
+            role: "assistant",
+            text: "run B transcript",
+          },
+        ],
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+    });
+
+    assert.include(collectFakeText(transcript), "run B transcript");
+    assert.equal(transcript.scrollTop, 12000);
+  });
+
+  it("does not let ACP Skills loading snapshots revive the previous virtual transcript", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const elements = new Map<string, any>();
+    const shell = fakeDocument.createElement("div");
+    shell.className = "acp-skill-run-shell";
+    for (const id of [
+      "acp-skill-run-transcript",
+      "acp-skill-chat-mode-plain",
+      "acp-skill-chat-mode-bubble",
+      "acp-skill-run-drawer",
+      "acp-skill-run-details",
+      "acp-skill-run-empty",
+      "acp-skill-run-main",
+      "acp-skill-run-toolbar",
+      "acp-skill-run-banner",
+      "acp-skill-conversation-window",
+      "acp-skill-run-plan-panel",
+      "acp-skill-run-interaction",
+      "acp-skill-run-reply-form",
+    ]) {
+      const node = fakeDocument.createElement("div");
+      elements.set(id, node);
+      shell.appendChild(node);
+    }
+    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
+    fakeDocument.querySelector = (selector: string) =>
+      selector === ".acp-skill-run-shell" ? shell : null;
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument, {
+      useActualTranscriptRenderer: true,
+    });
+    const transcript = elements.get("acp-skill-run-transcript");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 12000;
+    transcript.scrollTop = 11700;
+
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-a",
+        status: "running",
+        transcriptRevision: 1,
+      },
+      selectedTranscript: {
+        requestId: "run-a",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-a",
+        cursor: 80,
+        total: 81,
+        eventSeq: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-a",
+            kind: "message",
+            role: "assistant",
+            text: "run A transcript",
+          },
+        ],
+      },
+    });
+    assert.include(collectFakeText(transcript), "run A transcript");
+
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-b",
+        status: "running",
+        transcriptRevision: 1,
+      },
+      selectedTranscript: {
+        requestId: "run-b",
+        state: "loading",
+      },
+    });
+    transcript.scrollTop = 0;
+    transcript.dispatchEventType("scroll");
+    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "run A transcript");
+
+    transcript.scrollHeight = 12000;
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-b",
+        status: "running",
+        transcriptRevision: 2,
+      },
+      selectedTranscript: {
+        requestId: "run-b",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-b",
+        cursor: 80,
+        total: 81,
+        eventSeq: 2,
+        transcriptRevision: 2,
+        limit: 80,
+        items: [
+          {
+            id: "message-b",
+            kind: "message",
+            role: "assistant",
+            text: "run B transcript",
+          },
+        ],
+      },
+    });
+
+    assert.include(collectFakeText(transcript), "run B transcript");
+    assert.notInclude(collectFakeText(transcript), "run A transcript");
+    assert.equal(transcript.scrollTop, 12000);
+  });
+
+  it("keeps a rendered ACP Skills transcript when a stale loading snapshot arrives", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const elements = new Map<string, any>();
+    const shell = fakeDocument.createElement("div");
+    shell.className = "acp-skill-run-shell";
+    for (const id of [
+      "acp-skill-run-transcript",
+      "acp-skill-chat-mode-plain",
+      "acp-skill-chat-mode-bubble",
+      "acp-skill-run-drawer",
+      "acp-skill-run-details",
+      "acp-skill-run-empty",
+      "acp-skill-run-main",
+      "acp-skill-run-toolbar",
+      "acp-skill-run-banner",
+      "acp-skill-conversation-window",
+      "acp-skill-run-plan-panel",
+      "acp-skill-run-interaction",
+      "acp-skill-run-reply-form",
+    ]) {
+      const node = fakeDocument.createElement("div");
+      elements.set(id, node);
+      shell.appendChild(node);
+    }
+    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
+    fakeDocument.querySelector = (selector: string) =>
+      selector === ".acp-skill-run-shell" ? shell : null;
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument);
+    const transcript = elements.get("acp-skill-run-transcript");
+
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-spinner-guard",
+        status: "running",
+        transcriptRevision: 7,
+      },
+      selectedTranscript: {
+        requestId: "run-spinner-guard",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-spinner-guard",
+        cursor: 0,
+        total: 1,
+        eventSeq: 7,
+        transcriptRevision: 7,
+        limit: 80,
+        items: [
+          {
+            id: "message-1",
+            kind: "message",
+            role: "assistant",
+            text: "ready transcript",
+          },
+        ],
+      },
+    });
+    assert.equal(
+      transcript.querySelector(".assistant-transcript-row")?.textContent,
+      "ready transcript",
+    );
+
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-spinner-guard",
+        status: "running",
+        transcriptRevision: 7,
+      },
+      selectedTranscript: {
+        requestId: "run-spinner-guard",
+        state: "loading",
+      },
+    });
+    assert.notOk(transcript.querySelector(".acp-skill-transcript-loading"));
+    assert.equal(
+      transcript.querySelector(".assistant-transcript-row")?.textContent,
+      "ready transcript",
+    );
+
+    sidebar.postSnapshot({
+      selectedRun: {
+        requestId: "run-spinner-first-load",
+        status: "running",
+        transcriptRevision: 1,
+      },
+      selectedTranscript: {
+        requestId: "run-spinner-first-load",
+        state: "loading",
+      },
+    });
+    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
+  });
+
+  it("ignores lower-revision ACP Skills snapshots for a previous selected run", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const elements = new Map<string, any>();
+    const shell = fakeDocument.createElement("div");
+    shell.className = "acp-skill-run-shell";
+    for (const id of [
+      "acp-skill-run-transcript",
+      "acp-skill-chat-mode-plain",
+      "acp-skill-chat-mode-bubble",
+      "acp-skill-run-drawer",
+      "acp-skill-run-details",
+      "acp-skill-run-empty",
+      "acp-skill-run-main",
+      "acp-skill-run-toolbar",
+      "acp-skill-run-banner",
+      "acp-skill-conversation-window",
+      "acp-skill-run-plan-panel",
+      "acp-skill-run-interaction",
+      "acp-skill-run-reply-form",
+    ]) {
+      const node = fakeDocument.createElement("div");
+      elements.set(id, node);
+      shell.appendChild(node);
+    }
+    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
+    fakeDocument.querySelector = (selector: string) =>
+      selector === ".acp-skill-run-shell" ? shell : null;
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument);
+    const transcript = elements.get("acp-skill-run-transcript");
+
+    sidebar.postSnapshot({
+      sidebar: {
+        scopeKey: "scope-a",
+        panes: { "acp-skills": { revision: 12 } },
+      },
+      selectedRequestId: "run-current",
+      selectedRun: {
+        requestId: "run-current",
+        status: "running",
+        transcriptRevision: 2,
+      },
+      selectedTranscript: {
+        requestId: "run-current",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-current",
+        cursor: 0,
+        total: 1,
+        eventSeq: 2,
+        transcriptRevision: 2,
+        limit: 80,
+        items: [
+          {
+            id: "message-current",
+            kind: "message",
+            role: "assistant",
+            text: "current transcript",
+          },
+        ],
+      },
+    });
+    assert.equal(
+      transcript.querySelector(".assistant-transcript-row")?.textContent,
+      "current transcript",
+    );
+
+    sidebar.postSnapshot({
+      sidebar: {
+        scopeKey: "scope-a",
+        panes: { "acp-skills": { revision: 11 } },
+      },
+      selectedRequestId: "run-previous",
+      selectedRun: {
+        requestId: "run-previous",
+        status: "running",
+        transcriptRevision: 3,
+      },
+      selectedTranscript: {
+        requestId: "run-previous",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-previous",
+        cursor: 0,
+        total: 1,
+        eventSeq: 3,
+        transcriptRevision: 3,
+        limit: 80,
+        items: [
+          {
+            id: "message-previous",
+            kind: "message",
+            role: "assistant",
+            text: "previous transcript",
+          },
+        ],
+      },
+    });
+
+    assert.equal(
+      transcript.querySelector(".assistant-transcript-row")?.textContent,
+      "current transcript",
+    );
   });
 
   it("keeps focused reply textarea stable across unrelated managed renders", async function () {
@@ -4344,6 +5412,67 @@ describe("acp ui smoke", function () {
     ]);
   });
 
+  it("renders banner context switch actions and emits the toggled payload", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const bannerRegion = fakeDocument.createElement("div");
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        kind: "acp-chat",
+        context: {
+          title: "ACP Chat",
+          status: "idle",
+          actions: [
+            {
+              kind: "switch",
+              action: "set-auto-approve-permissions",
+              label: "Auto-approve off",
+              baseLabel: "Auto-approve",
+              stateLabel: "Auto-approve off",
+              checked: false,
+              enabled: true,
+              payload: {
+                enabled: true,
+                backendId: "",
+                conversationId: "",
+              },
+            },
+          ],
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { banner: true },
+        regions: { banner: bannerRegion },
+        onAction: (action: string, data: Record<string, unknown>) => {
+          actions.push({ action, data });
+        },
+      },
+    );
+
+    const switchButton = bannerRegion.querySelector(
+      ".assistant-panel-switch-action",
+    );
+    assert.ok(switchButton);
+    assert.isFalse((switchButton as any).disabled);
+    assert.equal(switchButton?.getAttribute("aria-checked"), "false");
+    switchButton?.click();
+    assert.equal(
+      switchButton?.getAttribute("data-assistant-switch-pending"),
+      "true",
+    );
+    assert.equal(switchButton?.getAttribute("aria-busy"), "true");
+    assert.deepEqual(actions, [
+      {
+        action: "set-auto-approve-permissions",
+        data: { enabled: true, backendId: "", conversationId: "" },
+      },
+    ]);
+  });
+
   it("projects the global streaming render switch on SkillRunner panels", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const panel = model.projectSkillRunnerPanelSnapshot({
@@ -4407,14 +5536,36 @@ describe("acp ui smoke", function () {
     for (const source of [acpChatJs, acpSkillRunJs, runDialogJs]) {
       assert.include(source, "transcriptRevision");
       assert.include(source, "transcriptRenderedMode");
+      assert.include(source, "isStaleTranscriptRevision");
+      assert.include(source, "revision < state.transcriptRevision");
     }
     assert.include(acpChatJs, "state.transcriptRevision === revision");
     assert.include(acpSkillRunJs, "state.transcriptRevision === revision");
     assert.include(runDialogJs, "state.transcriptRevision === revision");
+    assert.include(acpChatJs, "resetTranscriptRenderState();");
     assert.include(acpChatJs, "toolActivityExpandedSignature()");
     assert.include(acpChatJs, "state.toolActivityExpandedSignature");
+    assert.include(
+      acpSkillRunJs,
+      "let revision = incomingTranscriptRevision(run);",
+    );
+    assert.include(acpSkillRunJs, "selectedTranscriptPageSignature(run)");
+    assert.include(acpSkillRunJs, "const virtualized =");
+    assert.include(acpSkillRunJs, "isStaleLoadingTranscriptRevision");
+    assert.include(acpSkillRunJs, "revision <= state.transcriptRevision");
+    const acpSkillRenderTranscript = acpSkillRunJs.slice(
+      acpSkillRunJs.indexOf("function renderTranscript(run)"),
+      acpSkillRunJs.indexOf("function renderSelectedRun(snapshot)"),
+    );
+    assert.isBelow(
+      acpSkillRenderTranscript.indexOf(
+        "if (isStaleTranscriptRevision(revision))",
+      ),
+      acpSkillRenderTranscript.indexOf("selectedTranscriptPageSignature(run)"),
+    );
     assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
     assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");
+    assert.include(runDialogJs, "syncTranscriptContext();");
   });
 
   it("renders waiting_user choice options as clickable reply buttons", async function () {

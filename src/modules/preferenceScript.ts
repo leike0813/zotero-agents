@@ -6,6 +6,10 @@ import {
   subscribeAssistantStreamingRenderPreference,
 } from "./assistantStreamingRenderPreference";
 import {
+  isAssistantTranscriptPaginationVirtualizationEnabled,
+  setAssistantTranscriptPaginationVirtualizationEnabled,
+} from "./assistantTranscriptRenderingPreference";
+import {
   getDefaultSkillDirForWorkflowDir,
   getDefaultWorkflowDir,
   getEffectiveWorkflowDir,
@@ -121,6 +125,10 @@ function bindPrefEvents() {
   const assistantStreamingRenderEnabledCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`,
   ) as HTMLInputElement | null;
+  const assistantTranscriptPaginationVirtualizationEnabledCheckbox =
+    doc.querySelector(
+      `#zotero-prefpane-${config.addonRef}-assistant-transcript-pagination-virtualization-enabled`,
+    ) as HTMLInputElement | null;
   const backendManageButton = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-backend-manage`,
   ) as XUL.Button | null;
@@ -2322,6 +2330,22 @@ function bindPrefEvents() {
         persistAssistantStreamingRenderEnabled,
       );
     }
+  }
+
+  if (assistantTranscriptPaginationVirtualizationEnabledCheckbox) {
+    assistantTranscriptPaginationVirtualizationEnabledCheckbox.checked =
+      isAssistantTranscriptPaginationVirtualizationEnabled();
+    assistantTranscriptPaginationVirtualizationEnabledCheckbox.addEventListener(
+      "change",
+      () => {
+        const next = setAssistantTranscriptPaginationVirtualizationEnabled(
+          assistantTranscriptPaginationVirtualizationEnabledCheckbox.checked ===
+            true,
+        );
+        assistantTranscriptPaginationVirtualizationEnabledCheckbox.checked =
+          next;
+      },
+    );
   }
 
   if (browseWorkflowDirButton) {

@@ -505,6 +505,8 @@
     button.appendChild(label);
     button.appendChild(track);
     button.addEventListener("click", function () {
+      button.setAttribute("data-assistant-switch-pending", "true");
+      button.setAttribute("aria-busy", "true");
       emit(options, action.action, action.payload || { enabled: !checked });
     });
     container.appendChild(button);
@@ -1900,16 +1902,16 @@
       }
       sectionBox.appendChild(sectionBody);
       body.appendChild(sectionBox);
-      if (sectionId === "running" && noticeText) {
-        body.appendChild(
-          el(
-            "div",
-            "assistant-workspace-drawer-history-notice skillrunner-workspace-history-notice",
-            noticeText,
-          ),
-        );
-      }
     });
+    if (noticeText) {
+      body.appendChild(
+        el(
+          "div",
+          "assistant-workspace-drawer-history-notice skillrunner-workspace-history-notice",
+          noticeText,
+        ),
+      );
+    }
     if (availableTaskCount === 0) {
       body.appendChild(
         el(

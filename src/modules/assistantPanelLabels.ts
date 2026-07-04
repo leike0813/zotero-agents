@@ -32,6 +32,18 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-streaming-render-off",
         "Streaming off",
       ),
+      autoApproveAcpPermissions: l(
+        "assistant-panel-action-auto-approve-acp-permissions",
+        "Auto-approve",
+      ),
+      autoApproveAcpPermissionsOn: l(
+        "assistant-panel-action-auto-approve-acp-permissions-on",
+        "Auto-approve on",
+      ),
+      autoApproveAcpPermissionsOff: l(
+        "assistant-panel-action-auto-approve-acp-permissions-off",
+        "Auto-approve off",
+      ),
       copyId: l("assistant-panel-action-copy-id", "Copy ID"),
       copyDiagnostics: l(
         "assistant-panel-action-copy-diagnostics",

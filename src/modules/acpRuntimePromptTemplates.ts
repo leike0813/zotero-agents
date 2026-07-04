@@ -4,6 +4,8 @@ import { resolveAddonRef } from "../utils/runtimeBridge";
 import { readRuntimeTextFile, runtimePathExists } from "./runtimePersistence";
 
 export type AcpRuntimePromptTemplateId =
+  | "acp_chat_startup_preamble"
+  | "acp_skills_startup_preamble"
   | "mcp_required_guard"
   | "recovered_continuation_guard";
 
@@ -16,6 +18,14 @@ export const ACP_RUNTIME_PROMPT_TEMPLATE_ROOT =
   "addon/content/acp-runtime-prompts/templates";
 
 export const ACP_RUNTIME_PROMPT_TEMPLATES = [
+  {
+    id: "acp_chat_startup_preamble",
+    filename: "acp_chat_startup_preamble.md",
+  },
+  {
+    id: "acp_skills_startup_preamble",
+    filename: "acp_skills_startup_preamble.md",
+  },
   {
     id: "mcp_required_guard",
     filename: "mcp_required_guard.md",

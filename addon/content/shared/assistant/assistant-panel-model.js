@@ -1018,6 +1018,28 @@
     );
   }
 
+  function acpSkillTranscriptItemsFromPanel(panel, run) {
+    const sourcePanel = panel && typeof panel === "object" ? panel : {};
+    const sourceRun = run && typeof run === "object" ? run : {};
+    const page =
+      sourcePanel.selectedTranscriptPage &&
+      typeof sourcePanel.selectedTranscriptPage === "object"
+        ? sourcePanel.selectedTranscriptPage
+        : null;
+    const pageRequestId = safeText(page && page.requestId);
+    const runRequestId = safeText(sourceRun && sourceRun.requestId);
+    if (
+      page &&
+      Array.isArray(page.items) &&
+      (!pageRequestId || !runRequestId || pageRequestId === runRequestId)
+    ) {
+      return page.items;
+    }
+    return Array.isArray(sourceRun.transcriptItems)
+      ? sourceRun.transcriptItems
+      : [];
+  }
+
   function buildAcpSkillMcpIndicator(panel, run) {
     const snap = panel && typeof panel === "object" ? panel : {};
     if (snap.mcpHealth && typeof snap.mcpHealth === "object") {
@@ -1026,9 +1048,7 @@
     const source = run && typeof run === "object" ? run : {};
     const entries = []
       .concat(Array.isArray(source.events) ? source.events : [])
-      .concat(
-        Array.isArray(source.transcriptItems) ? source.transcriptItems : [],
-      );
+      .concat(acpSkillTranscriptItemsFromPanel(snap, source));
     const found = latestDiagnosticLike(entries, function (entry) {
       const stage = safeText(
         entry.stage || entry.kind || entry.label,
@@ -2772,6 +2792,46 @@
             },
             authRequired && hasAuth,
           ),
+          {
+            kind: "switch",
+            action: "set-auto-approve-permissions",
+            label:
+              snap.autoApproveAcpPermissions === true
+                ? labelFrom(
+                    snap,
+                    "actions.autoApproveAcpPermissionsOn",
+                    "Auto-approve on",
+                  )
+                : labelFrom(
+                    snap,
+                    "actions.autoApproveAcpPermissionsOff",
+                    "Auto-approve off",
+                  ),
+            baseLabel: labelFrom(
+              snap,
+              "actions.autoApproveAcpPermissions",
+              "Auto-approve",
+            ),
+            stateLabel:
+              snap.autoApproveAcpPermissions === true
+                ? labelFrom(
+                    snap,
+                    "actions.autoApproveAcpPermissionsOn",
+                    "Auto-approve on",
+                  )
+                : labelFrom(
+                    snap,
+                    "actions.autoApproveAcpPermissionsOff",
+                    "Auto-approve off",
+                  ),
+            checked: snap.autoApproveAcpPermissions === true,
+            enabled: true,
+            payload: {
+              enabled: snap.autoApproveAcpPermissions !== true,
+              backendId: activeBackendId,
+              conversationId: activeConversationId,
+            },
+          },
         ],
       },
       lifecycle: {
@@ -2925,13 +2985,16 @@
         : snapshot && snapshot.requestId
           ? snapshot
           : null;
+    const transcriptItems = acpSkillTranscriptItemsFromPanel(panel, run);
     const helper = conversationHelper();
+    const conversationSource = Object.assign({}, run || {}, {
+      labels: panelLabels,
+      transcriptItems,
+    });
     const conversation =
       helper && typeof helper.projectAcpSkillRunConversationView === "function"
-        ? helper.projectAcpSkillRunConversationView(
-            Object.assign({}, run || {}, { labels: panelLabels }),
-          )
-        : fallbackConversationView(run && run.transcriptItems);
+        ? helper.projectAcpSkillRunConversationView(conversationSource)
+        : fallbackConversationView(transcriptItems);
     const status = normalizeStatusToken((run && run.status) || "idle");
     const conversationState = normalizeStatusToken(
       (run && run.conversationState) || "unknown",
@@ -3193,13 +3256,12 @@
             stage === "interrupt-requested" || stage === "interrupt-completed"
           );
         })) ||
-        (Array.isArray(run.transcriptItems) &&
-          run.transcriptItems.some(function (item) {
+        transcriptItems.some(function (item) {
             const label = safeText(item && (item.label || item.stage));
             return (
               label === "interrupt-requested" || label === "interrupt-completed"
             );
-          }))),
+          })),
     );
     const connectedIdleRun = Boolean(
       run &&

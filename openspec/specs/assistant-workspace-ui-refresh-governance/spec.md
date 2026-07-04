@@ -167,15 +167,90 @@ child ready messages that arrived before target commit are not lost.
 - **AND** the host publishes that child's localized controls and current
   snapshot instead of leaving the static English HTML shell visible.
 
+### Requirement: ACP Skills workspace refreshes are request scoped
+
+Assistant Workspace SHALL use ACP Skills change descriptors to avoid rebuilding or posting ACP Skills snapshots for changes that are known to be unrelated to the selected ACP Skills run.
+
+#### Scenario: Unrelated background transcript does not rebuild inactive ACP Skills panel
+
+- **GIVEN** Assistant Workspace is open on a tab other than ACP Skills
+- **WHEN** a non-selected ACP Skills run emits a transcript-only change descriptor
+- **THEN** the workspace host SHALL NOT rebuild or post an ACP Skills panel snapshot for that change
+- **AND** toast and attention indicator work SHALL also be skipped when the descriptor is known to be transcript-only.
+
+#### Scenario: Selected transcript change refreshes active ACP Skills panel
+
+- **GIVEN** Assistant Workspace is open on the ACP Skills tab
+- **AND** request `A` is the selected ACP Skills run
+- **WHEN** request `A` emits a transcript or runtime-options change descriptor
+- **THEN** the workspace host SHALL refresh the ACP Skills panel snapshot.
+
+#### Scenario: Unknown changes remain conservative
+
+- **WHEN** an ACP Skills store change has no descriptor or is marked global
+- **THEN** the workspace host SHALL use the existing conservative refresh behavior.
+
+### Requirement: ACP Skills snapshots are signature guarded
+
+Assistant Workspace SHALL avoid posting ACP Skills child snapshots when the bounded snapshot content is unchanged.
+
+#### Scenario: Repeated unchanged snapshot is skipped
+
+- **GIVEN** the host has posted an ACP Skills snapshot with signature `S`
+- **WHEN** a later ordinary store-change refresh produces the same signature `S`
+- **THEN** the host SHALL skip posting that child snapshot.
+
+#### Scenario: Init and user actions force snapshot delivery
+
+- **WHEN** ACP Skills is initialized, activated by tab selection, or refreshed after a user child action
+- **THEN** the host SHALL deliver the ACP Skills snapshot even if its content signature matches the previous snapshot.
+
+### Requirement: Child transcript rendering ignores stale same-context revisions
+
+Assistant Workspace child transcript renderers SHALL treat transcript revisions
+as monotonic within a single conversation or run context. After rendering
+revision `N`, a later snapshot for the same context with revision lower than
+`N` SHALL NOT repaint the transcript or replace newer child transcript state.
+
+Loading and failed transcript states for the current context SHALL remain
+renderable even when the last rendered content revision is newer.
+
+#### Scenario: Stale same-context transcript snapshot is ignored
+
+- **GIVEN** an Assistant Workspace child panel has rendered transcript revision
+  `5` for context `A`
+- **WHEN** it later receives a transcript snapshot for context `A` with revision
+  `4`
+- **THEN** it SHALL NOT invoke the transcript renderer for that stale snapshot
+- **AND** it SHALL keep the revision `5` transcript state.
+
+#### Scenario: Context switch resets revision guard
+
+- **GIVEN** an Assistant Workspace child panel has rendered transcript revision
+  `5` for context `A`
+- **WHEN** the selected conversation or run changes to context `B`
+- **AND** context `B` receives transcript revision `1`
+- **THEN** the panel SHALL render context `B` revision `1`.
+
+#### Scenario: ACP Skills equal-revision history page is accepted
+
+- **GIVEN** the ACP Skills panel has rendered revision `5` for run `R`
+- **WHEN** it receives another transcript page for run `R` with revision `5`
+  and a different cursor
+- **THEN** it SHALL allow that page to merge into the child page cache
+- **AND** it MAY repaint if the virtual window or display-mode signature changes.
+
 ### Requirement: ACP Skills transcript SHALL be request-scoped
 
 ACP Skills transcript rendering SHALL keep transcript render state scoped by
 request id. Switching selected runs SHALL save the previous request's
-transcript page/render state and restore the new request's cached state when
-available; otherwise the panel SHALL request the new request's transcript page.
-Building a panel snapshot for a requested run SHALL NOT mutate the globally
-selected request; global selection SHALL only change through explicit selection
-actions.
+transcript page/render state inside the shared transcript renderer and restore
+the new request's cached state when available; otherwise the panel SHALL request
+the new request's transcript page through the shared renderer. Building a panel
+snapshot for a requested run SHALL NOT mutate the globally selected request;
+global selection SHALL only change through explicit selection actions. Late
+transcript page requests for a run that is no longer selected SHALL be ignored
+instead of publishing a stale ACP Skills snapshot.
 
 #### Scenario: Switching concurrent ACP Skills runs does not reuse transcript DOM
 
@@ -189,3 +264,11 @@ actions.
   available
 - **AND** it requests the pending request's transcript page when no cached state
   is available.
+
+#### Scenario: Late old-run page request is ignored
+
+- **GIVEN** the ACP Skills panel selected run changes from run A to run B
+- **WHEN** a delayed transcript page request for run A reaches the host
+- **THEN** the host SHALL NOT publish a forced ACP Skills snapshot for run A
+- **AND** a page request for the currently selected run B SHALL still publish a
+  snapshot.

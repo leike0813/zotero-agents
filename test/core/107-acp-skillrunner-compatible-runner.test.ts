@@ -12,6 +12,7 @@ import {
   resolveAcpAgentFamily,
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
+  appendAcpSkillRunUserReply,
   buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   archiveAcpSkillRun,
@@ -20,6 +21,7 @@ import {
   endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
+  getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
   hasAcpSkillRunController,
   hydrateAcpSkillRunTranscriptMirror,
@@ -121,8 +123,8 @@ async function readRunTranscriptItems(requestId: string) {
   const snapshot = await prepareAcpSkillRunPanelSnapshot({
     selectedRequestId: requestId,
   });
-  return Array.isArray(snapshot.selectedRun?.transcriptItems)
-    ? snapshot.selectedRun.transcriptItems
+  return Array.isArray(snapshot.selectedTranscriptPage?.items)
+    ? snapshot.selectedTranscriptPage.items
     : [];
 }
 
@@ -3075,7 +3077,12 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("loads ACP runtime prompt templates separately from ACP Skill patch templates", async function () {
     assert.sameMembers(
       ACP_RUNTIME_PROMPT_TEMPLATES.map((template) => template.id),
-      ["mcp_required_guard", "recovered_continuation_guard"],
+      [
+        "acp_chat_startup_preamble",
+        "acp_skills_startup_preamble",
+        "mcp_required_guard",
+        "recovered_continuation_guard",
+      ],
     );
     for (const template of ACP_RUNTIME_PROMPT_TEMPLATES) {
       const content = await loadAcpRuntimePromptTemplate(template);
@@ -3096,6 +3103,48 @@ describe("ACP SkillRunner-compatible runner", function () {
       "The host has already completed MCP availability preflight",
     );
     assert.include(guardPrompt, "Required MCP tools: topics.list");
+
+    const chatStartupPrompt = renderAcpRuntimePromptTemplate({
+      template: await loadAcpRuntimePromptTemplate(
+        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_chat_startup_preamble,
+      ),
+      replacements: {
+        HOST_BRIDGE_SKILL_ID: "zotero-bridge-cli",
+        INSTRUCTION_FILE: "AGENTS.md",
+        SURFACE: "ACP Chat",
+        WORKSPACE_DIR: "workspace",
+      },
+      requiredPlaceholders: [
+        "HOST_BRIDGE_SKILL_ID",
+        "INSTRUCTION_FILE",
+        "SURFACE",
+        "WORKSPACE_DIR",
+      ],
+    });
+    assert.include(chatStartupPrompt, "ACP Chat assistant");
+    assert.include(chatStartupPrompt, "zotero-bridge-cli");
+    assert.notInclude(chatStartupPrompt, "Agent family");
+
+    const skillsStartupPrompt = renderAcpRuntimePromptTemplate({
+      template: await loadAcpRuntimePromptTemplate(
+        ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_skills_startup_preamble,
+      ),
+      replacements: {
+        HOST_BRIDGE_SKILL_ID: "zotero-bridge-cli",
+        INSTRUCTION_FILE: "AGENTS.md",
+        SURFACE: "ACP Skills",
+        WORKSPACE_DIR: "workspace",
+      },
+      requiredPlaceholders: [
+        "HOST_BRIDGE_SKILL_ID",
+        "INSTRUCTION_FILE",
+        "SURFACE",
+        "WORKSPACE_DIR",
+      ],
+    });
+    assert.include(skillsStartupPrompt, "ACP Skills run executor");
+    assert.include(skillsStartupPrompt, "zotero-bridge-cli");
+    assert.notInclude(skillsStartupPrompt, "Agent family");
 
     const continuationPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(
@@ -5731,7 +5780,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
       assert.equal(snapshot.selectedRun?.requestId, "run-lightweight-list-a");
       assert.isAtLeast(snapshot.selectedRun?.events.length || 0, 1);
-      assert.property(snapshot.selectedRun as any, "transcriptItems");
+      assert.notProperty(snapshot.selectedRun as any, "transcriptItems");
+      assert.isArray(snapshot.selectedTranscriptPage?.items);
       assert.notProperty(snapshot.selectedRun as any, "outputRevisions");
       const transcript = await readRunTranscriptItems("run-lightweight-list-a");
       assert.isAtLeast(transcript.length, 1);
@@ -5801,7 +5851,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-live-mirror");
       assert.isTrue(
-        (snapshot.selectedRun?.transcriptItems || []).some(
+        (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("Mirror text"),
@@ -5875,7 +5925,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-release-a");
       assert.isTrue(
-        (snapshot.selectedRun?.transcriptItems || []).some(
+        (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("persisted transcript"),
@@ -5955,9 +6005,12 @@ describe("ACP SkillRunner-compatible runner", function () {
       const loadingSnapshot = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-release-settled-a",
       });
-      assert.equal(loadingSnapshot.selectedRun?.requestId, "run-release-settled-a");
+      assert.equal(
+        loadingSnapshot.selectedRun?.requestId,
+        "run-release-settled-a",
+      );
       assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
-      assert.deepEqual(loadingSnapshot.selectedRun?.transcriptItems || [], []);
+      assert.deepEqual(loadingSnapshot.selectedTranscriptPage?.items || [], []);
 
       let readySnapshot = loadingSnapshot;
       for (let index = 0; index < 20; index += 1) {
@@ -5971,7 +6024,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       }
       assert.equal(readySnapshot.selectedTranscript?.state, "ready");
       assert.isTrue(
-        (readySnapshot.selectedRun?.transcriptItems || []).some(
+        (readySnapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("persisted transcript"),
@@ -6042,12 +6095,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-recover-a",
       });
       assert.isTrue(
-        (snapshot.selectedRun?.transcriptItems || []).some(
+        (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
-            String(item.text || "").includes(
-              "old transcript new transcript",
-            ),
+            String(item.text || "").includes("old transcript new transcript"),
         ),
       );
     } finally {
@@ -6124,17 +6175,299 @@ describe("ACP SkillRunner-compatible runner", function () {
         }
       }
       assert.isTrue(
-        (snapshot.selectedRun?.transcriptItems || []).some(
+        (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("old persisted"),
         ),
       );
-      const hydrated =
-        getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
-          "run-partial-complete-a",
-        );
+      const hydrated = getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+        "run-partial-complete-a",
+      );
       assert.isTrue(hydrated.mirrorLoaded);
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits a request-scoped transcript change when direct hydrate settles", async function () {
+    const root = await mkTempRoot();
+    const runtimeA = path.join(root, ".acp-a");
+    const runtimeB = path.join(root, ".acp-b");
+    const changes: any[] = [];
+    let unsubscribe = () => undefined;
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-direct-hydrate-a",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: runtimeA,
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-direct-hydrate-a", {
+        sessionId: "session-direct-hydrate",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "direct hydrate transcript" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      upsertAcpSkillRun({
+        requestId: "run-direct-hydrate-b",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: runtimeB,
+        activePrompt: true,
+      });
+      await selectAcpSkillRun("run-direct-hydrate-b");
+      upsertAcpSkillRun({
+        requestId: "run-direct-hydrate-a",
+        status: "succeeded",
+        activePrompt: false,
+      });
+      assert.isFalse(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+          "run-direct-hydrate-a",
+        ).mirrorLoaded,
+      );
+
+      unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
+        changes.push(change);
+      });
+      const page = await hydrateAcpSkillRunTranscriptMirror(
+        "run-direct-hydrate-a",
+      );
+
+      assert.isTrue(
+        (page?.items || []).some(
+          (item) =>
+            item.kind === "message" &&
+            String(item.text || "").includes("direct hydrate transcript"),
+        ),
+      );
+      assert.isTrue(
+        changes.some(
+          (change) =>
+            (change?.requestIds || []).includes("run-direct-hydrate-a") &&
+            (change?.kinds || []).includes("transcript"),
+        ),
+      );
+    } finally {
+      unsubscribe();
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps hydrate completion notification owned by the original hydrate promise", async function () {
+    const root = await mkTempRoot();
+    const runtimeA = path.join(root, ".acp-a");
+    const runtimeB = path.join(root, ".acp-b");
+    const changes: any[] = [];
+    let unsubscribe = () => undefined;
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-coalesced-hydrate-a",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: runtimeA,
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-coalesced-hydrate-a", {
+        sessionId: "session-coalesced-hydrate",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "coalesced hydrate transcript" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      upsertAcpSkillRun({
+        requestId: "run-coalesced-hydrate-b",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: runtimeB,
+        activePrompt: true,
+      });
+      await selectAcpSkillRun("run-coalesced-hydrate-b");
+      upsertAcpSkillRun({
+        requestId: "run-coalesced-hydrate-a",
+        status: "succeeded",
+        activePrompt: false,
+      });
+
+      unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
+        changes.push(change);
+      });
+      const first = hydrateAcpSkillRunTranscriptMirror(
+        "run-coalesced-hydrate-a",
+      );
+      const prepared = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-coalesced-hydrate-a",
+      });
+      const second = hydrateAcpSkillRunTranscriptMirror(
+        "run-coalesced-hydrate-a",
+      );
+      await Promise.all([first, second]);
+      const snapshot = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-coalesced-hydrate-a",
+      });
+
+      assert.equal(prepared.selectedRun?.requestId, "run-coalesced-hydrate-a");
+      assert.equal(snapshot.selectedTranscript?.state, "ready");
+      assert.isTrue(
+        (snapshot.selectedTranscriptPage?.items || []).some(
+          (item) =>
+            item.kind === "message" &&
+            String(item.text || "").includes("coalesced hydrate transcript"),
+        ),
+      );
+      assert.isTrue(
+        changes.some(
+          (change) =>
+            (change?.requestIds || []).includes("run-coalesced-hydrate-a") &&
+            (change?.kinds || []).includes("transcript"),
+        ),
+      );
+    } finally {
+      unsubscribe();
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("materializes the implicit ACP Skills selection before transcript hydrate settles", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-implicit-selection",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-implicit-selection", {
+        sessionId: "session-implicit",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "implicit persisted transcript" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      upsertAcpSkillRun({
+        requestId: "run-implicit-selection",
+        status: "succeeded",
+        activePrompt: false,
+      });
+      await selectAcpSkillRun("");
+
+      assert.equal(getSelectedAcpSkillRunRequestId(), "");
+      assert.isFalse(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+          "run-implicit-selection",
+        ).mirrorLoaded,
+      );
+
+      const loadingSnapshot = await prepareAcpSkillRunPanelSnapshot();
+      assert.equal(
+        loadingSnapshot.selectedRun?.requestId,
+        "run-implicit-selection",
+      );
+      assert.equal(getSelectedAcpSkillRunRequestId(), "run-implicit-selection");
+      assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
+
+      let readySnapshot = loadingSnapshot;
+      for (let index = 0; index < 20; index += 1) {
+        await delay(25);
+        readySnapshot = buildAcpSkillRunPanelSnapshot();
+        if (readySnapshot.selectedTranscript?.state === "ready") {
+          break;
+        }
+      }
+
+      assert.equal(readySnapshot.selectedTranscript?.state, "ready");
+      assert.equal(
+        readySnapshot.selectedTranscriptPage?.requestId,
+        "run-implicit-selection",
+      );
+      assert.isTrue(
+        (readySnapshot.selectedTranscriptPage?.items || []).some(
+          (item) =>
+            item.kind === "message" &&
+            String(item.text || "").includes("implicit persisted transcript"),
+        ),
+      );
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not use a stale transcript page request for another selected run", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-stale-page-a",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-a"),
+        activePrompt: true,
+      });
+      appendAcpSkillRunUserReply({
+        requestId: "run-stale-page-a",
+        message: "stale page transcript A",
+      });
+      upsertAcpSkillRun({
+        requestId: "run-stale-page-b",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-b"),
+        activePrompt: true,
+      });
+      appendAcpSkillRunUserReply({
+        requestId: "run-stale-page-b",
+        message: "current transcript B",
+      });
+      await selectAcpSkillRun("run-stale-page-b");
+
+      const snapshot = await prepareAcpSkillRunPanelSnapshot({
+        transcriptPage: {
+          requestId: "run-stale-page-a",
+          cursor: 0,
+          limit: 80,
+        },
+      });
+
+      assert.equal(snapshot.selectedRun?.requestId, "run-stale-page-b");
+      assert.equal(getSelectedAcpSkillRunRequestId(), "run-stale-page-b");
+      assert.notEqual(
+        snapshot.selectedTranscriptPage?.requestId,
+        "run-stale-page-a",
+      );
+      assert.isFalse(
+        (snapshot.selectedTranscriptPage?.items || []).some((item) =>
+          String((item as any).text || "").includes("stale page transcript A"),
+        ),
+      );
     } finally {
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
@@ -6188,7 +6521,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       const visibleSnapshot = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-coalesced-updates",
       });
-      assert.property(visibleSnapshot.selectedRun as any, "transcriptItems");
+      assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
+      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
     } finally {
       unsubscribe();
       await fs.rm(root, { recursive: true, force: true });
@@ -6304,7 +6638,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       const beforeBoundary = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-streaming-usage-side-channel",
       });
-      assert.property(beforeBoundary.selectedRun as any, "transcriptItems");
+      assert.notProperty(beforeBoundary.selectedRun as any, "transcriptItems");
+      assert.isArray(beforeBoundary.selectedTranscriptPage?.items);
 
       recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
         sessionId: "session-1",
@@ -6319,7 +6654,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       const afterBoundary = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-streaming-usage-side-channel",
       });
-      assert.property(afterBoundary.selectedRun as any, "transcriptItems");
+      assert.notProperty(afterBoundary.selectedRun as any, "transcriptItems");
+      assert.isArray(afterBoundary.selectedTranscriptPage?.items);
       const visibleMessage = (
         await readRunTranscriptItems("run-streaming-usage-side-channel")
       ).find((item) => item.kind === "message" && item.role === "assistant");
@@ -6370,7 +6706,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       const visibleSnapshot = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-streaming-workspace-activity-disabled",
       });
-      assert.property(visibleSnapshot.selectedRun as any, "transcriptItems");
+      assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
+      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
       const visible = await readRunTranscriptItems(
         "run-streaming-workspace-activity-disabled",
       );
@@ -8764,6 +9101,12 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.isAtLeast(response.proxySkillRoots?.length || 0, 1);
     assert.isString(response.requestedSkillProxyPath);
     assert.isString(response.runExecutionInstructionsPath);
+    assert.include(
+      promptMessages[0] || "",
+      "[Zotero Agents ACP Skills startup context]",
+    );
+    assert.include(promptMessages[0] || "", "ACP Skills run executor");
+    assert.include(promptMessages[0] || "", "zotero-bridge-cli");
     assert.include(promptMessages[0] || "", "$demo-skill");
     assert.include(promptMessages[0] || "", "# Inputs");
     assert.include(promptMessages[0] || "", "# Parameters");
@@ -8776,6 +9119,10 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(
       promptMessages[1] || "",
       "Your previous output did not satisfy the Skill Runner output contract.",
+    );
+    assert.notInclude(
+      promptMessages[1] || "",
+      "[Zotero Agents ACP Skills startup context]",
     );
     const runInstructions = await fs.readFile(
       path.join(response.workspaceDir || "", "AGENTS.md"),
@@ -8858,7 +9205,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(panelSnapshot.selectedRun?.repairRounds, 1);
     assert.equal(panelSnapshot.selectedRun?.validationStatus, "valid");
     assert.notProperty(panelSnapshot.selectedRun as any, "outputRevisions");
-    assert.property(panelSnapshot.selectedRun as any, "transcriptItems");
+    assert.notProperty(panelSnapshot.selectedRun as any, "transcriptItems");
+    assert.isArray(panelSnapshot.selectedTranscriptPage?.items);
     const outputRevisions = await readRunOutputRevisions(result.requestId);
     assert.deepEqual(
       outputRevisions.map((entry) => entry.status),
@@ -9102,14 +9450,16 @@ describe("ACP SkillRunner-compatible runner", function () {
       "session-interactive",
       "session-interactive",
     ]);
-    const finished = buildAcpSkillRunPanelSnapshot({
+    const finishedSnapshot = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
-    }).selectedRun;
+    });
+    const finished = finishedSnapshot.selectedRun;
     assert.equal(finished?.status, "running");
     assert.equal(finished?.conversationState, "active");
     assert.equal(finished?.applyResultState, "pending");
     assert.equal(finished?.pendingInteraction, undefined);
-    assert.property(finished as any, "transcriptItems");
+    assert.notProperty(finished as any, "transcriptItems");
+    assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
     assert.notProperty(finished as any, "outputRevisions");
     const finalAssistantMessages = transcriptAfterInteractiveReply.filter(
       (item) => item.kind === "message" && item.role === "assistant",
@@ -9616,9 +9966,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         message: "continue to final",
       });
 
-      const finished = buildAcpSkillRunPanelSnapshot({
+      const finishedSnapshot = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: requestId,
-      }).selectedRun;
+      });
+      const finished = finishedSnapshot.selectedRun;
       assert.equal(finished?.status, "succeeded");
       assert.equal(finished?.applyResultState, "succeeded");
       assert.equal(finished?.outputConvergenceState, "final");
@@ -9627,7 +9978,8 @@ describe("ACP SkillRunner-compatible runner", function () {
         ["final"],
       );
       assert.notProperty(finished as any, "outputRevisions");
-      assert.property(finished as any, "transcriptItems");
+      assert.notProperty(finished as any, "transcriptItems");
+      assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
       const assistantMessages = (
         await readRunTranscriptItems(requestId)
       ).filter((item) => item.kind === "message" && item.role === "assistant");
@@ -9983,7 +10335,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
     assert.equal(capturedWaiting?.outputRevisionCount, 2);
     assert.notProperty(capturedWaiting as any, "outputRevisions");
-    assert.property(capturedWaiting as any, "transcriptItems");
+    assert.notProperty(capturedWaiting as any, "transcriptItems");
     const waitingMessages = (
       await readRunTranscriptItems(capturedWaiting?.requestId || "")
     ).filter((item) => item.kind === "message" && item.role === "assistant");

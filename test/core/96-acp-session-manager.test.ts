@@ -27,6 +27,7 @@ import {
   sendAcpConversationPrompt,
   setActiveAcpBackend,
   setActiveAcpConversation,
+  setAcpConversationAutoApprovePermissions,
   setAcpConversationChatDisplayMode,
   setAcpConversationModel,
   setAcpConversationMode,
@@ -95,6 +96,15 @@ async function readTranscriptItemsForConversation(
   return page.items;
 }
 
+function stripStartupPreambleForEcho(message: string) {
+  const closingMarker = /^\[\/Zotero Agents ACP Chat startup context\]$/m;
+  const match = closingMarker.exec(message);
+  if (!match || typeof match.index !== "number") {
+    return message;
+  }
+  return message.slice(match.index + match[0].length).trim() || message;
+}
+
 class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly updates = new Set<AcpConnectionUpdateListener>();
   readonly closeListeners = new Set<
@@ -136,6 +146,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   failResumeSession = false;
   emitReplayOnLoad = false;
   emitPermissionDuringPrompt = false;
+  permissionSource = "acp-tool-call";
   closeNeverSettles = false;
   closeRejectError: Error | null = null;
   closeHoldUntil: Promise<void> | null = null;
@@ -442,7 +453,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
             sessionId: args.sessionId,
             toolCallId: "tool-1",
             toolTitle: "Inspect notes",
-            source: "acp-tool-call",
+            source: this.permissionSource,
             summary: "Read Zotero notes for the selected paper",
             detail: '{"tool":"get_item_notes","arguments":{"key":"PAPER1"}}',
             requestedAt: new Date().toISOString(),
@@ -553,7 +564,7 @@ class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
           sessionUpdate: "agent_message_chunk",
           content: {
             type: "text",
-            text: `Echo: ${args.message}`,
+            text: `Echo: ${stripStartupPreambleForEcho(args.message)}`,
           },
         },
       });
@@ -1731,6 +1742,11 @@ describe("acp session manager", function () {
       assert.deepEqual(lastAdapter?.sessionIds, ["session-1"]);
       assert.equal(lastAdapter?.prompts.length, 1);
       assert.include(lastAdapter?.prompts[0] || "", "Hello ACP");
+      assert.include(
+        lastAdapter?.prompts[0] || "",
+        "[Zotero Agents ACP Chat startup context]",
+      );
+      assert.include(lastAdapter?.prompts[0] || "", "zotero-bridge-cli");
       assert.notInclude(
         lastAdapter?.prompts[0] || "",
         "[Zotero Host Bridge CLI]",
@@ -1814,6 +1830,28 @@ describe("acp session manager", function () {
       await fs.rm(dataDirectory, { recursive: true, force: true });
     }
   });
+
+  it(
+    "prepends ACP Chat startup preamble only to the first conversation prompt",
+    async function () {
+      await sendAcpConversationPrompt({ message: "First startup prompt" });
+      await sendAcpConversationPrompt({ message: "Second ordinary prompt" });
+
+      assert.lengthOf(lastAdapter?.prompts || [], 2);
+      assert.include(
+        lastAdapter?.prompts[0] || "",
+        "[Zotero Agents ACP Chat startup context]",
+      );
+      assert.include(lastAdapter?.prompts[0] || "", "ACP Chat assistant");
+      assert.include(lastAdapter?.prompts[0] || "", "zotero-bridge-cli");
+      assert.include(lastAdapter?.prompts[0] || "", "First startup prompt");
+      assert.notInclude(
+        lastAdapter?.prompts[1] || "",
+        "[Zotero Agents ACP Chat startup context]",
+      );
+      assert.include(lastAdapter?.prompts[1] || "", "Second ordinary prompt");
+    },
+  );
 
   it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {
     Zotero.Prefs.set(
@@ -2139,7 +2177,7 @@ describe("acp session manager", function () {
     releaseFirstPrompt?.();
     const result = await firstPrompt;
     assert.notInstanceOf(result, Error);
-    assert.include(adapters[0].prompts, "Long first session");
+    assert.include(adapters[0].prompts[0] || "", "Long first session");
     assert.equal(adapters[1].closeCalls, 0);
   });
 
@@ -2276,7 +2314,11 @@ describe("acp session manager", function () {
     );
 
     await sendAcpConversationPrompt({ message: "Back on first" });
-    assert.include(firstAdapter?.prompts || [], "Back on first");
+    const firstAdapterPrompts = firstAdapter?.prompts || [];
+    assert.include(
+      firstAdapterPrompts[firstAdapterPrompts.length - 1] || "",
+      "Back on first",
+    );
     snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.conversationId, firstConversationId);
     assert.include(
@@ -2875,6 +2917,176 @@ describe("acp session manager", function () {
       outcome: "selected",
       optionId: "edit-command",
     });
+  });
+
+  it("auto-approves ACP Chat tool permission requests when enabled", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emitPermissionDuringPrompt = true;
+      return lastAdapter;
+    });
+
+    await startNewAcpConversation();
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+
+    await sendAcpConversationPrompt({
+      message: "Auto approve permission",
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.isTrue(snapshot.autoApproveAcpPermissions);
+    assert.isNull(snapshot.pendingPermissionRequest);
+    assert.deepEqual(lastAdapter?.lastPermissionOutcome, {
+      outcome: "selected",
+      optionId: "allow-once",
+    });
+    assert.isOk(
+      snapshot.diagnostics.find(
+        (entry) => entry.kind === "permission_auto_approved",
+      ),
+    );
+  });
+
+  it("publishes ACP Chat auto-approval toggles to the UI snapshot immediately", async function () {
+    await startNewAcpConversation();
+
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+    assert.isTrue(getAcpConversationSnapshot().autoApproveAcpPermissions);
+    assert.isTrue(getAcpConversationUiSnapshot().autoApproveAcpPermissions);
+
+    setAcpConversationAutoApprovePermissions({ enabled: false });
+    assert.isFalse(getAcpConversationSnapshot().autoApproveAcpPermissions);
+    assert.isFalse(getAcpConversationUiSnapshot().autoApproveAcpPermissions);
+  });
+
+  it("allows ACP Chat auto-approval to be enabled before the first local conversation is created", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emitPermissionDuringPrompt = true;
+      return lastAdapter;
+    });
+
+    assert.equal(getAcpConversationSnapshot().conversationId, "");
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+    assert.isTrue(getAcpConversationSnapshot().autoApproveAcpPermissions);
+
+    await sendAcpConversationPrompt({
+      message: "Auto approve initial placeholder conversation",
+    });
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.isNotEmpty(snapshot.conversationId);
+    assert.isTrue(snapshot.autoApproveAcpPermissions);
+    assert.isNull(snapshot.pendingPermissionRequest);
+    assert.deepEqual(lastAdapter?.lastPermissionOutcome, {
+      outcome: "selected",
+      optionId: "allow-once",
+    });
+  });
+
+  it("prefers allow_once over allow_always for ACP Chat auto-approval", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emitPermissionDuringPrompt = true;
+      lastAdapter.permissionOptions = [
+        {
+          optionId: "allow-always",
+          kind: "allow_always",
+          name: "Allow Always",
+        },
+        {
+          optionId: "allow-once-preferred",
+          kind: "allow_once",
+          name: "Allow Once",
+        },
+      ];
+      return lastAdapter;
+    });
+
+    await startNewAcpConversation();
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+
+    await sendAcpConversationPrompt({
+      message: "Prefer allow once",
+    });
+
+    assert.deepEqual(lastAdapter?.lastPermissionOutcome, {
+      outcome: "selected",
+      optionId: "allow-once-preferred",
+    });
+    assert.isNull(getAcpConversationSnapshot().pendingPermissionRequest);
+  });
+
+  it("falls back to manual ACP Chat permission approval when auto-approval cannot select a standard allow option", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emitPermissionDuringPrompt = true;
+      lastAdapter.permissionOptions = [
+        {
+          optionId: "reject-only",
+          kind: "reject_once",
+          name: "Reject",
+        },
+      ];
+      return lastAdapter;
+    });
+
+    await startNewAcpConversation();
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Manual fallback",
+    });
+
+    const snapshot = await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    assert.equal(
+      snapshot.pendingPermissionRequest?.options[0]?.optionId,
+      "reject-only",
+    );
+
+    await resolveAcpConversationPermission({
+      outcome: "cancelled",
+    });
+    await promptPromise;
+
+    assert.deepEqual(lastAdapter?.lastPermissionOutcome, {
+      outcome: "cancelled",
+    });
+  });
+
+  it("does not auto-approve non ACP-tool permission channels and keeps the setting conversation-scoped", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      lastAdapter = new FakeAcpConnectionAdapter();
+      lastAdapter.emitPermissionDuringPrompt = true;
+      lastAdapter.permissionSource = "zotero-mcp-write";
+      return lastAdapter;
+    });
+
+    await startNewAcpConversation();
+    setAcpConversationAutoApprovePermissions({ enabled: true });
+    const firstConversationId = getAcpConversationSnapshot().conversationId;
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Non tool source",
+    });
+
+    await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    assert.isNull(lastAdapter?.lastPermissionOutcome);
+
+    await resolveAcpConversationPermission({
+      outcome: "cancelled",
+    });
+    await promptPromise;
+
+    await startNewAcpConversation();
+    const second = getAcpConversationSnapshot();
+    assert.notEqual(second.conversationId, firstConversationId);
+    assert.isFalse(second.autoApproveAcpPermissions);
+
+    await setActiveAcpConversation({ conversationId: firstConversationId });
+    assert.isTrue(getAcpConversationSnapshot().autoApproveAcpPermissions);
   });
 
   it("surfaces command prerequisite failures without silently connecting", async function () {

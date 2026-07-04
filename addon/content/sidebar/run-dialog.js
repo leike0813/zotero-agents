@@ -16,6 +16,7 @@
     transcriptModeKey: "",
     transcriptRevision: null,
     transcriptRenderedMode: "",
+    transcriptContextKey: "",
     transcriptRenderToken: 0,
     pendingTranscriptSnapshot: null,
     toolActivityExpandedIds: new Set(),
@@ -518,6 +519,32 @@
     return safeText(workspace.selectedTaskKey);
   }
 
+  function resetTranscriptRenderState() {
+    state.transcriptNodeMap.clear();
+    state.transcriptOrderKey = "";
+    state.transcriptModeKey = "";
+    state.transcriptRevision = null;
+    state.transcriptRenderedMode = "";
+    state.pendingTranscriptSnapshot = null;
+    state.transcriptRenderToken += 1;
+    state.toolActivityExpandedIds.clear();
+  }
+
+  function syncTranscriptContext() {
+    const contextKey = currentRequestId() + "\n" + currentTaskKey();
+    if (contextKey !== state.transcriptContextKey) {
+      state.transcriptContextKey = contextKey;
+      resetTranscriptRenderState();
+    }
+  }
+
+  function isStaleTranscriptRevision(revision) {
+    return (
+      typeof state.transcriptRevision === "number" &&
+      revision < state.transcriptRevision
+    );
+  }
+
   function pendingOptions() {
     const ask =
       state.snapshot &&
@@ -782,8 +809,12 @@
   }
 
   function scheduleTranscriptRender(panelSnapshot) {
+    syncTranscriptContext();
     const raw = panelSnapshot && panelSnapshot.raw ? panelSnapshot.raw : {};
     const revision = Number(raw && raw.transcriptRevision) || 0;
+    if (isStaleTranscriptRevision(revision)) {
+      return;
+    }
     if (
       state.transcriptRevision === revision &&
       state.transcriptRenderedMode === state.chatDisplayMode

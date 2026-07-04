@@ -8,6 +8,8 @@
     initializedFrames: new Set(),
     loadedFrames: new Set(),
     latestChildPayloads: new Map(),
+    latestChildRevisions: new Map(),
+    scopeKey: "",
     actionSeq: 0,
     actionTrace: [],
   };
@@ -195,6 +197,15 @@
 
   function cacheChildPayload(tab, phase, payload) {
     if (tabs.indexOf(tab) < 0) return;
+    syncScopeKeyFromPayload(payload);
+    const revision = childPayloadRevision(tab, payload);
+    const latestRevision = state.latestChildRevisions.get(tab) || 0;
+    if (revision > 0 && revision < latestRevision) {
+      return null;
+    }
+    if (revision > latestRevision) {
+      state.latestChildRevisions.set(tab, revision);
+    }
     const current = state.latestChildPayloads.get(tab) || {};
     current[phase || "snapshot"] =
       tab === "skillrunner"
@@ -202,6 +213,36 @@
         : payload || {};
     state.latestChildPayloads.set(tab, current);
     return current[phase || "snapshot"];
+  }
+
+  function payloadScopeKey(payload) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    const sidebar =
+      source.sidebar && typeof source.sidebar === "object"
+        ? source.sidebar
+        : source;
+    return String((sidebar && sidebar.scopeKey) || "").trim();
+  }
+
+  function syncScopeKeyFromPayload(payload) {
+    const scopeKey = payloadScopeKey(payload);
+    if (!scopeKey || scopeKey === state.scopeKey) return;
+    state.scopeKey = scopeKey;
+    state.latestChildPayloads.clear();
+    state.latestChildRevisions.clear();
+  }
+
+  function childPayloadRevision(tab, payload) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    const sidebar =
+      source.sidebar && typeof source.sidebar === "object"
+        ? source.sidebar
+        : {};
+    const panes =
+      sidebar.panes && typeof sidebar.panes === "object" ? sidebar.panes : {};
+    const pane = panes[tab] && typeof panes[tab] === "object" ? panes[tab] : {};
+    const revision = Number(pane.revision || 0);
+    return Number.isFinite(revision) ? Math.max(0, Math.floor(revision)) : 0;
   }
 
   function normalizeSkillRunnerSidebarPayload(payload) {
@@ -324,6 +365,7 @@
       return;
     }
     if (data.type === "assistant-workspace:init") {
+      syncScopeKeyFromPayload(data.payload || {});
       setActiveTab(data.payload && data.payload.activeTab, {
         notify: false,
         fallback: state.activeTab,
@@ -343,7 +385,9 @@
       const phase = payload.phase || "snapshot";
       const snapshot = payload.snapshot || {};
       const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
-      postToChild(tab, phase, normalizedSnapshot || snapshot);
+      if (normalizedSnapshot) {
+        postToChild(tab, phase, normalizedSnapshot);
+      }
       return;
     }
   });

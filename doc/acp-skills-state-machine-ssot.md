@@ -58,7 +58,6 @@ failures.
 ### Run Status
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:38-45
 export type AcpSkillRunStatus =
   | "queued"
   | "running"
@@ -80,13 +79,12 @@ export type AcpSkillRunStatus =
 - `failed` — terminal: run finished with an unrecoverable error.
 - `canceled` — terminal: run was canceled by user or provider.
 
-Normalized by `normalizeStatus` (line 441, default: `"running"`). Terminal
-check: `isTerminalAcpSkillRunStatus` (line 1153).
+Normalized by `normalizeStatus` (default: `"running"`). Terminal
+check: `isTerminalAcpSkillRunStatus`.
 
 ### Conversation State
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:47-52
 export type AcpSkillRunConversationState =
   | "starting"
   | "active"
@@ -101,12 +99,11 @@ export type AcpSkillRunConversationState =
 - `closed` — session was explicitly closed.
 - `error` — session encountered a fatal error.
 
-Normalized by `normalizeConversationState` (line 457, default: `"closed"`).
+Normalized by `normalizeConversationState` (default: `"closed"`).
 
 ### Recovery State
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:54-60
 export type AcpSkillRunRecoveryState =
   | "unavailable"
   | "available"
@@ -123,12 +120,11 @@ export type AcpSkillRunRecoveryState =
 - `failed` — recovery attempt failed.
 - `unsupported` — backend does not support session recovery.
 
-Normalized by `normalizeRecoveryState` (line 473, default: `"unavailable"`).
+Normalized by `normalizeRecoveryState` (default: `"unavailable"`).
 
 ### Connection Action State
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:68-71
 export type AcpSkillRunConnectionActionState =
   | "idle"
   | "connecting"
@@ -139,12 +135,11 @@ export type AcpSkillRunConnectionActionState =
 - `connecting` — connection establishment is underway.
 - `disconnecting` — connection teardown is underway.
 
-Normalized by `normalizeConnectionActionState` (line 499, default: `"idle"`).
+Normalized by `normalizeConnectionActionState` (default: `"idle"`).
 
 ### Reply State
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:62-66
 export type AcpSkillRunReplyState =
   | "idle"
   | "submitted"
@@ -157,12 +152,11 @@ export type AcpSkillRunReplyState =
 - `accepted` — submitted reply was accepted by the backend.
 - `rejected` — submitted reply was rejected (e.g., validation failure).
 
-Normalized by `normalizeReplyState` (line 487, default: `"idle"`).
+Normalized by `normalizeReplyState` (default: `"idle"`).
 
 ### Output Revision Status (Supplementary)
 
 ```typescript
-// src/modules/acpSkillRunStore.ts:73
 export type AcpSkillRunOutputRevisionStatus = "invalid" | "pending" | "final";
 ```
 
@@ -223,7 +217,7 @@ Reply:        idle → submitted → accepted → idle
 
 Canceling the current turn stops only the active ACP prompt call.
 
-- Invokes `interruptTurn` on the `AcpSkillRunController` (line 338).
+- Invokes `interruptTurn` on the `AcpSkillRunController`.
 - Sets `status = "waiting_user"` after the current prompt is interrupted. The
   run is not terminal; the next prompt belongs to the user.
 - Does **not** disconnect the ACP connection — `conversationState` and
@@ -390,22 +384,22 @@ Canceling the task terminates the ACP Skills job.
 
 | Concept | Code Location |
 |---------|---------------|
-| Run Status 定义 | `src/modules/acpSkillRunStore.ts:38-45` |
-| Conversation State 定义 | `src/modules/acpSkillRunStore.ts:47-52` |
-| Recovery State 定义 | `src/modules/acpSkillRunStore.ts:54-60` |
-| Reply State 定义 | `src/modules/acpSkillRunStore.ts:62-66` |
-| Connection Action State 定义 | `src/modules/acpSkillRunStore.ts:68-71` |
-| Output Revision Status 定义 | `src/modules/acpSkillRunStore.ts:73` |
-| `normalizeStatus` | `src/modules/acpSkillRunStore.ts:441-455` |
-| `normalizeConversationState` | `src/modules/acpSkillRunStore.ts:457-471` |
-| `normalizeRecoveryState` | `src/modules/acpSkillRunStore.ts:473-485` |
-| `normalizeReplyState` | `src/modules/acpSkillRunStore.ts:487-497` |
-| `normalizeConnectionActionState` | `src/modules/acpSkillRunStore.ts:499-507` |
-| `isTerminalAcpSkillRunStatus` | `src/modules/acpSkillRunStore.ts:1153-1157` |
-| `AcpSkillRunRecord` 完整记录 | `src/modules/acpSkillRunStore.ts:179-256` |
-| `AcpSkillRunController` (interruptTurn, cancel) | `src/modules/acpSkillRunStore.ts:330-343` |
+| Run Status 定义 | `src/modules/acpSkillRunStore.ts` |
+| Conversation State 定义 | `src/modules/acpSkillRunStore.ts` |
+| Recovery State 定义 | `src/modules/acpSkillRunStore.ts` |
+| Reply State 定义 | `src/modules/acpSkillRunStore.ts` |
+| Connection Action State 定义 | `src/modules/acpSkillRunStore.ts` |
+| Output Revision Status 定义 | `src/modules/acpSkillRunStore.ts` |
+| `normalizeStatus` | `src/modules/acpSkillRunStore.ts` |
+| `normalizeConversationState` | `src/modules/acpSkillRunStore.ts` |
+| `normalizeRecoveryState` | `src/modules/acpSkillRunStore.ts` |
+| `normalizeReplyState` | `src/modules/acpSkillRunStore.ts` |
+| `normalizeConnectionActionState` | `src/modules/acpSkillRunStore.ts` |
+| `isTerminalAcpSkillRunStatus` | `src/modules/acpSkillRunStore.ts` |
+| `AcpSkillRunRecord` 完整记录 | `src/modules/acpSkillRunStore.ts` |
+| `AcpSkillRunController` (interruptTurn, cancel) | `src/modules/acpSkillRunStore.ts` |
 | ACP workflow disconnect/deferred outcome | `src/modules/acpSkillRunnerOrchestrator.ts` |
 | Workflow apply skip for recoverable ACP deferred results | `src/modules/workflowExecution/applySeam.ts` |
-| ACP Skills pending interaction projection | `addon/content/dashboard/assistant-panel-model.js` |
-| `AcpConnectionAdapter` 连接生命周期 | `src/modules/acpConnectionAdapter.ts:102-125` |
-| `AcpConnectionStatus` (Adapter 层) | `src/modules/acpTypes.ts:4-13` |
+| ACP Skills pending interaction projection | `addon/content/shared/assistant/assistant-panel-model.js` |
+| `AcpConnectionAdapter` 连接生命周期 | `src/modules/acpConnectionAdapter.ts` |
+| `AcpConnectionStatus` (Adapter 层) | `src/modules/acpTypes.ts` |

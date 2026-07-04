@@ -62,6 +62,11 @@ import {
   renderAcpRuntimePromptTemplate,
 } from "./acpRuntimePromptTemplates";
 import {
+  buildAcpStartupPromptPreamble,
+  prependAcpStartupPromptPreamble,
+  resolveAcpStartupInstructionFile,
+} from "./acpStartupPromptPreambles";
+import {
   buildAcpSkillOutputRepairPrompt,
   validateAcpSkillFinalPayload,
 } from "./acpSkillOutputValidator";
@@ -102,7 +107,7 @@ import {
   type AcpSkillRunStatus,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
-import { isAcpAllowPermissionKind } from "./acpPermissionOptions";
+import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
 import {
   requestAcpSkillRunForeground,
   type AcpSkillRunForegroundDeps,
@@ -703,12 +708,23 @@ async function buildRunPrompt(args: {
     inputContext: context.inputContext,
     parameterContext: context.parameterContext,
   });
+  const startupPreamble = await buildAcpStartupPromptPreamble({
+    surface: "acp-skills",
+    workspaceDir: context.workspace.workspaceDir,
+    instructionFile: resolveAcpStartupInstructionFile(
+      context.injectionPlan.family,
+    ),
+  });
+  const prompt = prependAcpStartupPromptPreamble({
+    message: basePrompt,
+    preamble: startupPreamble,
+  });
   await writeAcpSkillRunAuditPrompt({
     requestId: context.workspace.requestId,
     runtimeDir: context.workspace.runtimeDir,
-    prompt: basePrompt,
+    prompt,
   });
-  return basePrompt;
+  return prompt;
 }
 
 function resolveExecutionMode(
@@ -1112,18 +1128,10 @@ type PermissionRequestWithResolver = Parameters<
 function resolveAutoApproveAcpPermissionOption(
   request: PermissionRequestWithResolver,
 ) {
-  if (normalizeString(request.source) !== "acp-tool-call") {
-    return "";
-  }
-  const options = Array.isArray(request.options) ? request.options : [];
-  const allowOptions = options.filter(
-    (option) =>
-      isAcpAllowPermissionKind(option.kind) && normalizeString(option.optionId),
+  return resolveAutoApproveAcpPermissionOptionId(
+    request.source,
+    request.options,
   );
-  const selected =
-    allowOptions.find((option) => option.kind === "allow_once") ||
-    allowOptions.find((option) => option.kind === "allow_always");
-  return selected ? normalizeString(selected.optionId) : "";
 }
 
 function handleAcpSkillRunPermissionRequest(args: {

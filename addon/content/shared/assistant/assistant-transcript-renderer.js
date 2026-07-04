@@ -10,7 +10,378 @@
 
   function clearNode(node) {
     if (!node) return;
+    while (node.firstChild && typeof node.removeChild === "function") {
+      node.removeChild(node.firstChild);
+    }
     node.textContent = "";
+  }
+
+  const VIRTUAL_PAGE_SIZE = 80;
+  const VIRTUAL_PAGE_CACHE_LIMIT = 5;
+  const VIRTUAL_RENDER_WINDOW_LIMIT = 120;
+  const VIRTUAL_RENDER_BUFFER = 20;
+  const VIRTUAL_ESTIMATED_ROW_HEIGHT = 88;
+  const VIRTUAL_PAGE_LOAD_THRESHOLD_PX = 320;
+  const virtualTranscriptStates = new WeakMap();
+
+  function finiteNumber(value, fallback) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+
+  function positiveInteger(value, fallback) {
+    return Math.max(1, Math.floor(finiteNumber(value, fallback)));
+  }
+
+  function nonNegativeInteger(value, fallback) {
+    return Math.max(0, Math.floor(finiteNumber(value, fallback)));
+  }
+
+  function transcriptAnimationFrame(callback) {
+    const raf =
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+        ? window.requestAnimationFrame.bind(window)
+        : function (handler) {
+            return setTimeout(handler, 0);
+          };
+    return raf(callback);
+  }
+
+  function getVirtualTranscriptState(container) {
+    let state = virtualTranscriptStates.get(container);
+    if (!state) {
+      state = {
+        pageKey: "",
+        pages: new Map(),
+        loadingCursors: new Set(),
+        renderScheduled: false,
+        scrollInstalled: false,
+        latestOptions: null,
+        lastVirtual: null,
+      };
+      virtualTranscriptStates.set(container, state);
+    }
+    return state;
+  }
+
+  function resetTranscriptScrollState(container) {
+    if (!container) return;
+    container.removeAttribute("data-assistant-transcript-programmatic-scroll");
+    container.removeAttribute("data-assistant-transcript-scroll-render");
+    container.setAttribute("data-assistant-transcript-stick", "true");
+    container.setAttribute("data-assistant-transcript-last-scroll-top", "0");
+  }
+
+  function resetVirtualTranscriptState(state, pageKey) {
+    state.pageKey = pageKey || "";
+    state.pages = new Map();
+    state.loadingCursors = new Set();
+    state.renderScheduled = false;
+    state.latestOptions = null;
+    state.lastVirtual = null;
+  }
+
+  function resetAssistantTranscriptVirtualState(container, pageKey) {
+    if (!container) return;
+    const state = getVirtualTranscriptState(container);
+    const normalizedPageKey = String(pageKey || "").trim();
+    resetVirtualTranscriptState(state, normalizedPageKey);
+    resetTranscriptScrollState(container);
+    container.setAttribute(
+      "data-assistant-transcript-page-key",
+      normalizedPageKey,
+    );
+  }
+
+  function normalizeVirtualTranscriptPage(page, pageKey, fallbackLimit) {
+    if (!page || typeof page !== "object" || !Array.isArray(page.items)) {
+      return null;
+    }
+    const requestId = String(page.requestId || "").trim();
+    if (requestId && pageKey && requestId !== pageKey) {
+      return null;
+    }
+    const cursor = nonNegativeInteger(page.cursor, 0);
+    return {
+      requestId,
+      cursor,
+      items: page.items.slice(),
+      prevCursor:
+        typeof page.prevCursor === "number"
+          ? nonNegativeInteger(page.prevCursor, 0)
+          : undefined,
+      nextCursor:
+        typeof page.nextCursor === "number"
+          ? nonNegativeInteger(page.nextCursor, 0)
+          : undefined,
+      total: nonNegativeInteger(page.total, page.items.length),
+      eventSeq: nonNegativeInteger(page.eventSeq, 0),
+      transcriptRevision: nonNegativeInteger(page.transcriptRevision, 0),
+      limit: positiveInteger(page.limit, fallbackLimit),
+    };
+  }
+
+  function mergeVirtualTranscriptPage(state, page, options) {
+    const pageKey =
+      String(options.pageKey || "").trim() ||
+      String(page && page.requestId ? page.requestId : "").trim();
+    if (state.pageKey !== pageKey) {
+      resetVirtualTranscriptState(state, pageKey);
+    }
+    const normalized = normalizeVirtualTranscriptPage(
+      page,
+      state.pageKey,
+      positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
+    );
+    if (!normalized) return null;
+    state.loadingCursors.delete(normalized.cursor);
+    state.pages.set(normalized.cursor, normalized);
+    trimVirtualTranscriptPages(state, options);
+    return normalized;
+  }
+
+  function trimVirtualTranscriptPages(state, options) {
+    const limit = positiveInteger(
+      options.pageCacheLimit,
+      VIRTUAL_PAGE_CACHE_LIMIT,
+    );
+    if (state.pages.size <= limit) return;
+    const anchor = state.lastVirtual
+      ? nonNegativeInteger(
+          state.lastVirtual.startIndex,
+          Number.MAX_SAFE_INTEGER,
+        )
+      : Number.MAX_SAFE_INTEGER;
+    while (state.pages.size > limit) {
+      let removeCursor = Array.from(state.pages.keys())[0];
+      let removeDistance = -1;
+      state.pages.forEach(function (_page, cursor) {
+        const distance = Math.abs(Number(cursor) - anchor);
+        if (distance > removeDistance) {
+          removeDistance = distance;
+          removeCursor = cursor;
+        }
+      });
+      state.pages.delete(removeCursor);
+    }
+  }
+
+  function virtualTranscriptCacheEntries(state) {
+    const pages = Array.from(state.pages.values()).sort(function (a, b) {
+      return a.cursor - b.cursor;
+    });
+    const byIndex = new Map();
+    let total = 0;
+    let revision = 0;
+    pages.forEach(function (page) {
+      total = Math.max(total, nonNegativeInteger(page.total, 0));
+      revision = Math.max(
+        revision,
+        nonNegativeInteger(page.transcriptRevision || page.eventSeq, 0),
+      );
+      page.items.forEach(function (item, offset) {
+        byIndex.set(page.cursor + offset, item);
+      });
+    });
+    const entries = Array.from(byIndex.entries())
+      .sort(function (a, b) {
+        return a[0] - b[0];
+      })
+      .map(function (entry) {
+        return { index: entry[0], item: entry[1] };
+      });
+    const firstPage = pages[0] || null;
+    const lastPage = pages[pages.length - 1] || null;
+    return {
+      entries,
+      total: Math.max(total, entries.length),
+      revision,
+      prevCursor:
+        firstPage && typeof firstPage.prevCursor === "number"
+          ? firstPage.prevCursor
+          : undefined,
+      nextCursor:
+        lastPage && typeof lastPage.nextCursor === "number"
+          ? lastPage.nextCursor
+          : undefined,
+    };
+  }
+
+  function buildVirtualTranscriptWindow(container, state, options) {
+    const cache = virtualTranscriptCacheEntries(state);
+    const entries = cache.entries;
+    if (entries.length === 0) {
+      return {
+        items: [],
+        startIndex: 0,
+        endIndex: 0,
+        cachedStartIndex: 0,
+        cachedEndIndex: 0,
+        total: 0,
+        revision: 0,
+        signature: "empty",
+      };
+    }
+    const rowHeight = positiveInteger(
+      options.estimatedRowHeight,
+      VIRTUAL_ESTIMATED_ROW_HEIGHT,
+    );
+    const renderBuffer = nonNegativeInteger(
+      options.renderBuffer,
+      VIRTUAL_RENDER_BUFFER,
+    );
+    const renderLimit = positiveInteger(
+      options.renderWindowLimit,
+      VIRTUAL_RENDER_WINDOW_LIMIT,
+    );
+    const scrollStart = Math.max(
+      0,
+      Math.floor(finiteNumber(container.scrollTop, 0) / rowHeight) -
+        renderBuffer,
+    );
+    const scrollEnd = scrollStart + renderLimit;
+    let windowEntries = entries.filter(function (entry) {
+      return entry.index >= scrollStart && entry.index < scrollEnd;
+    });
+    if (windowEntries.length === 0) {
+      windowEntries = entries.slice(Math.max(0, entries.length - renderLimit));
+    }
+    if (windowEntries.length > renderLimit) {
+      windowEntries = windowEntries.slice(0, renderLimit);
+    }
+    const startIndex = windowEntries[0].index;
+    const endIndex = windowEntries[windowEntries.length - 1].index + 1;
+    return {
+      items: windowEntries.map(function (entry) {
+        return entry.item;
+      }),
+      startIndex,
+      endIndex,
+      cachedStartIndex: entries[0].index,
+      cachedEndIndex: entries[entries.length - 1].index + 1,
+      total: Math.max(cache.total, entries[entries.length - 1].index + 1),
+      revision: cache.revision,
+      prevCursor: cache.prevCursor,
+      nextCursor: cache.nextCursor,
+      signature: [
+        startIndex,
+        endIndex,
+        cache.total,
+        cache.revision,
+        windowEntries
+          .map(function (entry) {
+            return String(entry.item && entry.item.id ? entry.item.id : "");
+          })
+          .join(","),
+      ].join("|"),
+    };
+  }
+
+  function isVirtualPageCachedOrLoading(state, cursor) {
+    const cursorKey = nonNegativeInteger(cursor, 0);
+    return state.pages.has(cursorKey) || state.loadingCursors.has(cursorKey);
+  }
+
+  function requestVirtualTranscriptPage(state, options, cursor) {
+    const cursorKey = nonNegativeInteger(cursor, 0);
+    if (!state.pageKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
+      return;
+    }
+    if (typeof options.onRequestPage !== "function") {
+      return;
+    }
+    state.loadingCursors.add(cursorKey);
+    options.onRequestPage({
+      pageKey: state.pageKey,
+      cursor: cursorKey,
+      limit: positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
+    });
+    setTimeout(function () {
+      state.loadingCursors.delete(cursorKey);
+    }, 5000);
+  }
+
+  function maybeRequestVirtualTranscriptPages(
+    container,
+    state,
+    virtual,
+    options,
+  ) {
+    if (!container || !virtual) return;
+    const rowHeight = positiveInteger(
+      options.estimatedRowHeight,
+      VIRTUAL_ESTIMATED_ROW_HEIGHT,
+    );
+    const threshold = positiveInteger(
+      options.pageLoadThreshold,
+      VIRTUAL_PAGE_LOAD_THRESHOLD_PX,
+    );
+    const topBoundary =
+      nonNegativeInteger(virtual.cachedStartIndex, 0) * rowHeight;
+    const bottomBoundary =
+      nonNegativeInteger(virtual.cachedEndIndex, 0) * rowHeight;
+    if (
+      typeof virtual.prevCursor === "number" &&
+      finiteNumber(container.scrollTop, 0) - topBoundary < threshold
+    ) {
+      requestVirtualTranscriptPage(state, options, virtual.prevCursor);
+    }
+    if (
+      typeof virtual.nextCursor === "number" &&
+      bottomBoundary -
+        (finiteNumber(container.scrollTop, 0) +
+          finiteNumber(container.clientHeight, 0)) <
+        threshold
+    ) {
+      requestVirtualTranscriptPage(state, options, virtual.nextCursor);
+    }
+  }
+
+  function createVirtualTranscriptSpacer(height) {
+    const spacer = el("div", "assistant-transcript-virtual-spacer");
+    spacer.style.height = Math.max(0, Math.floor(Number(height) || 0)) + "px";
+    spacer.setAttribute("aria-hidden", "true");
+    return spacer;
+  }
+
+  function scheduleVirtualTranscriptRender(container, state) {
+    if (state.renderScheduled || !state.latestOptions) return;
+    state.renderScheduled = true;
+    const scheduledPageKey = state.pageKey;
+    transcriptAnimationFrame(function () {
+      state.renderScheduled = false;
+      if (!state.latestOptions) return;
+      if (scheduledPageKey !== state.pageKey) return;
+      renderAssistantTranscript(
+        Object.assign({}, state.latestOptions, {
+          _virtualScrollRender: true,
+        }),
+      );
+    });
+  }
+
+  function installVirtualTranscriptScrollHandler(container, state) {
+    if (!container || state.scrollInstalled) return;
+    state.scrollInstalled = true;
+    container.addEventListener("scroll", function () {
+      if (
+        container.getAttribute(
+          "data-assistant-transcript-programmatic-scroll",
+        ) === "true"
+      ) {
+        return;
+      }
+      if (state.lastVirtual && state.latestOptions) {
+        maybeRequestVirtualTranscriptPages(
+          container,
+          state,
+          state.lastVirtual,
+          state.latestOptions,
+        );
+      }
+      scheduleVirtualTranscriptRender(container, state);
+    });
   }
 
   function setCodeCopyButtonState(button, state, labels) {
@@ -150,12 +521,29 @@
       "data-assistant-transcript-stick",
       isAssistantTranscriptNearBottom(container, threshold) ? "true" : "false",
     );
+    container.setAttribute(
+      "data-assistant-transcript-last-scroll-top",
+      String(finiteNumber(container.scrollTop, 0)),
+    );
     container.addEventListener("scroll", function () {
       if (
         container.getAttribute(
           "data-assistant-transcript-programmatic-scroll",
         ) === "true"
       ) {
+        return;
+      }
+      const previousScrollTop = finiteNumber(
+        container.getAttribute("data-assistant-transcript-last-scroll-top"),
+        finiteNumber(container.scrollTop, 0),
+      );
+      const currentScrollTop = finiteNumber(container.scrollTop, 0);
+      container.setAttribute(
+        "data-assistant-transcript-last-scroll-top",
+        String(currentScrollTop),
+      );
+      if (currentScrollTop < previousScrollTop) {
+        container.setAttribute("data-assistant-transcript-stick", "false");
         return;
       }
       container.setAttribute(
@@ -169,6 +557,14 @@
 
   function shouldStickAssistantTranscript(container, threshold) {
     if (!container) return true;
+    if (
+      container.getAttribute("data-assistant-transcript-scroll-render") ===
+      "true"
+    ) {
+      return (
+        container.getAttribute("data-assistant-transcript-stick") === "true"
+      );
+    }
     if (isAssistantTranscriptNearBottom(container, threshold)) {
       container.setAttribute("data-assistant-transcript-stick", "true");
       return true;
@@ -180,12 +576,20 @@
     if (!container) return;
     const finish = function () {
       container.scrollTop = container.scrollHeight;
+      container.setAttribute(
+        "data-assistant-transcript-last-scroll-top",
+        String(finiteNumber(container.scrollTop, 0)),
+      );
     };
     container.setAttribute(
       "data-assistant-transcript-programmatic-scroll",
       "true",
     );
     container.scrollTop = container.scrollHeight;
+    container.setAttribute(
+      "data-assistant-transcript-last-scroll-top",
+      String(finiteNumber(container.scrollTop, 0)),
+    );
     const raf =
       typeof window !== "undefined" &&
       typeof window.requestAnimationFrame === "function"
@@ -961,20 +1365,72 @@
     if (!container) return;
     const variant = opts.variant || "acp-chat";
     const mode = opts.mode === "bubble" ? "bubble" : "plain";
-    const items = buildTranscriptRenderItems(
-      opts.items || [],
-      mode,
-      opts.expandedIds,
-    );
+    const virtualized = opts.virtualized === true;
+    let virtualState = null;
+    let virtual = null;
+    let rawItems = opts.items || [];
+    if (virtualized) {
+      const nextPageKey =
+        String(opts.pageKey || "").trim() ||
+        String(
+          opts.page && opts.page.requestId ? opts.page.requestId : "",
+        ).trim();
+      virtualState = getVirtualTranscriptState(container);
+      if (virtualState.pageKey !== nextPageKey) {
+        resetAssistantTranscriptVirtualState(container, nextPageKey);
+        virtualState = getVirtualTranscriptState(container);
+      }
+    }
+    installAssistantTranscriptStickiness(container, opts.stickThreshold);
+    if (virtualized) {
+      const hasIncomingPage =
+        opts.page &&
+        typeof opts.page === "object" &&
+        Array.isArray(opts.page.items);
+      const hadCachedPages = virtualState.pages.size > 0;
+      const mergedPage = mergeVirtualTranscriptPage(
+        virtualState,
+        opts.page,
+        opts,
+      );
+      const pageRejected = hasIncomingPage && !mergedPage;
+      if (pageRejected) {
+        resetAssistantTranscriptVirtualState(container, opts.pageKey);
+        virtualState = getVirtualTranscriptState(container);
+        rawItems = [];
+      } else {
+        if (
+          mergedPage &&
+          !hadCachedPages &&
+          opts._virtualScrollRender !== true
+        ) {
+          resetTranscriptScrollState(container);
+        }
+        const latestOptions = Object.assign({}, opts);
+        delete latestOptions._virtualScrollRender;
+        virtualState.latestOptions = latestOptions;
+        installVirtualTranscriptScrollHandler(container, virtualState);
+        virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
+        virtualState.lastVirtual = virtual;
+        rawItems = virtual.items.length ? virtual.items : rawItems;
+      }
+    }
+    const items = buildTranscriptRenderItems(rawItems, mode, opts.expandedIds);
     container.classList.add("assistant-transcript");
     container.classList.toggle("plain-mode", mode === "plain");
     container.classList.toggle("bubble-mode", mode === "bubble");
     container.setAttribute("data-assistant-panel-kind", variant);
-    installAssistantTranscriptStickiness(container, opts.stickThreshold);
+    if (virtualized && opts._virtualScrollRender === true) {
+      container.setAttribute("data-assistant-transcript-scroll-render", "true");
+    } else {
+      container.removeAttribute("data-assistant-transcript-scroll-render");
+    }
     const shouldStick = shouldStickAssistantTranscript(
       container,
       opts.stickThreshold,
     );
+    container.removeAttribute("data-assistant-transcript-scroll-render");
+    const preservedScrollTop = finiteNumber(container.scrollTop, 0);
     if (items.length === 0) {
       clearNode(container);
       if (opts.nodeMap && typeof opts.nodeMap.clear === "function")
@@ -988,11 +1444,15 @@
       );
       return;
     }
-    const orderKey = items
+    const itemOrderKey = items
       .map(function (item) {
         return String(item.kind || "") + ":" + String(item.id || "");
       })
       .join("|");
+    const orderKey =
+      virtualized && virtual
+        ? ["virtual", virtual.signature, itemOrderKey].join("|")
+        : itemOrderKey;
     const nodeMap = opts.nodeMap;
     const canDiff =
       nodeMap &&
@@ -1003,12 +1463,34 @@
     if (needsFullRender) {
       clearNode(container);
       if (canDiff) nodeMap.clear();
+      if (virtualized && virtual) {
+        container.appendChild(
+          createVirtualTranscriptSpacer(
+            virtual.startIndex *
+              positiveInteger(
+                opts.estimatedRowHeight,
+                VIRTUAL_ESTIMATED_ROW_HEIGHT,
+              ),
+          ),
+        );
+      }
       items.forEach(function (item) {
         const row = createRow(item, { variant });
         if (canDiff) nodeMap.set(String(item.id || ""), row);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
         container.appendChild(row);
       });
+      if (virtualized && virtual) {
+        container.appendChild(
+          createVirtualTranscriptSpacer(
+            (virtual.total - virtual.endIndex) *
+              positiveInteger(
+                opts.estimatedRowHeight,
+                VIRTUAL_ESTIMATED_ROW_HEIGHT,
+              ),
+          ),
+        );
+      }
     } else {
       items.forEach(function (item) {
         const id = String(item.id || "");
@@ -1022,8 +1504,23 @@
       });
     }
     if (shouldStick) stickAssistantTranscriptToBottom(container);
+    else if (virtualized) {
+      container.scrollTop = preservedScrollTop;
+      container.setAttribute(
+        "data-assistant-transcript-last-scroll-top",
+        String(finiteNumber(container.scrollTop, 0)),
+      );
+    }
+    if (virtualized && virtualState && virtual) {
+      maybeRequestVirtualTranscriptPages(
+        container,
+        virtualState,
+        virtual,
+        opts,
+      );
+    }
     if (typeof opts.onRendered === "function") {
-      opts.onRendered({ orderKey, modeKey: mode, items });
+      opts.onRendered({ orderKey, modeKey: mode, items, virtual });
     }
   }
 
@@ -1038,6 +1535,7 @@
     renderAssistantTranscript,
     renderAssistantTranscriptItem,
     renderAssistantTranscriptItemIfChanged,
+    resetAssistantTranscriptVirtualState,
     shouldStickAssistantTranscript,
     stickAssistantTranscriptToBottom,
   };

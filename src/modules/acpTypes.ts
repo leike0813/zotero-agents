@@ -285,6 +285,7 @@ export type AcpConversationSnapshot = {
   showDiagnostics: boolean;
   statusExpanded: boolean;
   chatDisplayMode: AcpChatDisplayMode;
+  autoApproveAcpPermissions: boolean;
   lastError: string;
   prerequisiteError: string;
   authMethods: AcpAuthMethod[];
@@ -443,6 +444,7 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     showDiagnostics: false,
     statusExpanded: false,
     chatDisplayMode: "plain",
+    autoApproveAcpPermissions: false,
     lastError: "",
     prerequisiteError: "",
     authMethods: [],

@@ -771,6 +771,17 @@ summary,
   opacity: 0.72;
 }
 
+.assistant-panel-switch-action[data-assistant-switch-pending="true"] {
+  opacity: 0.82;
+}
+
+.assistant-panel-switch-action[data-assistant-switch-pending="true"]
+  .assistant-panel-switch-track {
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.18),
+    0 0 0 2px rgba(37, 99, 235, 0.14);
+}
+
 .assistant-panel-switch-label {
   display: inline-block;
   min-width: 0;
@@ -2005,6 +2016,10 @@ details.assistant-panel-details-section[open]
     ),
     linear-gradient(180deg, #fbfdff 0%, #f6f9fc 100%);
   scrollbar-width: thin;
+}
+
+.assistant-transcript-virtual-spacer {
+  pointer-events: none;
 }
 
 .assistant-transcript.plain-mode {

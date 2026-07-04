@@ -405,6 +405,7 @@ function createPrefsWindow(args?: {
   includeHostAccessControls?: boolean;
   includeContentPackageControls?: boolean;
   includeAssistantStreamingRenderControl?: boolean;
+  includeAssistantTranscriptRenderingControl?: boolean;
 }) {
   const document = new FakeDocument();
   const confirmResults = Array.isArray(args?.confirmResults)
@@ -515,6 +516,13 @@ function createPrefsWindow(args?: {
       : null;
   if (assistantStreamingRenderEnabledCheckbox) {
     assistantStreamingRenderEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`;
+  }
+  const assistantTranscriptPaginationVirtualizationEnabledCheckbox =
+    args?.includeAssistantTranscriptRenderingControl
+      ? document.createXULElement("input")
+      : null;
+  if (assistantTranscriptPaginationVirtualizationEnabledCheckbox) {
+    assistantTranscriptPaginationVirtualizationEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-assistant-transcript-pagination-virtualization-enabled`;
   }
   const hostBridgeDisableWriteApprovalCheckbox =
     document.createXULElement("input");
@@ -865,6 +873,7 @@ function createPrefsWindow(args?: {
     contentPackageProgressText,
     backendManageButton,
     assistantStreamingRenderEnabledCheckbox,
+    assistantTranscriptPaginationVirtualizationEnabledCheckbox,
     hostBridgeDisableWriteApprovalCheckbox,
     hostBridgeLanCheckbox,
     mcpServerEnabledCheckbox,
@@ -1233,6 +1242,7 @@ describe("gui: preference scripts", function () {
 
   it("persists assistant streaming render checkbox from click activation and deduplicates follow-up events", async function () {
     const prefKey = `${config.prefsPrefix}.assistantStreamingRenderEnabled`;
+    const transcriptRenderingPrefKey = `${config.prefsPrefix}.assistantTranscriptPaginationVirtualizationEnabled`;
     const calls: Array<{ type: string; data: any }> = [];
     (
       globalThis as {
@@ -1251,16 +1261,27 @@ describe("gui: preference scripts", function () {
     };
 
     Zotero.Prefs.set(prefKey, true, true);
+    Zotero.Prefs.set(transcriptRenderingPrefKey, true, true);
     const {
       window,
       dispatchWindowEvent,
       assistantStreamingRenderEnabledCheckbox,
-    } = createPrefsWindow({ includeAssistantStreamingRenderControl: true });
+      assistantTranscriptPaginationVirtualizationEnabledCheckbox,
+    } = createPrefsWindow({
+      includeAssistantStreamingRenderControl: true,
+      includeAssistantTranscriptRenderingControl: true,
+    });
     assert.isNotNull(assistantStreamingRenderEnabledCheckbox);
+    assert.isNotNull(
+      assistantTranscriptPaginationVirtualizationEnabledCheckbox,
+    );
     const checkbox = assistantStreamingRenderEnabledCheckbox!;
+    const transcriptRenderingCheckbox =
+      assistantTranscriptPaginationVirtualizationEnabledCheckbox!;
 
     await registerPrefsScripts(window);
     assert.isTrue(checkbox.checked);
+    assert.isTrue(transcriptRenderingCheckbox.checked);
 
     checkbox.checked = false;
     checkbox.dispatch("click", {
@@ -1294,6 +1315,19 @@ describe("gui: preference scripts", function () {
       ),
       submittedCount,
       "same-value follow-up checkbox events should not submit again",
+    );
+
+    transcriptRenderingCheckbox.checked = false;
+    transcriptRenderingCheckbox.dispatch("change", {
+      target: transcriptRenderingCheckbox,
+    });
+    await flushTasks();
+
+    assert.isFalse(Zotero.Prefs.get(transcriptRenderingPrefKey, true));
+    assert.notInclude(
+      calls.map((call) => call.type),
+      "setAssistantTranscriptPaginationVirtualizationEnabled",
+      "transcript rendering preference should persist locally without a live workspace event",
     );
 
     dispatchWindowEvent("unload");
@@ -2547,6 +2581,21 @@ describe("gui: preference scripts", function () {
     assert.include(xhtml, "zs-host-bridge-write-approval-danger");
     assert.include(xhtml, "skill-dir");
     assert.include(xhtml, "skill-browse");
+    assert.include(xhtml, "pref-section-user-interface");
+    assert.include(
+      xhtml,
+      "assistant-transcript-pagination-virtualization-enabled",
+    );
+    assert.include(xhtml, "markdown-reader-enabled");
+    assert.include(xhtml, "assistant-streaming-render-enabled");
+    assert.isBelow(
+      xhtml.indexOf("pref-section-backends"),
+      xhtml.indexOf("pref-section-user-interface"),
+    );
+    assert.isBelow(
+      xhtml.indexOf("pref-section-user-interface"),
+      xhtml.indexOf("pref-section-host-bridge"),
+    );
     assert.notInclude(xhtml, "pref-workflow-dir-help");
     assert.include(enLocale, "pref-runtime-data-show-issues");
     assert.include(enLocale, "pref-runtime-data-hide-issues");
@@ -2562,6 +2611,12 @@ describe("gui: preference scripts", function () {
     assert.include(enLocale, "pref-host-bridge-security-show");
     assert.include(enLocale, "pref-host-bridge-operation-notice");
     assert.include(enLocale, "pref-host-access-status-running");
+    assert.include(enLocale, "pref-section-user-interface");
+    assert.include(
+      enLocale,
+      "pref-assistant-transcript-pagination-virtualization-enabled",
+    );
+    assert.include(enLocale, "pref-section-host-bridge = Agent Interface");
     assert.include(enLocale, "pref-skill-dir");
     assert.include(enLocale, "RESET SYNTHESIS DATABASE");
     assert.include(zhLocale, "pref-runtime-data-show-issues");
@@ -2578,6 +2633,12 @@ describe("gui: preference scripts", function () {
     assert.include(zhLocale, "pref-host-bridge-security-show");
     assert.include(zhLocale, "pref-host-bridge-operation-notice");
     assert.include(zhLocale, "pref-host-access-status-running");
+    assert.include(zhLocale, "pref-section-user-interface");
+    assert.include(
+      zhLocale,
+      "pref-assistant-transcript-pagination-virtualization-enabled",
+    );
+    assert.include(zhLocale, "pref-section-host-bridge = Agent界面");
     assert.include(zhLocale, "pref-skill-dir");
     assert.include(zhLocale, "RESET SYNTHESIS DATABASE");
   });

@@ -85,6 +85,12 @@ import {
   registerAcpConversationHostBridgePermissionHandler,
   resetAcpConversationHostBridgePermissionHandlersForTests,
 } from "./acpConversationHostBridgePermissionRegistry";
+import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
+import {
+  buildAcpStartupPromptPreamble,
+  prependAcpStartupPromptPreamble,
+  resolveAcpStartupInstructionFile,
+} from "./acpStartupPromptPreambles";
 
 type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
@@ -547,6 +553,36 @@ function setSessionRuntimePendingPermissionRequest(
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
+function autoApproveSessionRuntimePermissionRequest(
+  sessionRuntime: AcpChatSessionRuntime,
+  request: AcpPendingPermissionRequest & {
+    resolve: (outcome: RequestPermissionOutcome) => void;
+  },
+) {
+  if (sessionRuntime.snapshot.autoApproveAcpPermissions !== true) {
+    return false;
+  }
+  const optionId = resolveAutoApproveAcpPermissionOptionId(
+    request.source,
+    request.options,
+  );
+  if (!optionId) {
+    return false;
+  }
+  request.resolve({ outcome: "selected", optionId });
+  appendDiagnostic(sessionRuntime, {
+    id: nextOpaqueId("acp-diag"),
+    ts: nowIso(),
+    kind: "permission_auto_approved",
+    level: "info",
+    message: `ACP Chat auto-approved permission option: ${optionId}`,
+    detail: request.toolTitle || request.summary || request.requestId,
+    stage: "permission",
+  });
+  emitSessionRuntimeSnapshot(sessionRuntime);
+  return true;
+}
+
 function bindHostBridgePermissionForSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   const conversationId = String(sessionRuntime.snapshot.conversationId || "").trim();
   sessionRuntime.unsubscribeHostBridgePermission?.();
@@ -558,6 +594,9 @@ function bindHostBridgePermissionForSessionRuntime(sessionRuntime: AcpChatSessio
     registerAcpConversationHostBridgePermissionHandler(
       conversationId,
       (request) => {
+        if (autoApproveSessionRuntimePermissionRequest(sessionRuntime, request)) {
+          return;
+        }
         setSessionRuntimePendingPermissionRequest(sessionRuntime, request);
       },
     );
@@ -2434,9 +2473,14 @@ function bindAdapter(sessionRuntime: AcpChatSessionRuntime, nextAdapter: AcpConn
       publishMode: "metadata",
     });
   });
-  sessionRuntime.unsubscribePermission = nextAdapter.onPermissionRequest((request) => {
-    setSessionRuntimePendingPermissionRequest(sessionRuntime, request);
-  });
+  sessionRuntime.unsubscribePermission = nextAdapter.onPermissionRequest(
+    (request) => {
+      if (autoApproveSessionRuntimePermissionRequest(sessionRuntime, request)) {
+        return;
+      }
+      setSessionRuntimePendingPermissionRequest(sessionRuntime, request);
+    },
+  );
 }
 
 async function disconnectSessionRuntimeAdapter(sessionRuntime: AcpChatSessionRuntime) {
@@ -2620,6 +2664,7 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
         sessionRuntime,
         backend,
         backendId: sessionRuntime.backendId,
+        inheritPlaceholderAutoApprove: true,
       });
       rekeySessionRuntime(sessionRuntime);
       resetSessionRuntimeTransientState(sessionRuntime);
@@ -3284,6 +3329,7 @@ function createNewLocalConversationSnapshot(args: {
   backend: BackendInstance | null;
   backendId: string;
   createdAt?: string;
+  inheritPlaceholderAutoApprove?: boolean;
 }) {
   const createdAt = args.createdAt || nowIso();
   const conversationId = nextOpaqueId("acp-conversation");
@@ -3301,6 +3347,9 @@ function createNewLocalConversationSnapshot(args: {
     showDiagnostics: args.sessionRuntime.snapshot.showDiagnostics,
     statusExpanded: args.sessionRuntime.snapshot.statusExpanded,
     chatDisplayMode: args.sessionRuntime.snapshot.chatDisplayMode,
+    autoApproveAcpPermissions:
+      args.inheritPlaceholderAutoApprove === true &&
+      args.sessionRuntime.snapshot.autoApproveAcpPermissions === true,
     agentWorkspaceDir: paths.agentWorkspaceDir,
     conversationStorageDir: paths.conversationStorageDir,
     sessionCwd: paths.agentWorkspaceDir,
@@ -3383,6 +3432,30 @@ export async function connectAcpConversation(args?: {
   emitSessionRuntimeSnapshot(ensured.sessionRuntime);
 }
 
+export function setAcpConversationAutoApprovePermissions(args: {
+  enabled: boolean;
+  backendId?: string;
+  conversationId?: string;
+}) {
+  ensureInitialized();
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId || activeBackendId,
+    args.conversationId,
+  );
+  const enabled = args.enabled === true;
+  if (sessionRuntime.snapshot.autoApproveAcpPermissions === enabled) {
+    notifyConversationListenersNow(sessionRuntime);
+    notifyFrontendListenersNow();
+    return;
+  }
+  sessionRuntime.snapshot.autoApproveAcpPermissions = enabled;
+  sessionRuntime.snapshot.updatedAt = nowIso();
+  updatePublishedSessionRuntimeSnapshot(sessionRuntime, "metadata");
+  persistSessionRuntimeSnapshotNow(sessionRuntime);
+  notifyConversationListenersNow(sessionRuntime);
+  notifyFrontendListenersNow();
+}
+
 export async function disconnectAcpConversation(args?: {
   backendId?: string;
   conversationId?: string;
@@ -3433,9 +3506,27 @@ export async function sendAcpConversationPrompt(args: {
   );
   await hydrateAcpChatTranscriptMirror(sessionRuntime);
   touchLiveAcpChatSessionRuntime(sessionRuntime);
+  const shouldInjectStartupPreamble =
+    sessionRuntime.snapshot.transcriptItemCount === 0 &&
+    sessionRuntime.transcriptItemCount === 0;
   if (!sessionRuntime.snapshot.conversationId) {
     sessionRuntime.snapshot.conversationId = nextOpaqueId("acp-conversation");
   }
+  const backend = sessionRuntime.snapshot.backend;
+  const agentFamily = String(backend?.acp?.agentFamily || "").trim();
+  const promptMessage = shouldInjectStartupPreamble
+    ? prependAcpStartupPromptPreamble({
+        message,
+        preamble: await buildAcpStartupPromptPreamble({
+          surface: "acp-chat",
+          workspaceDir:
+            sessionRuntime.snapshot.agentWorkspaceDir ||
+            sessionRuntime.snapshot.sessionCwd ||
+            sessionRuntime.snapshot.workspaceDir,
+          instructionFile: resolveAcpStartupInstructionFile(agentFamily),
+        }),
+      })
+    : message;
   if (
     (!sessionRuntime.snapshot.conversationTitle ||
       sessionRuntime.snapshot.conversationTitle === "New Conversation") &&
@@ -3468,7 +3559,7 @@ export async function sendAcpConversationPrompt(args: {
   try {
     const response = await adapter.prompt({
       sessionId: sessionRuntime.snapshot.sessionId,
-      message,
+      message: promptMessage,
     });
     sessionRuntime.snapshot.busy = false;
     sessionRuntime.snapshot.status = "connected";

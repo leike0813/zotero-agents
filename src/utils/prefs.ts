@@ -19,6 +19,7 @@ type PluginPrefsMap = BasePluginPrefsMap & {
   collectSkillRunFeedbackEnabled: boolean;
   markdownReaderEnabled: boolean;
   assistantStreamingRenderEnabled: boolean;
+  assistantTranscriptPaginationVirtualizationEnabled: boolean;
   workflowDir: string;
   skillDir: string;
   contentFeedChannel: string;

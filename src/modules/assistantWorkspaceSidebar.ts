@@ -10,6 +10,7 @@ import {
   setAssistantStreamingRenderEnabled,
   subscribeAssistantStreamingRenderPreference,
 } from "./assistantStreamingRenderPreference";
+import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
 import {
   SKILLRUNNER_ICON_URI,
   applyToolbarButtonStyling,
@@ -34,6 +35,7 @@ import {
   sendAcpConversationPrompt,
   setActiveAcpBackend,
   setActiveAcpConversation,
+  setAcpConversationAutoApprovePermissions,
   setAcpConversationChatDisplayMode,
   setAcpConversationMode,
   setAcpConversationModel,
@@ -46,11 +48,13 @@ import {
 import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
+  type AcpSkillRunSnapshotChange,
   archiveAcpSkillRun,
   cancelAcpSkillRun,
   connectAcpSkillRun,
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
+  getSelectedAcpSkillRunRequestId,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
   prepareAcpSkillRunPanelSnapshot,
@@ -130,6 +134,8 @@ type AssistantWorkspaceHostRuntime = {
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
   scopeKey: string;
   snapshotRevision: number;
+  acpSkillRunSnapshotBuildSeq: number;
+  lastAcpSkillRunSnapshotSignature?: string | null;
   lastAcpSkillWaitingToastKeys: Set<string>;
 };
 type SkillRunnerSidebarRefreshRequest = {
@@ -158,6 +164,14 @@ type AssistantWorkspaceBridge = {
     type: string,
     payload?: Record<string, unknown>,
   ) => Promise<AssistantWorkspaceBridgeResult>;
+};
+type AcpSkillRunSnapshotPostOptions = {
+  force?: boolean;
+  transcriptPage?: {
+    requestId?: string;
+    cursor?: number;
+    limit?: number;
+  };
 };
 
 const hosts = new WeakMap<
@@ -336,6 +350,60 @@ function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
   host.lastAcpSkillWaitingToastKeys = nextKeys;
 }
 
+function acpSkillRunChangeKinds(change?: AcpSkillRunSnapshotChange) {
+  return Array.isArray(change?.kinds) ? change.kinds : [];
+}
+
+function isPureAcpSkillRunBackgroundChange(change?: AcpSkillRunSnapshotChange) {
+  if (!change || change.global === true) {
+    return false;
+  }
+  const kinds = acpSkillRunChangeKinds(change);
+  return (
+    kinds.length > 0 &&
+    kinds.every((kind) => kind === "transcript" || kind === "runtime-options")
+  );
+}
+
+function shouldRefreshAcpSkillRunSnapshotForChange(
+  host: AssistantWorkspaceHostRuntime,
+  change?: AcpSkillRunSnapshotChange,
+) {
+  if (!change || change.global === true) {
+    return true;
+  }
+  const kinds = acpSkillRunChangeKinds(change);
+  if (
+    kinds.length === 0 ||
+    kinds.some(
+      (kind) =>
+        kind === "global" ||
+        kind === "selection" ||
+        kind === "archive" ||
+        kind === "run",
+    )
+  ) {
+    return true;
+  }
+  if (!isPureAcpSkillRunBackgroundChange(change)) {
+    return true;
+  }
+  if (host.activeTab !== "acp-skills") {
+    return false;
+  }
+  const selectedRequestId = getSelectedAcpSkillRunRequestId();
+  if (!selectedRequestId) {
+    return false;
+  }
+  const requestIds = Array.isArray(change.requestIds)
+    ? change.requestIds.map((requestId) => String(requestId || "").trim())
+    : [];
+  if (requestIds.length === 0) {
+    return true;
+  }
+  return requestIds.includes(selectedRequestId);
+}
+
 function updateAssistantAttentionIndicator(
   host: AssistantWorkspaceHostRuntime,
 ) {
@@ -506,7 +574,8 @@ function resolveTargetFromSource(
       operation: "source-check",
       phase: "rejected",
       stage: "stale-shell-window",
-      message: "Assistant shell message source did not match the current shell window.",
+      message:
+        "Assistant shell message source did not match the current shell window.",
     });
   }
   if (!source || !frameWindow || source !== frameWindow) {
@@ -587,9 +656,7 @@ function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
   publishAssistantWorkspaceStatePulse(host, "shell-ready");
 }
 
-function installShellBridge(
-  host: AssistantWorkspaceHostRuntime,
-) {
+function installShellBridge(host: AssistantWorkspaceHostRuntime) {
   const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
     return false;
@@ -681,15 +748,49 @@ function postAcpChatSnapshot(
   postChildSnapshot(host, "acp-chat", phase, buildAcpSnapshot(target));
 }
 
+function buildAcpSkillRunSnapshotSignature(snapshot: Record<string, unknown>) {
+  const signatureSource = { ...snapshot };
+  delete signatureSource.generatedAt;
+  return JSON.stringify(signatureSource);
+}
+
 async function postAcpSkillRunSnapshot(
   host: AssistantWorkspaceHostRuntime,
   phase: "init" | "snapshot" = "snapshot",
+  options?: AcpSkillRunSnapshotPostOptions,
 ) {
-  const snapshot = await prepareAcpSkillRunPanelSnapshot();
-  postChildSnapshot(host, "acp-skills", phase, {
+  host.acpSkillRunSnapshotBuildSeq += 1;
+  const buildSeq = host.acpSkillRunSnapshotBuildSeq;
+  const snapshot = await prepareAcpSkillRunPanelSnapshot({
+    transcriptPage: options?.transcriptPage,
+  });
+  if (host.acpSkillRunSnapshotBuildSeq !== buildSeq) {
+    return;
+  }
+  const currentSelectedRequestId = getSelectedAcpSkillRunRequestId();
+  if (
+    currentSelectedRequestId &&
+    String(snapshot.selectedRequestId || "").trim() !== currentSelectedRequestId
+  ) {
+    return;
+  }
+  const payload = {
     ...(snapshot as unknown as Record<string, unknown>),
     streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
-  });
+    transcriptPaginationVirtualizationEnabled:
+      isAssistantTranscriptPaginationVirtualizationEnabled(),
+  };
+  const signature = buildAcpSkillRunSnapshotSignature(payload);
+  const force = options?.force === true || phase === "init";
+  if (
+    !force &&
+    host.lastAcpSkillRunSnapshotSignature &&
+    host.lastAcpSkillRunSnapshotSignature === signature
+  ) {
+    return;
+  }
+  host.lastAcpSkillRunSnapshotSignature = signature;
+  postChildSnapshot(host, "acp-skills", phase, payload);
 }
 
 async function postFreshAcpChatSnapshot(
@@ -719,13 +820,16 @@ function postSnapshotForTab(
   target: AcpSidebarTarget,
   tab: AssistantWorkspaceTab,
   phase: "init" | "snapshot" = "snapshot",
+  options?: { force?: boolean },
 ) {
   if (tab === "acp-chat") {
     void postFreshAcpChatSnapshot(host, target, phase);
     return;
   }
   if (tab === "acp-skills") {
-    void postAcpSkillRunSnapshot(host, phase);
+    void postAcpSkillRunSnapshot(host, phase, {
+      force: options?.force === true || phase === "init",
+    });
     return;
   }
   postSkillRunnerSnapshot(host, phase);
@@ -769,10 +873,14 @@ function publishAssistantWorkspaceStatePulse(
     postShellInit(host, host.activeTab);
   }
   if (tab) {
-    postSnapshotForTab(host, target, tab, phase);
+    postSnapshotForTab(host, target, tab, phase, {
+      force: reason === "child-ready" || reason === "tab-switch",
+    });
     return true;
   }
-  postSnapshotForTab(host, target, host.activeTab, phase);
+  postSnapshotForTab(host, target, host.activeTab, phase, {
+    force: reason === "child-ready" || reason === "tab-switch",
+  });
   return true;
 }
 
@@ -1085,8 +1193,30 @@ async function handleChildAction(
     return;
   }
   if (tab === "acp-skills") {
+    if (action === "load-transcript-page") {
+      const requestId = String(childPayload.requestId || "").trim();
+      const selectedRequestId = getSelectedAcpSkillRunRequestId();
+      if (!requestId || requestId !== selectedRequestId) {
+        return;
+      }
+      await postAcpSkillRunSnapshot(host, "snapshot", {
+        force: true,
+        transcriptPage: {
+          requestId,
+          cursor:
+            typeof childPayload.cursor === "number"
+              ? childPayload.cursor
+              : Number(childPayload.cursor),
+          limit:
+            typeof childPayload.limit === "number"
+              ? childPayload.limit
+              : Number(childPayload.limit),
+        },
+      });
+      return;
+    }
     await handleAcpSkillRunAction(host, action, childPayload);
-    await postAcpSkillRunSnapshot(host);
+    await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
     return;
   }
   await handleAcpChatAction(host, target, action, childPayload);
@@ -1309,6 +1439,14 @@ async function handleAcpChatAction(
             ? "selected"
             : "cancelled",
         optionId: String(payload.optionId || "").trim(),
+        backendId: String(payload.backendId || "").trim(),
+        conversationId: String(payload.conversationId || "").trim(),
+      });
+      return;
+    }
+    if (action === "set-auto-approve-permissions") {
+      setAcpConversationAutoApprovePermissions({
+        enabled: payload.enabled === true,
         backendId: String(payload.backendId || "").trim(),
         conversationId: String(payload.conversationId || "").trim(),
       });
@@ -1645,7 +1783,8 @@ async function activateTarget(
         operation: "dock-shell",
         phase: "error",
         stage: "library",
-        message: "Assistant Workspace shell could not be docked in library pane.",
+        message:
+          "Assistant Workspace shell could not be docked in library pane.",
       });
       deactivateTarget(host, "library");
       return false;
@@ -1691,6 +1830,7 @@ export function installAssistantWorkspaceSidebarShell(
     drawerCompletedCollapsed: true,
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
+    acpSkillRunSnapshotBuildSeq: 0,
     skillRunnerRefreshGeneration: 0,
     library: { button: null, container: null },
     reader: { button: null, container: null },
@@ -1707,11 +1847,18 @@ export function installAssistantWorkspaceSidebarShell(
   host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots(() => {
     schedulePostSnapshot(host);
   });
-  host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
-    maybeShowAcpSkillWaitingToasts(host);
-    schedulePostSnapshot(host);
-    updateAssistantAttentionIndicator(host);
-  });
+  host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(
+    (change) => {
+      const pureBackgroundChange = isPureAcpSkillRunBackgroundChange(change);
+      if (!pureBackgroundChange) {
+        maybeShowAcpSkillWaitingToasts(host);
+        updateAssistantAttentionIndicator(host);
+      }
+      if (shouldRefreshAcpSkillRunSnapshotForChange(host, change)) {
+        schedulePostSnapshot(host);
+      }
+    },
+  );
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });

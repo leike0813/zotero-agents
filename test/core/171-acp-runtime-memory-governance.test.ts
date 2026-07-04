@@ -4,7 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import {
   flushAcpSkillRunRuntimeFileWritesForTests,
+  appendAcpSkillRunUserReply,
   buildAcpSkillRunPanelSnapshot,
+  getAcpSkillRunSummaryDiagnosticsForTests,
   getAcpSkillRunRecord,
   hasAcpSkillRunController,
   markAcpSkillRunApplyResult,
@@ -12,7 +14,9 @@ import {
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   registerAcpSkillRunController,
+  resetAcpSkillRunSummaryDiagnosticsForTests,
   resetAcpSkillRunsForTests,
+  subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -300,7 +304,8 @@ describe("ACP runtime memory governance", function () {
       const snapshot = buildAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory",
       }) as any;
-      assert.property(snapshot.selectedRun || {}, "transcriptItems");
+      assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
+      assert.isArray(snapshot.selectedTranscriptPage?.items);
       assert.notProperty(snapshot.selectedRun || {}, "outputRevisions");
       assert.notProperty(snapshot.selectedRun || {}, "requestPayload");
       assert.notProperty(snapshot.selectedRun || {}, "runnerJson");
@@ -313,7 +318,7 @@ describe("ACP runtime memory governance", function () {
       const prepared = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory",
       });
-      const items = prepared.selectedRun?.transcriptItems || [];
+      const items = prepared.selectedTranscriptPage?.items || [];
       assert.isAtLeast(items.length, 1);
       assert.isTrue(
         items.some(
@@ -410,14 +415,110 @@ describe("ACP runtime memory governance", function () {
       const snapshot = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory-small",
       });
+      assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
       assert.isTrue(
-        (snapshot.selectedRun?.transcriptItems || []).some(
+        (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
             item.kind === "message" &&
             String(item.text || "").includes("Small pending"),
         ),
       );
     } finally {
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("pages selected ACP skill transcript snapshots without embedding the full transcript", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    try {
+      upsertAcpSkillRun({
+        requestId: "req-runtime-long-transcript",
+        status: "running",
+        statusReason: "start",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        resultJsonPath: path.join(root, "result.json"),
+      });
+      for (let index = 0; index < 210; index += 1) {
+        appendAcpSkillRunUserReply({
+          requestId: "req-runtime-long-transcript",
+          message: `message-${String(index).padStart(3, "0")}`,
+        });
+      }
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+
+      const tail = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "req-runtime-long-transcript",
+      });
+      assert.notProperty(tail.selectedRun || {}, "transcriptItems");
+      assert.isAtMost(tail.selectedTranscriptPage?.items.length || 0, 80);
+      assert.equal(tail.selectedTranscriptPage?.total, 210);
+      assert.equal(tail.selectedTranscriptPage?.cursor, 130);
+      assert.isTrue(
+        (tail.selectedTranscriptPage?.items || []).some((item) =>
+          String(item.text || "").includes("message-209"),
+        ),
+      );
+
+      const firstPage = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "req-runtime-long-transcript",
+        transcriptPage: {
+          requestId: "req-runtime-long-transcript",
+          cursor: 0,
+          limit: 80,
+        },
+      });
+      assert.equal(firstPage.selectedTranscriptPage?.cursor, 0);
+      assert.equal(firstPage.selectedTranscriptPage?.nextCursor, 80);
+      assert.isUndefined(firstPage.selectedTranscriptPage?.prevCursor);
+      assert.isTrue(
+        (firstPage.selectedTranscriptPage?.items || []).some((item) =>
+          String(item.text || "").includes("message-000"),
+        ),
+      );
+    } finally {
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits request-scoped ACP skill transcript snapshot changes", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    const changes: any[] = [];
+    const unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
+      changes.push(change);
+    });
+    try {
+      upsertAcpSkillRun({
+        requestId: "req-runtime-change-descriptor",
+        status: "running",
+        statusReason: "start",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        resultJsonPath: path.join(root, "result.json"),
+      });
+      changes.length = 0;
+      appendAcpSkillRunUserReply({
+        requestId: "req-runtime-change-descriptor",
+        message: "descriptor text",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      assert.isAtLeast(changes.length, 1);
+      const latest = changes[changes.length - 1] || {};
+      assert.deepEqual(latest.requestIds, ["req-runtime-change-descriptor"]);
+      assert.include(latest.kinds || [], "transcript");
+      assert.notEqual(latest.global, true);
+    } finally {
+      unsubscribe();
       await flushAcpSkillRunRuntimeFileWritesForTests();
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
@@ -686,5 +787,73 @@ describe("ACP runtime memory governance", function () {
     assert.equal(record?.conversationRecoveryState, "unavailable");
     assert.equal(record?.connectionActionState, "idle");
     assert.include(stages, "apply-result-detach-error");
+  });
+
+  it("builds ACP Skills panel recent runs from a bounded index", async function () {
+    for (let index = 1; index <= 125; index += 1) {
+      const padded = String(index).padStart(3, "0");
+      upsertAcpSkillRun({
+        requestId: `req-panel-${padded}`,
+        status: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        taskName: `Panel Run ${padded}`,
+        createdAt: new Date(
+          Date.UTC(2026, 6, 3, 0, 0, index),
+        ).toISOString(),
+      });
+    }
+    upsertAcpSkillRun({
+      requestId: "req-panel-archived-new",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      createdAt: "2026-07-03T02:10:00.000Z",
+      archivedAt: "2026-07-03T02:11:00.000Z",
+    });
+    upsertAcpSkillRun({
+      requestId: "req-panel-removed-new",
+      status: "succeeded",
+      backendId: "backend-acp",
+      backendType: "acp",
+      createdAt: "2026-07-03T02:20:00.000Z",
+      removedAt: "2026-07-03T02:21:00.000Z",
+    });
+
+    resetAcpSkillRunSummaryDiagnosticsForTests();
+    const snapshot = await prepareAcpSkillRunPanelSnapshot({
+      selectedRequestId: "req-panel-125",
+    });
+    const diagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
+
+    assert.equal(diagnostics.fullRunRecordScanCount, 0);
+    assert.equal(diagnostics.recentIndexScanCount, 1);
+    assert.isAtMost(diagnostics.runCandidateReadCount, 101);
+    assert.lengthOf(snapshot.runs, 100);
+    assert.equal(snapshot.runs[0].requestId, "req-panel-125");
+    assert.equal(snapshot.runs[99].requestId, "req-panel-026");
+    assert.isTrue(snapshot.drawer.truncated);
+    assert.isString(snapshot.drawer.notice);
+    assert.notInclude(
+      snapshot.runs.map((run) => run.requestId),
+      "req-panel-archived-new",
+    );
+    assert.notInclude(
+      snapshot.runs.map((run) => run.requestId),
+      "req-panel-removed-new",
+    );
+
+    resetAcpSkillRunSummaryDiagnosticsForTests();
+    const selectedOld = await prepareAcpSkillRunPanelSnapshot({
+      selectedRequestId: "req-panel-001",
+    });
+    const selectedDiagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
+
+    assert.equal(selectedDiagnostics.fullRunRecordScanCount, 0);
+    assert.equal(selectedDiagnostics.recentIndexScanCount, 1);
+    assert.isAtMost(selectedDiagnostics.runCandidateReadCount, 101);
+    assert.equal(selectedOld.selectedRun?.requestId, "req-panel-001");
+    assert.equal(selectedOld.runs[0].requestId, "req-panel-001");
+    assert.lengthOf(selectedOld.runs, 100);
   });
 });

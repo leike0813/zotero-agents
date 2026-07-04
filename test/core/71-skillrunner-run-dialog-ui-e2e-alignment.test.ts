@@ -152,7 +152,6 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(rendererJs, "renderAssistantWorkspaceTaskAction");
     assert.include(rendererJs, "event.stopPropagation()");
     assert.include(rendererJs, "safeText(drawers.notice)");
-    assert.include(rendererJs, 'sectionId === "running" && noticeText');
     assert.include(rendererJs, "assistant-workspace-drawer-history-notice");
     assert.include(
       rendererJs,
