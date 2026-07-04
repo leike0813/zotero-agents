@@ -18,6 +18,7 @@
     transcriptRenderedMode: "",
     transcriptContextKey: "",
     transcriptRenderToken: 0,
+    transcriptPaginationVirtualizationEnabled: true,
     pendingTranscriptSnapshot: null,
     toolActivityExpandedIds: new Set(),
   };
@@ -118,6 +119,17 @@
       typeof window.AssistantTranscriptRenderer === "object"
       ? window.AssistantTranscriptRenderer
       : null;
+  }
+
+  function resetTranscriptVirtualState(pageKey) {
+    const renderer = assistantTranscriptRenderer();
+    if (
+      transcriptEl &&
+      renderer &&
+      typeof renderer.resetAssistantTranscriptVirtualState === "function"
+    ) {
+      renderer.resetAssistantTranscriptVirtualState(transcriptEl, pageKey);
+    }
   }
 
   function createCompatibleThinkingChatModel(initialMode) {
@@ -485,9 +497,7 @@
         : {
             kind: "skillrunner",
             context: {
-              title: safeText(
-                source.labels && source.labels.title,
-              ),
+              title: safeText(source.labels && source.labels.title),
               status: "idle",
             },
             lifecycle: { executionState: "idle" },
@@ -519,6 +529,19 @@
     return safeText(workspace.selectedTaskKey);
   }
 
+  function snapshotTranscriptPaginationVirtualizationEnabled() {
+    const source = state.workspaceEnvelope || {};
+    if (
+      Object.prototype.hasOwnProperty.call(
+        source,
+        "transcriptPaginationVirtualizationEnabled",
+      )
+    ) {
+      return source.transcriptPaginationVirtualizationEnabled !== false;
+    }
+    return true;
+  }
+
   function resetTranscriptRenderState() {
     state.transcriptNodeMap.clear();
     state.transcriptOrderKey = "";
@@ -534,7 +557,10 @@
     const contextKey = currentRequestId() + "\n" + currentTaskKey();
     if (contextKey !== state.transcriptContextKey) {
       state.transcriptContextKey = contextKey;
+      state.transcriptPaginationVirtualizationEnabled =
+        snapshotTranscriptPaginationVirtualizationEnabled();
       resetTranscriptRenderState();
+      resetTranscriptVirtualState(contextKey);
     }
   }
 
@@ -756,13 +782,23 @@
     const renderer = assistantTranscriptRenderer();
     if (!renderer || typeof renderer.renderAssistantTranscript !== "function")
       return;
+    const items =
+      panelSnapshot.conversation &&
+      Array.isArray(panelSnapshot.conversation.items)
+        ? panelSnapshot.conversation.items
+        : [];
+    const raw =
+      panelSnapshot && panelSnapshot.raw
+        ? panelSnapshot.raw
+        : state.workspaceEnvelope || {};
+    const virtualized =
+      state.transcriptPaginationVirtualizationEnabled !== false;
     renderer.renderAssistantTranscript({
       container: transcriptEl,
-      items:
-        panelSnapshot.conversation &&
-        Array.isArray(panelSnapshot.conversation.items)
-          ? panelSnapshot.conversation.items
-          : [],
+      items,
+      virtualized,
+      pageKey: virtualized ? state.transcriptContextKey : undefined,
+      transcriptRevision: Number(raw && raw.transcriptRevision) || 0,
       mode: state.chatDisplayMode,
       variant: "skillrunner",
       renderMarkdown,

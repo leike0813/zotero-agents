@@ -1404,6 +1404,9 @@ describe("acp ui smoke", function () {
     const runDialogJs = await readProjectFile(
       "addon/content/sidebar/run-dialog.js",
     );
+    const skillRunnerRunDialogTs = await readProjectFile(
+      "src/modules/skillRunnerRunDialog.ts",
+    );
     const runDialogCss = await readProjectFile(
       "addon/content/sidebar/run-dialog.css",
     );
@@ -2457,6 +2460,22 @@ describe("acp ui smoke", function () {
     assert.include(runDialogJs, "expandedIds: state.toolActivityExpandedIds");
     assert.include(runDialogJs, "onToggleExpanded: function (id)");
     assert.include(runDialogJs, "assistant_revision");
+    assert.include(runDialogJs, "transcriptPaginationVirtualizationEnabled");
+    assert.include(runDialogJs, "resetAssistantTranscriptVirtualState");
+    assert.include(runDialogJs, "virtualized,");
+    assert.include(
+      runDialogJs,
+      "pageKey: virtualized ? state.transcriptContextKey : undefined",
+    );
+    assert.notInclude(runDialogJs, 'sendAction("load-transcript-page"');
+    assert.include(
+      skillRunnerRunDialogTs,
+      "transcriptPaginationVirtualizationEnabled?: boolean",
+    );
+    assert.include(
+      skillRunnerRunDialogTs,
+      "isAssistantTranscriptPaginationVirtualizationEnabled()",
+    );
     assert.include(runDialogHtml, 'id="skillrunner-toolbar"');
     assert.include(runDialogHtml, 'id="skillrunner-banner"');
     assert.include(runDialogHtml, 'id="skillrunner-conversation-window"');
@@ -2661,6 +2680,15 @@ describe("acp ui smoke", function () {
     assert.include(assistantTranscriptRendererJs, "virtualTranscriptStates");
     assert.include(assistantTranscriptRendererJs, "virtualized");
     assert.include(assistantTranscriptRendererJs, "onRequestPage");
+    assert.include(assistantTranscriptRendererJs, "virtualSourceMode");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "setVirtualTranscriptItemsSource",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      'state.virtualSourceMode === "items"',
+    );
     assert.include(assistantTranscriptRendererJs, "rowHeights: new Map()");
     assert.include(assistantTranscriptRendererJs, "captureVirtualScrollAnchor");
     assert.include(assistantTranscriptRendererJs, "restoreVirtualScrollAnchor");
@@ -4726,6 +4754,71 @@ describe("acp ui smoke", function () {
       transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
       2,
     );
+  });
+
+  it("renders items-only virtual transcripts without requesting pages", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 240;
+    transcript.scrollHeight = 1000;
+    transcript.scrollTop = 0;
+    const requests: any[] = [];
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "skillrunner-run-a\ntask-a",
+      items: Array.from({ length: 12 }, (_entry, index) => ({
+        id: `skillrunner-a-${index}`,
+        kind: "message",
+        role: "assistant",
+        text: `run A message ${index}`,
+      })),
+      mode: "plain",
+      nodeMap: new Map(),
+      renderWindowLimit: 4,
+      renderBuffer: 0,
+      onRequestPage: (request: any) => requests.push(request),
+    });
+
+    assert.isBelow(
+      transcript.querySelectorAll(".assistant-transcript-row").length,
+      12,
+    );
+    assert.include(collectFakeText(transcript), "run A message 0");
+    assert.notInclude(collectFakeText(transcript), "run A message 11");
+    assert.lengthOf(
+      transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
+      2,
+    );
+
+    transcript.scrollTop = 760;
+    transcript.dispatchEventType("scroll");
+
+    assert.include(collectFakeText(transcript), "run A message");
+    assert.lengthOf(requests, 0);
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "skillrunner-run-b\ntask-b",
+      items: [
+        {
+          id: "skillrunner-b-1",
+          kind: "message",
+          role: "assistant",
+          text: "run B transcript",
+        },
+      ],
+      mode: "plain",
+      nodeMap: new Map(),
+      onRequestPage: (request: any) => requests.push(request),
+    });
+
+    assert.include(collectFakeText(transcript), "run B transcript");
+    assert.notInclude(collectFakeText(transcript), "run A message");
+    assert.lengthOf(requests, 0);
   });
 
   it("preserves the virtual transcript anchor while scrolling through a tall row", async function () {

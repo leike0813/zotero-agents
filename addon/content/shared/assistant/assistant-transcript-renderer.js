@@ -63,6 +63,7 @@
         lastAnchor: null,
         pendingMeasureRender: false,
         rowHeights: new Map(),
+        virtualSourceMode: "page",
       };
       virtualTranscriptStates.set(container, state);
     }
@@ -87,6 +88,7 @@
     state.lastVirtual = null;
     state.lastAnchor = null;
     state.rowHeights = new Map();
+    state.virtualSourceMode = "page";
   }
 
   function resetAssistantTranscriptVirtualState(container, pageKey) {
@@ -133,9 +135,10 @@
     const pageKey =
       String(options.pageKey || "").trim() ||
       String(page && page.requestId ? page.requestId : "").trim();
-    if (state.pageKey !== pageKey) {
+    if (state.pageKey !== pageKey || state.virtualSourceMode !== "page") {
       resetVirtualTranscriptState(state, pageKey);
     }
+    state.virtualSourceMode = "page";
     const normalized = normalizeVirtualTranscriptPage(
       page,
       state.pageKey,
@@ -146,6 +149,26 @@
     state.pages.set(normalized.cursor, normalized);
     trimVirtualTranscriptPages(state, options);
     return normalized;
+  }
+
+  function setVirtualTranscriptItemsSource(state, items, options) {
+    const pageKey = String(options.pageKey || "").trim();
+    if (state.pageKey !== pageKey || state.virtualSourceMode !== "items") {
+      resetVirtualTranscriptState(state, pageKey);
+    }
+    state.virtualSourceMode = "items";
+    const sourceItems = Array.isArray(items) ? items.slice() : [];
+    state.loadingCursors.clear();
+    state.pages.set(0, {
+      requestId: pageKey,
+      cursor: 0,
+      items: sourceItems,
+      total: sourceItems.length,
+      eventSeq: nonNegativeInteger(options.transcriptRevision, 0),
+      transcriptRevision: nonNegativeInteger(options.transcriptRevision, 0),
+      limit: Math.max(1, sourceItems.length || 1),
+    });
+    pruneVirtualTranscriptRowHeights(state);
   }
 
   function trimVirtualTranscriptPages(state, options) {
@@ -548,6 +571,9 @@
   }
 
   function requestVirtualTranscriptPage(state, options, cursor) {
+    if (state.virtualSourceMode === "items") {
+      return;
+    }
     const cursorKey = nonNegativeInteger(cursor, 0);
     if (!state.pageKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
       return;
@@ -1695,17 +1721,18 @@
         typeof opts.page === "object" &&
         Array.isArray(opts.page.items);
       const hadCachedPages = virtualState.pages.size > 0;
-      const mergedPage = mergeVirtualTranscriptPage(
-        virtualState,
-        opts.page,
-        opts,
-      );
+      const mergedPage = hasIncomingPage
+        ? mergeVirtualTranscriptPage(virtualState, opts.page, opts)
+        : null;
       const pageRejected = hasIncomingPage && !mergedPage;
       if (pageRejected) {
         resetAssistantTranscriptVirtualState(container, opts.pageKey);
         virtualState = getVirtualTranscriptState(container);
         rawItems = [];
       } else {
+        if (!hasIncomingPage) {
+          setVirtualTranscriptItemsSource(virtualState, rawItems, opts);
+        }
         if (
           mergedPage &&
           !hadCachedPages &&

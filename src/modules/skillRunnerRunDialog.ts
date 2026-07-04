@@ -82,6 +82,7 @@ import {
   canPublishAssistantWorkspaceLiveUpdates,
   type AssistantWorkspacePublishReason,
 } from "./assistantWorkspaceUiPublishPolicy";
+import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
 import {
   getSkillRunnerHostBridgePermissionRequest,
@@ -398,6 +399,7 @@ export type RunWorkspaceSnapshot = {
   title: string;
   hostMode?: "dialog" | "sidebar";
   transcriptRevision?: number;
+  transcriptPaginationVirtualizationEnabled?: boolean;
   labels: {
     assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
     title: string;
@@ -2656,6 +2658,8 @@ function buildRunWorkspaceSnapshot(
       session?.title ||
       resolveRunWorkspaceTitle(),
     transcriptRevision: runWorkspaceState.transcriptRevision,
+    transcriptPaginationVirtualizationEnabled:
+      isAssistantTranscriptPaginationVirtualizationEnabled(),
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
       title: localize(
