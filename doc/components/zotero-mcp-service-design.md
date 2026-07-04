@@ -1111,7 +1111,15 @@ Input:
   "limit": 50,
   "includeTags": true,
   "includeCollections": false,
-  "includeItems": false
+  "includeItems": false,
+  "tagCursor": 0,
+  "tagLimit": 50,
+  "collectionCursor": 0,
+  "collectionLimit": 50,
+  "topicCursor": 0,
+  "topicLimit": 50,
+  "registryCursor": 0,
+  "registryLimit": 50
 }
 ```
 
@@ -1125,6 +1133,10 @@ Fields:
 | `includeTags` | boolean | Include tag index |
 | `includeCollections` | boolean | Include collection index |
 | `includeItems` | boolean | Include item index |
+| `tagCursor` / `tagLimit` | number/string | Pagination for included tags |
+| `collectionCursor` / `collectionLimit` | number/string | Pagination for included collections |
+| `topicCursor` / `topicLimit` | number/string | Pagination for included topics |
+| `registryCursor` / `registryLimit` | number/string | Pagination for included registry rows |
 
 All fields are optional.
 
@@ -1134,11 +1146,34 @@ Structured content:
 {
   "result": {
     "libraryId": 1,
-    "cursor": 50,
-    "hasMore": true,
-    "tags": [...],
-    "collections": [...],
-    "items": [...]
+    "papers": [...],
+    "cursor": "0",
+    "next_cursor": "50",
+    "has_more": true,
+    "returned": 50,
+    "total_papers": 125,
+    "limit": 50,
+    "index_hash": "sha256:...",
+    "page_hash": "sha256:...",
+    "pagination": {
+      "papers": {
+        "cursor": "0",
+        "nextCursor": "50",
+        "hasMore": true,
+        "returned": 50,
+        "total": 125,
+        "limit": 50
+      },
+      "tags": {
+        "cursor": "0",
+        "nextCursor": "",
+        "hasMore": false,
+        "returned": 12,
+        "total": 12,
+        "limit": 50
+      }
+    },
+    "tags": [...]
   }
 }
 ```
@@ -1147,7 +1182,8 @@ Behavior notes:
 
 - Default returns a bounded paper page (no flags).
 - `includeTags`, `includeCollections`, and `includeItems` opt into larger
-  sections.
+  sections. Each included section is independently page-sized and exposes
+  section-level pagination metadata.
 - The result is a cache view and may be stale or empty.
 
 ### `resolvers.resolve`

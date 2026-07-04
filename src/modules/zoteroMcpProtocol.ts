@@ -2587,8 +2587,12 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     name: ZOTERO_MCP_TOOL_TOPICS_LIST,
     title: "List Synthesis topics",
     description:
-      "Return a small semantic inventory of existing Synthesis topics for create-mode duplicate checks. This tool does not return resolvers, paper sets, artifacts, or freshness data.",
+      "Return a paged semantic inventory of existing Synthesis topics for create-mode duplicate checks. This tool does not return resolvers, paper sets, artifacts, or freshness data.",
     method: "listTopics",
+    properties: {
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+    },
   }),
   synthesisTool({
     name: ZOTERO_MCP_TOOL_TOPICS_FIND_BY_PAPER_REF,
@@ -2677,6 +2681,26 @@ const TOOL_REGISTRY: ToolDefinition[] = [
         minimum: 0,
         maximum: 250,
       },
+      max_nodes: {
+        type: ["number", "string"],
+        minimum: 1,
+        maximum: 1000,
+      },
+      maxNodes: {
+        type: ["number", "string"],
+        minimum: 1,
+        maximum: 1000,
+      },
+      max_edges: {
+        type: ["number", "string"],
+        minimum: 0,
+        maximum: 2000,
+      },
+      maxEdges: {
+        type: ["number", "string"],
+        minimum: 0,
+        maximum: 2000,
+      },
       cluster_policy: {
         type: "string",
         enum: ["source_only", "include_external", "bounded_external"],
@@ -2700,6 +2724,14 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       includeTags: { type: "boolean" },
       includeCollections: { type: "boolean" },
       includeItems: { type: "boolean" },
+      tagCursor: { type: ["number", "string"] },
+      tagLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      collectionCursor: { type: ["number", "string"] },
+      collectionLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      topicCursor: { type: ["number", "string"] },
+      topicLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      registryCursor: { type: ["number", "string"] },
+      registryLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
     },
   }),
   synthesisTool({
@@ -2776,6 +2808,25 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     required: ["run_root"],
   }),
   synthesisTool({
+    name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_OVERVIEW,
+    title: "Get Synthesis citation graph overview page",
+    description:
+      "Read paged overview arrays from the persisted Synthesis citation graph snapshot with summary counts and maintenance diagnostics. This tool never returns the full graph in one response.",
+    method: "queryCitationGraph",
+    properties: {
+      cursor: { type: ["number", "string"] },
+      limit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      nodeCursor: { type: ["number", "string"] },
+      nodeLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      edgeCursor: { type: ["number", "string"] },
+      edgeLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      hoverNodeCursor: { type: ["number", "string"] },
+      hoverNodeLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+      hoverEdgeCursor: { type: ["number", "string"] },
+      hoverEdgeLimit: { type: ["number", "string"], minimum: 1, maximum: 250 },
+    },
+  }),
+  synthesisTool({
     name: ZOTERO_MCP_TOOL_CITATION_GRAPH_GET_SLICE,
     title: "Get Synthesis citation graph slice",
     description:
@@ -2833,6 +2884,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     properties: {
       paperRefs: { type: "array", maxItems: 250 },
       paper_refs: { type: "array", maxItems: 250 },
+      cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
       sortBy: {
         type: "string",
@@ -2851,6 +2903,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       "Return ranked external references from the persisted citation graph without rebuilding or refreshing graph state.",
     method: "rankExternalReferences",
     properties: {
+      cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
       sortBy: {
         type: "string",
@@ -2871,6 +2924,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
     properties: {
       paperRefs: { type: "array", maxItems: 250 },
       paper_refs: { type: "array", maxItems: 250 },
+      cursor: { type: ["number", "string"] },
       limit: { type: ["number", "string"], minimum: 1, maximum: 100 },
       sortBy: {
         type: "string",

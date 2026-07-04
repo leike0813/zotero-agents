@@ -98,6 +98,9 @@ function flags(entry: HostBridgeCapabilityCatalogEntry) {
     entry.debugOnly ? "debug-only" : "",
     entry.dangerous ? "dangerous" : "",
     entry.rawOnly ? "raw-only" : "",
+    entry.responseSizing !== "unclassified"
+      ? `response:${entry.responseSizing}`
+      : "",
     entry.mcpMirror ? "mcp-mirror" : "",
   ]
     .filter(Boolean)
@@ -227,6 +230,15 @@ function libraryGuidance() {
   ].join("\n");
 }
 
+function largeResponseGuidance() {
+  return [
+    "- Treat `response:paged` capabilities as one-page reads. Iterate the returned cursor metadata instead of assuming one call returns the whole collection.",
+    "- `synthesis graph overview` returns summary plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. Use `cursor`/`limit` for all sections together or section cursors such as `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor`.",
+    "- Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded subgraph, layout, or ranked metric page instead of the entire citation graph.",
+    "- `synthesis topic list`, `synthesis index library get`, graph metrics, and graph rankings are paged reads. Do not build workflows that rely on stdout containing every topic, index row, graph node, edge, or rank item in one response.",
+  ].join("\n");
+}
+
 function resolverGuidance() {
   return [
     "- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
@@ -277,6 +289,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     libraryGuidance(),
     "",
+    "#### Large response pagination",
+    "",
+    largeResponseGuidance(),
+    "",
     "#### Resolver payloads",
     "",
     resolverGuidance(),
@@ -326,6 +342,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     topicContextGuidance(),
     "",
+    "### Large response pagination",
+    "",
+    largeResponseGuidance(),
+    "",
     "### Resolver payloads",
     "",
     resolverGuidance(),
@@ -364,6 +384,10 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
     "### Library guidance",
     "",
     libraryGuidance(),
+    "",
+    "### Large response pagination",
+    "",
+    largeResponseGuidance(),
     "",
     "### Topic context payloads",
     "",

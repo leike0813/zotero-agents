@@ -413,6 +413,21 @@ describe("host bridge capability calls", function () {
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
     assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
 
+    const graphOverview = await callBridgeCapability({
+      token,
+      capability: "citation_graph.get_overview",
+      input: { limit: 1 },
+    });
+    assert.strictEqual(graphOverview.status, 200);
+    assert.strictEqual(
+      graphOverview.json.result.capability,
+      "citation_graph.get_overview",
+    );
+    assert.isArray(graphOverview.json.result.data.nodes);
+    assert.isObject(graphOverview.json.result.data.pagination);
+    assert.isObject(graphOverview.json.result.data.pagination.nodes);
+    assert.isTrue(graphOverview.json.result.data.diagnostics.bounded);
+
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",

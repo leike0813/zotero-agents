@@ -959,6 +959,23 @@ SHALL NOT introduce alternate Host Bridge command surfaces.
 - **THEN** it SHALL use `run notification list` and `run notification ack`
 - **AND** SHALL NOT use `run notification wait` for scheduled monitoring.
 
+### Requirement: CLI exposes one-page reads for large Host Bridge surfaces
+
+The Host Bridge CLI SHALL keep stdout as a single complete JSON object and SHALL
+not rely on unbounded payloads for library, topic, index, or graph reads.
+
+#### Scenario: CLI reads a paged graph overview
+- **WHEN** a user runs `zotero-bridge synthesis graph overview --input <json>`
+- **THEN** the CLI SHALL call `citation_graph.get_overview`
+- **AND** the returned JSON SHALL represent one graph overview page with
+  section-level pagination metadata.
+
+#### Scenario: CLI documents pagination inputs
+- **WHEN** a user inspects help or generated Host Bridge CLI guidance
+- **THEN** high-cardinality commands SHALL describe cursor and limit usage
+- **AND** guidance SHALL NOT instruct agents to retrieve full graph or index
+  collections in one command.
+
 ### Requirement: Rust CLI validates unsafe local inputs before request dispatch
 
 The Host Bridge CLI SHALL reject clearly unsafe local object refs and file handles before sending Host Bridge requests.

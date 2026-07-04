@@ -14,6 +14,13 @@ export type HostBridgeCapabilityCatalogEntry = {
   cacheView: boolean;
   rawOnly: boolean;
   mcpMirror: boolean;
+  responseSizing:
+    | "paged"
+    | "limit-bounded"
+    | "selector-bounded"
+    | "file-output"
+    | "bounded-diagnostic"
+    | "unclassified";
   cliCommands: string[];
 };
 
@@ -79,6 +86,62 @@ const CACHE_VIEW_CAPABILITIES = new Set([
 const RAW_ONLY_CAPABILITIES = new Set([
   "diagnostic.get_status",
   "debug.zotero.eval",
+]);
+
+const RESPONSE_SIZING = new Map<
+  string,
+  HostBridgeCapabilityCatalogEntry["responseSizing"]
+>([
+  ["library.search_items", "limit-bounded"],
+  ["library.list_items", "paged"],
+  ["library.sync_snapshot", "paged"],
+  ["library.readiness_audit", "paged"],
+  ["library.get_item_detail", "selector-bounded"],
+  ["library.get_item_notes", "paged"],
+  ["library.get_note_detail", "paged"],
+  ["library.list_note_payloads", "selector-bounded"],
+  ["library.get_note_payload", "paged"],
+  ["library.get_item_attachments", "selector-bounded"],
+  ["library.list_annotations", "selector-bounded"],
+  ["library.export_annotations", "selector-bounded"],
+  ["topics.list", "paged"],
+  ["topics.find_by_paper_ref", "selector-bounded"],
+  ["topics.get_context", "file-output"],
+  ["topics.get_report", "selector-bounded"],
+  ["topics.get_review_input", "limit-bounded"],
+  ["schemas.get", "bounded-diagnostic"],
+  ["concepts.query", "limit-bounded"],
+  ["citation_graph.get_overview", "paged"],
+  ["citation_graph.query_cluster", "limit-bounded"],
+  ["citation_graph.get_slice", "limit-bounded"],
+  ["citation_graph.get_layout", "limit-bounded"],
+  ["citation_graph.get_metrics", "paged"],
+  ["citation_graph.rank_external_references", "paged"],
+  ["citation_graph.rank_library_papers", "paged"],
+  ["library_index.get", "paged"],
+  ["reference_index.get", "paged"],
+  ["resolvers.resolve", "paged"],
+  ["paper_artifacts.get_manifest", "selector-bounded"],
+  ["paper_artifacts.read", "selector-bounded"],
+  ["paper_artifacts.export_filtered", "file-output"],
+  ["paper_artifacts.resolve_topic_digest", "selector-bounded"],
+  ["insights.get_attention_queue", "limit-bounded"],
+]);
+
+const HIGH_CARDINALITY_READ_CAPABILITIES = new Set([
+  "library.list_items",
+  "library.sync_snapshot",
+  "library.readiness_audit",
+  "topics.list",
+  "citation_graph.get_overview",
+  "citation_graph.query_cluster",
+  "citation_graph.get_metrics",
+  "citation_graph.rank_external_references",
+  "citation_graph.rank_library_papers",
+  "library_index.get",
+  "reference_index.get",
+  "resolvers.resolve",
+  "insights.get_attention_queue",
 ]);
 
 function read(root: string, path: string) {
@@ -408,6 +471,7 @@ export function buildHostBridgeSurfaceCatalog(
       cacheView: CACHE_VIEW_CAPABILITIES.has(entry.name),
       rawOnly: RAW_ONLY_CAPABILITIES.has(entry.name),
       mcpMirror: true,
+      responseSizing: RESPONSE_SIZING.get(entry.name) || "unclassified",
       cliCommands: (cliByCapability.get(entry.name) || []).sort(),
     };
   });
@@ -449,6 +513,14 @@ export function validateHostBridgeSurfaceCatalog(
     if (!capability.rawOnly && capability.cliCommands.length === 0) {
       errors.push(
         `public capability ${capability.name} must have semantic CLI mapping or raw-only classification`,
+      );
+    }
+    if (
+      HIGH_CARDINALITY_READ_CAPABILITIES.has(capability.name) &&
+      capability.responseSizing === "unclassified"
+    ) {
+      errors.push(
+        `high-cardinality read capability ${capability.name} must declare response sizing`,
       );
     }
   }

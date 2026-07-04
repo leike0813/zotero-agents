@@ -10,6 +10,8 @@ Use `library readiness` for missing PDF, source Markdown, and literature-analysi
 
 Use `common-tasks.md` when the request matches common library management work such as missing PDF, missing Markdown, missing literature-analysis artifacts, tag regulation, annotation export, synthesis graph, topic synthesis, or writeback.
 
+For broad library, topic, index, or graph reads, use paged commands with explicit limits and follow returned cursor metadata. Do not assume `synthesis graph overview`, `synthesis topic list`, `synthesis index library get`, graph metrics, or graph ranking commands return complete collections in one call.
+
 ## Navigate Deliberately
 
 Use `context current` and `context selection get` to ground deictic requests such as "this paper" or "the selected items". Use `context ... open` only to bring Zotero to a known item, note, collection, or selected item set. Navigation is not a write path and must target Zotero object handles, not local paths, URLs, scripts, or guessed identifiers.

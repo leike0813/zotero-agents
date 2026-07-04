@@ -301,6 +301,15 @@ export type SynthesisReadHint = {
   created_at: string;
 };
 
+export type SynthesisPageInfo = {
+  cursor: string;
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+  limit: number;
+};
+
 export type CitationGraphSliceDirection = "incoming" | "outgoing" | "both";
 
 export type SynthesisCitationGraphSliceResult = {
@@ -422,6 +431,12 @@ export type SynthesisCitationGraphMetricsResult = {
   metrics_hash: string;
   status: "ready" | "missing" | "stale";
   items: CitationGraphLibraryNodeMetrics[];
+  cursor: string;
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+  limit: number;
   diagnostics: {
     snapshot_found: boolean;
     metrics_found: boolean;
@@ -454,6 +469,12 @@ export type SynthesisRankedExternalReferencesResult = {
     visibility?: CitationGraphNode["visibility"];
     reason: string;
   }>;
+  cursor: string;
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  total: number;
+  limit: number;
   diagnostics: {
     snapshot_found: boolean;
     returned_count: number;
@@ -815,6 +836,12 @@ const LIBRARY_INDEX_PAGE_LIMIT_DEFAULT = 100;
 const LIBRARY_INDEX_PAGE_LIMIT_MAX = 250;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT = 100;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX = 250;
+const CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT = 100;
+const CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX = 250;
+const CITATION_GRAPH_CLUSTER_NODE_LIMIT_DEFAULT = 250;
+const CITATION_GRAPH_CLUSTER_NODE_LIMIT_MAX = 1000;
+const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT = 500;
+const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX = 2000;
 const SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT = 20;
 const SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT = 50;
 const SYNTHESIS_RUNNING_OPERATION_STALE_MS = 30 * 60 * 1000;
@@ -1197,6 +1224,50 @@ function pageRows<T>(
     returned: page.length,
     total: rows.length,
     limit,
+  };
+}
+
+function firstDefinedArg(args: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (args[key] !== undefined && args[key] !== null && args[key] !== "") {
+      return args[key];
+    }
+  }
+  return undefined;
+}
+
+function pageNamedRows<T>(
+  rows: T[],
+  args: Record<string, unknown>,
+  defaults: {
+    cursorKeys: string[];
+    limitKeys: string[];
+    defaultLimit: number;
+    maxLimit: number;
+  },
+): { page: T[]; pageInfo: SynthesisPageInfo } {
+  const cursor = parseNonNegativeInteger(
+    firstDefinedArg(args, defaults.cursorKeys),
+    0,
+  );
+  const limit = parsePositiveInteger(
+    firstDefinedArg(args, defaults.limitKeys),
+    defaults.defaultLimit,
+    defaults.maxLimit,
+  );
+  const page = rows.slice(cursor, cursor + limit);
+  const nextCursor = cursor + page.length;
+  const hasMore = nextCursor < rows.length;
+  return {
+    page,
+    pageInfo: {
+      cursor: String(cursor),
+      nextCursor: hasMore ? String(nextCursor) : "",
+      hasMore,
+      returned: page.length,
+      total: rows.length,
+      limit,
+    },
   };
 }
 
@@ -3112,6 +3183,7 @@ function normalizeCitationGraphLayoutArgs(args: Record<string, unknown>) {
 }
 
 function normalizeGraphMetricsArgs(args: Record<string, unknown>): {
+  cursor: string;
   limit: number;
   paperRefs: string[];
   sortBy: CitationGraphMetricsSortBy;
@@ -3141,6 +3213,7 @@ function normalizeGraphMetricsArgs(args: Record<string, unknown>): {
     warnings.push("sortBy defaulted to foundation");
   }
   return {
+    cursor: String(parseNonNegativeInteger(args.cursor, 0)),
     limit,
     paperRefs,
     sortBy,
@@ -3149,6 +3222,7 @@ function normalizeGraphMetricsArgs(args: Record<string, unknown>): {
 }
 
 function normalizeExternalReferenceRankArgs(args: Record<string, unknown>): {
+  cursor: string;
   limit: number;
   sortBy: "external_degree" | "shared_source_count" | "year";
   warnings: string[];
@@ -3170,7 +3244,12 @@ function normalizeExternalReferenceRankArgs(args: Record<string, unknown>): {
   if (rawSortBy && rawSortBy !== sortBy) {
     warnings.push("sortBy defaulted to external_degree");
   }
-  return { limit, sortBy, warnings };
+  return {
+    cursor: String(parseNonNegativeInteger(args.cursor, 0)),
+    limit,
+    sortBy,
+    warnings,
+  };
 }
 
 function normalizeAttentionQueueArgs(args: Record<string, unknown>): {
@@ -8057,11 +8136,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       .map(paperRefToCitationGraphNodeId)
       .map(citationGraphLiteratureItemIdFromNodeId)
       .filter(Boolean);
-    const complexMetrics = synthesisRepository.listCitationComplexMetrics({
+    const allComplexMetrics = synthesisRepository.listCitationComplexMetrics({
       literatureItemIds: requestedIds,
-      limit: normalized.limit,
       sortBy: normalized.sortBy,
     });
+    const complexPage = pageRows(
+      allComplexMetrics,
+      { cursor: normalized.cursor, limit: normalized.limit },
+      { defaultLimit: normalized.limit, maxLimit: 100 },
+    );
+    const complexMetrics = complexPage.page;
     const latestLightMetrics = synthesisRepository.listCitationLightMetrics({
       literatureItemIds: complexMetrics.length
         ? complexMetrics.map((metric) => metric.literatureItemId)
@@ -8080,13 +8164,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           : false)
       );
     });
-    if (complexMetrics.length) {
+    if (allComplexMetrics.length) {
       const items = complexMetrics.map(dbComplexMetricToLibraryMetric);
       const metricsHash =
-        complexMetrics[0]?.metricsHash ||
+        allComplexMetrics[0]?.metricsHash ||
         hashCanonicalJson({
           storage: "sqlite",
-          complex_metrics: complexMetrics.map((metric) => [
+          complex_metrics: allComplexMetrics.map((metric) => [
             metric.literatureItemId,
             metric.foundationScore,
             metric.frontierScore,
@@ -8096,15 +8180,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         });
       return {
         ok: true,
-        graph_hash: complexMetrics[0]?.sourceGraphHash || "",
+        graph_hash: allComplexMetrics[0]?.sourceGraphHash || "",
         metrics_hash: metricsHash,
         status: stale ? "stale" : "ready",
         items,
+        cursor: complexPage.cursor,
+        nextCursor: complexPage.next_cursor,
+        hasMore: complexPage.has_more,
+        returned: complexPage.returned,
+        total: complexPage.total,
+        limit: complexPage.limit,
         diagnostics: {
           snapshot_found: true,
           metrics_found: true,
           stale,
-          total_library_nodes: complexMetrics.length,
+          total_library_nodes: allComplexMetrics.length,
           returned_count: items.length,
           limits: {
             limit: normalized.limit,
@@ -8127,11 +8217,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         : normalized.sortBy === "frontier"
           ? "outgoing_count"
           : "local_degree";
-    const metrics = synthesisRepository.listCitationLightMetrics({
+    const allMetrics = synthesisRepository.listCitationLightMetrics({
       literatureItemIds: requestedIds,
-      limit: normalized.limit,
       sortBy,
     });
+    const lightPage = pageRows(
+      allMetrics,
+      { cursor: normalized.cursor, limit: normalized.limit },
+      { defaultLimit: normalized.limit, maxLimit: 100 },
+    );
+    const metrics = lightPage.page;
     const nodes = synthesisRepository.listCitationNodes({
       statuses: ["active"],
       literatureItemIds: metrics.map((metric) => metric.literatureItemId),
@@ -8184,16 +8279,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       metrics,
     });
     return {
-      ok: metrics.length > 0,
+      ok: allMetrics.length > 0,
       graph_hash: graphHash,
       metrics_hash: dbCitationMetricsHash(metrics),
-      status: metrics.length ? "stale" : "missing",
+      status: allMetrics.length ? "stale" : "missing",
       items,
+      cursor: lightPage.cursor,
+      nextCursor: lightPage.next_cursor,
+      hasMore: lightPage.has_more,
+      returned: lightPage.returned,
+      total: lightPage.total,
+      limit: lightPage.limit,
       diagnostics: {
         snapshot_found: nodes.length > 0,
         metrics_found: false,
-        stale: metrics.length > 0,
-        total_library_nodes: metrics.length,
+        stale: allMetrics.length > 0,
+        total_library_nodes: allMetrics.length,
         returned_count: items.length,
         limits: {
           limit: normalized.limit,
@@ -8201,7 +8302,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         },
         warnings: [
           ...normalized.warnings,
-          ...(metrics.length
+          ...(allMetrics.length
             ? [
                 "citation graph complex metrics are missing; using lightweight metrics",
               ]
@@ -8281,9 +8382,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ) ||
           left.node.node_id.localeCompare(right.node.node_id)
         );
-      })
-      .slice(0, normalized.limit);
-    const items = ranked.map((entry) => ({
+      });
+    const page = pageRows(
+      ranked,
+      { cursor: normalized.cursor, limit: normalized.limit },
+      { defaultLimit: normalized.limit, maxLimit: 100 },
+    );
+    const items = page.page.map((entry) => ({
       node_id: entry.node.node_id,
       title: entry.node.title,
       year: entry.node.year,
@@ -8302,6 +8407,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ok: true,
       graph_hash: graph.graph_hash,
       items,
+      cursor: page.cursor,
+      nextCursor: page.next_cursor,
+      hasMore: page.has_more,
+      returned: page.returned,
+      total: page.total,
+      limit: page.limit,
       diagnostics: {
         snapshot_found: nodes.length > 0,
         returned_count: items.length,
@@ -8341,6 +8452,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ): Promise<SynthesisAttentionQueueResult> {
     const items: SynthesisAttentionQueueResult["items"] = [];
     const metrics = readDbCitationMetrics({
+      cursor: "0",
       limit: normalized.limit,
       paperRefs: normalized.paperRefs,
       sortBy: "foundation",
@@ -18955,9 +19067,69 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return readAttentionQueue(normalizeAttentionQueueArgs(args));
   }
 
-  async function queryCitationGraph() {
+  async function queryCitationGraph(args: Record<string, unknown> = {}) {
+    const graph = readDbCitationGraphOverview() as CitationGraph & {
+      hover_only_nodes?: CitationGraphNode[];
+      hover_only_edges?: CitationGraphEdge[];
+    };
+    const nodes = pageNamedRows(graph.nodes, args, {
+      cursorKeys: ["nodeCursor", "node_cursor", "cursor"],
+      limitKeys: ["nodeLimit", "node_limit", "limit"],
+      defaultLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT,
+      maxLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX,
+    });
+    const edges = pageNamedRows(graph.edges, args, {
+      cursorKeys: ["edgeCursor", "edge_cursor", "cursor"],
+      limitKeys: ["edgeLimit", "edge_limit", "limit"],
+      defaultLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT,
+      maxLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX,
+    });
+    const hoverOnlyNodes = pageNamedRows(graph.hover_only_nodes || [], args, {
+      cursorKeys: ["hoverNodeCursor", "hover_node_cursor", "cursor"],
+      limitKeys: ["hoverNodeLimit", "hover_node_limit", "limit"],
+      defaultLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT,
+      maxLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX,
+    });
+    const hoverOnlyEdges = pageNamedRows(graph.hover_only_edges || [], args, {
+      cursorKeys: ["hoverEdgeCursor", "hover_edge_cursor", "cursor"],
+      limitKeys: ["hoverEdgeLimit", "hover_edge_limit", "limit"],
+      defaultLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT,
+      maxLimit: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX,
+    });
+    const pagination = {
+      nodes: nodes.pageInfo,
+      edges: edges.pageInfo,
+      hover_only_nodes: hoverOnlyNodes.pageInfo,
+      hover_only_edges: hoverOnlyEdges.pageInfo,
+    };
+    const anyMore = Object.values(pagination).some((entry) => entry.hasMore);
+    const diagnostics = isObject(graph.diagnostics)
+      ? { ...(graph.diagnostics as Record<string, unknown>) }
+      : {};
     return {
-      ...readDbCitationGraphOverview(),
+      ...graph,
+      nodes: nodes.page,
+      edges: edges.page,
+      hover_only_nodes: hoverOnlyNodes.page,
+      hover_only_edges: hoverOnlyEdges.page,
+      summary: {
+        semantic_slice: diagnostics.semantic_slice,
+        library_node_count: diagnostics.library_node_count || 0,
+        shared_external_count: diagnostics.shared_external_count || 0,
+        hover_only_external_count: diagnostics.hover_only_external_count || 0,
+        displayed_node_count: pagination.nodes.total,
+        displayed_edge_count: pagination.edges.total,
+        hover_only_node_count: pagination.hover_only_nodes.total,
+        hover_only_edge_count: pagination.hover_only_edges.total,
+      },
+      pagination,
+      diagnostics: {
+        ...diagnostics,
+        bounded: true,
+        truncated: anyMore,
+        page_limit_default: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT,
+        page_limit_max: CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX,
+      },
       maintenance: readMaintenanceForDto(),
     };
   }
@@ -19010,20 +19182,35 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function listTopics() {
+  async function loadTopicInventoryRows() {
     const topicGraphContext = await topicGraphSnapshotForUi({
       persistMissingDefinition: true,
     }).catch(() => undefined);
     const nodes = topicGraphContext?.snapshot.nodes || [];
-    const topics = topicInventoryRowsFromGraphNodes({
+    return topicInventoryRowsFromGraphNodes({
       nodes,
       definitions: topicGraphContext?.definitions || {},
       metadata: topicGraphContext?.metadata || {},
     });
+  }
+
+  async function listTopics(args: Record<string, unknown> = {}) {
+    const topics = await loadTopicInventoryRows();
+    const page = pageRows(topics, args, {
+      defaultLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT,
+      maxLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
+    });
     return {
-      topics,
+      topics: page.page,
+      cursor: page.cursor,
+      next_cursor: page.next_cursor,
+      has_more: page.has_more,
+      returned: page.returned,
+      total: page.total,
+      limit: page.limit,
       diagnostics: {
-        count: topics.length,
+        count: page.page.length,
+        total_count: topics.length,
         source: "sqlite-topic-graph",
       },
     };
@@ -19191,9 +19378,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       };
     }
 
-    const result = await listTopics();
+    const topics = await loadTopicInventoryRows();
     return {
-      options: result.topics.map((topic) => {
+      options: topics.map((topic) => {
         const topicId = cleanString(topic.topic_id);
         const title = cleanString(topic.title) || topicId;
         const status = cleanString(topic.status);
@@ -19227,7 +19414,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ) {
     const topicId = cleanString(args.topicId || args.topic_id);
     if (!topicId) {
-      return { topics: (await listTopics()).topics };
+      return { topics: await loadTopicInventoryRows() };
     }
     const view = topicContextView(args.view);
     const outputPath = topicContextOutputPath(args);
@@ -20128,6 +20315,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       25,
       250,
     );
+    const maxNodes = parsePositiveInteger(
+      args.max_nodes || args.maxNodes,
+      CITATION_GRAPH_CLUSTER_NODE_LIMIT_DEFAULT,
+      CITATION_GRAPH_CLUSTER_NODE_LIMIT_MAX,
+    );
+    const maxEdges = parsePositiveInteger(
+      args.max_edges || args.maxEdges,
+      CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT,
+      CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX,
+    );
     const policy = cleanString(args.cluster_policy || args.clusterPolicy);
     const clusterPolicy = [
       "source_only",
@@ -20136,7 +20333,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     ].includes(policy)
       ? policy
       : "bounded_external";
-    const graph = await queryCitationGraph();
+    const graph = {
+      ...readDbCitationGraphOverview(),
+      maintenance: readMaintenanceForDto(),
+    } as CitationGraph & {
+      hover_only_nodes?: CitationGraphNode[];
+      hover_only_edges?: CitationGraphEdge[];
+      maintenance?: Record<string, unknown>;
+    };
     const nodes = Array.isArray((graph as Record<string, unknown>).nodes)
       ? ((graph as Record<string, unknown>).nodes as CitationGraphNode[])
       : [];
@@ -20179,6 +20383,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const selectedNodes = nodes.filter((node) =>
       selectedNodeIds.has(node.node_id),
     );
+    let returnedNodes = selectedNodes;
+    let returnedEdges = selectedEdges;
+    let truncated = false;
+    if (returnedNodes.length > maxNodes) {
+      returnedNodes = returnedNodes.slice(0, maxNodes);
+      truncated = true;
+    }
+    const retainedNodeIds = new Set(returnedNodes.map((node) => node.node_id));
+    returnedEdges = returnedEdges.filter(
+      (edge) =>
+        retainedNodeIds.has(edge.source) && retainedNodeIds.has(edge.target),
+    );
+    if (returnedEdges.length > maxEdges) {
+      returnedEdges = returnedEdges.slice(0, maxEdges);
+      truncated = true;
+    }
     const unresolvedSourceRefs = sourceRefs.filter(
       (ref) =>
         !nodes.some(
@@ -20192,19 +20412,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ok: true,
       source_paper_refs: sourceRefs,
       cluster_policy: clusterPolicy,
-      nodes: selectedNodes,
-      edges: selectedEdges,
+      nodes: returnedNodes,
+      edges: returnedEdges,
       summaries: {
         source_paper_count: sourceRefs.length,
         source_node_count: Array.from(sourceNodeIds).filter((nodeId) =>
           selectedNodeIds.has(nodeId),
         ).length,
-        cluster_node_count: selectedNodes.length,
-        internal_edge_count: selectedEdges.filter(
+        cluster_node_count: returnedNodes.length,
+        internal_edge_count: returnedEdges.filter(
           (edge) =>
             sourceNodeIds.has(edge.source) && sourceNodeIds.has(edge.target),
         ).length,
-        external_edge_count: selectedEdges.filter(
+        external_edge_count: returnedEdges.filter(
           (edge) =>
             !sourceNodeIds.has(edge.source) || !sourceNodeIds.has(edge.target),
         ).length,
@@ -20217,9 +20437,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         bounded: true,
         side_effect_free: true,
         max_external_nodes: maxExternalNodes,
+        truncated,
+        total_selected_nodes: selectedNodes.length,
+        total_selected_edges: selectedEdges.length,
+        limits: {
+          maxNodes,
+          maxEdges,
+          maxExternalNodes,
+        },
         unresolved_source_refs: unresolvedSourceRefs,
         graph_status:
-          selectedNodes.length || !sourceRefs.length
+          returnedNodes.length || !sourceRefs.length
             ? "ready"
             : "missing_or_stale",
         maintenance: (graph as Record<string, unknown>).maintenance,
@@ -20232,7 +20460,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const base = options.libraryAdapter
       ? await options.libraryAdapter.getLibraryIndex()
       : buildLibraryIndexFromRegistryInputs(libraryId, inputs);
-    const topics = (await listTopics()).topics;
+    const topics = await loadTopicInventoryRows();
     const registry = registryRowsForInputs(inputs);
     const cursor = parseNonNegativeInteger(args.cursor, 0);
     const limit = parsePositiveInteger(
@@ -20258,15 +20486,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       papers,
       index_hash: hashCanonicalJson(completeIndexIdentity),
     };
-    const pagedRequest =
-      Object.prototype.hasOwnProperty.call(args, "cursor") ||
-      Object.prototype.hasOwnProperty.call(args, "limit");
-    const includeTags =
-      args.includeTags === true ||
-      (!pagedRequest && args.includeTags !== false);
-    const includeCollections =
-      args.includeCollections === true ||
-      (!pagedRequest && args.includeCollections !== false);
+    const includeTags = args.includeTags === true;
+    const includeCollections = args.includeCollections === true;
+    const includeItems = args.includeItems === true;
+    const pagination: Record<string, SynthesisPageInfo> = {
+      papers: {
+        cursor: String(cursor),
+        nextCursor: hasMore ? String(nextCursor) : "",
+        hasMore,
+        returned: papers.length,
+        total: base.papers.length,
+        limit,
+      },
+    };
     const response: Record<string, unknown> = {
       libraryId: base.libraryId,
       papers,
@@ -20278,16 +20510,45 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       limit,
       index_hash: pageIdentity.index_hash,
       page_hash: hashCanonicalJson(pageIdentity),
+      pagination,
     };
     if (includeTags) {
-      response.tags = base.tags;
+      const page = pageNamedRows(base.tags, args, {
+        cursorKeys: ["tagCursor", "tag_cursor"],
+        limitKeys: ["tagLimit", "tag_limit", "limit"],
+        defaultLimit: LIBRARY_INDEX_PAGE_LIMIT_DEFAULT,
+        maxLimit: LIBRARY_INDEX_PAGE_LIMIT_MAX,
+      });
+      response.tags = page.page;
+      pagination.tags = page.pageInfo;
     }
     if (includeCollections) {
-      response.collections = base.collections;
+      const page = pageNamedRows(base.collections, args, {
+        cursorKeys: ["collectionCursor", "collection_cursor"],
+        limitKeys: ["collectionLimit", "collection_limit", "limit"],
+        defaultLimit: LIBRARY_INDEX_PAGE_LIMIT_DEFAULT,
+        maxLimit: LIBRARY_INDEX_PAGE_LIMIT_MAX,
+      });
+      response.collections = page.page;
+      pagination.collections = page.pageInfo;
     }
-    if (args.includeItems === true) {
-      response.topics = topics;
-      response.registry = registry;
+    if (includeItems) {
+      const topicsPage = pageNamedRows(topics, args, {
+        cursorKeys: ["topicCursor", "topic_cursor"],
+        limitKeys: ["topicLimit", "topic_limit", "limit"],
+        defaultLimit: LIBRARY_INDEX_PAGE_LIMIT_DEFAULT,
+        maxLimit: LIBRARY_INDEX_PAGE_LIMIT_MAX,
+      });
+      const registryPage = pageNamedRows(registry, args, {
+        cursorKeys: ["registryCursor", "registry_cursor"],
+        limitKeys: ["registryLimit", "registry_limit", "limit"],
+        defaultLimit: LIBRARY_INDEX_PAGE_LIMIT_DEFAULT,
+        maxLimit: LIBRARY_INDEX_PAGE_LIMIT_MAX,
+      });
+      response.topics = topicsPage.page;
+      response.registry = registryPage.page;
+      pagination.topics = topicsPage.pageInfo;
+      pagination.registry = registryPage.pageInfo;
     }
     return response;
   }

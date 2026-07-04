@@ -50,6 +50,14 @@ zotero-bridge library readiness missing-analysis --input '{"tag":"to-review","li
 
 Readiness commands are read-only. They do not fetch PDFs, convert Markdown, run `literature-analysis`, or write notes. `missing-markdown` follows the Zotero Artifacts column source Markdown rule: a `.md` or `.markdown` attachment must share the best PDF's filename stem. `missing-analysis` follows the same column's generated artifact rule: `digest`, `references`, and `citation-analysis` markers must all be present.
 
+## Large Response Pagination
+
+Treat library, topic, index, and graph collection reads as page reads. Always pass an explicit `limit` when the result can grow with the Zotero library, and continue only through returned cursor metadata.
+
+`synthesis graph overview` returns summary counts plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. It is not a full-graph dump. Use `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor` when advancing sections independently.
+
+Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded graph neighborhood, layout, or ranked metric page.
+
 ## Zotero UI Context
 
 Use Zotero context commands when the task is anchored in what the user is currently viewing or selecting:

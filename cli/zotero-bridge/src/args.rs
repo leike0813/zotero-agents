@@ -633,7 +633,7 @@ pub struct TopicsArgs {
 pub enum TopicsCommand {
     #[command(
         about = "List existing topic synthesis topics",
-        long_about = "Map to Host Bridge capability topics.list. Use --input for optional JSON parameters; omitted input is {}."
+        long_about = "Map to Host Bridge capability topics.list. Use --input with cursor and limit for paged topic inventory reads; omitted input is {}."
     )]
     List(BridgeInputArgs),
 
@@ -701,8 +701,8 @@ pub struct CitationGraphArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum CitationGraphCommand {
     #[command(
-        about = "Read the Synthesis citation graph overview",
-        long_about = "Map to Host Bridge capability citation_graph.get_overview."
+        about = "Read a paged Synthesis citation graph overview",
+        long_about = "Map to Host Bridge capability citation_graph.get_overview. The overview returns summary plus paged nodes, edges, hover_only_nodes, and hover_only_edges; use --input with cursor/limit or nodeCursor/edgeCursor/hoverNodeCursor/hoverEdgeCursor."
     )]
     Overview(BridgeInputArgs),
 
@@ -726,19 +726,19 @@ pub enum CitationGraphCommand {
 
     #[command(
         about = "Read citation graph metrics for selected papers",
-        long_about = "Map to Host Bridge capability citation_graph.get_metrics. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use synthesis graph refresh-metrics."
+        long_about = "Map to Host Bridge capability citation_graph.get_metrics. Use --input with cursor, limit, and sortBy for paged metric reads. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use synthesis graph refresh-metrics."
     )]
     GetMetrics(BridgeInputArgs),
 
     #[command(
         about = "Rank external references from the citation graph",
-        long_about = "Map to Host Bridge capability citation_graph.rank_external_references."
+        long_about = "Map to Host Bridge capability citation_graph.rank_external_references. Use --input with cursor, limit, and sortBy for paged ranked reads."
     )]
     RankExternalReferences(BridgeInputArgs),
 
     #[command(
         about = "Rank library papers from citation graph metrics",
-        long_about = "Map to Host Bridge capability citation_graph.rank_library_papers."
+        long_about = "Map to Host Bridge capability citation_graph.rank_library_papers. Use --input with cursor, limit, and sortBy for paged ranked reads."
     )]
     RankLibraryPapers(BridgeInputArgs),
 

@@ -13,8 +13,10 @@ rows, and derived artifact notes.
 
 - **WHEN** Zotero contains visible regular items with tags, collections, and
   child notes
-- **THEN** `getLibraryIndex()` SHALL return bounded paper, tag, and collection
-  summaries
+- **THEN** `getLibraryIndex()` SHALL return a bounded paper page by default
+- **AND** `includeTags`, `includeCollections`, and `includeItems` SHALL opt into
+  page-sized tag, collection, topic, and registry summaries with pagination
+  metadata
 - **AND** `getReferenceSidecarIndex()` SHALL return rows for those papers.
 
 ### Requirement: Resolver execution is deterministic
