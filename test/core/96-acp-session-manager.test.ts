@@ -33,11 +33,13 @@ import {
   setAcpConversationMode,
   setAcpConversationReasoningEffort,
   shutdownAcpSessionManager,
+  subscribeAcpChatPanelSnapshots,
   subscribeAcpConversationSnapshots,
   subscribeAcpFrontendSnapshots,
   setAcpConnectionAdapterFactoryForTests,
   startNewAcpConversation,
   toggleAcpConversationStatusDetails,
+  type AcpChatPanelSnapshotChange,
 } from "../../src/modules/acpSessionManager";
 import {
   listAcpChatSessions,
@@ -73,6 +75,13 @@ import type {
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
 import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
+import { setAssistantTranscriptPaginationVirtualizationEnabled } from "../../src/modules/assistantTranscriptRenderingPreference";
+import {
+  acpChatTranscriptPageKey,
+  isPureAcpChatBackgroundChange,
+  prepareAcpChatPanelSnapshot,
+  shouldRefreshAcpChatSnapshotForChange,
+} from "../../src/modules/acpChatPanelReadModel";
 
 async function readActiveTranscriptItems(backendId = ACP_OPENCODE_BACKEND_ID) {
   const snapshot = getAcpConversationSnapshot(backendId);
@@ -704,6 +713,7 @@ describe("acp session manager", function () {
 
   afterEach(function () {
     setAssistantStreamingRenderEnabled(true);
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
     setAcpConnectionAdapterFactoryForTests();
     resetAcpSessionManagerForTests();
     resetPluginStateStoreForTests();
@@ -1831,27 +1841,24 @@ describe("acp session manager", function () {
     }
   });
 
-  it(
-    "prepends ACP Chat startup preamble only to the first conversation prompt",
-    async function () {
-      await sendAcpConversationPrompt({ message: "First startup prompt" });
-      await sendAcpConversationPrompt({ message: "Second ordinary prompt" });
+  it("prepends ACP Chat startup preamble only to the first conversation prompt", async function () {
+    await sendAcpConversationPrompt({ message: "First startup prompt" });
+    await sendAcpConversationPrompt({ message: "Second ordinary prompt" });
 
-      assert.lengthOf(lastAdapter?.prompts || [], 2);
-      assert.include(
-        lastAdapter?.prompts[0] || "",
-        "[Zotero Agents ACP Chat startup context]",
-      );
-      assert.include(lastAdapter?.prompts[0] || "", "ACP Chat assistant");
-      assert.include(lastAdapter?.prompts[0] || "", "zotero-bridge-cli");
-      assert.include(lastAdapter?.prompts[0] || "", "First startup prompt");
-      assert.notInclude(
-        lastAdapter?.prompts[1] || "",
-        "[Zotero Agents ACP Chat startup context]",
-      );
-      assert.include(lastAdapter?.prompts[1] || "", "Second ordinary prompt");
-    },
-  );
+    assert.lengthOf(lastAdapter?.prompts || [], 2);
+    assert.include(
+      lastAdapter?.prompts[0] || "",
+      "[Zotero Agents ACP Chat startup context]",
+    );
+    assert.include(lastAdapter?.prompts[0] || "", "ACP Chat assistant");
+    assert.include(lastAdapter?.prompts[0] || "", "zotero-bridge-cli");
+    assert.include(lastAdapter?.prompts[0] || "", "First startup prompt");
+    assert.notInclude(
+      lastAdapter?.prompts[1] || "",
+      "[Zotero Agents ACP Chat startup context]",
+    );
+    assert.include(lastAdapter?.prompts[1] || "", "Second ordinary prompt");
+  });
 
   it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {
     Zotero.Prefs.set(
@@ -2093,10 +2100,15 @@ describe("acp session manager", function () {
   it("reuses an unconnected placeholder ACP chat session when New is clicked repeatedly", async function () {
     await startNewAcpConversation();
     const firstPlaceholderId = getAcpConversationSnapshot().conversationId;
-    const firstSessionCount = listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).length;
+    const firstSessionCount = listAcpChatSessions(
+      ACP_OPENCODE_BACKEND_ID,
+    ).length;
 
     await startNewAcpConversation();
-    assert.equal(getAcpConversationSnapshot().conversationId, firstPlaceholderId);
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      firstPlaceholderId,
+    );
     assert.lengthOf(
       listAcpChatSessions(ACP_OPENCODE_BACKEND_ID),
       firstSessionCount,
@@ -2115,7 +2127,10 @@ describe("acp session manager", function () {
 
     await setActiveAcpConversation({ conversationId: connectedPlaceholderId });
     await startNewAcpConversation();
-    assert.equal(getAcpConversationSnapshot().conversationId, secondPlaceholderId);
+    assert.equal(
+      getAcpConversationSnapshot().conversationId,
+      secondPlaceholderId,
+    );
     assert.lengthOf(
       listAcpChatSessions(ACP_OPENCODE_BACKEND_ID).filter(
         (entry) => !entry.archivedAt,
@@ -2154,10 +2169,8 @@ describe("acp session manager", function () {
     const secondConversationId = getAcpConversationSnapshot().conversationId;
     assert.notEqual(secondConversationId, firstConversationId);
     assert.equal(
-      getAcpConversationSnapshot(
-        ACP_OPENCODE_BACKEND_ID,
-        firstConversationId,
-      ).status,
+      getAcpConversationSnapshot(ACP_OPENCODE_BACKEND_ID, firstConversationId)
+        .status,
       "prompting",
     );
 
@@ -2793,6 +2806,156 @@ describe("acp session manager", function () {
         (entry) => entry.kind === "plan",
       ),
     );
+  });
+
+  it("prepares ACP chat panel read-model snapshots with structural items and a selected page", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await sendAcpConversationPrompt({
+      message: "panel read-model selected page",
+    });
+    const active = getAcpConversationSnapshot();
+
+    const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
+
+    assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
+    assert.equal(panel.streamingRenderEnabled, true);
+    assert.equal(panel.activeBackendId, active.backendId);
+    assert.equal(panel.activeConversationId, active.conversationId);
+    assert.isTrue(
+      ((panel.items as Array<{ kind?: string }> | undefined) || []).every(
+        (entry) => entry.kind === "plan",
+      ),
+    );
+    const selectedPage = panel.selectedTranscriptPage as
+      | {
+          backendId: string;
+          conversationId: string;
+          requestId: string;
+          items: unknown[];
+        }
+      | undefined;
+    assert.isOk(selectedPage);
+    assert.equal(selectedPage?.backendId, active.backendId);
+    assert.equal(selectedPage?.conversationId, active.conversationId);
+    assert.equal(
+      selectedPage?.requestId,
+      acpChatTranscriptPageKey(active.backendId, active.conversationId),
+    );
+    assert.isAtLeast(selectedPage?.items.length || 0, 1);
+  });
+
+  it("keeps ACP chat panel chrome when selected page reads fail", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await sendAcpConversationPrompt({
+      message: "panel read-model page failure",
+    });
+    const active = getAcpConversationSnapshot();
+
+    const panel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      readTranscriptPage: async () => {
+        throw new Error("synthetic page read failure");
+      },
+    });
+
+    assert.equal(panel.activeBackendId, active.backendId);
+    assert.equal(panel.activeConversationId, active.conversationId);
+    assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
+    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.isAtLeast(
+      ((panel.backendChatSessions as unknown[]) || []).length,
+      1,
+    );
+  });
+
+  it("does not read an ACP chat transcript page when no conversation is selected", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+
+    let pageReadCount = 0;
+    const panel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      readTranscriptPage: async () => {
+        pageReadCount += 1;
+        throw new Error("empty conversation scope must not read a page");
+      },
+    });
+
+    assert.equal(panel.activeConversationId, "");
+    assert.equal(panel.conversationId, "");
+    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(pageReadCount, 0);
+  });
+
+  it("filters ACP chat panel changes without refreshing on pure virtualized appends", function () {
+    const base = {
+      activeTab: "acp-chat" as const,
+      hasActiveTarget: true,
+      transcriptPaginationVirtualizationEnabled: true,
+    };
+
+    assert.isTrue(
+      shouldRefreshAcpChatSnapshotForChange(base, {
+        active: true,
+        kinds: ["status"],
+      }),
+    );
+    assert.isTrue(
+      shouldRefreshAcpChatSnapshotForChange(base, {
+        active: true,
+        kinds: ["transcript-boundary"],
+      }),
+    );
+    assert.isFalse(
+      shouldRefreshAcpChatSnapshotForChange(base, {
+        active: true,
+        kinds: ["transcript-append"],
+      }),
+    );
+    assert.isTrue(
+      shouldRefreshAcpChatSnapshotForChange(
+        {
+          ...base,
+          transcriptPaginationVirtualizationEnabled: false,
+        },
+        {
+          active: true,
+          kinds: ["transcript-append"],
+        },
+      ),
+    );
+    assert.isFalse(
+      shouldRefreshAcpChatSnapshotForChange(base, {
+        active: false,
+        kinds: ["transcript-append"],
+      }),
+    );
+    assert.isTrue(
+      isPureAcpChatBackgroundChange({
+        active: false,
+        kinds: ["transcript-append"],
+      }),
+    );
+  });
+
+  it("emits typed ACP chat panel snapshot changes from existing publish boundaries", async function () {
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+
+    await refreshAcpConversationBackends();
+    await sendAcpConversationPrompt({
+      message: "typed panel changes",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    unsubscribe();
+
+    const hasKind = (kind: AcpChatPanelSnapshotChange["kinds"][number]) =>
+      changes.some((change) => (change.kinds || []).includes(kind));
+    assert.isTrue(hasKind("backend"));
+    assert.isTrue(hasKind("transcript-append"));
+    assert.isTrue(hasKind("transcript-boundary"));
+    assert.isTrue(changes.some((change) => change.active === true));
   });
 
   it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {
@@ -3724,10 +3887,7 @@ describe("acp conversation store", function () {
         "D:\\ZoteroSkillsRuntime\\runtime\\acp\\chat\\conversations\\acp-opencode",
       );
       assert.equal(primary.storageDir, primary.conversationStorageDir);
-      assert.equal(
-        primary.runtimeDir,
-        primary.conversationStorageDir,
-      );
+      assert.equal(primary.runtimeDir, primary.conversationStorageDir);
 
       const withConversation = resolveAcpChatRuntimePaths(
         ACP_OPENCODE_BACKEND_ID,

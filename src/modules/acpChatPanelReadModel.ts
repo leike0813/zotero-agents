@@ -1,0 +1,245 @@
+import { buildAcpSidebarViewSnapshot } from "./acpSidebarModel";
+import { isAssistantStreamingRenderEnabled } from "./assistantStreamingRenderPreference";
+import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
+import {
+  getAcpConversationUiSnapshot,
+  getAcpFrontendSnapshot,
+  readAcpConversationTranscriptPage,
+  type AcpChatPanelSnapshotChange,
+  type AcpChatPanelSnapshotChangeKind,
+  type AcpConversationTranscriptPage,
+} from "./acpSessionManager";
+import type { AcpSidebarTarget } from "./acpTypes";
+import { appendRuntimeLog } from "./runtimeLogManager";
+
+export type AcpChatTranscriptPageRequest = {
+  backendId?: string;
+  conversationId?: string;
+  requestId?: string;
+  cursor?: number;
+  limit?: number;
+};
+
+export type AcpChatPanelSnapshotReadTranscriptPage = (
+  args: Parameters<typeof readAcpConversationTranscriptPage>[0],
+) => Promise<AcpConversationTranscriptPage>;
+
+export type AcpChatPanelSnapshotArgs = {
+  target: AcpSidebarTarget;
+  transcriptPage?: AcpChatTranscriptPageRequest;
+  readTranscriptPage?: AcpChatPanelSnapshotReadTranscriptPage;
+};
+
+export type AcpChatSnapshotRefreshState = {
+  activeTab: "skillrunner" | "acp-chat" | "acp-skills";
+  hasActiveTarget: boolean;
+  transcriptPaginationVirtualizationEnabled: boolean;
+};
+
+export function acpChatTranscriptPageKey(
+  backendId: string,
+  conversationId: string,
+) {
+  return `${String(backendId || "").trim()}\n${String(conversationId || "").trim()}`;
+}
+
+function finitePageNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function selectedAcpChatTranscriptPageMatchesSnapshot(
+  snapshot: Record<string, unknown>,
+  page: AcpConversationTranscriptPage | undefined,
+) {
+  if (!page) {
+    return false;
+  }
+  const backendId = String(
+    snapshot.activeBackendId || snapshot.backendId || "",
+  ).trim();
+  const conversationId = String(
+    snapshot.activeConversationId || snapshot.conversationId || "",
+  ).trim();
+  return (
+    !!backendId &&
+    !!conversationId &&
+    page.backendId === backendId &&
+    page.conversationId === conversationId &&
+    page.requestId === acpChatTranscriptPageKey(backendId, conversationId)
+  );
+}
+
+export function resolveActiveAcpChatTranscriptPageRequest(
+  payload: Record<string, unknown>,
+): AcpChatTranscriptPageRequest | undefined {
+  const frontendSnapshot = getAcpFrontendSnapshot({
+    itemMode: "structural",
+  });
+  const backendId = String(frontendSnapshot.activeBackendId || "").trim();
+  const conversationId = String(
+    frontendSnapshot.activeConversationId || "",
+  ).trim();
+  const requestId = String(payload.requestId || "").trim();
+  if (
+    !backendId ||
+    !conversationId ||
+    requestId !== acpChatTranscriptPageKey(backendId, conversationId) ||
+    String(payload.backendId || "").trim() !== backendId ||
+    String(payload.conversationId || "").trim() !== conversationId
+  ) {
+    return undefined;
+  }
+  return {
+    backendId,
+    conversationId,
+    requestId,
+    cursor: finitePageNumber(payload.cursor),
+    limit: finitePageNumber(payload.limit),
+  };
+}
+
+async function readSelectedAcpChatTranscriptPage(args: {
+  activeBackendId: string;
+  activeConversationId: string;
+  request?: AcpChatTranscriptPageRequest;
+  readTranscriptPage: AcpChatPanelSnapshotReadTranscriptPage;
+}) {
+  const backendId = String(
+    args.request?.backendId || args.activeBackendId || "",
+  ).trim();
+  const conversationId = String(
+    args.request?.conversationId || args.activeConversationId || "",
+  ).trim();
+  if (!backendId || !conversationId) {
+    return undefined;
+  }
+  const requestId = String(args.request?.requestId || "").trim();
+  const expectedRequestId = acpChatTranscriptPageKey(backendId, conversationId);
+  if (requestId && requestId !== expectedRequestId) {
+    return undefined;
+  }
+  return args.readTranscriptPage({
+    backendId,
+    conversationId,
+    cursor: finitePageNumber(args.request?.cursor),
+    limit: finitePageNumber(args.request?.limit),
+  });
+}
+
+export async function prepareAcpChatPanelSnapshot(
+  args: AcpChatPanelSnapshotArgs,
+) {
+  const transcriptPaginationVirtualizationEnabled =
+    isAssistantTranscriptPaginationVirtualizationEnabled();
+  const readOptions = transcriptPaginationVirtualizationEnabled
+    ? { itemMode: "structural" as const }
+    : undefined;
+  const snapshot = getAcpConversationUiSnapshot(
+    undefined,
+    undefined,
+    readOptions,
+  );
+  const frontendSnapshot = getAcpFrontendSnapshot(readOptions);
+  const payload: Record<string, unknown> = {
+    ...(buildAcpSidebarViewSnapshot({
+      target: args.target,
+      snapshot,
+      frontendSnapshot,
+    }) as unknown as Record<string, unknown>),
+    streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+    transcriptPaginationVirtualizationEnabled:
+      transcriptPaginationVirtualizationEnabled,
+  };
+  if (!transcriptPaginationVirtualizationEnabled) {
+    return payload;
+  }
+  try {
+    const page = await readSelectedAcpChatTranscriptPage({
+      activeBackendId: String(
+        payload.activeBackendId || payload.backendId || "",
+      ),
+      activeConversationId: String(
+        payload.activeConversationId || payload.conversationId || "",
+      ),
+      request: args.transcriptPage,
+      readTranscriptPage:
+        args.readTranscriptPage || readAcpConversationTranscriptPage,
+    });
+    if (selectedAcpChatTranscriptPageMatchesSnapshot(payload, page)) {
+      payload.selectedTranscriptPage = page;
+    }
+  } catch (error) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "acp-chat-panel",
+      operation: "prepare-snapshot",
+      phase: "error",
+      stage: "transcript-page",
+      message: "ACP Chat selected transcript page could not be read.",
+      error,
+    });
+  }
+  return payload;
+}
+
+function normalizedAcpChatPanelChangeKinds(change: AcpChatPanelSnapshotChange) {
+  return (change.kinds || []).filter(Boolean);
+}
+
+function hasAnyAcpChatPanelChangeKind(
+  change: AcpChatPanelSnapshotChange,
+  kinds: AcpChatPanelSnapshotChangeKind[],
+) {
+  const set = new Set(normalizedAcpChatPanelChangeKinds(change));
+  return kinds.some((kind) => set.has(kind));
+}
+
+export function isPureAcpChatBackgroundChange(
+  change: AcpChatPanelSnapshotChange,
+) {
+  if (change.global || change.active === true) {
+    return false;
+  }
+  const kinds = normalizedAcpChatPanelChangeKinds(change);
+  return (
+    kinds.length > 0 &&
+    kinds.every(
+      (kind) => kind === "transcript-append" || kind === "transcript-boundary",
+    )
+  );
+}
+
+export function shouldRefreshAcpChatSnapshotForChange(
+  state: AcpChatSnapshotRefreshState,
+  change: AcpChatPanelSnapshotChange,
+) {
+  if (!state.hasActiveTarget || state.activeTab !== "acp-chat") {
+    return false;
+  }
+  if (change.global === true) {
+    return true;
+  }
+  if (change.active !== true) {
+    return false;
+  }
+  if (
+    hasAnyAcpChatPanelChangeKind(change, [
+      "active-scope",
+      "backend",
+      "global",
+      "permission",
+      "runtime-options",
+      "session-list",
+      "status",
+      "transcript-boundary",
+    ])
+  ) {
+    return true;
+  }
+  if (hasAnyAcpChatPanelChangeKind(change, ["transcript-append"])) {
+    return !state.transcriptPaginationVirtualizationEnabled;
+  }
+  return false;
+}

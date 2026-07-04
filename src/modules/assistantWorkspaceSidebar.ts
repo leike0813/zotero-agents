@@ -18,7 +18,13 @@ import {
   updateAssistantToolbarAttention,
 } from "./dashboardToolbarButton";
 import { buildAcpHostContext } from "./acpContextBuilder";
-import { buildAcpSidebarViewSnapshot } from "./acpSidebarModel";
+import {
+  isPureAcpChatBackgroundChange,
+  prepareAcpChatPanelSnapshot,
+  resolveActiveAcpChatTranscriptPageRequest,
+  shouldRefreshAcpChatSnapshotForChange,
+  type AcpChatTranscriptPageRequest,
+} from "./acpChatPanelReadModel";
 import {
   authenticateAcpConversation,
   archiveAcpConversation,
@@ -26,10 +32,7 @@ import {
   cancelAcpConversationPrompt,
   connectAcpConversation,
   disconnectAcpConversation,
-  getAcpConversationUiSnapshot,
-  getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
-  readAcpConversationTranscriptPage,
   reconnectAcpConversation,
   renameAcpConversation,
   resolveAcpConversationPermission,
@@ -42,10 +45,10 @@ import {
   setAcpConversationModel,
   setAcpConversationReasoningEffort,
   startNewAcpConversation,
+  subscribeAcpChatPanelSnapshots,
   subscribeAcpFrontendSnapshots,
   toggleAcpConversationDiagnostics,
   toggleAcpConversationStatusDetails,
-  type AcpConversationTranscriptPage,
 } from "./acpSessionManager";
 import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
@@ -127,6 +130,7 @@ type AssistantWorkspaceHostRuntime = {
   shell: AssistantWorkspaceShell;
   removeMessageListener?: () => void;
   removeAcpSnapshotSubscription?: () => void;
+  removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
@@ -167,13 +171,6 @@ type AssistantWorkspaceBridge = {
     type: string,
     payload?: Record<string, unknown>,
   ) => Promise<AssistantWorkspaceBridgeResult>;
-};
-type AcpChatTranscriptPageRequest = {
-  backendId?: string;
-  conversationId?: string;
-  requestId?: string;
-  cursor?: number;
-  limit?: number;
 };
 type AcpChatSnapshotPostOptions = {
   transcriptPage?: AcpChatTranscriptPageRequest;
@@ -742,108 +739,7 @@ function postChildSnapshot(
   });
 }
 
-function acpChatTranscriptPageKey(backendId: string, conversationId: string) {
-  return `${String(backendId || "").trim()}\n${String(conversationId || "").trim()}`;
-}
-
-function finiteActionNumber(value: unknown) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
-}
-
-async function readSelectedAcpChatTranscriptPage(args: {
-  activeBackendId: string;
-  activeConversationId: string;
-  request?: AcpChatTranscriptPageRequest;
-}) {
-  const backendId = String(
-    args.request?.backendId || args.activeBackendId || "",
-  ).trim();
-  const conversationId = String(
-    args.request?.conversationId || args.activeConversationId || "",
-  ).trim();
-  if (!backendId || !conversationId) {
-    return undefined;
-  }
-  const requestId = String(args.request?.requestId || "").trim();
-  const expectedRequestId = acpChatTranscriptPageKey(backendId, conversationId);
-  if (requestId && requestId !== expectedRequestId) {
-    return undefined;
-  }
-  return readAcpConversationTranscriptPage({
-    backendId,
-    conversationId,
-    cursor: finiteActionNumber(args.request?.cursor),
-    limit: finiteActionNumber(args.request?.limit),
-  });
-}
-
-function isSelectedAcpChatTranscriptPageForSnapshot(
-  snapshot: Record<string, unknown>,
-  page: AcpConversationTranscriptPage | undefined,
-) {
-  if (!page) {
-    return false;
-  }
-  const backendId = String(
-    snapshot.activeBackendId || snapshot.backendId || "",
-  ).trim();
-  const conversationId = String(
-    snapshot.activeConversationId || snapshot.conversationId || "",
-  ).trim();
-  return (
-    !!backendId &&
-    !!conversationId &&
-    page.backendId === backendId &&
-    page.conversationId === conversationId &&
-    page.requestId === acpChatTranscriptPageKey(backendId, conversationId)
-  );
-}
-
-async function buildAcpSnapshot(
-  _host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
-  options?: AcpChatSnapshotPostOptions,
-) {
-  const transcriptPaginationVirtualizationEnabled =
-    isAssistantTranscriptPaginationVirtualizationEnabled();
-  const readOptions = transcriptPaginationVirtualizationEnabled
-    ? { itemMode: "structural" as const }
-    : undefined;
-  const snapshot = getAcpConversationUiSnapshot(
-    undefined,
-    undefined,
-    readOptions,
-  );
-  const frontendSnapshot = getAcpFrontendSnapshot(readOptions);
-  const payload: Record<string, unknown> = {
-    ...(buildAcpSidebarViewSnapshot({
-      target,
-      snapshot,
-      frontendSnapshot,
-    }) as unknown as Record<string, unknown>),
-    streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
-    transcriptPaginationVirtualizationEnabled:
-      transcriptPaginationVirtualizationEnabled,
-  };
-  if (transcriptPaginationVirtualizationEnabled) {
-    const page = await readSelectedAcpChatTranscriptPage({
-      activeBackendId: String(
-        payload.activeBackendId || payload.backendId || "",
-      ),
-      activeConversationId: String(
-        payload.activeConversationId || payload.conversationId || "",
-      ),
-      request: options?.transcriptPage,
-    });
-    if (isSelectedAcpChatTranscriptPageForSnapshot(payload, page)) {
-      payload.selectedTranscriptPage = page;
-    }
-  }
-  return payload;
-}
-
-async function postAcpChatSnapshot(
+async function postAcpChatPanelSnapshot(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "snapshot",
@@ -851,7 +747,10 @@ async function postAcpChatSnapshot(
 ) {
   host.acpChatSnapshotBuildSeq += 1;
   const buildSeq = host.acpChatSnapshotBuildSeq;
-  const snapshot = await buildAcpSnapshot(host, target, options);
+  const snapshot = await prepareAcpChatPanelSnapshot({
+    target,
+    transcriptPage: options?.transcriptPage,
+  });
   if (host.acpChatSnapshotBuildSeq !== buildSeq) {
     return;
   }
@@ -903,13 +802,13 @@ async function postAcpSkillRunSnapshot(
   postChildSnapshot(host, "acp-skills", phase, payload);
 }
 
-async function postFreshAcpChatSnapshot(
+async function refreshAndPostAcpChatPanelSnapshot(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "snapshot",
 ) {
   await refreshAcpConversationBackends();
-  await postAcpChatSnapshot(host, target, phase);
+  await postAcpChatPanelSnapshot(host, target, phase);
 }
 
 function postSkillRunnerSnapshot(
@@ -933,7 +832,7 @@ function postSnapshotForTab(
   options?: { force?: boolean },
 ) {
   if (tab === "acp-chat") {
-    void postFreshAcpChatSnapshot(host, target, phase);
+    void postAcpChatPanelSnapshot(host, target, phase);
     return;
   }
   if (tab === "acp-skills") {
@@ -952,6 +851,17 @@ function canPublishAssistantWorkspaceStatePulse(
     return false;
   }
   return !!resolveCurrentShellWindow(host);
+}
+
+function shouldRefreshAcpChatBackendsForWorkspacePulse(reason: string) {
+  return (
+    reason === "child-ready" ||
+    reason === "open-tab-request" ||
+    reason === "shell-load" ||
+    reason === "shell-ready" ||
+    reason === "tab-switch" ||
+    reason === "target-commit"
+  );
 }
 
 function postShellInit(
@@ -983,9 +893,23 @@ function publishAssistantWorkspaceStatePulse(
     postShellInit(host, host.activeTab);
   }
   if (tab) {
+    if (
+      tab === "acp-chat" &&
+      shouldRefreshAcpChatBackendsForWorkspacePulse(reason)
+    ) {
+      void refreshAndPostAcpChatPanelSnapshot(host, target, phase);
+      return true;
+    }
     postSnapshotForTab(host, target, tab, phase, {
       force: reason === "child-ready" || reason === "tab-switch",
     });
+    return true;
+  }
+  if (
+    host.activeTab === "acp-chat" &&
+    shouldRefreshAcpChatBackendsForWorkspacePulse(reason)
+  ) {
+    void refreshAndPostAcpChatPanelSnapshot(host, target, phase);
     return true;
   }
   postSnapshotForTab(host, target, host.activeTab, phase, {
@@ -1331,37 +1255,19 @@ async function handleChildAction(
   }
   if (tab === "acp-chat") {
     if (action === "load-transcript-page") {
-      const frontendSnapshot = getAcpFrontendSnapshot({
-        itemMode: "structural",
-      });
-      const backendId = String(frontendSnapshot.activeBackendId || "").trim();
-      const conversationId = String(
-        frontendSnapshot.activeConversationId || "",
-      ).trim();
-      const requestId = String(childPayload.requestId || "").trim();
-      if (
-        !backendId ||
-        !conversationId ||
-        requestId !== acpChatTranscriptPageKey(backendId, conversationId) ||
-        String(childPayload.backendId || "").trim() !== backendId ||
-        String(childPayload.conversationId || "").trim() !== conversationId
-      ) {
+      const transcriptPage =
+        resolveActiveAcpChatTranscriptPageRequest(childPayload);
+      if (!transcriptPage) {
         return;
       }
-      await postAcpChatSnapshot(host, target, "snapshot", {
-        transcriptPage: {
-          backendId,
-          conversationId,
-          requestId,
-          cursor: finiteActionNumber(childPayload.cursor),
-          limit: finiteActionNumber(childPayload.limit),
-        },
+      await postAcpChatPanelSnapshot(host, target, "snapshot", {
+        transcriptPage,
       });
       return;
     }
   }
   await handleAcpChatAction(host, target, action, childPayload);
-  await postAcpChatSnapshot(host, target);
+  await postAcpChatPanelSnapshot(host, target);
 }
 
 async function handleAcpSkillRunAction(
@@ -1987,8 +1893,33 @@ export function installAssistantWorkspaceSidebarShell(
   mountLibraryPane(host);
   mountReaderPane(host);
   host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots(() => {
+    if (host.activeTab === "acp-chat") {
+      updateAssistantAttentionIndicator(host);
+      return;
+    }
     schedulePostSnapshot(host);
   });
+  host.removeAcpChatPanelSubscription = subscribeAcpChatPanelSnapshots(
+    (change) => {
+      const pureBackgroundChange = isPureAcpChatBackgroundChange(change);
+      if (!pureBackgroundChange) {
+        updateAssistantAttentionIndicator(host);
+      }
+      if (
+        shouldRefreshAcpChatSnapshotForChange(
+          {
+            activeTab: host.activeTab,
+            hasActiveTarget: !!host.activeTarget,
+            transcriptPaginationVirtualizationEnabled:
+              isAssistantTranscriptPaginationVirtualizationEnabled(),
+          },
+          change,
+        )
+      ) {
+        schedulePostSnapshot(host);
+      }
+    },
+  );
   host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(
     (change) => {
       const pureBackgroundChange = isPureAcpSkillRunBackgroundChange(change);
@@ -2027,6 +1958,7 @@ export function removeAssistantWorkspaceSidebarShell(
   if (!host) return;
   host.removeMessageListener?.();
   host.removeAcpSnapshotSubscription?.();
+  host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
   host.removeTaskSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();

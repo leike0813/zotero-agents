@@ -2679,7 +2679,11 @@ describe("acp ui smoke", function () {
       assistantSidebar,
       "await startNewAcpConversation({ backendId });",
     );
-    assert.include(assistantSidebar, "buildAcpSidebarViewSnapshot");
+    const acpChatPanelReadModel = await readProjectFile(
+      "src/modules/acpChatPanelReadModel.ts",
+    );
+    assert.include(assistantSidebar, "prepareAcpChatPanelSnapshot");
+    assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
     assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
     assert.include(assistantSidebar, "replyAcpSkillRun");
     assert.include(assistantSidebar, "connectAcpSkillRun");
@@ -3050,16 +3054,15 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "buildAcpDiagnosticsBundle");
     assert.include(assistantSidebar, "copyText");
     assert.include(assistantSidebar, "schedulePostSnapshot");
-    assert.include(assistantSidebar, "postFreshAcpChatSnapshot");
-    assert.include(assistantSidebar, "await refreshAcpConversationBackends();");
+    assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
+    assert.include(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
+    assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
+    assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
     assert.include(
       assistantSidebar,
-      "void postFreshAcpChatSnapshot(host, target, phase);",
+      "void postAcpChatPanelSnapshot(host, target, phase);",
     );
-    assert.include(
-      assistantSidebar,
-      "postAcpChatSnapshot(host, target, phase);",
-    );
+    assert.notInclude(assistantSidebar, "postFreshAcpChatSnapshot");
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
     assert.include(assistantSidebar, '"connect"');
@@ -3170,16 +3173,22 @@ describe("acp ui smoke", function () {
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
-
-    assert.include(assistantSidebar, "readAcpConversationTranscriptPage");
-    assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
-    assert.include(
-      assistantSidebar,
-      "transcriptPaginationVirtualizationEnabled",
+    const acpChatPanelReadModel = await readProjectFile(
+      "src/modules/acpChatPanelReadModel.ts",
     );
-    assert.include(assistantSidebar, "selectedTranscriptPage");
+
+    assert.include(acpChatPanelReadModel, "readAcpConversationTranscriptPage");
+    assert.include(acpChatPanelReadModel, "prepareAcpChatPanelSnapshot");
+    assert.include(acpChatPanelReadModel, "selectedTranscriptPage");
+    assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
+    assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
+    assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
+    assert.include(assistantSidebar, "isPureAcpChatBackgroundChange");
     assert.notInclude(assistantSidebar, "subscribeAcpConversationSnapshots");
     assert.notInclude(assistantSidebar, "notifyFrontend: false");
+    assert.notInclude(assistantSidebar, "itemModeListeners");
+    assert.notInclude(assistantSidebar, "sessionIndexCache");
+    assert.notInclude(assistantSidebar, "buildAcpChatSnapshotSignature");
 
     const handlerStart = assistantSidebar.indexOf(
       "async function handleChildAction",
@@ -3194,8 +3203,23 @@ describe("acp ui smoke", function () {
     );
     const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
     assert.include(chatBranch, 'action === "load-transcript-page"');
-    assert.include(chatBranch, "postAcpChatSnapshot");
+    assert.include(chatBranch, "postAcpChatPanelSnapshot");
     assert.notInclude(chatBranch, "refreshAcpConversationBackends");
+
+    const ordinaryPostStart = assistantSidebar.indexOf(
+      "function postSnapshotForTab",
+    );
+    const ordinaryPostEnd = assistantSidebar.indexOf(
+      "function canPublishAssistantWorkspaceStatePulse",
+      ordinaryPostStart,
+    );
+    const ordinaryPost = assistantSidebar.slice(
+      ordinaryPostStart,
+      ordinaryPostEnd,
+    );
+    assert.include(ordinaryPost, "postAcpChatPanelSnapshot");
+    assert.notInclude(ordinaryPost, "refreshAcpConversationBackends");
+    assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
   });
 
   it("adds localized ACP labels for dashboard and sidebar actions", async function () {
@@ -5062,6 +5086,32 @@ describe("acp ui smoke", function () {
 
     assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
     assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
+  });
+
+  it("renders ACP Chat empty conversation scope without transcript page loading", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-empty",
+      backendId: "backend-empty",
+      activeConversationId: "",
+      conversationId: "",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 0,
+      transcriptItemCount: 0,
+      items: [],
+      labels: {},
+    });
+
+    assert.isNull(transcript.querySelector(".acp-chat-transcript-loading"));
+    const renderCall = sidebar.transcriptRenderCalls.at(-1);
+    assert.equal(renderCall?.virtualized, false);
+    assert.isUndefined(renderCall?.pageKey);
+    assert.deepEqual(renderCall?.items || [], []);
+    assert.isFalse(
+      sidebar.actions.some((entry) => entry.action === "load-transcript-page"),
+    );
   });
 
   it("rejects ACP Chat selected transcript pages for the wrong conversation scope", async function () {

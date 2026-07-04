@@ -646,7 +646,7 @@
       );
       return;
     }
-    if (virtualized && !page) {
+    if (virtualized && pageKey && !page) {
       clear(transcriptEl);
       transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
       return;

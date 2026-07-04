@@ -37,11 +37,15 @@ describe("skillrunner sidebar host runtime", function () {
     const ts = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
+    const acpChatPanelReadModel = await readProjectFile(
+      "src/modules/acpChatPanelReadModel.ts",
+    );
     assert.include(ts, "__zsAssistantWorkspaceBridge");
     assert.include(ts, "assistant-workspace:init");
     assert.include(ts, "assistant-workspace:child-snapshot");
     assert.include(ts, "dispatchRunWorkspaceAction");
-    assert.include(ts, "buildAcpSidebarViewSnapshot");
+    assert.include(ts, "prepareAcpChatPanelSnapshot");
+    assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
     assert.include(ts, "prepareAcpSkillRunPanelSnapshot");
     assert.include(ts, "handleAcpChatAction");
     assert.include(ts, "handleAcpSkillRunAction");
