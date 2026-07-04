@@ -16,6 +16,7 @@ import {
   registerAcpSkillRunController,
   resetAcpSkillRunSummaryDiagnosticsForTests,
   resetAcpSkillRunsForTests,
+  shutdownAcpSkillRunConversations,
   subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
@@ -564,6 +565,41 @@ describe("ACP runtime memory governance", function () {
         await fs.readFile(path.join(runtimeDir, "transcript.jsonl"), "utf8"),
         "streamed text",
       );
+    } finally {
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("drains pending ACP skill transcript writes during shutdown without clearing run memory", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    const requestId = "req-shutdown-drain-transcript";
+    const replyText = "shutdown should persist this pending reply";
+    try {
+      upsertAcpSkillRun({
+        requestId,
+        status: "running",
+        statusReason: "start",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+      });
+      appendAcpSkillRunUserReply({
+        requestId,
+        message: replyText,
+      });
+
+      await shutdownAcpSkillRunConversations();
+
+      const transcript = await fs.readFile(
+        path.join(runtimeDir, "transcript.jsonl"),
+        "utf8",
+      );
+      assert.include(transcript, replyText);
+      assert.equal(getAcpSkillRunRecord(requestId)?.requestId, requestId);
     } finally {
       await flushAcpSkillRunRuntimeFileWritesForTests();
       resetAcpSkillRunsForTests();

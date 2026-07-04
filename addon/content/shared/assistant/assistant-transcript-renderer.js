@@ -22,6 +22,7 @@
   const VIRTUAL_RENDER_BUFFER = 20;
   const VIRTUAL_ESTIMATED_ROW_HEIGHT = 88;
   const VIRTUAL_PAGE_LOAD_THRESHOLD_PX = 320;
+  const VIRTUAL_ROW_HEIGHT_CHANGE_THRESHOLD = 1;
   const virtualTranscriptStates = new WeakMap();
 
   function finiteNumber(value, fallback) {
@@ -59,6 +60,9 @@
         scrollInstalled: false,
         latestOptions: null,
         lastVirtual: null,
+        lastAnchor: null,
+        pendingMeasureRender: false,
+        rowHeights: new Map(),
       };
       virtualTranscriptStates.set(container, state);
     }
@@ -78,8 +82,11 @@
     state.pages = new Map();
     state.loadingCursors = new Set();
     state.renderScheduled = false;
+    state.pendingMeasureRender = false;
     state.latestOptions = null;
     state.lastVirtual = null;
+    state.lastAnchor = null;
+    state.rowHeights = new Map();
   }
 
   function resetAssistantTranscriptVirtualState(container, pageKey) {
@@ -165,6 +172,196 @@
       });
       state.pages.delete(removeCursor);
     }
+    pruneVirtualTranscriptRowHeights(state);
+  }
+
+  function virtualTranscriptEntryKey(entry) {
+    const source = (entry && entry.item) || {};
+    const id = String(source.id || "").trim();
+    if (id) return "id:" + id;
+    return [
+      "index",
+      String(nonNegativeInteger(entry && entry.index, 0)),
+      String(source.kind || ""),
+      String(source.role || ""),
+    ].join(":");
+  }
+
+  function virtualTranscriptRenderedRowKey(item, index, virtual) {
+    const source = item || {};
+    if (
+      virtual &&
+      Array.isArray(virtual.rowKeys) &&
+      Array.isArray(virtual.items) &&
+      virtual.rowKeys.length === virtual.items.length &&
+      index < virtual.rowKeys.length
+    ) {
+      return virtual.rowKeys[index];
+    }
+    const id = String(source.id || "").trim();
+    if (id) return "id:" + id;
+    return [
+      "rendered",
+      String(nonNegativeInteger(index, 0)),
+      String(source.kind || ""),
+      String(source.role || ""),
+    ].join(":");
+  }
+
+  function applyVirtualTranscriptRowMetadata(row, item, index, virtual) {
+    if (!row || !virtual) return;
+    const rowKey = virtualTranscriptRenderedRowKey(item, index, virtual);
+    row.setAttribute("data-assistant-virtual-row-key", rowKey);
+    row.setAttribute(
+      "data-assistant-virtual-row-index",
+      String(nonNegativeInteger(virtual.startIndex, 0) + index),
+    );
+  }
+
+  function pruneVirtualTranscriptRowHeights(state) {
+    if (
+      !state ||
+      !state.rowHeights ||
+      typeof state.rowHeights.forEach !== "function"
+    ) {
+      return;
+    }
+    const keep = new Set();
+    virtualTranscriptCacheEntries(state).entries.forEach(function (entry) {
+      keep.add(virtualTranscriptEntryKey(entry));
+    });
+    Array.from(state.rowHeights.keys()).forEach(function (key) {
+      if (!keep.has(key)) state.rowHeights.delete(key);
+    });
+  }
+
+  function virtualTranscriptEstimatedText(item) {
+    const source = item || {};
+    return [
+      source.text,
+      source.summary,
+      source.resultSummary,
+      source.inputSummary,
+      source.title,
+      Array.isArray(source.items)
+        ? source.items
+            .map(function (entry) {
+              return virtualTranscriptEstimatedText(entry);
+            })
+            .join(" ")
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  function estimatedVirtualRowHeight(entry, estimatedHeight) {
+    const textLength = virtualTranscriptEstimatedText(
+      entry && entry.item,
+    ).length;
+    if (textLength <= 160) return estimatedHeight;
+    const estimatedLines = Math.ceil(textLength / 80);
+    return Math.max(estimatedHeight, Math.min(4096, 44 + estimatedLines * 22));
+  }
+
+  function measuredVirtualRowHeight(state, entry, key, estimatedHeight) {
+    if (state && state.rowHeights && state.rowHeights.has(key)) {
+      return positiveInteger(state.rowHeights.get(key), estimatedHeight);
+    }
+    return estimatedVirtualRowHeight(entry, estimatedHeight);
+  }
+
+  function buildVirtualTranscriptLayout(entries, state, options, totalRows) {
+    const estimatedHeight = positiveInteger(
+      options.estimatedRowHeight,
+      VIRTUAL_ESTIMATED_ROW_HEIGHT,
+    );
+    const positions = [];
+    let currentIndex = 0;
+    let currentTop = 0;
+    entries.forEach(function (entry) {
+      const index = nonNegativeInteger(entry.index, 0);
+      if (index > currentIndex) {
+        currentTop += (index - currentIndex) * estimatedHeight;
+      }
+      const key = virtualTranscriptEntryKey(entry);
+      const height = measuredVirtualRowHeight(
+        state,
+        entry,
+        key,
+        estimatedHeight,
+      );
+      positions.push({
+        entry,
+        key,
+        index,
+        top: currentTop,
+        bottom: currentTop + height,
+        height,
+      });
+      currentTop += height;
+      currentIndex = index + 1;
+    });
+    const rowCount = Math.max(nonNegativeInteger(totalRows, 0), currentIndex);
+    const totalHeight =
+      currentTop + Math.max(0, rowCount - currentIndex) * estimatedHeight;
+    return {
+      estimatedHeight,
+      positions,
+      rowCount,
+      totalHeight,
+    };
+  }
+
+  function findVirtualPositionForScroll(positions, scrollTop) {
+    if (!positions.length) return null;
+    const top = finiteNumber(scrollTop, 0);
+    for (let index = 0; index < positions.length; index += 1) {
+      if (positions[index].bottom > top) return positions[index];
+    }
+    return positions[positions.length - 1];
+  }
+
+  function captureVirtualScrollAnchor(container, virtual) {
+    if (!container || !virtual || !Array.isArray(virtual.positions)) {
+      return null;
+    }
+    const scrollTop = finiteNumber(container.scrollTop, 0);
+    const position = findVirtualPositionForScroll(virtual.positions, scrollTop);
+    if (!position) return null;
+    return {
+      key: position.key,
+      index: position.index,
+      offset: Math.max(0, scrollTop - position.top),
+    };
+  }
+
+  function restoreVirtualScrollAnchor(container, virtual, anchor) {
+    if (
+      !container ||
+      !virtual ||
+      !anchor ||
+      !Array.isArray(virtual.positions)
+    ) {
+      return false;
+    }
+    const position =
+      virtual.positions.find(function (entry) {
+        return entry.key === anchor.key;
+      }) ||
+      virtual.positions.find(function (entry) {
+        return entry.index === anchor.index;
+      });
+    if (!position) return false;
+    const offset = Math.max(
+      0,
+      Math.min(
+        finiteNumber(anchor.offset, 0),
+        Math.max(0, position.height - 1),
+      ),
+    );
+    container.scrollTop = Math.max(0, Math.floor(position.top + offset));
+    return true;
   }
 
   function virtualTranscriptCacheEntries(state) {
@@ -219,14 +416,17 @@
         cachedStartIndex: 0,
         cachedEndIndex: 0,
         total: 0,
+        totalHeight: 0,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+        cachedTopBoundary: 0,
+        cachedBottomBoundary: 0,
+        positions: [],
+        rowKeys: [],
         revision: 0,
         signature: "empty",
       };
     }
-    const rowHeight = positiveInteger(
-      options.estimatedRowHeight,
-      VIRTUAL_ESTIMATED_ROW_HEIGHT,
-    );
     const renderBuffer = nonNegativeInteger(
       options.renderBuffer,
       VIRTUAL_RENDER_BUFFER,
@@ -235,32 +435,86 @@
       options.renderWindowLimit,
       VIRTUAL_RENDER_WINDOW_LIMIT,
     );
-    const scrollStart = Math.max(
-      0,
-      Math.floor(finiteNumber(container.scrollTop, 0) / rowHeight) -
-        renderBuffer,
+    const layout = buildVirtualTranscriptLayout(
+      entries,
+      state,
+      options,
+      Math.max(cache.total, entries[entries.length - 1].index + 1),
     );
-    const scrollEnd = scrollStart + renderLimit;
-    let windowEntries = entries.filter(function (entry) {
-      return entry.index >= scrollStart && entry.index < scrollEnd;
+    const scrollTop = finiteNumber(container.scrollTop, 0);
+    const viewportHeight = Math.max(1, finiteNumber(container.clientHeight, 0));
+    const overscanPx = Math.max(
+      layout.estimatedHeight,
+      renderBuffer * layout.estimatedHeight,
+    );
+    const windowTop = Math.max(0, scrollTop - overscanPx);
+    const windowBottom = scrollTop + viewportHeight + overscanPx;
+    let windowPositions = layout.positions.filter(function (position) {
+      return position.bottom >= windowTop && position.top <= windowBottom;
     });
-    if (windowEntries.length === 0) {
-      windowEntries = entries.slice(Math.max(0, entries.length - renderLimit));
+    if (windowPositions.length > 0 && renderBuffer > 0) {
+      const firstWindowIndex = layout.positions.indexOf(windowPositions[0]);
+      const lastWindowIndex = layout.positions.indexOf(
+        windowPositions[windowPositions.length - 1],
+      );
+      const start = Math.max(0, firstWindowIndex - renderBuffer);
+      const end = Math.min(
+        layout.positions.length,
+        lastWindowIndex + renderBuffer + 1,
+      );
+      windowPositions = layout.positions.slice(start, end);
     }
-    if (windowEntries.length > renderLimit) {
-      windowEntries = windowEntries.slice(0, renderLimit);
+    if (windowPositions.length === 0) {
+      const firstVisibleIndex = layout.positions.indexOf(
+        findVirtualPositionForScroll(layout.positions, scrollTop),
+      );
+      const start = Math.max(
+        0,
+        (firstVisibleIndex >= 0 ? firstVisibleIndex : layout.positions.length) -
+          renderBuffer,
+      );
+      windowPositions = layout.positions.slice(start, start + renderLimit);
     }
-    const startIndex = windowEntries[0].index;
-    const endIndex = windowEntries[windowEntries.length - 1].index + 1;
+    if (windowPositions.length > renderLimit) {
+      const firstVisibleIndex = Math.max(
+        0,
+        layout.positions.indexOf(
+          findVirtualPositionForScroll(layout.positions, scrollTop),
+        ),
+      );
+      const start = Math.max(0, firstVisibleIndex - renderBuffer);
+      windowPositions = layout.positions.slice(start, start + renderLimit);
+    }
+    if (windowPositions.length === 0) {
+      windowPositions = layout.positions.slice(
+        0,
+        Math.min(layout.positions.length, renderLimit),
+      );
+    }
+    const firstPosition = windowPositions[0];
+    const lastPosition = windowPositions[windowPositions.length - 1];
+    const startIndex = firstPosition.index;
+    const endIndex = lastPosition.index + 1;
+    const rowKeys = windowPositions.map(function (position) {
+      return position.key;
+    });
     return {
-      items: windowEntries.map(function (entry) {
-        return entry.item;
+      items: windowPositions.map(function (position) {
+        return position.entry.item;
       }),
+      rowKeys,
       startIndex,
       endIndex,
       cachedStartIndex: entries[0].index,
       cachedEndIndex: entries[entries.length - 1].index + 1,
-      total: Math.max(cache.total, entries[entries.length - 1].index + 1),
+      total: layout.rowCount,
+      totalHeight: layout.totalHeight,
+      topSpacerHeight: firstPosition.top,
+      bottomSpacerHeight: Math.max(0, layout.totalHeight - lastPosition.bottom),
+      cachedTopBoundary: layout.positions[0].top,
+      cachedBottomBoundary:
+        layout.positions[layout.positions.length - 1].bottom,
+      positions: layout.positions,
       revision: cache.revision,
       prevCursor: cache.prevCursor,
       nextCursor: cache.nextCursor,
@@ -269,9 +523,19 @@
         endIndex,
         cache.total,
         cache.revision,
-        windowEntries
-          .map(function (entry) {
-            return String(entry.item && entry.item.id ? entry.item.id : "");
+        Math.round(firstPosition.top),
+        Math.round(layout.totalHeight - lastPosition.bottom),
+        windowPositions
+          .map(function (position) {
+            return [
+              position.key,
+              Math.round(position.height),
+              String(
+                position.entry.item && position.entry.item.id
+                  ? position.entry.item.id
+                  : "",
+              ),
+            ].join(":");
           })
           .join(","),
       ].join("|"),
@@ -309,18 +573,12 @@
     options,
   ) {
     if (!container || !virtual) return;
-    const rowHeight = positiveInteger(
-      options.estimatedRowHeight,
-      VIRTUAL_ESTIMATED_ROW_HEIGHT,
-    );
     const threshold = positiveInteger(
       options.pageLoadThreshold,
       VIRTUAL_PAGE_LOAD_THRESHOLD_PX,
     );
-    const topBoundary =
-      nonNegativeInteger(virtual.cachedStartIndex, 0) * rowHeight;
-    const bottomBoundary =
-      nonNegativeInteger(virtual.cachedEndIndex, 0) * rowHeight;
+    const topBoundary = finiteNumber(virtual.cachedTopBoundary, 0);
+    const bottomBoundary = finiteNumber(virtual.cachedBottomBoundary, 0);
     if (
       typeof virtual.prevCursor === "number" &&
       finiteNumber(container.scrollTop, 0) - topBoundary < threshold
@@ -345,12 +603,59 @@
     return spacer;
   }
 
-  function scheduleVirtualTranscriptRender(container, state) {
+  function measuredElementHeight(node, fallback) {
+    if (node && typeof node.getBoundingClientRect === "function") {
+      const rect = node.getBoundingClientRect();
+      const height = rect && finiteNumber(rect.height, 0);
+      if (height > 0) return height;
+    }
+    if (node && finiteNumber(node.offsetHeight, 0) > 0) {
+      return finiteNumber(node.offsetHeight, fallback);
+    }
+    return fallback;
+  }
+
+  function measureVirtualTranscriptRows(container, state, options) {
+    if (!container || !state || !state.rowHeights) return false;
+    const estimatedHeight = positiveInteger(
+      options.estimatedRowHeight,
+      VIRTUAL_ESTIMATED_ROW_HEIGHT,
+    );
+    const rows =
+      typeof container.querySelectorAll === "function"
+        ? container.querySelectorAll(":scope > .assistant-transcript-row")
+        : [];
+    let changed = false;
+    Array.from(rows || []).forEach(function (row) {
+      const key = String(
+        row && typeof row.getAttribute === "function"
+          ? row.getAttribute("data-assistant-virtual-row-key") || ""
+          : "",
+      ).trim();
+      if (!key) return;
+      const height = positiveInteger(
+        measuredElementHeight(row, estimatedHeight),
+        estimatedHeight,
+      );
+      const previous = state.rowHeights.has(key)
+        ? positiveInteger(state.rowHeights.get(key), estimatedHeight)
+        : 0;
+      if (Math.abs(previous - height) > VIRTUAL_ROW_HEIGHT_CHANGE_THRESHOLD) {
+        state.rowHeights.set(key, height);
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function scheduleVirtualTranscriptRender(container, state, reason) {
     if (state.renderScheduled || !state.latestOptions) return;
     state.renderScheduled = true;
+    if (reason === "measure") state.pendingMeasureRender = true;
     const scheduledPageKey = state.pageKey;
     transcriptAnimationFrame(function () {
       state.renderScheduled = false;
+      state.pendingMeasureRender = false;
       if (!state.latestOptions) return;
       if (scheduledPageKey !== state.pageKey) return;
       renderAssistantTranscript(
@@ -1368,6 +1673,7 @@
     const virtualized = opts.virtualized === true;
     let virtualState = null;
     let virtual = null;
+    let previousVirtual = null;
     let rawItems = opts.items || [];
     if (virtualized) {
       const nextPageKey =
@@ -1380,6 +1686,7 @@
         resetAssistantTranscriptVirtualState(container, nextPageKey);
         virtualState = getVirtualTranscriptState(container);
       }
+      previousVirtual = virtualState.lastVirtual;
     }
     installAssistantTranscriptStickiness(container, opts.stickThreshold);
     if (virtualized) {
@@ -1411,7 +1718,6 @@
         virtualState.latestOptions = latestOptions;
         installVirtualTranscriptScrollHandler(container, virtualState);
         virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
-        virtualState.lastVirtual = virtual;
         rawItems = virtual.items.length ? virtual.items : rawItems;
       }
     }
@@ -1431,6 +1737,14 @@
     );
     container.removeAttribute("data-assistant-transcript-scroll-render");
     const preservedScrollTop = finiteNumber(container.scrollTop, 0);
+    const scrollAnchor =
+      virtualized && virtualState && !shouldStick
+        ? virtualState.lastAnchor ||
+          captureVirtualScrollAnchor(container, previousVirtual || virtual)
+        : null;
+    if (shouldStick && virtualState) {
+      virtualState.lastAnchor = null;
+    }
     if (items.length === 0) {
       clearNode(container);
       if (opts.nodeMap && typeof opts.nodeMap.clear === "function")
@@ -1465,34 +1779,23 @@
       if (canDiff) nodeMap.clear();
       if (virtualized && virtual) {
         container.appendChild(
-          createVirtualTranscriptSpacer(
-            virtual.startIndex *
-              positiveInteger(
-                opts.estimatedRowHeight,
-                VIRTUAL_ESTIMATED_ROW_HEIGHT,
-              ),
-          ),
+          createVirtualTranscriptSpacer(virtual.topSpacerHeight),
         );
       }
-      items.forEach(function (item) {
+      items.forEach(function (item, index) {
         const row = createRow(item, { variant });
+        applyVirtualTranscriptRowMetadata(row, item, index, virtual);
         if (canDiff) nodeMap.set(String(item.id || ""), row);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
         container.appendChild(row);
       });
       if (virtualized && virtual) {
         container.appendChild(
-          createVirtualTranscriptSpacer(
-            (virtual.total - virtual.endIndex) *
-              positiveInteger(
-                opts.estimatedRowHeight,
-                VIRTUAL_ESTIMATED_ROW_HEIGHT,
-              ),
-          ),
+          createVirtualTranscriptSpacer(virtual.bottomSpacerHeight),
         );
       }
     } else {
-      items.forEach(function (item) {
+      items.forEach(function (item, index) {
         const id = String(item.id || "");
         let row = nodeMap.get(id);
         if (!row) {
@@ -1500,16 +1803,36 @@
           nodeMap.set(id, row);
           container.appendChild(row);
         }
+        applyVirtualTranscriptRowMetadata(row, item, index, virtual);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
       });
     }
+    const measuredChanged =
+      virtualized && virtualState && virtual
+        ? measureVirtualTranscriptRows(container, virtualState, opts)
+        : false;
     if (shouldStick) stickAssistantTranscriptToBottom(container);
     else if (virtualized) {
-      container.scrollTop = preservedScrollTop;
+      if (
+        !restoreVirtualScrollAnchor(container, virtual, scrollAnchor) &&
+        !restoreVirtualScrollAnchor(container, virtual, virtualState.lastAnchor)
+      ) {
+        container.scrollTop = preservedScrollTop;
+      }
       container.setAttribute(
         "data-assistant-transcript-last-scroll-top",
         String(finiteNumber(container.scrollTop, 0)),
       );
+    }
+    if (virtualized && virtualState && virtual) {
+      virtualState.lastVirtual = virtual;
+      if (measuredChanged) {
+        virtualState.lastAnchor =
+          scrollAnchor || captureVirtualScrollAnchor(container, virtual);
+        scheduleVirtualTranscriptRender(container, virtualState, "measure");
+      } else {
+        virtualState.lastAnchor = null;
+      }
     }
     if (virtualized && virtualState && virtual) {
       maybeRequestVirtualTranscriptPages(

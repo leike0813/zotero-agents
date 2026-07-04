@@ -482,6 +482,7 @@ type AcpSkillRunRecoveryHandler = (args: {
 }) => Promise<void>;
 
 const ACP_SKILL_RUN_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
+const ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS = 750;
 
 type AcpSkillRunTranscriptLiveState = {
   itemCount: number;
@@ -2442,6 +2443,35 @@ export async function flushAcpSkillRunRuntimeFileWrites() {
 
 export async function flushAcpSkillRunRuntimeFileWritesForTests() {
   await flushAcpSkillRunRuntimeFileWrites();
+}
+
+async function flushAcpSkillRunRuntimeFileWritesDuringShutdown() {
+  const result = await waitForAcpSkillRunShutdownTask(
+    flushAcpSkillRunRuntimeFileWrites(),
+    ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS,
+  );
+  const flushError = "error" in result ? result.error : null;
+  if (!result.timedOut && !flushError) {
+    return;
+  }
+  appendRuntimeLog({
+    level: "warn",
+    scope: "system",
+    component: "acp-skill-run-store",
+    operation: "shutdown-runtime-file-flush",
+    stage: result.timedOut
+      ? "runtime-file-flush-timeout"
+      : "runtime-file-flush-error",
+    message: result.timedOut
+      ? "ACP skill run runtime file flush timed out during shutdown."
+      : "ACP skill run runtime file flush failed during shutdown.",
+    details: {
+      timeoutMs: result.timedOut
+        ? ACP_SKILL_RUN_SHUTDOWN_FLUSH_TIMEOUT_MS
+        : undefined,
+      error: flushError ? errorText(flushError) : undefined,
+    },
+  });
 }
 
 function buildPersistedAcpSkillRunPayload(record: AcpSkillRunRecord) {
@@ -5628,6 +5658,7 @@ export async function shutdownAcpSkillRunConversations() {
       });
     }),
   );
+  await flushAcpSkillRunRuntimeFileWritesDuringShutdown();
 }
 
 export function resetAcpSkillRunsForTests() {

@@ -205,6 +205,7 @@ function collectFakeText(node: any): string {
 function createFakeDocumentForAssistantPanel() {
   const documentRef: any = {
     activeElement: null,
+    measurementHeights: new Map<string, number>(),
     createElement(tag: string) {
       return new FakeElement(tag, documentRef);
     },
@@ -259,6 +260,38 @@ function createFakeDocumentForAssistantPanel() {
     constructor(tagName: string, ownerDocument: any) {
       this.tagName = tagName.toUpperCase();
       this.ownerDocument = ownerDocument;
+    }
+
+    get offsetHeight() {
+      return this.measuredHeight();
+    }
+
+    getBoundingClientRect() {
+      const height = this.measuredHeight();
+      return {
+        bottom: height,
+        height,
+        left: 0,
+        right: 0,
+        top: 0,
+        width: 0,
+      };
+    }
+
+    private measuredHeight() {
+      const id = this.getAttribute("data-assistant-item-id") || "";
+      const rowKey = this.getAttribute("data-assistant-virtual-row-key") || "";
+      const explicit =
+        this.ownerDocument.measurementHeights.get(id) ??
+        this.ownerDocument.measurementHeights.get(rowKey);
+      if (typeof explicit === "number" && Number.isFinite(explicit)) {
+        return explicit;
+      }
+      const textLength = collectFakeText(this).length;
+      if (textLength > 0) {
+        return Math.max(24, Math.ceil(textLength / 48) * 22);
+      }
+      return 0;
     }
 
     get firstChild() {
@@ -2628,6 +2661,19 @@ describe("acp ui smoke", function () {
     assert.include(assistantTranscriptRendererJs, "virtualTranscriptStates");
     assert.include(assistantTranscriptRendererJs, "virtualized");
     assert.include(assistantTranscriptRendererJs, "onRequestPage");
+    assert.include(assistantTranscriptRendererJs, "rowHeights: new Map()");
+    assert.include(assistantTranscriptRendererJs, "captureVirtualScrollAnchor");
+    assert.include(assistantTranscriptRendererJs, "restoreVirtualScrollAnchor");
+    assert.include(
+      assistantTranscriptRendererJs,
+      "measureVirtualTranscriptRows",
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      "buildVirtualTranscriptLayout",
+    );
+    assert.include(assistantTranscriptRendererJs, "topSpacerHeight");
+    assert.include(assistantTranscriptRendererJs, "cachedTopBoundary");
     assert.include(
       assistantTranscriptRendererJs,
       "resetAssistantTranscriptVirtualState",
@@ -4680,6 +4726,99 @@ describe("acp ui smoke", function () {
       transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
       2,
     );
+  });
+
+  it("preserves the virtual transcript anchor while scrolling through a tall row", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1400;
+    transcript.scrollTop = 360;
+    fakeDocument.measurementHeights.set("message-0", 50);
+    fakeDocument.measurementHeights.set("message-1", 50);
+    fakeDocument.measurementHeights.set("message-2", 760);
+    fakeDocument.measurementHeights.set("message-3", 50);
+    fakeDocument.measurementHeights.set("message-4", 50);
+    const page = {
+      requestId: "run-variable-height",
+      cursor: 0,
+      total: 5,
+      transcriptRevision: 1,
+      limit: 80,
+      items: Array.from({ length: 5 }, (_entry, index) => ({
+        id: `message-${index}`,
+        kind: "message",
+        role: "assistant",
+        text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
+      })),
+    };
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-variable-height",
+      page,
+      mode: "plain",
+      nodeMap: new Map(),
+      estimatedRowHeight: 88,
+      renderBuffer: 1,
+      renderWindowLimit: 3,
+    });
+
+    transcript.scrollTop = 420;
+    transcript.dispatchEventType("scroll");
+
+    assert.include(collectFakeText(transcript), "tall row");
+    assert.equal(transcript.scrollTop, 420);
+    assert.notEqual(transcript.scrollTop, transcript.scrollHeight);
+  });
+
+  it("sizes virtual transcript spacers from measured row heights", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 1400;
+    transcript.scrollTop = 100;
+    fakeDocument.measurementHeights.set("message-0", 50);
+    fakeDocument.measurementHeights.set("message-1", 50);
+    fakeDocument.measurementHeights.set("message-2", 760);
+    fakeDocument.measurementHeights.set("message-3", 50);
+    fakeDocument.measurementHeights.set("message-4", 50);
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-spacers",
+      page: {
+        requestId: "run-spacers",
+        cursor: 0,
+        total: 5,
+        transcriptRevision: 1,
+        limit: 80,
+        items: Array.from({ length: 5 }, (_entry, index) => ({
+          id: `message-${index}`,
+          kind: "message",
+          role: "assistant",
+          text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
+        })),
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+      estimatedRowHeight: 88,
+      renderBuffer: 0,
+      renderWindowLimit: 3,
+    });
+    transcript.scrollTop = 960;
+    transcript.dispatchEventType("scroll");
+
+    const spacers = transcript.querySelectorAll(
+      ".assistant-transcript-virtual-spacer",
+    );
+    assert.lengthOf(spacers, 2);
+    assert.equal(spacers[0].style.height, "860px");
+    assert.notEqual(spacers[0].style.height, "264px");
   });
 
   it("lets users scroll away from a virtualized transcript bottom", async function () {

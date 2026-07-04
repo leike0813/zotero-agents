@@ -684,6 +684,11 @@ The shared Assistant transcript renderer SHALL own paginated transcript
 virtualization, page cache state, spacer rows, scroll anchoring, page request
 dedupe, and stickiness behavior for panels that opt into virtualized rendering.
 
+For virtualized transcript rows, the renderer SHALL use measured row heights
+when available, SHALL use estimated row heights only for rows that have not
+been measured, and SHALL compute virtual windows, spacer heights, and page
+boundary checks from cumulative row heights rather than fixed item counts.
+
 #### Scenario: Virtualized transcript renders a selected page
 
 - **GIVEN** a panel passes a transcript page and `virtualized: true` to the
@@ -701,6 +706,25 @@ dedupe, and stickiness behavior for panels that opt into virtualized rendering.
 - **AND** a later transcript render occurs
 - **THEN** the renderer SHALL preserve the user's scroll position instead of
   forcing the transcript back to the bottom.
+
+#### Scenario: Variable-height row preserves scroll anchor
+
+- **GIVEN** a virtualized transcript contains a row whose measured height is
+  larger than the viewport
+- **WHEN** the user scrolls through that row and the virtual window rerenders
+- **THEN** the renderer SHALL preserve the visible row by stable anchor and row
+  offset
+- **AND** spacer recalculation SHALL NOT pull the transcript back to the bottom
+  or create an empty scroll wall above the row.
+
+#### Scenario: Measured heights drive spacer calculation
+
+- **GIVEN** virtualized transcript rows have measured heights
+- **WHEN** the renderer computes the virtual top and bottom spacers
+- **THEN** it SHALL size those spacers from the cumulative measured heights of
+  offscreen rows
+- **AND** it SHALL use the configured estimated row height only for rows without
+  a measurement.
 
 #### Scenario: Page requests are deduplicated
 
