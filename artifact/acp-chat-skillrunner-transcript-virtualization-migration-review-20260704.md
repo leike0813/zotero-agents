@@ -21,6 +21,9 @@
 - [x] SkillRunner workspace snapshot 已暴露 `transcriptPaginationVirtualizationEnabled`，值来自现有 transcript rendering preference。
 - [x] 所有 locale 的偏好帮助文案已更新为“ACP Skills 分页虚拟化 + SkillRunner 虚拟化”，未声称 ACP Chat 已迁移。
 - [x] 已补行为测试：items-only virtualized renderer 不请求 page；SkillRunner 接线守卫确认 virtualized/pageKey/transcriptRevision 且无 `load-transcript-page`。
+- [x] 新开并完成 OpenSpec change `acp-chat-structural-transcript-snapshot`；当前工作区显示该 change 已进入 `openspec/changes/archive/2026-07-04-acp-chat-structural-transcript-snapshot/`，并已将 ACP Chat structural snapshot 要求同步到主 spec。
+- [x] ACP Chat UI snapshot 读取已支持显式 `itemMode: "structural"`：默认 full 行为保持不变，structural mode 只返回 plan items，并保留 transcript revision/count/preview/state 等 metadata。
+- [x] `publishMode: "structural"` 已修正为即使 transcript mirror loaded，也不会把 message/thought/tool_call 全量 transcript items 写入 published UI snapshot。
 
 已验证：
 
@@ -28,10 +31,12 @@
 - [x] `openspec validate virtualize-skillrunner-transcripts --strict` 在归档前通过；归档后主 spec 已包含新增 SkillRunner requirement。
 - [x] 本次 touched 文件的 Prettier check、`git diff --check`、`npx tsc --noEmit` 通过。
 - [x] `npm run lint:check` 已运行；失败原因是 15 个非本次改动文件的既有 Prettier 警告，本次改动文件不在剩余警告列表中。
+- [x] `test/core/96-acp-session-manager.test.ts` 单文件完整测试：72 passing。
+- [x] `openspec validate acp-chat-structural-transcript-snapshot --strict` 在归档前通过；归档后主 spec 已包含新增 ACP Chat structural snapshot requirement。
 
 尚未完成：
 
-- [ ] ACP Chat 的 structural snapshot、page reader、workspace sidebar page 编排、child page rendering guard、以及 Skills 风格 publication-path 过滤。
+- [ ] ACP Chat 的 page reader、workspace sidebar page 编排、child page rendering guard、以及 Skills 风格 publication-path 过滤。
 
 ## 结论
 
@@ -360,7 +365,7 @@ ACP Chat 的 page request 应优先使用当前内存 mirror，必要时可回�
 - 切换 task/run 后旧 virtual cache 不会复活。
 - 不出现 `sendAction("load-transcript-page")`。
 
-### 阶段 3：ACP Chat 增加窄版 structural snapshot 读取
+### 阶段 3：ACP Chat 增加窄版 structural snapshot 读取（已完成）
 
 修改：
 
@@ -631,7 +636,7 @@ export async function readAcpConversationTranscriptPageForUi(args: {
 
 1. [x] 先落 shared renderer items-only virtual source，并用 smoke test 锁住。
 2. [x] 接入 SkillRunner 虚拟化，因为它不牵涉后端分页，风险最低。
-3. [ ] 在 ACP session manager 增加窄版 structural snapshot，确保 full 默认行为不变。
+3. [x] 在 ACP session manager 增加窄版 structural snapshot，确保 full 默认行为不变。
 4. [ ] 增加 ACP Chat page reader，保留 per-session pending write flush 和 durable store fallback。
 5. [ ] 在 workspace sidebar 加 ACP Chat selected page 编排、active-tab 分流和 cheap signature。
 6. [ ] 增加 ACP Chat live/background refresh 过滤，复制 ACP Skills 的 publication-path 治理思路。

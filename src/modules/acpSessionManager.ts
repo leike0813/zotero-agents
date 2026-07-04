@@ -95,6 +95,10 @@ import {
 type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
 type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
 type AcpUiPublishMode = "full" | "metadata" | "structural";
+type AcpConversationSnapshotItemMode = "full" | "structural";
+type AcpConversationUiSnapshotReadOptions = {
+  itemMode?: AcpConversationSnapshotItemMode;
+};
 
 const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 export type AcpChatSessionRuntime = {
@@ -727,19 +731,50 @@ async function waitForAcpChatShutdownTask(
   ]);
 }
 
-function clonePublishedSessionRuntimeSnapshot(sessionRuntime: AcpChatSessionRuntime) {
+function resolveAcpConversationSnapshotItemMode(
+  options?: AcpConversationUiSnapshotReadOptions,
+): AcpConversationSnapshotItemMode {
+  return options?.itemMode === "structural" ? "structural" : "full";
+}
+
+function applyPublishedSessionRuntimeSnapshotMetadata(
+  sessionRuntime: AcpChatSessionRuntime,
+  cloned: AcpConversationSnapshot & Record<string, unknown>,
+) {
+  cloned.uiRevision = sessionRuntime.uiRevision;
+  cloned.transcriptRevision = sessionRuntime.snapshot.transcriptRevision;
+  cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
+  cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
+  cloned.transcriptPreview = sessionRuntime.snapshot.transcriptPreview;
+  cloned.transcriptState =
+    selectedTranscriptStateForSessionRuntime(sessionRuntime);
+}
+
+function clonePublishedSessionRuntimeSnapshot(
+  sessionRuntime: AcpChatSessionRuntime,
+  options?: AcpConversationUiSnapshotReadOptions,
+) {
+  const itemMode = resolveAcpConversationSnapshotItemMode(options);
+  if (itemMode === "structural") {
+    const source = sessionRuntime.uiSnapshot || sessionRuntime.snapshot;
+    const cloned = cloneSnapshotValue({
+      ...source,
+      items: [],
+    }) as AcpConversationSnapshot & Record<string, unknown>;
+    applyPublishedSessionRuntimeSnapshotMetadata(sessionRuntime, cloned);
+    cloned.items = mergeStructuralConversationItems(
+      sessionRuntime,
+      sessionRuntime.uiSnapshot,
+    );
+    return cloned;
+  }
   if (!sessionRuntime.uiSnapshot) {
     sessionRuntime.uiSnapshot = cloneSnapshotValue(sessionRuntime.snapshot);
   }
   const cloned = cloneSnapshotValue(
     sessionRuntime.uiSnapshot,
   ) as AcpConversationSnapshot & Record<string, unknown>;
-  cloned.uiRevision = sessionRuntime.uiRevision;
-  cloned.transcriptRevision = sessionRuntime.snapshot.transcriptRevision;
-  cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
-  cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
-  cloned.transcriptPreview = sessionRuntime.snapshot.transcriptPreview;
-  cloned.transcriptState = selectedTranscriptStateForSessionRuntime(sessionRuntime);
+  applyPublishedSessionRuntimeSnapshotMetadata(sessionRuntime, cloned);
   cloned.items = sessionRuntime.transcriptMirrorLoaded
     ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
     : [];
@@ -777,9 +812,25 @@ function mergeStructuralConversationItems(
   sessionRuntime: AcpChatSessionRuntime,
   previous: AcpConversationSnapshot | null,
 ) {
-  void sessionRuntime;
-  void previous;
-  return [] as AcpConversationItem[];
+  const byId = new Map<string, AcpConversationItem>();
+  const remember = (item: AcpConversationItem | undefined) => {
+    if (item?.kind !== "plan") {
+      return;
+    }
+    byId.set(item.id, cloneAcpConversationItem(item));
+  };
+  for (const item of previous?.items || []) {
+    remember(item);
+  }
+  if (sessionRuntime.activePlanItemId) {
+    remember(
+      sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId),
+    );
+  }
+  for (const itemId of sessionRuntime.transcriptItemIds) {
+    remember(sessionRuntime.transcriptItemsById.get(itemId));
+  }
+  return Array.from(byId.values());
 }
 
 function updatePublishedSessionRuntimeSnapshot(
@@ -788,12 +839,14 @@ function updatePublishedSessionRuntimeSnapshot(
 ) {
   const previous = sessionRuntime.uiSnapshot;
   const next = cloneSnapshotValue(sessionRuntime.snapshot);
-  next.transcriptState = selectedTranscriptStateForSessionRuntime(sessionRuntime);
-  next.items = sessionRuntime.transcriptMirrorLoaded
-    ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
-    : [];
-  if (publishMode === "structural" && !sessionRuntime.transcriptMirrorLoaded) {
+  next.transcriptState =
+    selectedTranscriptStateForSessionRuntime(sessionRuntime);
+  if (publishMode === "structural") {
     next.items = mergeStructuralConversationItems(sessionRuntime, previous);
+  } else {
+    next.items = sessionRuntime.transcriptMirrorLoaded
+      ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
+      : [];
   }
   sessionRuntime.uiSnapshot = next;
   sessionRuntime.uiRevision += 1;
@@ -3005,15 +3058,19 @@ function projectAcpChatSessionSummary(
 
 function buildFrontendSnapshot(options?: {
   uiVisible?: boolean;
+  itemMode?: AcpConversationSnapshotItemMode;
 }): AcpFrontendSnapshot {
   ensureInitialized();
   const foregroundSessionRuntime = getOrCreateSessionRuntime(activeBackendId);
-  if (options?.uiVisible === true) {
+  const itemMode = resolveAcpConversationSnapshotItemMode(options);
+  if (options?.uiVisible === true && itemMode === "full") {
     scheduleAcpChatTranscriptHydrate(foregroundSessionRuntime);
   }
   const activeSnapshot =
     options?.uiVisible === true
-      ? clonePublishedSessionRuntimeSnapshot(foregroundSessionRuntime)
+      ? clonePublishedSessionRuntimeSnapshot(foregroundSessionRuntime, {
+          itemMode,
+        })
       : cloneSnapshotValue(foregroundSessionRuntime.snapshot);
   activeSnapshot.mcpServer = getZoteroMcpServerStatus();
   activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
@@ -3078,8 +3135,13 @@ function buildFrontendSnapshot(options?: {
   };
 }
 
-export function getAcpFrontendSnapshot() {
-  return buildFrontendSnapshot({ uiVisible: true });
+export function getAcpFrontendSnapshot(
+  options?: AcpConversationUiSnapshotReadOptions,
+) {
+  return buildFrontendSnapshot({
+    uiVisible: true,
+    itemMode: resolveAcpConversationSnapshotItemMode(options),
+  });
 }
 
 export function subscribeAcpFrontendSnapshots(
@@ -3105,11 +3167,18 @@ export function getAcpConversationSnapshot(
 export function getAcpConversationUiSnapshot(
   backendId?: string,
   conversationId?: string,
+  options?: AcpConversationUiSnapshotReadOptions,
 ) {
   ensureInitialized();
-  const sessionRuntime = getOrCreateSessionRuntime(backendId || activeBackendId, conversationId);
-  scheduleAcpChatTranscriptHydrate(sessionRuntime);
-  return clonePublishedSessionRuntimeSnapshot(sessionRuntime);
+  const sessionRuntime = getOrCreateSessionRuntime(
+    backendId || activeBackendId,
+    conversationId,
+  );
+  const itemMode = resolveAcpConversationSnapshotItemMode(options);
+  if (itemMode === "full") {
+    scheduleAcpChatTranscriptHydrate(sessionRuntime);
+  }
+  return clonePublishedSessionRuntimeSnapshot(sessionRuntime, { itemMode });
 }
 
 async function flushPendingChatTranscriptWrites(sessionRuntime?: AcpChatSessionRuntime) {

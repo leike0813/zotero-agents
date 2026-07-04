@@ -2582,6 +2582,98 @@ describe("acp session manager", function () {
     assert.lengthOf(getAcpConversationSnapshot().items, 0);
   });
 
+  it("returns plan-only ACP chat structural UI snapshots without changing default full reads", async function () {
+    await sendAcpConversationPrompt({
+      message: "structural snapshot",
+    });
+    const full = await waitForAcpConversationUiSnapshot(
+      (snapshot) =>
+        snapshot.items.some((entry) => entry.kind === "plan") &&
+        snapshot.items.some(
+          (entry) => entry.kind === "message" && entry.role === "assistant",
+        ) &&
+        snapshot.items.some((entry) => entry.kind === "tool_call"),
+    );
+
+    const structural = getAcpConversationUiSnapshot(undefined, undefined, {
+      itemMode: "structural",
+    });
+    assert.isAtLeast(full.items.length, 4);
+    assert.isAtLeast(structural.items.length, 1);
+    assert.deepEqual(
+      structural.items.map((entry) => entry.kind),
+      ["plan"],
+    );
+    assert.equal(structural.transcriptRevision, full.transcriptRevision);
+    assert.equal(structural.transcriptItemCount, full.transcriptItemCount);
+    assert.equal(structural.transcriptPreview, full.transcriptPreview);
+    assert.deepEqual(structural.transcriptState, full.transcriptState);
+
+    const frontend = getAcpFrontendSnapshot({ itemMode: "structural" });
+    assert.deepEqual(
+      frontend.activeSnapshot?.items.map((entry) => entry.kind),
+      ["plan"],
+    );
+
+    const defaultFull = getAcpConversationUiSnapshot();
+    assert.isOk(
+      defaultFull.items.find(
+        (entry) => entry.kind === "message" && entry.role === "assistant",
+      ),
+    );
+    assert.isOk(defaultFull.items.find((entry) => entry.kind === "tool_call"));
+  });
+
+  it("keeps ACP chat structural reads plan-only after structural publish with a loaded mirror", async function () {
+    await sendAcpConversationPrompt({
+      message: "structural publish",
+    });
+    const full = await waitForAcpConversationUiSnapshot((snapshot) =>
+      snapshot.items.some((entry) => entry.kind === "tool_call"),
+    );
+    assert.isOk(full.items.find((entry) => entry.kind === "message"));
+    assert.isOk(full.items.find((entry) => entry.kind === "tool_call"));
+
+    const sessionId = getAcpConversationSnapshot().sessionId;
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "plan",
+        entries: [
+          {
+            content: "Keep this structural plan only",
+            status: "in_progress",
+          },
+        ],
+      },
+    } as any);
+
+    const structural = getAcpConversationUiSnapshot(undefined, undefined, {
+      itemMode: "structural",
+    });
+    assert.isAtLeast(structural.items.length, 1);
+    assert.isTrue(structural.items.every((entry) => entry.kind === "plan"));
+    assert.include(
+      structural.items
+        .flatMap(
+          (entry) =>
+            (entry as { entries?: Array<{ content?: string }> }).entries || [],
+        )
+        .map((entry) => entry.content || "")
+        .join("\n"),
+      "structural plan",
+    );
+    assert.notOk(structural.items.find((entry) => entry.kind === "message"));
+    assert.notOk(structural.items.find((entry) => entry.kind === "tool_call"));
+
+    const frontend = getAcpFrontendSnapshot({ itemMode: "structural" });
+    assert.isTrue(
+      (frontend.activeSnapshot?.items || []).every(
+        (entry) => entry.kind === "plan",
+      ),
+    );
+  });
+
   it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {
     setAssistantStreamingRenderEnabled(false);
     setAcpConnectionAdapterFactoryForTests(async () => {
