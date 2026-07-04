@@ -191,6 +191,116 @@ async function loadAcpSkillRunSidebarForSmoke(
   };
 }
 
+async function loadAcpChatSidebarForSmoke(document: any) {
+  const vm = await dynamicImport<typeof import("vm")>("vm");
+  const code = await readProjectFile("addon/content/sidebar/acp-chat.js");
+  const listeners = new Map<string, any[]>();
+  const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+    [];
+  const transcriptRenderCalls: any[] = [];
+  const resetCalls: string[] = [];
+  if (typeof document.addEventListener !== "function") {
+    document.addEventListener = () => undefined;
+  }
+  const bridgeKey = "__zsAcpSidebarBridge";
+  const windowRef: any = {
+    parent: null,
+    top: null,
+    opener: null,
+    wrappedJSObject: null,
+    requestAnimationFrame(callback: any) {
+      callback();
+      return 0;
+    },
+    addEventListener(type: string, handler: any) {
+      const entries = listeners.get(type) || [];
+      entries.push(handler);
+      listeners.set(type, entries);
+    },
+    AssistantConversationView: {
+      projectAcpChatConversationView(source: any = {}) {
+        return {
+          items: (Array.isArray(source.items) ? source.items : []).filter(
+            (entry: any) => entry && entry.kind !== "plan",
+          ),
+          plan: { entries: [], activeEntries: [], active: false },
+          interaction: { kind: "hidden" },
+          usage: source.usage || null,
+        };
+      },
+    },
+    AssistantPanelModel: {
+      projectAcpChatPanelSnapshot(snapshot: any = {}) {
+        return {
+          kind: "acp-chat",
+          labels: snapshot.labels || {},
+          context: {},
+          drawers: {},
+          reply: {},
+          conversation: { items: snapshot.items || [] },
+          raw: snapshot,
+        };
+      },
+    },
+    AssistantPanelRenderer: {
+      renderAssistantPanelSnapshot() {
+        return undefined;
+      },
+    },
+    AssistantTranscriptRenderer: {
+      resetAssistantTranscriptVirtualState(_container: any, pageKey: string) {
+        resetCalls.push(String(pageKey || ""));
+      },
+      renderAssistantTranscript(options: any = {}) {
+        transcriptRenderCalls.push(options);
+        const container = options.container;
+        while (container && container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        for (const item of Array.isArray(options.items) ? options.items : []) {
+          const row = document.createElement("div");
+          row.className = "assistant-transcript-row";
+          row.textContent = String(item.text || item.label || item.id || "");
+          container.appendChild(row);
+        }
+        if (typeof options.onRendered === "function") {
+          options.onRendered({
+            orderKey: "stable",
+            modeKey: options.mode || "plain",
+          });
+        }
+      },
+    },
+  };
+  windowRef[bridgeKey] = {
+    sendAction(action: string, payload: Record<string, unknown>) {
+      actions.push({ action, payload });
+    },
+  };
+  const context = {
+    window: windowRef,
+    document,
+    setTimeout,
+    clearTimeout,
+  };
+  vm.runInNewContext(code, context);
+  return {
+    actions,
+    resetCalls,
+    transcriptRenderCalls,
+    postSnapshot(snapshot: Record<string, unknown>) {
+      for (const handler of listeners.get("message") || []) {
+        handler({
+          data: {
+            type: "acp:snapshot",
+            payload: snapshot,
+          },
+        });
+      }
+    },
+  };
+}
+
 function collectFakeText(node: any): string {
   if (!node) return "";
   return (
@@ -420,6 +530,39 @@ function createFakeDocumentForAssistantPanel() {
   }
 
   return documentRef;
+}
+
+function createAcpChatSidebarHarnessDocument() {
+  const fakeDocument = createFakeDocumentForAssistantPanel();
+  const elements = new Map<string, any>();
+  const shell = fakeDocument.createElement("div");
+  shell.className = "acp-chat-shell";
+  for (const id of [
+    "acp-chat-toolbar",
+    "acp-chat-banner",
+    "acp-chat-drawer",
+    "acp-chat-main",
+    "acp-chat-conversation-window",
+    "acp-transcript",
+    "acp-chat-mode-plain",
+    "acp-chat-mode-bubble",
+    "acp-chat-plan-panel",
+    "acp-chat-interaction",
+    "acp-chat-reply",
+    "acp-chat-details",
+  ]) {
+    const node = fakeDocument.createElement("div");
+    elements.set(id, node);
+    shell.appendChild(node);
+  }
+  fakeDocument.getElementById = (id: string) => elements.get(id) || null;
+  fakeDocument.querySelector = (selector: string) =>
+    selector === ".acp-chat-shell" ? shell : null;
+  return {
+    fakeDocument,
+    elements,
+    transcript: elements.get("acp-transcript"),
+  };
 }
 
 describe("acp ui smoke", function () {
@@ -2315,7 +2458,13 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "function projectConversationView(snapshot)");
     assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
     assert.include(acpChatJs, "Array.isArray(snapshot && snapshot.items)");
-    assert.include(acpChatJs, "const view = projectConversationView(snapshot");
+    assert.include(acpChatJs, "selectedTranscriptPageForConversation");
+    assert.include(
+      acpChatJs,
+      "snapshotTranscriptPaginationVirtualizationEnabled",
+    );
+    assert.include(acpChatJs, "const view = page");
+    assert.include(acpChatJs, "projectConversationView(snapshot || {})");
     assert.include(acpChatJs, "snapshot.transcriptState");
     assert.include(acpChatJs, "acp-chat-transcript-loading");
     assert.include(
@@ -2327,6 +2476,9 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "function compactPanelRenderKey(snapshot)");
     assert.include(acpChatJs, "assistantTranscriptRenderer()");
     assert.include(acpChatJs, "renderer.renderAssistantTranscript");
+    assert.include(acpChatJs, "virtualized: !!page");
+    assert.include(acpChatJs, "pageKey: page ? pageKey : undefined");
+    assert.include(acpChatJs, 'sendAction("load-transcript-page"');
     assert.include(acpChatJs, 'variant: "acp-chat"');
     assert.include(acpChatJs, "function assistantPanelModel()");
     assert.include(acpChatJs, "function assistantPanelRenderer()");
@@ -3012,6 +3164,38 @@ describe("acp ui smoke", function () {
     assert.include(sharedHost, "createSidebarFrame");
     assert.include(sharedHost, "resolveSidebarFrameWindow");
     assert.include(assistantSidebar, 'from "./sidebarBrowserHost"');
+  });
+
+  it("routes ACP Chat transcript page requests without failed-branch refresh mechanisms", async function () {
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+
+    assert.include(assistantSidebar, "readAcpConversationTranscriptPage");
+    assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
+    assert.include(
+      assistantSidebar,
+      "transcriptPaginationVirtualizationEnabled",
+    );
+    assert.include(assistantSidebar, "selectedTranscriptPage");
+    assert.notInclude(assistantSidebar, "subscribeAcpConversationSnapshots");
+    assert.notInclude(assistantSidebar, "notifyFrontend: false");
+
+    const handlerStart = assistantSidebar.indexOf(
+      "async function handleChildAction",
+    );
+    const chatBranchStart = assistantSidebar.indexOf(
+      'if (tab === "acp-chat")',
+      handlerStart,
+    );
+    const chatBranchEnd = assistantSidebar.indexOf(
+      "await handleAcpChatAction",
+      chatBranchStart,
+    );
+    const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
+    assert.include(chatBranch, 'action === "load-transcript-page"');
+    assert.include(chatBranch, "postAcpChatSnapshot");
+    assert.notInclude(chatBranch, "refreshAcpConversationBackends");
   });
 
   it("adds localized ACP labels for dashboard and sidebar actions", async function () {
@@ -4819,6 +5003,170 @@ describe("acp ui smoke", function () {
     assert.include(collectFakeText(transcript), "run B transcript");
     assert.notInclude(collectFakeText(transcript), "run A message");
     assert.lengthOf(requests, 0);
+  });
+
+  it("does not let ACP Chat ready-without-page snapshots revive a previous page", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-a",
+      backendId: "backend-a",
+      activeConversationId: "conversation-a",
+      conversationId: "conversation-a",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 1,
+      transcriptState: {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "backend-a\nconversation-a",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        cursor: 0,
+        total: 1,
+        eventSeq: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "old-message",
+            kind: "message",
+            role: "assistant",
+            text: "old ACP Chat page",
+          },
+        ],
+      },
+      items: [],
+      labels: {},
+    });
+    assert.include(collectFakeText(transcript), "old ACP Chat page");
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-b",
+      backendId: "backend-b",
+      activeConversationId: "conversation-b",
+      conversationId: "conversation-b",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 2,
+      transcriptState: {
+        backendId: "backend-b",
+        conversationId: "conversation-b",
+        state: "ready",
+      },
+      items: [],
+      labels: {},
+    });
+
+    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
+  });
+
+  it("rejects ACP Chat selected transcript pages for the wrong conversation scope", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-current",
+      backendId: "backend-current",
+      activeConversationId: "conversation-current",
+      conversationId: "conversation-current",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 4,
+      transcriptState: {
+        backendId: "backend-current",
+        conversationId: "conversation-current",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "backend-old\nconversation-old",
+        backendId: "backend-old",
+        conversationId: "conversation-old",
+        cursor: 0,
+        total: 1,
+        eventSeq: 4,
+        transcriptRevision: 4,
+        limit: 80,
+        items: [
+          {
+            id: "wrong-message",
+            kind: "message",
+            role: "assistant",
+            text: "wrong ACP Chat page",
+          },
+        ],
+      },
+      items: [],
+      labels: {},
+    });
+
+    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "wrong ACP Chat page");
+  });
+
+  it("renders matching ACP Chat transcript pages and requests more pages with scope", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-a",
+      backendId: "backend-a",
+      activeConversationId: "conversation-a",
+      conversationId: "conversation-a",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 8,
+      transcriptState: {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "backend-a\nconversation-a",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        cursor: 80,
+        prevCursor: 0,
+        total: 81,
+        eventSeq: 8,
+        transcriptRevision: 8,
+        limit: 80,
+        items: [
+          {
+            id: "message-a",
+            kind: "message",
+            role: "assistant",
+            text: "matching ACP Chat page",
+          },
+        ],
+      },
+      items: [],
+      labels: {},
+    });
+
+    assert.include(collectFakeText(transcript), "matching ACP Chat page");
+    const renderCall = sidebar.transcriptRenderCalls.at(-1);
+    assert.equal(renderCall?.virtualized, true);
+    assert.equal(renderCall?.pageKey, "backend-a\nconversation-a");
+    assert.equal(renderCall?.page?.requestId, "backend-a\nconversation-a");
+
+    renderCall.onRequestPage({
+      pageKey: "backend-a\nconversation-a",
+      cursor: 0,
+      limit: 80,
+    });
+
+    assert.deepEqual(sidebar.actions.at(-1), {
+      action: "load-transcript-page",
+      payload: {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        requestId: "backend-a\nconversation-a",
+        cursor: 0,
+        limit: 80,
+      },
+    });
   });
 
   it("preserves the virtual transcript anchor while scrolling through a tall row", async function () {

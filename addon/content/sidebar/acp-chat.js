@@ -11,6 +11,7 @@
     transcriptMode: "",
     transcriptRevision: null,
     transcriptRenderedMode: "",
+    transcriptPageSignature: "",
     transcriptBackendId: "",
     transcriptConversationId: "",
     markdownParser: undefined,
@@ -88,6 +89,7 @@
     state.transcriptMode = "";
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
+    state.transcriptPageSignature = "";
     state.toolActivityExpandedSignature = "";
     state.toolActivityExpandedIds.clear();
   }
@@ -101,6 +103,81 @@
       typeof state.transcriptRevision === "number" &&
       revision < state.transcriptRevision
     );
+  }
+
+  function transcriptRevisionNumber(value) {
+    return Math.max(0, Math.floor(Number(value || 0) || 0));
+  }
+
+  function transcriptPageKey(backendId, conversationId) {
+    return safeText(backendId) && safeText(conversationId)
+      ? safeText(backendId) + "\n" + safeText(conversationId)
+      : "";
+  }
+
+  function selectedTranscriptPage(snapshot) {
+    const page =
+      snapshot &&
+      snapshot.selectedTranscriptPage &&
+      typeof snapshot.selectedTranscriptPage === "object"
+        ? snapshot.selectedTranscriptPage
+        : null;
+    return page && Array.isArray(page.items) ? page : null;
+  }
+
+  function selectedTranscriptPageForConversation(
+    snapshot,
+    backendId,
+    conversationId,
+  ) {
+    const page = selectedTranscriptPage(snapshot);
+    const pageKey = transcriptPageKey(backendId, conversationId);
+    if (!page || !pageKey || safeText(page.requestId) !== pageKey) {
+      return null;
+    }
+    if (safeText(page.backendId) && safeText(page.backendId) !== backendId) {
+      return null;
+    }
+    if (
+      safeText(page.conversationId) &&
+      safeText(page.conversationId) !== conversationId
+    ) {
+      return null;
+    }
+    return page;
+  }
+
+  function selectedTranscriptPageSignature(page) {
+    if (!page) return "";
+    return [
+      safeText(page.requestId),
+      String(transcriptRevisionNumber(page.cursor)),
+      String(transcriptRevisionNumber(page.prevCursor)),
+      String(transcriptRevisionNumber(page.nextCursor)),
+      String(transcriptRevisionNumber(page.total)),
+      String(transcriptRevisionNumber(page.transcriptRevision)),
+      (Array.isArray(page.items) ? page.items : [])
+        .map(function (item) {
+          return safeText(item && item.id);
+        })
+        .join(","),
+    ].join("|");
+  }
+
+  function snapshotTranscriptPaginationVirtualizationEnabled(snapshot) {
+    return (
+      !!snapshot && snapshot.transcriptPaginationVirtualizationEnabled === true
+    );
+  }
+
+  function resetTranscriptVirtualState(pageKey) {
+    const renderer = assistantTranscriptRenderer();
+    if (
+      renderer &&
+      typeof renderer.resetAssistantTranscriptVirtualState === "function"
+    ) {
+      renderer.resetAssistantTranscriptVirtualState(transcriptEl, pageKey);
+    }
   }
 
   function assistantConversationView() {
@@ -233,7 +310,9 @@
       : [];
     return JSON.stringify({
       backendId: safeText(snap.activeBackendId || snap.backendId),
-      conversationId: safeText(snap.activeConversationId || snap.conversationId),
+      conversationId: safeText(
+        snap.activeConversationId || snap.conversationId,
+      ),
       status: safeText(snap.status),
       busy: snap.busy === true,
       sessionId: safeText(snap.sessionId || snap.remoteSessionId),
@@ -248,7 +327,9 @@
       sessionDrawerOpen: state.sessionDrawerOpen,
       detailsDrawerOpen: state.detailsDrawerOpen,
       permissionDrawerOpen: state.permissionRequestDrawerOpen,
-      permissionRequestId: safeText(pendingPermission && pendingPermission.requestId),
+      permissionRequestId: safeText(
+        pendingPermission && pendingPermission.requestId,
+      ),
       sessions: backendSessions.map(function (entry) {
         return {
           backendId: safeText(entry && entry.backendId),
@@ -515,6 +596,7 @@
     const conversationId = safeText(
       snapshot && (snapshot.activeConversationId || snapshot.conversationId),
     );
+    const pageKey = transcriptPageKey(backendId, conversationId);
     if (
       backendId !== state.transcriptBackendId ||
       conversationId !== state.transcriptConversationId
@@ -522,9 +604,20 @@
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
       resetTranscriptRenderState();
+      resetTranscriptVirtualState(pageKey);
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
     }
+    const virtualized =
+      snapshotTranscriptPaginationVirtualizationEnabled(snapshot);
+    const page = virtualized
+      ? selectedTranscriptPageForConversation(
+          snapshot || {},
+          backendId,
+          conversationId,
+        )
+      : null;
+    const pageSignature = page ? selectedTranscriptPageSignature(page) : "";
     const transcriptState =
       snapshot && snapshot.transcriptState ? snapshot.transcriptState : null;
     if (
@@ -553,18 +646,28 @@
       );
       return;
     }
-    const view = projectConversationView(snapshot || {});
+    if (virtualized && !page) {
+      clear(transcriptEl);
+      transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
+      return;
+    }
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    const revision = Number(snapshot && snapshot.transcriptRevision) || 0;
+    const revision = page
+      ? transcriptRevisionNumber(page.transcriptRevision)
+      : Number(snapshot && snapshot.transcriptRevision) || 0;
     if (isStaleTranscriptRevision(revision)) {
       return;
     }
+    const view = page
+      ? { items: page.items || [] }
+      : projectConversationView(snapshot || {});
     const expandedSignature = toolActivityExpandedSignature();
     if (
       state.transcriptRevision === revision &&
       state.transcriptRenderedMode === mode &&
-      state.toolActivityExpandedSignature === expandedSignature
+      state.toolActivityExpandedSignature === expandedSignature &&
+      state.transcriptPageSignature === pageSignature
     ) {
       return;
     }
@@ -596,6 +699,10 @@
     renderer.renderAssistantTranscript({
       container: transcriptEl,
       items: Array.isArray(view.items) ? view.items : [],
+      virtualized: !!page,
+      pageKey: page ? pageKey : undefined,
+      page: page || undefined,
+      transcriptRevision: revision,
       mode,
       variant: "acp-chat",
       nodeMap: state.transcriptNodeMap,
@@ -613,6 +720,27 @@
         snapshot.labels?.transcript?.empty ||
         snapshot.labels?.empty ||
         "No messages yet.",
+      onRequestPage: function (request) {
+        if (!page) {
+          return;
+        }
+        const requestPageKey = safeText(request && request.pageKey);
+        const cursor = Number(request && request.cursor);
+        if (
+          !pageKey ||
+          requestPageKey !== pageKey ||
+          !Number.isFinite(cursor)
+        ) {
+          return;
+        }
+        sendAction("load-transcript-page", {
+          backendId,
+          conversationId,
+          requestId: pageKey,
+          cursor: Math.max(0, Math.floor(cursor)),
+          limit: Math.max(1, Math.floor(Number(request.limit || 80) || 80)),
+        });
+      },
       onToggleExpanded: function (id) {
         if (state.toolActivityExpandedIds.has(id)) {
           state.toolActivityExpandedIds.delete(id);
@@ -627,6 +755,7 @@
         state.transcriptRevision = revision;
         state.transcriptRenderedMode = mode;
         state.toolActivityExpandedSignature = expandedSignature;
+        state.transcriptPageSignature = pageSignature;
       },
     });
   }

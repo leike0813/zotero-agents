@@ -26,6 +26,8 @@
 - [x] `publishMode: "structural"` 已修正为即使 transcript mirror loaded，也不会把 message/thought/tool_call 全量 transcript items 写入 published UI snapshot。
 - [x] 新开并完成 OpenSpec change `acp-chat-transcript-page-reader`；当前工作区显示该 change 已进入 `openspec/changes/archive/2026-07-04-acp-chat-transcript-page-reader/`，并已将 ACP Chat transcript page reader 要求同步到主 spec。
 - [x] `readAcpConversationTranscriptPage()` 已原地增强为 ACP Chat page DTO：保留 `.items` 兼容性，补齐 `backendId`、`conversationId`、`requestId`、`transcriptRevision`、`limit`，并把 pending transcript write flush 收窄到目标 session runtime。
+- [x] 新开并完成 OpenSpec change `acp-chat-selected-transcript-page-rendering` 的实现任务：workspace sidebar 在偏好开启时下发 structural ACP Chat snapshot 与当前 selected transcript page；ACP Chat child 只接受当前 backend/conversation scope 匹配的 page，并通过 shared renderer 的 page virtualization 发 scoped `load-transcript-page` 请求。
+- [x] 本阶段未引入备份分支中的错误路线：未新增 `subscribeAcpConversationSnapshots`，未使用 `notifyFrontend:false`，未新增 session index cache 或 listener `itemMode` map，page request path 不调用 `refreshAcpConversationBackends()`。
 
 已验证：
 
@@ -38,10 +40,12 @@
 - [x] `acp-chat-transcript-page-reader` 聚焦测试通过：6 passing，覆盖 scope metadata、后台 conversation page read、目标 session pending write flush、tail/cursor page metadata。
 - [x] `npx tsc --noEmit`、`npx eslint src/modules/acpSessionManager.ts test/core/96-acp-session-manager.test.ts`、`openspec validate acp-chat-transcript-page-reader --strict` 通过；归档同步后 `openspec validate acp-chat-file-backed-transcript-state --strict` 也通过。
 - [x] touched-file Prettier check 已运行；仍被 `src/modules/acpSessionManager.ts` 与 `test/core/96-acp-session-manager.test.ts` 的既有整文件格式漂移拦住，本轮未做 formatter 批量重写。
+- [x] `acp-chat-selected-transcript-page-rendering` 验证通过：`test/core/96-acp-session-manager.test.ts` 聚焦 grep 22 passing；`test/core/97-acp-ui-smoke.test.ts` 单文件 53 passing；`npx tsc --noEmit`、`openspec validate acp-chat-selected-transcript-page-rendering --strict`、touched-file ESLint/Prettier check 通过。`npm run test:node:raw:core -- "test/core/97-acp-ui-smoke.test.ts" --require test/setup/zotero-mock.ts` 不带 grep 时因脚本携带 core 全量 glob 在 184 秒超时；focused grep 版本通过 4 passing。
 
 尚未完成：
 
-- [ ] ACP Chat 的 workspace sidebar page 编排、child page rendering guard、以及 Skills 风格 publication-path 过滤。
+- [ ] ACP Chat 的 Skills 风格 publication-path live/background 过滤。
+- [ ] ACP Chat 普通 snapshot 的 backend refresh 边界治理与低开销去重策略。
 
 ## 结论
 
@@ -489,7 +493,7 @@ export type AcpConversationTranscriptPage = {
 
 - ACP Chat snapshot 构造为 structural snapshot + selected page。
 - page request 只服务当前 active ACP Chat scope。
-- 不再每次 ACP Chat snapshot 都 refresh backends。
+- page request 不 refresh backends；普通 ACP Chat snapshot 的 refresh 边界留给后续阶段治理。
 - 共享 frontend subscription 继续驱动 ACP Chat、ACP Skills、SkillRunner 三个面板，但重活按 active tab 分流。
 
 关键设计：
@@ -514,11 +518,17 @@ export type AcpConversationTranscriptPage = {
   - 保留单一 frontend subscription，不把它限制为 `acp-chat`。
   - 可把当前 `schedulePostSnapshot()` 细化成 tab-specific schedule，但不要新增 conversation subscription。
   - active tab 是 ACP Chat 时调 ACP Chat snapshot 构造；active tab 是 ACP Skills 时沿用 `postAcpSkillRunSnapshot`；active tab 是 SkillRunner 时沿用 `scheduleSkillRunnerSidebarRefresh`。
-  - backend refresh 只在 install、child-ready、tab-switch、backend-manager 后触发。
+  - backend refresh 边界后续再从普通 snapshot publication path 上收窄，不和 selected page 闭环混在同一个 change。
+
+状态：
+
+- [x] `acp-chat-selected-transcript-page-rendering` 已完成 selected page 编排与 active scope 校验。
+- [ ] 仍未做 live/background refresh 过滤、普通 snapshot backend refresh 边界重写或 cheap signature 去重。
 
 风险控制：
 
-- page request 不调用 `getAcpFrontendSnapshot()` 或 `refreshAcpConversationBackends()`。
+- page request 不调用 `refreshAcpConversationBackends()`。
+- page request 只使用 structural `getAcpFrontendSnapshot()` 读取当前 active scope 做校验，不把它变成新的刷新源。
 - ordinary snapshot 和 page snapshot 不共享过多可变状态。
 - late page 必须被 child scope guard 拦截。
 - 不使用主机端全量 `JSON.stringify(snapshot)` 去重；若需要去重，使用 cheap signature。
@@ -555,13 +565,17 @@ export type AcpConversationTranscriptPage = {
 - `renderTranscript(snapshot)`：
   - 切 scope reset。
   - loading/failed 先处理。
-  - 偏好开启且 transcript ready 但无 page：显示 loading，且不清掉已确认的同 scope ready page。
+  - 偏好开启且 transcript ready 但无 page：显示 loading，不复用旧 conversation/page。
   - 有 page 时：
     - `items = page.items`
     - `virtualized = true`
     - `pageKey = backendId + "\n" + conversationId`
     - `page = selectedTranscriptPage`
   - `onRequestPage` 发 `load-transcript-page`，payload 带 backendId/conversationId/cursor/limit。
+
+状态：
+
+- [x] `acp-chat-selected-transcript-page-rendering` 已完成 child page guard、ready-without-page loading、wrong-scope rejection、matching page render 与 scoped page request。
 
 风险控制：
 
@@ -645,9 +659,9 @@ export type AcpConversationTranscriptPage = {
 2. [x] 接入 SkillRunner 虚拟化，因为它不牵涉后端分页，风险最低。
 3. [x] 在 ACP session manager 增加窄版 structural snapshot，确保 full 默认行为不变。
 4. [x] 增加 ACP Chat page reader，保留 per-session pending write flush 和 durable store fallback。
-5. [ ] 在 workspace sidebar 加 ACP Chat selected page 编排、active-tab 分流和 cheap signature。
+5. [x] 在 workspace sidebar 加 ACP Chat selected page 编排与 active-scope page request guard。
 6. [ ] 增加 ACP Chat live/background refresh 过滤，复制 ACP Skills 的 publication-path 治理思路。
-7. [ ] 在 ACP Chat child 加 page rendering guard。
+7. [x] 在 ACP Chat child 加 page rendering guard。
 8. [ ] 最后再调整 backend refresh 边界触发，确保不影响 ACP Skills/SkillRunner。
 
 这样做可以保证每一步都有独立可验证结果，不会再出现一次性读模型隔离导致三个面板同时失效的问题。
