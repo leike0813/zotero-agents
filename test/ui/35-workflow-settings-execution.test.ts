@@ -887,6 +887,45 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "lists ACP and SkillRunner backends as compatible profiles for skillrunner sequence workflows",
     async function () {
+      Zotero.Prefs.set(
+        backendsConfigPrefKey,
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: "skillrunner-primary",
+              displayName: "skillrunner-primary",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8030",
+              auth: { kind: "none" },
+            },
+            {
+              id: "skillrunner-alt",
+              displayName: "skillrunner-alt",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:18030",
+              auth: { kind: "none" },
+            },
+            {
+              id: "generic-http-local",
+              displayName: "generic-http-local",
+              type: "generic-http",
+              baseUrl: "http://127.0.0.1:8030",
+              auth: { kind: "none" },
+            },
+            {
+              id: "acp-opencode",
+              displayName: "OpenCode ACP",
+              type: "acp",
+              baseUrl: "local://acp-opencode",
+              command: "opencode",
+              args: ["acp"],
+            },
+          ],
+        }),
+        true,
+      );
+
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflow = loaded.workflows.find(
         (entry) => entry.manifest.id === "literature-analysis",

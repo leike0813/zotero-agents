@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { config } from "../../package.json";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -747,12 +748,40 @@ function createBackend(args: Partial<BackendInstance> = {}): BackendInstance {
   };
 }
 
+function seedRecoveredRunBackendsForTests() {
+  Zotero.Prefs.set(
+    `${config.prefsPrefix}.backendsConfigJson`,
+    JSON.stringify({
+      schemaVersion: 2,
+      backends: [
+        createBackend({
+          id: "backend-acp",
+          displayName: "Test ACP",
+          baseUrl: "local://backend-acp",
+        }),
+        createBackend({
+          id: ACP_OPENCODE_BACKEND_ID,
+          displayName: "OpenCode ACP",
+          baseUrl: `local://${ACP_OPENCODE_BACKEND_ID}`,
+          command: "opencode",
+          args: ["acp"],
+          acp: {
+            agentFamily: "opencode",
+          },
+        }),
+      ],
+    }),
+    true,
+  );
+}
+
 describe("ACP SkillRunner-compatible runner", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
     resetWorkflowTasks();
     resetAcpSkillRunsForTests();
     resetRuntimeCommandRegistryForTests();
+    seedRecoveredRunBackendsForTests();
   });
 
   afterEach(async function () {

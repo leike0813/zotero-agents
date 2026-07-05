@@ -3487,6 +3487,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "host.shell.bridgeWindow === frameWindow");
     assert.include(assistantSidebar, "shell-bridge-installed");
     assert.include(assistantSidebar, "child-ready-duplicate");
+    assert.include(assistantSidebar, "publishedWorkspaceInitScopeKey");
+    assert.include(assistantSidebar, "publishedChildInitScopeKeys");
+    assert.include(assistantSidebar, "shell-ready-init-skip");
+    assert.include(assistantSidebar, "child-ready-init-skip");
     assert.include(assistantSidebar, "latestSkillRunnerBaseSnapshot");
     assert.include(assistantSidebar, "skillRunnerAttachedFrameWindow");
     assert.include(assistantSidebar, "publishLatestSkillRunnerChromeSnapshot");
@@ -3505,6 +3509,45 @@ describe("acp ui smoke", function () {
     const pulseBody = assistantSidebar.slice(pulseStart, pulseEnd);
     assert.notInclude(pulseBody, "installShellBridge(host)");
 
+    const postShellStart = assistantSidebar.indexOf(
+      "function postShellMessage",
+    );
+    const postShellEnd = assistantSidebar.indexOf(
+      "function writeAssistantWorkspaceBridgeTarget",
+      postShellStart,
+    );
+    const postShellBody = assistantSidebar.slice(postShellStart, postShellEnd);
+    assert.notInclude(postShellBody, "scheduleShellHandshake");
+
+    const refreshPredicateStart = assistantSidebar.indexOf(
+      "function shouldRefreshAcpChatBackendsForWorkspacePulse",
+    );
+    const refreshPredicateEnd = assistantSidebar.indexOf(
+      "function postShellInit",
+      refreshPredicateStart,
+    );
+    const refreshPredicate = assistantSidebar.slice(
+      refreshPredicateStart,
+      refreshPredicateEnd,
+    );
+    assert.include(refreshPredicate, 'return reason === "shell-ready";');
+    assert.notInclude(refreshPredicate, "tab-switch");
+    assert.notInclude(refreshPredicate, "shell-load");
+
+    const subscriptionStart = assistantSidebar.indexOf(
+      "host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots",
+    );
+    const subscriptionEnd = assistantSidebar.indexOf(
+      "host.removeAcpChatPanelSubscription",
+      subscriptionStart,
+    );
+    const sharedAcpSubscription = assistantSidebar.slice(
+      subscriptionStart,
+      subscriptionEnd,
+    );
+    assert.include(sharedAcpSubscription, "updateAssistantAttentionIndicator");
+    assert.notInclude(sharedAcpSubscription, "schedulePostSnapshot");
+
     const childActionStart = assistantSidebar.indexOf(
       "async function handleChildAction",
     );
@@ -3521,7 +3564,9 @@ describe("acp ui smoke", function () {
       childReadyEnd,
     );
     assert.include(childReadyBranch, "host.readyTabs.has(tab)");
+    assert.include(childReadyBranch, "hasPublishedChildBaselineInit");
     assert.include(childReadyBranch, "child-ready-duplicate");
+    assert.include(childReadyBranch, "child-ready-init-skip");
     assert.include(childReadyBranch, "return;");
     assert.include(childReadyBranch, "publishAssistantWorkspaceStatePulse");
 

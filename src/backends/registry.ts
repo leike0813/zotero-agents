@@ -1,9 +1,5 @@
 import {
   ACP_BACKEND_TYPE,
-  ACP_OPENCODE_ARGS,
-  ACP_OPENCODE_BACKEND_ID,
-  ACP_OPENCODE_COMMAND,
-  ACP_OPENCODE_DISPLAY_NAME,
   BACKEND_TYPES,
   GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
@@ -33,7 +29,6 @@ const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
 const WORKFLOW_SETTINGS_PREF_KEY = "workflowSettingsJson";
 const TASK_DASHBOARD_HISTORY_PREF_KEY = "taskDashboardHistoryJson";
 const BACKENDS_SCHEMA_VERSION = 2;
-const LEGACY_REMOVED_BACKEND_IDS = new Set(["skillrunner-local"]);
 
 type BackendsRegistryCacheEntry = {
   rawText: string;
@@ -649,39 +644,6 @@ function normalizeBackendEntry(
   };
 }
 
-function isLegacyAutomaticOpenCodeBackend(backend: BackendInstance) {
-  return (
-    backend.id === ACP_OPENCODE_BACKEND_ID &&
-    backend.type === ACP_BACKEND_TYPE &&
-    backend.command === "npx" &&
-    JSON.stringify(backend.args || []) ===
-      JSON.stringify(["opencode-ai@latest", "acp"]) &&
-    (!backend.displayName ||
-      backend.displayName === ACP_OPENCODE_DISPLAY_NAME) &&
-    (!backend.acp?.agentFamily || backend.acp.agentFamily === "opencode") &&
-    Object.keys(backend.env || {}).length === 0
-  );
-}
-
-function migrateLegacyAutomaticOpenCodeBackend(backend: BackendInstance) {
-  if (!isLegacyAutomaticOpenCodeBackend(backend)) {
-    return { backend, migrated: false };
-  }
-  return {
-    backend: markAcpBackendConnectionState({
-      ...backend,
-      displayName: ACP_OPENCODE_DISPLAY_NAME,
-      command: ACP_OPENCODE_COMMAND,
-      args: [...ACP_OPENCODE_ARGS],
-      acp: {
-        ...backend.acp,
-        agentFamily: "opencode",
-      },
-    }),
-    migrated: true,
-  };
-}
-
 export function syncBackendReferenceState(args: {
   idMapping?: Map<string, string>;
   removedIds?: Iterable<string>;
@@ -777,40 +739,9 @@ export function loadBackendsRegistrySync(): LoadedBackends {
     }
   }
 
-  let migratedLegacyOpenCode = false;
-  const migratedBackends = validBackends.map((backend) => {
-    const result = migrateLegacyAutomaticOpenCodeBackend(backend);
-    migratedLegacyOpenCode = migratedLegacyOpenCode || result.migrated;
-    return result.backend;
-  });
-
-  const removedLegacyIds = new Set<string>();
-  const finalBackends = migratedBackends.filter((backend) => {
-    if (!LEGACY_REMOVED_BACKEND_IDS.has(backend.id)) {
-      return true;
-    }
-    removedLegacyIds.add(backend.id);
-    return false;
-  });
-  let cacheRawText = rawText;
-  if (removedLegacyIds.size > 0 || migratedLegacyOpenCode) {
-    cacheRawText = JSON.stringify(createBackendsPrefsDocument(finalBackends));
-    setPref(BACKENDS_CONFIG_PREF_KEY, cacheRawText);
-    backendRegistryReadDiagnostics.builtinRewriteCount += 1;
-  }
-  if (removedLegacyIds.size > 0) {
-    syncBackendReferences({
-      idMapping: new Map<string, string>(),
-      removedIds: removedLegacyIds,
-    });
-    warnings.push(
-      `Removed legacy backend ids: ${Array.from(removedLegacyIds.values()).join(", ")}`,
-    );
-  }
-
-  return cacheLoadedBackends(cacheRawText, {
+  return cacheLoadedBackends(rawText, {
     sourcePath,
-    backends: finalBackends,
+    backends: validBackends,
     warnings,
     errors,
     invalidBackends,

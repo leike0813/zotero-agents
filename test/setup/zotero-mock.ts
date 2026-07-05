@@ -27,6 +27,8 @@ type ZoteroMock = {
     delay: (ms: number) => Promise<void>;
   };
   debug: (...args: unknown[]) => void;
+  logError: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
   DataDirectory: { dir: string };
   File: {
     putContentsAsync: (file: MockFile, content: string) => Promise<void>;
@@ -47,6 +49,8 @@ type ZoteroMock = {
     linkFromFile: (opts: {
       file: MockFile;
       parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
     }) => Promise<MockItem>;
     importEmbeddedImage?: (opts: {
       blob: Blob;
@@ -2475,6 +2479,8 @@ function createZoteroMock(): ZoteroMock {
         }),
     },
     debug: () => {},
+    logError: () => {},
+    warn: () => {},
     DataDirectory: { dir: mockZoteroDataDir },
     File: {
       pathToFile: (filePath: string | MockFile) => {
@@ -2525,12 +2531,23 @@ function createZoteroMock(): ZoteroMock {
       linkFromFile: async ({
         file,
         parentItemID,
+        title,
+        contentType,
       }: {
         file: MockFile;
         parentItemID?: number | null;
+        title?: string;
+        contentType?: string;
       }) => {
         const attachment = new MockItem("attachment");
         attachment.parentItemID = parentItemID ?? null;
+        if (title) {
+          attachment.setField("title", title);
+        }
+        if (contentType) {
+          attachment.setField("contentType", contentType);
+          (attachment as any).attachmentContentType = contentType;
+        }
         attachment.setFilePath(file.path);
         await attachment.saveTx();
         return attachment;

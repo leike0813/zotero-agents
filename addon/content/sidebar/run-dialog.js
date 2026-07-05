@@ -749,7 +749,6 @@
         taskKey,
       );
       render(state.workspaceEnvelope || {});
-      sendAction("close-drawer", {});
       sendAction("select-task", { taskKey });
       return;
     }

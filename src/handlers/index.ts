@@ -482,6 +482,12 @@ export const handlers = {
     createFromPath: async (options: AttachmentPathOptions) => {
       const file = await ensureFileFromPath(options);
       const parent = options.parent ? resolveItem(options.parent) : null;
+      const linkOptions = {
+        file,
+        ...(parent ? { parentItemID: parent.id } : {}),
+        ...(options.title ? { title: options.title } : {}),
+        ...(options.mimeType ? { contentType: options.mimeType } : {}),
+      };
       const attachment = await measureAsyncTestPerformanceSpan(
         "handlers:attachment.createFromPath:linkFromFile",
         {
@@ -489,38 +495,8 @@ export const handlers = {
           hasPath: !!String(options.path || "").trim(),
           hasDataPath: !!String(options.dataPath || "").trim(),
         },
-        () =>
-          parent
-            ? Zotero.Attachments.linkFromFile({
-                file,
-                parentItemID: parent.id,
-              })
-            : Zotero.Attachments.linkFromFile({ file }),
+        () => Zotero.Attachments.linkFromFile(linkOptions),
       );
-      const patch: FieldPatch = {};
-      if (options.title) {
-        patch.title = options.title;
-      }
-      if (options.mimeType) {
-        patch.contentType = options.mimeType;
-      }
-      const filtered: FieldPatch = {};
-      for (const [field, value] of Object.entries(patch)) {
-        try {
-          assertValidField(attachment, field);
-        } catch {
-          continue;
-        }
-        filtered[field] = value;
-      }
-      if (Object.keys(filtered).length > 0) {
-        await applyFieldPatch(attachment, filtered, {
-          spanName: "handlers:attachment.createFromPath:updateFields:saveTx",
-          labels: {
-            fieldCount: Object.keys(filtered).length,
-          },
-        });
-      }
       return attachment;
     },
     createFromUrl: async (options: AttachmentUrlOptions) => {

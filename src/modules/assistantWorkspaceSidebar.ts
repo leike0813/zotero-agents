@@ -151,6 +151,8 @@ type AssistantWorkspaceHostRuntime = {
   snapshotRevision: number;
   acpChatSnapshotBuildSeq: number;
   acpSkillRunSnapshotBuildSeq: number;
+  publishedWorkspaceInitScopeKey?: string | null;
+  publishedChildInitScopeKeys: Set<string>;
   lastAcpSkillRunSnapshotSignature?: string | null;
   lastAcpSkillWaitingToastKeys: Set<string>;
   readyTabs: Set<AssistantWorkspaceTab>;
@@ -616,6 +618,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   detachSkillRunnerFromShell(host, "close-active-sidebar");
+  clearAssistantWorkspaceInitPublicationState(host, "close-active-sidebar");
   deactivateTarget(host, activeTarget);
   return true;
 }
@@ -711,6 +714,10 @@ function createSkillRunnerHostActionHandler(
     payload?: Record<string, unknown>;
   }) => {
     const action = String(envelope.action || "").trim();
+    if (action === "select-task") {
+      host.drawerOpen = false;
+      return false;
+    }
     if (action === "toggle-drawer") {
       host.drawerOpen = !host.drawerOpen;
       publishLatestSkillRunnerChromeSnapshot(host);
@@ -818,9 +825,6 @@ function postShellMessage(
     },
     "*",
   );
-  if (!host.shell.ready) {
-    scheduleShellHandshake(host, `post:${type}`);
-  }
 }
 
 function writeAssistantWorkspaceBridgeTarget(
@@ -868,6 +872,82 @@ function clearAssistantWorkspaceReadyTabs(
   host.readyTabs.clear();
 }
 
+function assistantWorkspaceInitScopeKey(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget | null = host.activeTarget,
+) {
+  if (!target) {
+    return "";
+  }
+  return `${host.scopeKey}\n${target}`;
+}
+
+function assistantWorkspaceChildInitScopeKey(
+  host: AssistantWorkspaceHostRuntime,
+  tab: AssistantWorkspaceTab,
+) {
+  const scopeKey = assistantWorkspaceInitScopeKey(host);
+  return scopeKey ? `${scopeKey}\n${tab}` : "";
+}
+
+function clearAssistantWorkspaceInitPublicationState(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (
+    !host.publishedWorkspaceInitScopeKey &&
+    host.publishedChildInitScopeKeys.size === 0
+  ) {
+    return;
+  }
+  logAssistantWorkspaceDebug(
+    host,
+    "workspace-init-publication-clear",
+    "Assistant Workspace init publication state cleared.",
+    {
+      reason,
+      publishedWorkspaceInitScopeKey: host.publishedWorkspaceInitScopeKey || "",
+      publishedChildInitScopes: Array.from(host.publishedChildInitScopeKeys),
+    },
+  );
+  host.publishedWorkspaceInitScopeKey = null;
+  host.publishedChildInitScopeKeys.clear();
+}
+
+function hasPublishedWorkspaceBaselineInit(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  const scopeKey = assistantWorkspaceInitScopeKey(host);
+  return !!scopeKey && host.publishedWorkspaceInitScopeKey === scopeKey;
+}
+
+function markWorkspaceBaselineInitPublished(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  const scopeKey = assistantWorkspaceInitScopeKey(host);
+  if (scopeKey) {
+    host.publishedWorkspaceInitScopeKey = scopeKey;
+  }
+}
+
+function hasPublishedChildBaselineInit(
+  host: AssistantWorkspaceHostRuntime,
+  tab: AssistantWorkspaceTab,
+) {
+  const scopeKey = assistantWorkspaceChildInitScopeKey(host, tab);
+  return !!scopeKey && host.publishedChildInitScopeKeys.has(scopeKey);
+}
+
+function markChildBaselineInitPublished(
+  host: AssistantWorkspaceHostRuntime,
+  tab: AssistantWorkspaceTab,
+) {
+  const scopeKey = assistantWorkspaceChildInitScopeKey(host, tab);
+  if (scopeKey) {
+    host.publishedChildInitScopeKeys.add(scopeKey);
+  }
+}
+
 function detachSkillRunnerFromShell(
   host: AssistantWorkspaceHostRuntime,
   reason: string,
@@ -900,6 +980,7 @@ function resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime) {
     host.shell.loaded = false;
     host.shell.ready = false;
     clearAssistantWorkspaceReadyTabs(host, "shell-window-change");
+    clearAssistantWorkspaceInitPublicationState(host, "shell-window-change");
   }
   return current || null;
 }
@@ -1037,6 +1118,14 @@ function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
     "shell-ready",
     "Assistant Workspace shell ready accepted.",
   );
+  if (hasPublishedWorkspaceBaselineInit(host)) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-ready-init-skip",
+      "Assistant Workspace shell ready acknowledged after baseline init was already published.",
+    );
+    return;
+  }
   publishAssistantWorkspaceStatePulse(host, "shell-ready");
 }
 
@@ -1510,12 +1599,7 @@ function canPublishAssistantWorkspaceStatePulse(
 }
 
 function shouldRefreshAcpChatBackendsForWorkspacePulse(reason: string) {
-  return (
-    reason === "open-tab-request" ||
-    reason === "shell-load" ||
-    reason === "shell-ready" ||
-    reason === "tab-switch"
-  );
+  return reason === "shell-ready";
 }
 
 function postShellInit(
@@ -1536,6 +1620,9 @@ function postInitialSnapshotsForAllTabs(
 ) {
   for (const tab of ASSISTANT_WORKSPACE_TABS) {
     postSnapshotForTab(host, target, tab, phase, { force: true });
+    if (phase === "init") {
+      markChildBaselineInitPublished(host, tab);
+    }
   }
 }
 
@@ -1579,6 +1666,7 @@ function publishAssistantWorkspaceStatePulse(
   if (tab) {
     if (reason === "child-ready") {
       host.readyTabs.add(tab);
+      markChildBaselineInitPublished(host, tab);
     }
     postSnapshotForTab(host, target, tab, phase, {
       force: reason === "child-ready" || reason === "tab-switch",
@@ -1587,6 +1675,7 @@ function publishAssistantWorkspaceStatePulse(
   }
   if (phase === "init") {
     postInitialSnapshotsForAllTabs(host, target, phase);
+    markWorkspaceBaselineInitPublished(host);
     return true;
   }
   postSnapshotForTab(host, target, host.activeTab, phase, {
@@ -1986,6 +2075,16 @@ async function handleChildAction(
       );
       return;
     }
+    if (hasPublishedChildBaselineInit(host, tab)) {
+      host.readyTabs.add(tab);
+      logAssistantWorkspaceDebug(
+        host,
+        "child-ready-init-skip",
+        "Assistant Workspace child ready acknowledged after baseline init was already published.",
+        { target, tab },
+      );
+      return;
+    }
     publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
     return;
   }
@@ -2199,7 +2298,10 @@ async function handleAcpChatAction(
     }
     if (action === "set-active-backend") {
       const backendId = String(payload.backendId || "").trim();
-      if (backendId) await setActiveAcpBackend({ backendId });
+      if (backendId) {
+        await setActiveAcpBackend({ backendId });
+        scheduleAcpChatBackendRefreshBoundary(host, target);
+      }
       return;
     }
     if (action === "set-active-conversation") {
@@ -2555,6 +2657,7 @@ function commitAssistantWorkspaceTarget(
   );
   host.activeTarget = target;
   clearAssistantWorkspaceReadyTabs(host, "target-commit");
+  clearAssistantWorkspaceInitPublicationState(host, "target-commit");
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
   setDockActive(host.reader, "reader", target === "reader");
@@ -2770,6 +2873,8 @@ export function installAssistantWorkspaceSidebarShell(
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
+    publishedWorkspaceInitScopeKey: null,
+    publishedChildInitScopeKeys: new Set<string>(),
     shellHandshakeTimer: null,
     shellHandshakeAttempt: 0,
     acpChatBackendRefreshInFlight: false,
@@ -2789,11 +2894,7 @@ export function installAssistantWorkspaceSidebarShell(
   mountLibraryPane(host);
   mountReaderPane(host);
   host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots(() => {
-    if (host.activeTab === "acp-chat") {
-      updateAssistantAttentionIndicator(host);
-      return;
-    }
-    schedulePostSnapshot(host);
+    updateAssistantAttentionIndicator(host);
   });
   host.removeAcpChatPanelSubscription = subscribeAcpChatPanelSnapshots(
     (change) => {

@@ -188,6 +188,15 @@ describe("suite governance constraints", function () {
     );
   });
 
+  it("Risk: node raw suite excludes Zotero runner aggregate suites", function () {
+    const scripts = getScripts();
+
+    assert.match(
+      scripts["test:node:raw"] || "",
+      /--ignore\s+"test\/zotero\/\*\*\/\*\.test\.ts"/i,
+    );
+  });
+
   it("Risk: MR-02 keeps full-suite scripts explicitly pinned to full mode", function () {
     const scripts = getScripts();
 

@@ -261,6 +261,61 @@ describeHandlersSuite("handlers", function () {
     }
   });
 
+  it("AttachmentHandler.createFromPath applies title and MIME type during link creation", async function () {
+    const parent = await createParentItem("Handler Create From Path Parent");
+    const file = await createTempFile(
+      "handler-create-from-path.txt",
+      "create from path attachment",
+    );
+    const originalLinkFromFile = Zotero.Attachments.linkFromFile;
+    let capturedOptions: {
+      parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
+    } | null = null;
+    let attachment: Zotero.Item | null = null;
+    Zotero.Attachments.linkFromFile = (async (options: {
+      file: typeof file;
+      parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
+    }) => {
+      capturedOptions = {
+        parentItemID: options.parentItemID,
+        title: options.title,
+        contentType: options.contentType,
+      };
+      const created = await originalLinkFromFile(options);
+      attachment = created;
+      created.saveTx = async () => {
+        throw new Error(
+          "createFromPath metadata should not require post-create saveTx",
+        );
+      };
+      return created;
+    }) as typeof Zotero.Attachments.linkFromFile;
+
+    try {
+      attachment = await handlers.attachment.createFromPath({
+        parent,
+        path: file.path,
+        title: "Native Attachment Title",
+        mimeType: "text/plain",
+      });
+
+      assert.equal(capturedOptions?.parentItemID, parent.id);
+      assert.equal(capturedOptions?.title, "Native Attachment Title");
+      assert.equal(capturedOptions?.contentType, "text/plain");
+      assert.equal(attachment.parentItemID, parent.id);
+      assert.equal(attachment.getField("title"), "Native Attachment Title");
+      assert.equal(attachment.getField("contentType"), "text/plain");
+    } finally {
+      Zotero.Attachments.linkFromFile = originalLinkFromFile;
+      await cleanupObject(attachment ?? undefined);
+      await cleanupObject(parent);
+    }
+  });
+
   it("AttachmentHandler.remove deletes an attachment", async function () {
     if (KEEP_TEST_OBJECTS) {
       this.skip();

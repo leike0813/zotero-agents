@@ -215,7 +215,7 @@ describe("library artifacts column", function () {
     );
   });
 
-  it("redraws artifact rows without refreshing item tree columns after lazy scans", async function () {
+  it("refreshes artifact rows without refreshing item tree columns after lazy scans", async function () {
     const parent = await createParentItem("Paper");
     await createNote(
       parent,
@@ -249,11 +249,11 @@ describe("library artifacts column", function () {
         ),
         "",
       );
-      await waitForArtifactColumnRedraw();
+      await waitForArtifactColumnRefresh();
 
       assert.equal(refreshColumnsCalls, 0);
       assert.deepEqual(triggerCalls, [
-        { event: "redraw", type: "item", ids: [parent.id] },
+        { event: "refresh", type: "item", ids: [parent.id] },
       ]);
       assert.equal(
         libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
@@ -267,7 +267,7 @@ describe("library artifacts column", function () {
     }
   });
 
-  it("does not redraw rows after a lazy scan resolves to the already rendered empty state", async function () {
+  it("does not refresh rows after a lazy scan resolves to the already rendered empty state", async function () {
     const parent = await createParentItem("Paper");
     const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
     const originalTrigger = Zotero.Notifier.trigger;
@@ -288,7 +288,7 @@ describe("library artifacts column", function () {
         ),
         "",
       );
-      await waitForArtifactColumnRedraw();
+      await waitForArtifactColumnRefresh();
 
       assert.equal(refreshColumnsCalls, 0);
       assert.equal(triggerCalls, 0);
@@ -304,7 +304,7 @@ describe("library artifacts column", function () {
     }
   });
 
-  it("redraws affected parent rows without refreshing columns for item changes", async function () {
+  it("refreshes affected parent rows without refreshing columns for item changes", async function () {
     const parent = await createParentItem("Paper");
     const note = await createNote(
       parent,
@@ -333,11 +333,11 @@ describe("library artifacts column", function () {
 
     try {
       notifyLibraryArtifactsColumnItemsChanged([note.id]);
-      await waitForArtifactColumnRedraw();
+      await waitForArtifactColumnRefresh();
 
       assert.equal(refreshColumnsCalls, 0);
       assert.deepEqual(triggerCalls, [
-        { event: "redraw", type: "item", ids: [parent.id] },
+        { event: "refresh", type: "item", ids: [parent.id] },
       ]);
     } finally {
       Zotero.ItemTreeManager.refreshColumns = originalRefreshColumns;
@@ -433,7 +433,7 @@ async function createParentItem(title: string) {
   return item;
 }
 
-async function waitForArtifactColumnRedraw() {
+async function waitForArtifactColumnRefresh() {
   await new Promise((resolve) => setTimeout(resolve, 150));
 }
 

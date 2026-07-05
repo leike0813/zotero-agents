@@ -156,7 +156,7 @@ describe("provider/backend registry", function () {
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 2);
+    assert.lengthOf(loaded.backends, 1);
     const matched = loaded.backends.find(
       (entry) => entry.id === "skillrunner-primary",
     );
@@ -241,7 +241,7 @@ describe("provider/backend registry", function () {
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 2);
+    assert.lengthOf(loaded.backends, 1);
     const matched = loaded.backends.find(
       (entry) => entry.id === "acp-opencode-dev",
     );
@@ -255,7 +255,7 @@ describe("provider/backend registry", function () {
     });
   });
 
-  it("keeps user-edited acp-opencode profile and only seeds builtin when missing", async function () {
+  it("keeps user-edited acp-opencode profile without synthesizing a builtin profile", async function () {
     setBackendsConfig({
       schemaVersion: 2,
       backends: [
@@ -309,7 +309,7 @@ describe("provider/backend registry", function () {
     });
   });
 
-  it("migrates the legacy automatic OpenCode ACP profile to the bare command", async function () {
+  it("preserves explicit legacy OpenCode ACP launch metadata without migration", async function () {
     setBackendsConfig({
       schemaVersion: 2,
       backends: [
@@ -333,13 +333,16 @@ describe("provider/backend registry", function () {
     assert.isUndefined(loaded.fatalError);
     assert.lengthOf(loaded.backends, 1);
     assert.equal(loaded.backends[0].id, "acp-opencode");
-    assert.equal(loaded.backends[0].command, "opencode");
-    assert.deepEqual(loaded.backends[0].args, ["acp"]);
+    assert.equal(loaded.backends[0].command, "npx");
+    assert.deepEqual(loaded.backends[0].args, ["opencode-ai@latest", "acp"]);
 
     const persisted = readPersistedBackendsConfig();
     assert.equal(persisted.backends?.[0]?.id, "acp-opencode");
-    assert.equal(persisted.backends?.[0]?.command, "opencode");
-    assert.deepEqual(persisted.backends?.[0]?.args, ["acp"]);
+    assert.equal(persisted.backends?.[0]?.command, "npx");
+    assert.deepEqual(persisted.backends?.[0]?.args, [
+      "opencode-ai@latest",
+      "acp",
+    ]);
   });
 
   it("resolves first provider-compatible backend when no preferred profile is set", async function () {

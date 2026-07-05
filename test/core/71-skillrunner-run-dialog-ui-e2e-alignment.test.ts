@@ -226,7 +226,7 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(js, 'sendAction("cancel-run"');
     assert.include(js, 'sendAction("archive-run"');
     assert.include(js, 'sendAction("select-task"');
-    assert.include(
+    assert.notInclude(
       js,
       'sendAction("close-drawer", {});\n      sendAction("select-task"',
     );

@@ -48,13 +48,13 @@ const ARTIFACT_DEFINITIONS: Array<{
     icon: "icon_artifact_citation_analysis.svg",
   },
 ];
-const REDRAW_DEBOUNCE_MS = 100;
+const REFRESH_DEBOUNCE_MS = 100;
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 
 let registeredColumnDataKey: string | false | undefined;
-let redrawTimer: ReturnType<typeof setTimeout> | undefined;
-let redrawAllItems = false;
-const pendingRedrawItemIDs = new Set<number>();
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let refreshAllItems = false;
+const pendingRefreshItemIDs = new Set<number>();
 const stateCache = new Map<number, ArtifactColumnState>();
 const pendingScans = new Set<number>();
 
@@ -102,11 +102,11 @@ export function notifyLibraryArtifactsColumnItemsChanged(
 ) {
   if (!ids.length) {
     clearArtifactsColumnCache();
-    scheduleItemRowsRedraw();
+    scheduleItemRowsRefresh();
     return;
   }
   let resolvedAny = false;
-  const redrawItemIDs = new Set<number>();
+  const refreshItemIDs = new Set<number>();
   for (const id of ids) {
     const numericID = Number(id);
     if (!Number.isFinite(numericID)) {
@@ -120,18 +120,18 @@ export function notifyLibraryArtifactsColumnItemsChanged(
     const parentID = Number(item.parentID || 0);
     if (parentID > 0) {
       clearCachedItem(parentID);
-      redrawItemIDs.add(parentID);
+      refreshItemIDs.add(parentID);
     } else if (isTopLevelRegularItem(item)) {
-      redrawItemIDs.add(numericID);
+      refreshItemIDs.add(numericID);
     }
     clearCachedItem(numericID);
   }
   if (!resolvedAny) {
     clearArtifactsColumnCache();
-    scheduleItemRowsRedraw();
+    scheduleItemRowsRefresh();
     return;
   }
-  scheduleItemRowsRedraw([...redrawItemIDs]);
+  scheduleItemRowsRefresh([...refreshItemIDs]);
 }
 
 export function resetLibraryArtifactsColumnForTests() {
@@ -162,7 +162,7 @@ async function scanItemArtifacts(item: ArtifactItem) {
     const previousState = stateCache.get(item.id);
     stateCache.set(item.id, state);
     if (previousState !== state && (state || previousState !== undefined)) {
-      scheduleItemRowsRedraw([item.id]);
+      scheduleItemRowsRefresh([item.id]);
     }
   } catch (error) {
     stateCache.set(item.id, "");
@@ -427,38 +427,38 @@ function clearCachedItem(itemID: number) {
 function clearArtifactsColumnCache() {
   stateCache.clear();
   pendingScans.clear();
-  if (redrawTimer) {
-    clearTimeout(redrawTimer);
-    redrawTimer = undefined;
+  if (refreshTimer) {
+    clearTimeout(refreshTimer);
+    refreshTimer = undefined;
   }
-  redrawAllItems = false;
-  pendingRedrawItemIDs.clear();
+  refreshAllItems = false;
+  pendingRefreshItemIDs.clear();
 }
 
-function scheduleItemRowsRedraw(itemIDs?: number[]) {
+function scheduleItemRowsRefresh(itemIDs?: number[]) {
   if (!itemIDs) {
-    redrawAllItems = true;
-    pendingRedrawItemIDs.clear();
-  } else if (!redrawAllItems) {
+    refreshAllItems = true;
+    pendingRefreshItemIDs.clear();
+  } else if (!refreshAllItems) {
     for (const itemID of itemIDs) {
       if (Number.isFinite(itemID)) {
-        pendingRedrawItemIDs.add(itemID);
+        pendingRefreshItemIDs.add(itemID);
       }
     }
   }
-  if (redrawTimer) {
+  if (refreshTimer) {
     return;
   }
-  redrawTimer = setTimeout(() => {
-    redrawTimer = undefined;
-    const shouldRedrawAllItems = redrawAllItems;
-    const ids = redrawAllItems ? [] : [...pendingRedrawItemIDs];
-    redrawAllItems = false;
-    pendingRedrawItemIDs.clear();
-    if (ids.length || shouldRedrawAllItems) {
-      void Zotero.Notifier.trigger("redraw", "item", ids);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = undefined;
+    const shouldRefreshAllItems = refreshAllItems;
+    const ids = refreshAllItems ? [] : [...pendingRefreshItemIDs];
+    refreshAllItems = false;
+    pendingRefreshItemIDs.clear();
+    if (ids.length || shouldRefreshAllItems) {
+      void Zotero.Notifier.trigger("refresh", "item", ids);
     }
-  }, REDRAW_DEBOUNCE_MS);
+  }, REFRESH_DEBOUNCE_MS);
 }
 
 export const libraryArtifactsColumnInternalsForTests = {

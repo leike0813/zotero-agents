@@ -42,11 +42,28 @@
 - [x] touched-file Prettier check 已运行；仍被 `src/modules/acpSessionManager.ts` 与 `test/core/96-acp-session-manager.test.ts` 的既有整文件格式漂移拦住，本轮未做 formatter 批量重写。
 - [x] `acp-chat-selected-transcript-page-rendering` 验证通过：`test/core/96-acp-session-manager.test.ts` 聚焦 grep 22 passing；`test/core/97-acp-ui-smoke.test.ts` 单文件 53 passing；`npx tsc --noEmit`、`openspec validate acp-chat-selected-transcript-page-rendering --strict`、touched-file ESLint/Prettier check 通过。`npm run test:node:raw:core -- "test/core/97-acp-ui-smoke.test.ts" --require test/setup/zotero-mock.ts` 不带 grep 时因脚本携带 core 全量 glob 在 184 秒超时；focused grep 版本通过 4 passing。
 
-尚未完成：
+## 进度更新（2026-07-05）
 
-- [ ] ACP Chat 的 Skills 风格 publication-path live/background 过滤。
-- [ ] ACP Chat 普通 snapshot 的 backend refresh 边界治理与低开销去重策略。
-- [ ] ACP Chat panel publication/read-model 层重构：将 transcript panel snapshot 发布从 `subscribeAcpFrontendSnapshots` 的共享元数据通知路径中拆出，避免 refresh、notify、snapshot read、transcript hydrate 混在同一条链路里。
+已完成并落地：
+
+- [x] 新开并完成 OpenSpec change `acp-chat-panel-read-model`；新增 `prepareAcpChatPanelSnapshot()`，ordinary ACP Chat panel snapshot 改为 no-refresh read-model publication，不再在 snapshot post path 内调用 backend refresh。
+- [x] ACP Chat typed panel change 与刷新过滤已落地：`shouldRefreshAcpChatSnapshotForChange()` / `isPureAcpChatBackgroundChange()` 能区分 active scope、background、transcript append、status、permission、session-list 等变更，避免纯后台或纯 append 变化重建当前 child panel。
+- [x] `subscribeAcpFrontendSnapshots` 已从 ACP Chat transcript panel publication 中拆出；它保留 attention/metadata 职责，不再承担 ACP Chat transcript panel 的发布驱动。
+- [x] 新开并完成 OpenSpec change `assistant-workspace-empty-acp-chat-init`；ACP Chat read-model 已支持无 backend 与有 backend 无 conversation 两级空态，并且空态不读取 transcript page、不阻塞 ACP Skills / SkillRunner 初始化。
+- [x] 新开并完成 OpenSpec change `assistant-workspace-explicit-handshake`；Assistant Workspace shell/child 初始化改为显式、可重试、幂等 handshake，解决单次 load/ready 边沿事件丢失导致的空壳初始化问题。
+- [x] 新开并完成 OpenSpec change `assistant-workspace-single-child-delivery`；SkillRunner 在 workspace shell 内的专有旁路已移除，三个 child panel 统一走 `assistant-workspace:child-snapshot -> shell cache -> guarded replay -> child iframe`。
+- [x] 新开并完成 OpenSpec change `assistant-workspace-call-chain-cleanup`；shell bridge install、child ready、SkillRunner attach、SkillRunner drawer chrome publish 均已幂等化，SkillRunner base snapshot 与 decorated snapshot 已拆分。
+- [x] 新开并完成 OpenSpec change `assistant-workspace-prune-legacy-paths`；已移除每次 shell post 都调度 handshake 的补偿路径，收窄 ACP Chat backend refresh 边界，阻止共享 ACP frontend subscription 泛化发布 panel snapshot，并将 SkillRunner task selection 清理为单一 `select-task` action。
+
+已验证：
+
+- [x] `acp-chat-panel-read-model`、`assistant-workspace-empty-acp-chat-init`、`assistant-workspace-explicit-handshake`、`assistant-workspace-single-child-delivery`、`assistant-workspace-call-chain-cleanup`、`assistant-workspace-prune-legacy-paths` 均在归档前通过 OpenSpec validation 与各自 tasks 中列出的 focused tests。
+- [x] 最近一轮 `assistant-workspace-prune-legacy-paths` 已通过：`test/core/95-skillrunner-sidebar-host-runtime.test.ts`、`test/core/97-acp-ui-smoke.test.ts`、`test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts`、`npx tsc --noEmit`、`openspec validate assistant-workspace-prune-legacy-paths --strict`、touched-file Prettier check 与 `git diff --check`。
+
+后续仍需观察：
+
+- [ ] ACP Chat 当前已完成 read-model 与 refresh 边界治理；若后续日志仍显示 unchanged ACP Chat panel snapshot 重复投递，再单独补字段级 cheap signature。不要使用主机端 full snapshot `JSON.stringify` 作为去重策略。
+- [ ] 继续用实测日志观察长对话 streaming、多 backend 切换、长 SkillRunner transcript 和 ACP Skills 长 transcript 的交互性能；只基于新的具体重复源继续删路径，不通过降低日志级别掩盖重复调用。
 
 ## 最新诊断与方案修订（2026-07-04）
 
@@ -107,9 +124,9 @@ postFreshAcpChatSnapshot()
 - backend refresh 与 snapshot post 的边界。
 - frontend metadata notification 与 ACP Chat transcript panel publication 的职责拆分。
 
-### 下一阶段推荐 change：`acp-chat-panel-read-model`
+### 已完成 change：`acp-chat-panel-read-model`
 
-建议新开 OpenSpec change `acp-chat-panel-read-model`，目标是让 ACP Chat publication path 与 ACP Skills 同构，而不是继续修补 `postFreshAcpChatSnapshot()`。
+已新开并完成 OpenSpec change `acp-chat-panel-read-model`，目标是让 ACP Chat publication path 与 ACP Skills 同构，而不是继续修补 `postFreshAcpChatSnapshot()`。
 
 关键设计：
 
@@ -489,7 +506,7 @@ ACP Chat 的 page request 应优先使用当前内存 mirror，必要时可回�
 - 不引入失败分支式无类型、无过滤、高频 conversation subscription；若新增 ACP Chat subscription，必须是 typed change model，并配套刷新过滤器。
 - 不把 `notifyFrontend` 关闭作为避免自循环的手段。
 
-### 阶段 3.5：为 ACP Chat 增加 panel read-model 与 Skills 风格刷新过滤（下一阶段建议）
+### 阶段 3.5：为 ACP Chat 增加 panel read-model 与 Skills 风格刷新过滤（已完成）
 
 修改：
 
@@ -514,6 +531,12 @@ ACP Chat 的 page request 应优先使用当前内存 mirror，必要时可回�
 - 对 ACP Skills 和 SkillRunner：
   - 不得因为 ACP Chat read-model 改造而丢失原有刷新入口。
   - 偏好变更、task subscription、SkillRunner workspace refresh 仍走各自分支。
+
+状态：
+
+- [x] `acp-chat-panel-read-model` 已完成：新增 `prepareAcpChatPanelSnapshot()`、ACP Chat typed panel change、`shouldRefreshAcpChatSnapshotForChange()`、`isPureAcpChatBackgroundChange()`，并将 ordinary ACP Chat host publication 替换为 no-refresh panel snapshot posting。
+- [x] `subscribeAcpFrontendSnapshots` 已保留 metadata/attention 职责，不再承担 ACP Chat transcript panel publication。
+- [x] backend refresh 已从 ordinary snapshot/page request path 中移除，仅保留显式生命周期或 backend 选择边界。
 
 风险控制：
 
@@ -607,7 +630,7 @@ export type AcpConversationTranscriptPage = {
 状态：
 
 - [x] `acp-chat-selected-transcript-page-rendering` 已完成 selected page 编排与 active scope 校验。
-- [ ] 已暴露 ordinary ACP Chat snapshot 的 refresh-in-publish 自循环；后续应通过 panel read-model 重构解决，而不是继续在 `postFreshAcpChatSnapshot()` 上补丁式加条件。
+- [x] 已通过 `acp-chat-panel-read-model` 与后续 workspace cleanup/pruning 将 ordinary ACP Chat snapshot 从 refresh-in-publish 路径中拆出，不再在 `postFreshAcpChatSnapshot()` 上补丁式加条件。
 
 风险控制：
 
@@ -768,8 +791,9 @@ export type AcpConversationTranscriptPage = {
 3. [x] 在 ACP session manager 增加窄版 structural snapshot，确保 full 默认行为不变。
 4. [x] 增加 ACP Chat page reader，保留 per-session pending write flush 和 durable store fallback。
 5. [x] 在 workspace sidebar 加 ACP Chat selected page 编排与 active-scope page request guard。
-6. [ ] 新开 `acp-chat-panel-read-model`，新增 `prepareAcpChatPanelSnapshot()`、typed change model 与 Skills 风格刷新过滤。
+6. [x] 新开 `acp-chat-panel-read-model`，新增 `prepareAcpChatPanelSnapshot()`、typed change model 与 Skills 风格刷新过滤。
 7. [x] 在 ACP Chat child 加 page rendering guard。
-8. [ ] 将 backend refresh 限定到显式生命周期边界，ordinary snapshot/page request path 不得 refresh backend，确保不影响 ACP Skills/SkillRunner。
+8. [x] 将 backend refresh 限定到显式生命周期边界，ordinary snapshot/page request path 不得 refresh backend，确保不影响 ACP Skills/SkillRunner。
+9. [ ] 若后续实测仍显示 ACP Chat unchanged panel 重复投递，再补字段级 cheap signature；不得引入 full snapshot `JSON.stringify` 去重。
 
 这样做可以保证每一步都有独立可验证结果，不会再出现一次性读模型隔离导致三个面板同时失效的问题。
