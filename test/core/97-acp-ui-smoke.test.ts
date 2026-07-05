@@ -32,6 +32,164 @@ async function readProjectFile(relativePath: string) {
   return readFile(absolutePath, "utf8");
 }
 
+function createAssistantWorkspaceShellDocument(options: any = {}) {
+  const listeners = new Map<string, any[]>();
+  const windowListeners = new Map<string, any[]>();
+  const fallbackMessages: any[] = [];
+
+  function createClassList(initial: string[] = []): any {
+    const entries = new Set(initial);
+    return {
+      toggle(name: string, force?: boolean) {
+        const enabled = force === undefined ? !entries.has(name) : force;
+        if (enabled) entries.add(name);
+        else entries.delete(name);
+        return enabled;
+      },
+      contains(name: string) {
+        return entries.has(name);
+      },
+      toString() {
+        return Array.from(entries).join(" ");
+      },
+    };
+  }
+
+  function createElement(id: string, initialClasses: string[] = []): any {
+    const elementListeners = new Map<string, any[]>();
+    return {
+      id,
+      classList: createClassList(initialClasses),
+      attributes: new Map<string, string>(),
+      addEventListener(type: string, callback: any) {
+        const list = elementListeners.get(type) || [];
+        list.push(callback);
+        elementListeners.set(type, list);
+      },
+      dispatch(type: string, event: any = {}) {
+        for (const callback of elementListeners.get(type) || []) {
+          callback(event);
+        }
+      },
+      setAttribute(name: string, value: string) {
+        this.attributes.set(name, value);
+      },
+      getAttribute(name: string) {
+        return this.attributes.get(name) || null;
+      },
+    };
+  }
+
+  function createChildWindow(tab: string): any {
+    const messages: any[] = [];
+    return {
+      tab,
+      messages,
+      wrappedJSObject: {},
+      postMessage(message: any) {
+        messages.push(message);
+      },
+    };
+  }
+
+  const elements = new Map<string, any>();
+  elements.set("assistant-workspace-loading", createElement("loading"));
+  for (const tab of ["acp-chat", "acp-skills", "skillrunner"]) {
+    elements.set("assistant-tab-" + tab, createElement("button-" + tab));
+    const frame = createElement(
+      "assistant-frame-" + tab,
+      [tab === "acp-chat" ? "" : "hidden"].filter(Boolean),
+    );
+    frame.contentWindow =
+      options.childWindows &&
+      Object.prototype.hasOwnProperty.call(options.childWindows, tab)
+        ? options.childWindows[tab]
+        : createChildWindow(tab);
+    elements.set("assistant-frame-" + tab, frame);
+  }
+  elements.set("assistant-workspace-close", createElement("close"));
+
+  const fakeDocument = {
+    getElementById(id: string) {
+      return elements.get(id) || null;
+    },
+    addEventListener(type: string, callback: any) {
+      const list = listeners.get(type) || [];
+      list.push(callback);
+      listeners.set(type, list);
+    },
+  };
+
+  const fakeWindow: any = {
+    wrappedJSObject: {},
+    parent: {
+      postMessage(message: any) {
+        fallbackMessages.push(message);
+      },
+    },
+    top: null,
+    opener: null,
+    addEventListener(type: string, callback: any) {
+      const list = windowListeners.get(type) || [];
+      list.push(callback);
+      windowListeners.set(type, list);
+    },
+  };
+  fakeWindow.top = fakeWindow.parent;
+  if (options.hostBridge) {
+    fakeWindow.__zsAssistantWorkspaceBridge = options.hostBridge;
+    fakeWindow.wrappedJSObject.__zsAssistantWorkspaceBridge =
+      options.hostBridge;
+  }
+
+  return {
+    childWindow: createChildWindow,
+    document: fakeDocument,
+    elements,
+    fallbackMessages,
+    window: fakeWindow,
+    dispatchDocument(type: string) {
+      for (const callback of listeners.get(type) || []) callback();
+    },
+    dispatchWindowMessage(type: string, payload: Record<string, unknown>) {
+      for (const callback of windowListeners.get("message") || []) {
+        callback({ data: { type, payload } });
+      }
+    },
+    setHostBridge(bridge: any) {
+      fakeWindow.__zsAssistantWorkspaceBridge = bridge;
+      fakeWindow.wrappedJSObject.__zsAssistantWorkspaceBridge = bridge;
+    },
+    setChildWindow(tab: string, childWindow: any) {
+      elements.get("assistant-frame-" + tab).contentWindow = childWindow;
+    },
+    trace() {
+      return fakeWindow.__zsAssistantWorkspaceActionTrace || [];
+    },
+  };
+}
+
+async function loadAssistantWorkspaceShellForSmoke(options: any = {}) {
+  const vm = await dynamicImport<typeof import("vm")>("vm");
+  const code = await readProjectFile(
+    "addon/content/sidebar/assistant-workspace.js",
+  );
+  const harness = createAssistantWorkspaceShellDocument(options);
+  vm.runInNewContext(code, {
+    window: harness.window,
+    document: harness.document,
+    setTimeout,
+    clearTimeout,
+  });
+  return harness;
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 6; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 async function loadAssistantConversationViewForSmoke() {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile(
@@ -1698,6 +1856,14 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "function nextActionId(tab, action)");
     assert.include(assistantJs, 'data.type === "run-dialog:action"');
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
+    assert.include(
+      assistantJs,
+      "function replayAllCachedChildPayloads(reason)",
+    );
+    assert.include(assistantJs, "function scheduleChildReplay(reason)");
+    assert.include(assistantJs, "function ensureHostReady(reason)");
+    assert.include(assistantJs, "host-ready-result");
+    assert.include(assistantJs, "child-replay-tick");
     assert.include(assistantJs, "function acceptChildReady(tab, payload)");
     assert.include(assistantJs, "function handleFrameLoad(tab)");
     assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
@@ -1731,7 +1897,7 @@ describe("acp ui smoke", function () {
       assistantJs,
       'postToChild("skillrunner", "snapshot", payload)',
     );
-    assert.include(assistantJs, "postToChild(tab, phase, normalizedSnapshot)");
+    assert.include(assistantJs, "replayCachedChildPayload(tab)");
     assert.include(assistantJs, "if (normalizedSnapshot)");
     assert.include(assistantJs, "assistant-workspace-close");
     assert.include(assistantCss, ".assistant-workspace-tabbar");
@@ -3072,6 +3238,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "schedulePostSnapshot");
     assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
     assert.include(assistantSidebar, "readyTabs");
+    assert.include(assistantSidebar, "scheduleShellHandshake");
+    assert.include(assistantSidebar, "clearShellHandshake");
+    assert.include(assistantSidebar, "shell-handshake-tick");
+    assert.include(assistantSidebar, "shell-ready-duplicate");
     assert.include(assistantSidebar, "postInitialSnapshotsForAllTabs");
     assert.include(assistantSidebar, "scheduleAcpChatBackendRefreshBoundary");
     assert.include(assistantSidebar, "preloadAcpChatBackendsForWorkspaceInit");
@@ -3263,6 +3433,141 @@ describe("acp ui smoke", function () {
     assert.include(ordinaryPost, "postAcpChatPanelSnapshot");
     assert.notInclude(ordinaryPost, "refreshAcpConversationBackends");
     assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
+  });
+
+  it("retries Assistant Workspace shell ready until the direct host bridge acknowledges it", async function () {
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      childWindows: {
+        "acp-chat": null,
+        "acp-skills": null,
+        skillrunner: null,
+      },
+    });
+
+    shell.dispatchDocument("DOMContentLoaded");
+    await flushMicrotasks();
+
+    assert.isTrue(
+      shell.fallbackMessages.some(
+        (entry) =>
+          entry.type === "assistant-workspace:action" &&
+          entry.payload?.action === "ready",
+      ),
+      "initial ready should fall back when direct bridge is missing",
+    );
+    assert.isFalse(
+      shell
+        .trace()
+        .some(
+          (entry: any) => entry.stage === "host-ready-result" && entry.acked,
+        ),
+      "fallback delivery must not be treated as an acknowledgement",
+    );
+
+    const bridgeCalls: any[] = [];
+    shell.setHostBridge({
+      postMessage(type: string, payload: Record<string, unknown>) {
+        bridgeCalls.push({ type, payload });
+        return Promise.resolve({ ok: true });
+      },
+    });
+
+    shell.dispatchWindowMessage("assistant-workspace:init", {
+      activeTab: "acp-chat",
+      scopeKey: "scope-a",
+    });
+    await flushMicrotasks();
+
+    assert.isTrue(
+      bridgeCalls.some(
+        (entry) =>
+          entry.type === "assistant-workspace:action" &&
+          entry.payload?.action === "ready",
+      ),
+      "host init should prompt a direct ready retry",
+    );
+    assert.isTrue(
+      shell
+        .trace()
+        .some(
+          (entry: any) => entry.stage === "host-ready-result" && entry.acked,
+        ),
+      "direct bridge acknowledgement should stop ready retry",
+    );
+  });
+
+  it("replays cached Assistant Workspace child payloads when the child frame becomes available", async function () {
+    const bridgeCalls: any[] = [];
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage(type: string, payload: Record<string, unknown>) {
+          bridgeCalls.push({ type, payload });
+          return Promise.resolve({ ok: true });
+        },
+      },
+      childWindows: {
+        "acp-chat": null,
+        "acp-skills": null,
+        skillrunner: null,
+      },
+    });
+
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "acp-chat",
+      phase: "init",
+      snapshot: {
+        sidebar: {
+          scopeKey: "scope-a",
+          activeTab: "acp-chat",
+          panes: { "acp-chat": { revision: 1 } },
+        },
+        backendAvailability: "selected",
+        conversationAvailability: "none",
+      },
+    });
+    await flushMicrotasks();
+
+    assert.isTrue(
+      shell
+        .trace()
+        .some((entry: any) => entry.stage === "post-to-child-drop-no-frame"),
+      "early child snapshot should be cached when no child frame exists",
+    );
+    assert.isFalse(
+      bridgeCalls.some(
+        (entry) =>
+          entry.type === "assistant-workspace:child-action" &&
+          entry.payload?.action === "ready",
+      ),
+      "replay must not fabricate child ready",
+    );
+
+    const childWindow = shell.childWindow("acp-chat");
+    shell.setChildWindow("acp-chat", childWindow);
+    shell.dispatchWindowMessage("assistant-workspace:init", {
+      activeTab: "acp-chat",
+      scopeKey: "scope-a",
+    });
+    await flushMicrotasks();
+
+    assert.deepInclude(childWindow.messages, {
+      type: "acp:init",
+      payload: {
+        sidebar: {
+          scopeKey: "scope-a",
+          activeTab: "acp-chat",
+          panes: { "acp-chat": { revision: 1 } },
+        },
+        backendAvailability: "selected",
+        conversationAvailability: "none",
+      },
+    });
+    assert.isTrue(
+      shell.elements
+        .get("assistant-workspace-loading")
+        .classList.contains("hidden"),
+      "successful replay should clear active tab loading",
+    );
   });
 
   it("adds localized ACP labels for dashboard and sidebar actions", async function () {

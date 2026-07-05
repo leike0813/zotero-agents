@@ -136,6 +136,8 @@ type AssistantWorkspaceHostRuntime = {
   removeTaskSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
+  shellHandshakeTimer?: ReturnType<typeof setTimeout> | null;
+  shellHandshakeAttempt: number;
   acpChatBackendRefreshTimer?: ReturnType<typeof setTimeout> | null;
   acpChatBackendRefreshInFlight: boolean;
   acpChatBackendRefreshRepostQueued: boolean;
@@ -194,6 +196,7 @@ const hosts = new WeakMap<
   AssistantWorkspaceHostRuntime
 >();
 const FRAME_WINDOW_WAIT_TIMEOUT_MS = 2000;
+const SHELL_HANDSHAKE_INTERVAL_MS = 500;
 const DEFAULT_TAB: AssistantWorkspaceTab = "acp-chat";
 const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
   "acp-chat",
@@ -606,6 +609,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
     return false;
   }
   host.drawerOpen = false;
+  clearShellHandshake(host, "close-active-sidebar");
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   detachSkillRunnerSidebarHost({ hostWindow: host.win });
@@ -777,6 +781,9 @@ function postShellMessage(
     },
     "*",
   );
+  if (!host.shell.ready) {
+    scheduleShellHandshake(host, `post:${type}`);
+  }
 }
 
 function writeAssistantWorkspaceBridgeTarget(
@@ -827,8 +834,124 @@ function isAssistantShellReadyEnvelope(
   );
 }
 
+function clearShellHandshake(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (host.shellHandshakeTimer) {
+    clearTimeout(host.shellHandshakeTimer);
+    host.shellHandshakeTimer = null;
+  }
+  if (host.shellHandshakeAttempt > 0) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-handshake-clear",
+      "Assistant Workspace shell handshake cleared.",
+      { reason, attempts: host.shellHandshakeAttempt },
+    );
+  }
+  host.shellHandshakeAttempt = 0;
+}
+
+function scheduleShellHandshake(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (host.shell.ready) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-handshake-drop-ready",
+      "Assistant Workspace shell handshake skipped because the shell is ready.",
+      { reason },
+    );
+    return;
+  }
+  if (host.shellHandshakeTimer) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-handshake-coalesced",
+      "Assistant Workspace shell handshake request coalesced.",
+      { reason, attempts: host.shellHandshakeAttempt },
+    );
+    return;
+  }
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-handshake-scheduled",
+    "Assistant Workspace shell handshake scheduled.",
+    { reason, attempts: host.shellHandshakeAttempt },
+  );
+  host.shellHandshakeTimer = setTimeout(() => {
+    host.shellHandshakeTimer = null;
+    runShellHandshakeTick(host, reason);
+  }, SHELL_HANDSHAKE_INTERVAL_MS);
+}
+
+function runShellHandshakeTick(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (hosts.get(host.win) !== host) {
+    return;
+  }
+  if (host.shell.ready) {
+    clearShellHandshake(host, "ready-before-tick");
+    return;
+  }
+  host.shellHandshakeAttempt += 1;
+  const frameWindow = resolveCurrentShellWindow(host);
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-handshake-tick",
+    "Assistant Workspace shell handshake tick.",
+    {
+      reason,
+      attempts: host.shellHandshakeAttempt,
+      hasFrameWindow: !!frameWindow,
+    },
+  );
+  if (!frameWindow) {
+    scheduleShellHandshake(host, "retry-no-frame");
+    return;
+  }
+  installShellBridge(host);
+  if (!host.activeTarget) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-handshake-drop-no-target",
+      "Assistant Workspace shell handshake could not post init because no active target is set.",
+      { reason, attempts: host.shellHandshakeAttempt },
+    );
+    scheduleShellHandshake(host, "retry-no-target");
+    return;
+  }
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-handshake-post",
+    "Assistant Workspace shell handshake posting lightweight init.",
+    { reason, attempts: host.shellHandshakeAttempt },
+  );
+  postShellInit(host, host.activeTab);
+}
+
 function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
+  if (host.shell.ready) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-ready-duplicate",
+      "Assistant Workspace shell ready was received again and ignored.",
+    );
+    clearShellHandshake(host, "duplicate-ready");
+    return;
+  }
   host.shell.ready = true;
+  host.shell.loaded = true;
+  clearShellHandshake(host, "ready-ack");
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-handshake-ack",
+    "Assistant Workspace shell handshake acknowledged.",
+  );
   logAssistantWorkspaceDebug(
     host,
     "shell-ready",
@@ -910,6 +1033,9 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
     "Assistant Workspace shell bridge installed.",
     { hasWrappedTarget: !!wrappedTarget },
   );
+  if (!host.shell.ready) {
+    scheduleShellHandshake(host, "bridge-installed");
+  }
   return true;
 }
 
@@ -2524,6 +2650,8 @@ export function installAssistantWorkspaceSidebarShell(
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
+    shellHandshakeTimer: null,
+    shellHandshakeAttempt: 0,
     acpChatBackendRefreshInFlight: false,
     acpChatBackendRefreshRepostQueued: false,
     skillRunnerRefreshGeneration: 0,
@@ -2624,6 +2752,7 @@ export function removeAssistantWorkspaceSidebarShell(
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
   }
+  clearShellHandshake(host, "remove-shell");
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
   if (host.shell.frame && host.shell.frameLoadHandler) {

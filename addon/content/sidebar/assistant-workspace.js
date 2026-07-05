@@ -12,7 +12,16 @@
     scopeKey: "",
     actionSeq: 0,
     actionTrace: [],
+    hostReadyAcked: false,
+    hostReadyInFlight: false,
+    hostReadyTimer: null,
+    hostReadyAttempts: 0,
+    childReplayTimer: null,
+    childReplayAttempts: 0,
   };
+
+  const hostReadyRetryDelayMs = 250;
+  const childReplayDelayMs = 100;
 
   function $(id) {
     return document.getElementById(id);
@@ -177,6 +186,91 @@
     return Promise.resolve({ ok: true, fallback: true });
   }
 
+  function clearHostReadyRetry(reason) {
+    if (state.hostReadyTimer) {
+      clearTimeout(state.hostReadyTimer);
+      state.hostReadyTimer = null;
+    }
+    traceAction("host-ready-retry-clear", {
+      reason,
+      attempts: state.hostReadyAttempts,
+      acked: state.hostReadyAcked,
+    });
+  }
+
+  function scheduleHostReadyRetry(reason) {
+    if (state.hostReadyAcked) {
+      traceAction("host-ready-retry-drop-acked", { reason });
+      return;
+    }
+    if (state.hostReadyTimer) {
+      traceAction("host-ready-retry-coalesced", {
+        reason,
+        attempts: state.hostReadyAttempts,
+      });
+      return;
+    }
+    traceAction("host-ready-retry-scheduled", {
+      reason,
+      attempts: state.hostReadyAttempts,
+    });
+    state.hostReadyTimer = setTimeout(function () {
+      state.hostReadyTimer = null;
+      ensureHostReady(reason);
+    }, hostReadyRetryDelayMs);
+  }
+
+  function ensureHostReady(reason) {
+    if (state.hostReadyAcked) {
+      traceAction("host-ready-drop-acked", { reason });
+      return;
+    }
+    if (state.hostReadyInFlight) {
+      traceAction("host-ready-coalesced", {
+        reason,
+        attempts: state.hostReadyAttempts,
+      });
+      return;
+    }
+    state.hostReadyAttempts += 1;
+    state.hostReadyInFlight = true;
+    traceAction("host-ready-post", {
+      reason,
+      attempts: state.hostReadyAttempts,
+    });
+    postToHost("assistant-workspace:action", { action: "ready" })
+      .then(function (result) {
+        const acked =
+          !!result && result.ok !== false && result.fallback !== true;
+        state.hostReadyInFlight = false;
+        traceAction("host-ready-result", {
+          reason,
+          attempts: state.hostReadyAttempts,
+          acked,
+          ok: result && result.ok !== false,
+          fallback: result && result.fallback === true,
+          error: result && result.error ? String(result.error) : "",
+        });
+        if (acked) {
+          state.hostReadyAcked = true;
+          clearHostReadyRetry("acked");
+          return;
+        }
+        scheduleHostReadyRetry("unacked-result");
+      })
+      .catch(function (error) {
+        state.hostReadyInFlight = false;
+        traceAction("host-ready-result", {
+          reason,
+          attempts: state.hostReadyAttempts,
+          acked: false,
+          ok: false,
+          error: safeError(error),
+        });
+        scheduleHostReadyRetry("error");
+      });
+  }
+
   function sendChildAction(tab, action, payload) {
     const actionId = nextActionId(tab, action);
     const envelope = {
@@ -238,7 +332,7 @@
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) {
       traceAction("post-to-child-drop-no-frame", { tab, phase });
-      return;
+      return false;
     }
     const normalizedPayload =
       tab === "skillrunner"
@@ -257,6 +351,9 @@
       },
       "*",
     );
+    state.loadedFrames.add(tab);
+    updateLoadingState();
+    return true;
   }
 
   function closeDrawersForTab(tab) {
@@ -303,6 +400,7 @@
       latestRevision: state.latestChildRevisions.get(tab) || 0,
       summary: payloadSummary(current[phase || "snapshot"]),
     });
+    scheduleChildReplay("cache:" + tab);
     return current[phase || "snapshot"];
   }
 
@@ -345,15 +443,63 @@
     const cached = state.latestChildPayloads.get(tab);
     if (!cached) {
       traceAction("replay-cache-empty", { tab });
-      return;
+      return true;
     }
     traceAction("replay-cache", {
       tab,
       hasInit: !!cached.init,
       hasSnapshot: !!cached.snapshot,
     });
-    if (cached.init) postToChild(tab, "init", cached.init);
-    if (cached.snapshot) postToChild(tab, "snapshot", cached.snapshot);
+    let delivered = true;
+    if (cached.init) {
+      delivered = postToChild(tab, "init", cached.init) && delivered;
+    }
+    if (cached.snapshot) {
+      delivered = postToChild(tab, "snapshot", cached.snapshot) && delivered;
+    }
+    traceAction("replay-cache-result", { tab, delivered });
+    return delivered;
+  }
+
+  function replayAllCachedChildPayloads(reason) {
+    let delivered = true;
+    tabs.forEach(function (tab) {
+      if (!state.latestChildPayloads.has(tab)) return;
+      delivered = replayCachedChildPayload(tab) && delivered;
+    });
+    traceAction("child-replay-all-result", {
+      reason,
+      delivered,
+      attempts: state.childReplayAttempts,
+    });
+    return delivered;
+  }
+
+  function scheduleChildReplay(reason) {
+    if (state.childReplayTimer) {
+      traceAction("child-replay-coalesced", {
+        reason,
+        attempts: state.childReplayAttempts,
+      });
+      return;
+    }
+    traceAction("child-replay-scheduled", {
+      reason,
+      attempts: state.childReplayAttempts,
+    });
+    state.childReplayTimer = setTimeout(function () {
+      state.childReplayTimer = null;
+      state.childReplayAttempts += 1;
+      traceAction("child-replay-tick", {
+        reason,
+        attempts: state.childReplayAttempts,
+      });
+      if (!replayAllCachedChildPayloads(reason)) {
+        scheduleChildReplay("retry");
+        return;
+      }
+      state.childReplayAttempts = 0;
+    }, childReplayDelayMs);
   }
 
   function acceptChildReady(tab, payload) {
@@ -367,7 +513,9 @@
       firstReady,
       payload: payloadSummary(payload),
     });
-    replayCachedChildPayload(normalizedTab);
+    if (!replayCachedChildPayload(normalizedTab)) {
+      scheduleChildReplay("child-ready:" + normalizedTab);
+    }
     updateLoadingState();
     if (firstReady) {
       sendChildAction(normalizedTab, "ready", payload || {});
@@ -402,7 +550,9 @@
         tab: nextTab,
       });
     }
-    replayCachedChildPayload(nextTab);
+    if (!replayCachedChildPayload(nextTab)) {
+      scheduleChildReplay("tab-switch:" + nextTab);
+    }
     if (nextTab === "skillrunner") {
       installChildBridge("skillrunner");
     }
@@ -414,7 +564,9 @@
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     traceAction("frame-load", { tab: normalizedTab });
-    replayCachedChildPayload(normalizedTab);
+    if (!replayCachedChildPayload(normalizedTab)) {
+      scheduleChildReplay("frame-load:" + normalizedTab);
+    }
     updateLoadingState();
   }
 
@@ -471,6 +623,7 @@
       return;
     }
     if (data.type === "assistant-workspace:init") {
+      ensureHostReady("host-init");
       traceAction("workspace-init-received", {
         activeTab: data.payload && data.payload.activeTab,
         summary: payloadSummary(data.payload || {}),
@@ -483,6 +636,7 @@
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {
+      ensureHostReady("host-set-tab");
       traceAction("workspace-set-tab-received", {
         activeTab: data.payload && data.payload.activeTab,
       });
@@ -493,6 +647,7 @@
       return;
     }
     if (data.type === "assistant-workspace:child-snapshot") {
+      ensureHostReady("host-child-snapshot");
       const payload = data.payload || {};
       const tab = normalizeTab(payload.tab, state.activeTab);
       const phase = payload.phase || "snapshot";
@@ -504,7 +659,7 @@
       });
       const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
       if (normalizedSnapshot) {
-        postToChild(tab, phase, normalizedSnapshot);
+        replayCachedChildPayload(tab);
       }
       return;
     }
@@ -526,8 +681,9 @@
     });
     setActiveTab("acp-chat", { notify: false, fallback: "acp-chat" });
     updateLoadingState();
-    void postToHost("assistant-workspace:action", { action: "ready" });
+    ensureHostReady("dom-content-loaded");
   });
 
   attachFrameLoadListeners();
+  ensureHostReady("script-start");
 })();
