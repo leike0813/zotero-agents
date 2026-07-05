@@ -29,41 +29,44 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
-| `context.get_current_view` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `context.get_selected_items` | context | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
-| `library.get_item_attachments` | library | `none` | `item-ref required` | `library item attachments` | mcp-mirror |
-| `library.get_item_detail` | library | `none` | `item-ref required` | `library item get` | mcp-mirror |
-| `library.get_item_notes` | library | `none` | `object required` | `library item notes` | mcp-mirror |
-| `library.get_note_detail` | library | `none` | `object required` | `library note get` | mcp-mirror |
-| `library.get_note_payload` | library | `none` | `object required` | `library note payload` | mcp-mirror |
-| `library.list_items` | library | `none` | `object` | `library items list` | mcp-mirror |
-| `library.list_note_payloads` | library | `none` | `item-ref required` | `library note payloads` | mcp-mirror |
-| `library.search_items` | library | `none` | `object required` | `library item search` | mcp-mirror |
-| `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | mcp-mirror |
-| `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | mcp-mirror |
-| `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | mcp-mirror |
-| `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | mcp-mirror |
-| `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | mcp-mirror |
-| `topics.list` | topics | `none` | `object` | `synthesis topic list` | mcp-mirror |
-| `schemas.get` | schemas | `none` | `object` | `synthesis schema get` | mcp-mirror |
-| `concepts.query` | concepts | `none` | `object` | `synthesis concept query` | mcp-mirror |
-| `citation_graph.get_layout` | citation_graph | `none` | `object` | `synthesis graph get-layout` | cache-view, mcp-mirror |
-| `citation_graph.get_metrics` | citation_graph | `none` | `object` | `synthesis graph get-metrics` | cache-view, mcp-mirror |
-| `citation_graph.get_overview` | citation_graph | `none` | `object` | `synthesis graph overview` | cache-view, mcp-mirror |
-| `citation_graph.get_slice` | citation_graph | `none` | `object` | `synthesis graph get-slice` | cache-view, mcp-mirror |
-| `citation_graph.query_cluster` | citation_graph | `none` | `object` | `synthesis graph query-cluster` | cache-view, mcp-mirror |
-| `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `synthesis graph rank-external-references` | cache-view, mcp-mirror |
-| `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `synthesis graph rank-library-papers` | cache-view, mcp-mirror |
+| `context.get_current_view` | context | `none` | `none` | `context current` | mcp-mirror |
+| `context.get_selected_items` | context | `none` | `none` | `context selection get` | mcp-mirror |
+| `library.export_annotations` | library | `none` | `object required` | `library annotation export` | response:selector-bounded, mcp-mirror |
+| `library.get_item_attachments` | library | `none` | `item-ref required` | `library item attachments` | response:selector-bounded, mcp-mirror |
+| `library.get_item_detail` | library | `none` | `item-ref required` | `library item get` | response:selector-bounded, mcp-mirror |
+| `library.get_item_notes` | library | `none` | `object required` | `library item notes` | response:paged, mcp-mirror |
+| `library.get_note_detail` | library | `none` | `object required` | `library note get` | response:paged, mcp-mirror |
+| `library.get_note_payload` | library | `none` | `object required` | `library note payload` | response:paged, mcp-mirror |
+| `library.list_annotations` | library | `none` | `item-ref required` | `library annotation list` | response:selector-bounded, mcp-mirror |
+| `library.list_items` | library | `none` | `object` | `library items list` | response:paged, mcp-mirror |
+| `library.list_note_payloads` | library | `none` | `item-ref required` | `library note payloads` | response:selector-bounded, mcp-mirror |
+| `library.readiness_audit` | library | `none` | `object` | `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf` | response:paged, mcp-mirror |
+| `library.search_items` | library | `none` | `object required` | `library item search` | response:limit-bounded, mcp-mirror |
+| `library.sync_snapshot` | library | `none` | `object` | `library snapshot` | response:paged, mcp-mirror |
+| `topics.find_by_paper_ref` | topics | `none` | `object` | `synthesis topic find-by-paper-ref` | response:selector-bounded, mcp-mirror |
+| `topics.get_context` | topics | `none` | `object` | `synthesis topic get-context` | response:file-output, mcp-mirror |
+| `topics.get_report` | topics | `none` | `object` | `synthesis topic get-report` | response:selector-bounded, mcp-mirror |
+| `topics.get_review_input` | topics | `none` | `object` | `synthesis topic get-review-input` | response:limit-bounded, mcp-mirror |
+| `topics.list` | topics | `none` | `object` | `synthesis topic list` | response:paged, mcp-mirror |
+| `schemas.get` | schemas | `none` | `object` | `synthesis schema get` | response:bounded-diagnostic, mcp-mirror |
+| `concepts.query` | concepts | `none` | `object` | `synthesis concept query` | response:limit-bounded, mcp-mirror |
+| `citation_graph.get_layout` | citation_graph | `none` | `object` | `synthesis graph get-layout` | cache-view, response:limit-bounded, mcp-mirror |
+| `citation_graph.get_metrics` | citation_graph | `none` | `object` | `synthesis graph get-metrics` | cache-view, response:paged, mcp-mirror |
+| `citation_graph.get_overview` | citation_graph | `none` | `object` | `synthesis graph overview` | cache-view, response:paged, mcp-mirror |
+| `citation_graph.get_slice` | citation_graph | `none` | `object` | `synthesis graph get-slice` | cache-view, response:limit-bounded, mcp-mirror |
+| `citation_graph.query_cluster` | citation_graph | `none` | `object` | `synthesis graph query-cluster` | cache-view, response:limit-bounded, mcp-mirror |
+| `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `synthesis graph rank-external-references` | cache-view, response:paged, mcp-mirror |
+| `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `synthesis graph rank-library-papers` | cache-view, response:paged, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
-| `library_index.get` | library_index | `none` | `object` | `synthesis index library get` | cache-view, mcp-mirror |
-| `resolvers.resolve` | resolvers | `none` | `object` | `synthesis resolver resolve` | mcp-mirror |
-| `reference_index.get` | reference_index | `none` | `object` | `synthesis index reference get` | cache-view, mcp-mirror |
-| `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `synthesis artifact export-filtered` | mcp-mirror |
-| `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `synthesis artifact manifest` | mcp-mirror |
-| `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | mcp-mirror |
-| `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | mcp-mirror |
-| `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | mcp-mirror |
-| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `mutation apply`, `mutation literature-ingest` | mcp-mirror |
+| `library_index.get` | library_index | `none` | `object` | `synthesis index library get` | cache-view, response:paged, mcp-mirror |
+| `resolvers.resolve` | resolvers | `none` | `object` | `synthesis resolver resolve` | response:paged, mcp-mirror |
+| `reference_index.get` | reference_index | `none` | `object` | `synthesis index reference get` | cache-view, response:paged, mcp-mirror |
+| `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `synthesis artifact export-filtered` | response:file-output, mcp-mirror |
+| `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `synthesis artifact manifest` | response:selector-bounded, mcp-mirror |
+| `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
+| `paper_artifacts.resolve_topic_digest` | paper_artifacts | `none` | `object` | `synthesis artifact resolve-topic-digest` | response:selector-bounded, mcp-mirror |
+| `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | response:limit-bounded, mcp-mirror |
+| `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
 | `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 
@@ -71,8 +74,14 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 | CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
+| `bridge backend list` | `GET /bridge/v1/diagnostics/backends` | endpoint | - |
+| `bridge backend status` | `GET /bridge/v1/diagnostics/backends/{backendId}` | endpoint | - |
 | `bridge manifest` | `GET /bridge/v1/manifest` | endpoint | - |
+| `bridge profile diagnose` | `GET /bridge/v1/diagnostics/profile/diagnose` | endpoint | - |
+| `bridge profile inspect` | `GET /bridge/v1/diagnostics/profile` | endpoint | - |
 | `bridge status` | `GET /bridge/v1/health` | endpoint | - |
+| `library annotation export` | `library.export_annotations` | capability | - |
+| `library annotation list` | `library.list_annotations` | capability | - |
 | `library item attachments` | `library.get_item_attachments` | capability | - |
 | `library item get` | `library.get_item_detail` | capability | - |
 | `library item notes` | `library.get_item_notes` | capability | - |
@@ -81,11 +90,17 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `library note get` | `library.get_note_detail` | capability | - |
 | `library note payload` | `library.get_note_payload` | capability | - |
 | `library note payloads` | `library.list_note_payloads` | capability | - |
+| `library readiness audit` | `library.readiness_audit` | capability | - |
+| `library readiness missing-analysis` | `library.readiness_audit` | capability | - |
+| `library readiness missing-markdown` | `library.readiness_audit` | capability | - |
+| `library readiness missing-pdf` | `library.readiness_audit` | capability | - |
 | `library snapshot` | `library.sync_snapshot` | capability | - |
 | `synthesis artifact export-filtered` | `paper_artifacts.export_filtered` | capability | - |
 | `synthesis artifact manifest` | `paper_artifacts.get_manifest` | capability | - |
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
+| `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -97,6 +112,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
+| `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
 | `synthesis insight attention-queue` | `insights.get_attention_queue` | capability | - |
 | `synthesis resolver resolve` | `resolvers.resolve` | capability | - |
 | `synthesis schema get` | `schemas.get` | capability | - |
@@ -109,31 +125,70 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
+| `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
+| `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |
 | `run active` | `GET /bridge/v1/tasks/active` | endpoint | - |
 | `run cancel` | `POST /bridge/v1/workflows/runs/{workflowRunId}/cancel` | endpoint | - |
 | `run get` | `GET /bridge/v1/workflows/runs/{workflowRunId}` | endpoint | - |
 | `run list` | `GET /bridge/v1/tasks` | endpoint | - |
+| `run notification ack` | `POST /bridge/v1/notifications/ack` | endpoint | - |
+| `run notification list` | `GET /bridge/v1/notifications` | endpoint | - |
+| `run notification wait` | `GET /bridge/v1/notifications` | endpoint | - |
+| `run permission get` | `GET /bridge/v1/permissions/{permissionRequestId}` | endpoint | - |
+| `run permission pending` | `GET /bridge/v1/permissions/pending` | endpoint | - |
+| `run recent` | `GET /bridge/v1/tasks/recent` | endpoint | - |
 | `run skill connect` | `POST /bridge/v1/skill-runs/{skillRunId}/connect` | endpoint | - |
+| `run skill events` | `GET /bridge/v1/skill-runs/{skillRunId}/events` | endpoint | - |
 | `run skill get` | `GET /bridge/v1/skill-runs/{skillRunId}` | endpoint | - |
+| `run skill recent` | `GET /bridge/v1/skill-runs/recent` | endpoint | - |
 | `run skill reply` | `POST /bridge/v1/skill-runs/{skillRunId}/reply` | endpoint | - |
+| `run workflow recent` | `GET /bridge/v1/workflows/runs` | endpoint | - |
 | `mutation apply` | `mutation.execute` | capability | - |
+| `mutation collection add-items` | `mutation.execute` | capability | - |
+| `mutation collection create` | `mutation.execute` | capability | - |
+| `mutation collection remove-items` | `mutation.execute` | capability | - |
+| `mutation item attach-file` | `mutation.execute` | capability | - |
+| `mutation item update` | `mutation.execute` | capability | - |
 | `mutation literature-ingest` | `mutation.execute` | capability | - |
+| `mutation note create` | `mutation.execute` | capability | - |
+| `mutation note update` | `mutation.execute` | capability | - |
+| `mutation note upsert-payload` | `mutation.execute` | capability | - |
 | `mutation preview` | `mutation.preview` | capability | - |
+| `mutation tag add` | `mutation.execute` | capability | - |
+| `mutation tag remove` | `mutation.execute` | capability | - |
 | `file download` | `GET /bridge/v1/files/{fileId}` | endpoint | - |
+| `file upload` | `POST /bridge/v1/files/upload` | endpoint | - |
 | `debug acp-skill-run reapply-result` | `debug.acpSkillRun.reapplyResult` | capability | - |
 | `debug persistence` | `debug.persistence.snapshot` | capability | - |
 | `debug status` | `debug.status` | capability | - |
 | `debug synthesis diff` | `debug.synthesis.diff` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
+| `context collection open` | `POST /bridge/v1/context/collections/open` | endpoint | - |
+| `context current` | `GET /bridge/v1/context/current` | endpoint | - |
+| `context current` | `context.get_current_view` | capability | - |
+| `context item open` | `POST /bridge/v1/context/items/open` | endpoint | - |
+| `context note open` | `POST /bridge/v1/context/notes/open` | endpoint | - |
+| `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
+| `context selection get` | `context.get_selected_items` | capability | - |
+| `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
 
 #### Library guidance
 
 - Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
 - Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
+
+#### Large response pagination
+
+- Treat `response:paged` capabilities as one-page reads. Iterate the returned cursor metadata instead of assuming one call returns the whole collection.
+- `synthesis graph overview` returns summary plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. Use `cursor`/`limit` for all sections together or section cursors such as `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor`.
+- Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded subgraph, layout, or ranked metric page instead of the entire citation graph.
+- `synthesis topic list`, `synthesis index library get`, graph metrics, and graph rankings are paged reads. Do not build workflows that rely on stdout containing every topic, index row, graph node, edge, or rank item in one response.
 
 #### Resolver payloads
 

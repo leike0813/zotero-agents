@@ -14,6 +14,13 @@ export type HostBridgeCapabilityCatalogEntry = {
   cacheView: boolean;
   rawOnly: boolean;
   mcpMirror: boolean;
+  responseSizing:
+    | "paged"
+    | "limit-bounded"
+    | "selector-bounded"
+    | "file-output"
+    | "bounded-diagnostic"
+    | "unclassified";
   cliCommands: string[];
 };
 
@@ -40,12 +47,15 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.search_items",
   "library.list_items",
   "library.sync_snapshot",
+  "library.readiness_audit",
   "library.get_item_detail",
   "library.get_item_notes",
   "library.get_note_detail",
   "library.list_note_payloads",
   "library.get_note_payload",
   "library.get_item_attachments",
+  "library.list_annotations",
+  "library.export_annotations",
   "mutation.preview",
   "diagnostic.get_status",
 ]);
@@ -74,10 +84,64 @@ const CACHE_VIEW_CAPABILITIES = new Set([
 ]);
 
 const RAW_ONLY_CAPABILITIES = new Set([
-  "context.get_current_view",
-  "context.get_selected_items",
   "diagnostic.get_status",
   "debug.zotero.eval",
+]);
+
+const RESPONSE_SIZING = new Map<
+  string,
+  HostBridgeCapabilityCatalogEntry["responseSizing"]
+>([
+  ["library.search_items", "limit-bounded"],
+  ["library.list_items", "paged"],
+  ["library.sync_snapshot", "paged"],
+  ["library.readiness_audit", "paged"],
+  ["library.get_item_detail", "selector-bounded"],
+  ["library.get_item_notes", "paged"],
+  ["library.get_note_detail", "paged"],
+  ["library.list_note_payloads", "selector-bounded"],
+  ["library.get_note_payload", "paged"],
+  ["library.get_item_attachments", "selector-bounded"],
+  ["library.list_annotations", "selector-bounded"],
+  ["library.export_annotations", "selector-bounded"],
+  ["topics.list", "paged"],
+  ["topics.find_by_paper_ref", "selector-bounded"],
+  ["topics.get_context", "file-output"],
+  ["topics.get_report", "selector-bounded"],
+  ["topics.get_review_input", "limit-bounded"],
+  ["schemas.get", "bounded-diagnostic"],
+  ["concepts.query", "limit-bounded"],
+  ["citation_graph.get_overview", "paged"],
+  ["citation_graph.query_cluster", "limit-bounded"],
+  ["citation_graph.get_slice", "limit-bounded"],
+  ["citation_graph.get_layout", "limit-bounded"],
+  ["citation_graph.get_metrics", "paged"],
+  ["citation_graph.rank_external_references", "paged"],
+  ["citation_graph.rank_library_papers", "paged"],
+  ["library_index.get", "paged"],
+  ["reference_index.get", "paged"],
+  ["resolvers.resolve", "paged"],
+  ["paper_artifacts.get_manifest", "selector-bounded"],
+  ["paper_artifacts.read", "selector-bounded"],
+  ["paper_artifacts.export_filtered", "file-output"],
+  ["paper_artifacts.resolve_topic_digest", "selector-bounded"],
+  ["insights.get_attention_queue", "limit-bounded"],
+]);
+
+const HIGH_CARDINALITY_READ_CAPABILITIES = new Set([
+  "library.list_items",
+  "library.sync_snapshot",
+  "library.readiness_audit",
+  "topics.list",
+  "citation_graph.get_overview",
+  "citation_graph.query_cluster",
+  "citation_graph.get_metrics",
+  "citation_graph.rank_external_references",
+  "citation_graph.rank_library_papers",
+  "library_index.get",
+  "reference_index.get",
+  "resolvers.resolve",
+  "insights.get_attention_queue",
 ]);
 
 function read(root: string, path: string) {
@@ -236,18 +300,36 @@ function parseDebugMappings(source: string): HostBridgeCliMapping[] {
 
 function coreCliMappings(): HostBridgeCliMapping[] {
   return [
+    ["context current", "context.get_current_view"],
+    ["context selection get", "context.get_selected_items"],
     ["library items list", "library.list_items"],
     ["library snapshot", "library.sync_snapshot"],
+    ["library readiness audit", "library.readiness_audit"],
+    ["library readiness missing-pdf", "library.readiness_audit"],
+    ["library readiness missing-markdown", "library.readiness_audit"],
+    ["library readiness missing-analysis", "library.readiness_audit"],
     ["library item search", "library.search_items"],
     ["library item get", "library.get_item_detail"],
     ["library item notes", "library.get_item_notes"],
     ["library item attachments", "library.get_item_attachments"],
+    ["library annotation list", "library.list_annotations"],
+    ["library annotation export", "library.export_annotations"],
     ["library note get", "library.get_note_detail"],
     ["library note payloads", "library.list_note_payloads"],
     ["library note payload", "library.get_note_payload"],
     ["mutation preview", "mutation.preview"],
     ["mutation apply", "mutation.execute"],
     ["mutation literature-ingest", "mutation.execute"],
+    ["mutation tag add", "mutation.execute"],
+    ["mutation tag remove", "mutation.execute"],
+    ["mutation collection create", "mutation.execute"],
+    ["mutation collection add-items", "mutation.execute"],
+    ["mutation collection remove-items", "mutation.execute"],
+    ["mutation item update", "mutation.execute"],
+    ["mutation item attach-file", "mutation.execute"],
+    ["mutation note create", "mutation.execute"],
+    ["mutation note update", "mutation.execute"],
+    ["mutation note upsert-payload", "mutation.execute"],
   ].map(([command, target]) => ({
     command,
     target,
@@ -303,8 +385,23 @@ function endpointMappings(): HostBridgeCliMapping[] {
   return [
     ["bridge status", "GET /bridge/v1/health"],
     ["bridge manifest", "GET /bridge/v1/manifest"],
+    ["bridge profile inspect", "GET /bridge/v1/diagnostics/profile"],
+    ["bridge profile diagnose", "GET /bridge/v1/diagnostics/profile/diagnose"],
+    ["bridge backend list", "GET /bridge/v1/diagnostics/backends"],
+    [
+      "bridge backend status",
+      "GET /bridge/v1/diagnostics/backends/{backendId}",
+    ],
+    ["context current", "GET /bridge/v1/context/current"],
+    ["context selection get", "GET /bridge/v1/context/selection"],
+    ["context selection open", "POST /bridge/v1/context/selection/open"],
+    ["context item open", "POST /bridge/v1/context/items/open"],
+    ["context collection open", "POST /bridge/v1/context/collections/open"],
+    ["context note open", "POST /bridge/v1/context/notes/open"],
     ["workflow list", "GET /bridge/v1/workflows"],
     ["workflow describe", "POST /bridge/v1/workflows/describe"],
+    ["workflow validate", "POST /bridge/v1/workflows/validate"],
+    ["workflow requirements", "POST /bridge/v1/workflows/requirements"],
     ["workflow submit", "POST /bridge/v1/workflows/submit"],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
     [
@@ -315,10 +412,26 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["run cancel", "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"],
     ["run list", "GET /bridge/v1/tasks"],
     ["run active", "GET /bridge/v1/tasks/active"],
+    ["run recent", "GET /bridge/v1/tasks/recent"],
+    ["run workflow recent", "GET /bridge/v1/workflows/runs"],
+    ["run permission pending", "GET /bridge/v1/permissions/pending"],
+    ["run permission get", "GET /bridge/v1/permissions/{permissionRequestId}"],
     ["run skill get", "GET /bridge/v1/skill-runs/{skillRunId}"],
     ["run skill reply", "POST /bridge/v1/skill-runs/{skillRunId}/reply"],
     ["run skill connect", "POST /bridge/v1/skill-runs/{skillRunId}/connect"],
+    ["run skill recent", "GET /bridge/v1/skill-runs/recent"],
+    ["run skill events", "GET /bridge/v1/skill-runs/{skillRunId}/events"],
+    ["run notification list", "GET /bridge/v1/notifications"],
+    ["run notification wait", "GET /bridge/v1/notifications"],
+    ["run notification ack", "POST /bridge/v1/notifications/ack"],
+    ["synthesis cache status", "GET /bridge/v1/synthesis/cache/status"],
+    [
+      "synthesis cache invalidate",
+      "POST /bridge/v1/synthesis/cache/invalidate",
+    ],
+    ["synthesis index status", "GET /bridge/v1/synthesis/index/status"],
     ["file download", "GET /bridge/v1/files/{fileId}"],
+    ["file upload", "POST /bridge/v1/files/upload"],
   ].map(([command, target]) => ({
     command,
     target,
@@ -358,6 +471,7 @@ export function buildHostBridgeSurfaceCatalog(
       cacheView: CACHE_VIEW_CAPABILITIES.has(entry.name),
       rawOnly: RAW_ONLY_CAPABILITIES.has(entry.name),
       mcpMirror: true,
+      responseSizing: RESPONSE_SIZING.get(entry.name) || "unclassified",
       cliCommands: (cliByCapability.get(entry.name) || []).sort(),
     };
   });
@@ -399,6 +513,14 @@ export function validateHostBridgeSurfaceCatalog(
     if (!capability.rawOnly && capability.cliCommands.length === 0) {
       errors.push(
         `public capability ${capability.name} must have semantic CLI mapping or raw-only classification`,
+      );
+    }
+    if (
+      HIGH_CARDINALITY_READ_CAPABILITIES.has(capability.name) &&
+      capability.responseSizing === "unclassified"
+    ) {
+      errors.push(
+        `high-cardinality read capability ${capability.name} must declare response sizing`,
       );
     }
   }

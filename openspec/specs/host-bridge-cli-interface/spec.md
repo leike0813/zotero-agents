@@ -28,6 +28,12 @@ operations rather than implementation-oriented legacy top-level groups.
   `citation-graph`, `library-index`, `resolvers`, `reference-index`,
   `paper-artifacts`, `insights`, `literature`, `task`, or `skill-run`.
 
+#### Scenario: Legacy top-level command wrappers are absent
+
+- **WHEN** users inspect or parse Host Bridge CLI commands
+- **THEN** legacy top-level `task` and `skill-run` command groups SHALL NOT be accepted
+- **AND** canonical `run active` and `run skill ...` commands SHALL remain available.
+
 #### Scenario: Agent reads current library metadata for indexing
 - **WHEN** a user or agent runs
   `zotero-bridge library snapshot --input <json-or-file>`
@@ -561,8 +567,7 @@ requests when a profile or runtime environment provides it.
 
 ### Requirement: Host Bridge help text uses current brand
 
-The Host Bridge CLI, wrapper skill, and generated Host Bridge documentation
-SHALL describe the bridge as the `Zotero Agents Host Bridge`.
+The Host Bridge CLI, wrapper skill, and generated Host Bridge documentation SHALL describe the bridge as the `Zotero Agents Host Bridge`.
 
 #### Scenario: CLI help uses current brand
 - **WHEN** users inspect Host Bridge CLI package metadata or command help
@@ -699,6 +704,56 @@ The `zotero-bridge` CLI SHALL expose semantic commands for workflow cancel inten
 - **WHEN** a workflow or skill run control command fails
 - **THEN** the CLI SHALL report the Host Bridge structured error through the existing CLI error contract.
 
+### Requirement: Rust CLI exposes notification inbox commands
+
+The CLI SHALL expose Host Bridge notification inbox operations under the
+canonical `run notification` namespace while preserving single JSON stdout.
+
+#### Scenario: Agent lists notification events
+
+- **WHEN** a user or agent runs `zotero-bridge run notification list`
+- **THEN** the CLI SHALL call `GET /bridge/v1/notifications`
+- **AND** it SHALL support workflow run id, skill run id, type, since event id,
+  acknowledged state, and limit filters.
+
+#### Scenario: Agent waits for a notification event
+
+- **WHEN** a user or agent runs `zotero-bridge run notification wait`
+- **THEN** the CLI SHALL short-poll `GET /bridge/v1/notifications` until a
+  matching event is returned or the timeout expires
+- **AND** it SHALL NOT open a watch, stream, cursor, or webhook connection.
+
+#### Scenario: Agent acknowledges notification events
+
+- **WHEN** a user or agent runs
+  `zotero-bridge run notification ack --event <eventId>`
+- **THEN** the CLI SHALL post the event ids to
+  `POST /bridge/v1/notifications/ack`
+- **AND** multiple `--event` values SHALL acknowledge multiple events.
+
+### Requirement: Rust CLI exposes context commands
+
+The CLI SHALL expose canonical `context` commands for Host Bridge context reads
+and restricted Zotero object navigation while preserving single JSON stdout.
+
+#### Scenario: Agent reads context
+
+- **WHEN** a user or agent runs `zotero-bridge context current`
+- **THEN** the CLI SHALL call `GET /bridge/v1/context/current`.
+
+#### Scenario: Agent reads selection
+
+- **WHEN** a user or agent runs `zotero-bridge context selection get`
+- **THEN** the CLI SHALL call `GET /bridge/v1/context/selection`.
+
+#### Scenario: Agent opens a Zotero target
+
+- **WHEN** a user or agent runs a `context ... open` command with Zotero object
+  handles
+- **THEN** the CLI SHALL post an explicit JSON body to the matching context
+  navigation endpoint
+- **AND** it SHALL NOT use raw capability call, arbitrary URI opening, or eval.
+
 ### Requirement: Canonical CLI surface is generated and governed
 
 The project SHALL treat the canonical CLI surface catalog as the SSOT for
@@ -765,3 +820,173 @@ entire output-contract toolkit.
   `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>`
 - **AND** it SHALL state that `agentRunId` is not monitored through run control
   or `run-watch`.
+
+### Requirement: CLI exposes canonical safe mutation commands
+
+The `zotero-bridge` CLI SHALL expose canonical `mutation` commands for tag
+add/remove, collection create/add/remove, item update, note create/update,
+note payload upsert, and item attach-file. These commands SHALL construct
+`mutation.preview` or `mutation.execute` payloads and preserve the single JSON
+stdout contract.
+
+#### Scenario: Semantic mutation command builds a mutation payload
+
+- **WHEN** a caller runs a semantic mutation command
+- **THEN** the CLI SHALL call the existing Host Bridge mutation capability
+- **AND** the payload SHALL include the canonical operation name.
+
+### Requirement: CLI supports inbound file upload
+
+The CLI SHALL expose `file upload <path>` and SHALL upload bytes to
+`POST /bridge/v1/files/upload`, returning the Host Bridge file descriptor as
+a single JSON object.
+
+#### Scenario: Upload output does not expose source path
+
+- **WHEN** a caller uploads a local file
+- **THEN** stdout SHALL include the broker-issued file descriptor
+- **AND** SHALL NOT include the local source path unless supplied as the
+  display name.
+
+### Requirement: CLI exposes annotation read commands
+
+The CLI SHALL expose `library annotation list` and `library annotation export`
+as read-only commands.
+
+#### Scenario: Annotation command uses read-only capability
+
+- **WHEN** a caller runs an annotation command
+- **THEN** the CLI SHALL call the corresponding read-only Host Bridge
+  capability and SHALL NOT request mutation approval.
+
+### Requirement: CLI SHALL expose diagnostics/history/profile canonical commands
+
+The Host Bridge CLI SHALL expose profile/backend diagnostics, workflow validation, permission visibility, recent history, skill-run events, and synthesis maintenance under canonical namespaces.
+
+#### Scenario: Bridge diagnostics commands map to diagnostics endpoints
+
+- **WHEN** an agent runs `zotero-bridge bridge profile inspect` or `zotero-bridge bridge backend status <backendId>`
+- **THEN** the CLI calls the corresponding Host Bridge diagnostics endpoint
+- **AND** stdout is a single JSON object.
+
+#### Scenario: Workflow validate uses submit-shaped input
+
+- **WHEN** an agent runs `zotero-bridge workflow validate --workflow <id> ...`
+- **THEN** the CLI constructs the same selection/options/provider-profile payload shape as `workflow submit`
+- **AND** Host Bridge validates without starting execution.
+
+#### Scenario: Run commands expose permission and history
+
+- **WHEN** an agent runs `run permission pending`, `run recent`, `run workflow recent`, or `run skill events`
+- **THEN** the CLI calls the canonical run-control endpoint
+- **AND** the output remains lightweight and transcript-free.
+
+### Requirement: CLI exposes synthesis maintenance commands
+
+The CLI SHALL provide read-only synthesis cache/index status and enum-constrained cache invalidation.
+
+#### Scenario: Agent invalidates synthesis cache
+
+- **WHEN** an agent runs `zotero-bridge synthesis cache invalidate --scope <topic|graph|index>`
+- **THEN** the CLI SHALL call `POST /bridge/v1/synthesis/cache/invalidate`
+- **AND** the response SHALL describe the current effect as default Synthesis service cache invalidation unless a scoped invalidation seam is implemented.
+
+### Requirement: Rust CLI exposes library readiness queries
+
+The CLI SHALL expose read-only `library readiness` commands for finding Zotero
+items missing PDF attachments, same-stem source Markdown attachments, or
+`literature-analysis` generated artifacts.
+
+#### Scenario: Agent audits library readiness
+
+- **WHEN** a user or agent runs
+  `zotero-bridge library readiness audit --input <json-or-file>`
+- **THEN** the CLI SHALL call the `library.readiness_audit` Host Bridge
+  capability
+- **AND** the input SHALL accept the same pagination and filter fields as
+  `library snapshot`, plus `checks` and `missingOnly`.
+
+#### Scenario: Agent lists missing artifacts
+
+- **WHEN** a user or agent runs `library readiness missing-pdf`,
+  `library readiness missing-markdown`, or `library readiness missing-analysis`
+- **THEN** the CLI SHALL call `library.readiness_audit`
+- **AND** it SHALL set the matching single check and `missingOnly: true`
+- **AND** it SHALL preserve user-provided library filters, cursor, and limit.
+
+#### Scenario: Readiness output remains a single JSON object
+
+- **WHEN** a readiness CLI command succeeds or fails
+- **THEN** stdout SHALL keep the standard single JSON object contract.
+
+### Requirement: Wrapper skill SHALL expose Host Bridge terminology guidance
+
+The Host Bridge CLI wrapper skill SHALL include a terminology reference for
+common Zotero, Synthesis, workflow, artifact, handle, and writeback terms.
+
+#### Scenario: Agent resolves shorthand before choosing commands
+
+- **WHEN** a user request uses shorthand such as `图谱`, `三件套`,
+  `digest`, `references`, `citation analysis`, run handles, notifications,
+  file handles, or writeback terms
+- **THEN** the wrapper skill SHALL direct the agent to
+  `references/terminology.md`
+- **AND** the terminology reference SHALL map the term to the current canonical
+  Host Bridge concept and recommended CLI entry point.
+
+#### Scenario: Terminology is rendered from the shared source
+
+- **WHEN** Host Bridge surface rendering runs
+- **THEN** `skills_builtin/zotero-bridge-cli/references/terminology.md` SHALL be
+  copied from the shared Host Bridge terminology source
+- **AND** it SHALL remain current-state only.
+
+### Requirement: Zotero Librarian helper scripts SHALL use canonical CLI commands
+
+Profile helper scripts SHALL call canonical `zotero-bridge` command groups and
+SHALL NOT introduce alternate Host Bridge command surfaces.
+
+#### Scenario: Workflow helper calls Host Bridge
+
+- **WHEN** the workflow helper reads context, validates workflow input, submits
+  a Host-owned workflow, or creates an agent-owned handoff
+- **THEN** it SHALL use canonical `context`, `library`, `workflow`, and `run`
+  commands.
+
+#### Scenario: Notification helper calls Host Bridge
+
+- **WHEN** the notification helper syncs or acknowledges inbox events
+- **THEN** it SHALL use `run notification list` and `run notification ack`
+- **AND** SHALL NOT use `run notification wait` for scheduled monitoring.
+
+### Requirement: CLI exposes one-page reads for large Host Bridge surfaces
+
+The Host Bridge CLI SHALL keep stdout as a single complete JSON object and SHALL
+not rely on unbounded payloads for library, topic, index, or graph reads.
+
+#### Scenario: CLI reads a paged graph overview
+- **WHEN** a user runs `zotero-bridge synthesis graph overview --input <json>`
+- **THEN** the CLI SHALL call `citation_graph.get_overview`
+- **AND** the returned JSON SHALL represent one graph overview page with
+  section-level pagination metadata.
+
+#### Scenario: CLI documents pagination inputs
+- **WHEN** a user inspects help or generated Host Bridge CLI guidance
+- **THEN** high-cardinality commands SHALL describe cursor and limit usage
+- **AND** guidance SHALL NOT instruct agents to retrieve full graph or index
+  collections in one command.
+
+### Requirement: Rust CLI validates unsafe local inputs before request dispatch
+
+The Host Bridge CLI SHALL reject clearly unsafe local object refs and file handles before sending Host Bridge requests.
+
+#### Scenario: Unsafe object refs are rejected locally
+
+- **WHEN** a context, mutation, annotation, or note command receives a string object ref
+- **THEN** the CLI SHALL accept Zotero object keys and `libraryId:itemKey` refs
+- **AND** it SHALL reject local paths, URI-like refs, and eval-like payloads.
+
+#### Scenario: Attach-file requires an opaque file handle
+
+- **WHEN** `mutation item attach-file` receives `--file`
+- **THEN** the CLI SHALL accept only Host Bridge opaque `file-*` handles.

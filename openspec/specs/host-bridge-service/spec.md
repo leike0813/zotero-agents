@@ -139,3 +139,67 @@ capability metadata rather than trusting the CLI to decide.
   operation
 - **AND** the CLI MUST NOT be able to approve the operation itself.
 
+### Requirement: Host Bridge diagnostics expose redacted operational state
+
+Host Bridge diagnostics SHALL expose agent-usable operational summaries without leaking credentials, private paths, provider payloads, transcripts, or credential-bearing URLs.
+
+#### Scenario: Diagnostics redact sensitive values
+
+- **WHEN** backend diagnostics include URLs, local paths, or credential-like tokens
+- **THEN** the diagnostics response SHALL redact those values before returning them to the client.
+
+### Requirement: Host Bridge exposes read-only library readiness audit
+
+Host Bridge SHALL expose `library.readiness_audit` as a read-only capability for
+paginated Zotero library readiness inspection.
+
+#### Scenario: Capability returns lightweight readiness DTOs
+
+- **WHEN** `/bridge/v1/call` invokes `library.readiness_audit`
+- **THEN** Host Bridge SHALL return `zotero.library.readiness_audit.v1`
+- **AND** each item SHALL include a compact Zotero item summary, readiness
+  states for `pdf`, `markdown`, and `analysis`, a `missing` array, and
+  redacted evidence.
+- **AND** results SHALL use the same filter, cursor, and limit behavior as the
+  existing library list and snapshot capabilities.
+
+#### Scenario: Capability is read-only
+
+- **WHEN** Host Bridge handles `library.readiness_audit`
+- **THEN** it SHALL NOT mutate Zotero data, execute workflows, register file
+  downloads, invalidate caches, or require Zotero UI approval.
+
+#### Scenario: Evidence is redacted
+
+### Requirement: Host Bridge read capabilities bound high-cardinality responses
+
+The Host Bridge SHALL return page-sized or otherwise explicitly bounded JSON
+responses for public non-debug read capabilities that can grow with Zotero
+library or Synthesis graph size.
+
+#### Scenario: Citation graph overview is paged
+- **WHEN** a client calls `citation_graph.get_overview`
+- **THEN** the response SHALL include summary, diagnostics, maintenance, and
+  graph hash metadata
+- **AND** `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges` SHALL be
+  page-sized arrays
+- **AND** the response SHALL include section-level pagination metadata for each
+  graph array.
+
+#### Scenario: Large read capability remains parseable
+- **WHEN** a client calls a high-cardinality read capability
+- **THEN** the Host Bridge response SHALL be a complete JSON object for one
+  page or bounded result
+- **AND** callers SHALL be able to continue through cursor metadata when more
+  results exist.
+
+#### Scenario: Cluster queries remain selector bounded
+- **WHEN** a client calls `citation_graph.query_cluster`
+- **THEN** the service MAY inspect the cached graph internally
+- **AND** returned nodes and edges SHALL be bounded and report truncation
+  diagnostics when limits are reached.
+
+- **WHEN** readiness evidence is returned
+- **THEN** it SHALL NOT include local private paths, transcript text, backend
+  private payloads, or decoded note payload bodies.
+

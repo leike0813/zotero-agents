@@ -497,8 +497,6 @@ Observation downgrade MUST NOT remove or hide deferred apply/run state.
 - **THEN** plugin SHALL NOT delete task projections or dashboard history
 - **AND** UI SHALL keep the last-known state until a critical path updates it.
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner Local Run Identity
 
 Task runtime projections MUST preserve a SkillRunner local run identity across

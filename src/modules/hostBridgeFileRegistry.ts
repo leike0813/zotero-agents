@@ -1,4 +1,9 @@
-import { readRuntimeBytes } from "./runtimePersistence";
+import { joinPath } from "../utils/path";
+import {
+  getRuntimePersistencePaths,
+  readRuntimeBytes,
+  writeRuntimeBytes,
+} from "./runtimePersistence";
 
 const DEFAULT_FILE_TTL_MS = 30 * 60 * 1000;
 const WORKFLOW_ARTIFACT_TTL_MS = 2 * 60 * 60 * 1000;
@@ -12,7 +17,8 @@ const dynamicImport: DynamicImport = new Function(
 export type HostBridgeFileSourceKind =
   | "zotero-attachment"
   | "workflow-artifact"
-  | "bridge-export";
+  | "bridge-export"
+  | "bridge-upload";
 
 export type HostBridgeFileOwner = {
   capability?: string;
@@ -56,6 +62,14 @@ export type HostBridgeRegisteredFileArgs = {
   contentType?: string;
   size?: number;
   sha256?: string;
+  ttlMs?: number;
+  owner?: HostBridgeFileOwner;
+};
+
+export type HostBridgeUploadedFileArgs = {
+  bytes: Uint8Array;
+  displayName?: string;
+  contentType?: string;
   ttlMs?: number;
   owner?: HostBridgeFileOwner;
 };
@@ -284,6 +298,47 @@ export async function registerHostBridgeFileHandle(
   return descriptorFromHandle(handle);
 }
 
+export async function registerHostBridgeUploadedFile(
+  args: HostBridgeUploadedFileArgs,
+): Promise<HostBridgeFileDescriptor> {
+  cleanupExpiredHandles();
+  const bytes = args.bytes;
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength <= 0) {
+    throw new HostBridgeFileRegistryError(
+      "file_unavailable",
+      "Uploaded file body is empty",
+    );
+  }
+  const fileId = createFileId();
+  const displayName = sanitizeDisplayName(args.displayName || "upload.bin");
+  const uploadPath = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "host-bridge-uploads",
+    `${fileId}-${displayName}`,
+  );
+  await writeRuntimeBytes(uploadPath, bytes, { overwrite: false });
+  const createdAt = nowIso();
+  const ttlMs =
+    typeof args.ttlMs === "number" && Number.isFinite(args.ttlMs)
+      ? Math.max(1, Math.floor(args.ttlMs))
+      : DEFAULT_FILE_TTL_MS;
+  const sha256 = await sha256Bytes(bytes);
+  const handle: HostBridgeFileHandle = {
+    fileId,
+    sourceKind: "bridge-upload",
+    displayName,
+    contentType: inferContentType(args.contentType),
+    size: bytes.byteLength,
+    ...(sha256 ? { sha256 } : {}),
+    createdAt,
+    expiresAt: new Date(Date.now() + ttlMs).toISOString(),
+    ...(args.owner ? { owner: { ...args.owner } } : {}),
+    localPath: uploadPath,
+  };
+  handles.set(fileId, handle);
+  return descriptorFromHandle(handle);
+}
+
 export function registerHostBridgeWorkflowArtifactFile(
   args: Omit<HostBridgeRegisteredFileArgs, "sourceKind"> & {
     workflowId?: string;
@@ -399,6 +454,28 @@ export async function resolveHostBridgeFileDownload(
         message: error instanceof Error ? error.message : String(error || ""),
       },
     );
+  }
+}
+
+export async function resolveHostBridgeUploadedFile(
+  fileIdRaw: unknown,
+): Promise<HostBridgeResolvedFileDownload> {
+  const resolved = await resolveHostBridgeFileDownload(fileIdRaw);
+  if (resolved.descriptor.sourceKind !== "bridge-upload") {
+    throw new HostBridgeFileRegistryError(
+      "invalid_file_id",
+      "File handle is not an uploaded Host Bridge file",
+      { fileId: resolved.descriptor.fileId },
+    );
+  }
+  return resolved;
+}
+
+export function markHostBridgeUploadedFileConsumed(fileIdRaw: unknown) {
+  const fileId = validateFileId(fileIdRaw);
+  const handle = handles.get(fileId);
+  if (handle?.sourceKind === "bridge-upload") {
+    handles.delete(fileId);
   }
 }
 

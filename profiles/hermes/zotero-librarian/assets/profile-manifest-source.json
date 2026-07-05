@@ -12,7 +12,30 @@
     "semanticSources": [
       "profiles_src/hermes/zotero-librarian/SOUL.md",
       "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
-      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md"
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
+      "skills_src/host-bridge-shared/terminology.md"
+    ],
+    "profileScripts": [
+      "profiles/hermes/zotero-librarian/scripts/zotero_librarian_index_service.py",
+      "profiles/hermes/zotero-librarian/scripts/install_zotero_bridge_cli.py",
+      "profiles/hermes/zotero-librarian/scripts/zotero_librarian_workflow_service.py",
+      "profiles/hermes/zotero-librarian/scripts/zotero_librarian_notification_service.py"
+    ],
+    "profileCron": [
+      "profiles/hermes/zotero-librarian/cron/index-refresh.yaml",
+      "profiles/hermes/zotero-librarian/cron/workflow-catalog-refresh.yaml",
+      "profiles/hermes/zotero-librarian/cron/run-monitor.yaml",
+      "profiles/hermes/zotero-librarian/cron/notification-sync.yaml",
+      "profiles/hermes/zotero-librarian/cron/inbox-triage.yaml",
+      "profiles/hermes/zotero-librarian/cron/library-hygiene.yaml",
+      "profiles/hermes/zotero-librarian/cron/attention-queue.yaml"
+    ],
+    "profileConfig": [
+      "profiles/hermes/zotero-librarian/config.yaml"
     ]
   },
   "generated": {
@@ -20,8 +43,9 @@
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "4b432464b56d82d07032a1d8b9afa335f67d8d6c127d35921596d0963eba5eef",
+    "catalogChecksum": "f3fdd3b24d2a7673e7001800b6e2e955d9780b7cea32392a641f5721bb97966f",
     "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
-    "semanticSourceChecksum": "0d703ce5455c6fa2b3f1d6bf34555c0c7728a6f9425bb722345f2f6d01b069c2"
+    "semanticSourceChecksum": "0745c711922803ecf34489d7e74a831a2b1ff18175ffc566f82ed6a2c8bc76b8",
+    "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
   }
 }

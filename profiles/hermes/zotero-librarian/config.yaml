@@ -18,3 +18,14 @@ workflowCatalog:
 runMonitor:
   registerCommand: run-register
   watchCommand: run-watch
+workflowService:
+  script: scripts/zotero_librarian_workflow_service.py
+  defaultConcurrency: 1
+  requireConcurrencyConfirmation: true
+notificationService:
+  script: scripts/zotero_librarian_notification_service.py
+  syncCommand: sync
+  inboxCommand: inbox
+  summaryCommand: summary
+  ackCommand: ack
+  syncEvery: 5m

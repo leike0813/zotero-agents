@@ -12,6 +12,8 @@ const ROOT = process.cwd();
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
 const WRAPPER_AGENT_GUIDANCE_SOURCE =
   "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md";
+const SHARED_TERMINOLOGY_SOURCE =
+  "skills_src/host-bridge-shared/terminology.md";
 
 type RenderTarget = {
   path: string;
@@ -96,6 +98,9 @@ function flags(entry: HostBridgeCapabilityCatalogEntry) {
     entry.debugOnly ? "debug-only" : "",
     entry.dangerous ? "dangerous" : "",
     entry.rawOnly ? "raw-only" : "",
+    entry.responseSizing !== "unclassified"
+      ? `response:${entry.responseSizing}`
+      : "",
     entry.mcpMirror ? "mcp-mirror" : "",
   ]
     .filter(Boolean)
@@ -217,9 +222,20 @@ function libraryGuidance() {
   return [
     '- Use `zotero-bridge library items list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
     '- Use `zotero-bridge library snapshot --input \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
+    "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
     "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
     "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.",
     "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
+  ].join("\n");
+}
+
+function largeResponseGuidance() {
+  return [
+    "- Treat `response:paged` capabilities as one-page reads. Iterate the returned cursor metadata instead of assuming one call returns the whole collection.",
+    "- `synthesis graph overview` returns summary plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. Use `cursor`/`limit` for all sections together or section cursors such as `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor`.",
+    "- Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded subgraph, layout, or ranked metric page instead of the entire citation graph.",
+    "- `synthesis topic list`, `synthesis index library get`, graph metrics, and graph rankings are paged reads. Do not build workflows that rely on stdout containing every topic, index row, graph node, edge, or rank item in one response.",
   ].join("\n");
 }
 
@@ -273,6 +289,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     libraryGuidance(),
     "",
+    "#### Large response pagination",
+    "",
+    largeResponseGuidance(),
+    "",
     "#### Resolver payloads",
     "",
     resolverGuidance(),
@@ -322,6 +342,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     topicContextGuidance(),
     "",
+    "### Large response pagination",
+    "",
+    largeResponseGuidance(),
+    "",
     "### Resolver payloads",
     "",
     resolverGuidance(),
@@ -360,6 +384,10 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
     "### Library guidance",
     "",
     libraryGuidance(),
+    "",
+    "### Large response pagination",
+    "",
+    largeResponseGuidance(),
     "",
     "### Topic context payloads",
     "",
@@ -429,6 +457,10 @@ const COPY_TARGETS: CopyTarget[] = [
   {
     path: "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
     sourcePath: WRAPPER_AGENT_GUIDANCE_SOURCE,
+  },
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/terminology.md",
+    sourcePath: SHARED_TERMINOLOGY_SOURCE,
   },
 ];
 

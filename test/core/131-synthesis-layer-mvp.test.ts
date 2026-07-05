@@ -279,7 +279,10 @@ describe("Synthesis Layer MVP real-data closure", function () {
       }),
     });
 
-    const index = await service.getLibraryIndex();
+    const index = await service.getLibraryIndex({
+      includeTags: true,
+      includeCollections: true,
+    });
     const firstIndexPage = await service.getLibraryIndex({ limit: 1 });
     const secondIndexPage = await service.getLibraryIndex({
       cursor: firstIndexPage.next_cursor,
@@ -303,6 +306,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
       index.collections.map((entry) => entry.name),
       "Topic Alpha",
     );
+    assert.isObject(index.pagination?.tags);
+    assert.isObject(index.pagination?.collections);
     assert.equal(firstIndexPage.returned, 1);
     assert.equal(firstIndexPage.total_papers, 2);
     assert.equal(firstIndexPage.has_more, true);

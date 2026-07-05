@@ -59,6 +59,7 @@ describe("Synthesis MCP tools", function () {
       "library_index.get",
       "resolvers.resolve",
       "reference_index.get",
+      "citation_graph.get_overview",
       "citation_graph.get_slice",
       "citation_graph.get_layout",
       "citation_graph.get_metrics",
@@ -1078,11 +1079,67 @@ describe("Synthesis MCP tools", function () {
     assert.notProperty(compactResult, "tags");
     assert.notProperty(compactResult, "registry");
     assert.isArray(expandedResult.tags);
-    assert.includeMembers(
-      expandedResult.tags.map((entry: any) => entry.tag),
-      ["topic:x", "topic:y"],
-    );
+    assert.lengthOf(expandedResult.tags, 1);
     assert.isArray(expandedResult.registry);
+    assert.isObject(expandedResult.pagination);
+    assert.strictEqual(expandedResult.pagination.papers.limit, 1);
+    assert.strictEqual(expandedResult.pagination.tags.limit, 1);
+    assert.strictEqual(expandedResult.pagination.registry.limit, 1);
+  });
+
+  it("returns paged citation graph overview sections", async function () {
+    const root = await makeRoot();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha",
+          references: [
+            { title: "Shared External", year: "2020" },
+            { title: "Alpha Only", year: "2021" },
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta",
+          references: [{ title: "Shared External", year: "2020" }],
+        },
+        { libraryId: 1, itemKey: "C", title: "Gamma" },
+      ],
+    });
+    await service.refreshReferenceSidecarNow();
+    await service.rebuildCitationGraphCacheNow();
+
+    const first: any = await handleZoteroMcpRequestForTests(
+      request(25, "citation_graph.get_overview", { limit: 2 }),
+      { resolveSynthesisService: () => service },
+    );
+    const firstResult = first.result.structuredContent.result;
+
+    assert.lengthOf(firstResult.nodes, 2);
+    assert.isTrue(firstResult.pagination.nodes.hasMore);
+    assert.strictEqual(firstResult.pagination.nodes.nextCursor, "2");
+    assert.isTrue(firstResult.diagnostics.bounded);
+    assert.isObject(firstResult.summary);
+
+    const second: any = await handleZoteroMcpRequestForTests(
+      request(26, "citation_graph.get_overview", {
+        nodeCursor: firstResult.pagination.nodes.nextCursor,
+        limit: 2,
+      }),
+      { resolveSynthesisService: () => service },
+    );
+    const secondResult = second.result.structuredContent.result;
+
+    assert.isAtLeast(secondResult.nodes.length, 1);
+    assert.notDeepEqual(
+      firstResult.nodes.map((node: any) => node.node_id),
+      secondResult.nodes.map((node: any) => node.node_id),
+    );
   });
 
   it("routes bounded review input arguments through the synthesis MCP service", async function () {

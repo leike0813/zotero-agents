@@ -1,0 +1,14 @@
+schema: hermes.cron.v1
+name: notification-sync
+schedule:
+  every: 5m
+command:
+  - scripts/zotero_librarian_notification_service.py
+  - sync
+behavior:
+  unchanged: "[SILENT]"
+  mutation: never
+notes:
+  - Read Host Bridge notification inbox with run notification list.
+  - Store lightweight lifecycle events locally.
+  - Do not use long-polling loops.

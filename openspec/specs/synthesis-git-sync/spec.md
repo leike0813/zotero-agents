@@ -564,8 +564,6 @@ Git Sync implementation code MAY remain available for historical diagnostics and
 - **WHEN** retained Git Sync service, prefs, token, or adapter entrypoints are read
 - **THEN** they SHALL carry a clear deprecation note that the transport is hidden from user-facing sync UI.
 
-## ADDED Requirements
-
 ### Requirement: Synthesis live SQLite files SHALL remain local-only
 
 Git Sync SHALL treat live SQLite files as local materialized state and SHALL NOT synchronize them.

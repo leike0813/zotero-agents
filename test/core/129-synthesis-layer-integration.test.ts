@@ -1208,9 +1208,10 @@ describe("Synthesis Layer v1 integration service", function () {
       (node) => node.topic_id === "topic-alpha",
     );
 
-    assert.deepEqual(inventory.diagnostics, {
+    assert.deepInclude(inventory.diagnostics, {
       count: 1,
       source: "sqlite-topic-graph",
+      total_count: 1,
     });
     assert.equal(graphTopic?.definition, "Semantic scope for Alpha.");
     assert.deepEqual(topic, {
@@ -3162,6 +3163,7 @@ describe("Synthesis Layer v1 integration service", function () {
     await service.refreshReferenceSidecarNow();
     await service.rebuildCitationGraphCacheNow();
     const graph = (await service.queryCitationGraph()) as any;
+    const firstPage = (await service.queryCitationGraph({ limit: 2 })) as any;
     const snapshot = await service.getSynthesisSnapshot();
 
     assert.includeMembers(
@@ -3186,6 +3188,11 @@ describe("Synthesis Layer v1 integration service", function () {
       ),
       ["Unique Alpha Reference", "Unique Gamma Reference"],
     );
+    assert.lengthOf(firstPage.nodes, 2);
+    assert.isTrue(firstPage.pagination.nodes.hasMore);
+    assert.strictEqual(firstPage.pagination.nodes.nextCursor, "2");
+    assert.isTrue(firstPage.diagnostics.bounded);
+    assert.isTrue(firstPage.diagnostics.truncated);
     assert.equal(graph.diagnostics.library_node_count, 4);
     assert.equal(graph.diagnostics.shared_external_count, 1);
     assert.equal(graph.diagnostics.hover_only_external_count, 2);

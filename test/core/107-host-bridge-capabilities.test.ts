@@ -130,6 +130,33 @@ async function createParentItem(title: string) {
   return item;
 }
 
+async function createAttachment(
+  parent: Zotero.Item,
+  filePath: string,
+  options: { contentType?: string } = {},
+) {
+  const item = new Zotero.Item("attachment") as Zotero.Item & {
+    attachmentContentType?: string;
+    attachmentFilename?: string;
+    setFilePath?: (path: string) => void;
+  };
+  item.parentID = parent.id;
+  item.attachmentContentType = options.contentType || "";
+  item.setFilePath?.(filePath);
+  item.attachmentFilename = filePath.split(/[\\/]+/).pop() || "";
+  await item.saveTx();
+  return item;
+}
+
+async function createNote(parent: Zotero.Item, title: string, html: string) {
+  const item = new Zotero.Item("note");
+  item.parentID = parent.id;
+  item.setField("title", title);
+  item.setNote(html);
+  await item.saveTx();
+  return item;
+}
+
 describe("host bridge capability calls", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
@@ -241,6 +268,85 @@ describe("host bridge capability calls", function () {
     assert.isString(parsed.json.result.data.nextCursor);
   });
 
+  it("routes library readiness audits with shared artifact evidence", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "readiness-token",
+    });
+    const complete = await createParentItem("Bridge Readiness Complete");
+    const completePdf = await createAttachment(
+      complete,
+      "D:\\Private\\complete.pdf",
+      { contentType: "application/pdf" },
+    );
+    await createAttachment(complete, "D:\\Private\\complete.md", {
+      contentType: "text/markdown",
+    });
+    await createNote(
+      complete,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
+    );
+    await createNote(
+      complete,
+      "References",
+      '<div data-zs-note-kind="references"><p>References</p></div>',
+    );
+    await createNote(
+      complete,
+      "Citation",
+      '<div data-zs-note-kind="citation_analysis"><p>Citation</p></div>',
+    );
+    complete.getBestAttachment = async () => completePdf;
+
+    const missing = await createParentItem("Bridge Readiness Missing");
+    const missingPdf = await createAttachment(
+      missing,
+      "D:\\Private\\missing.pdf",
+      { contentType: "application/pdf" },
+    );
+    await createAttachment(missing, "D:\\Private\\other.md", {
+      contentType: "text/markdown",
+    });
+    await createNote(
+      missing,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>Digest</p></div>',
+    );
+    missing.getBestAttachment = async () => missingPdf;
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.readiness_audit",
+      input: {
+        query: "Bridge Readiness",
+        checks: ["markdown", "analysis"],
+        missingOnly: true,
+        limit: 10,
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(
+      parsed.json.result.capability,
+      "library.readiness_audit",
+    );
+    assert.strictEqual(parsed.json.result.approval, "none");
+    assert.strictEqual(
+      parsed.json.result.data.schema,
+      "zotero.library.readiness_audit.v1",
+    );
+    assert.lengthOf(parsed.json.result.data.items, 1);
+    const item = parsed.json.result.data.items[0];
+    assert.strictEqual(item.key, missing.key);
+    assert.deepEqual(item.missing, ["markdown", "analysis"]);
+    assert.deepEqual(item.evidence.analysis.missingParts, [
+      "references",
+      "citation-analysis",
+    ]);
+    assert.strictEqual(item.evidence.pdf.filename, "missing.pdf");
+    assert.notInclude(JSON.stringify(item), "D:\\Private");
+  });
+
   it("passes connection mode headers into synthesis capability context", async function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",
@@ -306,6 +412,21 @@ describe("host bridge capability calls", function () {
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
     assert.isArray(parsed.json.result.data.diagnostics?.recommended_commands);
     assert.isObject(parsed.json.result.data.diagnostics?.maintenance);
+
+    const graphOverview = await callBridgeCapability({
+      token,
+      capability: "citation_graph.get_overview",
+      input: { limit: 1 },
+    });
+    assert.strictEqual(graphOverview.status, 200);
+    assert.strictEqual(
+      graphOverview.json.result.capability,
+      "citation_graph.get_overview",
+    );
+    assert.isArray(graphOverview.json.result.data.nodes);
+    assert.isObject(graphOverview.json.result.data.pagination);
+    assert.isObject(graphOverview.json.result.data.pagination.nodes);
+    assert.isTrue(graphOverview.json.result.data.diagnostics.bounded);
 
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
@@ -1037,6 +1158,144 @@ describe("host bridge capability calls", function () {
     assert.include(approvalRequest.detail, "Tags: approval-readable");
     assert.notInclude(approvalRequest.detail, '"operation"');
     assert.notInclude(approvalRequest.detail, "{");
+  });
+
+  it("executes collection create, membership, note, and annotation writeback operations", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "writeback-token",
+    });
+    const item = await createParentItem("Bridge Writeback Parent");
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+
+    const createdCollection = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "collection.create",
+        name: "Bridge Writeback Collection",
+      },
+    });
+    assert.strictEqual(createdCollection.status, 200);
+    const collection = createdCollection.json.result.data.result.collections[0];
+    assert.strictEqual(collection.name, "Bridge Writeback Collection");
+
+    const added = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "collection.addItems",
+        collection: { id: collection.id },
+        items: [item.id],
+      },
+    });
+    assert.strictEqual(added.status, 200);
+    assert.include(item.getCollections(), collection.id);
+
+    const noteCreated = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "note.createChild",
+        parent: item.id,
+        content: "<p>Bridge writeback note</p>",
+      },
+    });
+    assert.strictEqual(noteCreated.status, 200);
+    const note = noteCreated.json.result.data.result.notes[0];
+    assert.strictEqual(note.parent.id, item.id);
+
+    const noteUpdated = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "note.update",
+        note: note.id,
+        content: "<p>Bridge writeback note updated</p>",
+      },
+    });
+    assert.strictEqual(noteUpdated.status, 200);
+    assert.include(
+      noteUpdated.json.result.data.result.notes[0].html,
+      "updated",
+    );
+
+    (item as any).getAnnotations = () => [
+      {
+        id: 77,
+        key: "ANNOKEY",
+        libraryID: item.libraryID,
+        annotationText: "quoted text",
+        annotationComment: "agent note",
+        annotationColor: "#ffd400",
+        annotationPageLabel: "3",
+      },
+    ];
+    const annotations = await callBridgeCapability({
+      token,
+      capability: "library.export_annotations",
+      input: { ref: item.id, format: "markdown" },
+    });
+    assert.strictEqual(annotations.status, 200);
+    assert.include(annotations.json.result.data.markdown, "quoted text");
+    assert.include(annotations.json.result.data.markdown, "agent note");
+  });
+
+  it("attaches uploaded Host Bridge files by opaque handle only once", async function () {
+    const token = configureHostBridgeServerForTests({ token: "upload-token" });
+    const item = await createParentItem("Bridge Upload Attach Parent");
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+
+    const uploaded = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "POST",
+        path: "/bridge/v1/files/upload",
+        rawRequestBytes: rawHttpRequestBytes({
+          method: "POST",
+          path: "/bridge/v1/files/upload",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "text/plain",
+            "X-Zotero-Bridge-Display-Name": "writeback.txt",
+          },
+          bodyBytes: Buffer.from("writeback artifact", "utf8"),
+        }),
+      }),
+    );
+    const fileId = uploaded.json.result.file.fileId;
+
+    const attached = await callBridgeCapability({
+      token,
+      capability: "mutation.execute",
+      input: {
+        operation: "item.attachFile",
+        item: item.id,
+        fileId,
+      },
+    });
+    assert.strictEqual(attached.status, 200);
+    assert.lengthOf(attached.json.result.data.result.attachments, 1);
+    assert.lengthOf(item.getAttachments(), 1);
+
+    const reused = await callBridgeCapability({
+      token,
+      capability: "mutation.preview",
+      input: {
+        operation: "item.attachFile",
+        item: item.id,
+        fileId,
+      },
+    });
+    assert.strictEqual(reused.status, 200);
+    assert.isFalse(reused.json.result.data.ok);
+    assert.strictEqual(reused.json.result.data.error.code, "file_not_found");
   });
 
   it("mirrors Host Bridge capability names through MCP tools", async function () {

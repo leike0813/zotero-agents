@@ -1,3 +1,7 @@
+## Purpose
+
+Topic Details renders structured topic synthesis artifacts as readable review, timeline, coverage, and relation UI without exposing unsupported internal statistics.
+
 ## Requirements
 ### Requirement: Topic details SHALL render structured timeline and coverage content
 

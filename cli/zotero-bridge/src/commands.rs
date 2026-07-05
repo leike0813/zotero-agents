@@ -2,28 +2,44 @@ use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
 };
 
 use serde_json::{json, Map, Value};
 
 use crate::{
     args::{
-        BridgeArgs, BridgeCommand, BridgeInputArgs, CallArgs, CitationGraphArgs,
-        CitationGraphCommand, ConceptsArgs, ConceptsCommand, DebugAcpSkillRunCommand, DebugArgs,
-        DebugCommand, DebugInputArgs, DebugSynthesisCommand, FileArgs, FileCommand,
-        FileDownloadArgs, InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs,
-        ItemRefArgs, ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand,
-        LiteratureIngestArgs, MutationArgs, MutationCommand, NoteArgs, NoteCommand, NoteDetailArgs,
-        NotePayloadArgs, PaperArtifactsArgs, PaperArtifactsCommand, ResolversArgs,
-        ResolversCommand, RunArgs, RunCommand, SchemasArgs, SchemasCommand, SkillRunCommand,
-        SkillRunIdArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCommand, SynthesisIndexCommand,
-        SynthesisIndexGetCommand, TaskListArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentRunArgs, WorkflowArgs, WorkflowCancelArgs, WorkflowCommand,
-        WorkflowDescribeArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        AnnotationArgs, AnnotationCommand, AnnotationExportArgs, AnnotationItemArgs, BridgeArgs,
+        BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
+        BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, CallArgs, CitationGraphArgs,
+        CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs, ContextCollectionCommand,
+        ContextCollectionOpenArgs, ContextCommand, ContextItemCommand, ContextNoteCommand,
+        ContextObjectRefArgs, ContextSelectionCommand, ContextSelectionOpenArgs,
+        DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisCommand,
+        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
+        ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs, LibraryArgs,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LiteratureIngestArgs,
+        MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
+        MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
+        MutationItemArgs, MutationItemAttachFileArgs, MutationItemCommand, MutationItemUpdateArgs,
+        MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
+        MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
+        NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
+        NotificationListArgs, NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand,
+        PermissionRequestIdArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
+        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
+        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
+        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
+        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentRunArgs, WorkflowArgs,
+        WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRequirementsArgs,
+        WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
-    error::CliError,
+    error::{CliError, ErrorCategory},
 };
 
 const PROTOCOL: &str = "host-bridge.v1";
@@ -42,7 +58,36 @@ pub fn bridge(config: &BridgeConfig, args: BridgeArgs) -> Result<Value, CliError
     match args.command {
         BridgeCommand::Status => status(config),
         BridgeCommand::Manifest => manifest(config),
+        BridgeCommand::Profile(args) => bridge_profile(config, args),
+        BridgeCommand::Backend(args) => bridge_backend(config, args),
     }
+}
+
+fn bridge_profile(config: &BridgeConfig, args: BridgeProfileArgs) -> Result<Value, CliError> {
+    match args.command {
+        BridgeProfileCommand::Inspect => client::get(config, "/diagnostics/profile"),
+        BridgeProfileCommand::Diagnose => client::get(config, "/diagnostics/profile/diagnose"),
+    }
+}
+
+fn bridge_backend(config: &BridgeConfig, args: BridgeBackendArgs) -> Result<Value, CliError> {
+    match args.command {
+        BridgeBackendCommand::List => client::get(config, "/diagnostics/backends"),
+        BridgeBackendCommand::Status(args) => bridge_backend_status(config, args),
+    }
+}
+
+fn bridge_backend_status(
+    config: &BridgeConfig,
+    args: BridgeBackendStatusArgs,
+) -> Result<Value, CliError> {
+    client::get(
+        config,
+        &format!(
+            "/diagnostics/backends/{}",
+            percent_encode_path(&args.backend_id)
+        ),
+    )
 }
 
 pub fn call(config: &BridgeConfig, args: CallArgs) -> Result<Value, CliError> {
@@ -92,9 +137,65 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
         },
         LibraryCommand::Item(args) => item(config, args),
         LibraryCommand::Note(args) => note(config, args),
+        LibraryCommand::Annotation(args) => annotation(config, args),
         LibraryCommand::Snapshot(input) => {
             call_capability(config, "library.sync_snapshot", bridge_input(input)?)
         }
+        LibraryCommand::Readiness(args) => call_capability(
+            config,
+            "library.readiness_audit",
+            library_readiness_input(args.command)?,
+        ),
+    }
+}
+
+pub fn annotation(config: &BridgeConfig, args: AnnotationArgs) -> Result<Value, CliError> {
+    match args.command {
+        AnnotationCommand::List(args) => call_capability(
+            config,
+            "library.list_annotations",
+            annotation_item_input(args)?,
+        ),
+        AnnotationCommand::Export(args) => call_capability(
+            config,
+            "library.export_annotations",
+            annotation_export_input(args)?,
+        ),
+    }
+}
+
+pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliError> {
+    match args.command {
+        ContextCommand::Current => client::get(config, "/context/current"),
+        ContextCommand::Selection(args) => match args.command {
+            ContextSelectionCommand::Get => client::get(config, "/context/selection"),
+            ContextSelectionCommand::Open(args) => client::post(
+                config,
+                "/context/selection/open",
+                context_selection_open_input(args)?,
+            ),
+        },
+        ContextCommand::Item(args) => match args.command {
+            ContextItemCommand::Open(args) => client::post(
+                config,
+                "/context/items/open",
+                context_object_open_input("item", args)?,
+            ),
+        },
+        ContextCommand::Note(args) => match args.command {
+            ContextNoteCommand::Open(args) => client::post(
+                config,
+                "/context/notes/open",
+                context_object_open_input("note", args)?,
+            ),
+        },
+        ContextCommand::Collection(args) => match args.command {
+            ContextCollectionCommand::Open(args) => client::post(
+                config,
+                "/context/collections/open",
+                context_collection_open_input(args)?,
+            ),
+        },
     }
 }
 
@@ -105,6 +206,7 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
         SynthesisCommand::Concept(args) => concepts(config, args),
         SynthesisCommand::Graph(args) => citation_graph(config, args),
         SynthesisCommand::Index(args) => match args.command {
+            SynthesisIndexCommand::Status => client::get(config, "/synthesis/index/status"),
             SynthesisIndexCommand::Library(args) => match args.command {
                 SynthesisIndexGetCommand::Get(input) => {
                     call_capability(config, "library_index.get", bridge_input(input)?)
@@ -116,9 +218,21 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
                 }
             },
         },
+        SynthesisCommand::Cache(args) => synthesis_cache(config, args),
         SynthesisCommand::Resolver(args) => resolvers(config, args),
         SynthesisCommand::Artifact(args) => paper_artifacts(config, args),
         SynthesisCommand::Insight(args) => insights(config, args),
+    }
+}
+
+fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Value, CliError> {
+    match args.command {
+        SynthesisCacheCommand::Status => client::get(config, "/synthesis/cache/status"),
+        SynthesisCacheCommand::Invalidate(args) => client::post(
+            config,
+            "/synthesis/cache/invalidate",
+            synthesis_cache_invalidate_input(args),
+        ),
     }
 }
 
@@ -132,6 +246,18 @@ pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliE
         }
         MutationCommand::LiteratureIngest(args) => {
             call_capability(config, "mutation.execute", literature_ingest_input(args)?)
+        }
+        MutationCommand::Tag(args) => {
+            call_capability(config, "mutation.execute", mutation_tag_input(args)?)
+        }
+        MutationCommand::Collection(args) => {
+            call_capability(config, "mutation.execute", mutation_collection_input(args)?)
+        }
+        MutationCommand::Item(args) => {
+            call_capability(config, "mutation.execute", mutation_item_input(args)?)
+        }
+        MutationCommand::Note(args) => {
+            call_capability(config, "mutation.execute", mutation_note_input(args)?)
         }
     }
 }
@@ -186,6 +312,14 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             "/workflows/describe",
             workflow_describe_input(args)?,
         ),
+        WorkflowCommand::Validate(args) => {
+            client::post(config, "/workflows/validate", workflow_submit_input(args)?)
+        }
+        WorkflowCommand::Requirements(args) => client::post(
+            config,
+            "/workflows/requirements",
+            workflow_requirements_input(args)?,
+        ),
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
@@ -204,6 +338,8 @@ pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
         ),
         RunCommand::List(args) => client::get(config, &task_list_path(args)),
         RunCommand::Active => client::get(config, "/tasks/active"),
+        RunCommand::Recent(args) => client::get(config, &task_recent_path(args)),
+        RunCommand::Workflow(args) => run_workflow(config, args),
         RunCommand::Skill(args) => match args.command {
             SkillRunCommand::Get(args) => client::get(config, &skill_run_path(&args)?),
             SkillRunCommand::Reply(args) => client::post(
@@ -214,13 +350,40 @@ pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
             SkillRunCommand::Connect(args) => {
                 client::post(config, &skill_run_connect_path(&args)?, json!({}))
             }
+            SkillRunCommand::Recent(args) => client::get(config, &skill_run_recent_path(args)),
+            SkillRunCommand::Events(args) => client::get(config, &skill_run_events_path(args)?),
         },
+        RunCommand::Notification(args) => match args.command {
+            NotificationCommand::List(args) => client::get(
+                config,
+                &notification_list_path(notification_list_query(args)),
+            ),
+            NotificationCommand::Wait(args) => notification_wait(config, args),
+            NotificationCommand::Ack(args) => {
+                client::post(config, "/notifications/ack", notification_ack_input(args)?)
+            }
+        },
+        RunCommand::Permission(args) => run_permission(config, args),
+    }
+}
+
+fn run_workflow(config: &BridgeConfig, args: RunWorkflowArgs) -> Result<Value, CliError> {
+    match args.command {
+        RunWorkflowCommand::Recent(args) => client::get(config, &workflow_runs_path(args)),
+    }
+}
+
+fn run_permission(config: &BridgeConfig, args: RunPermissionArgs) -> Result<Value, CliError> {
+    match args.command {
+        RunPermissionCommand::Pending => client::get(config, "/permissions/pending"),
+        RunPermissionCommand::Get(args) => client::get(config, &permission_path(args)),
     }
 }
 
 pub fn file(config: &BridgeConfig, args: FileArgs) -> Result<Value, CliError> {
     match args.command {
         FileCommand::Download(args) => file_download(config, args),
+        FileCommand::Upload(args) => file_upload(config, args),
     }
 }
 
@@ -425,6 +588,23 @@ fn bridge_input(args: BridgeInputArgs) -> Result<Value, CliError> {
     read_json_arg(args.input.as_deref())
 }
 
+fn library_readiness_input(command: LibraryReadinessCommand) -> Result<Value, CliError> {
+    let (input, check) = match command {
+        LibraryReadinessCommand::Audit(input) => return bridge_input(input),
+        LibraryReadinessCommand::MissingPdf(input) => (input, "pdf"),
+        LibraryReadinessCommand::MissingMarkdown(input) => (input, "markdown"),
+        LibraryReadinessCommand::MissingAnalysis(input) => (input, "analysis"),
+    };
+    let mut value = bridge_input(input)?;
+    if !value.is_object() {
+        value = json!({});
+    }
+    let object = value.as_object_mut().expect("readiness input object");
+    object.insert("checks".to_string(), json!([check]));
+    object.insert("missingOnly".to_string(), Value::Bool(true));
+    Ok(value)
+}
+
 fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError> {
     let input = read_json_arg(Some(&args.input))?;
     let mut object = match input {
@@ -441,6 +621,166 @@ fn literature_ingest_input(args: LiteratureIngestArgs) -> Result<Value, CliError
         Value::String("literature.ingest".to_string()),
     );
     Ok(Value::Object(object))
+}
+
+fn merge_operation_input(operation: &str, input: Value) -> Result<Value, CliError> {
+    let mut object = match input {
+        Value::Object(map) => map,
+        _ => {
+            return Err(CliError::validation(
+                "invalid_mutation_input",
+                "Mutation command input must be a JSON object",
+            ));
+        }
+    };
+    object.insert(
+        "operation".to_string(),
+        Value::String(operation.to_string()),
+    );
+    Ok(Value::Object(object))
+}
+
+fn refs_value(values: Vec<String>) -> Result<Value, CliError> {
+    Ok(Value::Array(
+        values
+            .into_iter()
+            .map(|value| context_ref_value(&value))
+            .collect::<Result<Vec<_>, _>>()?,
+    ))
+}
+
+fn annotation_item_input(args: AnnotationItemArgs) -> Result<Value, CliError> {
+    Ok(json!({ "ref": context_ref_value(&args.item)? }))
+}
+
+fn annotation_export_input(args: AnnotationExportArgs) -> Result<Value, CliError> {
+    Ok(json!({
+        "ref": context_ref_value(&args.item)?,
+        "format": args.format.unwrap_or_else(|| "markdown".to_string())
+    }))
+}
+
+fn synthesis_cache_invalidate_input(args: SynthesisCacheInvalidateArgs) -> Value {
+    let mut input = json!({ "scope": args.scope });
+    if let Some(id) = args.id {
+        input["id"] = Value::String(id);
+    }
+    input
+}
+
+fn mutation_tag_input(args: MutationTagArgs) -> Result<Value, CliError> {
+    let (operation, input) = match args.command {
+        MutationTagCommand::Add(input) => ("item.addTags", input),
+        MutationTagCommand::Remove(input) => ("item.removeTags", input),
+    };
+    mutation_tags_input(operation, input)
+}
+
+fn mutation_tags_input(operation: &str, args: MutationTagsArgs) -> Result<Value, CliError> {
+    Ok(json!({
+        "operation": operation,
+        "items": refs_value(args.items)?,
+        "tags": args.tags,
+    }))
+}
+
+fn mutation_collection_input(args: MutationCollectionArgs) -> Result<Value, CliError> {
+    match args.command {
+        MutationCollectionCommand::Create(args) => mutation_collection_create_input(args),
+        MutationCollectionCommand::AddItems(args) => {
+            mutation_collection_items_input("collection.addItems", args)
+        }
+        MutationCollectionCommand::RemoveItems(args) => {
+            mutation_collection_items_input("collection.removeItems", args)
+        }
+    }
+}
+
+fn mutation_collection_create_input(args: MutationCollectionCreateArgs) -> Result<Value, CliError> {
+    merge_operation_input("collection.create", read_json_arg(Some(&args.input))?)
+}
+
+fn mutation_collection_items_input(
+    operation: &str,
+    args: MutationCollectionItemsArgs,
+) -> Result<Value, CliError> {
+    Ok(json!({
+        "operation": operation,
+        "collection": context_ref_value(&args.collection)?,
+        "items": refs_value(args.items)?,
+    }))
+}
+
+fn mutation_item_input(args: MutationItemArgs) -> Result<Value, CliError> {
+    match args.command {
+        MutationItemCommand::Update(args) => mutation_item_update_input(args),
+        MutationItemCommand::AttachFile(args) => mutation_item_attach_file_input(args),
+    }
+}
+
+fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, CliError> {
+    let fields = read_json_arg(Some(&args.patch))?;
+    match fields {
+        Value::Object(_) => Ok(json!({
+            "operation": "item.updateFields",
+            "item": context_ref_value(&args.item)?,
+            "fields": fields,
+        })),
+        _ => Err(CliError::validation(
+            "invalid_item_patch",
+            "Item patch must be a JSON object",
+        )),
+    }
+}
+
+fn mutation_item_attach_file_input(args: MutationItemAttachFileArgs) -> Result<Value, CliError> {
+    let file_id = normalize_file_id(&args.file)?;
+    let mut object = Map::new();
+    object.insert(
+        "operation".to_string(),
+        Value::String("item.attachFile".to_string()),
+    );
+    object.insert("item".to_string(), context_ref_value(&args.item)?);
+    object.insert("fileId".to_string(), Value::String(file_id));
+    if let Some(display_name) = args.display_name {
+        object.insert("displayName".to_string(), Value::String(display_name));
+    }
+    if let Some(content_type) = args.content_type {
+        object.insert("contentType".to_string(), Value::String(content_type));
+    }
+    Ok(Value::Object(object))
+}
+
+fn mutation_note_input(args: MutationNoteArgs) -> Result<Value, CliError> {
+    match args.command {
+        MutationNoteCommand::Create(args) => mutation_note_create_input(args),
+        MutationNoteCommand::Update(args) => mutation_note_update_input(args),
+        MutationNoteCommand::UpsertPayload(args) => mutation_note_payload_input(args),
+    }
+}
+
+fn mutation_note_create_input(args: MutationNoteCreateArgs) -> Result<Value, CliError> {
+    let mut input = merge_operation_input("note.createChild", read_json_arg(Some(&args.input))?)?;
+    if let Value::Object(ref mut object) = input {
+        object.insert("parent".to_string(), context_ref_value(&args.item)?);
+    }
+    Ok(input)
+}
+
+fn mutation_note_update_input(args: MutationNoteUpdateArgs) -> Result<Value, CliError> {
+    let mut input = merge_operation_input("note.update", read_json_arg(Some(&args.input))?)?;
+    if let Value::Object(ref mut object) = input {
+        object.insert("note".to_string(), context_ref_value(&args.note)?);
+    }
+    Ok(input)
+}
+
+fn mutation_note_payload_input(args: MutationNotePayloadArgs) -> Result<Value, CliError> {
+    let mut input = merge_operation_input("note.upsertPayload", read_json_arg(Some(&args.input))?)?;
+    if let Value::Object(ref mut object) = input {
+        object.insert("note".to_string(), context_ref_value(&args.note)?);
+    }
+    Ok(input)
 }
 
 fn json_object_arg(input: Option<&str>, code: &str, message: &str) -> Result<Value, CliError> {
@@ -485,6 +825,11 @@ fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
         "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
     }))
+}
+
+fn workflow_requirements_input(args: WorkflowRequirementsArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "requirements")?;
+    Ok(json!({ "workflowId": workflow }))
 }
 
 fn workflow_selection_from(
@@ -708,8 +1053,119 @@ fn skill_run_connect_path(args: &SkillRunIdArgs) -> Result<String, CliError> {
     ))
 }
 
+fn skill_run_recent_path(args: SkillRunRecentArgs) -> String {
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "state", args.state);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    path_with_query("/skill-runs/recent", query)
+}
+
+fn skill_run_events_path(args: SkillRunEventsArgs) -> Result<String, CliError> {
+    let skill_run_id = normalized_skill_run_id(&args.skill_run_id)?;
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "sinceUpdatedAt", args.since_updated_at);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    Ok(path_with_query(
+        &format!("/skill-runs/{}/events", percent_encode_path(skill_run_id)),
+        query,
+    ))
+}
+
 fn skill_run_reply_input(args: SkillRunReplyArgs) -> Value {
     json!({ "message": args.message })
+}
+
+fn context_ref_value(raw: &str) -> Result<Value, CliError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::validation(
+            "missing_object_ref",
+            "Context navigation requires a Zotero object ref",
+        ));
+    }
+    if trimmed.starts_with('{') {
+        let value: Value = serde_json::from_str(trimmed)
+            .map_err(|error| CliError::validation("invalid_object_ref_json", error.to_string()))?;
+        if !value.is_object() {
+            return Err(CliError::validation(
+                "invalid_object_ref_json",
+                "Object ref JSON must be a JSON object",
+            ));
+        }
+        return Ok(value);
+    }
+    if !is_safe_zotero_object_ref(trimmed) {
+        return Err(CliError::validation(
+            "invalid_object_ref",
+            "Object ref must be a Zotero key, libraryId:itemKey, or JSON object",
+        ));
+    }
+    Ok(Value::String(trimmed.to_string()))
+}
+
+fn is_safe_zotero_object_ref(value: &str) -> bool {
+    if value.contains('/')
+        || value.contains('\\')
+        || value.contains("..")
+        || value.contains('(')
+        || value.contains(')')
+        || value.contains(';')
+        || value.contains('{')
+        || value.contains('}')
+        || value.contains('[')
+        || value.contains(']')
+    {
+        return false;
+    }
+    if let Some((library_id, key)) = value.split_once(':') {
+        return !library_id.is_empty()
+            && library_id.chars().all(|entry| entry.is_ascii_digit())
+            && is_zotero_key_like(key);
+    }
+    !value.contains(':') && is_zotero_key_like(value)
+}
+
+fn is_zotero_key_like(value: &str) -> bool {
+    let length = value.len();
+    (2..=128).contains(&length)
+        && value
+            .chars()
+            .all(|entry| entry.is_ascii_alphanumeric() || entry == '_' || entry == '-')
+}
+
+fn context_object_open_input(field: &str, args: ContextObjectRefArgs) -> Result<Value, CliError> {
+    let mut map = Map::new();
+    map.insert(field.to_string(), context_ref_value(&args.object_ref)?);
+    Ok(Value::Object(map))
+}
+
+fn context_selection_open_input(args: ContextSelectionOpenArgs) -> Result<Value, CliError> {
+    let items = args
+        .item_refs
+        .iter()
+        .map(|entry| context_ref_value(entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(json!({ "items": items }))
+}
+
+fn context_collection_open_input(args: ContextCollectionOpenArgs) -> Result<Value, CliError> {
+    let key = args.collection_key.trim();
+    if key.is_empty() {
+        return Err(CliError::validation(
+            "missing_collection_key",
+            "Context collection open requires a collection key",
+        ));
+    }
+    let mut map = Map::new();
+    map.insert("key".to_string(), Value::String(key.to_string()));
+    if let Some(library_id) = args.library_id {
+        map.insert("libraryId".to_string(), json!(library_id));
+    }
+    Ok(Value::Object(map))
 }
 
 fn task_list_path(args: TaskListArgs) -> String {
@@ -723,15 +1179,120 @@ fn task_list_path(args: TaskListArgs) -> String {
     if args.active_only {
         query.push(("includeHistory".to_string(), "false".to_string()));
     }
-    if query.is_empty() {
-        return "/tasks".to_string();
+    path_with_query("/tasks", query)
+}
+
+fn task_recent_path(args: TaskRecentArgs) -> String {
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "workflowId", args.workflow);
+    push_query(&mut query, "backendId", args.backend);
+    push_query(&mut query, "state", args.state);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
     }
-    let query = query
+    path_with_query("/tasks/recent", query)
+}
+
+fn workflow_runs_path(args: RunWorkflowRecentArgs) -> String {
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "workflowId", Some(args.workflow));
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    path_with_query("/workflows/runs", query)
+}
+
+fn permission_path(args: PermissionRequestIdArgs) -> String {
+    format!(
+        "/permissions/{}",
+        percent_encode_path(args.permission_request_id.trim())
+    )
+}
+
+fn notification_list_query(args: NotificationListArgs) -> Vec<(String, String)> {
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "workflowRunId", args.workflow_run_id);
+    push_query(&mut query, "skillRunId", args.skill_run_id);
+    push_query(&mut query, "type", args.event_type);
+    push_query(&mut query, "sinceEventId", args.since_event_id);
+    if let Some(acknowledged) = args.acknowledged {
+        query.push(("acknowledged".to_string(), acknowledged.to_string()));
+    }
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    query
+}
+
+fn notification_wait_query(args: &NotificationWaitArgs) -> Vec<(String, String)> {
+    let mut query: Vec<(String, String)> = Vec::new();
+    push_query(&mut query, "workflowRunId", args.workflow_run_id.clone());
+    push_query(&mut query, "skillRunId", args.skill_run_id.clone());
+    push_query(&mut query, "type", args.event_type.clone());
+    push_query(&mut query, "sinceEventId", args.since_event_id.clone());
+    if let Some(acknowledged) = args.acknowledged {
+        query.push(("acknowledged".to_string(), acknowledged.to_string()));
+    }
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    query
+}
+
+fn notification_list_path(query: Vec<(String, String)>) -> String {
+    path_with_query("/notifications", query)
+}
+
+fn notification_ack_input(args: NotificationAckArgs) -> Result<Value, CliError> {
+    let events = args
+        .events
         .into_iter()
-        .map(|(key, value)| format!("{}={}", key, percent_encode_query(&value)))
-        .collect::<Vec<_>>()
-        .join("&");
-    format!("/tasks?{query}")
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>();
+    if events.is_empty() {
+        return Err(CliError::validation(
+            "missing_notification_event",
+            "Notification ack requires at least one event id",
+        ));
+    }
+    Ok(json!({ "eventIds": events }))
+}
+
+fn notification_response_has_events(value: &Value) -> bool {
+    value
+        .pointer("/result/notifications")
+        .and_then(Value::as_array)
+        .map(|entries| !entries.is_empty())
+        .unwrap_or(false)
+}
+
+fn notification_wait(config: &BridgeConfig, args: NotificationWaitArgs) -> Result<Value, CliError> {
+    let timeout = Duration::from_millis(args.timeout_ms);
+    let interval = Duration::from_millis(args.interval_ms.max(1));
+    let started = Instant::now();
+    loop {
+        let response = client::get(
+            config,
+            &notification_list_path(notification_wait_query(&args)),
+        )?;
+        if notification_response_has_events(&response) {
+            return Ok(response);
+        }
+        if started.elapsed() >= timeout {
+            return Err(CliError::new(
+                "notification_wait_timeout",
+                ErrorCategory::Workflow,
+                "No matching Host Bridge notification arrived before the timeout",
+            )
+            .with_details(json!({
+                "timeoutMs": args.timeout_ms,
+                "intervalMs": args.interval_ms
+            })));
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        thread::sleep(interval.min(remaining));
+    }
 }
 
 fn available_output_path(preferred: &Path) -> PathBuf {
@@ -801,6 +1362,39 @@ fn file_download(config: &BridgeConfig, args: FileDownloadArgs) -> Result<Value,
     ))
 }
 
+fn file_upload(config: &BridgeConfig, args: FileUploadArgs) -> Result<Value, CliError> {
+    let path = PathBuf::from(&args.path);
+    let display_name = args.display_name.or_else(|| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+    });
+    let bytes = fs::read(&path).map_err(|error| {
+        CliError::new(
+            "upload_input_unreadable",
+            ErrorCategory::Validation,
+            "Failed to read upload input file",
+        )
+        .with_details(json!({
+            "message": error.to_string(),
+            "inputName": path.file_name().and_then(|name| name.to_str()).unwrap_or("upload")
+        }))
+    })?;
+    if bytes.is_empty() {
+        return Err(CliError::validation(
+            "upload_input_empty",
+            "Upload input file is empty",
+        ));
+    }
+    client::upload(
+        config,
+        "/files/upload",
+        &bytes,
+        display_name.as_deref(),
+        args.content_type.as_deref(),
+    )
+}
+
 fn output_name(output: &Path) -> String {
     output
         .file_name()
@@ -851,6 +1445,7 @@ fn download_success_payload(
 fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     let file_id = file_id.trim();
     if file_id.is_empty()
+        || !file_id.starts_with("file-")
         || file_id.contains('/')
         || file_id.contains('\\')
         || file_id.contains("..")
@@ -858,7 +1453,7 @@ fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     {
         return Err(CliError::validation(
             "invalid_file_id",
-            "file download requires an opaque fileId, not a path",
+            "file commands require a Host Bridge opaque file-* handle, not a path",
         ));
     }
     Ok(file_id.to_string())
@@ -963,6 +1558,18 @@ fn push_query(query: &mut Vec<(String, String)>, key: &str, value: Option<String
         return;
     }
     query.push((key.to_string(), value.to_string()));
+}
+
+fn path_with_query(base: &str, query: Vec<(String, String)>) -> String {
+    if query.is_empty() {
+        return base.to_string();
+    }
+    let query = query
+        .into_iter()
+        .map(|(key, value)| format!("{}={}", key, percent_encode_query(&value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{base}?{query}")
 }
 
 fn percent_encode_path(value: &str) -> String {
@@ -1364,6 +1971,30 @@ mod tests {
     }
 
     #[test]
+    fn builds_library_readiness_missing_inputs() {
+        let audit = library_readiness_input(LibraryReadinessCommand::Audit(BridgeInputArgs {
+            input: Some("{\"limit\":25,\"checks\":[\"pdf\",\"analysis\"]}".to_string()),
+        }))
+        .unwrap();
+        assert_eq!(audit, json!({ "limit": 25, "checks": ["pdf", "analysis"] }));
+
+        let missing_markdown =
+            library_readiness_input(LibraryReadinessCommand::MissingMarkdown(BridgeInputArgs {
+                input: Some("{\"collectionKey\":\"COLL\",\"limit\":10}".to_string()),
+            }))
+            .unwrap();
+        assert_eq!(
+            missing_markdown,
+            json!({
+                "collectionKey": "COLL",
+                "limit": 10,
+                "checks": ["markdown"],
+                "missingOnly": true
+            })
+        );
+    }
+
+    #[test]
     fn builds_literature_ingest_mutation_input() {
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: "{\"paper\":{\"title\":\"Bridge Paper\",\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
@@ -1415,6 +2046,141 @@ mod tests {
         })
         .unwrap_err();
         assert_eq!(error.code, "invalid_literature_ingest_input");
+    }
+
+    #[test]
+    fn builds_safe_mutation_writeback_inputs() {
+        assert_eq!(
+            mutation_tag_input(MutationTagArgs {
+                command: MutationTagCommand::Add(MutationTagsArgs {
+                    items: vec!["1:ABC123".to_string(), "{\"id\":2}".to_string()],
+                    tags: vec!["status:read".to_string()],
+                }),
+            })
+            .unwrap(),
+            json!({
+                "operation": "item.addTags",
+                "items": ["1:ABC123", { "id": 2 }],
+                "tags": ["status:read"]
+            })
+        );
+        assert_eq!(
+            mutation_collection_items_input(
+                "collection.addItems",
+                MutationCollectionItemsArgs {
+                    collection: "1:COLL123".to_string(),
+                    items: vec!["ABC123".to_string()],
+                },
+            )
+            .unwrap(),
+            json!({
+                "operation": "collection.addItems",
+                "collection": "1:COLL123",
+                "items": ["ABC123"]
+            })
+        );
+        assert_eq!(
+            mutation_item_update_input(MutationItemUpdateArgs {
+                item: "ABC123".to_string(),
+                patch: "{\"title\":\"Updated\"}".to_string(),
+            })
+            .unwrap(),
+            json!({
+                "operation": "item.updateFields",
+                "item": "ABC123",
+                "fields": { "title": "Updated" }
+            })
+        );
+        assert_eq!(
+            mutation_note_create_input(MutationNoteCreateArgs {
+                item: "ABC123".to_string(),
+                input: "{\"content\":\"<p>Note</p>\"}".to_string(),
+            })
+            .unwrap(),
+            json!({
+                "operation": "note.createChild",
+                "parent": "ABC123",
+                "content": "<p>Note</p>"
+            })
+        );
+        assert_eq!(
+            mutation_item_attach_file_input(MutationItemAttachFileArgs {
+                item: "ABC123".to_string(),
+                file: "file-abc".to_string(),
+                display_name: Some("artifact.md".to_string()),
+                content_type: Some("text/markdown".to_string()),
+            })
+            .unwrap(),
+            json!({
+                "operation": "item.attachFile",
+                "item": "ABC123",
+                "fileId": "file-abc",
+                "displayName": "artifact.md",
+                "contentType": "text/markdown"
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unsafe_object_refs_and_non_opaque_attach_file_ids() {
+        for value in [
+            "../ABC123",
+            "C:\\tmp\\paper.pdf",
+            "https://example.test/item",
+            "javascript:alert(1)",
+            "eval(ABC123)",
+            "1:http://example.test",
+        ] {
+            let error = context_ref_value(value).unwrap_err();
+            assert_eq!(error.code, "invalid_object_ref", "{value}");
+        }
+
+        let json_array_error = context_ref_value("[\"ABC123\"]").unwrap_err();
+        assert_eq!(json_array_error.code, "invalid_object_ref");
+
+        assert_eq!(context_ref_value("1:ABC123").unwrap(), json!("1:ABC123"));
+        assert_eq!(context_ref_value("ABC123").unwrap(), json!("ABC123"));
+        assert_eq!(
+            context_ref_value("{\"key\":\"ABC123\"}").unwrap(),
+            json!({ "key": "ABC123" })
+        );
+
+        let attach_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
+            item: "ABC123".to_string(),
+            file: "../artifact.md".to_string(),
+            display_name: None,
+            content_type: None,
+        })
+        .unwrap_err();
+        assert_eq!(attach_error.code, "invalid_file_id");
+
+        let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
+            item: "ABC123".to_string(),
+            file: "artifact-md".to_string(),
+            display_name: None,
+            content_type: None,
+        })
+        .unwrap_err();
+        assert_eq!(non_handle_error.code, "invalid_file_id");
+    }
+
+    #[test]
+    fn builds_annotation_inputs() {
+        assert_eq!(
+            annotation_item_input(AnnotationItemArgs {
+                item: "1:ABC123".to_string(),
+            })
+            .unwrap(),
+            json!({ "ref": "1:ABC123" })
+        );
+        assert_eq!(
+            annotation_export_input(AnnotationExportArgs {
+                item: "{\"key\":\"ABC123\"}".to_string(),
+                format: Some("json".to_string()),
+            })
+            .unwrap(),
+            json!({ "ref": { "key": "ABC123" }, "format": "json" })
+        );
     }
 
     #[test]
@@ -1586,6 +2352,81 @@ mod tests {
             path,
             "/tasks?workflowId=w+1&backendId=b&runId=run-1&state=running&includeHistory=false"
         );
+    }
+
+    #[test]
+    fn builds_context_navigation_inputs() {
+        assert_eq!(
+            context_object_open_input(
+                "item",
+                ContextObjectRefArgs {
+                    object_ref: "1:ABC123".to_string(),
+                },
+            )
+            .unwrap(),
+            json!({ "item": "1:ABC123" })
+        );
+        assert_eq!(
+            context_object_open_input(
+                "note",
+                ContextObjectRefArgs {
+                    object_ref: "{\"key\":\"NOTE123\"}".to_string(),
+                },
+            )
+            .unwrap(),
+            json!({ "note": { "key": "NOTE123" } })
+        );
+        assert_eq!(
+            context_selection_open_input(ContextSelectionOpenArgs {
+                item_refs: vec!["ABC123".to_string(), "{\"id\":2}".to_string()],
+            })
+            .unwrap(),
+            json!({ "items": ["ABC123", { "id": 2 }] })
+        );
+        assert_eq!(
+            context_collection_open_input(ContextCollectionOpenArgs {
+                collection_key: "COLL123".to_string(),
+                library_id: Some(1),
+            })
+            .unwrap(),
+            json!({ "key": "COLL123", "libraryId": 1 })
+        );
+    }
+
+    #[test]
+    fn builds_notification_paths_and_ack_input() {
+        let path = notification_list_path(notification_list_query(NotificationListArgs {
+            workflow_run_id: Some("run 1".to_string()),
+            skill_run_id: Some("skill/1".to_string()),
+            event_type: Some("skill_run.waiting_user".to_string()),
+            since_event_id: Some("event-1".to_string()),
+            acknowledged: Some(false),
+            limit: Some(10),
+        }));
+        assert_eq!(
+            path,
+            "/notifications?workflowRunId=run+1&skillRunId=skill%2F1&type=skill_run.waiting_user&sinceEventId=event-1&acknowledged=false&limit=10"
+        );
+
+        let input = notification_ack_input(NotificationAckArgs {
+            events: vec![" event-1 ".to_string(), "event-2".to_string()],
+        })
+        .unwrap();
+        assert_eq!(input, json!({ "eventIds": ["event-1", "event-2"] }));
+    }
+
+    #[test]
+    fn detects_notification_response_events() {
+        assert!(notification_response_has_events(&json!({
+            "result": {
+                "notifications": [{ "eventId": "event-1" }]
+            }
+        })));
+        assert!(!notification_response_has_events(&json!({
+            "result": {
+                "notifications": []
+            }
+        })));
     }
 
     #[test]

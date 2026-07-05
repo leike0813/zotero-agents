@@ -241,8 +241,6 @@ ordinary backend requests.
 - **AND** the sequence root SHALL be stored as a non-projectable SkillRunner run
 - **AND** the sequence root SHALL NOT swallow the step projection.
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner HTTP requests MUST use governed connection lanes
 
 SkillRunner provider and management HTTP calls SHALL use application-level
@@ -417,8 +415,6 @@ SkillRunner submit, settlement, and request-level reconcile MUST NOT be blocked 
 - **THEN** plugin SHALL settle only that run as failed
 - **AND** plugin SHALL NOT mark backend reachability failed.
 
-## ADDED Requirements
-
 ### Requirement: SkillRunner Pre-Request Run Projection
 
 SkillRunner provider dispatch MUST create or update a local projectable run
@@ -444,8 +440,6 @@ record before the backend `request_id` is available.
 - **WHEN** create or upload fails before request-ready
 - **THEN** the local run record is failed with structured error/audit metadata
 - **AND** no backend stream, history sync, pending poll, or settlement context is registered.
-
-## ADDED Requirements
 
 ### Requirement: SkillRunner provider terminal and waiting ownership
 
@@ -483,8 +477,6 @@ creating background reconciler ownership.
 - **WHEN** create or upload fails before the projectable run is ready
 - **THEN** the job SHALL be marked failed locally
 - **AND** no missing-context reconciler scan SHALL be required to settle it.
-
-## ADDED Requirements
 
 ### Requirement: Provider adapter receives backend execution mode unchanged
 
@@ -627,8 +619,6 @@ A SkillRunner step inside a sequence workflow MUST use the same provider executi
 - **WHEN** sequence orchestration observes step failure or detachment
 - **THEN** the provider adapter MUST NOT delete or replace the SkillRunner run
   projection through a synthetic step job.
-
-## ADDED Requirements
 
 ### Requirement: Pre-ready failures are terminal local failures
 

@@ -1,4 +1,10 @@
 import { handlers } from "../handlers";
+import {
+  getHostBridgeFileDescriptor,
+  markHostBridgeUploadedFileConsumed,
+  resolveHostBridgeUploadedFile,
+  type HostBridgeFileDescriptor,
+} from "./hostBridgeFileRegistry";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { buildCurrentAcpHostContext } from "./acpContextBuilder";
 import {
@@ -13,6 +19,10 @@ import {
   listNotePayloadBlocksForItem,
   selectPreferredNotePayloadBlock,
 } from "./zoteroNotePayloadResolver";
+import {
+  resolveLibraryArtifactReadiness,
+  type LibraryArtifactItem,
+} from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
 
 export type ZoteroHostItemRefInput =
@@ -114,6 +124,38 @@ export type ZoteroHostCurrentViewDto = AcpHostContext & {
   selectedItems: ZoteroHostItemSummaryDto[];
 };
 
+export type ZoteroHostNavigationTargetDto =
+  | {
+      kind: "item" | "note";
+      item: ZoteroHostItemSummaryDto;
+    }
+  | {
+      kind: "collection";
+      collection: ZoteroHostCollectionDto;
+    }
+  | {
+      kind: "selection";
+      items: ZoteroHostItemSummaryDto[];
+    };
+
+export type ZoteroHostNavigationResultDto = {
+  opened: boolean;
+  found: boolean;
+  target: ZoteroHostNavigationTargetDto;
+  currentView: ZoteroHostCurrentViewDto;
+};
+
+export type ZoteroHostSelectionOpenArgs = {
+  items?: ZoteroHostItemRefInput[];
+};
+
+export type ZoteroHostCollectionOpenArgs = {
+  key?: string;
+  collectionKey?: string;
+  libraryId?: number | string;
+  libraryID?: number | string;
+};
+
 export type ZoteroHostItemSearchArgs = {
   query: string;
   limit?: number | string;
@@ -131,6 +173,14 @@ export type ZoteroHostLibraryListArgs = {
   query?: string;
   limit?: number | string;
   cursor?: string | number;
+};
+
+export type ZoteroHostLibraryReadinessCheck = "pdf" | "markdown" | "analysis";
+
+export type ZoteroHostLibraryReadinessAuditArgs = ZoteroHostLibraryListArgs & {
+  checks?: ZoteroHostLibraryReadinessCheck[] | string;
+  missingOnly?: boolean | string | number;
+  missing_only?: boolean | string | number;
 };
 
 export type ZoteroHostLibraryItemSummaryDto = ZoteroHostItemSummaryDto & {
@@ -166,6 +216,46 @@ export type ZoteroHostLibrarySyncSnapshotResponse = {
   generatedAt: string;
   snapshotId: string;
   items: ZoteroHostLibrarySyncSnapshotItemDto[];
+  nextCursor: string;
+  hasMore: boolean;
+  returned: number;
+  totalScanned: number;
+  filters: ZoteroHostLibraryListResponse["filters"];
+};
+
+export type ZoteroHostLibraryReadinessItemDto =
+  ZoteroHostLibraryItemSummaryDto & {
+    readiness: {
+      pdf: "present" | "missing";
+      markdown: "present" | "missing";
+      analysis: "present" | "missing";
+    };
+    missing: ZoteroHostLibraryReadinessCheck[];
+    evidence: {
+      artifacts: string[];
+      artifactState: string;
+      pdf: {
+        present: boolean;
+        filename?: string;
+      };
+      markdown: {
+        present: boolean;
+        matchingStem?: string;
+        markdownStemCount: number;
+      };
+      analysis: {
+        present: boolean;
+        missingParts: Array<"digest" | "references" | "citation-analysis">;
+      };
+    };
+  };
+
+export type ZoteroHostLibraryReadinessAuditResponse = {
+  schema: "zotero.library.readiness_audit.v1";
+  generatedAt: string;
+  checks: ZoteroHostLibraryReadinessCheck[];
+  missingOnly: boolean;
+  items: ZoteroHostLibraryReadinessItemDto[];
   nextCursor: string;
   hasMore: boolean;
   returned: number;
@@ -219,10 +309,12 @@ export type ZoteroHostMutationOperation =
   | "item.updateFields"
   | "item.addTags"
   | "item.removeTags"
+  | "item.attachFile"
   | "note.createChild"
   | "note.update"
   | "note.upsertPayload"
   | "literature.ingest"
+  | "collection.create"
   | "collection.addItems"
   | "collection.removeItems";
 
@@ -271,6 +363,14 @@ export type ZoteroHostMutationRequest = {
   parent?: ZoteroHostItemRefInput;
   note?: ZoteroHostItemRefInput;
   collection?: ZoteroHostCollectionRefInput;
+  collectionName?: string;
+  name?: string;
+  libraryId?: number | string;
+  libraryID?: number | string;
+  fileId?: string;
+  displayName?: string;
+  contentType?: string;
+  metadata?: Record<string, unknown>;
   fields?: Record<string, string | number | boolean | null>;
   tags?: string[];
   content?: string;
@@ -280,6 +380,20 @@ export type ZoteroHostMutationRequest = {
   payloadFormat?: "json" | "markdown" | "text" | string;
   paper?: ZoteroHostIngestPaperInput;
   papers?: unknown;
+};
+
+export type ZoteroHostAnnotationDto = {
+  id?: number;
+  key?: string;
+  libraryId?: number;
+  parentItemId?: number;
+  parentItemKey?: string;
+  type: string;
+  text: string;
+  comment: string;
+  color: string;
+  pageLabel: string;
+  sortIndex: string;
 };
 
 export type ZoteroHostMutationError = {
@@ -309,6 +423,23 @@ export class ZoteroCollectionNotFoundError extends Error {
   }
 }
 
+export class ZoteroInvalidObjectRefError extends Error {
+  constructor(
+    message = "invalid object ref",
+    readonly ref?: unknown,
+  ) {
+    super(message);
+    this.name = "ZoteroInvalidObjectRefError";
+  }
+}
+
+export class ZoteroNavigationUnavailableError extends Error {
+  constructor(message = "Zotero pane navigation is unavailable") {
+    super(message);
+    this.name = "ZoteroNavigationUnavailableError";
+  }
+}
+
 type ZoteroHostMutationBaseResponse = {
   operation: string;
   targetRefs: ZoteroHostItemSummaryDto[];
@@ -333,6 +464,8 @@ export type ZoteroHostMutationExecuteResponse =
       result: {
         items?: ZoteroHostItemSummaryDto[];
         notes?: ZoteroHostNoteDto[];
+        attachments?: ZoteroHostAttachmentDto[];
+        file?: HostBridgeFileDescriptor;
         payloads?: Array<{
           noteKey: string;
           payloadType: string;
@@ -342,6 +475,7 @@ export type ZoteroHostMutationExecuteResponse =
           replaced: number;
         }>;
         collections?: ZoteroHostCollectionDto[];
+        collection?: ZoteroHostCollectionDto;
         ingest?: ZoteroHostIngestPaperResult;
       };
     })
@@ -364,6 +498,11 @@ const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
 const LIBRARY_LIST_LIMIT_DEFAULT = 100;
 const LIBRARY_LIST_LIMIT_MAX = 200;
+const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
+  "pdf",
+  "markdown",
+  "analysis",
+];
 const TARGET_LIMIT_MAX = 50;
 const TAG_LIMIT_MAX = 100;
 const TAG_TEXT_LIMIT = 200;
@@ -423,6 +562,20 @@ function escapeAttribute(value: unknown) {
 function parsePositiveInteger(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function parseBooleanInput(value: unknown) {
+  if (value === true || value === false) {
+    return value;
+  }
+  const normalized = trimText(value).toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return false;
 }
 
 function parseNonNegativeInteger(value: unknown) {
@@ -966,6 +1119,46 @@ function serializeCollection(
   };
 }
 
+function serializeAnnotation(
+  annotation: unknown,
+  parent?: Zotero.Item | null,
+): ZoteroHostAnnotationDto {
+  const source = annotation as Record<string, unknown> & {
+    getField?: (field: string) => unknown;
+  };
+  const readAnnotationField = (field: string) =>
+    trimText(source[field] ?? source.getField?.(field), NOTE_EXCERPT_MAX);
+  return {
+    id: parsePositiveInteger(source.id),
+    key: trimText(source.key),
+    libraryId: normalizeLibraryId(source.libraryID),
+    parentItemId:
+      parsePositiveInteger(source.parentItemID ?? source.parentID) ||
+      parsePositiveInteger(parent?.id),
+    parentItemKey: trimText(parent?.key),
+    type:
+      readAnnotationField("annotationType") ||
+      readAnnotationField("type") ||
+      "annotation",
+    text:
+      readAnnotationField("annotationText") ||
+      readAnnotationField("text") ||
+      readAnnotationField("quote"),
+    comment:
+      readAnnotationField("annotationComment") ||
+      readAnnotationField("comment") ||
+      "",
+    color:
+      readAnnotationField("annotationColor") || readAnnotationField("color"),
+    pageLabel:
+      readAnnotationField("annotationPageLabel") ||
+      readAnnotationField("pageLabel"),
+    sortIndex:
+      readAnnotationField("annotationSortIndex") ||
+      readAnnotationField("sortIndex"),
+  };
+}
+
 function collectionPath(
   collection: Zotero.Collection,
   byId: Map<string, Zotero.Collection>,
@@ -1130,6 +1323,46 @@ function isTopLevelRegularVisibleItem(item: Zotero.Item) {
   return isRegularVisibleItem(item) && topLevel;
 }
 
+function rejectUnsafeObjectRefString(value: string) {
+  const ref = value.trim();
+  if (!ref) {
+    throw new ZoteroInvalidObjectRefError(
+      "object ref must be non-empty",
+      value,
+    );
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(ref)) {
+    throw new ZoteroInvalidObjectRefError(
+      "object ref must be a Zotero handle, not a URI",
+      value,
+    );
+  }
+  if (/^[A-Za-z]:[\\/]/.test(ref) || ref.startsWith("\\\\")) {
+    throw new ZoteroInvalidObjectRefError(
+      "object ref must be a Zotero handle, not a local path",
+      value,
+    );
+  }
+  if (ref.includes(":") && !/^\d+:[A-Za-z0-9]+$/.test(ref)) {
+    throw new ZoteroInvalidObjectRefError(
+      "object ref must be an item key, numeric id, or libraryId:key",
+      value,
+    );
+  }
+  return ref;
+}
+
+function resolveScopedKey(value: string) {
+  const scopedKey = value.match(/^(\d+):([A-Za-z0-9]+)$/);
+  if (!scopedKey) {
+    return null;
+  }
+  return {
+    libraryId: parsePositiveInteger(scopedKey[1]),
+    key: scopedKey[2],
+  };
+}
+
 function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
   const zotero = resolveZotero();
   if (!ref) {
@@ -1142,9 +1375,16 @@ function resolveItem(ref: ZoteroHostItemRefInput | undefined | null) {
     return zotero.Items.get(ref) || null;
   }
   if (typeof ref === "string") {
-    const key = ref.trim();
+    const key = rejectUnsafeObjectRefString(ref);
     if (!key) {
       return null;
+    }
+    const scopedKey = resolveScopedKey(key);
+    if (scopedKey) {
+      return (
+        zotero.Items.getByLibraryAndKey(scopedKey.libraryId, scopedKey.key) ||
+        null
+      );
     }
     const numericId = parsePositiveInteger(key);
     if (numericId) {
@@ -1204,13 +1444,13 @@ function resolveCollection(
     return zotero.Collections?.get?.(ref) || null;
   }
   if (typeof ref === "string") {
-    const value = ref.trim();
-    const scopedKey = value.match(/^(\d+):([A-Za-z0-9]+)$/);
+    const value = rejectUnsafeObjectRefString(ref);
+    const scopedKey = resolveScopedKey(value);
     if (scopedKey) {
       return (
         zotero.Collections?.getByLibraryAndKey?.(
-          parsePositiveInteger(scopedKey[1]),
-          scopedKey[2],
+          scopedKey.libraryId,
+          scopedKey.key,
         ) || null
       );
     }
@@ -1393,6 +1633,96 @@ function normalizeContent(value: unknown) {
     );
   }
   return content;
+}
+
+function normalizeCollectionName(request: ZoteroHostMutationRequest) {
+  const name = trimText(request.name || request.collectionName, 200);
+  if (!name) {
+    throw new Error("collection name is required");
+  }
+  return name;
+}
+
+function mutationLibraryId(request: ZoteroHostMutationRequest) {
+  const parsed = parsePositiveInteger(request.libraryId ?? request.libraryID);
+  return parsed || undefined;
+}
+
+function requireUploadedFileId(request: ZoteroHostMutationRequest) {
+  const fileId = trimText(request.fileId, 200);
+  if (!fileId) {
+    throw new Error("fileId is required");
+  }
+  return fileId;
+}
+
+function annotationsFromItem(item: Zotero.Item): ZoteroHostAnnotationDto[] {
+  const annotations: ZoteroHostAnnotationDto[] = [];
+  const pushAnnotation = (entry: unknown, parent?: Zotero.Item | null) => {
+    if (!entry) {
+      return;
+    }
+    annotations.push(serializeAnnotation(entry, parent));
+  };
+  const source = item as unknown as {
+    getAnnotations?: () => unknown[];
+    getAttachments?: () => unknown[];
+  };
+  try {
+    for (const entry of source.getAnnotations?.() || []) {
+      if (typeof entry === "number") {
+        pushAnnotation(resolveZotero().Items?.get?.(entry), item);
+      } else {
+        pushAnnotation(entry, item);
+      }
+    }
+  } catch {
+    // Annotation APIs are runtime-dependent; return what can be read safely.
+  }
+  try {
+    for (const attachmentId of source.getAttachments?.() || []) {
+      const attachment = resolveZotero().Items?.get?.(attachmentId as number);
+      const attachmentSource = attachment as unknown as {
+        getAnnotations?: () => unknown[];
+      };
+      for (const entry of attachmentSource?.getAnnotations?.() || []) {
+        if (typeof entry === "number") {
+          pushAnnotation(resolveZotero().Items?.get?.(entry), attachment);
+        } else {
+          pushAnnotation(entry, attachment);
+        }
+      }
+    }
+  } catch {
+    // Ignore partial annotation lookup failures.
+  }
+  return annotations.filter(
+    (entry) => entry.text || entry.comment || entry.key,
+  );
+}
+
+function exportAnnotationsMarkdown(annotations: ZoteroHostAnnotationDto[]) {
+  if (annotations.length === 0) {
+    return "";
+  }
+  return annotations
+    .map((annotation, index) => {
+      const heading = [
+        `### Annotation ${index + 1}`,
+        annotation.pageLabel ? `page ${annotation.pageLabel}` : "",
+      ]
+        .filter(Boolean)
+        .join(" - ");
+      const parts = [heading];
+      if (annotation.text) {
+        parts.push("", `> ${annotation.text.replace(/\n+/g, "\n> ")}`);
+      }
+      if (annotation.comment) {
+        parts.push("", annotation.comment);
+      }
+      return parts.join("\n");
+    })
+    .join("\n\n");
 }
 
 function normalizePayloadType(value: unknown) {
@@ -1971,6 +2301,7 @@ function errorResponse(
 ): ZoteroHostMutationPreviewResponse | ZoteroHostMutationExecuteResponse {
   const message =
     error instanceof Error ? error.message : String(error || "Unknown error");
+  const codeFromError = trimText((error as { code?: unknown })?.code);
   return {
     ok: false,
     operation,
@@ -1980,10 +2311,12 @@ function errorResponse(
     requiresConfirmation: true,
     error: {
       code:
+        codeFromError ||
         message
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_|_$/g, "") || "mutation_error",
+          .replace(/^_|_$/g, "") ||
+        "mutation_error",
       message,
     },
   };
@@ -2135,6 +2468,20 @@ function previewMutationOrThrow(
         summary: `${operation === "item.addTags" ? "Add" : "Remove"} ${tags.length} tag(s) on ${items.length} item(s).`,
       });
     }
+    case "item.attachFile": {
+      const item = requireItem(request.target || request.item, "target item");
+      const descriptor = getHostBridgeFileDescriptor(
+        requireUploadedFileId(request),
+      );
+      if (descriptor.sourceKind !== "bridge-upload") {
+        throw new Error("fileId must reference an uploaded Host Bridge file");
+      }
+      return okPreview({
+        operation,
+        targetRefs: [serializeZoteroItemSummary(item)],
+        summary: `Attach uploaded file "${descriptor.displayName}" to "${getItemTitle(item)}".`,
+      });
+    }
     case "note.createChild": {
       const parent = requireItem(
         request.parent || request.target,
@@ -2204,6 +2551,21 @@ function previewMutationOrThrow(
         collection: collection ? serializeCollection(collection) : undefined,
       });
     }
+    case "collection.create": {
+      const name = normalizeCollectionName(request);
+      const libraryId = mutationLibraryId(request);
+      return okPreview({
+        operation,
+        targetRefs: [],
+        summary: `Create collection "${name}".`,
+        collection: {
+          id: "",
+          key: "",
+          name,
+          libraryId: libraryId || 0,
+        },
+      });
+    }
     case "collection.addItems":
     case "collection.removeItems": {
       const items = normalizeTargetItems(request);
@@ -2260,6 +2622,27 @@ async function executeMutationOrThrow(
         },
       };
     }
+    case "item.attachFile": {
+      const item = requireItem(request.target || request.item, "target item");
+      const uploaded = await resolveHostBridgeUploadedFile(
+        requireUploadedFileId(request),
+      );
+      const attachment = await handlers.attachment.createFromPath({
+        parent: item,
+        path: uploaded.localPath,
+        title: request.displayName || uploaded.descriptor.displayName,
+        mimeType: request.contentType || uploaded.descriptor.contentType,
+      });
+      markHostBridgeUploadedFileConsumed(uploaded.descriptor.fileId);
+      return {
+        ...preview,
+        result: {
+          items: [serializeZoteroItemSummary(item)],
+          attachments: [await serializeAttachment(attachment)],
+          file: uploaded.descriptor,
+        },
+      };
+    }
     case "note.createChild": {
       const parent = requireItem(
         request.parent || request.target,
@@ -2304,6 +2687,19 @@ async function executeMutationOrThrow(
         result: {
           items: ingest.item ? [ingest.item] : [],
           ingest,
+        },
+      };
+    }
+    case "collection.create": {
+      const collection = await handlers.collection.create({
+        name: normalizeCollectionName(request),
+        libraryID: mutationLibraryId(request),
+      });
+      return {
+        ...preview,
+        result: {
+          collection: serializeCollection(collection),
+          collections: [serializeCollection(collection)],
         },
       };
     }
@@ -2452,6 +2848,87 @@ async function syncLibrarySnapshot(
   };
 }
 
+async function readinessAudit(
+  args: ZoteroHostLibraryReadinessAuditArgs = {},
+): Promise<ZoteroHostLibraryReadinessAuditResponse> {
+  const selection = await selectLibraryItemPage(args);
+  const checks = normalizeReadinessChecks(args.checks);
+  const missingOnly = parseBooleanInput(args.missingOnly ?? args.missing_only);
+  const items: ZoteroHostLibraryReadinessItemDto[] = [];
+  for (const item of selection.page) {
+    const dto = await serializeLibraryReadinessItem(
+      item as LibraryArtifactItem,
+      checks,
+    );
+    if (!missingOnly || dto.missing.length > 0) {
+      items.push(dto);
+    }
+  }
+  return {
+    schema: "zotero.library.readiness_audit.v1",
+    generatedAt: new Date().toISOString(),
+    checks,
+    missingOnly,
+    items,
+    nextCursor: selection.nextCursor,
+    hasMore: selection.hasMore,
+    returned: items.length,
+    totalScanned: selection.totalScanned,
+    filters: selection.filters,
+  };
+}
+
+function normalizeReadinessChecks(value: unknown) {
+  const raw = Array.isArray(value)
+    ? value
+    : trimText(value)
+      ? trimText(value)
+          .split(",")
+          .map((entry) => entry.trim())
+      : LIBRARY_READINESS_CHECKS;
+  const checks = raw.filter((entry): entry is ZoteroHostLibraryReadinessCheck =>
+    LIBRARY_READINESS_CHECKS.includes(entry as ZoteroHostLibraryReadinessCheck),
+  );
+  return checks.length ? Array.from(new Set(checks)) : LIBRARY_READINESS_CHECKS;
+}
+
+async function serializeLibraryReadinessItem(
+  item: LibraryArtifactItem,
+  checks: ZoteroHostLibraryReadinessCheck[],
+): Promise<ZoteroHostLibraryReadinessItemDto> {
+  const artifactReadiness = await resolveLibraryArtifactReadiness(item);
+  const readiness = {
+    pdf: artifactReadiness.pdf.present ? "present" : "missing",
+    markdown: artifactReadiness.sourceMarkdown.present ? "present" : "missing",
+    analysis: artifactReadiness.generated.complete ? "present" : "missing",
+  } satisfies ZoteroHostLibraryReadinessItemDto["readiness"];
+  const missing = checks.filter((check) => readiness[check] === "missing");
+  return {
+    ...serializeLibraryItemSummary(item),
+    readiness,
+    missing,
+    evidence: {
+      artifacts: artifactReadiness.artifacts,
+      artifactState: artifactReadiness.state,
+      pdf: {
+        present: artifactReadiness.pdf.present,
+        filename: artifactReadiness.pdf.filename || undefined,
+      },
+      markdown: {
+        present: artifactReadiness.sourceMarkdown.present,
+        matchingStem:
+          artifactReadiness.sourceMarkdown.matchingStem || undefined,
+        markdownStemCount:
+          artifactReadiness.sourceMarkdown.markdownStems.length,
+      },
+      analysis: {
+        present: artifactReadiness.generated.complete,
+        missingParts: artifactReadiness.generated.missingParts,
+      },
+    },
+  };
+}
+
 function getSelectedItems() {
   const win =
     (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
@@ -2461,34 +2938,185 @@ function getSelectedItems() {
     .map(serializeZoteroItemSummary);
 }
 
+function getCurrentView() {
+  const context = buildCurrentAcpHostContext();
+  const currentItem = context.currentItem
+    ? resolveItem({
+        id: context.currentItem.id,
+        key: context.currentItem.key,
+        libraryId: context.libraryId,
+      })
+    : null;
+  return {
+    ...context,
+    currentItem: currentItem
+      ? {
+          ...context.currentItem,
+          ...serializeZoteroItemSummary(currentItem),
+        }
+      : context.currentItem,
+    selectedItems: getSelectedItems(),
+  };
+}
+
+function resolveZoteroPane() {
+  const win =
+    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+  const pane = win?.ZoteroPane;
+  if (!pane) {
+    throw new ZoteroNavigationUnavailableError();
+  }
+  return { win, pane };
+}
+
+async function selectZoteroItems(items: Zotero.Item[]) {
+  const itemIds = items
+    .map((item) => parsePositiveInteger(item.id))
+    .filter((id) => id > 0);
+  if (itemIds.length === 0) {
+    throw new ZoteroInvalidObjectRefError("item has no numeric id");
+  }
+  const { win, pane } = resolveZoteroPane();
+  if (itemIds.length === 1 && typeof pane.selectItem === "function") {
+    await pane.selectItem(itemIds[0]);
+  } else if (typeof pane.selectItems === "function") {
+    await pane.selectItems(itemIds);
+  } else if (typeof pane.selectItem === "function") {
+    await pane.selectItem(itemIds[0]);
+  } else {
+    throw new ZoteroNavigationUnavailableError(
+      "Zotero pane cannot select items",
+    );
+  }
+  win?.focus?.();
+}
+
+async function selectZoteroCollection(collection: Zotero.Collection) {
+  const collectionId = parsePositiveInteger(
+    (collection as unknown as { id?: unknown }).id,
+  );
+  const collectionKey = trimText(
+    (collection as unknown as { key?: unknown }).key,
+  );
+  const { win, pane } = resolveZoteroPane();
+  const collectionsView = pane.collectionsView || pane.collectionsTree;
+  if (typeof pane.selectCollection === "function") {
+    await pane.selectCollection(collectionId || collectionKey);
+  } else if (typeof collectionsView?.selectCollection === "function") {
+    await collectionsView.selectCollection(collectionId || collectionKey);
+  } else if (typeof collectionsView?.selectByID === "function") {
+    await collectionsView.selectByID(collectionId || collectionKey);
+  } else {
+    throw new ZoteroNavigationUnavailableError(
+      "Zotero pane cannot select collections",
+    );
+  }
+  win?.focus?.();
+}
+
+function collectionRefFromOpenArgs(args: ZoteroHostCollectionOpenArgs) {
+  const key = trimText(args.key || args.collectionKey);
+  if (!key) {
+    throw new ZoteroInvalidObjectRefError("collection key is required", args);
+  }
+  rejectUnsafeObjectRefString(key);
+  return {
+    key,
+    libraryId: args.libraryId ?? args.libraryID,
+  };
+}
+
+async function openZoteroItem(
+  ref: ZoteroHostItemRefInput,
+): Promise<ZoteroHostNavigationResultDto> {
+  const item = requireItem(ref);
+  await selectZoteroItems([item]);
+  return {
+    opened: true,
+    found: true,
+    target: {
+      kind: "item",
+      item: serializeZoteroItemSummary(item),
+    },
+    currentView: getCurrentView(),
+  };
+}
+
+async function openZoteroNote(
+  ref: ZoteroHostItemRefInput,
+): Promise<ZoteroHostNavigationResultDto> {
+  const note = requireNote(ref);
+  await selectZoteroItems([note]);
+  return {
+    opened: true,
+    found: true,
+    target: {
+      kind: "note",
+      item: serializeZoteroItemSummary(note),
+    },
+    currentView: getCurrentView(),
+  };
+}
+
+async function openZoteroCollection(
+  args: ZoteroHostCollectionOpenArgs,
+): Promise<ZoteroHostNavigationResultDto> {
+  const ref = collectionRefFromOpenArgs(args);
+  const collection = resolveCollection(ref);
+  if (!collection) {
+    throw new ZoteroCollectionNotFoundError(ref);
+  }
+  await selectZoteroCollection(collection);
+  return {
+    opened: true,
+    found: true,
+    target: {
+      kind: "collection",
+      collection: serializeCollection(collection),
+    },
+    currentView: getCurrentView(),
+  };
+}
+
+async function openZoteroSelection(
+  args: ZoteroHostSelectionOpenArgs,
+): Promise<ZoteroHostNavigationResultDto> {
+  const refs = Array.isArray(args.items) ? args.items : [];
+  if (refs.length === 0) {
+    throw new ZoteroInvalidObjectRefError(
+      "selection open requires items",
+      args,
+    );
+  }
+  const items = refs.map((ref) => requireItem(ref));
+  await selectZoteroItems(items);
+  return {
+    opened: true,
+    found: true,
+    target: {
+      kind: "selection",
+      items: items.map(serializeZoteroItemSummary),
+    },
+    currentView: getCurrentView(),
+  };
+}
+
 export function createZoteroHostCapabilityBrokerApis() {
   return {
     context: {
       getCurrentView(): ZoteroHostCurrentViewDto {
-        const context = buildCurrentAcpHostContext();
-        const currentItem = context.currentItem
-          ? resolveItem({
-              id: context.currentItem.id,
-              key: context.currentItem.key,
-              libraryId: context.libraryId,
-            })
-          : null;
-        return {
-          ...context,
-          currentItem: currentItem
-            ? {
-                ...context.currentItem,
-                ...serializeZoteroItemSummary(currentItem),
-              }
-            : context.currentItem,
-          selectedItems: getSelectedItems(),
-        };
+        return getCurrentView();
       },
       getSelectedItems,
+      openItem: openZoteroItem,
+      openNote: openZoteroNote,
+      openCollection: openZoteroCollection,
+      openSelection: openZoteroSelection,
     },
     library: {
       listItems: listLibraryItems,
       syncSnapshot: syncLibrarySnapshot,
+      readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
         const query = trimText(args?.query, FIELD_TEXT_LIMIT).toLowerCase();
         if (!query) {
@@ -2572,6 +3200,27 @@ export function createZoteroHostCapabilityBrokerApis() {
         args: ZoteroHostNotePayloadDetailArgs = {},
       ) {
         return serializeNotePayloadDetail(requireNote(ref), args);
+      },
+      async listAnnotations(ref: ZoteroHostItemRefInput) {
+        return annotationsFromItem(requireItem(ref, "item"));
+      },
+      async exportAnnotations(
+        ref: ZoteroHostItemRefInput,
+        args: { format?: string } = {},
+      ) {
+        const annotations = annotationsFromItem(requireItem(ref, "item"));
+        const format = trimText(args.format).toLowerCase() || "markdown";
+        if (format === "json") {
+          return {
+            format,
+            annotations,
+          };
+        }
+        return {
+          format: "markdown",
+          markdown: exportAnnotationsMarkdown(annotations),
+          annotations,
+        };
       },
       async getItemAttachments(ref: ZoteroHostItemRefInput) {
         const item = requireItem(ref, "item");

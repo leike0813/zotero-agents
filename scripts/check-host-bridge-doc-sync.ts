@@ -60,13 +60,24 @@ const CURRENT_STATE_ONLY_DOCS = [
   "skills_builtin/zotero-bridge-cli/SKILL.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
+  "skills_builtin/zotero-bridge-cli/references/terminology.md",
   "profiles_src/hermes/zotero-librarian/SOUL.md",
   "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
   "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
+  "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
+  "skills_src/host-bridge-shared/terminology.md",
   "profiles/hermes/zotero-librarian/SOUL.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/terminology.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   ".agents/skills/host-bridge-semantic-surface-review/SKILL.md",
   ".agents/skills/host-bridge-semantic-surface-review/references/surface-map.md",
   ".agents/skills/host-bridge-semantic-surface-review/references/review-playbook.md",
@@ -155,8 +166,12 @@ const HISTORICAL_PROTOCOL_REGEX: Array<[RegExp, string]> = [
   [/\bdeprecated\b/i, "deprecation wording"],
   [/\bold command\b/i, "old command wording"],
   [/\bprevious version\b/i, "previous-version wording"],
+  [/\bpreviously\b/i, "previous-state wording"],
   [/\bcompatibility note\b/i, "compatibility-note wording"],
-  [/旧命令|旧版|兼容旧|历史协议/, "historical protocol wording"],
+  [/\bcompat(?:ibility)?\s+(?:alias|layer|mode)\b/i, "compatibility wording"],
+  [/\bbackward(?:s)?\b/i, "backward-compatibility wording"],
+  [/\bmigrat(?:e|ed|ion|ing)\s+(?:from|to|path)\b/i, "migration wording"],
+  [/旧命令|旧版|兼容旧|历史协议|向后兼容|迁移/, "historical protocol wording"],
 ];
 
 const REMOVED_PATHS = [
@@ -291,13 +306,27 @@ for (const docPath of CURRENT_STATE_ONLY_DOCS) {
   }
 }
 
+const sharedTerminology = read("skills_src/host-bridge-shared/terminology.md");
+for (const generatedTerminology of [
+  "skills_builtin/zotero-bridge-cli/references/terminology.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/terminology.md",
+]) {
+  if (read(generatedTerminology) !== sharedTerminology) {
+    fail(
+      `${generatedTerminology} is not rendered from shared terminology source`,
+    );
+  }
+}
+
 const zoteroLibrarianHostBridge = read(
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
 );
 for (const required of [
   "library.sync_snapshot",
+  "library.readiness_audit",
   "zotero-bridge library snapshot",
   "zotero-bridge library items list",
+  "zotero-bridge library readiness missing-analysis",
   "zotero-bridge run active",
   "zotero-bridge workflow agent-apply",
 ]) {
@@ -309,6 +338,7 @@ for (const required of [
 const wrapperSkill = read("skills_builtin/zotero-bridge-cli/SKILL.md");
 for (const required of [
   "references/agent-guidance.md",
+  "references/terminology.md",
   "workflow agent-apply",
   "agentRunId",
   "agentRequestId",
@@ -325,6 +355,7 @@ const librarianSkill = read(
 );
 for (const required of [
   "references/operating-principles.md",
+  "references/terminology.md",
   "workflow agent-apply",
   "agentRunId",
 ]) {
