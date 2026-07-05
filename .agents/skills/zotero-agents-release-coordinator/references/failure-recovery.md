@@ -1,14 +1,14 @@
 # Failure Recovery
 
 Use this reference when a release command fails, the target tag exists, a
-release exists for the target, or Gitee synchronization fails.
+release exists for the target, or Gitee mirror publication fails.
 
 ## Recovery Discipline
 
 1. Stop immediately after a failed release command.
 2. Run the gate for the same target version.
-3. Inspect local tag, GitHub tag, Gitee tag, GitHub release, working tree, and
-   package version state.
+3. Inspect local tag, GitHub tag, GitHub release, working tree, and package
+   version state.
 4. Present the smallest recovery plan to the user.
 5. Execute destructive recovery commands only after explicit approval.
 
@@ -19,7 +19,6 @@ npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z
 git status --short --branch
 git tag --list vX.Y.Z
 git ls-remote --tags origin refs/tags/vX.Y.Z
-git ls-remote --tags gitee refs/tags/vX.Y.Z
 gh release view vX.Y.Z --repo leike0813/zotero-agents
 ```
 
@@ -48,19 +47,18 @@ git tag -d vX.Y.Z
 
 Then rerun the gate before retrying the release.
 
-### Remote Tag Exists
+### GitHub Remote Tag Exists
 
-Use when `origin` or `gitee` already has `refs/tags/vX.Y.Z`.
+Use when `origin` already has `refs/tags/vX.Y.Z`.
 
 Possible action after approval:
 
 ```powershell
 git push origin :refs/tags/vX.Y.Z
-git push gitee :refs/tags/vX.Y.Z
 ```
 
-Only delete a remote tag when the corresponding release is known to be failed
-or intentionally abandoned.
+Only delete a remote tag when the corresponding release is known to be failed or
+intentionally abandoned.
 
 ### GitHub Release Exists
 
@@ -75,17 +73,23 @@ gh release delete vX.Y.Z --repo leike0813/zotero-agents
 If the release has valid assets and update metadata, prefer post-release
 verification over deletion.
 
-### Gitee Synchronization Failed
+### Gitee Mirror Publication Failed
 
-Use when the GitHub release succeeded but the release workflow did not complete
-Gitee sync.
+Use when the GitHub release succeeded but Gitee mirror publication did not
+complete.
 
 Recommended action:
 
 - Verify GitHub release and `release` update manifest first.
-- Inspect the failed GitHub Actions job logs.
-- Prefer rerunning the failed workflow job when available.
-- Use project sync scripts only when the target GitHub release is already valid.
+- Confirm `GITEE_TOKEN` is present in the repository `.env`.
+- Rerun the mirror command after approval:
+
+```powershell
+npm run sync:gitee-plugin-release -- --target vX.Y.Z
+```
+
+- Use `--skip-workflows` only when the plugin mirror should be repaired without
+  attempting the official workflow package mirror.
 
 ## Do Not Attempt
 

@@ -138,7 +138,26 @@ describe("release coordinator gate", function () {
     });
   });
 
-  it("blocks release when main is not synced to a remote", async function () {
+  it("blocks release when main is not synced to origin", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        commandRunner: commandRunner({
+          "git rev-list --left-right --count HEAD...origin/main": "1\t0\n",
+        }),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.next_action, "sync_main_remotes");
+      assert.include(blockerCodes(report), "main_not_synced_origin");
+      assert.deepEqual(report.suggested_commands, ["git push origin main"]);
+    });
+  });
+
+  it("does not block plugin release readiness on Gitee mirror drift", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({
         packageJsonPath,
@@ -151,8 +170,12 @@ describe("release coordinator gate", function () {
         contentPackageReleaseVerified: true,
       });
 
-      assert.equal(report.next_action, "sync_main_remotes");
-      assert.include(blockerCodes(report), "main_not_synced_gitee");
+      assert.equal(report.next_action, "ready_to_release");
+      assert.notInclude(blockerCodes(report), "main_not_synced_gitee");
+      assert.equal(
+        report.remotes.find((remote) => remote.name === "gitee")?.main.status,
+        "local_ahead",
+      );
     });
   });
 

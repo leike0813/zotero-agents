@@ -350,16 +350,13 @@ function resolveNextAction(blockers: ReleaseGateBlocker[], hasTarget: boolean) {
   }
   if (
     codes.has("main_not_synced_origin") ||
-    codes.has("main_not_synced_gitee") ||
-    codes.has("main_sync_unknown_origin") ||
-    codes.has("main_sync_unknown_gitee")
+    codes.has("main_sync_unknown_origin")
   ) {
     return "sync_main_remotes";
   }
   if (
     codes.has("target_tag_exists_local") ||
     codes.has("target_tag_exists_origin") ||
-    codes.has("target_tag_exists_gitee") ||
     codes.has("github_release_exists") ||
     codes.has("target_release_state_unknown")
   ) {
@@ -388,7 +385,7 @@ function suggestedCommands(args: {
     case "run_local_gates":
       return ["npm run test:node:full", "npm run lint:check"];
     case "sync_main_remotes":
-      return ["git push origin main", "git push gitee main"];
+      return ["git push origin main"];
     case "recover_release_state":
       return [
         `npm exec -- tsx scripts/release-coordinator-gate.ts --target ${args.targetVersion}`,
@@ -540,7 +537,7 @@ export async function analyzeReleaseGate(
     );
   }
 
-  for (const remote of remotes) {
+  for (const remote of remotes.filter((entry) => entry.name === "origin")) {
     if (remote.main.status === "unknown") {
       addBlocker(
         blockers,

@@ -153,6 +153,8 @@ type AssistantWorkspaceHostRuntime = {
   acpSkillRunSnapshotBuildSeq: number;
   publishedWorkspaceInitScopeKey?: string | null;
   publishedChildInitScopeKeys: Set<string>;
+  streamingRenderPreferenceInitialized: boolean;
+  streamingRenderPreferenceLocalWriteDepth: number;
   lastAcpSkillRunSnapshotSignature?: string | null;
   lastAcpSkillWaitingToastKeys: Set<string>;
   readyTabs: Set<AssistantWorkspaceTab>;
@@ -1718,6 +1720,21 @@ function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
   }, 16);
 }
 
+function setAssistantWorkspaceStreamingRenderEnabled(
+  host: AssistantWorkspaceHostRuntime,
+  enabled: boolean,
+) {
+  host.streamingRenderPreferenceLocalWriteDepth += 1;
+  try {
+    return setAssistantStreamingRenderEnabled(enabled);
+  } finally {
+    host.streamingRenderPreferenceLocalWriteDepth = Math.max(
+      0,
+      host.streamingRenderPreferenceLocalWriteDepth - 1,
+    );
+  }
+}
+
 function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
   if (host.removeMessageListener) {
     return;
@@ -2090,7 +2107,10 @@ async function handleChildAction(
   }
   if (tab === "skillrunner") {
     if (action === "set-streaming-render-enabled") {
-      setAssistantStreamingRenderEnabled(childPayload.enabled === true);
+      setAssistantWorkspaceStreamingRenderEnabled(
+        host,
+        childPayload.enabled === true,
+      );
       scheduleSkillRunnerSidebarRefresh(host, target, {
         selectionChanged: false,
       });
@@ -2176,8 +2196,10 @@ async function handleAcpSkillRunAction(
       return;
     }
     if (action === "set-streaming-render-enabled") {
-      setAssistantStreamingRenderEnabled(payload.enabled === true);
-      schedulePostSnapshot(host);
+      setAssistantWorkspaceStreamingRenderEnabled(
+        host,
+        payload.enabled === true,
+      );
       return;
     }
     if (action === "select-run") {
@@ -2292,8 +2314,10 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "set-streaming-render-enabled") {
-      setAssistantStreamingRenderEnabled(payload.enabled === true);
-      schedulePostSnapshot(host);
+      setAssistantWorkspaceStreamingRenderEnabled(
+        host,
+        payload.enabled === true,
+      );
       return;
     }
     if (action === "set-active-backend") {
@@ -2588,7 +2612,6 @@ function ensureAssistantWorkspaceShell(host: AssistantWorkspaceHostRuntime) {
       "Assistant Workspace shell frame load event received.",
     );
     installShellBridge(host);
-    publishAssistantWorkspaceStatePulse(host, "shell-load");
   };
   frame.addEventListener("load", frameLoadHandler);
   host.shell = {
@@ -2875,6 +2898,8 @@ export function installAssistantWorkspaceSidebarShell(
     acpSkillRunSnapshotBuildSeq: 0,
     publishedWorkspaceInitScopeKey: null,
     publishedChildInitScopeKeys: new Set<string>(),
+    streamingRenderPreferenceInitialized: false,
+    streamingRenderPreferenceLocalWriteDepth: 0,
     shellHandshakeTimer: null,
     shellHandshakeAttempt: 0,
     acpChatBackendRefreshInFlight: false,
@@ -2944,6 +2969,23 @@ export function installAssistantWorkspaceSidebarShell(
   });
   host.removeStreamingRenderPreferenceSubscription =
     subscribeAssistantStreamingRenderPreference(() => {
+      if (!host.streamingRenderPreferenceInitialized) {
+        host.streamingRenderPreferenceInitialized = true;
+        logAssistantWorkspaceDebug(
+          host,
+          "streaming-preference-initial-skip",
+          "Assistant Workspace streaming preference initial callback skipped.",
+        );
+        return;
+      }
+      if (host.streamingRenderPreferenceLocalWriteDepth > 0) {
+        logAssistantWorkspaceDebug(
+          host,
+          "streaming-preference-local-skip",
+          "Assistant Workspace streaming preference local write callback skipped.",
+        );
+        return;
+      }
       if (host.activeTab === "skillrunner" && host.activeTarget) {
         scheduleSkillRunnerSidebarRefresh(host, host.activeTarget, {
           selectionChanged: false,

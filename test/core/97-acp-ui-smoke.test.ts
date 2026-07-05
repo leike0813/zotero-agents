@@ -3535,6 +3535,22 @@ describe("acp ui smoke", function () {
     const postShellBody = assistantSidebar.slice(postShellStart, postShellEnd);
     assert.notInclude(postShellBody, "scheduleShellHandshake");
 
+    const shellFactoryStart = assistantSidebar.indexOf(
+      "function ensureAssistantWorkspaceShell",
+    );
+    const shellFactoryEnd = assistantSidebar.indexOf(
+      "async function dockAssistantWorkspaceShell",
+      shellFactoryStart,
+    );
+    const shellFactoryBody = assistantSidebar.slice(
+      shellFactoryStart,
+      shellFactoryEnd,
+    );
+    assert.include(shellFactoryBody, "shell-frame-load");
+    assert.include(shellFactoryBody, "installShellBridge(host)");
+    assert.notInclude(shellFactoryBody, "publishAssistantWorkspaceStatePulse");
+    assert.notInclude(shellFactoryBody, '"shell-load"');
+
     const refreshPredicateStart = assistantSidebar.indexOf(
       "function shouldRefreshAcpChatBackendsForWorkspacePulse",
     );
@@ -3564,6 +3580,29 @@ describe("acp ui smoke", function () {
     assert.include(sharedAcpSubscription, "updateAssistantAttentionIndicator");
     assert.notInclude(sharedAcpSubscription, "schedulePostSnapshot");
 
+    const streamingSubscriptionStart = assistantSidebar.indexOf(
+      "host.removeStreamingRenderPreferenceSubscription",
+    );
+    const streamingSubscriptionEnd = assistantSidebar.indexOf(
+      "updateAssistantAttentionIndicator(host);",
+      streamingSubscriptionStart,
+    );
+    const streamingSubscription = assistantSidebar.slice(
+      streamingSubscriptionStart,
+      streamingSubscriptionEnd,
+    );
+    assert.include(
+      assistantSidebar,
+      "function setAssistantWorkspaceStreamingRenderEnabled",
+    );
+    assert.include(
+      assistantSidebar,
+      "streamingRenderPreferenceLocalWriteDepth",
+    );
+    assert.include(streamingSubscription, "streaming-preference-initial-skip");
+    assert.include(streamingSubscription, "streaming-preference-local-skip");
+    assert.include(streamingSubscription, "schedulePostSnapshot(host)");
+
     const childActionStart = assistantSidebar.indexOf(
       "async function handleChildAction",
     );
@@ -3585,6 +3624,64 @@ describe("acp ui smoke", function () {
     assert.include(childReadyBranch, "child-ready-init-skip");
     assert.include(childReadyBranch, "return;");
     assert.include(childReadyBranch, "publishAssistantWorkspaceStatePulse");
+
+    const skillrunnerActionEnd = assistantSidebar.indexOf(
+      'if (tab === "acp-skills")',
+      childActionStart,
+    );
+    const skillrunnerActionBranch = assistantSidebar.slice(
+      childReadyEnd,
+      skillrunnerActionEnd,
+    );
+    assert.include(
+      skillrunnerActionBranch,
+      "setAssistantWorkspaceStreamingRenderEnabled",
+    );
+    assert.include(
+      skillrunnerActionBranch,
+      "scheduleSkillRunnerSidebarRefresh",
+    );
+    assert.notInclude(skillrunnerActionBranch, "schedulePostSnapshot(host)");
+
+    const acpSkillsActionStart = assistantSidebar.indexOf(
+      "async function handleAcpSkillRunAction",
+    );
+    const acpSkillsActionEnd = assistantSidebar.indexOf(
+      "async function handleAcpChatAction",
+      acpSkillsActionStart,
+    );
+    const acpSkillsActionBody = assistantSidebar.slice(
+      acpSkillsActionStart,
+      acpSkillsActionEnd,
+    );
+    const acpSkillsStreamingBranch = acpSkillsActionBody.slice(
+      acpSkillsActionBody.indexOf(
+        'if (action === "set-streaming-render-enabled")',
+      ),
+      acpSkillsActionBody.indexOf('if (action === "select-run")'),
+    );
+    assert.include(
+      acpSkillsStreamingBranch,
+      "setAssistantWorkspaceStreamingRenderEnabled",
+    );
+    assert.notInclude(acpSkillsStreamingBranch, "schedulePostSnapshot(host)");
+
+    const acpChatActionStart = assistantSidebar.indexOf(
+      "async function handleAcpChatAction",
+    );
+    const acpChatActionEnd = assistantSidebar.indexOf(
+      'if (action === "set-active-backend")',
+      acpChatActionStart,
+    );
+    const acpChatStreamingBranch = assistantSidebar.slice(
+      acpChatActionStart,
+      acpChatActionEnd,
+    );
+    assert.include(
+      acpChatStreamingBranch,
+      "setAssistantWorkspaceStreamingRenderEnabled",
+    );
+    assert.notInclude(acpChatStreamingBranch, "schedulePostSnapshot(host)");
 
     const skillrunnerHandlerStart = assistantSidebar.indexOf(
       "function createSkillRunnerHostActionHandler",

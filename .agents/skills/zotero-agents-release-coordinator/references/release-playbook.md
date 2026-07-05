@@ -89,13 +89,12 @@ npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --test-node-
 ## Stage 6: Sync Main
 
 Before releasing, confirm `HEAD` is on `main`, the working tree is clean, and
-`HEAD` is available on both remotes.
+`HEAD` is available on GitHub `main`.
 
 Ask before pushing:
 
 ```powershell
 git push origin main
-git push gitee main
 ```
 
 Rerun the gate after pushing.
@@ -114,10 +113,23 @@ This command is allowed only after the gate confirms:
 - local gates passed
 - required content package verification passed
 - required Host Bridge pipeline completed
-- target tag is not present locally, on GitHub, or on Gitee
-- `HEAD` is synced to GitHub and Gitee `main`
+- target tag is not present locally or on GitHub
+- `HEAD` is synced to GitHub `main`
 
-## Stage 8: Post-release Verification
+## Stage 8: Gitee Mirror
+
+After the plugin release succeeds, ask before publishing the Gitee mirror:
+
+```powershell
+npm run sync:gitee-plugin-release -- --target vX.Y.Z
+```
+
+This command reads `GITEE_TOKEN` from the repository `.env`, syncs the plugin
+release and update metadata to Gitee, then attempts to sync the official
+workflow package release and `content-feed` branch. It is safe to run again for
+the same target when GitHub is the source of truth.
+
+## Stage 9: Post-release Verification
 
 Verify:
 
@@ -126,11 +138,7 @@ gh release view vX.Y.Z --repo leike0813/zotero-agents
 gh release view release --repo leike0813/zotero-agents
 git ls-remote --tags origin refs/tags/vX.Y.Z
 git ls-remote --tags gitee refs/tags/vX.Y.Z
+gh release view official-workflows-vCONTENT_PACKAGE_VERSION --repo leike0813/zotero-agents-workflows
 npm run check:content-package-release
-```
-
-If mirror publication is part of the release, also run:
-
-```powershell
 npm run check:content-package-mirror
 ```

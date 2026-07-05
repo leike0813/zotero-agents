@@ -17,31 +17,43 @@ import type {
   ProviderProgressEvent,
 } from "./types";
 
-const providers: Provider[] = [
-  new SkillRunnerProvider(),
-  new AcpProvider(),
-  new GenericHttpProvider(),
-  new PassThroughProvider(),
-];
+let providers: Provider[] | null = null;
+
+function createDefaultProviders(): Provider[] {
+  return [
+    new SkillRunnerProvider(),
+    new AcpProvider(),
+    new GenericHttpProvider(),
+    new PassThroughProvider(),
+  ];
+}
+
+function getProviders() {
+  if (!providers) {
+    providers = createDefaultProviders();
+  }
+  return providers;
+}
 
 export function registerProvider(provider: Provider) {
-  const existingIndex = providers.findIndex(
+  const providerList = getProviders();
+  const existingIndex = providerList.findIndex(
     (entry) => entry.id === provider.id,
   );
   if (existingIndex >= 0) {
-    providers.splice(existingIndex, 1, provider);
+    providerList.splice(existingIndex, 1, provider);
     return;
   }
-  providers.push(provider);
+  providerList.push(provider);
 }
 
 export function listProviders() {
-  return [...providers];
+  return [...getProviders()];
 }
 
 export function resolveProviderById(id: string) {
   const target = String(id || "").trim();
-  const matched = providers.find((provider) => provider.id === target);
+  const matched = getProviders().find((provider) => provider.id === target);
   if (!matched) {
     throw new Error(`Unknown provider: ${target}`);
   }
@@ -122,7 +134,7 @@ export function resolveProvider(args: {
     requestKind: args.requestKind,
     backendType: args.backend.type,
   });
-  const matched = providers.find((provider) => provider.supports(args));
+  const matched = getProviders().find((provider) => provider.supports(args));
   if (!matched) {
     throw new ProviderRequestContractError({
       category: "provider_contract_error",

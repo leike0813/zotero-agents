@@ -13,7 +13,8 @@ D:\Workspace\Code\JavaScript\zotero-agents
 
 This skill is the release gatekeeper for Zotero Agents. It coordinates local
 checks, content feed publication, Host Bridge CLI publication, GitHub/Gitee
-synchronization, plugin release execution, and failed-release recovery.
+synchronization, plugin release execution, Gitee mirror publication, and
+failed-release recovery.
 
 ## Runtime Model
 
@@ -58,7 +59,7 @@ npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --test-node-
 | `run_host_bridge_pipeline` | Host Bridge surfaces or CLI/package/profile paths changed. | Use `$host-bridge-release-pipeline`, then rerun this gate with `--host-bridge-done` only after it completes. |
 | `publish_content_package` | Content package or feed-adjacent files changed and release verification evidence is missing. | Follow the content package stage in the playbook, then rerun with verification flags. |
 | `run_local_gates` | Required local validation evidence is missing. | Run `npm run test:node:full` and `npm run lint:check`; rerun with evidence flags only when they pass. |
-| `sync_main_remotes` | `HEAD` is not confirmed on both GitHub and Gitee `main`. | Ask before pushing; push `main` to both remotes after confirmation. |
+| `sync_main_remotes` | `HEAD` is not confirmed on GitHub `main`. | Ask before pushing; push `main` to `origin` after confirmation. |
 | `recover_release_state` | The target tag or release already exists, or remote release state is inconsistent. | Read the recovery reference and request explicit approval before any destructive correction. |
 | `ready_to_release` | All local pre-release blockers are clear. | Ask for explicit confirmation, then run `npm run release -- vX.Y.Z`. |
 | `audit_complete` | No target release version was provided. | Report the audit result and ask for the intended target version if release should proceed. |
@@ -83,8 +84,8 @@ Ask before running any command that pushes, creates a release, deletes a tag,
 deletes a release, reverts a version bump, or reruns a failed release target:
 
 - `git push origin main`
-- `git push gitee main`
 - `npm run release -- vX.Y.Z`
+- `npm run sync:gitee-plugin-release -- --target vX.Y.Z`
 - `git tag -d vX.Y.Z`
 - `git push origin :refs/tags/vX.Y.Z`
 - `git push gitee :refs/tags/vX.Y.Z`
@@ -102,6 +103,10 @@ deletes a release, reverts a version bump, or reruns a failed release target:
 - Explain blockers, recovery paths, and risk to the user.
 - Decide whether content changes are semantically release-worthy.
 - Request confirmation before state-changing release operations.
+- After a successful plugin release, ask whether to publish the Gitee mirror and
+  run `npm run sync:gitee-plugin-release -- --target vX.Y.Z` only after
+  confirmation. This command reads `GITEE_TOKEN` from the repository `.env`,
+  syncs the plugin release, then attempts the official workflow package mirror.
 
 ### Must Be Done By Scripts
 
@@ -130,5 +135,6 @@ When finished, report:
 - local validation commands and results
 - GitHub/Gitee main and tag status
 - release command result
+- Gitee mirror command result, including official workflow package sync status
 - post-release verification result
 - remaining risks or manual follow-up
