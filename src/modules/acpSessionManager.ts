@@ -7,6 +7,7 @@ import {
   canPublishAssistantWorkspaceLiveUpdates,
   type AssistantWorkspacePublishReason,
 } from "./assistantWorkspaceUiPublishPolicy";
+import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -1527,6 +1528,9 @@ function appendStreamingTranscriptText(
       },
 ) {
   if (args.kind === "message") {
+    completeActiveStreamingTextItems(sessionRuntime, {
+      except: sessionRuntime.activeAssistantItemId,
+    });
     let target = getLatestActiveAssistantItem(sessionRuntime);
     if (!target) {
       const createdAt = nowIso();
@@ -1547,6 +1551,9 @@ function appendStreamingTranscriptText(
     return;
   }
 
+  completeActiveStreamingTextItems(sessionRuntime, {
+    except: sessionRuntime.activeThoughtItemId,
+  });
   let target = getLatestActiveThoughtItem(sessionRuntime);
   if (!target) {
     const createdAt = nowIso();
@@ -1934,6 +1941,33 @@ function finalizeStreamingItems(
       } as Partial<AcpConversationItem>);
     }
     sessionRuntime.activePlanItemId = "";
+  }
+}
+
+function completeActiveStreamingTextItems(
+  sessionRuntime: AcpChatSessionRuntime,
+  args?: { except?: string },
+) {
+  const updatedAt = nowIso();
+  if (
+    sessionRuntime.activeAssistantItemId &&
+    sessionRuntime.activeAssistantItemId !== args?.except
+  ) {
+    patchTranscriptItem(sessionRuntime, sessionRuntime.activeAssistantItemId, {
+      state: "complete",
+      updatedAt,
+    } as Partial<AcpConversationItem>);
+    sessionRuntime.activeAssistantItemId = "";
+  }
+  if (
+    sessionRuntime.activeThoughtItemId &&
+    sessionRuntime.activeThoughtItemId !== args?.except
+  ) {
+    patchTranscriptItem(sessionRuntime, sessionRuntime.activeThoughtItemId, {
+      state: "complete",
+      updatedAt,
+    } as Partial<AcpConversationItem>);
+    sessionRuntime.activeThoughtItemId = "";
   }
 }
 
@@ -2474,7 +2508,6 @@ function handleSessionUpdate(
   switch (String(update.sessionUpdate || "").trim()) {
     case "agent_message_chunk": {
       sessionRuntime.snapshot.lastLifecycleEvent = "agent_message_chunk";
-      sessionRuntime.activeThoughtItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -2501,7 +2534,6 @@ function handleSessionUpdate(
     }
     case "agent_thought_chunk": {
       sessionRuntime.snapshot.lastLifecycleEvent = "agent_thought_chunk";
-      sessionRuntime.activeAssistantItemId = "";
       const content = update.content as
         | { type?: string; text?: string }
         | undefined;
@@ -2527,8 +2559,7 @@ function handleSessionUpdate(
     }
     case "tool_call": {
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call";
-      sessionRuntime.activeAssistantItemId = "";
-      sessionRuntime.activeThoughtItemId = "";
+      completeActiveStreamingTextItems(sessionRuntime);
       upsertToolCallItem(sessionRuntime, update);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
@@ -2538,8 +2569,7 @@ function handleSessionUpdate(
     }
     case "tool_call_update": {
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
-      sessionRuntime.activeAssistantItemId = "";
-      sessionRuntime.activeThoughtItemId = "";
+      completeActiveStreamingTextItems(sessionRuntime);
       upsertToolCallItem(sessionRuntime, update);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
@@ -2549,8 +2579,7 @@ function handleSessionUpdate(
     }
     case "plan": {
       sessionRuntime.snapshot.lastLifecycleEvent = "plan";
-      sessionRuntime.activeAssistantItemId = "";
-      sessionRuntime.activeThoughtItemId = "";
+      completeActiveStreamingTextItems(sessionRuntime);
       const entries = Array.isArray(update.entries)
         ? update.entries.map((entry) => ({
             content: String(entry?.content || ""),
@@ -3575,6 +3604,55 @@ export type AcpConversationTranscriptPage = {
   transcriptRevision: number;
   limit: number;
 };
+
+export function readAcpConversationTranscriptMirrorPage(args: {
+  backendId?: string;
+  conversationId?: string;
+  cursor?: number;
+  limit?: number;
+  streamingRenderEnabled?: boolean;
+}): AcpConversationTranscriptPage | undefined {
+  ensureInitialized();
+  const backendId = normalizeBackendId(args.backendId || activeBackendId);
+  const conversationId =
+    normalizeConversationId(args.conversationId) ||
+    normalizeConversationId(
+      getOrCreateSessionRuntime(backendId).snapshot.conversationId,
+    );
+  if (!backendId || !conversationId) {
+    return undefined;
+  }
+  const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
+  if (!sessionRuntime.transcriptMirrorLoaded) {
+    return undefined;
+  }
+  const page = readUiVisibleTranscriptPage<AcpConversationItem>({
+    itemIds: sessionRuntime.transcriptItemIds,
+    getItem: (itemId) => sessionRuntime.transcriptItemsById.get(itemId),
+    cloneItem: cloneAcpConversationItem,
+    streamingRenderEnabled: args.streamingRenderEnabled !== false,
+    cursor: args.cursor,
+    limit: args.limit,
+    defaultLimit: ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
+    maxLimit: ACP_CHAT_TRANSCRIPT_PAGE_MAX_LIMIT,
+  });
+  return {
+    backendId,
+    conversationId,
+    requestId: `${backendId}\n${conversationId}`,
+    items: page.items,
+    cursor: page.cursor,
+    prevCursor: page.prevCursor,
+    nextCursor: page.nextCursor,
+    total: page.total,
+    eventSeq: sessionRuntime.transcriptEventSeq,
+    transcriptRevision: Math.max(
+      Number(sessionRuntime.transcriptEventSeq) || 0,
+      Number(sessionRuntime.snapshot.transcriptRevision) || 0,
+    ),
+    limit: page.limit,
+  };
+}
 
 export async function readAcpConversationTranscriptPage(args: {
   backendId?: string;

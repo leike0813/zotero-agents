@@ -2296,6 +2296,14 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantTranscriptRendererJs, "data-assistant-item-kind");
     assert.include(assistantTranscriptRendererJs, "data-assistant-role");
+    assert.include(
+      assistantTranscriptRendererJs,
+      'item.kind === "process" || item.kind === "thought"',
+    );
+    assert.include(
+      assistantTranscriptRendererJs,
+      'transcriptLabel(options, "thinking")',
+    );
     assert.notInclude(assistantTranscriptRendererJs, "acp-message");
     assert.notInclude(assistantTranscriptRendererJs, "transcript-row kind-");
     assert.include(assistantPanelModelJs, "window.AssistantPanelModel");
@@ -2761,6 +2769,7 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "function compactLogsKey(logs)");
     assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
     assert.include(acpSkillRunJs, "selectedEvents:");
+    assert.include(acpSkillRunJs, "streamingRenderEnabled:");
     assert.include(acpSkillRunJs, "logs:");
     assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
     assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
@@ -3433,7 +3442,14 @@ describe("acp ui smoke", function () {
       "src/modules/acpChatPanelReadModel.ts",
     );
 
-    assert.include(acpChatPanelReadModel, "readAcpConversationTranscriptPage");
+    assert.include(
+      acpChatPanelReadModel,
+      "readAcpConversationTranscriptMirrorPage",
+    );
+    assert.notInclude(
+      acpChatPanelReadModel,
+      "readAcpConversationTranscriptPage",
+    );
     assert.include(acpChatPanelReadModel, "prepareAcpChatPanelSnapshot");
     assert.include(acpChatPanelReadModel, "selectedTranscriptPage");
     assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
@@ -3986,6 +4002,22 @@ describe("acp ui smoke", function () {
         assert.include(text, `${key} =`, `${locale} should define ${key}`);
       });
     });
+    assert.include(
+      locales.find(({ locale }) => locale === "en-US")?.text || "",
+      "assistant-panel-transcript-thinking = Thought",
+    );
+    assert.include(
+      locales.find(({ locale }) => locale === "en-US")?.text || "",
+      "task-dashboard-run-role-thinking = Thought",
+    );
+    assert.include(
+      locales.find(({ locale }) => locale === "zh-CN")?.text || "",
+      "assistant-panel-transcript-thinking = 思考",
+    );
+    assert.include(
+      locales.find(({ locale }) => locale === "zh-CN")?.text || "",
+      "task-dashboard-run-role-thinking = 思考",
+    );
     locales
       .filter(({ locale }) => locale !== "en-US")
       .forEach(({ locale, text }) => {

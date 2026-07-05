@@ -2518,7 +2518,7 @@ function buildRunDialogSnapshot(
         "task-dashboard-run-thinking-desc",
         "Running inference and preparing the next response...",
       ),
-      roleThinking: localize("task-dashboard-run-role-thinking", "Thinking"),
+      roleThinking: localize("task-dashboard-run-role-thinking", "Thought"),
       processReasoning: localize(
         "task-dashboard-run-process-reasoning",
         "Reasoning",

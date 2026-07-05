@@ -252,6 +252,7 @@ function initializeZoteroMockState() {
   prefsStore.clear();
   prefsStore.set(`${config.prefsPrefix}.workflowDir`, "");
   prefsStore.set(`${config.prefsPrefix}.skillDir`, "");
+  prefObservers.clear();
   notifierCounter = 0;
   installDefaultDataDirectory();
 }
@@ -265,7 +266,11 @@ function notifyPrefObservers(key: string) {
 }
 
 export function resetZoteroMockStateForTests() {
-  initializeZoteroMockState();
+  Object.defineProperty(globalThis, "Zotero", {
+    value: createZoteroMock(),
+    writable: false,
+    configurable: true,
+  });
 }
 
 function generateKey(id: number) {

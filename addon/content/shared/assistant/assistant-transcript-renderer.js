@@ -1275,7 +1275,7 @@
       return "tool";
     }
     if (item.kind === "permission") return "permission";
-    if (item.kind === "process") return "process";
+    if (item.kind === "process" || item.kind === "thought") return "process";
     return String(item.kind || "status");
   }
 
@@ -1299,7 +1299,10 @@
     row.setAttribute("data-assistant-item-kind", kind);
     row.setAttribute("data-assistant-role", role);
     row.classList.toggle("is-tool", role === "tool");
-    row.classList.toggle("is-process", kind === "process");
+    row.classList.toggle(
+      "is-process",
+      kind === "process" || kind === "thought",
+    );
     row.classList.toggle("is-permission", kind === "permission");
     row.classList.toggle(
       "is-workspace-activity",
@@ -1307,7 +1310,10 @@
     );
     row.classList.toggle(
       "is-status",
-      kind !== "message" && kind !== "process" && role !== "tool",
+      kind !== "message" &&
+        kind !== "process" &&
+        kind !== "thought" &&
+        role !== "tool",
     );
     row.classList.toggle(
       "level-warn",
@@ -1439,7 +1445,7 @@
       decorateMarkdownCodeBlocks(body, options);
       return;
     }
-    if (item.kind === "process") {
+    if (item.kind === "process" || item.kind === "thought") {
       meta.textContent = String(
         item.label || transcriptLabel(options, "thinking"),
       );

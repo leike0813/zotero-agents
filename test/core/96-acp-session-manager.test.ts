@@ -2940,11 +2940,197 @@ describe("acp session manager", function () {
     assert.equal(pageReadCount, 0);
   });
 
-  it("filters ACP chat panel changes without refreshing on pure virtualized appends", function () {
+  it("omits ACP chat selected pages while the selected mirror is loading", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await sendAcpConversationPrompt({
+      message: "Panel mirror loading source",
+    });
+    const firstConversationId = getAcpConversationSnapshot().conversationId;
+
+    await disconnectAcpConversation({ conversationId: firstConversationId });
+    await startNewAcpConversation();
+    await setActiveAcpConversation({ conversationId: firstConversationId });
+
+    let pageReadCount = 0;
+    const panel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      readTranscriptPage: async () => {
+        pageReadCount += 1;
+        throw new Error("loading mirror must not read a page");
+      },
+    });
+
+    assert.equal(panel.activeConversationId, firstConversationId);
+    assert.equal(
+      (panel.transcriptState as { state?: string } | undefined)?.state,
+      "loading",
+    );
+    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(pageReadCount, 0);
+  });
+
+  it("projects ACP chat selected pages through the streaming render policy", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    setAssistantStreamingRenderEnabled(false);
+    await reconnectAcpConversation();
+    const sessionId = getAcpConversationSnapshot().sessionId;
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "visible thinking" },
+      },
+    } as any);
+    const thoughtOnlyPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    const thoughtOnlyItems =
+      (
+        thoughtOnlyPanel.selectedTranscriptPage as
+          | {
+              items?: Array<{
+                kind?: string;
+                text?: string;
+              }>;
+            }
+          | undefined
+      )?.items || [];
+    assert.isUndefined(
+      thoughtOnlyItems.find(
+        (entry) =>
+          entry.kind === "thought" && entry.text === "visible thinking",
+      ),
+    );
+
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "hidden partial" },
+      },
+    } as any);
+
+    const canonical = await readActiveTranscriptItems();
+    assert.isOk(
+      canonical.find(
+        (entry) =>
+          entry.kind === "thought" &&
+          entry.state === "complete" &&
+          entry.text === "visible thinking",
+      ),
+    );
+    assert.isOk(
+      canonical.find(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.state === "streaming" &&
+          entry.text === "hidden partial",
+      ),
+    );
+
+    const hiddenPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    const hiddenItems =
+      (
+        hiddenPanel.selectedTranscriptPage as
+          | {
+              items?: Array<{
+                kind?: string;
+                role?: string;
+                text?: string;
+                toolCallId?: string;
+              }>;
+            }
+          | undefined
+      )?.items || [];
+    assert.isUndefined(
+      hiddenItems.find(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.text === "hidden partial",
+      ),
+    );
+    assert.isOk(
+      hiddenItems.find(
+        (entry) =>
+          entry.kind === "thought" && entry.text === "visible thinking",
+      ) as unknown,
+    );
+    setAssistantStreamingRenderEnabled(true);
+    const visiblePanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    const visibleItems =
+      (
+        visiblePanel.selectedTranscriptPage as
+          | {
+              items?: Array<{
+                kind?: string;
+                role?: string;
+                text?: string;
+              }>;
+            }
+          | undefined
+      )?.items || [];
+    assert.isOk(
+      visibleItems.find(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.text === "hidden partial",
+      ),
+    );
+
+    setAssistantStreamingRenderEnabled(false);
+    await lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-1",
+        title: "Read",
+        status: "pending",
+      },
+    } as any);
+    const boundaryPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    const boundaryItems =
+      (
+        boundaryPanel.selectedTranscriptPage as
+          | {
+              items?: Array<{
+                kind?: string;
+                role?: string;
+                text?: string;
+                toolCallId?: string;
+              }>;
+            }
+          | undefined
+      )?.items || [];
+    assert.isOk(
+      boundaryItems.find(
+        (entry) =>
+          entry.kind === "message" &&
+          entry.role === "assistant" &&
+          entry.text === "hidden partial",
+      ),
+    );
+    assert.isOk(
+      boundaryItems.find(
+        (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
+      ) as unknown,
+    );
+  });
+
+  it("filters ACP chat panel appends through the streaming render preference", function () {
     const base = {
       activeTab: "acp-chat" as const,
       hasActiveTarget: true,
       transcriptPaginationVirtualizationEnabled: true,
+      streamingRenderEnabled: true,
     };
 
     assert.isTrue(
@@ -2959,17 +3145,17 @@ describe("acp session manager", function () {
         kinds: ["transcript-boundary"],
       }),
     );
-    assert.isFalse(
+    assert.isTrue(
       shouldRefreshAcpChatSnapshotForChange(base, {
         active: true,
         kinds: ["transcript-append"],
       }),
     );
-    assert.isTrue(
+    assert.isFalse(
       shouldRefreshAcpChatSnapshotForChange(
         {
           ...base,
-          transcriptPaginationVirtualizationEnabled: false,
+          streamingRenderEnabled: false,
         },
         {
           active: true,

@@ -417,7 +417,7 @@
       ? {
           id,
           kind: "process",
-          label: "Thinking",
+          label: "Thought",
           text,
         }
       : null;
@@ -459,7 +459,7 @@
           role: event.role,
           label:
             event.kind === "assistant_process"
-              ? "Thinking"
+              ? "Thought"
               : chatRoleText(event.role),
           text: messageText(event),
           createdAt: event.ts,

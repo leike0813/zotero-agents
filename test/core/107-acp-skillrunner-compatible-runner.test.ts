@@ -102,6 +102,7 @@ import {
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
+import { readAcpSkillRunTranscriptItems } from "../../src/modules/acpSkillRunTranscriptStore";
 import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import {
   SKILL_RUN_FEEDBACK_ASSET_ID,
@@ -127,6 +128,15 @@ async function readRunTranscriptItems(requestId: string) {
   return Array.isArray(snapshot.selectedTranscriptPage?.items)
     ? snapshot.selectedTranscriptPage.items
     : [];
+}
+
+async function readCanonicalRunTranscriptItems(requestId: string) {
+  await flushAcpSkillRunRuntimeFileWritesForTests();
+  const record = getAcpSkillRunRecord(requestId);
+  const transcript = await readAcpSkillRunTranscriptItems({
+    runtimeDir: record?.runtimeDir,
+  });
+  return transcript.items;
 }
 
 async function readRunOutputRevisions(requestId: string) {
@@ -6638,6 +6648,22 @@ describe("ACP SkillRunner-compatible runner", function () {
       recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
         sessionId: "session-1",
         update: {
+          sessionUpdate: "agent_thought_chunk",
+          content: { type: "text", text: "visible thinking" },
+        },
+      } as any);
+      const thoughtOnlySnapshot = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-streaming-usage-side-channel",
+      });
+      assert.isUndefined(
+        (thoughtOnlySnapshot.selectedTranscriptPage?.items || []).find(
+          (item) => item.kind === "thought" && item.text === "visible thinking",
+        ),
+      );
+
+      recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
+        sessionId: "session-1",
+        update: {
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text: "partial" },
         },
@@ -6652,7 +6678,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       } as any);
       await delay(120);
 
-      const canonicalTranscript = await readRunTranscriptItems(
+      const canonicalTranscript = await readCanonicalRunTranscriptItems(
         "run-streaming-usage-side-channel",
       );
       const canonicalMessage = canonicalTranscript.find(
@@ -6669,6 +6695,19 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
       assert.notProperty(beforeBoundary.selectedRun as any, "transcriptItems");
       assert.isArray(beforeBoundary.selectedTranscriptPage?.items);
+      assert.isUndefined(
+        (beforeBoundary.selectedTranscriptPage?.items || []).find(
+          (item) =>
+            item.kind === "message" &&
+            item.role === "assistant" &&
+            item.text === "partial",
+        ),
+      );
+      assert.isOk(
+        (beforeBoundary.selectedTranscriptPage?.items || []).find(
+          (item) => item.kind === "thought" && item.text === "visible thinking",
+        ) as unknown,
+      );
 
       recordAcpSkillRunSessionUpdate("run-streaming-usage-side-channel", {
         sessionId: "session-1",
@@ -6686,7 +6725,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.notProperty(afterBoundary.selectedRun as any, "transcriptItems");
       assert.isArray(afterBoundary.selectedTranscriptPage?.items);
       const visibleMessage = (
-        await readRunTranscriptItems("run-streaming-usage-side-channel")
+        afterBoundary.selectedTranscriptPage?.items || []
       ).find((item) => item.kind === "message" && item.role === "assistant");
       assert.equal(visibleMessage?.kind, "message");
       if (visibleMessage?.kind === "message") {
@@ -6739,6 +6778,14 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
       const visible = await readRunTranscriptItems(
         "run-streaming-workspace-activity-disabled",
+      );
+      assert.isUndefined(
+        visible.find(
+          (item) =>
+            item.kind === "message" &&
+            item.role === "assistant" &&
+            item.text === "held partial",
+        ),
       );
       const activity = visible.find(
         (item) => item.kind === "status" && item.label === "workspace-activity",

@@ -348,6 +348,7 @@
         raw.selectedRuntimeOptions,
       ),
       selectedEvents: compactEventsKey(raw.selectedRun),
+      streamingRenderEnabled: raw.streamingRenderEnabled !== false,
       logs: compactLogsKey(raw.logs),
       runs: runs.map(compactRunKey),
       runDrawerOpen: state.runDrawerOpen,
@@ -393,7 +394,7 @@
     const sourceRun = run || {};
     const items = transcriptItemsFromSnapshot(sourceRun).map(function (item) {
       if (item && item.kind === "thought") {
-        return Object.assign({}, item, { kind: "process", label: "Thinking" });
+        return Object.assign({}, item, { kind: "process", label: "Thought" });
       }
       if (item && item.kind === "tool_call") {
         return Object.assign({}, item, { kind: "tool" });

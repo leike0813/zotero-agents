@@ -1,0 +1,7 @@
+- [x] 1. Add OpenSpec delta requirements for ACP Chat and ACP Skills transcript read-model parity.
+- [x] 2. Add focused ACP Chat tests for mirror selected-page reads, loading snapshots, and streaming-aware append filtering.
+- [x] 3. Add focused ACP Skills tests for streaming-aware selected page projection without blocking structural rows.
+- [x] 4. Implement shared UI-visible transcript page projection.
+- [x] 5. Switch ACP Chat panel selected pages and page requests to hydrated mirror reads.
+- [x] 6. Thread `streamingRenderEnabled` through ACP Chat refresh filtering.
+- [x] 7. Run targeted regression checks and mark tasks complete.

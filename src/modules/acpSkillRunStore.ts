@@ -21,6 +21,7 @@ import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
 } from "./assistantWorkspaceUiPublishPolicy";
+import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import {
   listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
@@ -847,6 +848,39 @@ function readTranscriptMirrorPage(args: {
     eventSeq: args.state.eventSeq,
     transcriptRevision: args.state.eventSeq,
     limit,
+  };
+}
+
+function readUiVisibleTranscriptMirrorPage(args: {
+  requestId: string;
+  state: AcpSkillRunTranscriptLiveState;
+  cursor?: number;
+  limit?: number;
+}): AcpSkillRunTranscriptPage & {
+  requestId: string;
+  transcriptRevision: number;
+  limit: number;
+} {
+  const page = readUiVisibleTranscriptPage<AcpSkillRunTranscriptItem>({
+    itemIds: args.state.itemIds,
+    getItem: (itemId) => args.state.itemsById.get(itemId),
+    cloneItem: cloneAcpSkillRunTranscriptItem,
+    streamingRenderEnabled: canPublishAssistantWorkspaceLiveUpdates(),
+    cursor: args.cursor,
+    limit: args.limit,
+    defaultLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
+    maxLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+  });
+  return {
+    requestId: args.requestId,
+    items: page.items,
+    cursor: page.cursor,
+    prevCursor: page.prevCursor,
+    nextCursor: page.nextCursor,
+    total: page.total,
+    eventSeq: args.state.eventSeq,
+    transcriptRevision: args.state.eventSeq,
+    limit: page.limit,
   };
 }
 
@@ -3644,6 +3678,7 @@ function appendTextChunk(args: {
     });
     return;
   }
+  completeOpenStreamingTextItems(args.record, args.now);
   const id = nextTranscriptItemId(args.record, args.kind, state);
   const item: AcpSkillRunTranscriptItem =
     args.kind === "message"
@@ -5439,7 +5474,7 @@ function selectedTranscriptPageForRun(
   if (requestedPageRunId && requestedPageRunId !== record.requestId) {
     return undefined;
   }
-  return readTranscriptMirrorPage({
+  return readUiVisibleTranscriptMirrorPage({
     requestId: record.requestId,
     state: getAcpSkillRunTranscriptLiveState(record),
     cursor: request?.cursor,

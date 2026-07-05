@@ -1707,7 +1707,7 @@
     return {
       id,
       kind: "process",
-      label: "Thinking",
+      label: "Thought",
       text: skillRunnerMessageText(entry),
       createdAt: entry && entry.ts,
     };

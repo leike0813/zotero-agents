@@ -2918,6 +2918,7 @@ export function installAssistantWorkspaceSidebarShell(
             hasActiveTarget: !!host.activeTarget,
             transcriptPaginationVirtualizationEnabled:
               isAssistantTranscriptPaginationVirtualizationEnabled(),
+            streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
           },
           change,
         )

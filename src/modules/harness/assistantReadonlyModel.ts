@@ -652,7 +652,7 @@ function skillRunnerSession(projection?: HarnessSkillRunnerRunProjection) {
       authImportUnsupported: "Unsupported",
       thinkingTitle: "Thinking",
       thinkingDesc: "Processing",
-      roleThinking: "Thinking",
+      roleThinking: "Thought",
       processReasoning: "Reasoning",
       processToolCall: "Tool call",
       processCommandExecution: "Command",

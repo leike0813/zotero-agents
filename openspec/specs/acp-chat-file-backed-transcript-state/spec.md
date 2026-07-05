@@ -139,61 +139,54 @@ callers that consume page `items` SHALL continue to work.
 ### Requirement: ACP Chat child snapshots deliver a selected transcript page for virtualized rendering
 
 ACP Chat child snapshots MUST deliver structural panel data plus a selected
-durable transcript page instead of full transcript content rows when transcript
-pagination virtualization is enabled.
+transcript page from the selected conversation read-model instead of full
+transcript content rows when transcript pagination virtualization is enabled.
 
-#### Scenario: Virtualized ACP Chat snapshot includes selected page
+#### Scenario: Virtualized ACP Chat snapshot includes selected mirror page
 
 - **WHEN** ACP Chat is rendered with transcript pagination virtualization
   enabled
+- **AND** the active conversation transcript mirror is ready
 - **THEN** the host snapshot SHALL use structural transcript items for panel
   chrome
 - **AND** it SHALL include `selectedTranscriptPage` for the active
   backend/conversation scope
-- **AND** it SHALL mark transcript pagination virtualization as enabled.
+- **AND** that page SHALL be read from the hydrated conversation mirror.
 
-#### Scenario: ACP Chat child rejects wrong-scope pages
+#### Scenario: Loading ACP Chat transcript omits selected page
 
-- **WHEN** the ACP Chat child receives a selected transcript page whose
-  backend/conversation scope does not match the active conversation
-- **THEN** it SHALL NOT render that page's transcript rows.
+- **WHEN** ACP Chat is rendered with transcript pagination virtualization
+  enabled
+- **AND** the active conversation transcript mirror is loading or failed
+- **THEN** the host snapshot SHALL include the selected transcript state
+- **AND** it SHALL omit `selectedTranscriptPage`
+- **AND** it SHALL NOT read a durable transcript page as a panel fallback.
 
-#### Scenario: ACP Chat child requests additional pages with scope
+#### Scenario: ACP Chat selected page respects streaming render preference
 
-- **WHEN** the shared transcript renderer requests another ACP Chat page
-- **THEN** the child SHALL send `load-transcript-page` with backend id,
-  conversation id, request id, cursor, and limit
-- **AND** the host SHALL ignore requests outside the current active
-  backend/conversation scope.
+- **WHEN** the active conversation mirror contains streaming message or thought
+  rows
+- **AND** Assistant Workspace streaming render is disabled
+- **THEN** ACP Chat selected transcript pages SHALL omit those streaming rows
+- **AND** structural transcript rows SHALL remain eligible for display.
 
-#### Scenario: Full render fallback remains available
+#### Scenario: ACP Chat append refresh respects streaming render preference
 
-- **WHEN** transcript pagination virtualization is disabled
-- **THEN** ACP Chat SHALL keep the existing eager/full transcript render
-  behavior.
+- **WHEN** an active ACP Chat `transcript-append` change is emitted
+- **THEN** the workspace host SHALL refresh the ACP Chat child snapshot only
+  when streaming render is enabled
+- **AND** `transcript-boundary` changes SHALL refresh the selected snapshot
+  regardless of the streaming render preference.
 
 ### Requirement: ACP Chat panel snapshots are prepared by a no-refresh read-model
 
 ACP Chat panel publication MUST prepare child snapshots through a selected
 conversation read-model that does not refresh backend registries or hydrate full
-transcript content.
+transcript content synchronously into the panel payload.
 
-#### Scenario: Ordinary panel snapshot does not refresh backends
+#### Scenario: Mirror page read failure keeps panel chrome
 
-- **WHEN** the assistant workspace posts an ordinary ACP Chat child snapshot
-- **THEN** it SHALL call the ACP Chat panel read-model
-- **AND** it SHALL NOT call backend refresh from that snapshot path.
-
-#### Scenario: Virtualized panel snapshot includes selected transcript page
-
-- **WHEN** transcript pagination virtualization is enabled for ACP Chat
-- **THEN** the panel read-model SHALL return structural transcript items
-- **AND** it SHALL include the selected durable transcript page when the page
-  scope matches the active backend/conversation.
-
-#### Scenario: Transcript page read failure keeps panel chrome
-
-- **WHEN** a selected transcript page cannot be read
+- **WHEN** a selected transcript mirror page cannot be read
 - **THEN** the panel read-model SHALL still return ACP Chat toolbar, backend,
   session, status, and frontend metadata
 - **AND** it SHALL omit `selectedTranscriptPage` for that snapshot.

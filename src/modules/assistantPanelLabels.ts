@@ -319,7 +319,7 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-transcript-history-loading-detail",
         "Loading conversation history...",
       ),
-      thinking: l("assistant-panel-transcript-thinking", "Thinking"),
+      thinking: l("assistant-panel-transcript-thinking", "Thought"),
       status: l("assistant-panel-transcript-status", "Status"),
       tool: l("assistant-panel-transcript-tool", "Tool"),
       toolActivity: l(
@@ -380,15 +380,9 @@ export function buildAssistantPanelLabels() {
       idle: l("assistant-panel-status-idle", "Idle"),
       connected: l("assistant-panel-status-connected", "Connected"),
       connecting: l("assistant-panel-status-connecting", "Connecting"),
-      disconnecting: l(
-        "assistant-panel-status-disconnecting",
-        "Disconnecting",
-      ),
+      disconnecting: l("assistant-panel-status-disconnecting", "Disconnecting"),
       disconnected: l("assistant-panel-status-disconnected", "Disconnected"),
-      authRequired: l(
-        "assistant-panel-status-auth-required",
-        "Auth required",
-      ),
+      authRequired: l("assistant-panel-status-auth-required", "Auth required"),
       permissionRequired: l(
         "assistant-panel-status-permission-required",
         "Permission required",

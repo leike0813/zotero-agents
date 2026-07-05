@@ -46,4 +46,29 @@ describe("zotero mock isolation", function () {
       "",
     );
   });
+
+  it("creates monkey-patched Zotero APIs inside a test", function () {
+    Zotero.File.pathToFile = (() => {
+      throw new Error("patched pathToFile should not leak");
+    }) as typeof Zotero.File.pathToFile;
+    Zotero.Attachments.linkFromFile = (async () => {
+      throw new Error("patched linkFromFile should not leak");
+    }) as typeof Zotero.Attachments.linkFromFile;
+    const patchedNotifierTrigger: typeof Zotero.Notifier.trigger = async () =>
+      false;
+    Zotero.Notifier.trigger = patchedNotifierTrigger;
+    Zotero.Prefs.registerObserver("mock-isolation-key", () => {
+      throw new Error("patched pref observer should not leak");
+    });
+  });
+
+  it("does not retain monkey-patched Zotero APIs from the previous test", async function () {
+    const file = Zotero.File.pathToFile("mock-isolation-api.txt");
+    const attachment = await Zotero.Attachments.linkFromFile({ file });
+
+    assert.equal(await attachment.getFilePathAsync(), "mock-isolation-api.txt");
+    assert.isTrue(await Zotero.Notifier.trigger());
+    Zotero.Prefs.set("mock-isolation-key", "present");
+    assert.equal(Zotero.Prefs.get("mock-isolation-key"), "present");
+  });
 });

@@ -194,7 +194,7 @@
       return {
         ...source,
         kind: "process",
-        label: safeText(source.label) || "Thinking",
+        label: safeText(source.label) || "Thought",
         text: safeText(source.text || source.content),
       };
     }
