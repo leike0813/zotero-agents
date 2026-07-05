@@ -1,4 +1,3 @@
-import { ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
 import { joinPath } from "../utils/path";
 import {
   PLUGIN_TASK_DOMAIN_ACP,
@@ -412,8 +411,7 @@ export function resolveAcpChatRuntimePaths(
   backendIdRaw: string,
   conversationIdRaw?: string,
 ) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
   const conversationId = normalizeString(conversationIdRaw);
   const paths = getRuntimePersistencePaths();
   const agentWorkspaceDir = paths.acpChatWorkspaceDir;
@@ -526,8 +524,10 @@ function writeAcpChatSessionIndex(args: {
   activeConversationId: string;
   sessions: AcpChatSessionSummary[];
 }) {
-  const backendId =
-    String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(args.backendId);
+  if (!backendId) {
+    return;
+  }
   const unique = new Map<string, AcpChatSessionSummary>();
   for (const session of args.sessions) {
     const conversationId = normalizeString(session.conversationId);
@@ -565,8 +565,13 @@ function writeAcpChatSessionIndex(args: {
 }
 
 function readStoredAcpChatSessionIndex(backendIdRaw: string) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
+  if (!backendId) {
+    return {
+      activeConversationId: "",
+      sessions: [] as AcpChatSessionSummary[],
+    };
+  }
   const requestEntry = getPluginTaskRequestEntry(
     PLUGIN_TASK_DOMAIN_ACP,
     sessionIndexRequestId(backendId),
@@ -607,8 +612,13 @@ function removeLegacyConversationIfNeeded(backendId: string) {
 }
 
 export function loadAcpChatSessionIndex(backendIdRaw: string) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
+  if (!backendId) {
+    return {
+      activeConversationId: "",
+      sessions: [] as AcpChatSessionSummary[],
+    };
+  }
   removeLegacyConversationIfNeeded(backendId);
   const stored = readStoredAcpChatSessionIndex(backendId);
   if (stored.sessions.length > 0) {
@@ -650,8 +660,10 @@ export function listAcpChatSessions(
 export function listStoredVisibleAcpChatSessions(
   backendIdRaw: string,
 ): AcpChatSessionSummary[] {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
+  if (!backendId) {
+    return [];
+  }
   return readStoredAcpChatSessionIndex(backendId)
     .sessions.filter(isVisibleSession)
     .map((entry) => ({ ...entry }));
@@ -660,8 +672,10 @@ export function listStoredVisibleAcpChatSessions(
 export function listAllAcpChatSessions(
   backendIdRaw: string,
 ): AcpChatSessionSummary[] {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
+  if (!backendId) {
+    return [];
+  }
   const stored = readStoredAcpChatSessionIndex(backendId);
   return stored.sessions.map((entry) => ({ ...entry }));
 }
@@ -671,11 +685,10 @@ export function renameAcpConversationState(args: {
   conversationId: string;
   title: string;
 }) {
-  const backendId =
-    String(args.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(args.backendId);
   const conversationId = normalizeString(args.conversationId);
   const title = normalizeString(args.title);
-  if (!conversationId || !title) {
+  if (!backendId || !conversationId || !title) {
     return;
   }
   const requestId = conversationRequestId(backendId, conversationId);
@@ -721,8 +734,7 @@ export function loadAcpConversationState(
   backendIdRaw: string,
   conversationIdRaw?: string,
 ) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
   const index = loadAcpChatSessionIndex(backendId);
   const conversationId =
     normalizeString(conversationIdRaw) || index.activeConversationId;
@@ -810,8 +822,10 @@ export function saveAcpFrontendState(args: { activeBackendId: string }) {
 }
 
 export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
-  const backendId =
-    String(snapshot.backendId || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(snapshot.backendId);
+  if (!backendId) {
+    return;
+  }
   const conversationId =
     normalizeString(snapshot.conversationId) ||
     nextOpaqueId("acp-conversation");
@@ -853,8 +867,7 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       showDiagnostics: snapshot.showDiagnostics,
       statusExpanded: snapshot.statusExpanded,
       chatDisplayMode: snapshot.chatDisplayMode,
-      autoApproveAcpPermissions:
-        snapshot.autoApproveAcpPermissions === true,
+      autoApproveAcpPermissions: snapshot.autoApproveAcpPermissions === true,
       lastError: snapshot.lastError,
       prerequisiteError: snapshot.prerequisiteError,
       authMethods: snapshot.authMethods.map((entry) => ({ ...entry })),
@@ -957,10 +970,9 @@ export function deleteAcpConversationState(
   backendIdRaw: string,
   conversationIdRaw: string,
 ) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
   const conversationId = normalizeString(conversationIdRaw);
-  if (!conversationId) {
+  if (!backendId || !conversationId) {
     return;
   }
   const requestId = conversationRequestId(backendId, conversationId);
@@ -983,8 +995,10 @@ export function deleteAcpConversationState(
 }
 
 export function clearAcpConversationState(backendIdRaw: string) {
-  const backendId =
-    String(backendIdRaw || "").trim() || ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeString(backendIdRaw);
+  if (!backendId) {
+    return;
+  }
   const index = readStoredAcpChatSessionIndex(backendId);
   const requestIds = new Set(
     index.sessions.map((entry) =>

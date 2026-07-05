@@ -1,6 +1,6 @@
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { ACP_BACKEND_TYPE, ACP_OPENCODE_BACKEND_ID } from "../config/defaults";
+import { ACP_BACKEND_TYPE } from "../config/defaults";
 import { joinPath } from "../utils/path";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
@@ -214,19 +214,16 @@ function normalizeConversationId(value: unknown) {
 }
 
 function acpChatSessionKey(backendIdRaw: unknown, conversationIdRaw: unknown) {
-  const backendId =
-    normalizeBackendId(backendIdRaw) ||
-    activeBackendId ||
-    ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeBackendId(backendIdRaw) || activeBackendId;
   const conversationId = normalizeConversationId(conversationIdRaw);
   return `${backendId}\u0000${conversationId}`;
 }
 
 function resolveActiveConversationId(backendIdRaw: unknown) {
-  const backendId =
-    normalizeBackendId(backendIdRaw) ||
-    activeBackendId ||
-    ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeBackendId(backendIdRaw) || activeBackendId;
+  if (!backendId) {
+    return "";
+  }
   return loadAcpChatSessionIndex(backendId).activeConversationId;
 }
 
@@ -355,9 +352,7 @@ function ensureInitialized() {
   if (initialized) {
     return;
   }
-  activeBackendId =
-    loadAcpFrontendState().activeBackendId || ACP_OPENCODE_BACKEND_ID;
-  getOrCreateSessionRuntime(activeBackendId);
+  activeBackendId = loadAcpFrontendState().activeBackendId;
   initialized = true;
 }
 
@@ -472,10 +467,7 @@ function getOrCreateSessionRuntime(
   backendIdRaw?: string,
   conversationIdRaw?: string,
 ) {
-  const backendId =
-    normalizeBackendId(backendIdRaw) ||
-    activeBackendId ||
-    ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeBackendId(backendIdRaw) || activeBackendId;
   const conversationId = resolveSessionRuntimeConversationId(
     backendId,
     conversationIdRaw,
@@ -1147,6 +1139,15 @@ async function resolveBackendForSessionRuntime(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
   const backends = await refreshAcpBackends();
+  if (!sessionRuntime.backendId && backends[0]) {
+    sessionRuntime.backendId = backends[0].id;
+    sessionRuntime.snapshot.backendId = backends[0].id;
+    if (!activeBackendId) {
+      activeBackendId = backends[0].id;
+      saveAcpFrontendState({ activeBackendId });
+    }
+    rekeySessionRuntime(sessionRuntime);
+  }
   const backend =
     backends.find((entry) => entry.id === sessionRuntime.backendId) || null;
   if (!backend) {
@@ -3582,14 +3583,25 @@ export async function readAcpConversationTranscriptPage(args: {
   limit?: number;
 }): Promise<AcpConversationTranscriptPage> {
   ensureInitialized();
-  const backendId =
-    normalizeBackendId(args.backendId || activeBackendId) ||
-    ACP_OPENCODE_BACKEND_ID;
+  const backendId = normalizeBackendId(args.backendId || activeBackendId);
   const conversationId =
     normalizeConversationId(args.conversationId) ||
     normalizeConversationId(
       getOrCreateSessionRuntime(backendId).snapshot.conversationId,
     );
+  if (!backendId || !conversationId) {
+    return {
+      backendId,
+      conversationId,
+      requestId: `${backendId}\n${conversationId}`,
+      items: [],
+      cursor: 0,
+      total: 0,
+      eventSeq: 0,
+      transcriptRevision: 0,
+      limit: normalizeAcpChatTranscriptPageLimit(args.limit),
+    };
+  }
   const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
   await flushPendingChatTranscriptWrites(sessionRuntime);
   const paths = resolveAcpChatRuntimePaths(backendId, conversationId);

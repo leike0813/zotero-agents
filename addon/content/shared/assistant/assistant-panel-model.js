@@ -2931,23 +2931,23 @@
           {
             action: "open-context-drawer",
             label: labels.sessionManager || "Sessions",
-            enabled: hasBackend,
+            enabled: true,
           },
           {
             action: "openDetails",
             label:
               labels.details || labelFrom(snap, "actions.details", "Details"),
-            enabled: hasBackend,
+            enabled: true,
           },
           {
             action: "open-backend-manager",
             label:
               labels.manageBackends ||
               labelFrom(snap, "actions.manageBackends", "Manage"),
-            enabled: hasBackend,
+            enabled: true,
           },
           Object.assign(buildStreamingRenderToggleAction(snap), {
-            enabled: hasBackend,
+            enabled: true,
           }),
         ],
         context: [],

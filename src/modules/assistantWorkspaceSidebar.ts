@@ -105,6 +105,7 @@ import {
 } from "./assistantSidebarViewModel";
 
 type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
+type AssistantWorkspaceLogTab = AssistantWorkspaceTab | "shell";
 type SidebarButtonElement = XULElement | Element;
 
 type MountedSidebarDock = {
@@ -845,6 +846,24 @@ async function runAcpChatBackendRefreshBoundary(
   }
 }
 
+async function preloadAcpChatBackendsForWorkspaceInit() {
+  try {
+    await refreshAcpConversationBackends();
+  } catch (error) {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      component: "assistant-shell",
+      operation: "acp-chat-backend-refresh",
+      phase: "error",
+      stage: "pre-init",
+      message:
+        "ACP Chat backend registry could not be loaded before workspace init.",
+      error,
+    });
+  }
+}
+
 function scheduleAcpChatBackendRefreshBoundary(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
@@ -923,8 +942,7 @@ function shouldRefreshAcpChatBackendsForWorkspacePulse(reason: string) {
     reason === "open-tab-request" ||
     reason === "shell-load" ||
     reason === "shell-ready" ||
-    reason === "tab-switch" ||
-    reason === "target-commit"
+    reason === "tab-switch"
   );
 }
 
@@ -1054,6 +1072,10 @@ async function handleAssistantWorkspaceMessage(
   const actionId = String(actionPayload.actionId || "").trim();
   const action = String(actionPayload.action || "").trim();
   const tab = normalizeTab(actionPayload.tab);
+  const logTab = resolveAssistantWorkspaceActionLogTab(
+    data.type || "",
+    actionPayload,
+  );
   try {
     if (data.type === "assistant-workspace:action") {
       await handleShellAction(host, target, data.payload || {});
@@ -1061,7 +1083,7 @@ async function handleAssistantWorkspaceMessage(
         host,
         target,
         type: data.type,
-        tab,
+        tab: logTab,
         action,
         actionId,
         result: "ok",
@@ -1089,7 +1111,7 @@ async function handleAssistantWorkspaceMessage(
       host,
       target,
       type: data.type || "",
-      tab,
+      tab: logTab,
       action,
       actionId,
       result: "error",
@@ -1103,7 +1125,7 @@ function logAssistantShellAction(args: {
   host: AssistantWorkspaceHostRuntime;
   target: AcpSidebarTarget;
   type: string;
-  tab: AssistantWorkspaceTab;
+  tab: AssistantWorkspaceLogTab;
   action: string;
   actionId?: string;
   result: "ok" | "error";
@@ -1113,7 +1135,7 @@ function logAssistantShellAction(args: {
     level: args.result === "error" ? "warn" : "info",
     scope: "system",
     component: "assistant-shell",
-    operation: "child-action",
+    operation: args.tab === "shell" ? "shell-action" : "child-action",
     phase: args.result,
     stage: `${args.tab}-${args.action || "unknown"}`,
     interactionId: args.actionId,
@@ -1130,6 +1152,17 @@ function logAssistantShellAction(args: {
       error: args.error,
     },
   });
+}
+
+function resolveAssistantWorkspaceActionLogTab(
+  type: string,
+  payload: AssistantWorkspaceActionPayload,
+): AssistantWorkspaceLogTab {
+  if (type === "assistant-workspace:action") {
+    const tabText = String(payload.tab || "").trim();
+    return tabText ? normalizeTab(tabText) : "shell";
+  }
+  return normalizeTab(payload.tab);
 }
 
 function clearSkillRunnerSidebarRefresh(host: AssistantWorkspaceHostRuntime) {
@@ -1910,6 +1943,7 @@ async function activateTarget(
       deactivateTarget(host, "library");
       return false;
     }
+    await preloadAcpChatBackendsForWorkspaceInit();
     commitAssistantWorkspaceTarget(host, "library");
     return true;
   }
@@ -1932,6 +1966,7 @@ async function activateTarget(
     deactivateTarget(host, "reader");
     return false;
   }
+  await preloadAcpChatBackendsForWorkspaceInit();
   commitAssistantWorkspaceTarget(host, "reader");
   return true;
 }

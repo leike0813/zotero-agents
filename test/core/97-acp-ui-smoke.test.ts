@@ -2652,6 +2652,15 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "scopeKey: host.scopeKey");
     assert.include(assistantSidebar, "AssistantWorkspaceBridgeResult");
     assert.include(assistantSidebar, "logAssistantShellAction");
+    assert.include(assistantSidebar, "resolveAssistantWorkspaceActionLogTab");
+    assert.include(
+      assistantSidebar,
+      'return tabText ? normalizeTab(tabText) : "shell";',
+    );
+    assert.include(
+      assistantSidebar,
+      'operation: args.tab === "shell" ? "shell-action" : "child-action"',
+    );
     assert.include(assistantSidebar, 'component: "assistant-shell"');
     assert.include(
       assistantSidebar,
@@ -3058,6 +3067,8 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "readyTabs");
     assert.include(assistantSidebar, "postInitialSnapshotsForAllTabs");
     assert.include(assistantSidebar, "scheduleAcpChatBackendRefreshBoundary");
+    assert.include(assistantSidebar, "preloadAcpChatBackendsForWorkspaceInit");
+    assert.include(assistantSidebar, 'stage: "pre-init"');
     assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
     assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
     assert.include(
@@ -3964,10 +3975,12 @@ describe("acp ui smoke", function () {
       noBackendActions["set-auto-approve-permissions"].enabled,
       false,
     );
-    assert.isTrue(
-      Object.values(noBackendToolbar).every(
-        (entry: any) => entry.enabled === false,
-      ),
+    assert.equal(noBackendToolbar["open-context-drawer"].enabled, true);
+    assert.equal(noBackendToolbar.openDetails.enabled, true);
+    assert.equal(noBackendToolbar["open-backend-manager"].enabled, true);
+    assert.equal(
+      noBackendToolbar["set-streaming-render-enabled"].enabled,
+      true,
     );
     assert.equal(noBackendPanel.reply.enabled, false);
     assert.equal(noBackendPanel.reply.inputEnabled, false);

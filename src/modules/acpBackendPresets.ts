@@ -2,7 +2,6 @@ import type { BackendInstance } from "../backends/types";
 import {
   ACP_BACKEND_TYPE,
   ACP_OPENCODE_ARGS,
-  ACP_OPENCODE_BACKEND_ID,
   ACP_OPENCODE_COMMAND,
   ACP_OPENCODE_DISPLAY_NAME,
 } from "../config/defaults";
@@ -60,7 +59,6 @@ export type AcpBackendPreset = {
   defaultUseNpx: boolean;
   supportsNpx: boolean;
   agentFamily: AcpBackendPresetAgentFamily;
-  builtIn?: boolean;
   isolation?: AcpBackendPresetIsolation;
 };
 
@@ -77,7 +75,6 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "opencode",
-    builtIn: true,
     isolation: {
       envKey: "OPENCODE_CONFIG_DIR",
     },
@@ -480,15 +477,6 @@ export async function ensureManagedAcpBackendEnvironmentDirectories(
       }
     }
   }
-}
-
-export function listBuiltinAcpBackends() {
-  return ACP_BACKEND_PRESETS.filter((preset) => preset.builtIn).map((preset) =>
-    createAcpBackendFromPresetOptions(preset, {
-      useNpx: false,
-      isolated: false,
-    }),
-  );
 }
 
 export const acpBackendPresetInternalsForTests = {

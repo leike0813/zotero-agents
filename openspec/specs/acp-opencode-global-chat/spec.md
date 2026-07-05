@@ -3,15 +3,21 @@
 ## Purpose
 TBD - created by archiving change add-acp-opencode-global-chat-foundation. Update Purpose after archive.
 ## Requirements
-### Requirement: OpenCode ACP backend profile uses the bare OpenCode command
+### Requirement: OpenCode ACP preset uses the bare OpenCode command
 
-The system SHALL expose a built-in OpenCode ACP backend profile that launches
-the locally installed OpenCode CLI directly.
+The system SHALL expose an optional OpenCode ACP backend preset that launches
+the locally installed OpenCode CLI directly. The preset SHALL NOT be
+auto-created as a default backend when backend preferences are empty.
 
-#### Scenario: Normalize the built-in ACP backend
-- **WHEN** the plugin loads backend profiles
-- **THEN** the built-in ACP backend MUST use `command="opencode"` and `args=["acp"]`
+#### Scenario: Normalize the OpenCode ACP preset
+- **WHEN** the user creates an ACP backend from the OpenCode preset
+- **THEN** the backend MUST use `command="opencode"` and `args=["acp"]`
 - **AND** it MUST remain compatible with existing backend consumers via a stable local `baseUrl`.
+
+#### Scenario: Empty backend preferences stay empty
+- **WHEN** backend preferences are empty
+- **AND** the plugin loads backend profiles
+- **THEN** no OpenCode ACP backend SHALL be auto-created.
 
 #### Scenario: Rewrite the old automatic OpenCode npx profile
 - **GIVEN** the persisted `acp-opencode` backend still matches the old automatic `npx opencode-ai@latest acp` profile

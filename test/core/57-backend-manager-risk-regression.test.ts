@@ -8,7 +8,6 @@ import {
   createAcpBackendFromPresetOptions,
   getAcpBackendIsolatedEnvironmentPath,
   listAcpBackendPresets,
-  listBuiltinAcpBackends,
 } from "../../src/modules/acpBackendPresets";
 import {
   collectBackendsFromDialog,
@@ -789,16 +788,6 @@ describe("backend manager risk regression", function () {
     assert.deepEqual(backend.args, ["--session-dir", expectedPath]);
     assert.isUndefined(backend.env);
     assert.equal(backend.acp?.agentFamily, "unknown");
-  });
-
-  it("keeps only OpenCode as the auto-created built-in ACP backend", function () {
-    const builtins = listBuiltinAcpBackends();
-
-    assert.lengthOf(builtins, 1);
-    assert.equal(builtins[0].id, "acp-opencode");
-    assert.equal(builtins[0].command, "opencode");
-    assert.deepEqual(builtins[0].args, ["acp"]);
-    assert.equal(builtins[0].acp?.agentFamily, "opencode");
   });
 
   it("collects ACP preset rows through the existing dialog collection path", function () {

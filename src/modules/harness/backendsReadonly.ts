@@ -5,7 +5,6 @@ import {
   BACKEND_TYPES,
   type BackendType,
 } from "../../config/defaults";
-import { listBuiltinAcpBackends } from "../acpBackendPresets";
 import { getPref } from "../../utils/prefs";
 
 const BACKENDS_CONFIG_PREF_KEY = "backendsConfigJson";
@@ -121,18 +120,6 @@ function parseBackendsDocument(raw: string) {
   throw new Error("Backends config must be an array or object with backends[]");
 }
 
-function mergeBuiltinBackends(backends: BackendInstance[]) {
-  const next = [...backends];
-  const seenIds = new Set(next.map((backend) => backend.id));
-  for (const builtin of listBuiltinAcpBackends()) {
-    if (!seenIds.has(builtin.id)) {
-      next.push(builtin);
-      seenIds.add(builtin.id);
-    }
-  }
-  return next;
-}
-
 export async function loadBackendsRegistryReadonly(): Promise<LoadedBackends> {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -173,7 +160,7 @@ export async function loadBackendsRegistryReadonly(): Promise<LoadedBackends> {
   }
   return {
     sourcePath: "zotero-prefs:backendsConfigJson",
-    backends: mergeBuiltinBackends(backends),
+    backends,
     warnings,
     errors,
     invalidBackends,

@@ -1354,24 +1354,17 @@ describe("provider/backend registry", function () {
     assert.match(String(thrown), /is invalid|Unknown backendId/);
   });
 
-  it("does not auto-create default skillrunner backend when backend prefs are empty", async function () {
+  it("does not auto-create default backends when backend prefs are empty", async function () {
     Zotero.Prefs.clear(backendsConfigPrefKey, true);
     Zotero.Prefs.set(endpointPrefKey, "http://127.0.0.1:18030", true);
 
     const loaded = await loadBackendsRegistry();
     assert.isUndefined(loaded.fatalError);
-    assert.lengthOf(loaded.backends, 1);
-    assert.equal(loaded.backends[0].id, "acp-opencode");
-    assert.equal(loaded.backends[0].type, "acp");
-    assert.equal(loaded.backends[0].command, "opencode");
-    assert.deepEqual(loaded.backends[0].args, ["acp"]);
+    assert.deepEqual(loaded.backends, []);
 
     const persisted = readPersistedBackendsConfig();
     assert.equal(persisted.schemaVersion, 2);
-    assert.lengthOf(persisted.backends || [], 1);
-    assert.equal(persisted.backends?.[0]?.id, "acp-opencode");
-    assert.equal(persisted.backends?.[0]?.command, "opencode");
-    assert.deepEqual(persisted.backends?.[0]?.args, ["acp"]);
+    assert.deepEqual(persisted.backends || [], []);
   });
 
   it("rejects ACP workflows from workflow execution context resolution", async function () {
