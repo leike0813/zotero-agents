@@ -202,6 +202,99 @@ describe("content package release scripts", function () {
     assert.equal(updated.id, "zotero-agents-official-workflows");
   });
 
+  it("bumps the version and sets requires.plugin when pluginVersion is provided", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          schema: "zotero-agents.content-version.v1",
+          id: "zotero-agents-official-workflows",
+          version: "1.2.3",
+          content_api: "1.0.0",
+          requires: { plugin: ">=0.5.0", content_api: "^1.0.0", zotero: ">=7 <10" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const result = await bumpContentPackageVersion({
+      filePath,
+      target: "minor",
+      pluginVersion: ">=0.6.0",
+    });
+    const updated = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+    assert.deepEqual(result, {
+      previousVersion: "1.2.3",
+      version: "1.3.0",
+    });
+    assert.equal(updated.version, "1.3.0");
+    assert.deepEqual(updated.requires, {
+      plugin: ">=0.6.0",
+      content_api: "^1.0.0",
+      zotero: ">=7 <10",
+    });
+  });
+
+  it("sets requires.plugin even when the descriptor has no requires field", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          schema: "zotero-agents.content-version.v1",
+          id: "zotero-agents-official-workflows",
+          version: "1.2.3",
+          content_api: "1.0.0",
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await bumpContentPackageVersion({
+      filePath,
+      target: "patch",
+      pluginVersion: ">=0.7.0",
+    });
+    const updated = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+    assert.equal(updated.version, "1.2.4");
+    assert.deepEqual(updated.requires, { plugin: ">=0.7.0" });
+  });
+
+  it("does not touch requires when pluginVersion is not provided", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      filePath,
+      `${JSON.stringify(
+        {
+          schema: "zotero-agents.content-version.v1",
+          id: "zotero-agents-official-workflows",
+          version: "1.2.3",
+          content_api: "1.0.0",
+          requires: { plugin: ">=0.5.0", content_api: "^1.0.0" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await bumpContentPackageVersion({
+      filePath,
+      target: "patch",
+    });
+    const updated = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+    assert.equal(updated.version, "1.2.4");
+    assert.deepEqual(updated.requires, {
+      plugin: ">=0.5.0",
+      content_api: "^1.0.0",
+    });
+  });
+
   it("prepares a content package version bump without publishing by default", async function () {
     const filePath = path.join(tempRoot, "content-package.version.json");
     await fs.writeFile(filePath, JSON.stringify({ version: "1.2.3" }, null, 2));
@@ -226,6 +319,40 @@ describe("content package release scripts", function () {
       "git add content-package.version.json",
       "gh workflow run publish-content-feed.yml --repo leike0813/zotero-agents --ref main",
     ]);
+  });
+
+  it("prepares a content package version bump with plugin version constraint", async function () {
+    const filePath = path.join(tempRoot, "content-package.version.json");
+    await fs.writeFile(
+      filePath,
+      JSON.stringify(
+        {
+          version: "1.2.3",
+          requires: { plugin: ">=0.5.0" },
+        },
+        null,
+        2,
+      ),
+    );
+
+    const result = await prepareContentPackageRelease({
+      target: "minor",
+      versionFile: filePath,
+      pluginVersion: ">=0.6.0",
+      dispatch: false,
+      runCommand: async () => {
+        throw new Error("should not run external commands");
+      },
+    });
+    const updated = JSON.parse(await fs.readFile(filePath, "utf8"));
+
+    assert.deepEqual(result.bump, {
+      previousVersion: "1.2.3",
+      version: "1.3.0",
+    });
+    assert.equal(updated.version, "1.3.0");
+    assert.equal(updated.requires.plugin, ">=0.6.0");
+    assert.isFalse(result.dispatched);
   });
 
   it("dispatches the content package publish workflow only from a clean tree", async function () {
@@ -311,6 +438,30 @@ describe("content package release scripts", function () {
         watch: true,
         repo: "owner/repo",
         ref: "release-branch",
+      },
+    );
+  });
+
+  it("parses --plugin-version option", function () {
+    assert.deepInclude(
+      parseContentPackageReleaseArgs([
+        "patch",
+        "--plugin-version",
+        ">=0.6.0",
+      ]),
+      {
+        target: "patch",
+        pluginVersion: ">=0.6.0",
+      },
+    );
+    assert.deepInclude(
+      parseContentPackageReleaseArgs([
+        "minor",
+        "--plugin-version=>=0.7.0",
+      ]),
+      {
+        target: "minor",
+        pluginVersion: ">=0.7.0",
       },
     );
   });

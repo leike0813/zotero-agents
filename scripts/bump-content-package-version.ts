@@ -37,6 +37,7 @@ export function resolveContentPackageVersionBump(args: {
 export async function bumpContentPackageVersion(args: {
   filePath?: string;
   target: string;
+  pluginVersion?: string;
 }) {
   const filePath = args.filePath || VERSION_FILE;
   const raw = await fs.readFile(filePath, "utf8");
@@ -47,6 +48,12 @@ export async function bumpContentPackageVersion(args: {
     target: args.target,
   });
   descriptor.version = nextVersion;
+  if (args.pluginVersion) {
+    const requires =
+      (descriptor.requires as Record<string, unknown> | undefined) ?? {};
+    requires.plugin = args.pluginVersion;
+    descriptor.requires = requires;
+  }
   await fs.writeFile(filePath, `${JSON.stringify(descriptor, null, 2)}\n`);
   return { previousVersion: currentVersion, version: nextVersion };
 }

@@ -14,6 +14,7 @@ type RunCommand = (command: string, args: string[]) => Promise<CommandResult>;
 export type ContentPackageReleaseArgs = {
   target?: string;
   versionFile?: string;
+  pluginVersion?: string;
   dispatch?: boolean;
   watch?: boolean;
   repo?: string;
@@ -40,11 +41,12 @@ const execFileAsync = promisify(execFile);
 function usage() {
   return [
     "Usage:",
-    "  npm run release:content-package -- <patch|minor|major|version>",
+    "  npm run release:content-package -- <patch|minor|major|version> [--plugin-version <range>]",
     "  npm run release:content-package -- --dispatch [--watch] [--ref main]",
     "",
     "Examples:",
     "  npm run release:content-package -- patch",
+    "  npm run release:content-package -- patch --plugin-version \">=0.6.0\"",
     "  npm run release:content-package -- --dispatch --watch",
   ].join("\n");
 }
@@ -94,6 +96,12 @@ export function parseContentPackageReleaseArgs(
     if (entry === "--ref" || entry.startsWith("--ref=")) {
       const option = readOptionValue(argv, index, "--ref");
       parsed.ref = option.value || DEFAULT_REF;
+      index += option.consumed;
+      continue;
+    }
+    if (entry === "--plugin-version" || entry.startsWith("--plugin-version=")) {
+      const option = readOptionValue(argv, index, "--plugin-version");
+      parsed.pluginVersion = option.value || undefined;
       index += option.consumed;
       continue;
     }
@@ -212,6 +220,7 @@ export async function prepareContentPackageRelease(
     result.bump = await bumpContentPackageVersion({
       filePath: args.versionFile || DEFAULT_VERSION_FILE,
       target: args.target,
+      pluginVersion: args.pluginVersion,
     });
   }
 
