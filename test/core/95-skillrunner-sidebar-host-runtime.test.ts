@@ -87,7 +87,7 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(zh, "task-dashboard-run-backend = 后端");
   });
 
-  it("keeps SkillRunner sidebar foreground actions on the fast presentation path", async function () {
+  it("keeps SkillRunner sidebar foreground chrome actions on the host publish path", async function () {
     const workspaceHost = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
@@ -96,6 +96,10 @@ describe("skillrunner sidebar host runtime", function () {
     );
 
     assert.include(workspaceHost, "createSkillRunnerHostActionHandler");
+    assert.include(workspaceHost, "publishLatestSkillRunnerChromeSnapshot");
+    assert.include(workspaceHost, "latestSkillRunnerBaseSnapshot");
+    assert.include(workspaceHost, "skillRunnerAttachedFrameWindow");
+    assert.notInclude(workspaceHost, "refreshSkillRunnerWorkspacePresentation");
     assert.include(runDialog, "attachSkillRunnerSidebarHost");
   });
 

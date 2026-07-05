@@ -3478,6 +3478,92 @@ describe("acp ui smoke", function () {
     assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
   });
 
+  it("keeps Assistant Workspace call chain idempotent after explicit handshake", async function () {
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+
+    assert.include(assistantSidebar, "bridgeWindow?: Window | null");
+    assert.include(assistantSidebar, "host.shell.bridgeWindow === frameWindow");
+    assert.include(assistantSidebar, "shell-bridge-installed");
+    assert.include(assistantSidebar, "child-ready-duplicate");
+    assert.include(assistantSidebar, "latestSkillRunnerBaseSnapshot");
+    assert.include(assistantSidebar, "skillRunnerAttachedFrameWindow");
+    assert.include(assistantSidebar, "publishLatestSkillRunnerChromeSnapshot");
+    assert.notInclude(
+      assistantSidebar,
+      "refreshSkillRunnerWorkspacePresentation",
+    );
+
+    const pulseStart = assistantSidebar.indexOf(
+      "function publishAssistantWorkspaceStatePulse",
+    );
+    const pulseEnd = assistantSidebar.indexOf(
+      "function postAllSnapshots",
+      pulseStart,
+    );
+    const pulseBody = assistantSidebar.slice(pulseStart, pulseEnd);
+    assert.notInclude(pulseBody, "installShellBridge(host)");
+
+    const childActionStart = assistantSidebar.indexOf(
+      "async function handleChildAction",
+    );
+    const childReadyStart = assistantSidebar.indexOf(
+      'if (action === "ready")',
+      childActionStart,
+    );
+    const childReadyEnd = assistantSidebar.indexOf(
+      'if (tab === "skillrunner")',
+      childReadyStart,
+    );
+    const childReadyBranch = assistantSidebar.slice(
+      childReadyStart,
+      childReadyEnd,
+    );
+    assert.include(childReadyBranch, "host.readyTabs.has(tab)");
+    assert.include(childReadyBranch, "child-ready-duplicate");
+    assert.include(childReadyBranch, "return;");
+    assert.include(childReadyBranch, "publishAssistantWorkspaceStatePulse");
+
+    const skillrunnerHandlerStart = assistantSidebar.indexOf(
+      "function createSkillRunnerHostActionHandler",
+    );
+    const skillrunnerHandlerEnd = assistantSidebar.indexOf(
+      "function resolveTargetFromSource",
+      skillrunnerHandlerStart,
+    );
+    const skillrunnerHandler = assistantSidebar.slice(
+      skillrunnerHandlerStart,
+      skillrunnerHandlerEnd,
+    );
+    assert.include(
+      skillrunnerHandler,
+      "publishLatestSkillRunnerChromeSnapshot",
+    );
+    assert.notInclude(
+      skillrunnerHandler,
+      "refreshSkillRunnerWorkspacePresentation",
+    );
+
+    const attachStart = assistantSidebar.indexOf(
+      "function attachSkillRunnerToShell",
+    );
+    const attachEnd = assistantSidebar.indexOf(
+      "function dockForTarget",
+      attachStart,
+    );
+    const attachBody = assistantSidebar.slice(attachStart, attachEnd);
+    assert.include(
+      attachBody,
+      "host.skillRunnerAttachedFrameWindow === frameWindow",
+    );
+    assert.include(attachBody, "host.latestSkillRunnerBaseSnapshot = snapshot");
+    assert.include(
+      attachBody,
+      "host.skillRunnerAttachedFrameWindow = frameWindow",
+    );
+  });
+
   it("retries Assistant Workspace shell ready until the direct host bridge acknowledges it", async function () {
     const shell = await loadAssistantWorkspaceShellForSmoke({
       childWindows: {

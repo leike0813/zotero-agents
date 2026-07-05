@@ -77,7 +77,6 @@ import {
   dispatchRunWorkspaceAction,
   focusSkillRunnerWorkspace,
   refreshSkillRunnerSidebarHostSnapshot,
-  refreshSkillRunnerWorkspacePresentation,
   type RunWorkspaceSnapshot,
 } from "./skillRunnerRunDialog";
 import {
@@ -115,6 +114,8 @@ type MountedSidebarDock = {
 type AssistantWorkspaceShell = {
   frame: Element | null;
   frameWindow: Window | null;
+  bridge?: AssistantWorkspaceBridge | null;
+  bridgeWindow?: Window | null;
   frameLoadHandler?: () => void;
   loaded: boolean;
   ready: boolean;
@@ -125,7 +126,9 @@ type AssistantWorkspaceHostRuntime = {
   activeTab: AssistantWorkspaceTab;
   drawerOpen: boolean;
   drawerCompletedCollapsed: boolean;
+  latestSkillRunnerBaseSnapshot?: RunWorkspaceSnapshot | null;
   latestSkillRunnerSnapshot?: RunWorkspaceSnapshot | null;
+  skillRunnerAttachedFrameWindow?: Window | null;
   library: MountedSidebarDock;
   reader: MountedSidebarDock;
   shell: AssistantWorkspaceShell;
@@ -612,7 +615,7 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   clearShellHandshake(host, "close-active-sidebar");
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
-  detachSkillRunnerSidebarHost({ hostWindow: host.win });
+  detachSkillRunnerFromShell(host, "close-active-sidebar");
   deactivateTarget(host, activeTarget);
   return true;
 }
@@ -668,6 +671,38 @@ function buildDecoratedSkillRunnerSnapshot(
   return decorated;
 }
 
+function postDecoratedSkillRunnerSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  phase: "init" | "snapshot",
+  snapshot: RunWorkspaceSnapshot,
+) {
+  postShellMessage(host, "assistant-workspace:child-snapshot", {
+    tab: "skillrunner",
+    phase,
+    snapshot,
+  });
+}
+
+function publishLatestSkillRunnerChromeSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  const baseSnapshot = host.latestSkillRunnerBaseSnapshot;
+  if (!baseSnapshot) {
+    logAssistantWorkspaceDebug(
+      host,
+      "skillrunner-chrome-snapshot-skip",
+      "SkillRunner chrome snapshot skipped because no base snapshot is available.",
+    );
+    return false;
+  }
+  postDecoratedSkillRunnerSnapshot(
+    host,
+    "snapshot",
+    buildDecoratedSkillRunnerSnapshot(host, baseSnapshot),
+  );
+  return true;
+}
+
 function createSkillRunnerHostActionHandler(
   host: AssistantWorkspaceHostRuntime,
 ) {
@@ -678,19 +713,21 @@ function createSkillRunnerHostActionHandler(
     const action = String(envelope.action || "").trim();
     if (action === "toggle-drawer") {
       host.drawerOpen = !host.drawerOpen;
-      refreshSkillRunnerWorkspacePresentation();
+      publishLatestSkillRunnerChromeSnapshot(host);
       return true;
     }
     if (action === "close-drawer") {
-      host.drawerOpen = false;
-      refreshSkillRunnerWorkspacePresentation();
+      if (host.drawerOpen) {
+        host.drawerOpen = false;
+        publishLatestSkillRunnerChromeSnapshot(host);
+      }
       return true;
     }
     if (action === "toggle-drawer-section") {
       const sectionId = String(envelope.payload?.sectionId || "").trim();
       if (sectionId === "completed") {
         host.drawerCompletedCollapsed = !host.drawerCompletedCollapsed;
-        refreshSkillRunnerWorkspacePresentation();
+        publishLatestSkillRunnerChromeSnapshot(host);
         return true;
       }
     }
@@ -815,11 +852,54 @@ function clearAssistantWorkspaceBridgeWindow(frameWindow: Window | null) {
   writeAssistantWorkspaceBridgeTarget(wrappedTarget, undefined);
 }
 
+function clearAssistantWorkspaceReadyTabs(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (host.readyTabs.size === 0) {
+    return;
+  }
+  logAssistantWorkspaceDebug(
+    host,
+    "child-ready-state-clear",
+    "Assistant Workspace child ready state cleared.",
+    { reason, readyTabs: Array.from(host.readyTabs) },
+  );
+  host.readyTabs.clear();
+}
+
+function detachSkillRunnerFromShell(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  if (
+    !host.skillRunnerAttachedFrameWindow &&
+    !host.latestSkillRunnerBaseSnapshot &&
+    !host.latestSkillRunnerSnapshot
+  ) {
+    return;
+  }
+  logAssistantWorkspaceDebug(
+    host,
+    "skillrunner-sidebar-detach",
+    "SkillRunner sidebar host detached from Assistant Workspace shell.",
+    { reason },
+  );
+  detachSkillRunnerSidebarHost({ hostWindow: host.win });
+  host.skillRunnerAttachedFrameWindow = null;
+  host.latestSkillRunnerBaseSnapshot = null;
+  host.latestSkillRunnerSnapshot = null;
+}
+
 function resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime) {
   const current = resolveSidebarFrameWindow(host.shell.frame);
   if (current && current !== host.shell.frameWindow) {
-    clearAssistantWorkspaceBridgeWindow(host.shell.frameWindow);
+    detachSkillRunnerFromShell(host, "shell-window-change");
+    clearShellBridge(host.shell);
     host.shell.frameWindow = current;
+    host.shell.loaded = false;
+    host.shell.ready = false;
+    clearAssistantWorkspaceReadyTabs(host, "shell-window-change");
   }
   return current || null;
 }
@@ -970,6 +1050,21 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
     );
     return false;
   }
+  const directTarget = frameWindow as Window & Record<string, unknown>;
+  const wrappedTarget =
+    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
+    "object"
+      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
+          .wrappedJSObject as Record<string, unknown>)
+      : null;
+  if (
+    host.shell.bridge &&
+    host.shell.bridgeWindow === frameWindow &&
+    (directTarget[ASSISTANT_WORKSPACE_BRIDGE_KEY] === host.shell.bridge ||
+      wrappedTarget?.[ASSISTANT_WORKSPACE_BRIDGE_KEY] === host.shell.bridge)
+  ) {
+    return true;
+  }
   const bridgeWindow = frameWindow;
   const bridge: AssistantWorkspaceBridge = {
     postMessage: async (type, payload) => {
@@ -1018,15 +1113,10 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
       });
     },
   };
-  const directTarget = frameWindow as Window & Record<string, unknown>;
-  const wrappedTarget =
-    typeof (directTarget as { wrappedJSObject?: unknown }).wrappedJSObject ===
-    "object"
-      ? ((directTarget as { wrappedJSObject?: Record<string, unknown> })
-          .wrappedJSObject as Record<string, unknown>)
-      : null;
   writeAssistantWorkspaceBridgeTarget(directTarget, bridge);
   writeAssistantWorkspaceBridgeTarget(wrappedTarget, bridge);
+  host.shell.bridge = bridge;
+  host.shell.bridgeWindow = frameWindow;
   logAssistantWorkspaceDebug(
     host,
     "shell-bridge-installed",
@@ -1041,6 +1131,8 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
 
 function clearShellBridge(shell: AssistantWorkspaceShell) {
   clearAssistantWorkspaceBridgeWindow(shell.frameWindow);
+  shell.bridge = null;
+  shell.bridgeWindow = null;
 }
 
 function postChildSnapshot(
@@ -1478,7 +1570,6 @@ function publishAssistantWorkspaceStatePulse(
     "Assistant Workspace state pulse publishing.",
     { reason, tab, phase, target },
   );
-  installShellBridge(host);
   if (phase === "init" && reason !== "child-ready") {
     postShellInit(host, host.activeTab);
   }
@@ -1631,31 +1722,43 @@ async function handleAssistantWorkspaceMessage(
       actionId,
     },
   );
+  const duplicateShellReady =
+    data.type === "assistant-workspace:action" &&
+    action === "ready" &&
+    host.shell.ready;
+  const duplicateChildReady =
+    data.type === "assistant-workspace:child-action" &&
+    action === "ready" &&
+    host.readyTabs.has(tab);
   try {
     if (data.type === "assistant-workspace:action") {
       await handleShellAction(host, target, data.payload || {});
-      logAssistantShellAction({
-        host,
-        target,
-        type: data.type,
-        tab: logTab,
-        action,
-        actionId,
-        result: "ok",
-      });
+      if (!duplicateShellReady) {
+        logAssistantShellAction({
+          host,
+          target,
+          type: data.type,
+          tab: logTab,
+          action,
+          actionId,
+          result: "ok",
+        });
+      }
       return { ok: true, actionId };
     }
     if (data.type === "assistant-workspace:child-action") {
       await handleChildAction(host, target, data.payload || {});
-      logAssistantShellAction({
-        host,
-        target,
-        type: data.type,
-        tab,
-        action,
-        actionId,
-        result: "ok",
-      });
+      if (!duplicateChildReady) {
+        logAssistantShellAction({
+          host,
+          target,
+          type: data.type,
+          tab,
+          action,
+          actionId,
+          result: "ok",
+        });
+      }
       return { ok: true, actionId };
     }
     return { ok: true, actionId };
@@ -1830,7 +1933,7 @@ async function handleShellAction(
     host.activeTab = tab;
     if (tab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
-      detachSkillRunnerSidebarHost({ hostWindow: host.win });
+      detachSkillRunnerFromShell(host, "tab-switch-away");
     }
     publishAssistantWorkspaceStatePulse(host, "tab-switch", tab);
     return;
@@ -1874,6 +1977,15 @@ async function handleChildAction(
     },
   );
   if (action === "ready") {
+    if (host.readyTabs.has(tab)) {
+      logAssistantWorkspaceDebug(
+        host,
+        "child-ready-duplicate",
+        "Assistant Workspace duplicate child ready ignored.",
+        { target, tab },
+      );
+      return;
+    }
     publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
     return;
   }
@@ -2296,6 +2408,10 @@ function attachSkillRunnerToShell(
   if (!frameWindow) {
     return;
   }
+  if (host.skillRunnerAttachedFrameWindow === frameWindow) {
+    return;
+  }
+  detachSkillRunnerFromShell(host, "reattach-skillrunner-sidebar");
   installShellBridge(host);
   attachSkillRunnerSidebarHost({
     hostWindow: host.win,
@@ -2310,10 +2426,13 @@ function attachSkillRunnerToShell(
     alertWindow: host.win,
     focusHost: () => host.win.focus(),
     isHostAlive: () => hosts.get(host.win) === host,
-    decorateSnapshot: (snapshot) =>
-      buildDecoratedSkillRunnerSnapshot(host, snapshot),
+    decorateSnapshot: (snapshot) => {
+      host.latestSkillRunnerBaseSnapshot = snapshot;
+      return buildDecoratedSkillRunnerSnapshot(host, snapshot);
+    },
     handleHostAction: createSkillRunnerHostActionHandler(host),
   });
+  host.skillRunnerAttachedFrameWindow = frameWindow;
 }
 
 function dockForTarget(
@@ -2435,6 +2554,7 @@ function commitAssistantWorkspaceTarget(
     { target },
   );
   host.activeTarget = target;
+  clearAssistantWorkspaceReadyTabs(host, "target-commit");
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
   setDockActive(host.reader, "reader", target === "reader");
@@ -2549,7 +2669,7 @@ async function activateTarget(
     host.activeTarget !== target
   ) {
     clearSkillRunnerSidebarRefresh(host);
-    detachSkillRunnerSidebarHost({ hostWindow: host.win });
+    detachSkillRunnerFromShell(host, "target-switch-away");
   }
   if (target === "library") {
     if (!ensureLibraryPaneExpanded(host.win)) {
@@ -2747,7 +2867,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeAcpSkillRunSubscription?.();
   host.removeTaskSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();
-  detachSkillRunnerSidebarHost({ hostWindow: win as Window });
+  detachSkillRunnerFromShell(host, "remove-shell");
   if (host.postSnapshotTimer) {
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
@@ -2785,7 +2905,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
     host.activeTab = hasExplicitTab ? normalizeTab(args?.tab) : DEFAULT_TAB;
     if (host.activeTab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
-      detachSkillRunnerSidebarHost({ hostWindow: host.win });
+      detachSkillRunnerFromShell(host, "open-non-skillrunner-tab");
     }
     if (host.activeTarget) {
       publishAssistantWorkspaceStatePulse(
@@ -2848,7 +2968,7 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
         host.activeTab = requestedTab;
         if (host.activeTab !== "skillrunner") {
           clearSkillRunnerSidebarRefresh(host);
-          detachSkillRunnerSidebarHost({ hostWindow: host.win });
+          detachSkillRunnerFromShell(host, "toggle-non-skillrunner-tab");
         }
         publishAssistantWorkspaceStatePulse(
           host,
