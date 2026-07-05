@@ -26,10 +26,13 @@ When the user uses Chinese shorthand, artifact names, run handles, graph terms, 
 10. Treat permission visibility as read-only. Use `run permission ...` to understand pending approval state; do not try to approve or reject from the CLI.
 11. Do not assemble workflow result bundles by hand when `workflow agent-run` provides a prepared handoff contract.
 12. Treat uploaded files as Host Bridge handles. Upload local artifacts with `file upload`, attach them with `mutation item attach-file`, and do not pass local paths as Zotero paths.
+13. When the loaded skill path, generated reference, command help, or CLI error suggests a surface mismatch, check `<zotero-bridge> --version` against the expected version in the generated surface before choosing commands.
 
 ## Runtime Setup
 
 The published bundle includes `install.ps1`, `install.sh`, and `assets/profile.template.json`. Use `.\install.ps1 --yes --json` on Windows or `./install.sh --yes --json` on POSIX when the run-local shim is unavailable and the CLI needs to be installed for the current profile.
+
+Use the run-local shim first when it exists. If the observed `zotero-bridge` version differs from the expected version in the generated surface, prefer the workspace-injected skill and shim, then inspect `<zotero-bridge> --help` or `references/host-bridge-cli.md` beside that workspace copy before issuing task commands.
 
 ## Workflow Model
 
@@ -69,6 +72,12 @@ This section is generated from the Host Bridge surface catalog.
 - Prefer the run-local shim when it exists: Windows `.\.zotero-bridge\bin\zotero-bridge.cmd`; POSIX `./.zotero-bridge/bin/zotero-bridge`.
 - When skill instructions show `<zotero-bridge>`, replace it with the run-local shim for the current OS; use PATH command `zotero-bridge` only when the shim is absent.
 - Keep `ZOTERO_BRIDGE_PROFILE` and `ZOTERO_BRIDGE_TOKEN` from the injected environment; never print token values.
+
+### CLI release check
+
+- Expected `zotero-bridge` CLI version for this generated surface: `0.2.0`.
+- Confirm with `<zotero-bridge> --version` when the loaded skill or reference path is uncertain, command help does not match this surface, or a CLI error points to command shape mismatch.
+- If the observed version differs from the expected version, stop using this loaded skill copy for command syntax. Prefer the workspace-injected skill and run-local shim, then inspect `<zotero-bridge> --help` or the generated reference beside that workspace copy.
 
 ### Command families
 

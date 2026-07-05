@@ -6,6 +6,11 @@ import {
   validateHostBridgeSurfaceCatalog,
   type HostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import {
+  readZoteroBridgeCliRelease,
+  ZOTERO_BRIDGE_CLI_RELEASE_PATH,
+  type ZoteroBridgeCliRelease,
+} from "./zotero-bridge-cli-release";
 
 type WorkflowCatalogEntry = {
   id: string;
@@ -160,7 +165,10 @@ function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   );
 }
 
-function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
+function renderHostBridgeReference(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   const commands = sortedCliMappings(catalog)
     .filter((mapping) => {
       const group = mapping.command.split(" ")[0] || "";
@@ -193,6 +201,12 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
     );
 
   return [
+    "## CLI Release",
+    "",
+    `This profile surface is generated for \`zotero-bridge\` CLI version \`${release.version}\`.`,
+    "",
+    "Confirm with `zotero-bridge --version` when the loaded profile or skill path is uncertain, command help does not match this reference, or a CLI error points to command shape mismatch. If the observed version differs, prefer the profile copy and CLI shim from the active workspace, then inspect `zotero-bridge --help` or this generated reference beside that profile copy.",
+    "",
     "## CLI Commands",
     "",
     "| Command | Target | Kind |",
@@ -303,6 +317,7 @@ function renderWorkflowReference(entries: WorkflowCatalogEntry[]) {
 function renderManifestSource(
   catalog: HostBridgeSurfaceCatalog,
   workflowEntries: WorkflowCatalogEntry[],
+  release: ZoteroBridgeCliRelease,
 ) {
   const source = {
     schema: "zotero-librarian.profile.manifest-source.v1",
@@ -315,6 +330,7 @@ function renderManifestSource(
       hostBridgeCapabilityRegistry:
         "src/modules/hostBridgeCapabilityRegistry.ts",
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
+      zoteroBridgeCliRelease: ZOTERO_BRIDGE_CLI_RELEASE_PATH,
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
       semanticSources: [
@@ -331,6 +347,7 @@ function renderManifestSource(
       markers: GENERATED_MARKER_EXAMPLES,
       catalogChecksum: sha256(JSON.stringify(catalog)),
       workflowCatalogChecksum: sha256(JSON.stringify(workflowEntries)),
+      zoteroBridgeCliRelease: release,
       semanticSourceChecksum: sha256(
         [
           ...PROFILE_SEMANTIC_COPIES.map((path) =>
@@ -359,6 +376,7 @@ function render(check = false) {
     throw new Error(errors.join("\n"));
   }
   const workflows = loadWorkflowCatalog();
+  const release = readZoteroBridgeCliRelease(ROOT);
 
   for (const path of PROFILE_SEMANTIC_COPIES) {
     writeOrCheck(
@@ -382,7 +400,7 @@ function render(check = false) {
     replaceGeneratedSection(
       hostBridgeSource,
       "zotero-librarian:host-bridge",
-      renderHostBridgeReference(catalog),
+      renderHostBridgeReference(catalog, release),
     ),
     check,
     diffs,
@@ -408,7 +426,7 @@ function render(check = false) {
   );
   writeOrCheck(
     MANIFEST_SOURCE_TARGET,
-    renderManifestSource(catalog, workflows),
+    renderManifestSource(catalog, workflows, release),
     check,
     diffs,
   );

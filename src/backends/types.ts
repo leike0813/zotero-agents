@@ -32,6 +32,7 @@ export type BackendInstance = {
       | "gemini-cli"
       | "hermes"
       | "qwen-code"
+      | "kilo"
       | "unknown";
     skillRoots?: string[];
     connectionTest?: {

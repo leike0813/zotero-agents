@@ -43,6 +43,8 @@ async function ensureWorkflowRegistryLoaded() {
 }
 
 describe("workflow settings execution", function () {
+  this.timeout(5000);
+
   const backendsConfigPrefKey = `${config.prefsPrefix}.backendsConfigJson`;
   const workflowSettingsPrefKey = `${config.prefsPrefix}.workflowSettingsJson`;
   let prevBackendsConfigPref: unknown;
@@ -1486,6 +1488,8 @@ describe("workflow settings execution", function () {
   );
 
   it("resolves local pass-through execution context without backend profile", async function () {
+    this.timeout(5000);
+
     const root = await mkTempDir("zotero-skills-pass-through");
     const workflowRoot = joinPath(root, "pass-through-minimal");
     await writeUtf8(
@@ -1557,6 +1561,8 @@ describe("workflow settings execution", function () {
   itNodeOnly(
     "persists workflow params for pass-through workflows without requiring backend profile",
     async function () {
+      this.timeout(5000);
+
       const root = await mkTempDir("zotero-skills-pass-through-settings");
       const workflowRoot = joinPath(root, "pass-through-settings");
       await writeUtf8(

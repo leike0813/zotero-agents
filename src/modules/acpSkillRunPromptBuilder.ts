@@ -39,6 +39,9 @@ function resolveEngineWorkspaceDir(family: AcpAgentFamily) {
   if (family === "qwen-code") {
     return "./.qwen";
   }
+  if (family === "kilo") {
+    return "./.kilo";
+  }
   if (family === "codex") {
     return "./.codex";
   }
@@ -151,6 +154,9 @@ function resolveSkillRunnerEngineId(family: AcpAgentFamily) {
   }
   if (family === "qwen-code") {
     return "qwen";
+  }
+  if (family === "kilo") {
+    return "kilo";
   }
   return family;
 }

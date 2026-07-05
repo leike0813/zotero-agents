@@ -8,6 +8,7 @@ export type AcpAgentFamily =
   | "gemini-cli"
   | "hermes"
   | "qwen-code"
+  | "kilo"
   | "unknown";
 
 export type AcpSkillInjectionPlan = {
@@ -34,6 +35,7 @@ function normalizeFamily(value: unknown): AcpAgentFamily {
       "gemini-cli",
       "hermes",
       "qwen-code",
+      "kilo",
     ].includes(normalized)
   ) {
     return normalized as AcpAgentFamily;
@@ -46,6 +48,9 @@ function normalizeFamily(value: unknown): AcpAgentFamily {
   }
   if (normalized === "qwen") {
     return "qwen-code";
+  }
+  if (normalized === "kilocode") {
+    return "kilo";
   }
   return "unknown";
 }
@@ -73,6 +78,9 @@ export function resolveAcpAgentFamily(
   const source = haystackForBackend(backend);
   if (/\bqwen(?:-code)?\b/.test(source)) {
     return "qwen-code";
+  }
+  if (/\bkilo(?:code)?\b|@kilocode\/cli/.test(source)) {
+    return "kilo";
   }
   if (/\bhermes\b/.test(source)) {
     return "hermes";
@@ -108,12 +116,64 @@ export function defaultAcpSkillRootsForFamily(family: AcpAgentFamily) {
       return [".agents/skills", ".gemini/skills"];
     case "qwen-code":
       return [".qwen/skills"];
+    case "kilo":
+      return [".kilo/skills"];
     case "hermes":
       return [];
     case "unknown":
     default:
       return [".agents/skills"];
   }
+}
+
+export function defaultAcpChatSkillRoots() {
+  const roots: string[] = [];
+  for (const family of [
+    "codex",
+    "claude-code",
+    "opencode",
+    "gemini-cli",
+    "qwen-code",
+    "kilo",
+    "unknown",
+  ] satisfies AcpAgentFamily[]) {
+    roots.push(...defaultAcpSkillRootsForFamily(family));
+  }
+  return Array.from(new Set(roots));
+}
+
+export function buildAcpChatSkillInjectionPlan(args: {
+  backend: BackendInstance;
+  workspaceDir: string;
+}): AcpSkillInjectionPlan {
+  const family = resolveAcpAgentFamily(args.backend);
+  const configuredRoots = Array.isArray(args.backend.acp?.skillRoots)
+    ? args.backend
+        .acp!.skillRoots!.map((entry) =>
+          normalizeString(entry).replace(/\\/g, "/"),
+        )
+        .filter(Boolean)
+    : [];
+  const relativeRoots = Array.from(
+    new Set([...defaultAcpChatSkillRoots(), ...configuredRoots]),
+  );
+  const skillRoots = relativeRoots.map((root) =>
+    joinPath(args.workspaceDir, root),
+  );
+  const diagnostics: AcpSkillInjectionPlan["diagnostics"] = [];
+  if (configuredRoots.length > 0) {
+    diagnostics.push({
+      level: "info",
+      code: "acp_chat_skill_roots_override_appended",
+      message:
+        "ACP Chat appended backend profile skill roots to known project skill roots",
+    });
+  }
+  return {
+    family,
+    skillRoots,
+    diagnostics,
+  };
 }
 
 export function buildAcpSkillInjectionPlan(args: {

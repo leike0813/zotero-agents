@@ -214,7 +214,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     npxArgs: ["acp"],
     defaultUseNpx: false,
     supportsNpx: true,
-    agentFamily: "unknown",
+    agentFamily: "kilo",
     isolation: {
       env: [
         { key: "XDG_CONFIG_HOME", pathSuffix: "config" },

@@ -4,6 +4,7 @@ import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
 
@@ -230,6 +231,7 @@ function hasLiteralMarker(text: string, marker: string, kind: "start" | "end") {
 }
 
 const catalog = buildHostBridgeSurfaceCatalog(ROOT);
+const release = readZoteroBridgeCliRelease(ROOT);
 const errors = validateHostBridgeSurfaceCatalog(catalog);
 for (const error of errors) {
   fail(error);
@@ -342,12 +344,20 @@ for (const required of [
   "workflow agent-apply",
   "agentRunId",
   "agentRequestId",
+  `Expected \`zotero-bridge\` CLI version for this generated surface: \`${release.version}\``,
 ]) {
   if (!wrapperSkill.includes(required)) {
     fail(
       `zotero-bridge wrapper skill missing semantic guidance marker: ${required}`,
     );
   }
+}
+
+const wrapperReference = read(
+  "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+);
+if (!wrapperReference.includes(`\`${release.version}\``)) {
+  fail("zotero-bridge wrapper reference missing current CLI version");
 }
 
 const librarianSkill = read(

@@ -73,28 +73,36 @@ The ACP sidebar SHALL expose the active backend's chat session list and session 
 - **WHEN** the ACP sidebar receives a frontend snapshot
 - **THEN** it MUST render a session selector for the active backend
 - **AND** it MUST provide actions to create, rename, and delete chat sessions.
-### Requirement: ACP Chat exposes Host Bridge guidance through wrapper skill
+### Requirement: ACP Chat exposes registry-backed helper skills in all known project skill roots
 
+ACP Chat SHALL materialize its injected skill whitelist into every known project skill root for the shared chat workspace. The injected skill source SHALL be the plugin skill registry effective entry for each skill id, preserving official, dev-local, and user source priority.
 
-ACP Chat SHALL keep Host Bridge runtime access available while avoiding direct
-Host Bridge prompt injection.
+#### Scenario: Chat materializes whitelisted skills into all known roots
 
-#### Scenario: Chat materializes wrapper skill for project skill roots
+- **GIVEN** an ACP Chat session is preparing an adapter
+- **WHEN** the plugin skill registry contains `zotero-bridge-cli` and `literature-search-ingest`
+- **THEN** the chat workspace SHALL receive both skills under `.agents/skills`, `.codex/skills`, `.claude/skills`, `.gemini/skills`, `.qwen/skills`, and `.kilo/skills`
+- **AND** each copied skill SHALL come from the registry effective entry for that skill id.
 
-- **GIVEN** an ACP Chat backend resolves to one or more project skill roots
-- **WHEN** the ACP Chat adapter is created
-- **THEN** the chat workspace SHALL receive the `zotero-bridge-cli` wrapper
-  skill in those skill roots
-- **AND** user chat prompts sent to the ACP adapter SHALL remain the original
-  user message without appended Host Bridge guidance.
+#### Scenario: Chat appends configured skill roots
 
-#### Scenario: Chat backend has no project skill roots
+- **GIVEN** an ACP Chat backend profile declares `acp.skillRoots`
+- **WHEN** the chat injected skill target roots are resolved
+- **THEN** the configured roots SHALL be added to the known project skill roots
+- **AND** duplicate roots SHALL be materialized only once.
 
-- **GIVEN** an ACP Chat backend resolves to no project skill roots
-- **WHEN** the ACP Chat adapter is created
-- **THEN** the system SHALL record a diagnostic that the Host Bridge wrapper
-  skill was not materialized
-- **AND** it SHALL NOT fall back to direct Host Bridge prompt injection.
+#### Scenario: Missing injected skill records a warning
+
+- **GIVEN** an ACP Chat injected skill id is not present in the plugin skill registry
+- **WHEN** ACP Chat prepares injected skills
+- **THEN** ACP Chat SHALL record a warning diagnostic for that missing skill
+- **AND** it SHALL continue preparing the chat adapter.
+
+#### Scenario: Stale family root is replaced
+
+- **GIVEN** a shared ACP Chat workspace already contains an older injected skill copy under any known project skill root
+- **WHEN** ACP Chat prepares injected skills
+- **THEN** the old skill copy SHALL be replaced by the current registry effective entry.
 
 ### Requirement: ACP chat limits live remote sessions
 

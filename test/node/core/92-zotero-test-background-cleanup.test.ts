@@ -59,6 +59,28 @@ describe("zotero test background cleanup harness", function () {
       ),
       resetWorkflowTasks: mark("resetWorkflowTasks"),
       clearRuntimeLogs: mark("clearRuntimeLogs"),
+      resetWorkflowSettingsReadDiagnosticsForTests: mark(
+        "resetWorkflowSettingsReadDiagnosticsForTests",
+      ),
+      resetTestPerformanceProbeHooksForTests: mark(
+        "resetTestPerformanceProbeHooksForTests",
+      ),
+      resetWorkflowHostApiForTests: mark("resetWorkflowHostApiForTests"),
+      clearPackageHookBundleCacheForTests: mark(
+        "clearPackageHookBundleCacheForTests",
+      ),
+      resetWorkflowToastStateForTests: mark("resetWorkflowToastStateForTests"),
+      clearWorkflowRuntimeBridgeForTests: mark(
+        "clearWorkflowRuntimeBridgeForTests",
+      ),
+      setDebugModeOverrideForTests: mark("setDebugModeOverrideForTests"),
+      setDiagnosticVerboseOverrideForTests: mark(
+        "setDiagnosticVerboseOverrideForTests",
+      ),
+      setSkillRunnerInteractiveAutoReplyEnabledForTests: mark(
+        "setSkillRunnerInteractiveAutoReplyEnabledForTests",
+      ),
+      resetWorkflowRuntimeForTests: mark("resetWorkflowRuntimeForTests"),
     });
 
     await cleanupBackgroundRuntimeForZoteroTests();
@@ -78,6 +100,16 @@ describe("zotero test background cleanup harness", function () {
       "setSkillRunnerTaskLifecycleToastEmitterForTests",
       "resetWorkflowTasks",
       "clearRuntimeLogs",
+      "resetWorkflowSettingsReadDiagnosticsForTests",
+      "resetTestPerformanceProbeHooksForTests",
+      "resetWorkflowHostApiForTests",
+      "clearPackageHookBundleCacheForTests",
+      "resetWorkflowToastStateForTests",
+      "clearWorkflowRuntimeBridgeForTests",
+      "setDebugModeOverrideForTests",
+      "setDiagnosticVerboseOverrideForTests",
+      "setSkillRunnerInteractiveAutoReplyEnabledForTests",
+      "resetWorkflowRuntimeForTests",
     ]);
   });
 
@@ -176,12 +208,42 @@ describe("zotero test background cleanup harness", function () {
       clearRuntimeLogs: () => {
         calls += 1;
       },
+      resetWorkflowSettingsReadDiagnosticsForTests: () => {
+        calls += 1;
+      },
+      resetTestPerformanceProbeHooksForTests: () => {
+        calls += 1;
+      },
+      resetWorkflowHostApiForTests: () => {
+        calls += 1;
+      },
+      clearPackageHookBundleCacheForTests: () => {
+        calls += 1;
+      },
+      resetWorkflowToastStateForTests: () => {
+        calls += 1;
+      },
+      clearWorkflowRuntimeBridgeForTests: () => {
+        calls += 1;
+      },
+      setDebugModeOverrideForTests: () => {
+        calls += 1;
+      },
+      setDiagnosticVerboseOverrideForTests: () => {
+        calls += 1;
+      },
+      setSkillRunnerInteractiveAutoReplyEnabledForTests: () => {
+        calls += 1;
+      },
+      resetWorkflowRuntimeForTests: () => {
+        calls += 1;
+      },
     });
 
     await cleanupBackgroundRuntimeForZoteroTests();
     await cleanupBackgroundRuntimeForZoteroTests();
 
-    assert.equal(calls, 28);
+    assert.equal(calls, 48);
   });
 
   it("resets local runtime loop state back to inert defaults", async function () {

@@ -193,6 +193,7 @@ const prefObservers = new Map<
 >();
 let notifierCounter = 0;
 const RUNTIME_GLOBAL_KEYS = [
+  "addon",
   "Components",
   "PathUtils",
   "OS",
@@ -201,6 +202,8 @@ const RUNTIME_GLOBAL_KEYS = [
   "Cc",
   "Ci",
   "ChromeUtils",
+  "__zoteroSkillsDisableWorkflowDirOverride",
+  "__zs_test_performance_probe_hooks__",
 ] as const;
 type RuntimeGlobalKey = (typeof RUNTIME_GLOBAL_KEYS)[number];
 let baselineRuntimeGlobalDescriptors:
@@ -264,8 +267,6 @@ function initializeZoteroMockState() {
   collectionsById.clear();
   collectionsByKey.clear();
   prefsStore.clear();
-  prefsStore.set(`${config.prefsPrefix}.workflowDir`, "");
-  prefsStore.set(`${config.prefsPrefix}.skillDir`, "");
   prefObservers.clear();
   notifierCounter = 0;
   installDefaultDataDirectory();
@@ -312,6 +313,34 @@ export function resetZoteroMockStateForTests() {
     writable: false,
     configurable: true,
   });
+}
+
+const BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS = 5000;
+
+async function cleanupBackgroundRuntimeForTests(stage: string) {
+  const cleanupModule = await import("../../src/modules/testRuntimeCleanup");
+  cleanupModule.setBackgroundRuntimeCleanupDepsForTests();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      cleanupModule.cleanupBackgroundRuntimeForZoteroTests(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new Error(
+              `zotero mock ${stage} background cleanup timed out after ${BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS}ms`,
+            ),
+          );
+        }, BACKGROUND_RUNTIME_CLEANUP_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    cleanupModule.setBackgroundRuntimeCleanupDepsForTests();
+  }
 }
 
 function generateKey(id: number) {
@@ -2844,10 +2873,14 @@ if (!("OS" in globalThis)) {
 baselineRuntimeGlobalDescriptors = captureRuntimeGlobalDescriptors();
 
 export const mochaHooks = {
-  beforeEach() {
+  async beforeEach() {
+    resetZoteroMockStateForTests();
+    await cleanupBackgroundRuntimeForTests("beforeEach");
     resetZoteroMockStateForTests();
   },
-  afterEach() {
+  async afterEach() {
+    resetZoteroMockStateForTests();
+    await cleanupBackgroundRuntimeForTests("afterEach");
     resetZoteroMockStateForTests();
   },
 };

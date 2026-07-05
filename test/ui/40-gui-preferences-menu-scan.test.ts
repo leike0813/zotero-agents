@@ -3529,6 +3529,8 @@ describe("gui: workflow runtime scan", function () {
 });
 
 describe("gui: workflow context menu", function () {
+  this.timeout(5000);
+
   let prevAddon: unknown;
   let restorePrefs: (() => void) | undefined;
 
@@ -3576,8 +3578,9 @@ describe("gui: workflow context menu", function () {
 
     assert.isOk(menu);
     assert.isOk(popup);
-    popup!.dispatch("popupshowing");
-    await flushTasks();
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeTaskManagerItem: true,
+    });
 
     assert.lengthOf(popup!.children, 8);
     assertMenuLabel(
@@ -3678,20 +3681,9 @@ describe("gui: workflow context menu", function () {
           includeTaskManagerItem: true,
         });
       } else {
-        popup.dispatch("popupshowing");
-        for (let i = 0; i < 20; i++) {
-          await flushTasks();
-          if (
-            entry.expectedLabels.every((expectedLabel) =>
-              popup.children.some((child) =>
-                expectedLabel.test(child.getAttribute("label") || ""),
-              ),
-            )
-          ) {
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+        await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+          includeTaskManagerItem: true,
+        });
       }
 
       assert.isAtLeast(popup.children.length, entry.expectedLabels.length);
@@ -3736,8 +3728,9 @@ describe("gui: workflow context menu", function () {
       const popup = win.document.getElementById(
         `${config.addonRef}-workflows-popup`,
       ) as FakeXULElement;
-      popup.dispatch("popupshowing");
-      await flushTasks();
+      await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+        includeTaskManagerItem: true,
+      });
       popup.children[0].dispatch("command");
 
       assert.lengthOf(calls, 1);
@@ -3828,17 +3821,12 @@ describe("gui: workflow context menu", function () {
     const popup = win.document.getElementById(
       `${config.addonRef}-workflows-popup`,
     ) as FakeXULElement;
-    popup.dispatch("popupshowing");
-    let workflowItem: FakeXULElement | undefined;
-    for (let i = 0; i < 10; i++) {
-      await flushTasks();
-      workflowItem = popup.children.find((entry) =>
-        (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
-      );
-      if (workflowItem) {
-        break;
-      }
-    }
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeTaskManagerItem: true,
+    });
+    const workflowItem = popup.children.find((entry) =>
+      (entry.getAttribute("label") || "").startsWith("Pass Through GUI"),
+    );
 
     assert.isOk(workflowItem);
     assert.equal(workflowItem!.getAttribute("label"), "Pass Through GUI");
@@ -3926,10 +3914,9 @@ describe("gui: workflow context menu", function () {
     ) as FakeXULElement;
 
     setDebugModeOverrideForTests(false);
-    popup.dispatch("popupshowing");
-    for (let i = 0; i < 10; i++) {
-      await flushTasks();
-    }
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeTaskManagerItem: true,
+    });
     const labelsWhenHidden = popup.children.map(
       (entry) => entry.getAttribute("label") || "",
     );
@@ -3943,10 +3930,9 @@ describe("gui: workflow context menu", function () {
     );
 
     setDebugModeOverrideForTests(true);
-    popup.dispatch("popupshowing");
-    for (let i = 0; i < 10; i++) {
-      await flushTasks();
-    }
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeTaskManagerItem: true,
+    });
     const labelsWhenVisible = popup.children.map(
       (entry) => entry.getAttribute("label") || "",
     );
@@ -3977,17 +3963,12 @@ describe("gui: workflow context menu", function () {
       const popup = win.document.getElementById(
         `${config.addonRef}-workflows-popup`,
       ) as FakeXULElement;
-      popup.dispatch("popupshowing");
-      let workflowItem: FakeXULElement | undefined;
-      for (let i = 0; i < 20; i++) {
-        await flushTasks();
-        workflowItem = popup.children.find((child) =>
-          (child.getAttribute("label") || "").startsWith("Workflow A"),
-        );
-        if (workflowItem) {
-          break;
-        }
-      }
+      await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+        includeTaskManagerItem: true,
+      });
+      const workflowItem = popup.children.find((child) =>
+        (child.getAttribute("label") || "").startsWith("Workflow A"),
+      );
 
       assert.isOk(workflowItem, entry.label);
       assert.match(

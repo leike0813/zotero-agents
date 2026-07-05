@@ -566,6 +566,7 @@ describe("backend manager risk regression", function () {
     assert.equal(kilo.id, "acp-kilo");
     assert.equal(kilo.command, "kilo");
     assert.deepEqual(kilo.args, ["acp"]);
+    assert.equal(kilo.acp?.agentFamily, "kilo");
     assert.isTrue(presets.find((preset) => preset.id === "kilo")?.supportsNpx);
 
     const kiloNpx = createAcpBackendFromPresetOptions("kilo", {
@@ -771,7 +772,7 @@ describe("backend manager risk regression", function () {
       XDG_DATA_HOME: joinPath(expectedPath, "data"),
       XDG_CACHE_HOME: joinPath(expectedPath, "cache"),
     });
-    assert.equal(backend.acp?.agentFamily, "unknown");
+    assert.equal(backend.acp?.agentFamily, "kilo");
   });
 
   it("builds isolated ACP preset backend profiles with managed session args", function () {

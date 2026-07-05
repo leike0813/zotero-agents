@@ -66,9 +66,8 @@ import type { RequestPermissionOutcome } from "./acpProtocol";
 import {
   copyRuntimeDirectory,
   ensureRuntimeDirectory,
-  runtimePathExists,
 } from "./runtimePersistence";
-import { buildAcpSkillInjectionPlan } from "./acpAgentFamilyResolver";
+import { buildAcpChatSkillInjectionPlan } from "./acpAgentFamilyResolver";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
   getZoteroMcpHealthSnapshot,
@@ -190,7 +189,10 @@ const chatTranscriptWrites = new Set<Promise<unknown>>();
 const MAX_DIAGNOSTICS = 40;
 const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
 const STREAMING_PERSIST_THROTTLE_MS = 1500;
-const HOST_BRIDGE_CLI_WRAPPER_SKILL_ID = "zotero-bridge-cli";
+const ACP_CHAT_INJECTED_SKILL_IDS = [
+  "zotero-bridge-cli",
+  "literature-search-ingest",
+] as const;
 
 function nowIso() {
   return new Date().toISOString();
@@ -236,15 +238,6 @@ function resolveSessionRuntimeConversationId(
     normalizeConversationId(conversationIdRaw) ||
     resolveActiveConversationId(backendId)
   );
-}
-
-function resolveRuntimeCwd() {
-  const runtime = globalThis as { process?: { cwd?: () => string } };
-  try {
-    return normalizeString(runtime.process?.cwd?.());
-  } catch {
-    return "";
-  }
 }
 
 function compactError(error: unknown) {
@@ -2814,7 +2807,7 @@ async function disconnectSessionRuntimeAdapter(
   }
 }
 
-async function materializeAcpChatHostBridgeSupportSkill(args: {
+async function materializeAcpChatInjectedSkills(args: {
   sessionRuntime: AcpChatSessionRuntime;
   backend: BackendInstance;
   workspaceDir: string;
@@ -2823,7 +2816,7 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
   if (!workspaceDir) {
     return;
   }
-  const injectionPlan = buildAcpSkillInjectionPlan({
+  const injectionPlan = buildAcpChatSkillInjectionPlan({
     backend: args.backend,
     workspaceDir,
   });
@@ -2831,116 +2824,98 @@ async function materializeAcpChatHostBridgeSupportSkill(args: {
     appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
-      kind: "host_bridge_cli_wrapper_skill_unavailable",
+      kind: "acp_chat_injected_skills_unavailable",
       level: "warn",
       message:
-        "Host Bridge CLI wrapper skill was not materialized for ACP Chat because this backend does not use project skill roots.",
+        "ACP Chat injected skills were not materialized because no project skill roots were available.",
       detail: injectionPlan.family,
       raw: {
         family: injectionPlan.family,
         skillRoots: injectionPlan.skillRoots,
+        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
       },
     });
     return;
   }
   try {
-    const cwd = resolveRuntimeCwd();
-    const cwdSkillRoot = cwd
-      ? joinPath(cwd, "skills_builtin", HOST_BRIDGE_CLI_WRAPPER_SKILL_ID)
-      : "";
-    const cwdSkillAvailable =
-      !!cwdSkillRoot &&
-      (await runtimePathExists(joinPath(cwdSkillRoot, "SKILL.md"))) &&
-      (await runtimePathExists(
-        joinPath(cwdSkillRoot, "assets", "runner.json"),
-      ));
-    if (cwdSkillAvailable) {
+    for (const diagnostic of injectionPlan.diagnostics) {
+      appendDiagnostic(args.sessionRuntime, {
+        id: nextOpaqueId("acp-diag"),
+        ts: nowIso(),
+        kind: diagnostic.code,
+        level:
+          diagnostic.level === "error"
+            ? "error"
+            : diagnostic.level === "warning"
+              ? "warn"
+              : "info",
+        message: diagnostic.message,
+        detail: injectionPlan.family,
+        raw: {
+          family: injectionPlan.family,
+          skillRoots: injectionPlan.skillRoots,
+        },
+      });
+    }
+    const registry = await scanPluginSkillRegistry();
+    const missingSkillIds: string[] = [];
+    const targetDirsBySkill: Record<string, string[]> = {};
+    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
+      const entry = registry.entriesById[skillId];
+      if (!entry) {
+        missingSkillIds.push(skillId);
+        appendDiagnostic(args.sessionRuntime, {
+          id: nextOpaqueId("acp-diag"),
+          ts: nowIso(),
+          kind: "acp_chat_injected_skill_unavailable",
+          level: "warn",
+          message:
+            "ACP Chat injected skill was not found in the plugin skill registry.",
+          detail: skillId,
+          raw: {
+            skillId,
+            skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
+            diagnostics: registry.diagnostics,
+          },
+        });
+        continue;
+      }
       const targetDirs: string[] = [];
       for (const root of injectionPlan.skillRoots) {
-        const targetDir = joinPath(root, HOST_BRIDGE_CLI_WRAPPER_SKILL_ID);
+        const targetDir = joinPath(root, skillId);
         await copyRuntimeDirectory({
-          sourceDir: cwdSkillRoot,
+          sourceDir: entry.sourceDir,
           targetDir,
         });
         targetDirs.push(targetDir);
       }
-      appendDiagnostic(args.sessionRuntime, {
-        id: nextOpaqueId("acp-diag"),
-        ts: nowIso(),
-        kind: "host_bridge_cli_wrapper_skill_ready",
-        level: "info",
-        message: "Host Bridge CLI wrapper skill materialized for ACP Chat.",
-        detail: targetDirs.join(", "),
-        raw: {
-          skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
-          family: injectionPlan.family,
-          skillRoots: injectionPlan.skillRoots,
-          targetDirs,
-          source: "cwd",
-        },
-      });
-      return;
-    }
-    const registry = await scanPluginSkillRegistry();
-    const fallbackRegistry =
-      registry.entriesById[HOST_BRIDGE_CLI_WRAPPER_SKILL_ID] || !cwd
-        ? null
-        : await scanPluginSkillRegistry({ cwd });
-    const effectiveRegistry = fallbackRegistry || registry;
-    const entry =
-      effectiveRegistry.entriesById[HOST_BRIDGE_CLI_WRAPPER_SKILL_ID];
-    if (!entry) {
-      appendDiagnostic(args.sessionRuntime, {
-        id: nextOpaqueId("acp-diag"),
-        ts: nowIso(),
-        kind: "host_bridge_cli_wrapper_skill_unavailable",
-        level: "warn",
-        message:
-          "Host Bridge CLI wrapper skill was not found in the plugin skill registry.",
-        detail: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
-        raw: {
-          skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
-          diagnostics: [
-            ...registry.diagnostics,
-            ...(fallbackRegistry?.diagnostics || []),
-          ],
-        },
-      });
-      return;
-    }
-    const targetDirs: string[] = [];
-    for (const root of injectionPlan.skillRoots) {
-      const targetDir = joinPath(root, HOST_BRIDGE_CLI_WRAPPER_SKILL_ID);
-      await copyRuntimeDirectory({
-        sourceDir: entry.sourceDir,
-        targetDir,
-      });
-      targetDirs.push(targetDir);
+      targetDirsBySkill[skillId] = targetDirs;
     }
     appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
-      kind: "host_bridge_cli_wrapper_skill_ready",
+      kind: "acp_chat_injected_skills_ready",
       level: "info",
-      message: "Host Bridge CLI wrapper skill materialized for ACP Chat.",
-      detail: targetDirs.join(", "),
+      message: "ACP Chat injected skills materialized.",
+      detail: Object.values(targetDirsBySkill).flat().join(", "),
       raw: {
-        skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
+        missingSkillIds,
         family: injectionPlan.family,
         skillRoots: injectionPlan.skillRoots,
-        targetDirs,
+        targetDirsBySkill,
       },
     });
   } catch (error) {
     appendDiagnostic(args.sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
-      kind: "host_bridge_cli_wrapper_skill_unavailable",
+      kind: "acp_chat_injected_skills_unavailable",
       level: "warn",
-      message: "Host Bridge CLI wrapper skill materialization failed.",
+      message: "ACP Chat injected skill materialization failed.",
       detail: compactError(error),
       raw: {
-        skillId: HOST_BRIDGE_CLI_WRAPPER_SKILL_ID,
+        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
         family: injectionPlan.family,
         skillRoots: injectionPlan.skillRoots,
       },
@@ -3008,7 +2983,7 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       detail: hostBridgeCliInjection.fallbackReason || "",
       raw: summarizeHostBridgeCliRunInjection(hostBridgeCliInjection),
     });
-    await materializeAcpChatHostBridgeSupportSkill({
+    await materializeAcpChatInjectedSkills({
       sessionRuntime,
       backend,
       workspaceDir,

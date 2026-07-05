@@ -7,6 +7,10 @@ import {
   type HostBridgeCliMapping,
   type HostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import {
+  readZoteroBridgeCliRelease,
+  type ZoteroBridgeCliRelease,
+} from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
@@ -19,7 +23,10 @@ type RenderTarget = {
   path: string;
   sourcePath?: string;
   section: string;
-  render: (catalog: HostBridgeSurfaceCatalog) => string;
+  render: (
+    catalog: HostBridgeSurfaceCatalog,
+    release: ZoteroBridgeCliRelease,
+  ) => string;
 };
 
 type CopyTarget = {
@@ -209,6 +216,14 @@ function shimGuidance() {
   ].join("\n");
 }
 
+function cliReleaseGuidance(release: ZoteroBridgeCliRelease) {
+  return [
+    `- Expected \`zotero-bridge\` CLI version for this generated surface: \`${release.version}\`.`,
+    "- Confirm with `<zotero-bridge> --version` when the loaded skill or reference path is uncertain, command help does not match this surface, or a CLI error points to command shape mismatch.",
+    "- If the observed version differs from the expected version, stop using this loaded skill copy for command syntax. Prefer the workspace-injected skill and run-local shim, then inspect `<zotero-bridge> --help` or the generated reference beside that workspace copy.",
+  ].join("\n");
+}
+
 function topicContextGuidance() {
   return [
     "- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
@@ -313,7 +328,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
+function renderWrapperSurface(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   const insightCommands = catalog.cliMappings
     .filter(
       (mapping) =>
@@ -329,6 +347,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "### Runtime command entry",
     "",
     shimGuidance(),
+    "",
+    "### CLI release check",
+    "",
+    cliReleaseGuidance(release),
     "",
     "### Command families",
     "",
@@ -360,13 +382,20 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
+function renderWrapperReference(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   return [
     "This section is generated from the Host Bridge surface catalog.",
     "",
     "### Runtime command entry",
     "",
     shimGuidance(),
+    "",
+    "### CLI release check",
+    "",
+    cliReleaseGuidance(release),
     "",
     "### Discovery commands",
     "",
@@ -478,6 +507,7 @@ function replaceSection(text: string, section: string, replacement: string) {
 function main() {
   const check = process.argv.includes("--check");
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
+  const release = readZoteroBridgeCliRelease(ROOT);
   const errors = validateHostBridgeSurfaceCatalog(catalog);
   if (errors.length > 0) {
     for (const error of errors) {
@@ -494,7 +524,11 @@ function main() {
     const current = existsSync(join(ROOT, target.path))
       ? read(target.path)
       : "";
-    const next = replaceSection(source, target.section, target.render(catalog));
+    const next = replaceSection(
+      source,
+      target.section,
+      target.render(catalog, release),
+    );
     if (next !== current) {
       changed = true;
       if (check) {

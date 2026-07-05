@@ -4,6 +4,7 @@ import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
@@ -195,6 +196,7 @@ function checkSecrets(errors: string[]) {
 
 function checkHostBridgeSurface(errors: string[]) {
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
+  const release = readZoteroBridgeCliRelease(ROOT);
   errors.push(...validateHostBridgeSurfaceCatalog(catalog));
   const capabilityNames = new Set(
     catalog.capabilities.map((entry) => entry.name),
@@ -248,6 +250,7 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-bridge workflow agent-apply",
     "nextCursor",
     "collectionKey",
+    `zotero-bridge\` CLI version \`${release.version}\``,
   ]) {
     assertIncludes(errors, hostReference, snippet, "host-bridge reference");
   }
@@ -261,6 +264,7 @@ function checkHostBridgeSurface(errors: string[]) {
     "$zotero-workflow-agent-runner",
     "workflow agent-apply",
     "agentRunId",
+    "zotero-bridge --version",
   ]) {
     assertIncludes(errors, skill, snippet, "zotero-librarian skill");
   }

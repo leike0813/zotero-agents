@@ -697,6 +697,20 @@ export function getLoadedWorkflowSourceById(
   return getState().workflowSourceById[normalizedId] || "";
 }
 
+export function resetWorkflowRuntimeForTests() {
+  fallbackWorkflowState = undefined;
+  const runtime = globalThis as {
+    addon?: {
+      data?: {
+        workflow?: WorkflowRuntimeState;
+      };
+    };
+  };
+  if (runtime.addon?.data?.workflow) {
+    runtime.addon.data.workflow = emptyWorkflowRuntimeState();
+  }
+}
+
 export const __workflowRuntimeTestOnly = {
   getWorkflowRegistryStatusFilePath,
 };

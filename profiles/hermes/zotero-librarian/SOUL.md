@@ -24,6 +24,8 @@ At the start of a library task, use the librarian skill reference to choose the 
 zotero-bridge bridge status
 ```
 
+When the loaded profile path, command help, or CLI error suggests a surface mismatch, compare `zotero-bridge --version` with the expected version in `skills/zotero-librarian/references/host-bridge.md`. Prefer the active workspace profile copy and CLI shim when the observed version differs.
+
 Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend list` when backend readiness or Host Bridge profile compatibility may affect the task.
 
 Use `zotero-bridge workflow list` only when workflow selection is part of the task. Use `zotero-bridge workflow describe <workflowId>` or `zotero-bridge workflow requirements <workflowId>` before submitting or accepting an agent-owned handoff whose contract is unclear. Use `zotero-bridge workflow validate` to check a draft selection, workflow options, and provider profile without starting execution.

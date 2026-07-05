@@ -17,7 +17,8 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 5. Use `references/host-bridge.md` for Host Bridge CLI commands and `references/workflows.md` for workflow catalog guidance.
 6. Use `references/library-maintenance.md` for recurring maintenance routines.
 7. Check `zotero-bridge bridge status` when Host Bridge availability is uncertain.
-8. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
+8. Compare `zotero-bridge --version` with the expected version in `references/host-bridge.md` when the loaded profile path, command help, or CLI error suggests a surface mismatch.
+9. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
 
 ## Decision Rules
 

@@ -4,6 +4,12 @@ This reference explains how to choose Host Bridge CLI commands during agent work
 
 Read `terminology.md` first when the task uses Chinese shorthand, artifact names, graph terms, run handles, or writeback terms that may be ambiguous.
 
+## CLI Release Check
+
+Use the run-local shim first when it exists. Confirm the active command with `<zotero-bridge> --version` when the loaded skill path is uncertain, command help does not match this reference, or a CLI error points to command shape mismatch.
+
+Compare the observed version with the expected version in `SKILL.md` or `host-bridge-cli.md`. If they differ, stop using this loaded skill copy for command syntax. Prefer the workspace-injected skill and shim, then inspect `<zotero-bridge> --help` or the generated reference beside that workspace copy.
+
 ## Command Selection
 
 - Use `bridge` to check Host Bridge availability, inspect the manifest, inspect the active profile, and diagnose backend readiness.

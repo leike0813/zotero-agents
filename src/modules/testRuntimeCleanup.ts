@@ -18,6 +18,16 @@ import { resetSkillRunnerSessionSyncForTests } from "./skillRunnerSessionSyncMan
 import { resetSkillRunnerRunDialogForTests } from "./skillRunnerRunDialog";
 import { resetSkillRunnerAutoReplyObserverForTests } from "./skillRunnerAutoReplyObserver";
 import { resetTaskManagerDialogRuntimeForTests } from "./taskManagerDialog";
+import { resetWorkflowSettingsReadDiagnosticsForTests } from "./workflowSettings";
+import { resetTestPerformanceProbeHooksForTests } from "./testPerformanceProbeBridge";
+import { resetWorkflowHostApiForTests } from "../workflows/hostApi";
+import { clearPackageHookBundleCacheForTests } from "../workflows/packageHookBundler";
+import { resetWorkflowToastStateForTests } from "./workflowExecution/feedbackSeam";
+import { clearWorkflowRuntimeBridgeForTests } from "./workflowRuntimeBridge";
+import { setDebugModeOverrideForTests } from "./debugMode";
+import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
+import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
+import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
 
 type CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh: () => void;
@@ -36,6 +46,16 @@ type CleanupDeps = {
   resetSkillRunnerRunDialogForTests: () => void | Promise<void>;
   resetSkillRunnerAutoReplyObserverForTests: () => void;
   resetTaskManagerDialogRuntimeForTests: () => void | Promise<void>;
+  resetWorkflowSettingsReadDiagnosticsForTests: () => void;
+  resetTestPerformanceProbeHooksForTests: () => void;
+  resetWorkflowHostApiForTests: () => void;
+  clearPackageHookBundleCacheForTests: () => void;
+  resetWorkflowToastStateForTests: () => void;
+  clearWorkflowRuntimeBridgeForTests: () => void;
+  setDebugModeOverrideForTests: () => void;
+  setDiagnosticVerboseOverrideForTests: () => void;
+  setSkillRunnerInteractiveAutoReplyEnabledForTests: () => void;
+  resetWorkflowRuntimeForTests: () => void;
 };
 
 const defaultCleanupDeps: CleanupDeps = {
@@ -55,6 +75,16 @@ const defaultCleanupDeps: CleanupDeps = {
   resetSkillRunnerRunDialogForTests,
   resetSkillRunnerAutoReplyObserverForTests,
   resetTaskManagerDialogRuntimeForTests,
+  resetWorkflowSettingsReadDiagnosticsForTests,
+  resetTestPerformanceProbeHooksForTests,
+  resetWorkflowHostApiForTests,
+  clearPackageHookBundleCacheForTests,
+  resetWorkflowToastStateForTests,
+  clearWorkflowRuntimeBridgeForTests,
+  setDebugModeOverrideForTests,
+  setDiagnosticVerboseOverrideForTests,
+  setSkillRunnerInteractiveAutoReplyEnabledForTests,
+  resetWorkflowRuntimeForTests,
 };
 
 let cleanupDeps: CleanupDeps = defaultCleanupDeps;
@@ -87,4 +117,14 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();
   cleanupDeps.resetWorkflowTasks();
   cleanupDeps.clearRuntimeLogs();
+  cleanupDeps.resetWorkflowSettingsReadDiagnosticsForTests();
+  cleanupDeps.resetTestPerformanceProbeHooksForTests();
+  cleanupDeps.resetWorkflowHostApiForTests();
+  cleanupDeps.clearPackageHookBundleCacheForTests();
+  cleanupDeps.resetWorkflowToastStateForTests();
+  cleanupDeps.clearWorkflowRuntimeBridgeForTests();
+  cleanupDeps.setDebugModeOverrideForTests();
+  cleanupDeps.setDiagnosticVerboseOverrideForTests();
+  cleanupDeps.setSkillRunnerInteractiveAutoReplyEnabledForTests();
+  cleanupDeps.resetWorkflowRuntimeForTests();
 }

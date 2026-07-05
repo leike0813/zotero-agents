@@ -9,7 +9,9 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
 } from "../../src/config/defaults";
 import {
+  buildAcpChatSkillInjectionPlan,
   buildAcpSkillInjectionPlan,
+  defaultAcpChatSkillRoots,
   resolveAcpAgentFamily,
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
@@ -1205,6 +1207,19 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.equal(resolveAcpAgentFamily(legacyClaude), "claude-code");
 
+    const kilo = createBackend({
+      id: "backend-acp-kilo",
+      command: "kilo",
+      args: ["acp"],
+    });
+    assert.equal(resolveAcpAgentFamily(kilo), "kilo");
+    assert.deepEqual(
+      buildAcpSkillInjectionPlan({ backend: kilo, workspaceDir: root })
+        .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
+        .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
+      [".kilo/skills"],
+    );
+
     const overridden = createBackend({
       acp: {
         agentFamily: "qwen-code",
@@ -1217,6 +1232,32 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.equal(plan.family, "qwen-code");
     assert.match(plan.skillRoots[0].replace(/\\/g, "/"), /\.custom\/skills$/);
+
+    assert.deepEqual(defaultAcpChatSkillRoots(), [
+      ".agents/skills",
+      ".codex/skills",
+      ".claude/skills",
+      ".gemini/skills",
+      ".qwen/skills",
+      ".kilo/skills",
+    ]);
+    assert.deepEqual(
+      buildAcpChatSkillInjectionPlan({
+        backend: overridden,
+        workspaceDir: root,
+      })
+        .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
+        .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
+      [
+        ".agents/skills",
+        ".codex/skills",
+        ".claude/skills",
+        ".gemini/skills",
+        ".qwen/skills",
+        ".kilo/skills",
+        ".custom/skills",
+      ],
+    );
   });
 
   it("skips initial ACP model setting when the session already reports the target raw model", async function () {
