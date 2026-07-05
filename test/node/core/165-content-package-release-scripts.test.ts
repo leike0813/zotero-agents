@@ -212,7 +212,11 @@ describe("content package release scripts", function () {
           id: "zotero-agents-official-workflows",
           version: "1.2.3",
           content_api: "1.0.0",
-          requires: { plugin: ">=0.5.0", content_api: "^1.0.0", zotero: ">=7 <10" },
+          requires: {
+            plugin: ">=0.5.0",
+            content_api: "^1.0.0",
+            zotero: ">=7 <10",
+          },
         },
         null,
         2,
@@ -444,21 +448,14 @@ describe("content package release scripts", function () {
 
   it("parses --plugin-version option", function () {
     assert.deepInclude(
-      parseContentPackageReleaseArgs([
-        "patch",
-        "--plugin-version",
-        ">=0.6.0",
-      ]),
+      parseContentPackageReleaseArgs(["patch", "--plugin-version", ">=0.6.0"]),
       {
         target: "patch",
         pluginVersion: ">=0.6.0",
       },
     );
     assert.deepInclude(
-      parseContentPackageReleaseArgs([
-        "minor",
-        "--plugin-version=>=0.7.0",
-      ]),
+      parseContentPackageReleaseArgs(["minor", "--plugin-version=>=0.7.0"]),
       {
         target: "minor",
         pluginVersion: ">=0.7.0",

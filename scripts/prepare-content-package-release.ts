@@ -46,7 +46,7 @@ function usage() {
     "",
     "Examples:",
     "  npm run release:content-package -- patch",
-    "  npm run release:content-package -- patch --plugin-version \">=0.6.0\"",
+    '  npm run release:content-package -- patch --plugin-version ">=0.6.0"',
     "  npm run release:content-package -- --dispatch --watch",
   ].join("\n");
 }
