@@ -71,4 +71,39 @@ describe("zotero mock isolation", function () {
     Zotero.Prefs.set("mock-isolation-key", "present");
     assert.equal(Zotero.Prefs.get("mock-isolation-key"), "present");
   });
+
+  it("creates simulated Zotero runtime globals inside a test", function () {
+    Object.defineProperty(globalThis, "IOUtils", {
+      configurable: true,
+      writable: true,
+      value: {
+        readUTF8: async () => "patched runtime should not leak",
+      },
+    });
+    Object.defineProperty(globalThis, "PathUtils", {
+      configurable: true,
+      writable: true,
+      value: { tempDir: "patched-runtime-temp" },
+    });
+    Object.defineProperty(globalThis, "Services", {
+      configurable: true,
+      writable: true,
+      value: {
+        io: { newFileURI: () => ({ spec: "patched:" }) },
+        scriptloader: {
+          loadSubScript: () => {
+            throw new Error("patched scriptloader should not leak");
+          },
+        },
+      },
+    });
+  });
+
+  it("does not retain simulated Zotero runtime globals from the previous test", function () {
+    assert.isUndefined((globalThis as { IOUtils?: unknown }).IOUtils);
+    const pathUtils = (globalThis as { PathUtils?: any }).PathUtils;
+    assert.isFunction(pathUtils?.join);
+    assert.isUndefined(pathUtils?.tempDir);
+    assert.isUndefined((globalThis as { Services?: unknown }).Services);
+  });
 });

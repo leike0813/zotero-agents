@@ -192,6 +192,20 @@ const prefObservers = new Map<
   { key: string; handler: (key: string) => void }
 >();
 let notifierCounter = 0;
+const RUNTIME_GLOBAL_KEYS = [
+  "Components",
+  "PathUtils",
+  "OS",
+  "IOUtils",
+  "Services",
+  "Cc",
+  "Ci",
+  "ChromeUtils",
+] as const;
+type RuntimeGlobalKey = (typeof RUNTIME_GLOBAL_KEYS)[number];
+let baselineRuntimeGlobalDescriptors:
+  | Partial<Record<RuntimeGlobalKey, PropertyDescriptor | undefined>>
+  | undefined;
 
 const TEST_DATA_DIR_ENV = "ZOTERO_TEST_DATA_DIR";
 const TEST_DATA_DIR_MANAGED_ENV = "ZOTERO_TEST_DATA_DIR_MANAGED";
@@ -265,7 +279,34 @@ function notifyPrefObservers(key: string) {
   }
 }
 
+function captureRuntimeGlobalDescriptors() {
+  const runtime = globalThis as Record<RuntimeGlobalKey, unknown>;
+  const descriptors: Partial<
+    Record<RuntimeGlobalKey, PropertyDescriptor | undefined>
+  > = {};
+  for (const key of RUNTIME_GLOBAL_KEYS) {
+    descriptors[key] = Object.getOwnPropertyDescriptor(runtime, key);
+  }
+  return descriptors;
+}
+
+function restoreRuntimeGlobalDescriptors() {
+  if (!baselineRuntimeGlobalDescriptors) {
+    return;
+  }
+  const runtime = globalThis as Record<RuntimeGlobalKey, unknown>;
+  for (const key of RUNTIME_GLOBAL_KEYS) {
+    const descriptor = baselineRuntimeGlobalDescriptors[key];
+    if (descriptor) {
+      Object.defineProperty(runtime, key, descriptor);
+    } else {
+      delete runtime[key];
+    }
+  }
+}
+
 export function resetZoteroMockStateForTests() {
+  restoreRuntimeGlobalDescriptors();
   Object.defineProperty(globalThis, "Zotero", {
     value: createZoteroMock(),
     writable: false,
@@ -2799,6 +2840,8 @@ if (!("OS" in globalThis)) {
     configurable: true,
   });
 }
+
+baselineRuntimeGlobalDescriptors = captureRuntimeGlobalDescriptors();
 
 export const mochaHooks = {
   beforeEach() {

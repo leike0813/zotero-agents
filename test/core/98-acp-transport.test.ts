@@ -368,6 +368,49 @@ describe("acp transport", function () {
     assert.include(plan.args[3] || "", '""C:\\Program Files\\nodejs\\npx.cmd"');
   });
 
+  it("prefers node-direct npx-cli launch for Windows npx ACP backends when available", function () {
+    const plan = buildAcpLaunchPlanForTests({
+      command: "npx",
+      resolvedCommand: "C:\\Program Files\\nodejs\\npx.ps1",
+      args: ["opencode-ai@latest", "acp"],
+      platform: "win32",
+      resolution: {
+        command: "npx",
+        available: true,
+        resolvedPath: "C:\\Program Files\\nodejs\\npx.ps1",
+        source: "path",
+        checkedCandidates: [],
+        launch: {
+          mode: "powershell",
+          command: "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+          args: ["-File", "C:\\Program Files\\nodejs\\npx.ps1"],
+          environment: { PATH: "C:\\Program Files\\nodejs" },
+          commandLine:
+            '"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -File "C:\\Program Files\\nodejs\\npx.ps1"',
+        },
+      },
+      nodeDirectNpx: {
+        nodePath: "C:\\Program Files\\nodejs\\node.exe",
+        npxCliPath:
+          "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+      },
+    });
+
+    assert.equal(plan.mode, "direct");
+    assert.equal(plan.command, "C:\\Program Files\\nodejs\\node.exe");
+    assert.deepEqual(plan.args, [
+      "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
+      "-y",
+      "opencode-ai@latest",
+      "acp",
+    ]);
+    assert.deepEqual(plan.environment, { PATH: "C:\\Program Files\\nodejs" });
+    assert.equal(plan.commandLabel, "npx -y opencode-ai@latest acp");
+    assert.include(plan.commandLine, "node.exe");
+    assert.include(plan.commandLine, "npx-cli.js");
+    assert.notInclude(plan.commandLine, "pwsh.exe");
+  });
+
   it("keeps Windows command shims on cmd.exe even when PowerShell is preflighted", function () {
     seedRuntimeCommandRegistryForTests({
       initialized: true,
@@ -1528,7 +1571,7 @@ describe("acp transport", function () {
     }
   });
 
-  it("uses registry resolved paths for bare ACP profile commands before PowerShell fallback", async function () {
+  it("uses node-direct npx launch for registry resolved npx ACP profiles when node is available", async function () {
     const callInvocations: SubprocessCallInvocation[] = [];
     seedWindowsLoginEnvironmentForTransportTests();
     seedRuntimeCommandRegistryForTests({
@@ -1593,14 +1636,23 @@ describe("acp transport", function () {
       });
 
       assert.lengthOf(callInvocations, 1);
-      assertCmdShimLaunch({
-        command: callInvocations[0].command,
-        argv: callInvocations[0].arguments,
-        expectedCommand: "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
-        expectedArgs: ["-y", "opencode-ai@latest", "acp"],
-      });
       assertHydratedWindowsEnvironment(callInvocations[0].environment);
-      assert.include(transport.getCommandLine(), "npx.cmd");
+      assert.match(callInvocations[0].command, /(^|\\)node\.exe$/i);
+      assert.match(
+        callInvocations[0].arguments[0] || "",
+        /(^|\\)npx-cli\.js$/i,
+      );
+      assert.deepEqual(callInvocations[0].arguments.slice(1), [
+        "-y",
+        "opencode-ai@latest",
+        "acp",
+      ]);
+      assert.equal(
+        transport.getCommandLabel(),
+        "npx -y opencode-ai@latest acp",
+      );
+      assert.include(transport.getCommandLine(), "node.exe");
+      assert.include(transport.getCommandLine(), "npx-cli.js");
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);

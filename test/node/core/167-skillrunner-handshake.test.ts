@@ -13,6 +13,11 @@ import {
   SKILLRUNNER_SEQUENCE_PROTOCOL,
   type SkillRunnerBackendCapabilities,
 } from "../../../src/modules/skillRunnerHandshakeProtocol";
+import {
+  resetSkillRunnerConnectionGovernorForTests,
+  runSkillRunnerConnection,
+  type SkillRunnerConnectionLane,
+} from "../../../src/modules/skillRunnerConnectionGovernor";
 import { SkillRunnerHttpError } from "../../../src/providers/skillrunner/errors";
 import type { SkillRunnerManagementClient } from "../../../src/providers/skillrunner/managementClient";
 import { SkillRunnerProvider } from "../../../src/providers/skillrunner/provider";
@@ -43,6 +48,7 @@ function remoteCapabilities(
 describe("skillrunner handshake capabilities", function () {
   afterEach(function () {
     resetSkillRunnerHandshakeCacheForTests();
+    resetSkillRunnerConnectionGovernorForTests();
   });
 
   it("resolves remote capabilities and caches by backend id plus baseUrl", async function () {
@@ -107,6 +113,35 @@ describe("skillrunner handshake capabilities", function () {
       capabilities.protocols[SKILLRUNNER_SEQUENCE_PROTOCOL]?.supported,
       false,
     );
+  });
+
+  it("uses the requested lane for legacy reachability fallback", async function () {
+    let probeLane: SkillRunnerConnectionLane | undefined;
+    const client = {
+      handshake: async () => {
+        throw new SkillRunnerHttpError({
+          message: "missing",
+          status: 404,
+          path: "/v1/system/handshake",
+        });
+      },
+      probeReachability: async (options?: {
+        lane?: SkillRunnerConnectionLane;
+      }) => {
+        probeLane = options?.lane;
+      },
+    } as unknown as SkillRunnerManagementClient;
+
+    const capabilities = await resolveSkillRunnerBackendCapabilities({
+      backend: backend(),
+      client,
+      requestOptions: {
+        lane: "submit",
+      },
+    });
+
+    assert.equal(capabilities.source, "legacy-fallback");
+    assert.equal(probeLane, "submit");
   });
 
   it("does not convert auth failures into legacy capabilities", async function () {
@@ -343,6 +378,136 @@ describe("skillrunner handshake capabilities", function () {
         ],
       );
     } finally {
+      runtime.fetch = originalFetch;
+    }
+  });
+
+  it("keeps provider preflight handshake on the submit lane while the backend has active work", async function () {
+    const runtime = globalThis as { fetch?: typeof fetch };
+    const originalFetch = runtime.fetch;
+    const calls: Array<{ url: string; method: string }> = [];
+    let releaseBackground!: () => void;
+    const backgroundStarted = new Promise<void>((resolve) => {
+      const backgroundTask = runSkillRunnerConnection({
+        backendId: "backend-provider-busy",
+        lane: "background",
+        operation: "GET /v1/jobs/job-background/events/history",
+        task: async () => {
+          resolve();
+          await new Promise<void>((release) => {
+            releaseBackground = release;
+          });
+        },
+      });
+      backgroundTask.catch(() => undefined);
+    });
+    await backgroundStarted;
+
+    runtime.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = String(init?.method || "GET");
+      const pathname = new URL(url).pathname;
+      calls.push({ url, method });
+      if (pathname === "/v1/system/handshake") {
+        return new Response(
+          JSON.stringify({
+            schema: "zotero-agents.skillrunner-handshake.response.v1",
+            backend: {
+              name: "Skill-Runner",
+              version: "0.7.3",
+            },
+            protocols: {
+              [SKILLRUNNER_JOB_PROTOCOL]: {
+                supported: true,
+              },
+              [SKILLRUNNER_SEQUENCE_PROTOCOL]: {
+                supported: false,
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+      if (pathname === "/v1/jobs" && method === "POST") {
+        releaseBackground();
+        return new Response(JSON.stringify({ request_id: "job-busy" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        });
+      }
+      if (pathname === "/v1/jobs/job-busy") {
+        return new Response(
+          JSON.stringify({
+            request_id: "job-busy",
+            status: "succeeded",
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+      if (pathname === "/v1/jobs/job-busy/result") {
+        return new Response(
+          JSON.stringify({
+            request_id: "job-busy",
+            result: {
+              status: "success",
+              data: {
+                ok: true,
+              },
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), {
+        status: 404,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }) as typeof fetch;
+    try {
+      const provider = new SkillRunnerProvider();
+      const result = await provider.execute({
+        requestKind: SKILLRUNNER_JOB_PROTOCOL,
+        backend: backend({
+          id: "backend-provider-busy",
+          baseUrl: "http://127.0.0.1:8034",
+        }),
+        request: {
+          kind: SKILLRUNNER_JOB_PROTOCOL,
+          skill_id: "example",
+          skill_source: "installed",
+          fetch_type: "result",
+          input: {},
+        },
+      });
+
+      assert.equal(result.status, "succeeded");
+      assert.deepEqual(
+        calls
+          .slice(0, 2)
+          .map((entry) => `${entry.method} ${new URL(entry.url).pathname}`),
+        ["POST /v1/system/handshake", "POST /v1/jobs"],
+      );
+    } finally {
+      releaseBackground();
       runtime.fetch = originalFetch;
     }
   });

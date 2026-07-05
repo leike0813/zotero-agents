@@ -3058,7 +3058,6 @@ describe("ACP SkillRunner-compatible runner", function () {
   it("builds Skill-Runner-aligned ACP repair prompts with target contract details", function () {
     const prompt = buildAcpSkillOutputRepairPrompt({
       executionMode: "interactive",
-      previousCandidate: '{"ui_hints":{"choices":[]}}',
       errors: ["pending output requires ui_hints object"],
       repairRound: 1,
       maxRepairRounds: 3,
@@ -3072,8 +3071,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       prompt,
       "Your previous output did not satisfy the Skill Runner output contract.",
     );
-    assert.include(prompt, "Previous candidate:");
-    assert.include(prompt, '{"ui_hints":{"choices":[]}}');
+    assert.notInclude(prompt, "Previous candidate:");
+    assert.notInclude(prompt, '{"ui_hints":{"choices":[]}}');
     assert.include(prompt, "Validation errors:");
     assert.include(prompt, "- pending output requires ui_hints object");
     assert.include(prompt, "Target output contract details:");

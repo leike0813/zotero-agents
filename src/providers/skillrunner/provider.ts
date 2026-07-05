@@ -490,6 +490,9 @@ export class SkillRunnerProvider implements Provider {
       const capabilities = await resolveSkillRunnerBackendCapabilities({
         backend,
         client: managementClient,
+        requestOptions: {
+          lane: "submit",
+        },
       });
       appendRuntimeLog({
         level: "info",

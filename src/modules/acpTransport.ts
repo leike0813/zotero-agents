@@ -1,5 +1,9 @@
 import type { BackendInstance } from "../backends/types";
-import { getMozillaSubprocessModule as getCompatMozillaSubprocessModule } from "../utils/runtimeCompatibility";
+import {
+  getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
+  runtimeFileExists,
+  runtimeReadTextFile,
+} from "../utils/runtimeCompatibility";
 import {
   buildRuntimeCommandLaunchPlan,
   getCachedRuntimeCommand,
@@ -251,6 +255,109 @@ function withDefaultNpxYesArg(command: string, args: string[]) {
   return ["-y", ...args];
 }
 
+type NodeDirectNpxLaunch = {
+  nodePath: string;
+  npxCliPath: string;
+};
+
+function getWindowsDirName(pathRaw: string) {
+  const path = normalizeString(pathRaw).replace(/[\\/]+$/, "");
+  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return index > 0 ? path.slice(0, index) : "";
+}
+
+function joinWindowsPath(baseDir: string, relativePath: string) {
+  const base = normalizeString(baseDir).replace(/[\\/]+$/, "");
+  const relative = normalizeString(relativePath)
+    .replace(/^[/\\]+/, "")
+    .replace(/[\\/]+/g, "\\");
+  if (!base || !relative) {
+    return "";
+  }
+  return `${base}\\${relative}`;
+}
+
+function pushUniquePath(paths: string[], pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (
+    path &&
+    !paths.some((entry) => entry.toLowerCase() === path.toLowerCase())
+  ) {
+    paths.push(path);
+  }
+}
+
+function parseNpxCliPathFromShim(args: { shimPath: string; shimText: string }) {
+  const shimDir = getWindowsDirName(args.shimPath);
+  const text = String(args.shimText || "");
+  if (!shimDir || !text) {
+    return "";
+  }
+  const ps1Match =
+    text.match(
+      /\$NPX_CLI_JS\s*=\s*"\$PSScriptRoot[\\/]+([^"]*?npx-cli\.js)"/iu,
+    ) ||
+    text.match(
+      /\$NPM_PREFIX_NPX_CLI_JS\s*=\s*"\$NPM_PREFIX[\\/]+([^"]*?npx-cli\.js)"/iu,
+    );
+  if (ps1Match?.[1]) {
+    return joinWindowsPath(shimDir, ps1Match[1]);
+  }
+  const cmdMatch = text.match(
+    /SET\s+"NPX_CLI_JS=%~dp0[\\/]*([^"]*?npx-cli\.js)"/iu,
+  );
+  if (cmdMatch?.[1]) {
+    return joinWindowsPath(shimDir, cmdMatch[1]);
+  }
+  return "";
+}
+
+async function resolveNodeDirectNpxLaunch(args: {
+  command: string;
+  resolvedNpxPath: string;
+  platform: string;
+  pathSearch?: ((command: string) => Promise<unknown>) | null;
+}) {
+  if (
+    args.platform !== "win32" ||
+    !isNpxCommand(args.command) ||
+    !normalizeString(args.resolvedNpxPath)
+  ) {
+    return null;
+  }
+  const nodeResolution =
+    getCachedRuntimeCommand("node") ||
+    (await resolveRuntimeCommand("node", { pathSearch: args.pathSearch }));
+  const nodePath = normalizeString(nodeResolution.resolvedPath);
+  if (!nodeResolution.available || !/\.exe$/i.test(nodePath)) {
+    return null;
+  }
+  const candidates: string[] = [];
+  const npxPath = normalizeString(args.resolvedNpxPath);
+  const npxDir = getWindowsDirName(npxPath);
+  const nodeDir = getWindowsDirName(nodePath);
+  pushUniquePath(candidates, joinWindowsPath(npxDir, "node_modules\\npm\\bin\\npx-cli.js"));
+  pushUniquePath(candidates, joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"));
+  try {
+    const shimText = await runtimeReadTextFile(npxPath);
+    pushUniquePath(
+      candidates,
+      parseNpxCliPathFromShim({ shimPath: npxPath, shimText }),
+    );
+  } catch {
+    // Missing or unreadable shim text only disables this optimization.
+  }
+  for (const candidate of candidates) {
+    if (await runtimeFileExists(candidate)) {
+      return {
+        nodePath,
+        npxCliPath: candidate,
+      } satisfies NodeDirectNpxLaunch;
+    }
+  }
+  return null;
+}
+
 export function buildAcpLaunchPlanForTests(args: {
   command: string;
   resolvedCommand: string;
@@ -259,6 +366,7 @@ export function buildAcpLaunchPlanForTests(args: {
   comspec?: string;
   resolution?: RuntimeCommandResolution;
   preferWindowsBareCommandPowerShell?: boolean;
+  nodeDirectNpx?: NodeDirectNpxLaunch | null;
 }): AcpLaunchPlan {
   const command = normalizeString(args.command);
   const resolvedCommand = normalizeString(args.resolvedCommand) || command;
@@ -269,11 +377,27 @@ export function buildAcpLaunchPlanForTests(args: {
   const commandLabel = [command || resolvedCommand, ...commandArgs]
     .filter(Boolean)
     .join(" ");
+  const platform = normalizeString(args.platform) || detectRuntimePlatform();
+  if (platform === "win32" && isNpxCommand(command) && args.nodeDirectNpx) {
+    const launchPlan = buildRuntimeCommandLaunchPlan({
+      command: args.nodeDirectNpx.nodePath,
+      resolvedCommand: args.nodeDirectNpx.nodePath,
+      commandArgs: [args.nodeDirectNpx.npxCliPath, ...commandArgs],
+      platform,
+    });
+    return {
+      ...launchPlan,
+      environment: args.resolution?.launch?.environment
+        ? { ...args.resolution.launch.environment }
+        : launchPlan.environment,
+      commandLabel,
+    };
+  }
   const launchPlan = buildRuntimeCommandLaunchPlan({
     command,
     resolvedCommand,
     commandArgs,
-    platform: args.platform,
+    platform,
     resolution: args.resolution,
     preferWindowsBareCommandPowerShell: args.preferWindowsBareCommandPowerShell,
   });
@@ -693,12 +817,19 @@ async function launchMozillaAcpTransport(
   const backendCommand = normalizeString(args.backend.command);
   const resolved = await resolveMozillaCommand(subprocess, backendCommand);
   const registryResolution = getCachedRuntimeCommand(backendCommand);
+  const nodeDirectNpx = await resolveNodeDirectNpxLaunch({
+    command: backendCommand,
+    resolvedNpxPath: resolved.resolvedPath || backendCommand,
+    platform: detectRuntimePlatform(),
+    pathSearch: subprocess.pathSearch,
+  });
   const launchPlan = buildAcpLaunchPlanForTests({
     command: backendCommand,
     resolvedCommand: resolved.resolvedPath || backendCommand,
     args: args.backend.args || [],
     resolution: resolved,
     preferWindowsBareCommandPowerShell: !registryResolution,
+    nodeDirectNpx,
   });
   const proc = await subprocess.call({
     command: launchPlan.command,
@@ -850,12 +981,18 @@ async function launchNodeAcpTransport(
   };
   const command = normalizeString(args.backend.command);
   const resolved = await resolveNodeCommand(command);
+  const nodeDirectNpx = await resolveNodeDirectNpxLaunch({
+    command,
+    resolvedNpxPath: resolved.resolvedPath || command,
+    platform: String(processModule.platform || "").trim(),
+  });
   const launchPlan = buildAcpLaunchPlanForTests({
     command,
     resolvedCommand: resolved.resolvedPath || command,
     args: args.backend.args || [],
     platform: String(processModule.platform || "").trim(),
     resolution: resolved,
+    nodeDirectNpx,
   });
   const env = {
     ...(processModule.env as Record<string, string | undefined>),
@@ -1158,12 +1295,19 @@ async function launchWebSocketBridgeAcpTransport(
   const backendCommand = normalizeString(args.backend.command);
   const resolved = await resolveMozillaCommand(subprocess, backendCommand);
   const registryResolution = getCachedRuntimeCommand(backendCommand);
+  const nodeDirectNpx = await resolveNodeDirectNpxLaunch({
+    command: backendCommand,
+    resolvedNpxPath: resolved.resolvedPath || backendCommand,
+    platform: detectRuntimePlatform(),
+    pathSearch: subprocess.pathSearch,
+  });
   const launchPlan = buildAcpLaunchPlanForTests({
     command: backendCommand,
     resolvedCommand: resolved.resolvedPath || backendCommand,
     args: args.backend.args || [],
     resolution: resolved,
     preferWindowsBareCommandPowerShell: !registryResolution,
+    nodeDirectNpx,
   });
   const env = buildSubprocessEnvironment({
     ...(launchPlan.environment || {}),

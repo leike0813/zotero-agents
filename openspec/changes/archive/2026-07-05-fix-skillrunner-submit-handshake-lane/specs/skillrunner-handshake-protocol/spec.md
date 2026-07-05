@@ -1,26 +1,4 @@
-# SkillRunner Handshake Protocol
-
-## Purpose
-
-Protocol discovery and capability negotiation between the plugin and SkillRunner backends, ensuring the plugin only sends execution requests that the backend explicitly supports.
-
-## Requirements
-
-### Requirement: SkillRunner handshake endpoint
-
-SkillRunner backends SHALL expose a handshake contract at `POST /v1/system/handshake` for protocol capability discovery.
-
-#### Scenario: Plugin requests known protocols
-
-- **WHEN** the plugin prepares a SkillRunner backend for protocol-aware execution
-- **THEN** it SHALL send a JSON request with schema `zotero-agents.skillrunner-handshake.request.v1`
-- **AND** it SHALL include client name, client version, and requested protocol IDs.
-
-#### Scenario: Backend reports protocol support
-
-- **WHEN** the backend responds to the handshake request
-- **THEN** the response SHALL use schema `zotero-agents.skillrunner-handshake.response.v1`
-- **AND** it SHALL report support as a boolean per protocol ID.
+## MODIFIED Requirements
 
 ### Requirement: SkillRunner protocol preflight
 
@@ -73,17 +51,3 @@ The plugin SHALL treat a reachable SkillRunner backend without a handshake endpo
 
 - **WHEN** the handshake fails due to authentication, authorization, or network availability
 - **THEN** the plugin SHALL NOT convert the failure into legacy capabilities.
-
-### Requirement: Handshake caching
-
-The plugin SHALL cache SkillRunner handshake results by backend identity and base URL.
-
-#### Scenario: Same backend and URL
-
-- **WHEN** the same backend id and base URL are checked repeatedly
-- **THEN** the plugin SHALL reuse the cached handshake result.
-
-#### Scenario: Backend id or URL changes
-
-- **WHEN** the backend id or base URL changes
-- **THEN** the plugin SHALL perform a new handshake.

@@ -155,7 +155,6 @@ export async function validateAcpSkillFinalPayload(args: {
 
 export function buildAcpSkillOutputRepairPrompt(args: {
   executionMode: string;
-  previousCandidate?: string;
   errors: string[];
   repairRound: number;
   maxRepairRounds: number;
@@ -167,10 +166,6 @@ export function buildAcpSkillOutputRepairPrompt(args: {
       .toLowerCase() === "interactive";
   const lines = [
     "Your previous output did not satisfy the Skill Runner output contract.",
-    "",
-    "Previous candidate:",
-    args.previousCandidate ||
-      "No valid JSON object was extracted from the previous assistant turn.",
     "",
     "Validation errors:",
     ...(args.errors.length > 0

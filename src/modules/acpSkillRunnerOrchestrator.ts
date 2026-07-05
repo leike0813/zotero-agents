@@ -2962,7 +2962,6 @@ export async function recoverAcpSkillRunConversation(args: {
       promptOutcome = await promptRecoveredWorkflowContinuation(
         buildAcpSkillOutputRepairPrompt({
           executionMode,
-          previousCandidate: convergence.candidateText,
           errors: convergence.errors,
           repairRound,
           maxRepairRounds,
@@ -4880,7 +4879,6 @@ export async function executeAcpSkillRunnerJob(args: {
           context,
           repairPrompt: buildAcpSkillOutputRepairPrompt({
             executionMode,
-            previousCandidate: detachedConvergence.candidateText,
             errors: detachedConvergence.errors,
             repairRound: detachedRepairRound,
             maxRepairRounds,
@@ -5257,7 +5255,6 @@ export async function executeAcpSkillRunnerJob(args: {
         context,
         repairPrompt: buildAcpSkillOutputRepairPrompt({
           executionMode,
-          previousCandidate: convergence.candidateText,
           errors: convergence.errors,
           repairRound,
           maxRepairRounds,

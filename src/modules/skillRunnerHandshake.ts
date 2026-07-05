@@ -1,7 +1,10 @@
 import type { BackendInstance } from "../backends/types";
 import { DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { getSkillRunnerHttpStatus } from "../providers/skillrunner/errors";
-import type { SkillRunnerManagementClient } from "../providers/skillrunner/managementClient";
+import type {
+  SkillRunnerManagementClient,
+  SkillRunnerManagementRequestOptions,
+} from "../providers/skillrunner/managementClient";
 import {
   createLegacySkillRunnerCapabilities,
   isSkillRunnerProtocolSupported,
@@ -33,9 +36,11 @@ function isMissingHandshakeEndpoint(error: unknown) {
 async function resolveCapabilitiesUncached(args: {
   backend: BackendInstance;
   client: SkillRunnerManagementClient;
+  requestOptions?: SkillRunnerManagementRequestOptions;
 }) {
   try {
     return await args.client.handshake({
+      ...args.requestOptions,
       requestedProtocols: SKILLRUNNER_HANDSHAKE_REQUESTED_PROTOCOLS,
     });
   } catch (error) {
@@ -43,6 +48,7 @@ async function resolveCapabilitiesUncached(args: {
       throw error;
     }
     await args.client.probeReachability({
+      ...args.requestOptions,
       allowGetFallback: true,
     });
     return createLegacySkillRunnerCapabilities();
@@ -52,6 +58,7 @@ async function resolveCapabilitiesUncached(args: {
 export async function resolveSkillRunnerBackendCapabilities(args: {
   backend: BackendInstance;
   client: SkillRunnerManagementClient;
+  requestOptions?: SkillRunnerManagementRequestOptions;
 }) {
   if (args.backend.type !== DEFAULT_BACKEND_TYPE) {
     throw new Error(
