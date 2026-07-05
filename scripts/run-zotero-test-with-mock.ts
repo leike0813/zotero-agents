@@ -164,7 +164,9 @@ export function buildTestEnvironment(
 function isUnderDirectory(child: string, parent: string) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return (
-    Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative)
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
   );
 }
 

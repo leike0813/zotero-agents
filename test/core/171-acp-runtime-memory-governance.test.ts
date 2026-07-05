@@ -834,9 +834,7 @@ describe("ACP runtime memory governance", function () {
         backendId: "backend-acp",
         backendType: "acp",
         taskName: `Panel Run ${padded}`,
-        createdAt: new Date(
-          Date.UTC(2026, 6, 3, 0, 0, index),
-        ).toISOString(),
+        createdAt: new Date(Date.UTC(2026, 6, 3, 0, 0, index)).toISOString(),
       });
     }
     upsertAcpSkillRun({

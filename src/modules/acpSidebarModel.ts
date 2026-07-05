@@ -154,8 +154,7 @@ export function buildAcpSidebarViewSnapshot(args: {
     status: args.snapshot.status,
     statusLabel: resolveStatusLabel(args.snapshot.status),
     statusExpanded: args.snapshot.statusExpanded === true,
-    autoApproveAcpPermissions:
-      args.snapshot.autoApproveAcpPermissions === true,
+    autoApproveAcpPermissions: args.snapshot.autoApproveAcpPermissions === true,
     chatDisplayMode:
       args.snapshot.chatDisplayMode === "bubble" ? "bubble" : "plain",
     transcriptRevision: Number(args.snapshot.transcriptRevision || 0),

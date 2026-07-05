@@ -591,7 +591,10 @@ export async function appendAcpSkillRunTranscriptEvents(args: {
   await withWriteQueue(paths.transcriptPath, async () => {
     const currentIndex =
       (await readOrRebuildTranscriptIndex(paths)) ||
-      emptyTranscriptIndex(paths, pending[0].createdAt || new Date().toISOString());
+      emptyTranscriptIndex(
+        paths,
+        pending[0].createdAt || new Date().toISOString(),
+      );
     const stat = await statRuntimePath(paths.transcriptPath);
     let offset = stat.exists ? stat.size : 0;
     let nextIndex = currentIndex;

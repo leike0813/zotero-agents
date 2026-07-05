@@ -206,6 +206,7 @@ const RUNTIME_GLOBAL_KEYS = [
   "__zs_test_performance_probe_hooks__",
 ] as const;
 type RuntimeGlobalKey = (typeof RUNTIME_GLOBAL_KEYS)[number];
+// eslint-disable-next-line prefer-const -- reassigned at module bottom
 let baselineRuntimeGlobalDescriptors:
   | Partial<Record<RuntimeGlobalKey, PropertyDescriptor | undefined>>
   | undefined;

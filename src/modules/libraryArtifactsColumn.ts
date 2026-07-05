@@ -82,7 +82,7 @@ export function notifyLibraryArtifactsColumnItemsChanged(
     if (parentID > 0) {
       clearCachedItem(parentID);
       refreshItemIDs.add(parentID);
-    } else if (isTopLevelRegularItem(item)) {
+    } else if (isTopLevelRegularArtifactItem(item)) {
       refreshItemIDs.add(numericID);
     }
     clearCachedItem(numericID);

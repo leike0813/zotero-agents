@@ -701,7 +701,8 @@
     const label =
       safeText(context.mainStatusLabel || context.statusLabel || status) ||
       status;
-    const tone = safeText(context.mainStatusTone || context.statusTone) ||
+    const tone =
+      safeText(context.mainStatusTone || context.statusTone) ||
       workspaceStatusTone(status);
     const badge = el(
       "span",
@@ -838,7 +839,10 @@
     target.appendChild(meta);
     const statusRow = el("div", "assistant-panel-banner-status-row");
     renderBannerStatusBadge(statusRow, panel);
-    renderBannerIndicators(statusRow, panel.context && panel.context.indicators);
+    renderBannerIndicators(
+      statusRow,
+      panel.context && panel.context.indicators,
+    );
     if (statusRow.firstChild) target.appendChild(statusRow);
     if (
       panel.context &&
@@ -1477,7 +1481,9 @@
             labels.statusBackend || labels.backendStatus || labels.backend,
           ) || "Backend",
           safeText(
-            item.backendStatusLabel || item.backendStatus || item.backend_status,
+            item.backendStatusLabel ||
+              item.backendStatus ||
+              item.backend_status,
           ) || "-",
           safeText(item.backendStatusTone) ||
             workspaceStatusTone(item.backendStatus || item.backend_status),

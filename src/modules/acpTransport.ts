@@ -336,8 +336,14 @@ async function resolveNodeDirectNpxLaunch(args: {
   const npxPath = normalizeString(args.resolvedNpxPath);
   const npxDir = getWindowsDirName(npxPath);
   const nodeDir = getWindowsDirName(nodePath);
-  pushUniquePath(candidates, joinWindowsPath(npxDir, "node_modules\\npm\\bin\\npx-cli.js"));
-  pushUniquePath(candidates, joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"));
+  pushUniquePath(
+    candidates,
+    joinWindowsPath(npxDir, "node_modules\\npm\\bin\\npx-cli.js"),
+  );
+  pushUniquePath(
+    candidates,
+    joinWindowsPath(nodeDir, "node_modules\\npm\\bin\\npx-cli.js"),
+  );
   try {
     const shimText = await runtimeReadTextFile(npxPath);
     pushUniquePath(
