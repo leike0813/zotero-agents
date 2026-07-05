@@ -40,6 +40,47 @@
         : String(value);
   }
 
+  function trace(stage, details) {
+    const target = window.wrappedJSObject || window;
+    const key = "__zsSkillRunnerSidebarTrace";
+    const entries = Array.isArray(target[key]) ? target[key] : [];
+    entries.push(
+      Object.assign(
+        {
+          ts: new Date().toISOString(),
+          stage: stage || "unknown",
+        },
+        details || {},
+      ),
+    );
+    if (entries.length > 120) entries.splice(0, entries.length - 120);
+    window[key] = entries.slice();
+    if (window.wrappedJSObject) window.wrappedJSObject[key] = entries.slice();
+  }
+
+  function envelopeSummary(envelope) {
+    const source = envelope && typeof envelope === "object" ? envelope : {};
+    const session =
+      source.session && typeof source.session === "object"
+        ? source.session
+        : null;
+    const workspace =
+      source.workspace && typeof source.workspace === "object"
+        ? source.workspace
+        : null;
+    return {
+      hostMode: safeText(source.hostMode),
+      sessionRequestId: safeText(session && session.requestId),
+      sessionStatus: safeText(session && session.status),
+      selectedTaskKey: safeText(workspace && workspace.selectedTaskKey),
+      groups: Array.isArray(workspace && workspace.groups)
+        ? workspace.groups.length
+        : 0,
+      transcriptPaginationVirtualizationEnabled:
+        source.transcriptPaginationVirtualizationEnabled !== false,
+    };
+  }
+
   function normalizedStatus() {
     return safeText(state.snapshot && state.snapshot.status)
       .trim()
@@ -66,6 +107,10 @@
       try {
         const sidebarBridge = resolveSidebarActionBridge();
         if (sidebarBridge) {
+          trace("send-action-direct", {
+            action,
+            payloadKeys: Object.keys(payload || {}),
+          });
           sidebarBridge.sendAction(action, payload || {});
           return;
         }
@@ -75,6 +120,11 @@
     }
     const prefixes = [state.bridgePrefix || "run-dialog"];
     const targets = [window.parent, window.top, window.opener];
+    trace("send-action-fallback", {
+      action,
+      payloadKeys: Object.keys(payload || {}),
+      prefixes,
+    });
     prefixes.forEach(function (prefix) {
       targets.forEach(function (target) {
         if (!target) return;
@@ -874,6 +924,7 @@
   function render(envelope) {
     state.workspaceEnvelope =
       envelope && typeof envelope === "object" ? envelope : {};
+    trace("render", { summary: envelopeSummary(state.workspaceEnvelope) });
     state.snapshot =
       state.workspaceEnvelope.session &&
       typeof state.workspaceEnvelope.session === "object"
@@ -984,9 +1035,14 @@
           : null;
       if (drawer && typeof drawer.open === "boolean")
         state.drawerOpen = drawer.open;
+      trace("message-received", {
+        type: data.type,
+        summary: envelopeSummary(payload || {}),
+      });
       render(payload || {});
     }
   });
 
+  trace("ready-send", {});
   sendAction("ready", {});
 })();

@@ -36,6 +36,56 @@
     return String(value == null ? "" : value).trim();
   }
 
+  function trace(stage, details) {
+    const target = window.wrappedJSObject || window;
+    const key = "__zsAcpChatTrace";
+    const entries = Array.isArray(target[key]) ? target[key] : [];
+    entries.push(
+      Object.assign(
+        {
+          ts: new Date().toISOString(),
+          stage: stage || "unknown",
+        },
+        details || {},
+      ),
+    );
+    if (entries.length > 120) entries.splice(0, entries.length - 120);
+    window[key] = entries.slice();
+    if (window.wrappedJSObject) window.wrappedJSObject[key] = entries.slice();
+  }
+
+  function snapshotSummary(snapshot) {
+    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const page =
+      source.selectedTranscriptPage &&
+      typeof source.selectedTranscriptPage === "object"
+        ? source.selectedTranscriptPage
+        : null;
+    return {
+      backendAvailability: safeText(source.backendAvailability),
+      conversationAvailability: safeText(source.conversationAvailability),
+      activeBackendId: safeText(source.activeBackendId || source.backendId),
+      activeConversationId: safeText(
+        source.activeConversationId || source.conversationId,
+      ),
+      status: safeText(source.status),
+      backendOptions: Array.isArray(source.backendOptions)
+        ? source.backendOptions.length
+        : 0,
+      chatSessions: Array.isArray(source.chatSessions)
+        ? source.chatSessions.length
+        : 0,
+      selectedTranscriptPage: page
+        ? {
+            requestId: safeText(page.requestId),
+            cursor: Number(page.cursor || 0),
+            total: Number(page.total || 0),
+            items: Array.isArray(page.items) ? page.items.length : 0,
+          }
+        : null,
+    };
+  }
+
   function clear(node) {
     while (node && node.firstChild) node.removeChild(node.firstChild);
   }
@@ -63,6 +113,7 @@
     try {
       const bridge = resolveSidebarActionBridge();
       if (bridge) {
+        trace("send-action-direct", { action, payloadKeys: Object.keys(data) });
         bridge.sendAction(action, data);
         return;
       }
@@ -70,6 +121,7 @@
       // Fall back to postMessage below.
     }
     const message = { type: "acp:action", action, payload: data };
+    trace("send-action-fallback", { action, payloadKeys: Object.keys(data) });
     const targets = [window.parent, window.top, window.opener];
     const seen = new Set();
     targets.forEach(function (target) {
@@ -320,27 +372,66 @@
     ].join(":");
   }
 
+  function compactOptionKey(entry) {
+    return [
+      safeText(entry && (entry.backendId || entry.id || entry.value)),
+      safeText(entry && (entry.displayName || entry.label || entry.name)),
+      safeText(entry && entry.status),
+    ].join(":");
+  }
+
   function compactPanelRenderKey(snapshot) {
     const snap = snapshot && typeof snapshot === "object" ? snapshot : {};
     const pendingPermission = snap.pendingPermissionRequest || null;
+    const backendOptions = Array.isArray(snap.backendOptions)
+      ? snap.backendOptions
+      : [];
+    const chatSessions = Array.isArray(snap.chatSessions)
+      ? snap.chatSessions
+      : [];
     const backendSessions = Array.isArray(snap.backendChatSessions)
       ? snap.backendChatSessions
       : [];
+    const authMethods = Array.isArray(snap.authMethods) ? snap.authMethods : [];
+    const modeOptions = Array.isArray(snap.modeOptions) ? snap.modeOptions : [];
+    const modelOptions = Array.isArray(snap.displayModelOptions)
+      ? snap.displayModelOptions
+      : Array.isArray(snap.modelOptions)
+        ? snap.modelOptions
+        : [];
+    const reasoningOptions = Array.isArray(snap.reasoningEffortOptions)
+      ? snap.reasoningEffortOptions
+      : [];
     return JSON.stringify({
+      backendAvailability: safeText(snap.backendAvailability),
+      conversationAvailability: safeText(snap.conversationAvailability),
       backendId: safeText(snap.activeBackendId || snap.backendId),
       conversationId: safeText(
         snap.activeConversationId || snap.conversationId,
       ),
       status: safeText(snap.status),
+      statusLabel: safeText(snap.statusLabel),
+      lastError: safeText(snap.lastError || snap.prerequisiteError),
       busy: snap.busy === true,
       sessionId: safeText(snap.sessionId || snap.remoteSessionId),
       title: safeText(snap.title || snap.conversationTitle),
       chatDisplayMode: safeText(snap.chatDisplayMode),
+      streamingRenderEnabled: snap.streamingRenderEnabled !== false,
+      transcriptPaginationVirtualizationEnabled:
+        snap.transcriptPaginationVirtualizationEnabled === true,
       selectedMode: safeText(snap.currentMode && snap.currentMode.id),
       selectedModel: safeText(snap.currentModel && snap.currentModel.id),
       selectedEffort: safeText(
         snap.currentReasoningEffort && snap.currentReasoningEffort.id,
       ),
+      backendOptions: backendOptions.map(compactOptionKey),
+      chatSessions: chatSessions.map(compactConversationKey),
+      authMethods: authMethods.map(function (entry) {
+        return compactOptionKey(entry);
+      }),
+      modeOptions: modeOptions.map(compactOptionKey),
+      modelOptions: modelOptions.map(compactOptionKey),
+      reasoningOptions: reasoningOptions.map(compactOptionKey),
       autoApproveAcpPermissions: snap.autoApproveAcpPermissions === true,
       sessionDrawerOpen: state.sessionDrawerOpen,
       detailsDrawerOpen: state.detailsDrawerOpen,
@@ -599,6 +690,7 @@
   function renderPanel(snapshot) {
     const renderKey = compactPanelRenderKey(snapshot || {});
     if (state.panelRenderKey === renderKey) {
+      trace("render-panel-skip", { summary: snapshotSummary(snapshot || {}) });
       syncDrawerVisibility();
       return;
     }
@@ -609,6 +701,7 @@
     )
       return;
     state.panelRenderKey = renderKey;
+    trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
     const panelSnapshot = projectPanelSnapshot(snapshot || {});
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
@@ -834,6 +927,7 @@
 
   function render(snapshot) {
     state.snapshot = snapshot && typeof snapshot === "object" ? snapshot : {};
+    trace("render", { summary: snapshotSummary(state.snapshot) });
     document.title =
       safeText(state.snapshot.title) ||
       safeText(state.snapshot.labels && state.snapshot.labels.title);
@@ -850,6 +944,9 @@
   function queueRender(snapshot) {
     state.pendingRenderSnapshot =
       snapshot && typeof snapshot === "object" ? snapshot : {};
+    trace("queue-render", {
+      summary: snapshotSummary(state.pendingRenderSnapshot),
+    });
     if (state.renderScheduled) return;
     state.renderScheduled = true;
     const schedule =
@@ -896,8 +993,13 @@
       data.payload && typeof data.payload === "object" ? data.payload : {};
     if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
       return;
+    trace("message-received", {
+      type: data.type,
+      summary: snapshotSummary(payload),
+    });
     queueRender(payload);
   });
 
+  trace("ready-send", {});
   sendAction("ready", {});
 })();

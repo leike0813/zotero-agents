@@ -207,7 +207,9 @@ fsSync.mkdirSync(mockZoteroDataDir, { recursive: true });
 function isUnderDirectory(child: string, parent: string) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return (
-    Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative)
+    Boolean(relative) &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
   );
 }
 
@@ -2698,6 +2700,7 @@ function createZoteroMock(): ZoteroMock {
         return `mock-${notifierCounter}`;
       },
       unregisterObserver: () => {},
+      trigger: async () => true,
     },
     Plugins: {
       addObserver: () => {},

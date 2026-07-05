@@ -40,6 +40,10 @@
   function sendAction(action, payload) {
     const direct = bridge();
     if (direct) {
+      trace("send-action-direct", {
+        action,
+        payloadKeys: Object.keys(payload || {}),
+      });
       direct.sendAction(action, payload || {});
       return;
     }
@@ -48,6 +52,10 @@
       action,
       payload: payload || {},
     };
+    trace("send-action-fallback", {
+      action,
+      payloadKeys: Object.keys(payload || {}),
+    });
     [window.parent, window.top, window.opener].forEach(function (target) {
       if (!target) return;
       try {
@@ -75,6 +83,51 @@
 
   function safeText(value) {
     return String(value || "").trim();
+  }
+
+  function trace(stage, details) {
+    const target = window.wrappedJSObject || window;
+    const key = "__zsAcpSkillRunTrace";
+    const entries = Array.isArray(target[key]) ? target[key] : [];
+    entries.push(
+      Object.assign(
+        {
+          ts: new Date().toISOString(),
+          stage: stage || "unknown",
+        },
+        details || {},
+      ),
+    );
+    if (entries.length > 120) entries.splice(0, entries.length - 120);
+    window[key] = entries.slice();
+    if (window.wrappedJSObject) window.wrappedJSObject[key] = entries.slice();
+  }
+
+  function snapshotSummary(snapshot) {
+    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
+    const selectedRun =
+      source.selectedRun && typeof source.selectedRun === "object"
+        ? source.selectedRun
+        : null;
+    const page =
+      source.selectedTranscriptPage &&
+      typeof source.selectedTranscriptPage === "object"
+        ? source.selectedTranscriptPage
+        : null;
+    return {
+      selectedRequestId: safeText(source.selectedRequestId),
+      selectedRunRequestId: safeText(selectedRun && selectedRun.requestId),
+      selectedRunStatus: safeText(selectedRun && selectedRun.status),
+      runs: Array.isArray(source.runs) ? source.runs.length : 0,
+      selectedTranscriptPage: page
+        ? {
+            requestId: safeText(page.requestId),
+            cursor: Number(page.cursor || 0),
+            total: Number(page.total || 0),
+            items: Array.isArray(page.items) ? page.items.length : 0,
+          }
+        : null,
+    };
   }
 
   function snapshotSelectedRequestId(snapshot) {
@@ -558,6 +611,7 @@
     }
     const renderKey = buildPanelRenderKey(snapshot || {});
     if (state.panelRenderKey === renderKey) {
+      trace("render-panel-skip", { summary: snapshotSummary(snapshot || {}) });
       return;
     }
     const renderer = assistantPanelRenderer();
@@ -576,6 +630,7 @@
     }
     try {
       const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {});
+      trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
       panelSnapshot.drawers = panelSnapshot.drawers || {};
       panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
       panelSnapshot.drawers.permissionRequestOpen =
@@ -879,6 +934,7 @@
   function render(snapshot) {
     captureReplyDraft();
     state.snapshot = snapshot || {};
+    trace("render", { summary: snapshotSummary(state.snapshot) });
     renderAssistantPanelRuntime(state.snapshot);
     $("acp-skill-run-drawer").classList.toggle("hidden", !state.runDrawerOpen);
     $("acp-skill-run-details").classList.toggle("hidden", !state.detailsOpen);
@@ -890,8 +946,14 @@
   function queueRender(snapshot) {
     const nextSnapshot =
       snapshot && typeof snapshot === "object" ? snapshot : {};
-    if (!shouldAcceptSnapshot(nextSnapshot)) return;
+    if (!shouldAcceptSnapshot(nextSnapshot)) {
+      trace("queue-render-drop-stale", {
+        summary: snapshotSummary(nextSnapshot),
+      });
+      return;
+    }
     state.pendingRenderSnapshot = nextSnapshot;
+    trace("queue-render", { summary: snapshotSummary(nextSnapshot) });
     if (state.renderScheduled) return;
     state.renderScheduled = true;
     const schedule =
@@ -927,6 +989,10 @@
       data.type === "acp-skill-run:init" ||
       data.type === "acp-skill-run:snapshot"
     ) {
+      trace("message-received", {
+        type: data.type,
+        summary: snapshotSummary(data.payload || {}),
+      });
       queueRender(data.payload || {});
       return;
     }
@@ -945,6 +1011,7 @@
     });
 
   document.addEventListener("DOMContentLoaded", function () {
+    trace("ready-send", {});
     sendAction("ready", {});
   });
 })();

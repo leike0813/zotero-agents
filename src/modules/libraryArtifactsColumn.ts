@@ -48,11 +48,13 @@ const ARTIFACT_DEFINITIONS: Array<{
     icon: "icon_artifact_citation_analysis.svg",
   },
 ];
-const REFRESH_DEBOUNCE_MS = 100;
+const REDRAW_DEBOUNCE_MS = 100;
 const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 
 let registeredColumnDataKey: string | false | undefined;
-let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+let redrawTimer: ReturnType<typeof setTimeout> | undefined;
+let redrawAllItems = false;
+const pendingRedrawItemIDs = new Set<number>();
 const stateCache = new Map<number, ArtifactColumnState>();
 const pendingScans = new Set<number>();
 
@@ -100,10 +102,11 @@ export function notifyLibraryArtifactsColumnItemsChanged(
 ) {
   if (!ids.length) {
     clearArtifactsColumnCache();
-    scheduleColumnRefresh();
+    scheduleItemRowsRedraw();
     return;
   }
   let resolvedAny = false;
+  const redrawItemIDs = new Set<number>();
   for (const id of ids) {
     const numericID = Number(id);
     if (!Number.isFinite(numericID)) {
@@ -117,13 +120,18 @@ export function notifyLibraryArtifactsColumnItemsChanged(
     const parentID = Number(item.parentID || 0);
     if (parentID > 0) {
       clearCachedItem(parentID);
+      redrawItemIDs.add(parentID);
+    } else if (isTopLevelRegularItem(item)) {
+      redrawItemIDs.add(numericID);
     }
     clearCachedItem(numericID);
   }
   if (!resolvedAny) {
     clearArtifactsColumnCache();
+    scheduleItemRowsRedraw();
+    return;
   }
-  scheduleColumnRefresh();
+  scheduleItemRowsRedraw([...redrawItemIDs]);
 }
 
 export function resetLibraryArtifactsColumnForTests() {
@@ -151,11 +159,10 @@ async function scanItemArtifacts(item: ArtifactItem) {
   pendingScans.add(item.id);
   try {
     const state = await resolveArtifactState(item);
-    if (stateCache.get(item.id) !== state) {
-      stateCache.set(item.id, state);
-      scheduleColumnRefresh();
-    } else {
-      stateCache.set(item.id, state);
+    const previousState = stateCache.get(item.id);
+    stateCache.set(item.id, state);
+    if (previousState !== state && (state || previousState !== undefined)) {
+      scheduleItemRowsRedraw([item.id]);
     }
   } catch (error) {
     stateCache.set(item.id, "");
@@ -420,20 +427,38 @@ function clearCachedItem(itemID: number) {
 function clearArtifactsColumnCache() {
   stateCache.clear();
   pendingScans.clear();
-  if (refreshTimer) {
-    clearTimeout(refreshTimer);
-    refreshTimer = undefined;
+  if (redrawTimer) {
+    clearTimeout(redrawTimer);
+    redrawTimer = undefined;
   }
+  redrawAllItems = false;
+  pendingRedrawItemIDs.clear();
 }
 
-function scheduleColumnRefresh() {
-  if (refreshTimer) {
+function scheduleItemRowsRedraw(itemIDs?: number[]) {
+  if (!itemIDs) {
+    redrawAllItems = true;
+    pendingRedrawItemIDs.clear();
+  } else if (!redrawAllItems) {
+    for (const itemID of itemIDs) {
+      if (Number.isFinite(itemID)) {
+        pendingRedrawItemIDs.add(itemID);
+      }
+    }
+  }
+  if (redrawTimer) {
     return;
   }
-  refreshTimer = setTimeout(() => {
-    refreshTimer = undefined;
-    Zotero.ItemTreeManager.refreshColumns?.();
-  }, REFRESH_DEBOUNCE_MS);
+  redrawTimer = setTimeout(() => {
+    redrawTimer = undefined;
+    const shouldRedrawAllItems = redrawAllItems;
+    const ids = redrawAllItems ? [] : [...pendingRedrawItemIDs];
+    redrawAllItems = false;
+    pendingRedrawItemIDs.clear();
+    if (ids.length || shouldRedrawAllItems) {
+      void Zotero.Notifier.trigger("redraw", "item", ids);
+    }
+  }, REDRAW_DEBOUNCE_MS);
 }
 
 export const libraryArtifactsColumnInternalsForTests = {

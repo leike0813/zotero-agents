@@ -203,6 +203,145 @@ const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
 const localize = getStringOrFallback;
 
+function countArray(value: unknown) {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function summarizeAcpChatPanelSnapshot(snapshot: Record<string, unknown>) {
+  const page =
+    snapshot.selectedTranscriptPage &&
+    typeof snapshot.selectedTranscriptPage === "object"
+      ? (snapshot.selectedTranscriptPage as Record<string, unknown>)
+      : null;
+  const transcriptState =
+    snapshot.transcriptState && typeof snapshot.transcriptState === "object"
+      ? (snapshot.transcriptState as Record<string, unknown>)
+      : null;
+  return {
+    backendAvailability: String(snapshot.backendAvailability || ""),
+    conversationAvailability: String(snapshot.conversationAvailability || ""),
+    activeBackendId: String(
+      snapshot.activeBackendId || snapshot.backendId || "",
+    ),
+    activeConversationId: String(
+      snapshot.activeConversationId || snapshot.conversationId || "",
+    ),
+    status: String(snapshot.status || ""),
+    backendOptions: countArray(snapshot.backendOptions),
+    chatSessions: countArray(snapshot.chatSessions),
+    backendChatSessions: countArray(snapshot.backendChatSessions),
+    transcriptPaginationVirtualizationEnabled:
+      snapshot.transcriptPaginationVirtualizationEnabled === true,
+    streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+    selectedTranscriptPage: page
+      ? {
+          requestId: String(page.requestId || ""),
+          cursor: Number(page.cursor || 0),
+          total: Number(page.total || 0),
+          items: countArray(page.items),
+        }
+      : null,
+    transcriptState: transcriptState
+      ? {
+          backendId: String(transcriptState.backendId || ""),
+          conversationId: String(transcriptState.conversationId || ""),
+          state: String(transcriptState.state || ""),
+        }
+      : null,
+  };
+}
+
+function summarizeChildSnapshot(
+  tab: AssistantWorkspaceTab,
+  snapshot: Record<string, unknown>,
+) {
+  if (tab === "acp-chat") {
+    return summarizeAcpChatPanelSnapshot(snapshot);
+  }
+  if (tab === "acp-skills") {
+    const selectedRun =
+      snapshot.selectedRun && typeof snapshot.selectedRun === "object"
+        ? (snapshot.selectedRun as Record<string, unknown>)
+        : null;
+    const page =
+      snapshot.selectedTranscriptPage &&
+      typeof snapshot.selectedTranscriptPage === "object"
+        ? (snapshot.selectedTranscriptPage as Record<string, unknown>)
+        : null;
+    return {
+      selectedRequestId: String(snapshot.selectedRequestId || ""),
+      selectedRunRequestId: String(selectedRun?.requestId || ""),
+      selectedRunStatus: String(selectedRun?.status || ""),
+      runs: countArray(snapshot.runs),
+      transcriptPaginationVirtualizationEnabled:
+        snapshot.transcriptPaginationVirtualizationEnabled === true,
+      streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+      selectedTranscriptPage: page
+        ? {
+            requestId: String(page.requestId || ""),
+            cursor: Number(page.cursor || 0),
+            total: Number(page.total || 0),
+            items: countArray(page.items),
+          }
+        : null,
+    };
+  }
+  const session =
+    snapshot.session && typeof snapshot.session === "object"
+      ? (snapshot.session as Record<string, unknown>)
+      : null;
+  const workspace =
+    snapshot.workspace && typeof snapshot.workspace === "object"
+      ? (snapshot.workspace as Record<string, unknown>)
+      : null;
+  return {
+    hostMode: String(snapshot.hostMode || ""),
+    sessionRequestId: String(session?.requestId || ""),
+    sessionStatus: String(session?.status || ""),
+    selectedTaskKey: String(workspace?.selectedTaskKey || ""),
+    groups: countArray(workspace?.groups),
+    drawerSections: countArray(
+      snapshot.drawer && typeof snapshot.drawer === "object"
+        ? (snapshot.drawer as Record<string, unknown>).sections
+        : undefined,
+    ),
+    transcriptPaginationVirtualizationEnabled:
+      snapshot.transcriptPaginationVirtualizationEnabled === true,
+    streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+  };
+}
+
+function logAssistantWorkspaceDebug(
+  host: AssistantWorkspaceHostRuntime,
+  stage: string,
+  message: string,
+  details?: Record<string, unknown>,
+) {
+  appendRuntimeLog({
+    level: "debug",
+    scope: "system",
+    component: "assistant-shell",
+    operation: "workspace-init",
+    phase: "debug",
+    stage,
+    message,
+    details: {
+      activeTarget: host.activeTarget,
+      activeTab: host.activeTab,
+      shellLoaded: host.shell.loaded,
+      shellReady: host.shell.ready,
+      shellWindowKnown: !!host.shell.frameWindow,
+      readyTabs: Array.from(host.readyTabs),
+      snapshotRevision: host.snapshotRevision,
+      acpChatSnapshotBuildSeq: host.acpChatSnapshotBuildSeq,
+      acpSkillRunSnapshotBuildSeq: host.acpSkillRunSnapshotBuildSeq,
+      acpChatBackendRefreshInFlight: host.acpChatBackendRefreshInFlight,
+      acpChatBackendRefreshRepostQueued: host.acpChatBackendRefreshRepostQueued,
+      ...(details || {}),
+    },
+  });
+}
+
 function resolveSidebarPageUrl() {
   const addonRef = String(config.addonRef || "").trim() || resolveAddonRef("");
   if (!addonRef) {
@@ -612,9 +751,25 @@ function postShellMessage(
 ) {
   const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-post-drop-no-frame",
+      "Assistant Workspace shell message dropped because the shell frame window is unavailable.",
+      { type },
+    );
     return;
   }
   installShellBridge(host);
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-post",
+    "Assistant Workspace shell message posted.",
+    {
+      type,
+      tab: String(payload?.tab || ""),
+      phase: String(payload?.phase || ""),
+    },
+  );
   frameWindow.postMessage(
     {
       type,
@@ -674,26 +829,55 @@ function isAssistantShellReadyEnvelope(
 
 function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
   host.shell.ready = true;
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-ready",
+    "Assistant Workspace shell ready accepted.",
+  );
   publishAssistantWorkspaceStatePulse(host, "shell-ready");
 }
 
 function installShellBridge(host: AssistantWorkspaceHostRuntime) {
   const frameWindow = resolveCurrentShellWindow(host);
   if (!frameWindow) {
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-bridge-drop-no-frame",
+      "Assistant Workspace shell bridge was not installed because the frame window is unavailable.",
+    );
     return false;
   }
   const bridgeWindow = frameWindow;
   const bridge: AssistantWorkspaceBridge = {
     postMessage: async (type, payload) => {
-      if (resolveCurrentShellWindow(host) !== bridgeWindow) {
+      const currentShellWindow = resolveCurrentShellWindow(host);
+      const bridgeIsCurrent = currentShellWindow === bridgeWindow;
+      const action =
+        payload && typeof payload === "object" && !Array.isArray(payload)
+          ? String(payload.action || "").trim()
+          : "";
+      const activeTarget = host.activeTarget;
+      const isReadyEnvelope = isAssistantShellReadyEnvelope(type, payload);
+      logAssistantWorkspaceDebug(
+        host,
+        "shell-bridge-post-message",
+        "Assistant Workspace shell bridge postMessage invoked.",
+        {
+          type,
+          action,
+          activeTarget,
+          bridgeIsCurrent,
+          isReadyEnvelope,
+        },
+      );
+      if (!bridgeIsCurrent) {
         return {
           ok: false,
           error: "Assistant Workspace bridge is stale.",
         };
       }
-      const activeTarget = host.activeTarget;
       if (!activeTarget) {
-        if (isAssistantShellReadyEnvelope(type, payload)) {
+        if (isReadyEnvelope) {
           acceptAssistantShellReady(host);
           return { ok: true };
         }
@@ -720,6 +904,12 @@ function installShellBridge(host: AssistantWorkspaceHostRuntime) {
       : null;
   writeAssistantWorkspaceBridgeTarget(directTarget, bridge);
   writeAssistantWorkspaceBridgeTarget(wrappedTarget, bridge);
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-bridge-installed",
+    "Assistant Workspace shell bridge installed.",
+    { hasWrappedTarget: !!wrappedTarget },
+  );
   return true;
 }
 
@@ -734,6 +924,18 @@ function postChildSnapshot(
   snapshot: Record<string, unknown>,
 ) {
   host.snapshotRevision += 1;
+  logAssistantWorkspaceDebug(
+    host,
+    "child-snapshot-post",
+    "Assistant Workspace child snapshot prepared for shell delivery.",
+    {
+      tab,
+      phase,
+      full: tab === host.activeTab,
+      nextRevision: host.snapshotRevision,
+      summary: summarizeChildSnapshot(tab, snapshot),
+    },
+  );
   const payload = decorateAssistantSidebarChildSnapshot({
     scopeKey: host.scopeKey,
     activeTab: host.activeTab,
@@ -758,13 +960,47 @@ async function postAcpChatPanelSnapshot(
 ) {
   host.acpChatSnapshotBuildSeq += 1;
   const buildSeq = host.acpChatSnapshotBuildSeq;
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-chat-snapshot-start",
+    "ACP Chat panel snapshot build started.",
+    {
+      target,
+      phase,
+      buildSeq,
+      transcriptPage: options?.transcriptPage || null,
+    },
+  );
   const snapshot = await prepareAcpChatPanelSnapshot({
     target,
     transcriptPage: options?.transcriptPage,
   });
   if (host.acpChatSnapshotBuildSeq !== buildSeq) {
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-snapshot-stale",
+      "ACP Chat panel snapshot build discarded because a newer build exists.",
+      {
+        target,
+        phase,
+        buildSeq,
+        currentBuildSeq: host.acpChatSnapshotBuildSeq,
+        summary: summarizeAcpChatPanelSnapshot(snapshot),
+      },
+    );
     return;
   }
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-chat-snapshot-ready",
+    "ACP Chat panel snapshot build completed.",
+    {
+      target,
+      phase,
+      buildSeq,
+      summary: summarizeAcpChatPanelSnapshot(snapshot),
+    },
+  );
   postChildSnapshot(host, "acp-chat", phase, snapshot);
 }
 
@@ -781,10 +1017,32 @@ async function postAcpSkillRunSnapshot(
 ) {
   host.acpSkillRunSnapshotBuildSeq += 1;
   const buildSeq = host.acpSkillRunSnapshotBuildSeq;
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-skills-snapshot-start",
+    "ACP Skills panel snapshot build started.",
+    {
+      phase,
+      buildSeq,
+      transcriptPage: options?.transcriptPage || null,
+      force: options?.force === true,
+    },
+  );
   const snapshot = await prepareAcpSkillRunPanelSnapshot({
     transcriptPage: options?.transcriptPage,
   });
   if (host.acpSkillRunSnapshotBuildSeq !== buildSeq) {
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-skills-snapshot-stale",
+      "ACP Skills panel snapshot build discarded because a newer build exists.",
+      {
+        phase,
+        buildSeq,
+        currentBuildSeq: host.acpSkillRunSnapshotBuildSeq,
+        summary: summarizeChildSnapshot("acp-skills", snapshot),
+      },
+    );
     return;
   }
   const currentSelectedRequestId = getSelectedAcpSkillRunRequestId();
@@ -792,6 +1050,17 @@ async function postAcpSkillRunSnapshot(
     currentSelectedRequestId &&
     String(snapshot.selectedRequestId || "").trim() !== currentSelectedRequestId
   ) {
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-skills-snapshot-scope-mismatch",
+      "ACP Skills panel snapshot discarded because selected request changed.",
+      {
+        phase,
+        buildSeq,
+        currentSelectedRequestId,
+        snapshotSelectedRequestId: String(snapshot.selectedRequestId || ""),
+      },
+    );
     return;
   }
   const payload = {
@@ -807,9 +1076,31 @@ async function postAcpSkillRunSnapshot(
     host.lastAcpSkillRunSnapshotSignature &&
     host.lastAcpSkillRunSnapshotSignature === signature
   ) {
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-skills-snapshot-signature-skip",
+      "ACP Skills panel snapshot skipped because the signature is unchanged.",
+      {
+        phase,
+        buildSeq,
+        force,
+        summary: summarizeChildSnapshot("acp-skills", payload),
+      },
+    );
     return;
   }
   host.lastAcpSkillRunSnapshotSignature = signature;
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-skills-snapshot-ready",
+    "ACP Skills panel snapshot build completed.",
+    {
+      phase,
+      buildSeq,
+      force,
+      summary: summarizeChildSnapshot("acp-skills", payload),
+    },
+  );
   postChildSnapshot(host, "acp-skills", phase, payload);
 }
 
@@ -818,8 +1109,20 @@ async function runAcpChatBackendRefreshBoundary(
   target: AcpSidebarTarget,
 ) {
   host.acpChatBackendRefreshInFlight = true;
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-chat-backend-refresh-start",
+    "ACP Chat backend refresh boundary started.",
+    { target },
+  );
   try {
     await refreshAcpConversationBackends();
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-backend-refresh-ok",
+      "ACP Chat backend refresh boundary completed.",
+      { target },
+    );
   } catch (error) {
     appendRuntimeLog({
       level: "warn",
@@ -836,6 +1139,12 @@ async function runAcpChatBackendRefreshBoundary(
     host.acpChatBackendRefreshTimer = null;
     const shouldRepost = host.acpChatBackendRefreshRepostQueued;
     host.acpChatBackendRefreshRepostQueued = false;
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-backend-refresh-settle",
+      "ACP Chat backend refresh boundary settled.",
+      { target, shouldRepost },
+    );
     if (
       shouldRepost &&
       hosts.get(host.win) === host &&
@@ -846,9 +1155,24 @@ async function runAcpChatBackendRefreshBoundary(
   }
 }
 
-async function preloadAcpChatBackendsForWorkspaceInit() {
+async function preloadAcpChatBackendsForWorkspaceInit(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+) {
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-chat-backend-preload-start",
+    "ACP Chat backend preload before workspace commit started.",
+    { target },
+  );
   try {
     await refreshAcpConversationBackends();
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-backend-preload-ok",
+      "ACP Chat backend preload before workspace commit completed.",
+      { target },
+    );
   } catch (error) {
     appendRuntimeLog({
       level: "warn",
@@ -861,6 +1185,12 @@ async function preloadAcpChatBackendsForWorkspaceInit() {
         "ACP Chat backend registry could not be loaded before workspace init.",
       error,
     });
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-backend-preload-error",
+      "ACP Chat backend preload before workspace commit failed.",
+      { target },
+    );
   }
 }
 
@@ -870,8 +1200,20 @@ function scheduleAcpChatBackendRefreshBoundary(
 ) {
   host.acpChatBackendRefreshRepostQueued = true;
   if (host.acpChatBackendRefreshTimer || host.acpChatBackendRefreshInFlight) {
+    logAssistantWorkspaceDebug(
+      host,
+      "acp-chat-backend-refresh-coalesced",
+      "ACP Chat backend refresh boundary request coalesced.",
+      { target },
+    );
     return;
   }
+  logAssistantWorkspaceDebug(
+    host,
+    "acp-chat-backend-refresh-scheduled",
+    "ACP Chat backend refresh boundary scheduled.",
+    { target },
+  );
   host.acpChatBackendRefreshTimer = setTimeout(() => {
     void runAcpChatBackendRefreshBoundary(host, target);
   }, 0);
@@ -898,8 +1240,20 @@ function postSkillRunnerSnapshot(
       options?.force !== true &&
       phase !== "init")
   ) {
+    logAssistantWorkspaceDebug(
+      host,
+      "skillrunner-snapshot-skip",
+      "SkillRunner sidebar snapshot request skipped.",
+      { phase, force: options?.force === true },
+    );
     return;
   }
+  logAssistantWorkspaceDebug(
+    host,
+    "skillrunner-snapshot-start",
+    "SkillRunner sidebar snapshot refresh requested.",
+    { phase, force: options?.force === true },
+  );
   attachSkillRunnerToShell(host, {
     allowInactive: options?.force === true || phase === "init",
   });
@@ -974,12 +1328,30 @@ function publishAssistantWorkspaceStatePulse(
   phase: "init" | "snapshot" = "init",
 ) {
   if (!canPublishAssistantWorkspaceStatePulse(host)) {
+    logAssistantWorkspaceDebug(
+      host,
+      "workspace-pulse-drop-inactive",
+      "Assistant Workspace state pulse dropped because the host cannot publish.",
+      { reason, tab, phase },
+    );
     return false;
   }
   const target = host.activeTarget;
   if (!target) {
+    logAssistantWorkspaceDebug(
+      host,
+      "workspace-pulse-drop-no-target",
+      "Assistant Workspace state pulse dropped because no active target is set.",
+      { reason, tab, phase },
+    );
     return false;
   }
+  logAssistantWorkspaceDebug(
+    host,
+    "workspace-pulse",
+    "Assistant Workspace state pulse publishing.",
+    { reason, tab, phase, target },
+  );
   installShellBridge(host);
   if (phase === "init" && reason !== "child-ready") {
     postShellInit(host, host.activeTab);
@@ -1017,10 +1389,25 @@ function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
 
 function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
   if (host.postSnapshotTimer) {
+    logAssistantWorkspaceDebug(
+      host,
+      "snapshot-post-coalesced",
+      "Assistant Workspace snapshot post request coalesced.",
+    );
     return;
   }
+  logAssistantWorkspaceDebug(
+    host,
+    "snapshot-post-scheduled",
+    "Assistant Workspace snapshot post scheduled.",
+  );
   host.postSnapshotTimer = setTimeout(() => {
     host.postSnapshotTimer = null;
+    logAssistantWorkspaceDebug(
+      host,
+      "snapshot-post-fired",
+      "Assistant Workspace scheduled snapshot post fired.",
+    );
     postAllSnapshots(host);
   }, 16);
 }
@@ -1041,6 +1428,12 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
       frameWindow &&
       event.source === frameWindow
     ) {
+      logAssistantWorkspaceDebug(
+        host,
+        "message-shell-ready",
+        "Assistant Workspace shell ready message received from the current shell window.",
+        { type: data.type },
+      );
       acceptAssistantShellReady(host);
       return;
     }
@@ -1050,8 +1443,31 @@ function installMessageBridge(host: AssistantWorkspaceHostRuntime) {
       data.type,
     );
     if (!target) {
+      logAssistantWorkspaceDebug(
+        host,
+        "message-drop-no-target",
+        "Assistant Workspace message dropped because it did not resolve to an active target.",
+        {
+          type: data.type,
+          sourceMatchesShell: Boolean(
+            event.source && frameWindow && event.source === frameWindow,
+          ),
+        },
+      );
       return;
     }
+    logAssistantWorkspaceDebug(
+      host,
+      "message-received",
+      "Assistant Workspace message received.",
+      {
+        target,
+        type: data.type,
+        sourceMatchesShell: Boolean(
+          event.source && frameWindow && event.source === frameWindow,
+        ),
+      },
+    );
     void handleAssistantWorkspaceMessage(host, target, data);
   };
   host.win.addEventListener("message", onMessage);
@@ -1075,6 +1491,19 @@ async function handleAssistantWorkspaceMessage(
   const logTab = resolveAssistantWorkspaceActionLogTab(
     data.type || "",
     actionPayload,
+  );
+  logAssistantWorkspaceDebug(
+    host,
+    "message-handle-start",
+    "Assistant Workspace message handling started.",
+    {
+      target,
+      type: data.type || "",
+      tab,
+      logTab,
+      action,
+      actionId,
+    },
   );
   try {
     if (data.type === "assistant-workspace:action") {
@@ -1260,6 +1689,12 @@ async function handleShellAction(
   payload: Record<string, unknown>,
 ) {
   const action = String(payload.action || "").trim();
+  logAssistantWorkspaceDebug(
+    host,
+    "shell-action-start",
+    "Assistant Workspace shell action handling started.",
+    { action, requestedTab: String(payload.tab || "") },
+  );
   if (action === "ready") {
     acceptAssistantShellReady(host);
     return;
@@ -1300,6 +1735,18 @@ async function handleChildAction(
     !Array.isArray(payload.payload)
       ? (payload.payload as Record<string, unknown>)
       : {};
+  logAssistantWorkspaceDebug(
+    host,
+    "child-action-start",
+    "Assistant Workspace child action handling started.",
+    {
+      target,
+      tab,
+      action,
+      actionId: String(payload.actionId || ""),
+      payloadKeys: Object.keys(childPayload),
+    },
+  );
   if (action === "ready") {
     publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
     return;
@@ -1331,6 +1778,12 @@ async function handleChildAction(
       const requestId = String(childPayload.requestId || "").trim();
       const selectedRequestId = getSelectedAcpSkillRunRequestId();
       if (!requestId || requestId !== selectedRequestId) {
+        logAssistantWorkspaceDebug(
+          host,
+          "acp-skills-page-request-drop",
+          "ACP Skills transcript page request ignored because scope does not match.",
+          { requestId, selectedRequestId },
+        );
         return;
       }
       await postAcpSkillRunSnapshot(host, "snapshot", {
@@ -1358,6 +1811,12 @@ async function handleChildAction(
       const transcriptPage =
         resolveActiveAcpChatTranscriptPageRequest(childPayload);
       if (!transcriptPage) {
+        logAssistantWorkspaceDebug(
+          host,
+          "acp-chat-page-request-drop",
+          "ACP Chat transcript page request ignored because scope does not match.",
+          { payload: childPayload },
+        );
         return;
       }
       await postAcpChatPanelSnapshot(host, target, "snapshot", {
@@ -1776,6 +2235,11 @@ function ensureAssistantWorkspaceShell(host: AssistantWorkspaceHostRuntime) {
   const frameLoadHandler = () => {
     resolveCurrentShellWindow(host);
     host.shell.loaded = true;
+    logAssistantWorkspaceDebug(
+      host,
+      "shell-frame-load",
+      "Assistant Workspace shell frame load event received.",
+    );
     installShellBridge(host);
     publishAssistantWorkspaceStatePulse(host, "shell-load");
   };
@@ -1794,9 +2258,21 @@ async function dockAssistantWorkspaceShell(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
 ) {
+  logAssistantWorkspaceDebug(
+    host,
+    "dock-start",
+    "Assistant Workspace shell docking started.",
+    { target },
+  );
   const dock = dockForTarget(host, target);
   const frame = ensureAssistantWorkspaceShell(host);
   if (!dock.container || !frame) {
+    logAssistantWorkspaceDebug(
+      host,
+      "dock-drop-missing-container",
+      "Assistant Workspace shell docking failed because the target container or frame is missing.",
+      { target, hasContainer: !!dock.container, hasFrame: !!frame },
+    );
     return false;
   }
   if (frame.parentElement !== dock.container) {
@@ -1804,9 +2280,21 @@ async function dockAssistantWorkspaceShell(
   }
   const frameWindow = await waitForShellFrameWindow(host);
   if (!frameWindow) {
+    logAssistantWorkspaceDebug(
+      host,
+      "dock-drop-no-frame-window",
+      "Assistant Workspace shell docking failed because the frame window did not become available.",
+      { target },
+    );
     return false;
   }
   installShellBridge(host);
+  logAssistantWorkspaceDebug(
+    host,
+    "dock-done",
+    "Assistant Workspace shell docking completed.",
+    { target },
+  );
   return true;
 }
 
@@ -1814,11 +2302,23 @@ function commitAssistantWorkspaceTarget(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
 ) {
+  logAssistantWorkspaceDebug(
+    host,
+    "target-commit-start",
+    "Assistant Workspace target commit started.",
+    { target },
+  );
   host.activeTarget = target;
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
   setDockActive(host.reader, "reader", target === "reader");
   publishAssistantWorkspaceStatePulse(host, "target-commit");
+  logAssistantWorkspaceDebug(
+    host,
+    "target-commit-done",
+    "Assistant Workspace target commit completed.",
+    { target },
+  );
 }
 
 function mountLibraryPane(host: AssistantWorkspaceHostRuntime) {
@@ -1908,6 +2408,12 @@ async function activateTarget(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
 ) {
+  logAssistantWorkspaceDebug(
+    host,
+    "activate-target-start",
+    "Assistant Workspace target activation started.",
+    { target },
+  );
   const libraryRoots = getLibraryRoots(host.win);
   const readerRoots = getReaderRoots(host.win);
   installMessageBridge(host);
@@ -1920,7 +2426,15 @@ async function activateTarget(
     detachSkillRunnerSidebarHost({ hostWindow: host.win });
   }
   if (target === "library") {
-    if (!ensureLibraryPaneExpanded(host.win)) return false;
+    if (!ensureLibraryPaneExpanded(host.win)) {
+      logAssistantWorkspaceDebug(
+        host,
+        "activate-target-drop-library-pane",
+        "Assistant Workspace library target activation failed because the pane could not be expanded.",
+        { target },
+      );
+      return false;
+    }
     deactivateTarget(host, "reader");
     (libraryRoots.defaultDeck as Element | null)?.setAttribute(
       "hidden",
@@ -1943,11 +2457,26 @@ async function activateTarget(
       deactivateTarget(host, "library");
       return false;
     }
-    await preloadAcpChatBackendsForWorkspaceInit();
+    host.activeTarget = "library";
+    logAssistantWorkspaceDebug(
+      host,
+      "activate-target-preload-ready",
+      "Assistant Workspace active target set before backend preload.",
+      { target: "library" },
+    );
+    await preloadAcpChatBackendsForWorkspaceInit(host, "library");
     commitAssistantWorkspaceTarget(host, "library");
     return true;
   }
-  if (!ensureReaderPaneExpanded(host.win)) return false;
+  if (!ensureReaderPaneExpanded(host.win)) {
+    logAssistantWorkspaceDebug(
+      host,
+      "activate-target-drop-reader-pane",
+      "Assistant Workspace reader target activation failed because the pane could not be expanded.",
+      { target },
+    );
+    return false;
+  }
   deactivateTarget(host, "library");
   (readerRoots.contextInner as Element | null)?.setAttribute("hidden", "true");
   setSidebarContainerVisible(host.reader.container, true);
@@ -1966,7 +2495,14 @@ async function activateTarget(
     deactivateTarget(host, "reader");
     return false;
   }
-  await preloadAcpChatBackendsForWorkspaceInit();
+  host.activeTarget = "reader";
+  logAssistantWorkspaceDebug(
+    host,
+    "activate-target-preload-ready",
+    "Assistant Workspace active target set before backend preload.",
+    { target: "reader" },
+  );
+  await preloadAcpChatBackendsForWorkspaceInit(host, "reader");
   commitAssistantWorkspaceTarget(host, "reader");
   return true;
 }
@@ -2016,6 +2552,15 @@ export function installAssistantWorkspaceSidebarShell(
       const pureBackgroundChange = isPureAcpChatBackgroundChange(change);
       if (!pureBackgroundChange) {
         updateAssistantAttentionIndicator(host);
+      }
+      const backendRefreshBoundaryChange =
+        host.acpChatBackendRefreshInFlight &&
+        change.global === true &&
+        Array.isArray(change.kinds) &&
+        change.kinds.includes("backend");
+      if (backendRefreshBoundaryChange) {
+        host.acpChatBackendRefreshRepostQueued = true;
+        return;
       }
       if (
         shouldRefreshAcpChatSnapshotForChange(

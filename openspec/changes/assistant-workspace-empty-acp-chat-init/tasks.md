@@ -12,15 +12,16 @@
 
 ## 3. ACP Chat Child and Panel Projection
 
-- [x] 3.1 Disable ACP Chat controls in no-backend snapshots.
+- [x] 3.1 Disable ACP Chat controls that require a backend or conversation in no-backend snapshots.
 - [x] 3.2 Keep backend-only new/connect controls enabled in backend-without-conversation snapshots.
 - [x] 3.3 Prevent child transcript page requests and empty backend actions in empty states.
+- [x] 3.4 Include ACP Chat availability, backend options, runtime options, and streaming flags in the child panel render key so empty-state recovery snapshots are not skipped.
 
 ## 4. Assistant Workspace Host Initialization
 
 - [x] 4.1 Track child readiness per tab instead of discarding inactive child ready events.
 - [x] 4.2 Publish init snapshots independently for ACP Chat, ACP Skills, and SkillRunner.
-- [x] 4.3 Replace refresh-and-post shell lifecycle paths with no-refresh post plus coalesced refresh-settle repost.
+- [x] 4.3 Establish the workspace active target before ACP Chat backend preload and keep backend refresh out of snapshot post paths.
 
 ## 5. Verification
 

@@ -91,12 +91,81 @@
     return entry;
   }
 
+  function payloadSummary(payload) {
+    const source = payload && typeof payload === "object" ? payload : {};
+    const sidebar =
+      source.sidebar && typeof source.sidebar === "object"
+        ? source.sidebar
+        : {};
+    const panes =
+      sidebar.panes && typeof sidebar.panes === "object" ? sidebar.panes : {};
+    return {
+      activeBackendId: String(source.activeBackendId || source.backendId || ""),
+      activeConversationId: String(
+        source.activeConversationId || source.conversationId || "",
+      ),
+      backendAvailability: String(source.backendAvailability || ""),
+      conversationAvailability: String(source.conversationAvailability || ""),
+      selectedRequestId: String(source.selectedRequestId || ""),
+      hostMode: String(source.hostMode || ""),
+      sidebarActiveTab: String(sidebar.activeTab || ""),
+      acpChatRevision:
+        panes["acp-chat"] && typeof panes["acp-chat"] === "object"
+          ? Number(panes["acp-chat"].revision || 0)
+          : 0,
+      acpSkillsRevision:
+        panes["acp-skills"] && typeof panes["acp-skills"] === "object"
+          ? Number(panes["acp-skills"].revision || 0)
+          : 0,
+      skillrunnerRevision:
+        panes.skillrunner && typeof panes.skillrunner === "object"
+          ? Number(panes.skillrunner.revision || 0)
+          : 0,
+    };
+  }
+
   function postToHost(type, payload) {
     const direct = hostBridge();
     if (direct) {
-      return Promise.resolve(direct.postMessage(type, payload || {}));
+      traceAction("post-to-host-direct", {
+        type,
+        action: payload && payload.action,
+        tab: payload && payload.tab,
+        actionId: payload && payload.actionId,
+      });
+      return Promise.resolve(direct.postMessage(type, payload || {})).then(
+        function (result) {
+          traceAction("post-to-host-direct-result", {
+            type,
+            action: payload && payload.action,
+            tab: payload && payload.tab,
+            actionId: payload && payload.actionId,
+            ok: result && result.ok !== false,
+            fallback: result && result.fallback === true,
+            error: result && result.error ? String(result.error) : "",
+          });
+          return result;
+        },
+        function (error) {
+          traceAction("post-to-host-direct-result", {
+            type,
+            action: payload && payload.action,
+            tab: payload && payload.tab,
+            actionId: payload && payload.actionId,
+            ok: false,
+            error: safeError(error),
+          });
+          throw error;
+        },
+      );
     }
     const message = { type, payload: payload || {} };
+    traceAction("post-to-host-fallback", {
+      type,
+      action: payload && payload.action,
+      tab: payload && payload.tab,
+      actionId: payload && payload.actionId,
+    });
     [window.parent, window.top, window.opener].forEach(function (target) {
       if (!target || target === window) return;
       try {
@@ -167,12 +236,20 @@
   function postToChild(tab, phase, payload) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
-    if (!frameWindow) return;
+    if (!frameWindow) {
+      traceAction("post-to-child-drop-no-frame", { tab, phase });
+      return;
+    }
     const normalizedPayload =
       tab === "skillrunner"
         ? normalizeSkillRunnerSidebarPayload(payload)
         : payload || {};
     installChildBridge(tab);
+    traceAction("post-to-child", {
+      tab,
+      phase,
+      summary: payloadSummary(normalizedPayload),
+    });
     frameWindow.postMessage(
       {
         type: messageTypeForTab(tab, phase),
@@ -201,6 +278,13 @@
     const revision = childPayloadRevision(tab, payload);
     const latestRevision = state.latestChildRevisions.get(tab) || 0;
     if (revision > 0 && revision < latestRevision) {
+      traceAction("cache-child-payload-drop-stale", {
+        tab,
+        phase,
+        revision,
+        latestRevision,
+        summary: payloadSummary(payload),
+      });
       return null;
     }
     if (revision > latestRevision) {
@@ -212,6 +296,13 @@
         ? normalizeSkillRunnerSidebarPayload(payload)
         : payload || {};
     state.latestChildPayloads.set(tab, current);
+    traceAction("cache-child-payload", {
+      tab,
+      phase: phase || "snapshot",
+      revision,
+      latestRevision: state.latestChildRevisions.get(tab) || 0,
+      summary: payloadSummary(current[phase || "snapshot"]),
+    });
     return current[phase || "snapshot"];
   }
 
@@ -252,7 +343,15 @@
 
   function replayCachedChildPayload(tab) {
     const cached = state.latestChildPayloads.get(tab);
-    if (!cached) return;
+    if (!cached) {
+      traceAction("replay-cache-empty", { tab });
+      return;
+    }
+    traceAction("replay-cache", {
+      tab,
+      hasInit: !!cached.init,
+      hasSnapshot: !!cached.snapshot,
+    });
     if (cached.init) postToChild(tab, "init", cached.init);
     if (cached.snapshot) postToChild(tab, "snapshot", cached.snapshot);
   }
@@ -263,6 +362,11 @@
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     state.initializedFrames.add(normalizedTab);
+    traceAction("child-ready", {
+      tab: normalizedTab,
+      firstReady,
+      payload: payloadSummary(payload),
+    });
     replayCachedChildPayload(normalizedTab);
     updateLoadingState();
     if (firstReady) {
@@ -292,6 +396,7 @@
       if (button) button.classList.toggle("is-active", entry === nextTab);
     });
     if (!options || options.notify !== false) {
+      traceAction("set-active-tab-notify", { tab: nextTab });
       postToHost("assistant-workspace:action", {
         action: "set-tab",
         tab: nextTab,
@@ -304,12 +409,13 @@
     updateLoadingState();
   }
 
-  function initializeFrame(tab) {
-    acceptChildReady(tab, {});
-  }
-
   function handleFrameLoad(tab) {
-    initializeFrame(tab);
+    const normalizedTab = normalizeTab(tab, state.activeTab);
+    installChildBridge(normalizedTab);
+    state.loadedFrames.add(normalizedTab);
+    traceAction("frame-load", { tab: normalizedTab });
+    replayCachedChildPayload(normalizedTab);
+    updateLoadingState();
   }
 
   function attachFrameLoadListeners() {
@@ -365,6 +471,10 @@
       return;
     }
     if (data.type === "assistant-workspace:init") {
+      traceAction("workspace-init-received", {
+        activeTab: data.payload && data.payload.activeTab,
+        summary: payloadSummary(data.payload || {}),
+      });
       syncScopeKeyFromPayload(data.payload || {});
       setActiveTab(data.payload && data.payload.activeTab, {
         notify: false,
@@ -373,6 +483,9 @@
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {
+      traceAction("workspace-set-tab-received", {
+        activeTab: data.payload && data.payload.activeTab,
+      });
       setActiveTab(data.payload && data.payload.activeTab, {
         notify: false,
         fallback: state.activeTab,
@@ -384,6 +497,11 @@
       const tab = normalizeTab(payload.tab, state.activeTab);
       const phase = payload.phase || "snapshot";
       const snapshot = payload.snapshot || {};
+      traceAction("child-snapshot-received", {
+        tab,
+        phase,
+        summary: payloadSummary(snapshot),
+      });
       const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
       if (normalizedSnapshot) {
         postToChild(tab, phase, normalizedSnapshot);

@@ -198,6 +198,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
   const actions: Array<{ action: string; payload: Record<string, unknown> }> =
     [];
   const transcriptRenderCalls: any[] = [];
+  const panelRenderCalls: any[] = [];
   const resetCalls: string[] = [];
   if (typeof document.addEventListener !== "function") {
     document.addEventListener = () => undefined;
@@ -243,7 +244,8 @@ async function loadAcpChatSidebarForSmoke(document: any) {
       },
     },
     AssistantPanelRenderer: {
-      renderAssistantPanelSnapshot() {
+      renderAssistantPanelSnapshot(panelSnapshot: any) {
+        panelRenderCalls.push(panelSnapshot);
         return undefined;
       },
     },
@@ -286,6 +288,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
   vm.runInNewContext(code, context);
   return {
     actions,
+    panelRenderCalls,
     resetCalls,
     transcriptRenderCalls,
     postSnapshot(snapshot: Record<string, unknown>) {
@@ -1696,6 +1699,10 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, 'data.type === "run-dialog:action"');
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
     assert.include(assistantJs, "function acceptChildReady(tab, payload)");
+    assert.include(assistantJs, "function handleFrameLoad(tab)");
+    assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
+    assert.notInclude(assistantJs, "function initializeFrame(tab)");
+    assert.notInclude(assistantJs, "acceptChildReady(tab, {})");
     assert.include(assistantJs, 'if (data.action === "ready")');
     assert.include(
       assistantJs,
@@ -3069,6 +3076,26 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "scheduleAcpChatBackendRefreshBoundary");
     assert.include(assistantSidebar, "preloadAcpChatBackendsForWorkspaceInit");
     assert.include(assistantSidebar, 'stage: "pre-init"');
+    assert.include(assistantSidebar, "backendRefreshBoundaryChange");
+    assert.include(assistantSidebar, "host.acpChatBackendRefreshInFlight");
+    assert.include(assistantSidebar, 'host.activeTarget = "library";');
+    assert.include(
+      assistantSidebar,
+      'await preloadAcpChatBackendsForWorkspaceInit(host, "library");',
+    );
+    assert.include(
+      assistantSidebar,
+      'commitAssistantWorkspaceTarget(host, "library");',
+    );
+    assert.include(assistantSidebar, 'host.activeTarget = "reader";');
+    assert.include(
+      assistantSidebar,
+      'await preloadAcpChatBackendsForWorkspaceInit(host, "reader");',
+    );
+    assert.include(
+      assistantSidebar,
+      'commitAssistantWorkspaceTarget(host, "reader");',
+    );
     assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
     assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
     assert.include(
@@ -5243,6 +5270,64 @@ describe("acp ui smoke", function () {
     assert.deepEqual(renderCall?.items || [], []);
     assert.isFalse(
       sidebar.actions.some((entry) => entry.action === "load-transcript-page"),
+    );
+  });
+
+  it("rerenders ACP Chat panel when backend availability changes without a conversation", async function () {
+    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    sidebar.postSnapshot({
+      backendAvailability: "none",
+      conversationAvailability: "none",
+      activeBackendId: "",
+      backendId: "",
+      backendOptions: [],
+      activeConversationId: "",
+      conversationId: "",
+      chatSessions: [],
+      transcriptPaginationVirtualizationEnabled: true,
+      streamingRenderEnabled: false,
+      status: "idle",
+      items: [],
+      labels: {},
+    });
+
+    sidebar.postSnapshot({
+      backendAvailability: "selected",
+      conversationAvailability: "none",
+      activeBackendId: "backend-a",
+      backendId: "backend-a",
+      backendOptions: [
+        {
+          backendId: "backend-a",
+          displayName: "Backend A",
+          status: "idle",
+        },
+      ],
+      activeConversationId: "",
+      conversationId: "",
+      chatSessions: [],
+      transcriptPaginationVirtualizationEnabled: true,
+      streamingRenderEnabled: true,
+      status: "idle",
+      items: [],
+      labels: {},
+    });
+
+    assert.lengthOf(sidebar.panelRenderCalls, 2);
+    assert.equal(sidebar.panelRenderCalls[0]?.raw?.backendAvailability, "none");
+    assert.equal(
+      sidebar.panelRenderCalls[1]?.raw?.backendAvailability,
+      "selected",
+    );
+    assert.equal(
+      sidebar.panelRenderCalls[1]?.raw?.activeBackendId,
+      "backend-a",
+    );
+    assert.equal(
+      sidebar.panelRenderCalls[1]?.raw?.streamingRenderEnabled,
+      true,
     );
   });
 

@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { config } from "../../package.json";
 import {
   libraryArtifactsColumnInternalsForTests,
+  notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
   resetLibraryArtifactsColumnForTests,
   unregisterLibraryArtifactsColumn,
@@ -214,6 +215,136 @@ describe("library artifacts column", function () {
     );
   });
 
+  it("redraws artifact rows without refreshing item tree columns after lazy scans", async function () {
+    const parent = await createParentItem("Paper");
+    await createNote(
+      parent,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>payload</p></div>',
+    );
+    const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
+    const originalTrigger = Zotero.Notifier.trigger;
+    let refreshColumnsCalls = 0;
+    const triggerCalls: Array<{
+      event: string;
+      type: string;
+      ids: number | number[];
+    }> = [];
+    Zotero.ItemTreeManager.refreshColumns = () => {
+      refreshColumnsCalls += 1;
+    };
+    Zotero.Notifier.trigger = (async (
+      event: string,
+      type: string,
+      ids: number | number[],
+    ) => {
+      triggerCalls.push({ event, type, ids });
+      return true;
+    }) as typeof Zotero.Notifier.trigger;
+
+    try {
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "",
+      );
+      await waitForArtifactColumnRedraw();
+
+      assert.equal(refreshColumnsCalls, 0);
+      assert.deepEqual(triggerCalls, [
+        { event: "redraw", type: "item", ids: [parent.id] },
+      ]);
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "digest",
+      );
+    } finally {
+      Zotero.ItemTreeManager.refreshColumns = originalRefreshColumns;
+      Zotero.Notifier.trigger = originalTrigger;
+    }
+  });
+
+  it("does not redraw rows after a lazy scan resolves to the already rendered empty state", async function () {
+    const parent = await createParentItem("Paper");
+    const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
+    const originalTrigger = Zotero.Notifier.trigger;
+    let refreshColumnsCalls = 0;
+    let triggerCalls = 0;
+    Zotero.ItemTreeManager.refreshColumns = () => {
+      refreshColumnsCalls += 1;
+    };
+    Zotero.Notifier.trigger = (async () => {
+      triggerCalls += 1;
+      return true;
+    }) as typeof Zotero.Notifier.trigger;
+
+    try {
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "",
+      );
+      await waitForArtifactColumnRedraw();
+
+      assert.equal(refreshColumnsCalls, 0);
+      assert.equal(triggerCalls, 0);
+      assert.equal(
+        libraryArtifactsColumnInternalsForTests.provideArtifactsCellData(
+          parent,
+        ),
+        "",
+      );
+    } finally {
+      Zotero.ItemTreeManager.refreshColumns = originalRefreshColumns;
+      Zotero.Notifier.trigger = originalTrigger;
+    }
+  });
+
+  it("redraws affected parent rows without refreshing columns for item changes", async function () {
+    const parent = await createParentItem("Paper");
+    const note = await createNote(
+      parent,
+      "Digest",
+      '<div data-zs-note-kind="digest"><p>payload</p></div>',
+    );
+    const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
+    const originalTrigger = Zotero.Notifier.trigger;
+    let refreshColumnsCalls = 0;
+    const triggerCalls: Array<{
+      event: string;
+      type: string;
+      ids: number | number[];
+    }> = [];
+    Zotero.ItemTreeManager.refreshColumns = () => {
+      refreshColumnsCalls += 1;
+    };
+    Zotero.Notifier.trigger = (async (
+      event: string,
+      type: string,
+      ids: number | number[],
+    ) => {
+      triggerCalls.push({ event, type, ids });
+      return true;
+    }) as typeof Zotero.Notifier.trigger;
+
+    try {
+      notifyLibraryArtifactsColumnItemsChanged([note.id]);
+      await waitForArtifactColumnRedraw();
+
+      assert.equal(refreshColumnsCalls, 0);
+      assert.deepEqual(triggerCalls, [
+        { event: "redraw", type: "item", ids: [parent.id] },
+      ]);
+    } finally {
+      Zotero.ItemTreeManager.refreshColumns = originalRefreshColumns;
+      Zotero.Notifier.trigger = originalTrigger;
+    }
+  });
+
   it("renders the artifact icon set for multi-artifact cells", function () {
     const doc = createTinyDocument();
 
@@ -300,6 +431,10 @@ async function createParentItem(title: string) {
   item.setField("title", title);
   await item.saveTx();
   return item;
+}
+
+async function waitForArtifactColumnRedraw() {
+  await new Promise((resolve) => setTimeout(resolve, 150));
 }
 
 function createTinyDocument() {
