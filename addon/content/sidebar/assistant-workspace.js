@@ -9,6 +9,9 @@
     loadedFrames: new Set(),
     latestChildPayloads: new Map(),
     latestChildRevisions: new Map(),
+    childPayloadGeneration: 0,
+    deliveredChildPayloads: new Map(),
+    pendingReplayTabs: new Set(),
     scopeKey: "",
     actionSeq: 0,
     actionTrace: [],
@@ -327,12 +330,45 @@
     if (wrapped) wrapped[bridgeKeyForTab(tab)] = bridge;
   }
 
-  function postToChild(tab, phase, payload) {
+  function childDeliveryKey(tab, phase, generation) {
+    return [tab, phase, String(generation || 0)].join(":");
+  }
+
+  function hasDeliveredChildPayload(tab, phase, generation, frameWindow) {
+    if (!generation || !frameWindow) return false;
+    const delivered = state.deliveredChildPayloads.get(
+      childDeliveryKey(tab, phase, generation),
+    );
+    return !!delivered && delivered.has(frameWindow);
+  }
+
+  function markDeliveredChildPayload(tab, phase, generation, frameWindow) {
+    if (!generation || !frameWindow) return;
+    const key = childDeliveryKey(tab, phase, generation);
+    let delivered = state.deliveredChildPayloads.get(key);
+    if (!delivered) {
+      delivered = new WeakSet();
+      state.deliveredChildPayloads.set(key, delivered);
+    }
+    delivered.add(frameWindow);
+  }
+
+  function postToChild(tab, phase, payload, generation) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) {
-      traceAction("post-to-child-drop-no-frame", { tab, phase });
+      traceAction("post-to-child-drop-no-frame", { tab, phase, generation });
       return false;
+    }
+    if (hasDeliveredChildPayload(tab, phase, generation, frameWindow)) {
+      traceAction("post-to-child-skip-delivered", {
+        tab,
+        phase,
+        generation,
+      });
+      state.loadedFrames.add(tab);
+      updateLoadingState();
+      return true;
     }
     const normalizedPayload =
       tab === "skillrunner"
@@ -342,6 +378,7 @@
     traceAction("post-to-child", {
       tab,
       phase,
+      generation,
       summary: payloadSummary(normalizedPayload),
     });
     frameWindow.postMessage(
@@ -351,6 +388,7 @@
       },
       "*",
     );
+    markDeliveredChildPayload(tab, phase, generation, frameWindow);
     state.loadedFrames.add(tab);
     updateLoadingState();
     return true;
@@ -387,21 +425,27 @@
     if (revision > latestRevision) {
       state.latestChildRevisions.set(tab, revision);
     }
+    state.childPayloadGeneration += 1;
+    const generation = state.childPayloadGeneration;
     const current = state.latestChildPayloads.get(tab) || {};
-    current[phase || "snapshot"] =
-      tab === "skillrunner"
-        ? normalizeSkillRunnerSidebarPayload(payload)
-        : payload || {};
+    const phaseKey = phase || "snapshot";
+    current[phaseKey] = {
+      generation,
+      payload:
+        tab === "skillrunner"
+          ? normalizeSkillRunnerSidebarPayload(payload)
+          : payload || {},
+    };
     state.latestChildPayloads.set(tab, current);
     traceAction("cache-child-payload", {
       tab,
-      phase: phase || "snapshot",
+      phase: phaseKey,
+      generation,
       revision,
       latestRevision: state.latestChildRevisions.get(tab) || 0,
-      summary: payloadSummary(current[phase || "snapshot"]),
+      summary: payloadSummary(current[phaseKey].payload),
     });
-    scheduleChildReplay("cache:" + tab);
-    return current[phase || "snapshot"];
+    return current[phaseKey];
   }
 
   function payloadScopeKey(payload) {
@@ -417,8 +461,20 @@
     const scopeKey = payloadScopeKey(payload);
     if (!scopeKey || scopeKey === state.scopeKey) return;
     state.scopeKey = scopeKey;
+    clearChildPayloadState("scope-change");
+  }
+
+  function clearChildPayloadState(reason) {
     state.latestChildPayloads.clear();
     state.latestChildRevisions.clear();
+    state.deliveredChildPayloads.clear();
+    state.pendingReplayTabs.clear();
+    if (state.childReplayTimer) {
+      clearTimeout(state.childReplayTimer);
+      state.childReplayTimer = null;
+    }
+    state.childReplayAttempts = 0;
+    traceAction("child-payload-state-clear", { reason });
   }
 
   function childPayloadRevision(tab, payload) {
@@ -452,27 +508,57 @@
     });
     let delivered = true;
     if (cached.init) {
-      delivered = postToChild(tab, "init", cached.init) && delivered;
+      delivered =
+        postToChild(tab, "init", cached.init.payload, cached.init.generation) &&
+        delivered;
     }
     if (cached.snapshot) {
-      delivered = postToChild(tab, "snapshot", cached.snapshot) && delivered;
+      delivered =
+        postToChild(
+          tab,
+          "snapshot",
+          cached.snapshot.payload,
+          cached.snapshot.generation,
+        ) && delivered;
+    }
+    if (delivered) {
+      state.pendingReplayTabs.delete(tab);
     }
     traceAction("replay-cache-result", { tab, delivered });
     return delivered;
   }
 
-  function replayAllCachedChildPayloads(reason) {
+  function replayPendingChildPayloads(reason) {
     let delivered = true;
-    tabs.forEach(function (tab) {
-      if (!state.latestChildPayloads.has(tab)) return;
-      delivered = replayCachedChildPayload(tab) && delivered;
+    Array.from(state.pendingReplayTabs).forEach(function (tab) {
+      if (!state.latestChildPayloads.has(tab)) {
+        state.pendingReplayTabs.delete(tab);
+        return;
+      }
+      if (replayCachedChildPayload(tab)) {
+        state.pendingReplayTabs.delete(tab);
+        return;
+      }
+      delivered = false;
     });
-    traceAction("child-replay-all-result", {
+    traceAction("child-replay-pending-result", {
       reason,
       delivered,
       attempts: state.childReplayAttempts,
+      pendingTabs: Array.from(state.pendingReplayTabs),
     });
     return delivered;
+  }
+
+  function queueChildReplay(tab, reason) {
+    if (tabs.indexOf(tab) < 0) return;
+    state.pendingReplayTabs.add(tab);
+    traceAction("child-replay-queued", {
+      tab,
+      reason,
+      pendingTabs: Array.from(state.pendingReplayTabs),
+    });
+    scheduleChildReplay(reason);
   }
 
   function scheduleChildReplay(reason) {
@@ -480,12 +566,14 @@
       traceAction("child-replay-coalesced", {
         reason,
         attempts: state.childReplayAttempts,
+        pendingTabs: Array.from(state.pendingReplayTabs),
       });
       return;
     }
     traceAction("child-replay-scheduled", {
       reason,
       attempts: state.childReplayAttempts,
+      pendingTabs: Array.from(state.pendingReplayTabs),
     });
     state.childReplayTimer = setTimeout(function () {
       state.childReplayTimer = null;
@@ -493,8 +581,9 @@
       traceAction("child-replay-tick", {
         reason,
         attempts: state.childReplayAttempts,
+        pendingTabs: Array.from(state.pendingReplayTabs),
       });
-      if (!replayAllCachedChildPayloads(reason)) {
+      if (!replayPendingChildPayloads(reason)) {
         scheduleChildReplay("retry");
         return;
       }
@@ -514,7 +603,7 @@
       payload: payloadSummary(payload),
     });
     if (!replayCachedChildPayload(normalizedTab)) {
-      scheduleChildReplay("child-ready:" + normalizedTab);
+      queueChildReplay(normalizedTab, "child-ready:" + normalizedTab);
     }
     updateLoadingState();
     if (firstReady) {
@@ -551,7 +640,7 @@
       });
     }
     if (!replayCachedChildPayload(nextTab)) {
-      scheduleChildReplay("tab-switch:" + nextTab);
+      queueChildReplay(nextTab, "tab-switch:" + nextTab);
     }
     if (nextTab === "skillrunner") {
       installChildBridge("skillrunner");
@@ -565,7 +654,7 @@
     state.loadedFrames.add(normalizedTab);
     traceAction("frame-load", { tab: normalizedTab });
     if (!replayCachedChildPayload(normalizedTab)) {
-      scheduleChildReplay("frame-load:" + normalizedTab);
+      queueChildReplay(normalizedTab, "frame-load:" + normalizedTab);
     }
     updateLoadingState();
   }
@@ -606,22 +695,6 @@
       sendChildAction("skillrunner", data.action || "", data.payload || {});
       return;
     }
-    if (data.type === "run-dialog:action" && data.action === "ready") {
-      acceptChildReady("skillrunner", data.payload || {});
-      return;
-    }
-    if (data.type === "skillrunner-sidebar:init") {
-      const payload = normalizeSkillRunnerSidebarPayload(data.payload);
-      cacheChildPayload("skillrunner", "init", payload);
-      postToChild("skillrunner", "init", payload);
-      return;
-    }
-    if (data.type === "skillrunner-sidebar:snapshot") {
-      const payload = normalizeSkillRunnerSidebarPayload(data.payload);
-      cacheChildPayload("skillrunner", "snapshot", payload);
-      postToChild("skillrunner", "snapshot", payload);
-      return;
-    }
     if (data.type === "assistant-workspace:init") {
       ensureHostReady("host-init");
       traceAction("workspace-init-received", {
@@ -659,7 +732,9 @@
       });
       const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
       if (normalizedSnapshot) {
-        replayCachedChildPayload(tab);
+        if (!replayCachedChildPayload(tab)) {
+          queueChildReplay(tab, "child-snapshot:" + tab);
+        }
       }
       return;
     }

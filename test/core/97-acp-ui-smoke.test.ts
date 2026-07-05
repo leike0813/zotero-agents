@@ -178,10 +178,36 @@ async function loadAssistantWorkspaceShellForSmoke(options: any = {}) {
   vm.runInNewContext(code, {
     window: harness.window,
     document: harness.document,
-    setTimeout,
-    clearTimeout,
+    setTimeout: options.setTimeout || setTimeout,
+    clearTimeout: options.clearTimeout || clearTimeout,
   });
   return harness;
+}
+
+function createManualTimers() {
+  let nextId = 1;
+  const timers = new Map<number, () => void>();
+  return {
+    setTimeout(callback: () => void) {
+      const id = nextId;
+      nextId += 1;
+      timers.set(id, callback);
+      return id;
+    },
+    clearTimeout(id: number) {
+      timers.delete(id);
+    },
+    runAll() {
+      const pending = Array.from(timers.entries());
+      timers.clear();
+      for (const [, callback] of pending) {
+        callback();
+      }
+    },
+    size() {
+      return timers.size;
+    },
+  };
 }
 
 async function flushMicrotasks() {
@@ -1820,6 +1846,9 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "__zsSkillRunnerSidebarBridge");
     assert.include(assistantJs, "latestChildPayloads");
     assert.include(assistantJs, "latestChildRevisions");
+    assert.include(assistantJs, "childPayloadGeneration");
+    assert.include(assistantJs, "deliveredChildPayloads");
+    assert.include(assistantJs, "pendingReplayTabs");
     assert.include(assistantJs, "scopeKey");
     assert.include(assistantJs, "loadedFrames");
     assert.include(assistantJs, "function updateLoadingState()");
@@ -1854,12 +1883,12 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "actionTrace");
     assert.include(assistantJs, "function traceAction(stage, details)");
     assert.include(assistantJs, "function nextActionId(tab, action)");
-    assert.include(assistantJs, 'data.type === "run-dialog:action"');
+    assert.notInclude(assistantJs, 'data.type === "run-dialog:action"');
     assert.include(assistantJs, "function replayCachedChildPayload(tab)");
-    assert.include(
-      assistantJs,
-      "function replayAllCachedChildPayloads(reason)",
-    );
+    assert.include(assistantJs, "function replayPendingChildPayloads(reason)");
+    assert.include(assistantJs, "function queueChildReplay(tab, reason)");
+    assert.include(assistantJs, "post-to-child-skip-delivered");
+    assert.include(assistantJs, "child-replay-pending-result");
     assert.include(assistantJs, "function scheduleChildReplay(reason)");
     assert.include(assistantJs, "function ensureHostReady(reason)");
     assert.include(assistantJs, "host-ready-result");
@@ -1882,22 +1911,36 @@ describe("acp ui smoke", function () {
       assistantJs,
       'acceptChildReady("skillrunner", data.payload || {})',
     );
-    assert.include(assistantJs, 'data.type === "skillrunner-sidebar:init"');
-    assert.include(assistantJs, 'data.type === "skillrunner-sidebar:snapshot"');
-    assert.include(
+    assert.notInclude(assistantJs, 'data.type === "skillrunner-sidebar:init"');
+    assert.notInclude(
+      assistantJs,
+      'data.type === "skillrunner-sidebar:snapshot"',
+    );
+    assert.notInclude(
       assistantJs,
       'cacheChildPayload("skillrunner", "init", payload)',
     );
-    assert.include(
+    assert.notInclude(
       assistantJs,
       'cacheChildPayload("skillrunner", "snapshot", payload)',
     );
-    assert.include(assistantJs, 'postToChild("skillrunner", "init", payload)');
-    assert.include(
+    assert.notInclude(
+      assistantJs,
+      'postToChild("skillrunner", "init", payload)',
+    );
+    assert.notInclude(
       assistantJs,
       'postToChild("skillrunner", "snapshot", payload)',
     );
+    assert.include(
+      assistantJs,
+      'data.type === "assistant-workspace:child-snapshot"',
+    );
     assert.include(assistantJs, "replayCachedChildPayload(tab)");
+    assert.include(
+      assistantJs,
+      'queueChildReplay(tab, "child-snapshot:" + tab)',
+    );
     assert.include(assistantJs, "if (normalizedSnapshot)");
     assert.include(assistantJs, "assistant-workspace-close");
     assert.include(assistantCss, ".assistant-workspace-tabbar");
@@ -3567,6 +3610,134 @@ describe("acp ui smoke", function () {
         .get("assistant-workspace-loading")
         .classList.contains("hidden"),
       "successful replay should clear active tab loading",
+    );
+  });
+
+  it("delivers an available SkillRunner child snapshot once per cached generation", async function () {
+    const timers = createManualTimers();
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage() {
+          return Promise.resolve({ ok: true });
+        },
+      },
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+    });
+    const childWindow = shell.elements.get(
+      "assistant-frame-skillrunner",
+    ).contentWindow;
+
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "skillrunner",
+      phase: "snapshot",
+      snapshot: {
+        sidebar: {
+          scopeKey: "scope-a",
+          activeTab: "skillrunner",
+          panes: { skillrunner: { revision: 7 } },
+        },
+        session: { requestId: "run-1", status: "succeeded" },
+      },
+    });
+    await flushMicrotasks();
+
+    const skillrunnerSnapshots = () =>
+      childWindow.messages.filter(
+        (entry: any) => entry.type === "skillrunner-sidebar:snapshot",
+      );
+
+    assert.lengthOf(skillrunnerSnapshots(), 1);
+    timers.runAll();
+    shell.dispatchWindowMessage("skillrunner-sidebar:action", {
+      action: "ready",
+    });
+    shell.elements.get("assistant-frame-skillrunner").dispatch("load");
+    shell.dispatchWindowMessage("assistant-workspace:set-tab", {
+      activeTab: "skillrunner",
+    });
+    await flushMicrotasks();
+    timers.runAll();
+    await flushMicrotasks();
+    assert.lengthOf(
+      skillrunnerSnapshots(),
+      1,
+      "successful delivery must not be repeated by retry, ready, load, or tab switch",
+    );
+
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "skillrunner",
+      phase: "snapshot",
+      snapshot: {
+        sidebar: {
+          scopeKey: "scope-a",
+          activeTab: "skillrunner",
+          panes: { skillrunner: { revision: 7 } },
+        },
+        session: { requestId: "run-2", status: "succeeded" },
+      },
+    });
+    await flushMicrotasks();
+    assert.lengthOf(
+      skillrunnerSnapshots(),
+      2,
+      "a new cached generation should still publish once even when pane revision is unchanged",
+    );
+  });
+
+  it("retries a pending SkillRunner child snapshot without double-delivering it", async function () {
+    const timers = createManualTimers();
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage() {
+          return Promise.resolve({ ok: true });
+        },
+      },
+      childWindows: {
+        skillrunner: null,
+      },
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+    });
+
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "skillrunner",
+      phase: "init",
+      snapshot: {
+        sidebar: {
+          scopeKey: "scope-a",
+          activeTab: "skillrunner",
+          panes: { skillrunner: { revision: 1 } },
+        },
+        session: { requestId: "run-1", status: "running" },
+      },
+    });
+    await flushMicrotasks();
+
+    assert.isTrue(
+      shell
+        .trace()
+        .some((entry: any) => entry.stage === "post-to-child-drop-no-frame"),
+      "missing frame should queue retry",
+    );
+    assert.isAbove(timers.size(), 0, "missing frame should schedule retry");
+
+    const childWindow = shell.childWindow("skillrunner");
+    shell.setChildWindow("skillrunner", childWindow);
+    timers.runAll();
+    await flushMicrotasks();
+
+    const skillrunnerInits = () =>
+      childWindow.messages.filter(
+        (entry: any) => entry.type === "skillrunner-sidebar:init",
+      );
+    assert.lengthOf(skillrunnerInits(), 1);
+    timers.runAll();
+    await flushMicrotasks();
+    assert.lengthOf(
+      skillrunnerInits(),
+      1,
+      "settled pending replay must not repost the same cached generation",
     );
   });
 

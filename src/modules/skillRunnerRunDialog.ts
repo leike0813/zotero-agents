@@ -2787,6 +2787,9 @@ function pushSnapshot(
     runWorkspaceState.publishSnapshot(messageType, snapshot);
     return;
   }
+  if (runWorkspaceState.hostMode === "sidebar") {
+    return;
+  }
   const frameWindow = runWorkspaceState.frameWindow;
   if (!frameWindow) {
     return;
@@ -4827,7 +4830,7 @@ export async function dispatchRunWorkspaceAction(
 export function attachSkillRunnerSidebarHost(args: {
   hostWindow: Window;
   frameWindow: Window | null;
-  publishSnapshot?: (
+  publishSnapshot: (
     phase: "init" | "snapshot",
     snapshot: RunWorkspaceSnapshot,
   ) => void;
