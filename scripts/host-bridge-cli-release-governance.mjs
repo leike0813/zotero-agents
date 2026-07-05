@@ -304,19 +304,21 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   }
 
   const previousVersion = status.currentVersion;
-  const version = bumpPatchVersion(previousVersion);
-  const cargoToml = await readText(root, CARGO_TOML_PATH);
-  const cargoLock = await readText(root, CARGO_LOCK_PATH);
-  await writeText(
-    root,
-    CARGO_TOML_PATH,
-    replaceCargoPackageVersion(cargoToml, version),
-  );
-  await writeText(
-    root,
-    CARGO_LOCK_PATH,
-    replaceCargoLockPackageVersion(cargoLock, "zotero-bridge", version),
-  );
+  const version = options.noBump ? previousVersion : bumpPatchVersion(previousVersion);
+  if (!options.noBump) {
+    const cargoToml = await readText(root, CARGO_TOML_PATH);
+    const cargoLock = await readText(root, CARGO_LOCK_PATH);
+    await writeText(
+      root,
+      CARGO_TOML_PATH,
+      replaceCargoPackageVersion(cargoToml, version),
+    );
+    await writeText(
+      root,
+      CARGO_LOCK_PATH,
+      replaceCargoLockPackageVersion(cargoLock, "zotero-bridge", version),
+    );
+  }
   await writeReleaseManifest(root, {
     schema: "zotero-bridge-cli-release.v1",
     version,
@@ -415,7 +417,8 @@ async function main(argv) {
     if (!write) {
       throw new Error("bump-patch requires --write");
     }
-    printJson(await bumpHostBridgeCliPatchVersion({ force, dispatchReason }));
+    const noBump = args.includes("--no-bump");
+    printJson(await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }));
     return;
   }
   if (command === "record-binaries") {

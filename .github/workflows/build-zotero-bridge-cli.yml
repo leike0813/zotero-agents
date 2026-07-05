@@ -2,6 +2,11 @@ name: Build Zotero Bridge CLI
 
 on:
   workflow_dispatch:
+    inputs:
+      no_bump:
+        description: "Skip patch version bump (keep current Cargo.toml version)"
+        type: boolean
+        default: false
   push:
     paths:
       - "cli/zotero-bridge/**"
@@ -98,7 +103,7 @@ jobs:
 
       - name: Patch-bump CLI version for release builds
         if: github.event_name != 'pull_request'
-        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}
+        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}${{ inputs.no_bump && ' --no-bump' || '' }}
 
       - name: Add Rust target
         run: rustup target add ${{ matrix.rust-target }}
@@ -146,7 +151,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Patch-bump CLI version for published artifacts
-        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}
+        run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}${{ inputs.no_bump && ' --no-bump' || '' }}
 
       - name: Download packaged CLI artifacts
         uses: actions/download-artifact@v4
