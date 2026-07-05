@@ -1,7 +1,7 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
   "version": "0.2.0",
-  "buildFingerprint": "2a1128220a18023c579157610bfd696dae8023c0ed479d17b62a471b8e9b9b7c",
+  "buildFingerprint": "35578580411591b78b42e0b381068a757502fd02b2f058eed282825acc7db704",
   "fingerprintInputs": [
     ".github/workflows/build-zotero-bridge-cli.yml",
     "cli/zotero-bridge/Cargo.lock",
@@ -17,50 +17,50 @@
     "scripts/host-bridge-cli-release-governance.mjs",
     "scripts/package-zotero-bridge-cli.mjs"
   ],
-  "binaryAggregateSha256": "47103ef78f077c764730234b8a4b11fec8dbae0163651b8e5a5d2d7060af4219",
+  "binaryAggregateSha256": "a9e8c36f6606855e8f46f134528d14562d042e6a762048fdc32fe20e61e93d71",
   "binaries": [
     {
       "platform": "win32-x64",
       "binary": "zotero-bridge.exe",
-      "sha256": "295e7837c7211d23c87a9dbbbcb8a1a7f2fc469500c0edf3deed30a97ccb0dba",
-      "bytes": 1761280
+      "sha256": "a05696e4f245a848f7855cc95d218217c0a9a8e3e75ab0aa9d73c928a8711c87",
+      "bytes": 1727488
     },
     {
       "platform": "darwin-x64",
       "binary": "zotero-bridge",
-      "sha256": "99250dbc85268649925f972cc058790476a94823936a3b47dd5318f2a7e6fe0a",
-      "bytes": 1518760
+      "sha256": "60efeab77aad502c6c90dd1240793d7a3832953b8f6c4fa35828e36650b29f81",
+      "bytes": 1799264
     },
     {
       "platform": "darwin-arm64",
       "binary": "zotero-bridge",
-      "sha256": "184fc3ae3841f9803a2c7d7fbaed9aaf8189f302d6f334ce63ed289aa56c65a4",
-      "bytes": 1426128
+      "sha256": "3dc99c397160638694d8ed962a6784a0b9894e33aa1c14f004a3605d0326ac3f",
+      "bytes": 1634304
     },
     {
       "platform": "linux-x86",
       "binary": "zotero-bridge",
-      "sha256": "b41db72568d7a3a9cfe5badf945241718ce6e0e480d0a7f164c0e3866a11f215",
-      "bytes": 1531476
+      "sha256": "0f283dd125690d4a2533c1230b6b7d0cee3131ff67699677ada231df17352f35",
+      "bytes": 1828692
     },
     {
       "platform": "linux-x64",
       "binary": "zotero-bridge",
-      "sha256": "bb349e3f5bcd643875df20bc64da53c5bc7007a4b66eeb7ee11dfadac0fb8ad1",
-      "bytes": 1379120
+      "sha256": "a771fca52d00d9829e74f77ac15090f6df8a8b687e2ba394d708e5ffee87c3fb",
+      "bytes": 1635832
     },
     {
       "platform": "linux-arm",
       "binary": "zotero-bridge",
-      "sha256": "e7819988d147ad72e825402bce3daf1bdd0ce597ee6eac5c7188687c9b567ad9",
-      "bytes": 1126464
+      "sha256": "6b6b7fef5a139319a6c5bbbd2b88851cf37b713607f22683d502c817d6897c5d",
+      "bytes": 1316096
     },
     {
       "platform": "linux-arm64",
       "binary": "zotero-bridge",
-      "sha256": "2e902abfba77901422151bab0b5da52c58e4fb2d31193871336eceb0c1e9dea6",
-      "bytes": 1184712
+      "sha256": "76d71a9ec73ba6854b65346f529df520f3e0680831367b2bbef603142239ca2d",
+      "bytes": 1392920
     }
   ],
-  "dispatchReason": ""
+  "dispatchReason": "workflow_dispatch"
 }
