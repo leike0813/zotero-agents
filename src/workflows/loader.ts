@@ -220,6 +220,7 @@ function hasKnownHookExport(loaded: Record<string, unknown>) {
   return (
     typeof loaded.applyResult === "function" ||
     typeof loaded.buildRequest === "function" ||
+    typeof loaded.preflight === "function" ||
     typeof loaded.normalizeSettings === "function"
   );
 }

@@ -284,6 +284,47 @@ async function movePath(sourcePath, targetPath) {
   await removePath(nativeSourcePath);
 }
 
+async function copyPath(sourcePath, targetPath) {
+  const parentDir = dirnamePath(targetPath);
+  if (parentDir) {
+    await ensureDirectory(parentDir);
+  }
+  const nativeSourcePath = toNativePath(sourcePath);
+  const nativeTargetPath = toNativePath(targetPath);
+  const sourceStat = await statPath(nativeSourcePath);
+  if (!sourceStat.exists) {
+    throw new Error(`Source path not found: ${nativeSourcePath}`);
+  }
+  const io = resolveIOUtils();
+  if (!sourceStat.isDir) {
+    if (io?.copy) {
+      try {
+        await io.copy(nativeSourcePath, nativeTargetPath);
+        return;
+      } catch {
+        // fall through
+      }
+    }
+    if (io?.read && io?.write) {
+      const bytes = await io.read(nativeSourcePath);
+      await io.write(nativeTargetPath, bytes);
+      return;
+    }
+    const fs = await dynamicImport("fs/promises");
+    await fs.copyFile(nativeSourcePath, nativeTargetPath);
+    return;
+  }
+  await ensureDirectory(nativeTargetPath);
+  const children = await listChildren(nativeSourcePath);
+  for (const child of children) {
+    const name = basenamePath(child);
+    if (!name) {
+      continue;
+    }
+    await copyPath(child, joinPath(nativeTargetPath, name));
+  }
+}
+
 async function listChildren(targetPath) {
   const nativePath = toNativePath(targetPath);
   const io = resolveIOUtils();
@@ -386,6 +427,136 @@ function resolveBundleExtractedDir(bundleReader) {
   return bundleReader.getExtractedDir();
 }
 
+async function collectBundlePart(args) {
+  const extractedRoot = await resolveBundleExtractedDir(args.bundleReader);
+  const fullMdPath = await findEntryByBaseName({
+    rootPath: extractedRoot,
+    name: "full.md",
+    isDir: false,
+  });
+  if (!fullMdPath) {
+    throw new Error(
+      `mineru bundle ${args.label || ""} missing required entry: full.md`,
+    );
+  }
+  const imagesSourceDir = await findEntryByBaseName({
+    rootPath: extractedRoot,
+    name: "images",
+    isDir: true,
+  });
+  return {
+    markdown: await readText(fullMdPath),
+    imagesSourceDir,
+  };
+}
+
+function getAggregateChildren(resultContext) {
+  const children = resultContext?.aggregate?.children;
+  return Array.isArray(children) && children.length > 0
+    ? [...children].sort((left, right) => {
+        const leftOrder = Number(left?.order || 0);
+        const rightOrder = Number(right?.order || 0);
+        return leftOrder - rightOrder;
+      })
+    : [];
+}
+
+function joinMarkdownParts(parts) {
+  const joined = parts
+    .map((part) =>
+      String(part || "")
+        .replace(/^\s+/, "")
+        .replace(/\s+$/, ""),
+    )
+    .join("\n\n");
+  return joined ? `${joined}\n` : "";
+}
+
+function buildStagingDir(sourceDir, sourceItemKey) {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return joinPath(sourceDir, `.mineru-${sourceItemKey || "output"}-${suffix}`);
+}
+
+async function copyImagesIntoStage(imagesSourceDir, stagedImagesDir) {
+  if (!imagesSourceDir) {
+    return false;
+  }
+  const sourceStat = await statPath(imagesSourceDir);
+  if (!sourceStat.exists || !sourceStat.isDir) {
+    return false;
+  }
+  await ensureDirectory(stagedImagesDir);
+  const children = await listChildren(imagesSourceDir);
+  for (const child of children) {
+    const name = basenamePath(child);
+    if (!name) {
+      continue;
+    }
+    const targetPath = joinPath(stagedImagesDir, name);
+    const existing = await statPath(targetPath);
+    if (existing.exists) {
+      throw new Error(`mineru image name collision while merging: ${name}`);
+    }
+    await copyPath(child, targetPath);
+  }
+  return children.length > 0;
+}
+
+async function materializeParts(args) {
+  const sourceDir = dirnamePath(args.source.sourcePath);
+  const sourceName = basenamePath(args.source.sourcePath);
+  const mdName = replaceExtensionAsMd(sourceName);
+  const mdPath = joinPath(sourceDir, mdName);
+  const imagesDirName = `Images_${args.source.sourceItemKey}`;
+  const imagesTargetDir = joinPath(sourceDir, imagesDirName);
+  const stagingDir = buildStagingDir(sourceDir, args.source.sourceItemKey);
+  const stagedImagesDir = joinPath(stagingDir, imagesDirName);
+  const stagedMdPath = joinPath(stagingDir, mdName);
+  let hasImages = false;
+  try {
+    await ensureDirectory(stagingDir);
+    for (const part of args.parts) {
+      if (await copyImagesIntoStage(part.imagesSourceDir, stagedImagesDir)) {
+        hasImages = true;
+      }
+    }
+    const markdown = rewriteMarkdownImagePaths(
+      joinMarkdownParts(args.parts.map((part) => part.markdown)),
+      imagesDirName,
+    );
+    await writeText(stagedMdPath, markdown);
+
+    if (hasImages) {
+      const currentImages = await statPath(imagesTargetDir);
+      if (currentImages.exists) {
+        await removePath(imagesTargetDir);
+      }
+      await movePath(stagedImagesDir, imagesTargetDir);
+    }
+
+    await writeText(mdPath, markdown);
+  } finally {
+    await removePath(stagingDir);
+  }
+
+  if (!(await hasLinkedAttachmentForPath(args.source.parentItem, mdPath))) {
+    await args.runtime.handlers.attachment.createFromPath({
+      parent: args.source.parentItem.id,
+      path: mdPath,
+      title: mdName,
+      mimeType: "text/markdown",
+    });
+  }
+
+  return {
+    source_attachment_path: args.source.sourcePath,
+    markdown_path: mdPath,
+    images_dir: hasImages ? imagesTargetDir : null,
+    attached_to_parent_id: args.source.parentItem.id,
+    part_count: args.parts.length,
+  };
+}
+
 function stringifyUnknownError(error) {
   if (error instanceof Error) {
     return error.message || error.name || "unknown error";
@@ -433,75 +604,45 @@ function stringifyUnknownError(error) {
   }
 }
 
-export async function applyResult({ parent, bundleReader, request, runtime }) {
+export async function applyResult({
+  parent,
+  bundleReader,
+  request,
+  runtime,
+  resultContext,
+}) {
   let stage = "resolve-source";
   try {
+    const aggregateChildren = getAggregateChildren(resultContext);
+    const sourceRequest =
+      aggregateChildren.length > 0 ? aggregateChildren[0].request : request;
     const source = await resolveSourceAttachmentMetadata({
       parent,
-      request,
+      request: sourceRequest,
       runtime,
     });
 
-    stage = "resolve-bundle-dir";
-    const extractedRoot = await resolveBundleExtractedDir(bundleReader);
-
-    stage = "find-full-md";
-    const fullMdPath = await findEntryByBaseName({
-      rootPath: extractedRoot,
-      name: "full.md",
-      isDir: false,
-    });
-    if (!fullMdPath) {
-      throw new Error("mineru bundle missing required entry: full.md");
-    }
-
-    stage = "find-images-dir";
-    const imagesSourceDir = await findEntryByBaseName({
-      rootPath: extractedRoot,
-      name: "images",
-      isDir: true,
-    });
-
-    stage = "prepare-target-paths";
-    const sourceDir = dirnamePath(source.sourcePath);
-    const sourceName = basenamePath(source.sourcePath);
-    const mdName = replaceExtensionAsMd(sourceName);
-    const mdPath = joinPath(sourceDir, mdName);
-    const imagesDirName = `Images_${source.sourceItemKey}`;
-    const imagesTargetDir = joinPath(sourceDir, imagesDirName);
-
-    stage = "rewrite-markdown";
-    let markdown = await readText(fullMdPath);
-    markdown = rewriteMarkdownImagePaths(markdown, imagesDirName);
-
-    stage = "move-images";
-    if (imagesSourceDir) {
-      const currentImages = await statPath(imagesTargetDir);
-      if (currentImages.exists) {
-        await removePath(imagesTargetDir);
+    stage = "collect-bundle-parts";
+    const parts = [];
+    if (aggregateChildren.length > 0) {
+      for (const child of aggregateChildren) {
+        parts.push(
+          await collectBundlePart({
+            bundleReader: child.bundleReader,
+            label: child.unitId,
+          }),
+        );
       }
-      await movePath(imagesSourceDir, imagesTargetDir);
+    } else {
+      parts.push(await collectBundlePart({ bundleReader, label: "single" }));
     }
 
-    stage = "write-markdown";
-    await writeText(mdPath, markdown);
-
-    stage = "create-md-attachment";
-    if (!(await hasLinkedAttachmentForPath(source.parentItem, mdPath))) {
-      await runtime.handlers.attachment.createFromPath({
-        parent: source.parentItem.id,
-        path: mdPath,
-        title: mdName,
-        mimeType: "text/markdown",
-      });
-    }
-
-    return {
-      source_attachment_path: source.sourcePath,
-      markdown_path: mdPath,
-      images_dir: imagesSourceDir ? imagesTargetDir : null,
-      attached_to_parent_id: source.parentItem.id,
-    };
+    stage = "materialize-parts";
+    return await materializeParts({
+      source,
+      parts,
+      runtime,
+    });
   } catch (error) {
     throw new Error(
       `mineru applyResult failed at ${stage}: ${stringifyUnknownError(error)}`,
