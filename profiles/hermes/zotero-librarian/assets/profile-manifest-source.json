@@ -48,9 +48,9 @@
     "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
-      "version": "0.2.0",
-      "buildFingerprint": "35578580411591b78b42e0b381068a757502fd02b2f058eed282825acc7db704",
-      "binaryAggregateSha256": "a9e8c36f6606855e8f46f134528d14562d042e6a762048fdc32fe20e61e93d71"
+      "version": "0.2.1",
+      "buildFingerprint": "9ca9a8d6af1834d5f2217bb07d873c0d97909388ed71a6d739c7797ded12a977",
+      "binaryAggregateSha256": "84f6a5e7d12678a919049bdd51379488db5864d2f15c4b7b67991263e971f868"
     },
     "semanticSourceChecksum": "214a20c0eb78dd31d52a0701b97c4e55e0683efd40c229418ca7602cc74b8627",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"

@@ -31,7 +31,10 @@ npx tsx scripts/host-bridge-semantic-review-context.ts
 Continue only after the semantic review reports either aligned semantic sources
 or semantic-source edits applied.
 
-2. Render Host Bridge surfaces after semantic review completes:
+2. Render Host Bridge surfaces after semantic review completes. For Host
+   Bridge CLI build-input changes, this local render is a preflight check; the
+   `build-zotero-bridge-cli.yml` release job re-renders surfaces after the CLI
+   version bump and binary checksum manifest are recorded.
 
 ```powershell
 npm run render:host-bridge-surface
@@ -46,6 +49,12 @@ npm run check:host-bridge-cli-prebuild-freshness
 npm run check:zotero-librarian-profile
 npx tsx node_modules/mocha/bin/mocha "test/core/139-host-bridge-cli-packaging.test.ts" --require test/setup/zotero-mock.ts
 ```
+
+When CLI build inputs changed, `check:host-bridge-cli-prebuild-freshness`
+reports a stale fingerprint until `build-zotero-bridge-cli.yml` records the
+new release manifest and GitHub-built prebuild checksums. Treat that as the
+handoff condition for the build workflow, not as a reason to locally rewrite
+the release manifest without GitHub-built binaries.
 
 4. Publish the source changes to `main` through the normal repository flow.
    CLI build-input changes use `build-zotero-bridge-cli.yml`; wrapper, profile,
@@ -65,9 +74,12 @@ gh workflow run publish-host-bridge-surfaces.yml --ref main
 
 `build-zotero-bridge-cli.yml` computes the CLI build fingerprint, skips the
 platform matrix when the fingerprint matches `cli/zotero-bridge/release.json`,
-patch-bumps the Cargo CLI version on `main` when the fingerprint changes,
-publishes the mutable `host-bridge-cli-prebuilds` GitHub release assets, and
-publishes the Host Bridge bundle/profile surfaces from those prebuilds.
+patch-bumps the Cargo CLI version when the fingerprint changes, builds the
+platform prebuilds, records the release manifest and binary checksums, renders
+and checks Host Bridge surfaces from that recorded release manifest, commits
+the governance and generated surface files on `main`, publishes the mutable
+`host-bridge-cli-prebuilds` GitHub release assets, and publishes the Host Bridge
+bundle/profile surfaces from those prebuilds.
 
 `publish-host-bridge-surfaces.yml` syncs the latest
 `host-bridge-cli-prebuilds` assets, renders and checks Host Bridge surfaces,

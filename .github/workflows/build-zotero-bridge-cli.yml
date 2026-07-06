@@ -150,6 +150,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Patch-bump CLI version for published artifacts
         run: node scripts/host-bridge-cli-release-governance.mjs bump-patch --write --dispatch-reason=${{ github.event_name }}${{ inputs.no_bump && ' --no-bump' || '' }}
 
@@ -201,12 +210,24 @@ jobs:
       - name: Record release manifest
         run: node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=${{ github.event_name }}
 
+      - name: Render Host Bridge surfaces
+        run: npm run render:host-bridge-surface
+
+      - name: Check Host Bridge doc sync
+        run: npm run check:host-bridge-doc-sync
+
+      - name: Check Host Bridge CLI prebuild freshness
+        run: npm run check:host-bridge-cli-prebuild-freshness
+
+      - name: Check zotero-librarian profile
+        run: npm run check:zotero-librarian-profile
+
       - name: Commit CLI governance files
         if: github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cli/zotero-bridge/Cargo.toml cli/zotero-bridge/Cargo.lock cli/zotero-bridge/release.json addon/bin/zotero-bridge-release.json
+          git add cli/zotero-bridge/Cargo.toml cli/zotero-bridge/Cargo.lock cli/zotero-bridge/release.json addon/bin/zotero-bridge-release.json doc/host-bridge-cli.md skills_builtin/zotero-bridge-cli skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2 profiles/hermes/zotero-librarian
           if ! git diff --cached --quiet; then
             git commit -m "chore(host-bridge-cli): record prebuild release"
             git push origin HEAD:${GITHUB_REF_NAME}

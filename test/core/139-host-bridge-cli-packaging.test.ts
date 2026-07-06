@@ -1565,12 +1565,35 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "host-bridge-cli-release-governance.mjs status");
     assert.include(workflow, "bump-patch --write");
     assert.include(workflow, "record-binaries --write");
+    assert.include(workflow, "npm run render:host-bridge-surface");
+    assert.include(workflow, "npm run check:host-bridge-doc-sync");
+    assert.include(workflow, "npm run check:host-bridge-cli-prebuild-freshness");
+    assert.include(workflow, "npm run check:zotero-librarian-profile");
     assert.include(workflow, "Publish Host Bridge CLI bundle branch");
     assert.include(workflow, "Publish zotero-librarian profile repository");
     assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
     assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
     assert.include(workflow, "leike0813/zotero-librarian-profile.git");
     assert.include(workflow, "-AllowDirty -Push");
+    assert.isBelow(
+      workflow.indexOf("record-binaries --write"),
+      workflow.indexOf("npm run render:host-bridge-surface"),
+    );
+    assert.isBelow(
+      workflow.indexOf("npm run render:host-bridge-surface"),
+      workflow.indexOf("npm run check:host-bridge-doc-sync"),
+    );
+    assert.isBelow(
+      workflow.indexOf("npm run check:host-bridge-cli-prebuild-freshness"),
+      workflow.indexOf("Publish Host Bridge CLI bundle branch"),
+    );
+    assert.isBelow(
+      workflow.indexOf("npm run check:zotero-librarian-profile"),
+      workflow.indexOf("Publish zotero-librarian profile repository"),
+    );
+    assert.include(workflow, "doc/host-bridge-cli.md");
+    assert.include(workflow, "skills_builtin/zotero-bridge-cli");
+    assert.include(workflow, "profiles/hermes/zotero-librarian");
     assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
