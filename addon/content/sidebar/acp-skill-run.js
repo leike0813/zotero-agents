@@ -28,6 +28,7 @@
     pendingRenderSnapshot: null,
     renderScheduled: false,
     panelRenderKey: "",
+    drawerGroupCollapsed: new Map(),
   };
   function bridge() {
     return [
@@ -83,6 +84,68 @@
 
   function safeText(value) {
     return String(value || "").trim();
+  }
+
+  function drawerGroupCollapseKey(sectionId, groupKey) {
+    const section = safeText(sectionId);
+    const group = safeText(groupKey);
+    return section && group ? section + "\n" + group : "";
+  }
+
+  function compactDrawerGroupCollapseKey() {
+    return Array.from(state.drawerGroupCollapsed.entries())
+      .map(function (entry) {
+        return entry[0] + ":" + (entry[1] === true ? "1" : "0");
+      })
+      .sort()
+      .join("|");
+  }
+
+  function resolveDrawerGroupKey(group) {
+    return safeText(
+      group &&
+        (group.groupKey ||
+          group.backendId ||
+          group.backendDisplayName ||
+          group.title),
+    );
+  }
+
+  function applyDrawerGroupCollapseState(panelSnapshot) {
+    if (!panelSnapshot || !panelSnapshot.drawers) return panelSnapshot;
+    const sections = Array.isArray(panelSnapshot.drawers.sections)
+      ? panelSnapshot.drawers.sections
+      : [];
+    panelSnapshot.drawers.sections = sections.map(function (section) {
+      const sectionId = safeText(section && section.id);
+      const groups = Array.isArray(section && section.groups)
+        ? section.groups
+        : [];
+      return Object.assign({}, section, {
+        groups: groups.map(function (group) {
+          const key = drawerGroupCollapseKey(
+            sectionId,
+            resolveDrawerGroupKey(group),
+          );
+          const collapsed =
+            key && state.drawerGroupCollapsed.has(key)
+              ? state.drawerGroupCollapsed.get(key) === true
+              : group && group.collapsed === true;
+          return Object.assign({}, group, { collapsed });
+        }),
+      });
+    });
+    return panelSnapshot;
+  }
+
+  function toggleDrawerGroup(data) {
+    const key = drawerGroupCollapseKey(
+      data && data.sectionId,
+      data && (data.groupKey || data.backendId),
+    );
+    if (!key) return false;
+    state.drawerGroupCollapsed.set(key, data && data.collapsed !== true);
+    return true;
   }
 
   function trace(stage, details) {
@@ -354,6 +417,7 @@
       runDrawerOpen: state.runDrawerOpen,
       detailsOpen: state.detailsOpen,
       drawerCompletedCollapsed: state.drawerCompletedCollapsed,
+      drawerGroupCollapsed: compactDrawerGroupCollapseKey(),
       permissionRequestDrawerOpen: state.permissionRequestDrawerOpen,
       permissionRequestId: safeText(
         state.permissionRequestDetails &&
@@ -541,6 +605,12 @@
       }
       return;
     }
+    if (action === "toggle-drawer-group") {
+      if (toggleDrawerGroup(data)) {
+        render(state.snapshot || {});
+      }
+      return;
+    }
     if (action === "openDetails") {
       state.detailsOpen = true;
       render(state.snapshot || {});
@@ -655,6 +725,7 @@
             });
           },
         );
+        applyDrawerGroupCollapseState(panelSnapshot);
       }
       renderer.renderAssistantPanelSnapshot(panelSnapshot, {
         managed: true,

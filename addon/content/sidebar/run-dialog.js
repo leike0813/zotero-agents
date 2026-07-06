@@ -21,6 +21,7 @@
     transcriptPaginationVirtualizationEnabled: true,
     pendingTranscriptSnapshot: null,
     toolActivityExpandedIds: new Set(),
+    drawerGroupCollapsed: new Map(),
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsSkillRunnerSidebarBridge";
@@ -38,6 +39,66 @@
       : value == null
         ? ""
         : String(value);
+  }
+
+  function drawerGroupCollapseKey(sectionId, groupKey) {
+    const section = safeText(sectionId).trim();
+    const group = safeText(groupKey).trim();
+    return section && group ? section + "\n" + group : "";
+  }
+
+  function resolveDrawerGroupKey(group) {
+    return safeText(
+      group &&
+        (group.groupKey ||
+          group.backendId ||
+          group.backendDisplayName ||
+          group.title),
+    ).trim();
+  }
+
+  function applyDrawerGroupCollapseState(panelSnapshot) {
+    if (!panelSnapshot || !panelSnapshot.drawers) return panelSnapshot;
+    const sections = Array.isArray(panelSnapshot.drawers.skillrunnerSections)
+      ? panelSnapshot.drawers.skillrunnerSections
+      : Array.isArray(panelSnapshot.drawers.sections)
+        ? panelSnapshot.drawers.sections
+        : [];
+    const nextSections = sections.map(function (section) {
+      const sectionId = safeText(section && section.id).trim();
+      const groups = Array.isArray(section && section.groups)
+        ? section.groups
+        : [];
+      return Object.assign({}, section, {
+        groups: groups.map(function (group) {
+          const key = drawerGroupCollapseKey(
+            sectionId,
+            resolveDrawerGroupKey(group),
+          );
+          const collapsed =
+            key && state.drawerGroupCollapsed.has(key)
+              ? state.drawerGroupCollapsed.get(key) === true
+              : group && group.collapsed === true;
+          return Object.assign({}, group, { collapsed });
+        }),
+      });
+    });
+    if (Array.isArray(panelSnapshot.drawers.skillrunnerSections)) {
+      panelSnapshot.drawers.skillrunnerSections = nextSections;
+    } else {
+      panelSnapshot.drawers.sections = nextSections;
+    }
+    return panelSnapshot;
+  }
+
+  function toggleDrawerGroup(data) {
+    const key = drawerGroupCollapseKey(
+      data && data.sectionId,
+      data && (data.groupKey || data.backendId),
+    );
+    if (!key) return false;
+    state.drawerGroupCollapsed.set(key, data && data.collapsed !== true);
+    return true;
   }
 
   function trace(stage, details) {
@@ -741,6 +802,12 @@
       render(state.workspaceEnvelope || {});
       return;
     }
+    if (action === "toggle-drawer-group") {
+      if (toggleDrawerGroup(data)) {
+        render(state.workspaceEnvelope || {});
+      }
+      return;
+    }
     if (action === "select-task") {
       const taskKey = safeText(data.taskKey);
       state.drawerOpen = false;
@@ -932,6 +999,7 @@
     const panelSnapshot = projectAssistantPanelSnapshot(
       state.workspaceEnvelope,
     );
+    applyDrawerGroupCollapseState(panelSnapshot);
     document.title =
       panelSnapshot.context.title ||
       safeText(panelSnapshot.labels && panelSnapshot.labels.title);

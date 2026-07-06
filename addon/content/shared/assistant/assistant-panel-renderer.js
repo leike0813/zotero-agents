@@ -1667,6 +1667,7 @@
                       group.title),
                 ),
                 group && group.disabled === true ? "disabled" : "enabled",
+                group && group.collapsed === true ? "collapsed" : "expanded",
                 active.map(workspaceTaskSignature).join(";"),
                 finished.map(workspaceTaskSignature).join(";"),
               ].join("~");
@@ -1676,6 +1677,15 @@
       })
       .join("###")
       .concat("###notice::", safeText(noticeText));
+  }
+
+  function workspaceDrawerGroupKey(group) {
+    const item = group && typeof group === "object" ? group : {};
+    return (
+      safeText(item.backendId) ||
+      safeText(item.backendDisplayName) ||
+      safeText(item.title)
+    );
   }
 
   function updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey) {
@@ -1724,21 +1734,45 @@
   function renderAssistantWorkspaceGroup(
     parent,
     group,
+    sectionId,
     selectedTaskKey,
     labels,
     options,
   ) {
     const item = group && typeof group === "object" ? group : {};
+    const groupKey = workspaceDrawerGroupKey(item);
+    const groupCollapsed = item.collapsed === true;
     const groupBox = el(
       "section",
       "assistant-workspace-drawer-group skillrunner-workspace-group" +
-        (item.disabled === true ? " is-disabled" : ""),
+        (item.disabled === true ? " is-disabled" : "") +
+        (groupCollapsed ? " is-collapsed" : " is-expanded"),
     );
     const header = el(
-      "div",
+      "button",
       "assistant-workspace-drawer-group-header skillrunner-workspace-group-header",
-      safeText(item.backendDisplayName || item.backendId || item.title) || "-",
+      "",
     );
+    header.type = "button";
+    header.setAttribute("aria-expanded", groupCollapsed ? "false" : "true");
+    header.appendChild(
+      el(
+        "span",
+        "assistant-workspace-drawer-group-title",
+        safeText(item.backendDisplayName || item.backendId || item.title) ||
+          "-",
+      ),
+    );
+    header.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      emit(options, "toggle-drawer-group", {
+        sectionId: safeText(sectionId),
+        backendId: safeText(item.backendId),
+        groupKey,
+        collapsed: groupCollapsed,
+      });
+    });
     if (item.disabled === true) {
       const tag = el(
         "span",
@@ -1767,16 +1801,18 @@
     const finishedTasks = Array.isArray(item.finishedTasks)
       ? item.finishedTasks
       : [];
-    activeTasks.forEach(function (task) {
-      body.appendChild(
-        renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options),
-      );
-    });
-    finishedTasks.forEach(function (task) {
-      body.appendChild(
-        renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options),
-      );
-    });
+    if (!groupCollapsed) {
+      activeTasks.forEach(function (task) {
+        body.appendChild(
+          renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options),
+        );
+      });
+      finishedTasks.forEach(function (task) {
+        body.appendChild(
+          renderAssistantWorkspaceTask(task, selectedTaskKey, labels, options),
+        );
+      });
+    }
     groupBox.appendChild(body);
     parent.appendChild(groupBox);
   }
@@ -1862,7 +1898,11 @@
       const sectionBox = el(
         "section",
         "assistant-workspace-drawer-section skillrunner-workspace-section" +
-          (sectionId === "completed" ? " is-completed" : " is-running") +
+          (sectionId === "completed"
+            ? " is-completed"
+            : sectionId === "running"
+              ? " is-running"
+              : " is-neutral") +
           (sectionCollapsed ? " is-collapsed" : " is-expanded"),
       );
       const sectionBody = el(
@@ -1900,6 +1940,7 @@
           renderAssistantWorkspaceGroup(
             sectionBody,
             group,
+            sectionId,
             selectedTaskKey,
             labels,
             options,

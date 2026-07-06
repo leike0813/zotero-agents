@@ -7324,4 +7324,103 @@ describe("acp ui smoke", function () {
     assert.notInclude(rows[0].className, "is-active");
     assert.include(rows[1].className, "is-active");
   });
+
+  it("renders workspace drawer backend groups as collapsible", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const drawerRegion = fakeDocument.createElement("div");
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
+    const baseSection = {
+      id: "running",
+      title: "Running",
+      groups: [
+        {
+          backendId: "backend-a",
+          backendDisplayName: "Backend A",
+          collapsed: false,
+          activeTasks: [
+            {
+              key: "task-a",
+              title: "Task A",
+              workflowLabel: "Backend A",
+              status: "running",
+              selectable: true,
+            },
+          ],
+          finishedTasks: [],
+        },
+      ],
+    };
+
+    renderer.renderAssistantContextDrawer(
+      drawerRegion,
+      {
+        drawers: {
+          layout: "workspace-task-drawer",
+          contextTitle: "Runs",
+          sections: [baseSection],
+        },
+      },
+      {
+        onAction(action: string, data: Record<string, unknown>) {
+          actions.push({ action, data });
+        },
+      },
+    );
+
+    assert.lengthOf(
+      drawerRegion.querySelectorAll(".assistant-workspace-drawer-task"),
+      1,
+    );
+    const header = drawerRegion.querySelector(
+      ".assistant-workspace-drawer-group-header",
+    );
+    assert.equal(header?.getAttribute("aria-expanded"), "true");
+    header?.click();
+    assert.deepEqual(actions, [
+      {
+        action: "toggle-drawer-group",
+        data: {
+          sectionId: "running",
+          backendId: "backend-a",
+          groupKey: "backend-a",
+          collapsed: false,
+        },
+      },
+    ]);
+
+    renderer.renderAssistantContextDrawer(drawerRegion, {
+      drawers: {
+        layout: "workspace-task-drawer",
+        contextTitle: "Runs",
+        sections: [
+          {
+            ...baseSection,
+            groups: [
+              {
+                ...baseSection.groups[0],
+                collapsed: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    assert.lengthOf(
+      drawerRegion.querySelectorAll(".assistant-workspace-drawer-task"),
+      0,
+    );
+    const collapsedGroup = drawerRegion.querySelector(
+      ".assistant-workspace-drawer-group",
+    );
+    assert.include(collapsedGroup?.className || "", "is-collapsed");
+    assert.equal(
+      drawerRegion
+        .querySelector(".assistant-workspace-drawer-group-header")
+        ?.getAttribute("aria-expanded"),
+      "false",
+    );
+  });
 });

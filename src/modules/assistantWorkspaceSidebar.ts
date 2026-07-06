@@ -126,6 +126,7 @@ type AssistantWorkspaceHostRuntime = {
   activeTab: AssistantWorkspaceTab;
   drawerOpen: boolean;
   drawerCompletedCollapsed: boolean;
+  drawerGroupCollapsed: Map<string, boolean>;
   latestSkillRunnerBaseSnapshot?: RunWorkspaceSnapshot | null;
   latestSkillRunnerSnapshot?: RunWorkspaceSnapshot | null;
   skillRunnerAttachedFrameWindow?: Window | null;
@@ -632,6 +633,22 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   return true;
 }
 
+function skillRunnerDrawerGroupCollapseKey(
+  sectionId: string,
+  group: {
+    backendId?: string;
+    backendDisplayName?: string;
+    title?: string;
+  },
+) {
+  const section = String(sectionId || "").trim();
+  const backend =
+    String(group.backendId || "").trim() ||
+    String(group.backendDisplayName || "").trim() ||
+    String(group.title || "").trim();
+  return section && backend ? `${section}\n${backend}` : "";
+}
+
 function buildDecoratedSkillRunnerSnapshot(
   host: AssistantWorkspaceHostRuntime,
   snapshot: RunWorkspaceSnapshot,
@@ -645,6 +662,24 @@ function buildDecoratedSkillRunnerSnapshot(
     selectedTaskKey: String(snapshot.workspace?.selectedTaskKey || ""),
     completedCollapsed: host.drawerCompletedCollapsed,
   });
+  const decoratedSections = sections.map((section) => ({
+    id: section.id,
+    title:
+      section.id === "completed"
+        ? localize("task-dashboard-run-completed-tasks-title", "Completed")
+        : localize("task-dashboard-run-running-tasks-title", "Running"),
+    collapsed: section.collapsed,
+    groups: section.groups.map((group) => {
+      const collapseKey = skillRunnerDrawerGroupCollapseKey(section.id, group);
+      const collapsed = collapseKey
+        ? (host.drawerGroupCollapsed.get(collapseKey) ?? group.collapsed)
+        : group.collapsed;
+      return {
+        ...group,
+        collapsed,
+      };
+    }),
+  }));
   host.snapshotRevision += 1;
   const decorated = decorateAssistantSidebarChildSnapshot({
     scopeKey: host.scopeKey,
@@ -661,18 +696,7 @@ function buildDecoratedSkillRunnerSnapshot(
         open: host.drawerOpen,
         notice: snapshot.drawer?.notice,
         truncated: snapshot.drawer?.truncated,
-        sections: sections.map((section) => ({
-          id: section.id,
-          title:
-            section.id === "completed"
-              ? localize(
-                  "task-dashboard-run-completed-tasks-title",
-                  "Completed",
-                )
-              : localize("task-dashboard-run-running-tasks-title", "Running"),
-          collapsed: section.collapsed,
-          groups: section.groups,
-        })),
+        sections: decoratedSections,
       },
       badges: {
         waitingCount: countWaitingSkillRunnerTasks(groups),
@@ -743,6 +767,22 @@ function createSkillRunnerHostActionHandler(
       const sectionId = String(envelope.payload?.sectionId || "").trim();
       if (sectionId === "completed") {
         host.drawerCompletedCollapsed = !host.drawerCompletedCollapsed;
+        publishLatestSkillRunnerChromeSnapshot(host);
+        return true;
+      }
+    }
+    if (action === "toggle-drawer-group") {
+      const sectionId = String(envelope.payload?.sectionId || "").trim();
+      const backend =
+        String(envelope.payload?.groupKey || "").trim() ||
+        String(envelope.payload?.backendId || "").trim();
+      const collapseKey =
+        sectionId && backend ? `${sectionId}\n${backend}` : "";
+      if (collapseKey) {
+        host.drawerGroupCollapsed.set(
+          collapseKey,
+          envelope.payload?.collapsed !== true,
+        );
         publishLatestSkillRunnerChromeSnapshot(host);
         return true;
       }
@@ -2899,6 +2939,7 @@ export function installAssistantWorkspaceSidebarShell(
     activeTab: DEFAULT_TAB,
     drawerOpen: false,
     drawerCompletedCollapsed: true,
+    drawerGroupCollapsed: new Map<string, boolean>(),
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,

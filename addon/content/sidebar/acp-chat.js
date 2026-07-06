@@ -22,6 +22,7 @@
     pendingRenderSnapshot: null,
     renderScheduled: false,
     panelRenderKey: "",
+    drawerGroupCollapsed: new Map(),
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -34,6 +35,68 @@
 
   function safeText(value) {
     return String(value == null ? "" : value).trim();
+  }
+
+  function drawerGroupCollapseKey(sectionId, groupKey) {
+    const section = safeText(sectionId);
+    const group = safeText(groupKey);
+    return section && group ? section + "\n" + group : "";
+  }
+
+  function compactDrawerGroupCollapseKey() {
+    return Array.from(state.drawerGroupCollapsed.entries())
+      .map(function (entry) {
+        return entry[0] + ":" + (entry[1] === true ? "1" : "0");
+      })
+      .sort()
+      .join("|");
+  }
+
+  function resolveDrawerGroupKey(group) {
+    return safeText(
+      group &&
+        (group.groupKey ||
+          group.backendId ||
+          group.backendDisplayName ||
+          group.title),
+    );
+  }
+
+  function applyDrawerGroupCollapseState(panelSnapshot) {
+    if (!panelSnapshot || !panelSnapshot.drawers) return panelSnapshot;
+    const sections = Array.isArray(panelSnapshot.drawers.sections)
+      ? panelSnapshot.drawers.sections
+      : [];
+    panelSnapshot.drawers.sections = sections.map(function (section) {
+      const sectionId = safeText(section && section.id);
+      const groups = Array.isArray(section && section.groups)
+        ? section.groups
+        : [];
+      return Object.assign({}, section, {
+        groups: groups.map(function (group) {
+          const key = drawerGroupCollapseKey(
+            sectionId,
+            resolveDrawerGroupKey(group),
+          );
+          const collapsed =
+            key && state.drawerGroupCollapsed.has(key)
+              ? state.drawerGroupCollapsed.get(key) === true
+              : group && group.collapsed === true;
+          return Object.assign({}, group, { collapsed });
+        }),
+      });
+    });
+    return panelSnapshot;
+  }
+
+  function toggleDrawerGroup(data) {
+    const key = drawerGroupCollapseKey(
+      data && data.sectionId,
+      data && (data.groupKey || data.backendId),
+    );
+    if (!key) return false;
+    state.drawerGroupCollapsed.set(key, data && data.collapsed !== true);
+    return true;
   }
 
   function trace(stage, details) {
@@ -439,6 +502,7 @@
       permissionRequestId: safeText(
         pendingPermission && pendingPermission.requestId,
       ),
+      drawerGroupCollapsed: compactDrawerGroupCollapseKey(),
       sessions: backendSessions.map(function (entry) {
         return {
           backendId: safeText(entry && entry.backendId),
@@ -462,6 +526,12 @@
     if (action === "close-context-drawer") {
       state.sessionDrawerOpen = false;
       render(snapshot);
+      return;
+    }
+    if (action === "toggle-drawer-group") {
+      if (toggleDrawerGroup(data)) {
+        render(snapshot);
+      }
       return;
     }
     if (action === "openDetails") {
@@ -702,7 +772,9 @@
       return;
     state.panelRenderKey = renderKey;
     trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
-    const panelSnapshot = projectPanelSnapshot(snapshot || {});
+    const panelSnapshot = applyDrawerGroupCollapseState(
+      projectPanelSnapshot(snapshot || {}),
+    );
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;

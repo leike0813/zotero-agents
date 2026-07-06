@@ -153,10 +153,11 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(rendererJs, "event.stopPropagation()");
     assert.include(rendererJs, "safeText(drawers.notice)");
     assert.include(rendererJs, "assistant-workspace-drawer-history-notice");
-    assert.include(
-      rendererJs,
-      'sectionId === "completed" ? " is-completed" : " is-running"',
-    );
+    assert.include(rendererJs, 'sectionId === "completed"');
+    assert.include(rendererJs, '" is-completed"');
+    assert.include(rendererJs, 'sectionId === "running"');
+    assert.include(rendererJs, '" is-running"');
+    assert.include(rendererJs, '" is-neutral"');
     assert.match(
       rendererJs,
       /toggle\.setAttribute\(\s*"aria-expanded",\s*sectionCollapsed\s*\?\s*"false"\s*:\s*"true",?\s*\)/,
