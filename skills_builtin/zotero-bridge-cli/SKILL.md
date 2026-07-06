@@ -44,7 +44,7 @@ Use `workflow agent-run` when the agent should perform one or more requests loca
 
 Use `run get`, `run active`, `run recent`, `run workflow recent`, `run skill recent`, `run skill events`, `run notification ...`, `run cancel`, and `run skill ...` for Host-owned workflow runs and skill runs. These commands do not monitor or complete agent-owned handoff sessions.
 
-Use `run notification list` or `run notification wait` when you need a lightweight inbox of workflow and skill-run lifecycle events. Notification output is for progress awareness and callback-style handoff; it is not a transcript and is not a hidden interaction target.
+Use `run notification list --client-id <agentId>` or `run notification wait --client-id <agentId>` when you need a lightweight inbox of workflow and skill-run lifecycle events with a per-client best-effort cursor. Notification output is for progress awareness and callback-style handoff; it is not a transcript and is not a hidden interaction target.
 
 Use `run skill events <skillRunId>` when you need lifecycle/progress facts for one skill run without starting a watch stream. Events are not transcripts and do not include workspace paths or provider private payloads.
 
@@ -58,7 +58,7 @@ When a run is waiting for user input, use `run get` or `run active` to locate th
 
 When a run is failed and recoverable, use `run skill connect <skillRunId>` only when the returned actions indicate that connection is supported.
 
-After handling a notification, acknowledge it with `run notification ack --event <eventId>` so later checks can focus on new events.
+After handling a notification, acknowledge it with `run notification ack --client-id <agentId> --event <eventId>` so later checks can focus on new events.
 
 For library writeback, prefer mutation-backed commands such as `mutation tag add`, `mutation item update`, `mutation note create`, and `mutation item attach-file` after the target item or note has been read. If an apply command returns an approval or validation error, report the structured code and stop rather than retrying with `call`.
 

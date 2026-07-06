@@ -146,12 +146,12 @@ Do not use run control-plane commands for `agentRunId`. Those controls apply to 
 Use the notification inbox when you need callback-style progress without a long-running watch stream:
 
 ```powershell
-zotero-bridge run notification list --workflow-run-id <workflowRunId>
-zotero-bridge run notification wait --workflow-run-id <workflowRunId> --since-event-id <eventId>
-zotero-bridge run notification ack --event <eventId>
+zotero-bridge run notification list --client-id <agentId> --workflow-run-id <workflowRunId>
+zotero-bridge run notification wait --client-id <agentId> --workflow-run-id <workflowRunId> --since-event-id <eventId>
+zotero-bridge run notification ack --client-id <agentId> --event <eventId>
 ```
 
-Notifications are lightweight lifecycle facts. They can show started, waiting, completed, canceled, failed, and recoverable failed states, but they do not contain transcripts, workspace paths, or provider private payloads. Use `workflowRunId` only for workflow-level status and cancellation. Use `skillRunId` from `run get`, `run active`, or a notification before replying or reconnecting.
+Notifications are lightweight lifecycle facts. They can show started, waiting, completed, canceled, failed, and recoverable failed states, but they do not contain transcripts, workspace paths, or provider private payloads. Use a stable `--client-id` per agent or service so repeated lists advance that client's best-effort cursor without hiding retained events from other clients. Use `workflowRunId` only for workflow-level status and cancellation. Use `skillRunId` from `run get`, `run active`, or a notification before replying or reconnecting.
 
 ## Run History and Events
 
