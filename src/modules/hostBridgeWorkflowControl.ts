@@ -9,6 +9,7 @@ import {
   listTaskDashboardHistory,
   type TaskDashboardHistoryRecord,
 } from "./taskDashboardHistory";
+import { isAcpSkillRunTask } from "./dashboardActiveTasks";
 import {
   cancelAcpSkillRun,
   connectAcpSkillRun,
@@ -2122,6 +2123,9 @@ export function listHostBridgeTasks(
       })
     : listWorkflowTasks();
   for (const task of workflowTasks) {
+    if (isAcpSkillRunTask(task)) {
+      continue;
+    }
     const dto = taskToDto(task, "active");
     if (matchesFilters(dto, filters)) {
       byId.set(dto.id, dto);
@@ -2129,6 +2133,9 @@ export function listHostBridgeTasks(
   }
   if (!activeOnly && filters.includeHistory !== false) {
     for (const task of listTaskDashboardHistory(filters)) {
+      if (isAcpSkillRunTask(task)) {
+        continue;
+      }
       const dto = taskToDto(task, "history");
       if (matchesFilters(dto, filters) && !byId.has(dto.id)) {
         byId.set(dto.id, dto);
@@ -2224,6 +2231,37 @@ function summarizeTasks(
   return summary;
 }
 
+function skillRunsAsWorkflowTasks(
+  skillRuns: HostBridgeSkillRunDto[],
+): HostBridgeWorkflowTaskDto[] {
+  return skillRuns.map((skillRun) => ({
+    id: skillRun.skillRunId,
+    workflowRunId: skillRun.workflowRunId,
+    runId: skillRun.workflowRunId,
+    jobId: skillRun.jobId || "",
+    requestId: skillRun.requestId || skillRun.skillRunId,
+    workflowId: skillRun.workflowId || "",
+    workflowLabel: skillRun.workflowLabel || skillRun.workflowId || "",
+    taskName: skillRun.taskName,
+    providerId: skillRun.providerId || skillRun.backendType || "",
+    requestKind: skillRun.requestKind || "",
+    backendId: skillRun.backendId || "",
+    backendType: skillRun.backendType || "",
+    backendBaseUrl: "",
+    engine: "",
+    state: skillRun.state,
+    error: undefined,
+    createdAt: skillRun.createdAt || skillRun.updatedAt,
+    updatedAt: skillRun.updatedAt,
+    source: "active" as const,
+    skillRunId: skillRun.skillRunId,
+  }));
+}
+
+function summarizeSkillRuns(skillRuns: HostBridgeSkillRunDto[]) {
+  return summarizeTasks(skillRunsAsWorkflowTasks(skillRuns));
+}
+
 function acpSummaryToSkillRun(
   summary: AcpSkillRunSummary,
 ): HostBridgeSkillRunDto {
@@ -2306,14 +2344,18 @@ export function getHostBridgeWorkflowRunStatus(
     runId: normalizedRunId,
     workflowRunId: normalizedRunId,
     found: tasks.length > 0 || skillRuns.length > 0,
-    state: summarizeRunState(tasks),
+    state:
+      tasks.length > 0
+        ? summarizeRunState(tasks)
+        : summarizeRunState(skillRunsAsWorkflowTasks(skillRuns)),
     workflowId: first?.workflowId || firstSkillRun?.workflowId,
     workflowLabel: first?.workflowLabel || firstSkillRun?.workflowLabel,
     liveness: workflowLiveness(skillRuns),
     skillRuns,
     currentSkillRunId: currentSkillRunId(skillRuns),
     tasks,
-    summary: summarizeTasks(tasks),
+    summary:
+      tasks.length > 0 ? summarizeTasks(tasks) : summarizeSkillRuns(skillRuns),
     updatedAt: first?.updatedAt || firstSkillRun?.updatedAt,
   };
 }
@@ -2611,14 +2653,14 @@ function refreshHostBridgeNotificationProjection(
 export function listHostBridgeNotifications(
   filters: HostBridgeNotificationFilters = {},
 ): HostBridgeNotificationListResult {
-  refreshHostBridgeNotificationProjection(filters);
   return listHostBridgeNotificationEvents(filters);
 }
 
 export function ackHostBridgeNotifications(
   eventIds: string[],
+  clientId?: string,
 ): HostBridgeNotificationAckResult {
-  return acknowledgeHostBridgeNotificationEvents(eventIds);
+  return acknowledgeHostBridgeNotificationEvents(eventIds, clientId);
 }
 
 export function resetHostBridgeNotificationProjectionForTests() {

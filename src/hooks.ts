@@ -51,6 +51,7 @@ import {
   uninstallMarkdownAttachmentOpenProbe,
 } from "./modules/markdownAttachmentOpenProbe";
 import {
+  isLibraryArtifactsColumnInvalidationEvent,
   notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
   unregisterLibraryArtifactsColumn,
@@ -179,6 +180,7 @@ const SYNTHESIS_WORKBENCH_PRELOAD_DELAY_MS = 1500;
 let startupOfficialWorkflowPackageUpdateCheckStarted = false;
 let startupHostBridgeCliInstallPromptStarted = false;
 let startupRuntimePreflightPromise: Promise<void> | null = null;
+let libraryArtifactsNotifierObserverToken: unknown;
 const STARTUP_SHELL_COMMANDS: RuntimeCommandName[] = ["pwsh", "powershell"];
 
 let registeredZoteroPaneStylesheet:
@@ -768,6 +770,7 @@ async function onStartup() {
 
   registerPrefsPane();
   await registerLibraryArtifactsColumn();
+  registerLibraryArtifactsNotifierObserver();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -867,6 +870,72 @@ async function onMainWindowUnload(win: Window): Promise<void> {
   removeAssistantWorkspaceSidebarShell(win as _ZoteroTypes.MainWindow);
   unregisterToolkitSafely();
   addon.data.dialog?.window?.close();
+}
+
+function registerLibraryArtifactsNotifierObserver() {
+  if (libraryArtifactsNotifierObserverToken) {
+    return;
+  }
+  const notifier = (globalThis as { Zotero?: { Notifier?: any } }).Zotero
+    ?.Notifier;
+  if (typeof notifier?.registerObserver !== "function") {
+    return;
+  }
+  try {
+    libraryArtifactsNotifierObserverToken = notifier.registerObserver(
+      {
+        notify: (
+          event: string,
+          type: string,
+          ids: Array<string | number>,
+          _extraData?: Record<string, unknown>,
+        ) => {
+          handleLibraryArtifactsItemNotification(event, type, ids);
+        },
+      },
+      ["item"],
+      addon.data.config.addonID,
+    );
+  } catch (error) {
+    emitVerboseConsole(
+      "warn",
+      "[library-artifacts] notifier observer registration failed",
+      error,
+    );
+  }
+}
+
+function unregisterLibraryArtifactsNotifierObserver() {
+  const token = libraryArtifactsNotifierObserverToken;
+  libraryArtifactsNotifierObserverToken = undefined;
+  if (!token) {
+    return;
+  }
+  const notifier = (globalThis as { Zotero?: { Notifier?: any } }).Zotero
+    ?.Notifier;
+  if (typeof notifier?.unregisterObserver !== "function") {
+    return;
+  }
+  try {
+    notifier.unregisterObserver(token);
+  } catch (error) {
+    emitVerboseConsole(
+      "warn",
+      "[library-artifacts] notifier observer unregistration failed",
+      error,
+    );
+  }
+}
+
+function handleLibraryArtifactsItemNotification(
+  event: string,
+  type: string,
+  ids: Array<string | number>,
+) {
+  if (type !== "item" || !isLibraryArtifactsColumnInvalidationEvent(event)) {
+    return;
+  }
+  notifyLibraryArtifactsColumnItemsChanged(ids);
 }
 
 const PLUGIN_SHUTDOWN_STEP_TIMEOUT_MS = 3_000;
@@ -970,6 +1039,7 @@ async function onShutdown(): Promise<void> {
   closeVisibleWorkflowToasts();
   unregisterToolkitSafely();
   unregisterZoteroPaneStylesheet();
+  unregisterLibraryArtifactsNotifierObserver();
   await unregisterLibraryArtifactsColumn();
   uninstallMarkdownAttachmentOpenProbe();
   addon.data.dialog?.window?.close();
@@ -990,9 +1060,7 @@ async function onNotify(
   extraData: { [key: string]: any },
 ) {
   getRuntimeToolkit()?.log?.("notify", event, type, ids, extraData);
-  if (type === "item") {
-    notifyLibraryArtifactsColumnItemsChanged(ids);
-  }
+  handleLibraryArtifactsItemNotification(event, type, ids);
   if (
     isSynthesisLibraryReadModelInvalidationEvent({
       event,
@@ -1153,8 +1221,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
             activeOnly: true,
             limit,
           }),
+          limit,
         })
-        .slice(0, limit)
         .map((entry) => {
           const backendId = String(entry.backendId || "").trim();
           const backendMeta = backendId

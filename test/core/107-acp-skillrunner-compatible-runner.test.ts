@@ -29,6 +29,7 @@ import {
   hasAcpSkillRunController,
   hydrateAcpSkillRunTranscriptMirror,
   interruptAcpSkillRunCurrentTurn,
+  listAcpSkillRunSummaries,
   listAcpSkillRuns,
   prepareAcpSkillRunPanelSnapshot,
   recordAcpSkillRunSessionUpdate,
@@ -1901,7 +1902,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("keeps workflow active task rows synchronized with terminal ACP skill runs", function () {
+  it("removes terminal ACP skill runs from the active run projection", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
         requestId: "acp-terminal-sync",
@@ -1921,16 +1922,18 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
 
     assert.notInclude(
-      listActiveWorkflowTasks().map((entry) => entry.requestId),
+      listAcpSkillRunSummaries({ activeOnly: true }).map(
+        (entry) => entry.requestId,
+      ),
       "acp-terminal-sync",
     );
-    const persisted = listWorkflowTasks().find(
+    const carrier = listWorkflowTasks().find(
       (entry) => entry.requestId === "acp-terminal-sync",
     );
-    assert.equal(persisted?.state, "succeeded");
+    assert.equal(carrier?.state, "running");
   });
 
-  it("keeps workflow task rows synchronized with non-terminal ACP skill run connection state", function () {
+  it("keeps non-terminal ACP skill run state in the active run projection", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
         requestId: "acp-waiting-sync",
@@ -1949,17 +1952,19 @@ describe("ACP SkillRunner-compatible runner", function () {
       activePrompt: false,
     });
 
-    const persisted = listWorkflowTasks().find(
+    const carrier = listWorkflowTasks().find(
       (entry) => entry.requestId === "acp-waiting-sync",
     );
-    assert.equal(persisted?.state, "waiting_user");
+    assert.equal(carrier?.state, "running");
     assert.include(
-      listActiveWorkflowTasks().map((entry) => entry.requestId),
+      listAcpSkillRunSummaries({ activeOnly: true }).map(
+        (entry) => entry.requestId,
+      ),
       "acp-waiting-sync",
     );
   });
 
-  it("removes workflow task rows when ACP skill runs are archived or removed", function () {
+  it("removes archived ACP skill runs from the active run projection", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
         requestId: "acp-archived-sync",
@@ -1978,14 +1983,15 @@ describe("ACP SkillRunner-compatible runner", function () {
       archivedAt: "2026-05-23T01:01:00.000Z",
     });
 
-    assert.isUndefined(
-      listWorkflowTasks().find(
-        (entry) => entry.requestId === "acp-archived-sync",
+    assert.notInclude(
+      listAcpSkillRunSummaries({ activeOnly: true }).map(
+        (entry) => entry.requestId,
       ),
+      "acp-archived-sync",
     );
   });
 
-  it("preserves recoverable ACP skill run workflow tasks on startup", function () {
+  it("cleans recoverable ACP skill run carrier rows on startup", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
         requestId: "acp-recoverable-startup",
@@ -2006,10 +2012,7 @@ describe("ACP SkillRunner-compatible runner", function () {
 
     assert.equal(result.recoverableCount, 1);
     assert.equal(result.failedCount, 0);
-    assert.sameMembers(
-      listActiveWorkflowTasks().map((entry) => entry.requestId),
-      ["acp-recoverable-startup"],
-    );
+    assert.deepEqual(listActiveWorkflowTasks(), []);
     const run = getAcpSkillRunRecord("acp-recoverable-startup");
     assert.equal(run?.status, "running");
     assert.equal(run?.conversationState, "closed");
@@ -2044,7 +2047,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const task = listWorkflowTasks().find(
       (entry) => entry.requestId === "acp-nonrecoverable-startup",
     );
-    assert.equal(task?.state, "failed");
+    assert.isUndefined(task);
   });
 
   it("migrates legacy recoverable failed ACP run records on hydrate", function () {

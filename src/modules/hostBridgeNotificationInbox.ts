@@ -1,3 +1,12 @@
+import {
+  acknowledgeNotificationHubEvents,
+  appendNotificationHubEvent,
+  listNotificationHubEvents,
+  NOTIFICATION_HUB_MAX_EVENTS,
+  resetNotificationHubForTests,
+  type NotificationHubEvent,
+  type NotificationHubSeverity,
+} from "./notificationHub";
 import type {
   HostBridgeRunLiveness,
   HostBridgeSkillRunActions,
@@ -16,11 +25,13 @@ export type HostBridgeNotificationType =
   | "skill_run.waiting_user"
   | "skill_run.waiting_auth"
   | "skill_run.failed_retriable"
-  | "skill_run.completed";
+  | "skill_run.completed"
+  | (string & {});
 
 export type HostBridgeNotificationEvent = {
   eventId: string;
   type: HostBridgeNotificationType;
+  severity?: NotificationHubSeverity;
   createdAt: string;
   workflowRunId?: string;
   skillRunId?: string;
@@ -32,9 +43,19 @@ export type HostBridgeNotificationEvent = {
   sequenceStepIndex?: number;
   actions?: HostBridgeSkillRunActions;
   summary: string;
+  text?: string;
+  source?: string;
+  owner?: string;
+  scope?: string;
+  semantic?: string;
+  displayGroupKey?: string;
+  dedupKey?: string;
+  metadata?: Record<string, unknown>;
+  suppressed?: boolean;
   relatedHandles: {
     workflowRunId?: string;
     skillRunId?: string;
+    [key: string]: string | undefined;
   };
   acknowledgedAt: string | null;
 };
@@ -46,6 +67,8 @@ export type HostBridgeNotificationFilters = {
   sinceEventId?: string;
   acknowledged?: boolean;
   limit?: number;
+  clientId?: string;
+  includeSuppressed?: boolean;
 };
 
 export type HostBridgeNotificationListResult = {
@@ -53,12 +76,14 @@ export type HostBridgeNotificationListResult = {
   nextSinceEventId?: string;
   returned: number;
   hasMore: boolean;
+  truncated: boolean;
 };
 
 export type HostBridgeNotificationAckResult = {
   acknowledged: string[];
   missing: string[];
   acknowledgedAt: string;
+  clientId?: string;
 };
 
 type NotificationInput = Omit<
@@ -69,109 +94,54 @@ type NotificationInput = Omit<
   createdAt?: string;
 };
 
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
-export const HOST_BRIDGE_NOTIFICATION_MAX_EVENTS = 1000;
-export const HOST_BRIDGE_NOTIFICATION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-
-const events: HostBridgeNotificationEvent[] = [];
-const eventIdByKey = new Map<string, string>();
-let eventCounter = 0;
+export const HOST_BRIDGE_NOTIFICATION_MAX_EVENTS = NOTIFICATION_HUB_MAX_EVENTS;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function nextEventId() {
-  eventCounter += 1;
-  return `hb-notification-${eventCounter}`;
-}
-
-function normalizeLimit(limit: unknown) {
-  if (typeof limit === "number" && Number.isFinite(limit)) {
-    return Math.max(1, Math.min(MAX_LIMIT, Math.floor(limit)));
-  }
-  return DEFAULT_LIMIT;
-}
-
-function eventTime(event: HostBridgeNotificationEvent) {
-  const time = Date.parse(event.createdAt);
-  return Number.isFinite(time) ? time : 0;
-}
-
-function removeEvent(event: HostBridgeNotificationEvent) {
-  const index = events.findIndex((entry) => entry.eventId === event.eventId);
-  if (index >= 0) {
-    events.splice(index, 1);
-  }
-  for (const [key, eventId] of eventIdByKey.entries()) {
-    if (eventId === event.eventId) {
-      eventIdByKey.delete(key);
-    }
-  }
-}
-
-export function pruneHostBridgeNotificationInbox(now = Date.now()) {
-  const cutoff = now - HOST_BRIDGE_NOTIFICATION_MAX_AGE_MS;
-  for (const event of [...events]) {
-    const createdAt = eventTime(event);
-    if (createdAt > 0 && createdAt < cutoff) {
-      removeEvent(event);
-    }
-  }
-  if (events.length <= HOST_BRIDGE_NOTIFICATION_MAX_EVENTS) {
-    return;
-  }
-  const retained = new Set(
-    [...events]
-      .sort((left, right) => eventTime(right) - eventTime(left))
-      .slice(0, HOST_BRIDGE_NOTIFICATION_MAX_EVENTS)
-      .map((event) => event.eventId),
-  );
-  for (const event of [...events]) {
-    if (!retained.has(event.eventId)) {
-      removeEvent(event);
-    }
-  }
-}
-
-function eventMatches(
-  event: HostBridgeNotificationEvent,
-  filters: HostBridgeNotificationFilters,
-) {
-  if (filters.workflowRunId && event.workflowRunId !== filters.workflowRunId) {
-    return false;
-  }
-  if (filters.skillRunId && event.skillRunId !== filters.skillRunId) {
-    return false;
-  }
-  if (filters.type && event.type !== filters.type) {
-    return false;
-  }
-  if (
-    typeof filters.acknowledged === "boolean" &&
-    Boolean(event.acknowledgedAt) !== filters.acknowledged
-  ) {
-    return false;
-  }
-  return true;
+function hostBridgeEventFromHub(
+  event: NotificationHubEvent,
+): HostBridgeNotificationEvent {
+  return {
+    eventId: event.eventId,
+    type: event.type,
+    severity: event.severity,
+    createdAt: event.createdAt,
+    workflowRunId: event.relatedHandles.workflowRunId,
+    skillRunId: event.relatedHandles.skillRunId,
+    workflowId: event.relatedHandles.workflowId,
+    taskName: event.relatedHandles.taskName,
+    state: event.relatedHandles.state,
+    liveness: event.relatedHandles.liveness as HostBridgeRunLiveness,
+    sequenceStepId: event.relatedHandles.sequenceStepId,
+    sequenceStepIndex: Number.isFinite(
+      Number(event.relatedHandles.sequenceStepIndex),
+    )
+      ? Number(event.relatedHandles.sequenceStepIndex)
+      : undefined,
+    actions: event.metadata?.actions as HostBridgeSkillRunActions | undefined,
+    summary: event.summary,
+    text: event.text,
+    source: event.source,
+    owner: event.owner,
+    scope: event.scope,
+    semantic: event.semantic,
+    displayGroupKey: event.displayGroupKey,
+    dedupKey: event.dedupKey,
+    metadata: event.metadata,
+    suppressed: event.suppressed || undefined,
+    relatedHandles: {
+      ...event.relatedHandles,
+      workflowRunId: event.relatedHandles.workflowRunId,
+      skillRunId: event.relatedHandles.skillRunId,
+    },
+    acknowledgedAt: event.acknowledgedAt,
+  };
 }
 
 function insertNotification(input: NotificationInput) {
-  const eventKey = normalizeString(input.eventKey);
-  if (!eventKey || eventIdByKey.has(eventKey)) {
-    return;
-  }
-  const eventId = nextEventId();
-  eventIdByKey.set(eventKey, eventId);
-  events.push({
-    eventId,
-    type: input.type,
-    createdAt: input.createdAt || nowIso(),
+  const relatedHandles = {
     workflowRunId: input.workflowRunId,
     skillRunId: input.skillRunId,
     workflowId: input.workflowId,
@@ -179,16 +149,46 @@ function insertNotification(input: NotificationInput) {
     state: input.state,
     liveness: input.liveness,
     sequenceStepId: input.sequenceStepId,
-    sequenceStepIndex: input.sequenceStepIndex,
-    actions: input.actions,
+    sequenceStepIndex:
+      typeof input.sequenceStepIndex === "number"
+        ? String(input.sequenceStepIndex)
+        : undefined,
+  };
+  appendNotificationHubEvent({
+    eventKey: input.eventKey,
+    type: input.type,
+    severity: input.severity || severityFromNotificationType(input.type),
     summary: input.summary,
-    relatedHandles: {
-      workflowRunId: input.workflowRunId,
-      skillRunId: input.skillRunId,
+    text: input.text,
+    source: input.source || "host-bridge-projection",
+    owner: input.owner || "workflow",
+    scope: input.scope || "host-bridge-notification",
+    semantic: input.semantic,
+    displayGroupKey: input.displayGroupKey,
+    dedupKey: input.dedupKey,
+    relatedHandles,
+    metadata: {
+      ...(input.metadata || {}),
+      ...(input.actions ? { actions: input.actions } : {}),
     },
-    acknowledgedAt: null,
+    createdAt: input.createdAt,
+    displayRequested: false,
   });
-  pruneHostBridgeNotificationInbox();
+}
+
+function severityFromNotificationType(
+  type: HostBridgeNotificationType | string,
+): NotificationHubSeverity {
+  if (String(type).includes("failed")) {
+    return "error";
+  }
+  if (String(type).includes("completed")) {
+    return "success";
+  }
+  if (String(type).includes("waiting")) {
+    return "warning";
+  }
+  return "info";
 }
 
 function workflowEventType(
@@ -307,6 +307,10 @@ export function projectWorkflowRunNotifications(
       liveness: status.liveness,
       summary: workflowSummary(workflowType, status),
       createdAt: status.updatedAt,
+      owner: "workflow",
+      scope: "workflow-run",
+      semantic: workflowType.split(".").pop(),
+      displayGroupKey: `workflow:${status.workflowRunId}:${workflowType}`,
     });
   }
   for (const skillRun of status.skillRuns) {
@@ -340,6 +344,16 @@ export function projectSkillRunNotification(skillRun: HostBridgeSkillRunDto) {
     actions: skillRun.actions,
     summary: skillRunSummary(type, skillRun),
     createdAt: skillRun.updatedAt,
+    owner: type.includes("waiting") ? "acp-sidebar" : "workflow",
+    scope: "skill-run",
+    semantic: type.includes("waiting")
+      ? "waiting"
+      : type.includes("completed")
+        ? "success"
+        : type.includes("failed")
+          ? "error"
+          : "start",
+    displayGroupKey: `skill-run:${skillRun.skillRunId}:${type}`,
   });
 }
 
@@ -365,50 +379,45 @@ export function projectTaskNotifications(
 export function listHostBridgeNotificationEvents(
   filters: HostBridgeNotificationFilters = {},
 ): HostBridgeNotificationListResult {
-  pruneHostBridgeNotificationInbox();
-  const limit = normalizeLimit(filters.limit);
-  const sinceIndex = filters.sinceEventId
-    ? events.findIndex((event) => event.eventId === filters.sinceEventId)
-    : -1;
-  const startIndex = sinceIndex >= 0 ? sinceIndex + 1 : 0;
-  const matched = events
-    .slice(startIndex)
-    .filter((event) => eventMatches(event, filters))
-    .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  const notifications = matched.slice(0, limit);
-  const last = notifications[notifications.length - 1];
+  const workflowRunId = normalizeString(filters.workflowRunId);
+  const skillRunId = normalizeString(filters.skillRunId);
+  const result = listNotificationHubEvents({
+    type: filters.type,
+    sinceEventId: filters.sinceEventId,
+    acknowledged: filters.acknowledged,
+    limit: filters.limit,
+    clientId: filters.clientId,
+    includeSuppressed: filters.includeSuppressed,
+    matches: (event) => {
+      if (
+        workflowRunId &&
+        event.relatedHandles.workflowRunId !== workflowRunId
+      ) {
+        return false;
+      }
+      if (skillRunId && event.relatedHandles.skillRunId !== skillRunId) {
+        return false;
+      }
+      return true;
+    },
+  });
   return {
-    notifications,
-    nextSinceEventId: last?.eventId || filters.sinceEventId,
-    returned: notifications.length,
-    hasMore: matched.length > notifications.length,
+    ...result,
+    notifications: result.notifications.map(hostBridgeEventFromHub),
   };
 }
 
 export function acknowledgeHostBridgeNotificationEvents(
   eventIds: string[],
+  clientId?: string,
 ): HostBridgeNotificationAckResult {
-  pruneHostBridgeNotificationInbox();
-  const acknowledgedAt = nowIso();
-  const ids = Array.from(
-    new Set(eventIds.map(normalizeString).filter(Boolean)),
-  );
-  const acknowledged: string[] = [];
-  const missing: string[] = [];
-  for (const eventId of ids) {
-    const event = events.find((entry) => entry.eventId === eventId);
-    if (!event) {
-      missing.push(eventId);
-      continue;
-    }
-    event.acknowledgedAt = acknowledgedAt;
-    acknowledged.push(eventId);
-  }
-  return { acknowledged, missing, acknowledgedAt };
+  return acknowledgeNotificationHubEvents(eventIds, clientId);
+}
+
+export function pruneHostBridgeNotificationInbox() {
+  return undefined;
 }
 
 export function resetHostBridgeNotificationInboxForTests() {
-  events.length = 0;
-  eventIdByKey.clear();
-  eventCounter = 0;
+  resetNotificationHubForTests();
 }

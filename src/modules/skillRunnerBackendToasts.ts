@@ -109,6 +109,12 @@ export function showSkillRunnerBackendToast(args: {
       semantic: "runtime",
       dedupKey: payload.dedupKey,
       dedupWindowMs: payload.dedupWindowMs,
+      owner: "backend",
+      scope: "skillrunner-backend",
+      displayGroupKey: payload.dedupKey,
+      relatedHandles: {
+        backendId: args.backendId,
+      },
     },
     {
       sticky: args.sticky === true,

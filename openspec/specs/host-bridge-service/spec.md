@@ -160,6 +160,7 @@ paginated Zotero library readiness inspection.
 - **AND** each item SHALL include a compact Zotero item summary, readiness
   states for `pdf`, `markdown`, and `analysis`, a `missing` array, and
   redacted evidence.
+- **AND** generated analysis readiness SHALL use the same shared artifact classifier as the Zotero Library Artifacts column, including the embedded-payload fallback for marker-missing generated notes.
 - **AND** results SHALL use the same filter, cursor, and limit behavior as the
   existing library list and snapshot capabilities.
 

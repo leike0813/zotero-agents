@@ -509,12 +509,83 @@
     }, 3000);
   }
 
-  function renderStatusBadge(stateValue, label, extraClassName) {
-    const status = el(
-      "span",
-      `status ${String(stateValue || "").toLowerCase()}${extraClassName ? ` ${extraClassName}` : ""}`,
-      label,
+  const DASHBOARD_BUSY_STATUS_TOKENS = new Set([
+    "running",
+    "prompting",
+    "repairing",
+    "checking-command",
+    "spawning",
+    "initializing",
+    "connecting",
+  ]);
+
+  function normalizeDashboardStatusToken(value) {
+    const token = String(value || "idle")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+    return token || "idle";
+  }
+
+  function dashboardStatusClassToken(value) {
+    return (
+      String(value || "idle")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9_-]/g, "-") || "idle"
     );
+  }
+
+  function dashboardStatusTone(stateValue) {
+    const token = normalizeDashboardStatusToken(stateValue);
+    if (
+      ["failed", "error", "errored", "disconnected", "closed"].indexOf(token) >=
+      0
+    ) {
+      return "error";
+    }
+    if (token === "failed-retriable") {
+      return "warning";
+    }
+    if (
+      [
+        "waiting-user",
+        "waiting-auth",
+        "permission-required",
+        "auth-required",
+      ].indexOf(token) >= 0
+    ) {
+      return "warning";
+    }
+    if (
+      [
+        "succeeded",
+        "success",
+        "done",
+        "completed",
+        "connected",
+        "active",
+      ].indexOf(token) >= 0
+    ) {
+      return "success";
+    }
+    if (DASHBOARD_BUSY_STATUS_TOKENS.has(token)) {
+      return "accent";
+    }
+    return "muted";
+  }
+
+  function renderStatusBadge(stateValue, label, extraClassName) {
+    const className = [
+      "status",
+      dashboardStatusClassToken(stateValue),
+      "is-" + dashboardStatusTone(stateValue),
+      extraClassName || "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const status = el("span", className, label);
     return status;
   }
 

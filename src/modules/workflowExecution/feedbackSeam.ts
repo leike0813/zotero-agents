@@ -11,6 +11,11 @@ import {
   resolveAddonRef,
   resolveToolkitMember,
 } from "../../utils/runtimeBridge";
+import {
+  appendNotificationHubEvent,
+  resetNotificationHubForTests,
+  type NotificationHubSeverity,
+} from "../notificationHub";
 import type { WorkflowJobOutcome, WorkflowToastPayload } from "./contracts";
 
 type ProgressWindowInstance = {
@@ -42,6 +47,7 @@ type WorkflowToastOptions = {
   sticky?: boolean;
   bounded?: boolean;
   maxVisible?: number;
+  display?: boolean;
 };
 
 export type WorkflowProgressToastController = {
@@ -89,6 +95,7 @@ const WORKFLOW_TOAST_EMOJI_PREFIXES = ["🚀", "⏳", "✅", "❌", "⏹️", "�
 export function resetWorkflowToastStateForTests() {
   visibleWorkflowToasts.splice(0, visibleWorkflowToasts.length);
   recentWorkflowToastDedup.clear();
+  resetNotificationHubForTests();
 }
 
 export function closeVisibleWorkflowToasts() {
@@ -115,6 +122,29 @@ function shouldSuppressDuplicateWorkflowToast(payload: WorkflowToastPayload) {
   }
   recentWorkflowToastDedup.set(key, now);
   return false;
+}
+
+function workflowToastSeverity(
+  payload: WorkflowToastPayload,
+): NotificationHubSeverity {
+  if (payload.semantic === "error" || payload.type === "error") {
+    return "error";
+  }
+  if (payload.semantic === "success" || payload.type === "success") {
+    return "success";
+  }
+  if (payload.semantic === "waiting") {
+    return "warning";
+  }
+  return "info";
+}
+
+function workflowToastEventType(payload: WorkflowToastPayload) {
+  const semantic = String(payload.semantic || payload.type || "default")
+    .trim()
+    .replace(/[^a-z0-9_.-]+/gi, "-")
+    .toLowerCase();
+  return `toast.${semantic || "default"}`;
 }
 
 function resolveWorkflowToastEmoji(payload: WorkflowToastPayload) {
@@ -197,7 +227,25 @@ export function showWorkflowToast(
   payload: WorkflowToastPayload,
   options: WorkflowToastOptions = {},
 ) {
-  if (shouldSuppressDuplicateWorkflowToast(payload)) {
+  const duplicateByDedupKey = shouldSuppressDuplicateWorkflowToast(payload);
+  const hubResult = appendNotificationHubEvent({
+    type: workflowToastEventType(payload),
+    severity: workflowToastSeverity(payload),
+    summary: payload.text,
+    text: payload.text,
+    source: payload.source || "zotero-toast",
+    owner: payload.owner || "workflow",
+    scope: payload.scope || "workflow-feedback",
+    semantic: payload.semantic || payload.type,
+    displayGroupKey: payload.displayGroupKey,
+    dedupKey: payload.dedupKey,
+    relatedHandles: payload.relatedHandles,
+    metadata: payload.metadata,
+    displayRequested: options.display !== false,
+    suppressDisplay: duplicateByDedupKey,
+    suppressionWindowMs: payload.dedupWindowMs,
+  });
+  if (!hubResult.shouldDisplay) {
     return undefined;
   }
   const ProgressWindow = resolveProgressWindowCtor();
@@ -304,6 +352,9 @@ export function alertWindow(win: _ZoteroTypes.MainWindow, message: string) {
     {
       text: message,
       type: "default",
+      source: "zotero-alert-window",
+      owner: "workflow",
+      scope: "workflow-feedback",
     },
     STICKY_BOUNDED_TOAST_OPTIONS,
   );
@@ -345,6 +396,9 @@ export function emitWorkflowStartToast(
       ),
       type: "default",
       semantic: "start",
+      owner: "workflow",
+      scope: "workflow-run",
+      displayGroupKey: `workflow:${args.workflowLabel}:start`,
     },
     BOUNDED_TOAST_OPTIONS,
   );
@@ -373,6 +427,9 @@ export function emitWorkflowWaitingToast(
       ),
       type: "default",
       semantic: "waiting",
+      owner: "workflow",
+      scope: "workflow-run",
+      displayGroupKey: `workflow:${args.workflowLabel}:waiting`,
     },
     STICKY_BOUNDED_TOAST_OPTIONS,
   );
@@ -412,6 +469,14 @@ export function emitWorkflowJobToasts(
             : outcome.succeeded
               ? "success"
               : "error",
+        owner: "workflow",
+        scope: "workflow-job",
+        displayGroupKey: `workflow-job:${outcome.jobId}:${outcome.terminalState || (outcome.succeeded ? "succeeded" : "failed")}`,
+        relatedHandles: {
+          workflowJobId: outcome.jobId,
+          requestId: outcome.requestId,
+          sequenceRunId: outcome.sequenceRunId,
+        },
       },
       STICKY_BOUNDED_TOAST_OPTIONS,
     );
@@ -466,6 +531,9 @@ export function emitWorkflowFinishSummary(
       ),
       type: args.failed > 0 ? "error" : "success",
       semantic: args.failed > 0 ? "error" : "success",
+      owner: "workflow",
+      scope: "workflow-run",
+      displayGroupKey: `workflow:${args.workflowLabel}:finish`,
     },
     STICKY_BOUNDED_TOAST_OPTIONS,
   );

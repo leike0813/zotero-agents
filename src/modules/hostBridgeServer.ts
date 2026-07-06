@@ -1407,6 +1407,7 @@ function parseHostBridgeNotificationFilters(
   const skillRunId = String(query.skillRunId || "").trim();
   const type = String(query.type || "").trim();
   const sinceEventId = String(query.sinceEventId || "").trim();
+  const clientId = String(query.clientId || "").trim();
   if (workflowRunId) {
     filters.workflowRunId = workflowRunId;
   }
@@ -1418,6 +1419,13 @@ function parseHostBridgeNotificationFilters(
   }
   if (sinceEventId) {
     filters.sinceEventId = sinceEventId;
+  }
+  if (clientId) {
+    filters.clientId = clientId;
+  }
+  const includeSuppressed = parseOptionalBoolean(query.includeSuppressed);
+  if (typeof includeSuppressed === "boolean") {
+    filters.includeSuppressed = includeSuppressed;
   }
   const acknowledged = parseOptionalBoolean(query.acknowledged);
   if (typeof acknowledged === "boolean") {
@@ -2561,6 +2569,9 @@ async function ackNotifications(request: HttpRequest) {
     ? object.eventIds.map((entry) => String(entry || "").trim())
     : [String(object.eventId || "").trim()];
   const normalized = eventIds.filter(Boolean);
+  const clientId = String(
+    object.clientId || request.query.clientId || "",
+  ).trim();
   if (normalized.length === 0) {
     return response(
       400,
@@ -2576,7 +2587,7 @@ async function ackNotifications(request: HttpRequest) {
   return response(
     200,
     "OK",
-    hostBridgeOk(ackHostBridgeNotifications(normalized)),
+    hostBridgeOk(ackHostBridgeNotifications(normalized, clientId)),
   );
 }
 

@@ -95,6 +95,21 @@ export function notifyLibraryArtifactsColumnItemsChanged(
   scheduleItemRowsRefresh([...refreshItemIDs]);
 }
 
+export function isLibraryArtifactsColumnInvalidationEvent(event: string) {
+  const normalized = String(event || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === "add" ||
+    normalized === "modify" ||
+    normalized === "delete" ||
+    normalized === "trash" ||
+    normalized === "untrash" ||
+    normalized === "remove" ||
+    normalized === "erase"
+  );
+}
+
 export function resetLibraryArtifactsColumnForTests() {
   registeredColumnDataKey = undefined;
   clearArtifactsColumnCache();

@@ -301,6 +301,9 @@ function showAcpRuntimeCacheRefreshToast(args: {
         },
       ),
       type: "success",
+      owner: "settings",
+      scope: "cache-refresh",
+      displayGroupKey: "settings:acp-runtime-cache-refresh",
     });
     return;
   }
@@ -315,6 +318,9 @@ function showAcpRuntimeCacheRefreshToast(args: {
       },
     ),
     type: "error",
+    owner: "settings",
+    scope: "cache-refresh",
+    displayGroupKey: "settings:acp-runtime-cache-refresh",
   });
 }
 
@@ -335,6 +341,9 @@ function showSkillRunnerModelCacheRefreshToast(args: {
         },
       ),
       type: "success",
+      owner: "settings",
+      scope: "cache-refresh",
+      displayGroupKey: "settings:model-cache-refresh",
     });
     return;
   }
@@ -349,6 +358,9 @@ function showSkillRunnerModelCacheRefreshToast(args: {
       },
     ),
     type: "error",
+    owner: "settings",
+    scope: "cache-refresh",
+    displayGroupKey: "settings:model-cache-refresh",
   });
 }
 

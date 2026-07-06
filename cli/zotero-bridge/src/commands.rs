@@ -1215,6 +1215,7 @@ fn notification_list_query(args: NotificationListArgs) -> Vec<(String, String)> 
     push_query(&mut query, "skillRunId", args.skill_run_id);
     push_query(&mut query, "type", args.event_type);
     push_query(&mut query, "sinceEventId", args.since_event_id);
+    push_query(&mut query, "clientId", args.client_id);
     if let Some(acknowledged) = args.acknowledged {
         query.push(("acknowledged".to_string(), acknowledged.to_string()));
     }
@@ -1230,6 +1231,7 @@ fn notification_wait_query(args: &NotificationWaitArgs) -> Vec<(String, String)>
     push_query(&mut query, "skillRunId", args.skill_run_id.clone());
     push_query(&mut query, "type", args.event_type.clone());
     push_query(&mut query, "sinceEventId", args.since_event_id.clone());
+    push_query(&mut query, "clientId", args.client_id.clone());
     if let Some(acknowledged) = args.acknowledged {
         query.push(("acknowledged".to_string(), acknowledged.to_string()));
     }
@@ -1256,7 +1258,15 @@ fn notification_ack_input(args: NotificationAckArgs) -> Result<Value, CliError> 
             "Notification ack requires at least one event id",
         ));
     }
-    Ok(json!({ "eventIds": events }))
+    let mut input = Map::new();
+    input.insert("eventIds".to_string(), json!(events));
+    if let Some(client_id) = args.client_id {
+        let trimmed = client_id.trim();
+        if !trimmed.is_empty() {
+            input.insert("clientId".to_string(), json!(trimmed));
+        }
+    }
+    Ok(Value::Object(input))
 }
 
 fn notification_response_has_events(value: &Value) -> bool {
@@ -2400,19 +2410,24 @@ mod tests {
             skill_run_id: Some("skill/1".to_string()),
             event_type: Some("skill_run.waiting_user".to_string()),
             since_event_id: Some("event-1".to_string()),
+            client_id: Some("agent-a".to_string()),
             acknowledged: Some(false),
             limit: Some(10),
         }));
         assert_eq!(
             path,
-            "/notifications?workflowRunId=run+1&skillRunId=skill%2F1&type=skill_run.waiting_user&sinceEventId=event-1&acknowledged=false&limit=10"
+            "/notifications?workflowRunId=run+1&skillRunId=skill%2F1&type=skill_run.waiting_user&sinceEventId=event-1&clientId=agent-a&acknowledged=false&limit=10"
         );
 
         let input = notification_ack_input(NotificationAckArgs {
             events: vec![" event-1 ".to_string(), "event-2".to_string()],
+            client_id: Some("agent-a".to_string()),
         })
         .unwrap();
-        assert_eq!(input, json!({ "eventIds": ["event-1", "event-2"] }));
+        assert_eq!(
+            input,
+            json!({ "eventIds": ["event-1", "event-2"], "clientId": "agent-a" })
+        );
     }
 
     #[test]

@@ -1361,6 +1361,9 @@ pub struct NotificationListArgs {
     #[arg(long, help = "Return events after this event id")]
     pub since_event_id: Option<String>,
 
+    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    pub client_id: Option<String>,
+
     #[arg(long, help = "Filter by acknowledgement state")]
     pub acknowledged: Option<bool>,
 
@@ -1381,6 +1384,9 @@ pub struct NotificationWaitArgs {
 
     #[arg(long, help = "Return events after this event id")]
     pub since_event_id: Option<String>,
+
+    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    pub client_id: Option<String>,
 
     #[arg(long, help = "Filter by acknowledgement state")]
     pub acknowledged: Option<bool>,
@@ -1407,6 +1413,9 @@ pub struct NotificationWaitArgs {
 pub struct NotificationAckArgs {
     #[arg(long = "event", required = true, help = "Notification event id")]
     pub events: Vec<String>,
+
+    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    pub client_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -2542,6 +2551,8 @@ mod tests {
             "run-1",
             "--type",
             "workflow.run.completed",
+            "--client-id",
+            "agent-a",
             "--acknowledged",
             "false",
         ]);
@@ -2552,6 +2563,7 @@ mod tests {
                     NotificationCommand::List(input) => {
                         assert_eq!(input.workflow_run_id.as_deref(), Some("run-1"));
                         assert_eq!(input.event_type.as_deref(), Some("workflow.run.completed"));
+                        assert_eq!(input.client_id.as_deref(), Some("agent-a"));
                         assert_eq!(input.acknowledged, Some(false));
                     }
                     _ => panic!("expected notification list"),
@@ -2570,12 +2582,15 @@ mod tests {
             "event-1",
             "--event",
             "event-2",
+            "--client-id",
+            "agent-a",
         ]);
         match cli.command {
             Command::Run(args) => match args.command {
                 RunCommand::Notification(args) => match args.command {
                     NotificationCommand::Ack(input) => {
                         assert_eq!(input.events, vec!["event-1", "event-2"]);
+                        assert_eq!(input.client_id.as_deref(), Some("agent-a"));
                     }
                     _ => panic!("expected notification ack"),
                 },

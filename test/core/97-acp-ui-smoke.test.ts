@@ -4404,6 +4404,47 @@ describe("acp ui smoke", function () {
     });
   });
 
+  it("uses Assistant workspace status tones for Dashboard badges", async function () {
+    const dashboardApp = await readProjectFile(
+      "addon/content/dashboard/app.js",
+    );
+    const dashboardCss = await readProjectFile(
+      "addon/content/dashboard/styles.css",
+    );
+    const backendManagerCss = await readProjectFile(
+      "addon/content/dashboard/backend-manager.css",
+    );
+    const assistantCss = await readProjectFile(
+      "addon/content/shared/assistant/assistant-panel-shared.css",
+    );
+    const sharedStatusColorSnippets = [
+      "background: #eef8fb;",
+      "color: #136f8f;",
+      "background: #fff7e8;",
+      "background: #eef9f5;",
+      "background: #fff1ee;",
+    ];
+
+    assert.include(dashboardApp, "function dashboardStatusTone(stateValue)");
+    assert.include(dashboardApp, '"is-" + dashboardStatusTone(stateValue)');
+    assert.include(dashboardApp, "DASHBOARD_BUSY_STATUS_TOKENS.has(token)");
+    assert.include(
+      assistantCss,
+      ".assistant-workspace-drawer-task-main-status.is-accent",
+    );
+    assert.include(dashboardCss, ".status.is-accent");
+    assert.include(dashboardCss, ".status.is-warning");
+    assert.include(dashboardCss, ".status.is-success");
+    assert.include(dashboardCss, ".status.is-error");
+    sharedStatusColorSnippets.forEach((snippet) => {
+      assert.include(assistantCss, snippet);
+      assert.include(dashboardCss, snippet);
+    });
+    assert.include(backendManagerCss, ".backend-status-chip.status-testing");
+    assert.include(backendManagerCss, "background: #eef8fb;");
+    assert.include(backendManagerCss, "border-color: #b9dce7;");
+  });
+
   it("wires Dashboard Products tree and rich preview assets", async function () {
     const html = await readProjectFile("addon/content/dashboard/index.html");
     const app = await readProjectFile("addon/content/dashboard/app.js");

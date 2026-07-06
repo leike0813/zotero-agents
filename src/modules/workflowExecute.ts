@@ -21,6 +21,7 @@ import {
   emitWorkflowJobToasts,
   emitWorkflowStartToast,
   selectWorkflowJobOutcomesForToasts,
+  showWorkflowToast,
   shouldEmitWorkflowFinishSummaryToast,
 } from "./workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
@@ -69,6 +70,16 @@ export async function executeWorkflowFromCurrentSelection(args: {
   const showWorkflowNotifications = shouldShowWorkflowNotifications(
     args.workflow.manifest,
   );
+  const hiddenWorkflowToastDeps = showWorkflowNotifications
+    ? undefined
+    : {
+        showToast: (
+          payload: Parameters<typeof showWorkflowToast>[0],
+          options?: Parameters<typeof showWorkflowToast>[1],
+        ) => {
+          showWorkflowToast(payload, { ...options, display: false });
+        },
+      };
   const workflowSource = getLoadedWorkflowSourceById(args.workflow.manifest.id);
   const workflowLabel = localizeWorkflowLabel(args.workflow);
   let executionOptionsOverride = args.executionOptionsOverride;
@@ -123,14 +134,26 @@ export async function executeWorkflowFromCurrentSelection(args: {
                 }),
           },
         });
-        if (!canceled && showWorkflowNotifications) {
-          alertWindow(
-            args.win,
-            buildWorkflowCannotRunMessage({
-              workflowLabel,
-              reason: `settings gate failed: ${dialogResult.reason}`,
-            }),
-          );
+        if (!canceled) {
+          const message = buildWorkflowCannotRunMessage({
+            workflowLabel,
+            reason: `settings gate failed: ${dialogResult.reason}`,
+          });
+          if (showWorkflowNotifications) {
+            alertWindow(args.win, message);
+          } else {
+            showWorkflowToast(
+              {
+                text: message,
+                type: "error",
+                semantic: "error",
+                owner: "workflow",
+                scope: "workflow-preparation",
+                displayGroupKey: `workflow:${workflowLabel}:preparation-rejected`,
+              },
+              { display: false },
+            );
+          }
         }
         return;
       }
@@ -191,8 +214,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
         skippedByDuplicate: skippedByGuard,
       },
     });
-    if (showWorkflowNotifications) {
-      emitWorkflowFinishSummary({
+    emitWorkflowFinishSummary(
+      {
         win: args.win,
         workflowLabel,
         succeeded: 0,
@@ -200,8 +223,9 @@ export async function executeWorkflowFromCurrentSelection(args: {
         skipped: totalSkipped,
         failureReasons: [],
         messageFormatter,
-      });
-    }
+      },
+      hiddenWorkflowToastDeps,
+    );
     return;
   }
 
@@ -212,13 +236,14 @@ export async function executeWorkflowFromCurrentSelection(args: {
     },
   });
 
-  if (showWorkflowNotifications) {
-    emitWorkflowStartToast({
+  emitWorkflowStartToast(
+    {
       workflowLabel,
       totalJobs: runState.totalJobs,
       messageFormatter,
-    });
-  }
+    },
+    hiddenWorkflowToastDeps,
+  );
 
   await runState.idlePromise;
 
@@ -227,20 +252,21 @@ export async function executeWorkflowFromCurrentSelection(args: {
     messageFormatter,
   });
 
-  if (showWorkflowNotifications) {
-    const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
-      outcomes: applySummary.jobOutcomes,
-      totalJobs: runState.totalJobs,
-      skipped: totalSkipped,
-    });
-    if (jobToastOutcomes.length > 0) {
-      emitWorkflowJobToasts({
+  const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
+    outcomes: applySummary.jobOutcomes,
+    totalJobs: runState.totalJobs,
+    skipped: totalSkipped,
+  });
+  if (jobToastOutcomes.length > 0) {
+    emitWorkflowJobToasts(
+      {
         workflowLabel,
         totalJobs: runState.totalJobs,
         outcomes: jobToastOutcomes,
         messageFormatter,
-      });
-    }
+      },
+      hiddenWorkflowToastDeps,
+    );
   }
 
   appendRuntimeLog({
@@ -260,16 +286,16 @@ export async function executeWorkflowFromCurrentSelection(args: {
     },
   });
 
-  if (showWorkflowNotifications) {
-    if (
-      applySummary.pending === 0 &&
-      shouldEmitWorkflowFinishSummaryToast({
-        outcomes: applySummary.jobOutcomes,
-        totalJobs: runState.totalJobs,
-        skipped: totalSkipped,
-      })
-    ) {
-      emitWorkflowFinishSummary({
+  if (
+    applySummary.pending === 0 &&
+    shouldEmitWorkflowFinishSummaryToast({
+      outcomes: applySummary.jobOutcomes,
+      totalJobs: runState.totalJobs,
+      skipped: totalSkipped,
+    })
+  ) {
+    emitWorkflowFinishSummary(
+      {
         win: args.win,
         workflowLabel,
         succeeded: applySummary.succeeded,
@@ -277,7 +303,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
         skipped: totalSkipped,
         failureReasons: applySummary.failureReasons,
         messageFormatter,
-      });
-    }
+      },
+      hiddenWorkflowToastDeps,
+    );
   }
 }

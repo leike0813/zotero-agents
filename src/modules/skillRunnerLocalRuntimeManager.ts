@@ -174,6 +174,9 @@ let localRuntimeToastEmitter: (payload: LocalRuntimeToastPayload) => void = (
     text: payload.text,
     type: payload.type as any,
     semantic: "runtime",
+    owner: "runtime",
+    scope: "managed-local-runtime",
+    displayGroupKey: `managed-local-runtime:${payload.kind}`,
   });
 };
 
@@ -320,6 +323,9 @@ export function setLocalRuntimeToastEmitterForTests(
         text: payload.text,
         type: payload.type as any,
         semantic: "runtime",
+        owner: "runtime",
+        scope: "managed-local-runtime",
+        displayGroupKey: `managed-local-runtime:${payload.kind}`,
       });
     });
 }

@@ -1,6 +1,10 @@
 import { assert } from "chai";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
 import { config } from "../../package.json";
 import {
+  isLibraryArtifactsColumnInvalidationEvent,
   libraryArtifactsColumnInternalsForTests,
   notifyLibraryArtifactsColumnItemsChanged,
   registerLibraryArtifactsColumn,
@@ -8,7 +12,16 @@ import {
   unregisterLibraryArtifactsColumn,
 } from "../../src/modules/libraryArtifactsColumn";
 import { resolveLibraryArtifactReadiness } from "../../src/modules/libraryArtifactReadiness";
+import {
+  buildWorkbenchPayloadEnvelope,
+  buildWorkbenchPayloadPngBytes,
+} from "../../src/modules/notePayloadCodec";
 import { probeMozillaRuntimeModules } from "../../src/utils/runtimeCompatibility";
+
+const basePngBytes = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+  "base64",
+);
 
 describe("library artifacts column", function () {
   let previousAddon: unknown;
@@ -214,6 +227,61 @@ describe("library artifacts column", function () {
       ),
       "digest",
     );
+
+    const payloadOnlyParent = await createParentItem("Payload-only Paper");
+    await createNote(
+      payloadOnlyParent,
+      "References",
+      '<p><span data-zs-payload="references-json"></span></p>',
+    );
+
+    assert.equal(
+      await libraryArtifactsColumnInternalsForTests.resolveArtifactState(
+        payloadOnlyParent,
+      ),
+      "references",
+    );
+  });
+
+  it("detects generated note artifacts from embedded payload when the anchor is missing", async function () {
+    const parent = await createParentItem("Paper");
+    const note = await createNote(
+      parent,
+      "Citation Analysis",
+      '<div data-schema-version="9"><h1>Citation Analysis</h1><p>normalized note</p></div>',
+    );
+    await createEmbeddedPayloadAttachment(note, {
+      noteKind: "citation-analysis",
+      payloadType: "citation-analysis-json",
+      payload: {
+        version: 1,
+        format: "json",
+        citations: [],
+      },
+    });
+
+    const state =
+      await libraryArtifactsColumnInternalsForTests.resolveArtifactState(
+        parent,
+      );
+
+    assert.equal(state, "citation-analysis");
+  });
+
+  it("does not classify schema headings as generated artifacts without marker or payload evidence", async function () {
+    const parent = await createParentItem("Paper");
+    await createNote(
+      parent,
+      "Citation Analysis",
+      '<div data-schema-version="9"><h1>Citation Analysis</h1><p>normalized note</p></div>',
+    );
+
+    const state =
+      await libraryArtifactsColumnInternalsForTests.resolveArtifactState(
+        parent,
+      );
+
+    assert.equal(state, "");
   });
 
   it("refreshes artifact rows without refreshing item tree columns after lazy scans", async function () {
@@ -268,6 +336,12 @@ describe("library artifacts column", function () {
     }
   });
 
+  it("does not treat artifact row refresh notifications as item invalidations", function () {
+    assert.isTrue(isLibraryArtifactsColumnInvalidationEvent("modify"));
+    assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("refresh"));
+    assert.isFalse(isLibraryArtifactsColumnInvalidationEvent("redraw"));
+  });
+
   it("does not refresh rows after a lazy scan resolves to the already rendered empty state", async function () {
     const parent = await createParentItem("Paper");
     const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
@@ -305,7 +379,7 @@ describe("library artifacts column", function () {
     }
   });
 
-  it("refreshes affected parent rows without refreshing columns for item changes", async function () {
+  it("refreshes affected parent rows without refreshing columns for note changes", async function () {
     const parent = await createParentItem("Paper");
     const note = await createNote(
       parent,
@@ -334,6 +408,45 @@ describe("library artifacts column", function () {
 
     try {
       notifyLibraryArtifactsColumnItemsChanged([note.id]);
+      await waitForArtifactColumnRefresh();
+
+      assert.equal(refreshColumnsCalls, 0);
+      assert.deepEqual(triggerCalls, [
+        { event: "refresh", type: "item", ids: [parent.id] },
+      ]);
+    } finally {
+      Zotero.ItemTreeManager.refreshColumns = originalRefreshColumns;
+      Zotero.Notifier.trigger = originalTrigger;
+    }
+  });
+
+  it("refreshes affected parent rows without refreshing columns for attachment changes", async function () {
+    const parent = await createParentItem("Paper");
+    const attachment = await createAttachment(parent, "D:\\Library\\paper.md", {
+      contentType: "text/markdown",
+    });
+    const originalRefreshColumns = Zotero.ItemTreeManager.refreshColumns;
+    const originalTrigger = Zotero.Notifier.trigger;
+    let refreshColumnsCalls = 0;
+    const triggerCalls: Array<{
+      event: string;
+      type: string;
+      ids: number | number[];
+    }> = [];
+    Zotero.ItemTreeManager.refreshColumns = () => {
+      refreshColumnsCalls += 1;
+    };
+    Zotero.Notifier.trigger = (async (
+      event: string,
+      type: string,
+      ids: number | number[],
+    ) => {
+      triggerCalls.push({ event, type, ids });
+      return true;
+    }) as typeof Zotero.Notifier.trigger;
+
+    try {
+      notifyLibraryArtifactsColumnItemsChanged([attachment.id]);
       await waitForArtifactColumnRefresh();
 
       assert.equal(refreshColumnsCalls, 0);
@@ -533,4 +646,46 @@ async function createNote(parent: Zotero.Item, title: string, html: string) {
   item.setNote(html);
   await item.saveTx();
   return item;
+}
+
+async function createEmbeddedPayloadAttachment(
+  note: Zotero.Item,
+  options: {
+    noteKind: string;
+    payloadType: string;
+    payload: unknown;
+  },
+) {
+  const envelope = buildWorkbenchPayloadEnvelope({
+    noteKind: options.noteKind,
+    payloadType: options.payloadType,
+    payload: options.payload,
+    noteId: note.id,
+    noteKey: note.key,
+    parentId: note.parentID,
+  });
+  const bytes = buildWorkbenchPayloadPngBytes(basePngBytes, envelope);
+  const filePath = path.join(
+    os.tmpdir(),
+    `zotero-artifact-payload-${Date.now()}-${Math.random()
+      .toString(16)
+      .slice(2)}.png`,
+  );
+  await fs.writeFile(filePath, bytes);
+  const attachment = await createAttachment(note, filePath, {
+    contentType: "image/png",
+  });
+  (
+    attachment as Zotero.Item & {
+      getAttachmentLinkMode?: () => number;
+      isEmbeddedImageAttachment?: () => boolean;
+    }
+  ).getAttachmentLinkMode = () => 4;
+  (
+    attachment as Zotero.Item & {
+      getAttachmentLinkMode?: () => number;
+      isEmbeddedImageAttachment?: () => boolean;
+    }
+  ).isEmbeddedImageAttachment = () => true;
+  return attachment;
 }

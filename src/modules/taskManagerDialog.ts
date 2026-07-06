@@ -34,7 +34,8 @@ import {
   updateWorkflowTaskStateByRequest,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import { filterDashboardActiveTasks } from "./dashboardActiveTasks";
+import { projectDashboardActiveTasks } from "./dashboardActiveTasks";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
 import { isDebugModeEnabled } from "./debugMode";
 import {
@@ -82,7 +83,6 @@ import {
   listAcpSkillRunSummaries,
   selectAcpSkillRun,
   subscribeAcpSkillRunSnapshots,
-  type AcpSkillRunSummary,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
@@ -942,52 +942,8 @@ function mapTaskRow(task: WorkflowTaskRecord): DashboardRow {
   return mapTaskRowWithMeta(task);
 }
 
-function mapAcpSkillRunToWorkflowTask(
-  run: AcpSkillRunSummary,
-): WorkflowTaskRecord {
-  const status =
-    run.status === "repairing"
-      ? "running"
-      : run.pendingPermission
-        ? "waiting_user"
-        : run.status === "failed_retriable"
-          ? run.pendingInteraction
-            ? "waiting_user"
-            : "running"
-          : run.status;
-  return {
-    id: `acp-skill-run:${run.requestId}`,
-    runId: String(run.runId || run.requestId || "").trim() || run.requestId,
-    jobId: String(run.jobId || "").trim() || "-",
-    requestId: run.requestId,
-    workflowId:
-      String(run.workflowId || run.skillId || "").trim() || "acp-skill-run",
-    workflowLabel:
-      String(run.workflowLabel || run.skillId || "").trim() || "ACP Skill Run",
-    taskName:
-      String(run.taskName || run.workflowLabel || run.skillId || "").trim() ||
-      "ACP Skill Run",
-    providerId: "acp",
-    requestKind: ACP_SKILL_RUN_REQUEST_KIND,
-    backendId: run.backendId,
-    backendType: run.backendType,
-    backendBaseUrl: "",
-    engine: String(run.agentFamily || run.acpModelId || "").trim() || undefined,
-    state: normalizeStatus(status, "running") as WorkflowTaskRecord["state"],
-    error: String(run.error || run.conversationError || "").trim() || undefined,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt,
-  };
-}
-
-function taskMergeKey(row: WorkflowTaskRecord) {
-  return String(row.requestId || "").trim() || String(row.id || "").trim();
-}
-
 function mergeAcpBackendTaskRows(args: {
   backendId: string;
-  history: TaskDashboardHistoryRecord[];
-  active: WorkflowTaskRecord[];
   backendMetaById: Map<
     string,
     {
@@ -997,28 +953,9 @@ function mergeAcpBackendTaskRows(args: {
   >;
 }) {
   const backendId = String(args.backendId || "").trim();
-  const merged = new Map<string, WorkflowTaskRecord>();
-  const accept = (row: WorkflowTaskRecord) => {
-    if (String(row.backendId || "").trim() !== backendId) {
-      return;
-    }
-    if (String(row.requestKind || "").trim() !== ACP_SKILL_RUN_REQUEST_KIND) {
-      return;
-    }
-    const key = taskMergeKey(row);
-    if (key) {
-      merged.set(key, row);
-    }
-  };
-  args.history.forEach((row) => accept({ ...row }));
-  listAcpSkillRunSummaries({
-    backendId,
-  })
+  return listAcpSkillRunSummaries({ backendId })
     .filter((run) => !run.removedAt && !run.archivedAt)
-    .map((run) => mapAcpSkillRunToWorkflowTask(run))
-    .forEach(accept);
-  args.active.forEach((row) => accept({ ...row }));
-  return Array.from(merged.values())
+    .map((run) => mapAcpSkillRunSummaryToWorkflowTask(run))
     .map((entry) =>
       mapTaskRowWithMeta(entry, {
         backendMetaById: args.backendMetaById,
@@ -2198,8 +2135,6 @@ async function buildDashboardSnapshot(args: {
   if (isAcpBackend(selectedBackend)) {
     backendView.rows = mergeAcpBackendTaskRows({
       backendId: selectedBackend.id,
-      history: args.history,
-      active: args.active,
       backendMetaById,
     });
     backendView.emptyRowsText =
@@ -2272,13 +2207,14 @@ function normalizeFilteredActive(args?: {
   backendId?: string;
   requestId?: string;
 }) {
-  return filterDashboardActiveTasks({
+  return projectDashboardActiveTasks({
     activeTasks: listActiveWorkflowTaskSummaries(args),
     acpSkillRuns: listAcpSkillRunSummaries({
       activeOnly: true,
       backendId: args?.backendId,
       requestId: args?.requestId,
     }),
+    scope: args,
   });
 }
 

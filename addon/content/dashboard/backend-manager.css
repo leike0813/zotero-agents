@@ -448,29 +448,33 @@
   justify-content: center;
   min-height: 30px;
   padding: 5px 9px;
+  border: 1px solid #e2e8f0;
   border-radius: 999px;
-  background: var(--zs-panel-alt);
-  color: var(--zs-muted);
+  background: #f8fafc;
+  color: #64748b;
   font-size: 13px;
   font-weight: 800;
   text-transform: uppercase;
 }
 
 .backend-status-chip.status-passed {
-  background: var(--zs-success-soft);
-  color: var(--zs-success);
+  background: #eef9f5;
+  border-color: #b9e2d2;
+  color: #16815f;
 }
 
 .backend-status-chip.status-failed,
 .backend-status-chip.status-stale {
-  background: var(--zs-danger-soft);
-  color: var(--zs-danger);
+  background: #fff1ee;
+  border-color: #f3beb5;
+  color: #b8342d;
 }
 
 .backend-status-chip.status-testing,
 .backend-status-chip.status-refreshing {
-  background: var(--zs-warning-soft);
-  color: var(--zs-warning);
+  background: #eef8fb;
+  border-color: #b9dce7;
+  color: #136f8f;
 }
 
 .backend-footer {

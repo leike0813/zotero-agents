@@ -495,34 +495,72 @@ tr.clickable {
 }
 
 .status {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #64748b;
   display: inline-flex;
   border-radius: 999px;
   font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
   padding: 2px 8px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
 }
 
+.status.is-accent,
 .status.running,
-.status.queued,
+.status.prompting,
+.status.repairing,
+.status.checking-command,
+.status.spawning,
+.status.initializing,
+.status.connecting {
+  color: #136f8f;
+  border-color: #b9dce7;
+  background: #eef8fb;
+}
+
+.status.is-warning,
+.status.failed_retriable,
+.status.failed-retriable,
 .status.waiting_user,
-.status.waiting_auth {
-  color: var(--warning);
-  border-color: var(--zs-warning-border);
-  background: var(--zs-warning-soft);
+.status.waiting-user,
+.status.waiting_auth,
+.status.waiting-auth,
+.status.permission-required,
+.status.auth-required {
+  color: #9a640e;
+  border-color: #f0d49b;
+  background: #fff7e8;
 }
 
-.status.succeeded {
-  color: var(--success);
-  border-color: var(--zs-success-border);
-  background: var(--zs-success-soft);
+.status.is-success,
+.status.succeeded,
+.status.success,
+.status.done,
+.status.completed,
+.status.connected,
+.status.active {
+  color: #16815f;
+  border-color: #b9e2d2;
+  background: #eef9f5;
 }
 
+.status.is-error,
 .status.failed,
-.status.canceled {
-  color: var(--danger);
-  border-color: var(--zs-danger-border);
-  background: var(--zs-danger-soft);
+.status.error,
+.status.errored,
+.status.disconnected,
+.status.closed {
+  color: #b8342d;
+  border-color: #f3beb5;
+  background: #fff1ee;
+}
+
+.status.is-muted {
+  color: #64748b;
+  border-color: #e2e8f0;
+  background: #f8fafc;
 }
 
 .log-level-badge {

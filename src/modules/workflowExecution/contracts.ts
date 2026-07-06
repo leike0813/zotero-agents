@@ -66,6 +66,12 @@ export type WorkflowToastPayload = {
   dedupKey?: string;
   dedupWindowMs?: number;
   semantic?: "start" | "waiting" | "success" | "error" | "canceled" | "runtime";
+  source?: string;
+  owner?: string;
+  scope?: string;
+  displayGroupKey?: string;
+  relatedHandles?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
 };
 
 export type WorkflowPresentationArgs = {

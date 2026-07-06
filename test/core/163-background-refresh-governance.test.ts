@@ -36,6 +36,7 @@ import {
   resetWorkflowTasks,
   subscribeWorkflowTaskChanges,
   updateWorkflowTaskStateByRequest,
+  type WorkflowTaskRecord,
 } from "../../src/modules/taskRuntime";
 import {
   listTaskDashboardHistory,
@@ -293,6 +294,177 @@ describe("background refresh governance", function () {
     resetWorkflowSettingsReadDiagnosticsForTests();
     resetWorkflowTaskReadDiagnosticsForTests();
     resetAcpSkillRunSummaryDiagnosticsForTests();
+  });
+
+  it("derives ACP active dashboard rows from run summaries and ignores carrier rows", function () {
+    const staleCarrier: WorkflowTaskRecord = {
+      id: "acp-skill-run:acp-projection-waiting",
+      runId: "stale-run",
+      jobId: "stale-job",
+      requestId: "acp-projection-waiting",
+      workflowId: "stale-workflow",
+      workflowLabel: "Stale Workflow",
+      taskName: "stale carrier task",
+      providerId: "acp",
+      requestKind: "acp.skill.run.v1",
+      backendId: "acp-backend",
+      backendType: "acp",
+      backendBaseUrl: "",
+      state: "running",
+      createdAt: "2026-06-18T01:00:00.000Z",
+      updatedAt: "2026-06-18T01:00:00.000Z",
+    };
+    const skillRunnerRow: WorkflowTaskRecord = {
+      id: "skillrunner-task",
+      runId: "skillrunner-run",
+      jobId: "skillrunner-job",
+      requestId: "skillrunner-request",
+      workflowId: "skillrunner-workflow",
+      workflowLabel: "SkillRunner Workflow",
+      taskName: "SkillRunner Task",
+      providerId: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+      backendId: "skillrunner-backend",
+      backendType: "skillrunner",
+      backendBaseUrl: "",
+      state: "running",
+      createdAt: "2026-06-18T01:30:00.000Z",
+      updatedAt: "2026-06-18T01:30:00.000Z",
+    };
+
+    const rows = projectDashboardActiveTasks({
+      activeTasks: [staleCarrier, skillRunnerRow],
+      acpSkillRuns: [
+        {
+          requestId: "acp-projection-waiting",
+          status: "waiting_user",
+          backendId: "acp-backend",
+          backendType: "acp",
+          workflowId: "derived-workflow",
+          workflowLabel: "Derived Workflow",
+          taskName: "derived ACP task",
+          createdAt: "2026-06-18T02:00:00.000Z",
+          updatedAt: "2026-06-18T02:00:00.000Z",
+        },
+        {
+          requestId: "acp-projection-terminal",
+          status: "succeeded",
+          backendId: "acp-backend",
+          backendType: "acp",
+          workflowId: "terminal-workflow",
+          workflowLabel: "Terminal Workflow",
+          taskName: "terminal ACP task",
+          createdAt: "2026-06-18T03:00:00.000Z",
+          updatedAt: "2026-06-18T03:00:00.000Z",
+        },
+      ],
+    });
+
+    assert.sameMembers(
+      rows.map((row) => row.requestId),
+      ["acp-projection-waiting", "skillrunner-request"],
+    );
+    const acpRow = rows.find(
+      (row) => row.requestId === "acp-projection-waiting",
+    );
+    assert.equal(acpRow?.state, "waiting_user");
+    assert.equal(acpRow?.workflowId, "derived-workflow");
+    assert.equal(acpRow?.taskName, "derived ACP task");
+    assert.notEqual(acpRow?.taskName, staleCarrier.taskName);
+  });
+
+  it("applies dashboard active scope and limit after ACP and non-ACP merge", function () {
+    const firstSkillRunnerRow: WorkflowTaskRecord = {
+      id: "skillrunner-task-a",
+      runId: "skillrunner-run-a",
+      jobId: "skillrunner-job-a",
+      requestId: "skillrunner-request-a",
+      workflowId: "workflow-a",
+      workflowLabel: "Workflow A",
+      taskName: "Task A",
+      providerId: "skillrunner",
+      requestKind: "skillrunner.job.v1",
+      backendId: "shared-backend",
+      backendType: "skillrunner",
+      backendBaseUrl: "",
+      state: "running",
+      createdAt: "2026-06-18T01:00:00.000Z",
+      updatedAt: "2026-06-18T01:00:00.000Z",
+    };
+    const secondSkillRunnerRow: WorkflowTaskRecord = {
+      ...firstSkillRunnerRow,
+      id: "skillrunner-task-b",
+      runId: "skillrunner-run-b",
+      jobId: "skillrunner-job-b",
+      requestId: "skillrunner-request-b",
+      updatedAt: "2026-06-18T03:00:00.000Z",
+    };
+
+    const rows = projectDashboardActiveTasks({
+      activeTasks: [firstSkillRunnerRow, secondSkillRunnerRow],
+      acpSkillRuns: [
+        {
+          requestId: "acp-projection-retriable",
+          status: "failed_retriable",
+          backendId: "shared-backend",
+          backendType: "acp",
+          workflowId: "acp-workflow",
+          workflowLabel: "ACP Workflow",
+          taskName: "ACP retriable",
+          createdAt: "2026-06-18T02:00:00.000Z",
+          updatedAt: "2026-06-18T02:00:00.000Z",
+        },
+      ],
+      scope: { backendId: "shared-backend" },
+      limit: 2,
+    });
+
+    assert.deepEqual(
+      rows.map((row) => row.requestId),
+      ["skillrunner-request-b", "acp-projection-retriable"],
+    );
+    assert.equal(rows[1]?.state, "running");
+  });
+
+  it("reprojects waiting and failed-retriable ACP runs without taskRuntime carrier rows", function () {
+    upsertAcpSkillRun({
+      requestId: "acp-reproject-waiting",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "waiting_user",
+      workflowId: "acp-workflow",
+      workflowLabel: "ACP Workflow",
+      taskName: "Waiting ACP",
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-reproject-retriable",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "failed_retriable",
+      workflowId: "acp-workflow",
+      workflowLabel: "ACP Workflow",
+      taskName: "Retriable ACP",
+    });
+
+    assert.deepEqual(
+      listActiveWorkflowTaskSummaries({ backendId: "acp-backend" }),
+      [],
+    );
+    const rows = projectDashboardActiveTasks({
+      activeTasks: listActiveWorkflowTaskSummaries({
+        backendId: "acp-backend",
+      }),
+      acpSkillRuns: listAcpSkillRunSummaries({
+        activeOnly: true,
+        backendId: "acp-backend",
+      }),
+      scope: { backendId: "acp-backend" },
+    });
+
+    assert.sameMembers(
+      rows.map((row) => row.requestId),
+      ["acp-reproject-waiting", "acp-reproject-retriable"],
+    );
   });
 
   afterEach(function () {

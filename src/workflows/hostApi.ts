@@ -842,6 +842,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         showWorkflowToast({
           text: String(args?.text || "").trim(),
           type: args?.type || "default",
+          source: "host-api",
+          owner: "workflow",
+          scope: "workflow-host-api",
         });
       },
     },

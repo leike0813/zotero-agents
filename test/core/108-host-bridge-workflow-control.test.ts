@@ -44,10 +44,15 @@ import {
   acknowledgeHostBridgeNotificationEvents,
   HOST_BRIDGE_NOTIFICATION_MAX_EVENTS,
   listHostBridgeNotificationEvents,
+  projectWorkflowRunNotifications,
   projectSkillRunNotification,
   resetHostBridgeNotificationInboxForTests,
 } from "../../src/modules/hostBridgeNotificationInbox";
-import { resetHostBridgeNotificationProjectionForTests } from "../../src/modules/hostBridgeWorkflowControl";
+import {
+  getHostBridgeSkillRun,
+  getHostBridgeWorkflowRunStatus,
+  resetHostBridgeNotificationProjectionForTests,
+} from "../../src/modules/hostBridgeWorkflowControl";
 import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   installRuntimeBridgeOverrideForTests,
@@ -1594,6 +1599,40 @@ describe("host bridge workflow control", function () {
     });
   });
 
+  it("reports workflow status from ACP run summaries without task carrier rows", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    upsertAcpSkillRun({
+      requestId: "acp-status-only-1",
+      status: "waiting_user",
+      runId: "run-acp-status-only",
+      workflowId: "bridge-workflow",
+      workflowLabel: "Bridge Workflow",
+      taskName: "Waiting ACP Task",
+      backendId: "backend-acp",
+      backendType: "acp",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows/runs/run-acp-status-only",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.found, true);
+    assert.strictEqual(parsed.json.result.state, "waiting");
+    assert.strictEqual(parsed.json.result.summary.total, 1);
+    assert.strictEqual(parsed.json.result.summary.waiting_user, 1);
+    assert.strictEqual(parsed.json.result.tasks.length, 0);
+    assert.strictEqual(
+      parsed.json.result.skillRuns[0].skillRunId,
+      "acp-status-only-1",
+    );
+  });
+
   it("lists recent runs and skill-run lifecycle events without transcript payloads", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     const now = new Date().toISOString();
@@ -1734,6 +1773,18 @@ describe("host bridge workflow control", function () {
       updatedAt: now,
     });
 
+    const unprojected = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?workflowRunId=run-notify-1&acknowledged=false",
+    });
+    assert.strictEqual(unprojected.status, 200);
+    assert.deepEqual(unprojected.json.result.notifications, []);
+
+    projectWorkflowRunNotifications(
+      getHostBridgeWorkflowRunStatus("run-notify-1"),
+    );
+
     const listed = await bridgeRequest({
       token,
       method: "GET",
@@ -1792,12 +1843,41 @@ describe("host bridge workflow control", function () {
       ),
     );
 
+    const clientFirst = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-a",
+    });
+    const clientSecond = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-a",
+    });
+    const otherClient = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/notifications?acknowledged=false&clientId=client-b",
+    });
+    assert.deepEqual(
+      clientFirst.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+      notifications.map((entry) => entry.eventId),
+    );
+    assert.deepEqual(clientSecond.json.result.notifications, []);
+    assert.deepEqual(
+      otherClient.json.result.notifications.map(
+        (entry: Record<string, unknown>) => entry.eventId,
+      ),
+      notifications.map((entry) => entry.eventId),
+    );
+
     const eventId = String(notifications[0].eventId);
     const ack = await bridgeRequest({
       token,
       method: "POST",
       path: "/bridge/v1/notifications/ack",
-      body: { eventIds: [eventId] },
+      body: { eventIds: [eventId], clientId: "client-a" },
     });
     assert.strictEqual(ack.status, 200);
     assert.deepEqual(ack.json.result.acknowledged, [eventId]);
@@ -1902,6 +1982,8 @@ describe("host bridge workflow control", function () {
       createdAt: now,
       updatedAt: now,
     });
+    projectSkillRunNotification(getHostBridgeSkillRun("acp-wait-notify"));
+    projectSkillRunNotification(getHostBridgeSkillRun("acp-retriable-notify"));
 
     const waiting = await bridgeRequest({
       token,

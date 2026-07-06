@@ -118,25 +118,18 @@ let backendReconcileFailureToastEmitter: (
     semantic: "error",
     dedupKey: payload.dedupKey,
     dedupWindowMs: payload.dedupWindowMs,
+    owner: "backend",
+    scope: "skillrunner-reconciler",
+    displayGroupKey: payload.dedupKey,
+    relatedHandles: {
+      backendId: payload.backendId,
+    },
   });
 };
 
 let skillRunnerTaskLifecycleToastEmitter: (
   payload: SkillRunnerTaskLifecycleToastPayload,
-) => void = (payload) => {
-  showWorkflowToast({
-    text: payload.text,
-    type: payload.type,
-    semantic:
-      payload.state === "waiting_user" || payload.state === "waiting_auth"
-        ? "waiting"
-        : payload.state === "canceled"
-          ? "canceled"
-          : payload.state === "succeeded"
-            ? "success"
-            : "error",
-  });
-};
+) => void = () => undefined;
 
 export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
   emitter?: (payload: BackendReconcileFailureToastPayload) => void,
@@ -150,6 +143,12 @@ export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
         semantic: "error",
         dedupKey: payload.dedupKey,
         dedupWindowMs: payload.dedupWindowMs,
+        owner: "backend",
+        scope: "skillrunner-reconciler",
+        displayGroupKey: payload.dedupKey,
+        relatedHandles: {
+          backendId: payload.backendId,
+        },
       });
     });
 }
@@ -157,22 +156,7 @@ export function setSkillRunnerBackendReconcileFailureToastEmitterForTests(
 export function setSkillRunnerTaskLifecycleToastEmitterForTests(
   emitter?: (payload: SkillRunnerTaskLifecycleToastPayload) => void,
 ) {
-  skillRunnerTaskLifecycleToastEmitter =
-    emitter ||
-    ((payload) => {
-      showWorkflowToast({
-        text: payload.text,
-        type: payload.type,
-        semantic:
-          payload.state === "waiting_user" || payload.state === "waiting_auth"
-            ? "waiting"
-            : payload.state === "canceled"
-              ? "canceled"
-              : payload.state === "succeeded"
-                ? "success"
-                : "error",
-      });
-    });
+  skillRunnerTaskLifecycleToastEmitter = emitter || (() => undefined);
 }
 
 function normalizeString(value: unknown) {

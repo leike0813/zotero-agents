@@ -25,6 +25,7 @@ import {
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
 } from "../../src/modules/skillRunnerRunStore";
+import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
@@ -976,6 +977,11 @@ describe("workflow execution seams", function () {
     }
 
     assert.deepEqual(toasts, []);
+    assert.isAtLeast(
+      listHostBridgeNotificationEvents({}).notifications.length,
+      1,
+      "expected hidden workflow notifications to remain in the Hub",
+    );
     const logs = listRuntimeLogs({
       workflowId: "seam-notifications-disabled",
     });
@@ -1505,6 +1511,65 @@ describe("workflow execution seams", function () {
       "after reset",
       "after close",
     ]);
+  });
+
+  it("records short toasts in the Hub and suppresses duplicate display groups across owners", function () {
+    resetWorkflowToastStateForTests();
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    const shown: string[] = [];
+
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      private text = "";
+
+      createLine(args: { text?: string }) {
+        this.text = String(args?.text || "");
+        return this;
+      }
+      show() {
+        shown.push(this.text);
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
+
+    try {
+      showWorkflowToast({
+        text: "Task submitted.",
+        type: "default",
+        semantic: "start",
+        owner: "workflow",
+        displayGroupKey: "task:submit:run-1",
+      });
+      showWorkflowToast({
+        text: "Backend accepted task.",
+        type: "default",
+        semantic: "start",
+        owner: "backend",
+        displayGroupKey: "task:submit:run-1",
+      });
+    } finally {
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    assert.deepEqual(shown, ["🚀 Task submitted."]);
+    assert.lengthOf(listHostBridgeNotificationEvents({}).notifications, 1);
+    const allEvents = listHostBridgeNotificationEvents({
+      includeSuppressed: true,
+    }).notifications;
+    assert.lengthOf(allEvents, 2);
+    assert.strictEqual(allEvents[1].suppressed, true);
   });
 
   it("closes visible workflow toasts when the plugin window unloads", function () {

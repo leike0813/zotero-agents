@@ -21,6 +21,9 @@ const workflowRuntimeBridge: WorkflowRuntimeBridge = {
     showWorkflowToast({
       text: String(text || "").trim(),
       type: type || "default",
+      source: "workflow-runtime-bridge",
+      owner: "runtime",
+      scope: "workflow-runtime-bridge",
     });
   },
 };

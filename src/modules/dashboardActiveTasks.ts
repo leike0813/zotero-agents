@@ -6,9 +6,14 @@ import {
   isActiveAcpSkillRunStatus,
   type AcpSkillRunSummary,
 } from "./acpSkillRunStore";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import type { WorkflowTaskRecord } from "./taskRuntime";
 
 export type DashboardActiveTaskRow = WorkflowTaskRecord;
+export type DashboardActiveTaskScope = {
+  backendId?: string;
+  requestId?: string;
+};
 
 export function isAcpSkillRunTask(entry: {
   backendType?: string;
@@ -57,63 +62,87 @@ export function isVisibleDashboardActiveTask(
   return visibleAcpRequestIds.has(requestId);
 }
 
-export function filterDashboardActiveTasks(args: {
-  activeTasks: WorkflowTaskRecord[];
-  acpSkillRuns: AcpSkillRunSummary[];
-}) {
-  const visibleAcpRequestIds = getVisibleAcpSkillRunRequestIds(
-    args.acpSkillRuns,
-  );
-  return (Array.isArray(args.activeTasks) ? args.activeTasks : []).filter(
-    (entry) => isVisibleDashboardActiveTask(entry, visibleAcpRequestIds),
-  );
-}
-
 function normalizeText(value: unknown) {
   return String(value || "").trim();
 }
 
-function resolveAcpSkillRunTaskState(run: AcpSkillRunSummary) {
-  if (run.pendingPermission) {
-    return "waiting_user";
+function matchesScope(
+  entry: WorkflowTaskRecord,
+  scope?: DashboardActiveTaskScope,
+) {
+  const backendId = normalizeText(scope?.backendId);
+  if (backendId && normalizeText(entry.backendId) !== backendId) {
+    return false;
   }
-  if (run.status === "failed_retriable") {
-    return run.pendingInteraction ? "waiting_user" : "running";
+  const requestId = normalizeText(scope?.requestId);
+  if (requestId && normalizeText(entry.requestId) !== requestId) {
+    return false;
   }
-  return normalizeText(run.status) || "running";
+  return true;
+}
+
+function normalizeLimit(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+  return Math.max(1, Math.floor(parsed));
+}
+
+function compareUpdatedDesc(
+  left: WorkflowTaskRecord,
+  right: WorkflowTaskRecord,
+) {
+  return normalizeText(right.updatedAt).localeCompare(
+    normalizeText(left.updatedAt),
+  );
+}
+
+export function filterDashboardActiveTasks(args: {
+  activeTasks: WorkflowTaskRecord[];
+  acpSkillRuns: AcpSkillRunSummary[];
+  scope?: DashboardActiveTaskScope;
+  limit?: number;
+}) {
+  return projectDashboardActiveTasks(args);
 }
 
 export function projectDashboardActiveTasks(args: {
   activeTasks: WorkflowTaskRecord[];
   acpSkillRuns: AcpSkillRunSummary[];
+  scope?: DashboardActiveTaskScope;
+  limit?: number;
 }) {
-  const acpRunByRequestId = new Map(
-    (Array.isArray(args.acpSkillRuns) ? args.acpSkillRuns : [])
-      .map((run) => [normalizeText(run.requestId), run] as const)
-      .filter(([requestId]) => !!requestId),
-  );
-  return filterDashboardActiveTasks(args).map(
-    (entry): DashboardActiveTaskRow => {
-      if (!isAcpSkillRunTask(entry)) {
-        return { ...entry };
-      }
-      const run = acpRunByRequestId.get(normalizeText(entry.requestId));
-      if (!run) {
-        return { ...entry };
-      }
-      return {
-        ...entry,
-        state: resolveAcpSkillRunTaskState(run) as WorkflowTaskRecord["state"],
-        error: run.error || entry.error,
-        updatedAt: normalizeText(run.updatedAt) || entry.updatedAt,
-      };
-    },
-  );
+  const rows: DashboardActiveTaskRow[] = [];
+  for (const entry of Array.isArray(args.activeTasks) ? args.activeTasks : []) {
+    if (entry.backendType === PASS_THROUGH_BACKEND_TYPE) {
+      continue;
+    }
+    if (isAcpSkillRunTask(entry)) {
+      continue;
+    }
+    if (matchesScope(entry, args.scope)) {
+      rows.push({ ...entry });
+    }
+  }
+  for (const run of Array.isArray(args.acpSkillRuns) ? args.acpSkillRuns : []) {
+    if (!isVisibleAcpSkillRun(run)) {
+      continue;
+    }
+    const row = mapAcpSkillRunSummaryToWorkflowTask(run);
+    if (matchesScope(row, args.scope)) {
+      rows.push(row);
+    }
+  }
+  rows.sort(compareUpdatedDesc);
+  const limit = normalizeLimit(args.limit);
+  return typeof limit === "number" ? rows.slice(0, limit) : rows;
 }
 
 export function countDashboardHumanAttentionTasks(args: {
   activeTasks: WorkflowTaskRecord[];
   acpSkillRuns: AcpSkillRunSummary[];
+  scope?: DashboardActiveTaskScope;
 }) {
   return projectDashboardActiveTasks(args).filter((entry) => {
     const state = normalizeText(entry.state)

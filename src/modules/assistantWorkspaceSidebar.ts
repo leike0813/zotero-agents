@@ -514,6 +514,13 @@ function maybeShowAcpSkillWaitingToasts(host: AssistantWorkspaceHostRuntime) {
       text: `${run.workflowLabel || run.taskName || run.skillId || "ACP Skill"} needs your input.`,
       type: "default",
       semantic: "waiting",
+      owner: "acp-sidebar",
+      scope: "acp-skill-run",
+      displayGroupKey: `acp-skill-run:${key}:waiting`,
+      relatedHandles: {
+        skillRunId: run.requestId,
+        workflowRunId: run.runId,
+      },
     });
   }
   host.lastAcpSkillWaitingToastKeys = nextKeys;

@@ -23,12 +23,11 @@ import {
 } from "./assistantWorkspaceUiPublishPolicy";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import {
-  listActiveWorkflowTaskSummaries,
   listWorkflowTasks,
   removeWorkflowTasksByBackendAndRequestIds,
-  updateWorkflowTaskStateByRequest,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import {
   getZoteroMcpHealthSnapshot,
   getZoteroMcpServerStatus,
@@ -2603,29 +2602,6 @@ function isAcpSkillRunRetentionEligible(args: {
   return ts > 0 && ts < args.thresholdMs;
 }
 
-function syncWorkflowTaskForAcpSkillRun(record: AcpSkillRunRecord) {
-  const requestId = normalizeString(record.requestId);
-  if (!requestId) {
-    return;
-  }
-  if (record.removedAt || record.archivedAt) {
-    removeWorkflowTasksByBackendAndRequestIds({
-      backendId: record.backendId,
-      requestIds: [requestId],
-    });
-    return;
-  }
-  updateWorkflowTaskStateByRequest({
-    backendId: record.backendId,
-    backendType: ACP_BACKEND_TYPE,
-    requestId,
-    state: acpRunStatusToWorkflowTaskState(record),
-    backendStatus: record.backendStatus,
-    error: record.error || record.conversationError,
-    updatedAt: record.updatedAt,
-  });
-}
-
 function isAcpSkillRunWorkflowTask(task: WorkflowTaskRecord) {
   const backendType = normalizeString(task.backendType);
   const requestKind = normalizeString(task.requestKind);
@@ -2635,28 +2611,6 @@ function isAcpSkillRunWorkflowTask(task: WorkflowTaskRecord) {
     (requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
       taskId.startsWith("acp-skill-run:"))
   );
-}
-
-function acpRunStatusToWorkflowTaskState(
-  record: AcpSkillRunRecord,
-): WorkflowTaskRecord["state"] {
-  if (record.pendingPermission) {
-    return "waiting_user";
-  }
-  if (
-    record.status === "queued" ||
-    record.status === "running" ||
-    record.status === "waiting_user" ||
-    record.status === "failed" ||
-    record.status === "canceled" ||
-    record.status === "succeeded"
-  ) {
-    return record.status;
-  }
-  if (record.status === "failed_retriable") {
-    return record.pendingInteraction ? "waiting_user" : "running";
-  }
-  return "running";
 }
 
 function isRecoverableAcpSkillRunAfterStartup(record: AcpSkillRunRecord) {
@@ -2682,26 +2636,15 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
     }
     const requestId = normalizeString(task.requestId);
     const run = runsByRequestId.get(requestId);
+    const removed = removeWorkflowTasksByBackendAndRequestIds({
+      backendId: task.backendId || run?.backendId || "",
+      requestIds: [requestId],
+    });
+    removedCount += removed;
     if (!run || run.removedAt || run.archivedAt) {
-      const removed = removeWorkflowTasksByBackendAndRequestIds({
-        backendId: task.backendId || run?.backendId || "",
-        requestIds: [requestId],
-      });
-      removedCount += removed;
-      if (removed === 0) {
-        updateWorkflowTaskStateByRequest({
-          requestId,
-          backendType: ACP_BACKEND_TYPE,
-          state: "failed",
-          error:
-            "ACP skill run task projection was restored without an available ACP run record.",
-        });
-        failedCount += 1;
-      }
       continue;
     }
     if (isTerminalAcpSkillRunStatus(run.status)) {
-      syncWorkflowTaskForAcpSkillRun(run);
       terminalSyncedCount += 1;
       continue;
     }
@@ -2725,18 +2668,6 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
           },
         });
       }
-      const updated = getAcpSkillRunRecord(requestId) || run;
-      updateWorkflowTaskStateByRequest({
-        backendId: updated.backendId || task.backendId,
-        backendType: ACP_BACKEND_TYPE,
-        requestId,
-        state: acpRunStatusToWorkflowTaskState(updated),
-        error:
-          updated.error ||
-          updated.conversationError ||
-          "ACP skill run is recoverable after the previous plugin session ended.",
-        updatedAt: updated.updatedAt,
-      });
       recoverableCount += 1;
       continue;
     }
@@ -3275,7 +3206,6 @@ export function upsertAcpSkillRun(update: {
     ),
     writeResultJson: Object.prototype.hasOwnProperty.call(update, "resultJson"),
   });
-  syncWorkflowTaskForAcpSkillRun(next);
   emitChanged(
     acpSkillRunSnapshotChange(requestId, [
       "run",
@@ -5404,7 +5334,7 @@ function findTaskForRun(run: AcpSkillRunRecord) {
   if (!requestId) {
     return undefined;
   }
-  return listActiveWorkflowTaskSummaries({ requestId })[0];
+  return mapAcpSkillRunSummaryToWorkflowTask(summarizeAcpSkillRun(run));
 }
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {

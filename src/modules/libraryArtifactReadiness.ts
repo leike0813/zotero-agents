@@ -1,4 +1,8 @@
 import { parseNoteKind } from "./notePayloadCodec";
+import {
+  listNotePayloadBlocksForItem,
+  selectPreferredNotePayloadBlock,
+} from "./zoteroNotePayloadResolver";
 
 export type LibraryArtifactKind =
   | "source-markdown"
@@ -72,6 +76,20 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "markdown"]);
 const REQUIRED_ANALYSIS_ARTIFACTS: Array<
   "digest" | "references" | "citation-analysis"
 > = ["digest", "references", "citation-analysis"];
+const NOTE_PAYLOAD_KIND_BY_TYPE = new Map<string, LibraryArtifactKind>([
+  ["digest-markdown", "digest"],
+  ["references-json", "references"],
+  ["citation-analysis-json", "citation-analysis"],
+  ["citation-analysis-markdown", "citation-analysis"],
+]);
+const PAYLOAD_TYPES_BY_NOTE_KIND: Record<
+  "digest" | "references" | "citation-analysis",
+  string[]
+> = {
+  digest: ["digest-markdown"],
+  references: ["references-json"],
+  "citation-analysis": ["citation-analysis-json", "citation-analysis-markdown"],
+};
 
 export async function resolveLibraryArtifactReadiness(
   item: LibraryArtifactItem,
@@ -90,7 +108,7 @@ export async function resolveLibraryArtifactReadiness(
   if (hasSourceMarkdown) {
     artifacts.add("source-markdown");
   }
-  for (const artifact of resolveGeneratedNoteArtifacts(item)) {
+  for (const artifact of await resolveGeneratedNoteArtifacts(item)) {
     artifacts.add(artifact);
   }
   const missingParts = REQUIRED_ANALYSIS_ARTIFACTS.filter(
@@ -187,14 +205,14 @@ function emptyLibraryArtifactReadiness(): LibraryArtifactReadiness {
   };
 }
 
-function resolveGeneratedNoteArtifacts(item: LibraryArtifactItem) {
+async function resolveGeneratedNoteArtifacts(item: LibraryArtifactItem) {
   const artifacts = new Set<LibraryArtifactKind>();
   for (const id of item.getNotes?.() || []) {
     const note = Zotero.Items.get(id) as LibraryArtifactItem | undefined;
     if (!note?.isNote?.()) {
       continue;
     }
-    const noteKind = normalizeGeneratedNoteKind(note.getNote?.() || "");
+    const noteKind = await resolveGeneratedNoteKind(note);
     if (noteKind === "digest") {
       artifacts.add("digest");
     } else if (noteKind === "references") {
@@ -206,31 +224,103 @@ function resolveGeneratedNoteArtifacts(item: LibraryArtifactItem) {
   return artifacts;
 }
 
-function normalizeGeneratedNoteKind(noteHtml: unknown) {
-  const html = String(noteHtml || "");
-  const parsed = parseNoteKind(html);
-  if (parsed === "citation_analysis") {
-    return "citation-analysis";
+async function resolveGeneratedNoteKind(note: LibraryArtifactItem) {
+  const noteHtml = note.getNote?.() || "";
+  const markerKind = normalizeGeneratedNoteKindFromMarkers(noteHtml);
+  if (markerKind) {
+    return markerKind;
   }
+  const headingKind = resolveGeneratedSchemaHeadingKind(noteHtml);
+  if (!headingKind) {
+    return "";
+  }
+  return resolveGeneratedNoteKindFromEmbeddedPayload(note, headingKind);
+}
+
+function normalizeGeneratedNoteKindFromMarkers(noteHtml: unknown) {
+  const html = String(noteHtml || "");
+  const parsed = normalizeKnownGeneratedNoteKind(parseNoteKind(html));
   if (parsed) {
     return parsed;
   }
-  const anchorMatch = html.match(
-    /data-zs-payload-anchor\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/i,
+  const payloadType =
+    readHtmlDataAttribute(html, "data-zs-payload") ||
+    readHtmlDataAttribute(html, "data-zs-payload-anchor");
+  return NOTE_PAYLOAD_KIND_BY_TYPE.get(payloadType) || "";
+}
+
+function resolveGeneratedSchemaHeadingKind(noteHtml: unknown) {
+  const html = String(noteHtml || "");
+  if (!/<(?:div|section)\b[^>]*data-schema-version\s*=/i.test(html)) {
+    return "";
+  }
+  const heading = cleanHtmlText(
+    html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "",
   );
-  const anchor = String(
-    anchorMatch?.[1] || anchorMatch?.[2] || anchorMatch?.[3] || "",
-  );
-  if (anchor === "digest-markdown") {
+  if (/^digest$/i.test(heading)) {
     return "digest";
   }
-  if (anchor === "references-json") {
+  if (/^references$/i.test(heading)) {
     return "references";
   }
-  if (anchor === "citation-analysis-json") {
+  if (/^citation analysis$/i.test(heading)) {
     return "citation-analysis";
   }
   return "";
+}
+
+function normalizeKnownGeneratedNoteKind(value: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "digest" || normalized === "references") {
+    return normalized;
+  }
+  if (
+    normalized === "citation-analysis" ||
+    normalized === "citation_analysis"
+  ) {
+    return "citation-analysis";
+  }
+  return "";
+}
+
+function readHtmlDataAttribute(html: string, name: string) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(
+    new RegExp(`${escaped}\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s>]+))`, "i"),
+  );
+  return String(match?.[1] || match?.[2] || match?.[3] || "").trim();
+}
+
+async function resolveGeneratedNoteKindFromEmbeddedPayload(
+  note: LibraryArtifactItem,
+  expectedKind: "digest" | "references" | "citation-analysis",
+) {
+  try {
+    const blocks = await listNotePayloadBlocksForItem(note);
+    for (const payloadType of PAYLOAD_TYPES_BY_NOTE_KIND[expectedKind]) {
+      if (selectPreferredNotePayloadBlock(blocks, payloadType)) {
+        return expectedKind;
+      }
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function cleanHtmlText(value: unknown) {
+  return String(value || "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isPdfAttachment(item: LibraryArtifactItem) {
