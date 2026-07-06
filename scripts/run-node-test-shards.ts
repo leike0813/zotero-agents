@@ -32,6 +32,7 @@ type ShardRunResult = {
   exitCode: number;
   durationMs: number;
   command: string;
+  output: string;
 };
 
 const PROJECT_ROOT = process.cwd();
@@ -258,6 +259,7 @@ function runShard(args: {
   console.log(`[node-test-shard:command] ${command}`);
   return new Promise((resolve) => {
     let settled = false;
+    const outputChunks: string[] = [];
     const finish = (exitCode: number) => {
       if (settled) {
         return;
@@ -273,6 +275,7 @@ function runShard(args: {
         exitCode,
         durationMs,
         command,
+        output: outputChunks.join(""),
       });
     };
     const child = spawn(
@@ -281,12 +284,18 @@ function runShard(args: {
       {
         cwd: PROJECT_ROOT,
         env: shardEnv,
-        stdio: "inherit",
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       },
     );
+    child.stdout?.on("data", (chunk: Buffer) => {
+      outputChunks.push(chunk.toString("utf8"));
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      outputChunks.push(chunk.toString("utf8"));
+    });
     child.on("error", (error) => {
-      console.error(`[node-test-shard:error] ${args.shard.id}: ${error}`);
+      outputChunks.push(`[node-test-shard:error] ${args.shard.id}: ${error}\n`);
       finish(1);
     });
     child.on("exit", (code, signal) => {
@@ -362,6 +371,20 @@ function printSummary(results: ShardRunResult[]) {
       `- ${result.id}: npm run test:node:raw:sharded -- --shard ${result.id}`,
     );
   }
+  console.log("");
+  console.log("[node-test-shards:failed-output]");
+  for (const result of failed) {
+    console.log("");
+    console.log(`[node-test-shard-output:start] ${result.id}`);
+    console.log(`[node-test-shard-output:command] ${result.command}`);
+    const output = result.output.trimEnd();
+    if (output) {
+      console.log(output);
+    } else {
+      console.log("(no output captured)");
+    }
+    console.log(`[node-test-shard-output:end] ${result.id}`);
+  }
 }
 
 async function main() {
@@ -397,6 +420,7 @@ async function main() {
         exitCode: 0,
         durationMs: 0,
         command: "",
+        output: "",
       });
       continue;
     }

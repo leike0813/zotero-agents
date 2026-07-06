@@ -16,8 +16,8 @@ type WrappedTestInvocation = {
   verbose: boolean;
 };
 
-const MOCK_PORT = "8030";
-const MOCK_HOST = "127.0.0.1";
+const DEFAULT_MOCK_PORT = "0";
+const DEFAULT_MOCK_HOST = "127.0.0.1";
 const DEFAULT_ZOTERO_TARGET_SCRIPT = "test:zotero:cli";
 const DEFAULT_NODE_TARGET_SCRIPT = "test:node:raw";
 const DEFAULT_TEST_WORKFLOW_DIR = path.join(process.cwd(), "workflows_builtin");
@@ -161,6 +161,38 @@ export function buildTestEnvironment(
   return nextEnv;
 }
 
+export function resolveMockSkillRunnerHost(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  return String(env.ZOTERO_MOCK_SKILLRUNNER_HOST || DEFAULT_MOCK_HOST).trim();
+}
+
+export function resolveMockSkillRunnerPort(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const raw = String(
+    env.ZOTERO_MOCK_SKILLRUNNER_PORT || DEFAULT_MOCK_PORT,
+  ).trim();
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 65535) {
+    return DEFAULT_MOCK_PORT;
+  }
+  return String(parsed);
+}
+
+export function buildMockSkillRunnerEndpointEnvironment(
+  env: NodeJS.ProcessEnv,
+  baseUrl: string,
+) {
+  const normalizedBaseUrl = String(baseUrl || "").trim();
+  return {
+    ...env,
+    ...(normalizedBaseUrl
+      ? { ZOTERO_TEST_SKILLRUNNER_ENDPOINT: normalizedBaseUrl }
+      : {}),
+  };
+}
+
 function isUnderDirectory(child: string, parent: string) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return (
@@ -193,7 +225,7 @@ function spawnNpm(args: string[], options?: SpawnOptions) {
 }
 
 function waitForMockReady(mock: Child, timeoutMs = 8000) {
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) {
@@ -210,16 +242,14 @@ function waitForMockReady(mock: Child, timeoutMs = 8000) {
     const onData = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       process.stdout.write(text);
-      if (
-        text.includes("mock skillrunner started") ||
-        text.includes("baseUrl=")
-      ) {
+      const baseUrlMatch = text.match(/baseUrl=(\S+)/);
+      if (baseUrlMatch?.[1]) {
         if (settled) {
           return;
         }
         settled = true;
         clearTimeout(timer);
-        resolve();
+        resolve(baseUrlMatch[1]);
       }
     };
 
@@ -307,6 +337,8 @@ function terminateMock(mock: Child) {
 async function main() {
   const invocation = parseWrappedTestInvocation(process.argv.slice(2));
   const testEnv = buildTestEnvironment(invocation);
+  const mockHost = resolveMockSkillRunnerHost(testEnv);
+  const mockPort = resolveMockSkillRunnerPort(testEnv);
   const workflowDir = String(testEnv.ZOTERO_TEST_WORKFLOW_DIR || "").trim();
   const testDataDir = String(testEnv[TEST_DATA_DIR_ENV] || "").trim();
   console.log(`[test-target] ${invocation.targetScript}`);
@@ -318,9 +350,12 @@ async function main() {
     }`,
   );
   console.log(`[test-data-dir] ${testDataDir || "(mock default)"}`);
+  console.log(
+    `[mock-skillrunner] ${mockHost}:${mockPort === "0" ? "(random)" : mockPort}`,
+  );
 
   const mock = spawnNpm(
-    ["run", "mock:skillrunner", "--", "--host", MOCK_HOST, "--port", MOCK_PORT],
+    ["run", "mock:skillrunner", "--", "--host", mockHost, "--port", mockPort],
     {
       stdio: ["ignore", "pipe", "pipe"],
       env: testEnv,
@@ -359,8 +394,13 @@ async function main() {
   });
 
   try {
-    await waitForMockReady(mock);
-    const code = await runTargetTests(invocation, testEnv);
+    const mockBaseUrl = await waitForMockReady(mock);
+    const targetEnv = buildMockSkillRunnerEndpointEnvironment(
+      testEnv,
+      mockBaseUrl,
+    );
+    console.log(`[test-skillrunner-endpoint] ${mockBaseUrl}`);
+    const code = await runTargetTests(invocation, targetEnv);
     await cleanup();
     process.exit(code);
   } catch (error) {

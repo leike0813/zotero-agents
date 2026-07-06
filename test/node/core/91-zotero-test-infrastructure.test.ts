@@ -3,9 +3,11 @@ import { mkdtemp, mkdir, readFile, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import {
+  buildMockSkillRunnerEndpointEnvironment,
   buildForwardedTestArgs,
   buildTestEnvironment,
   parseWrappedTestInvocation,
+  resolveMockSkillRunnerPort,
 } from "../../../scripts/run-zotero-test-with-mock";
 import { setDiagnosticVerboseOverrideForTests } from "../../../src/modules/diagnosticVerbosity";
 import { createZToolkit } from "../../../src/utils/ztoolkit";
@@ -192,6 +194,34 @@ describe("zotero test infrastructure helpers", function () {
 
       assert.equal(env.ZOTERO_TEST_DATA_DIR, provided);
       assert.equal(env.ZOTERO_TEST_DATA_DIR_MANAGED, undefined);
+    });
+
+    it("uses an OS-assigned mock SkillRunner port by default", function () {
+      assert.equal(resolveMockSkillRunnerPort({}), "0");
+    });
+
+    it("allows callers to pin the mock SkillRunner port", function () {
+      assert.equal(
+        resolveMockSkillRunnerPort({ ZOTERO_MOCK_SKILLRUNNER_PORT: "18030" }),
+        "18030",
+      );
+      assert.equal(
+        resolveMockSkillRunnerPort({ ZOTERO_MOCK_SKILLRUNNER_PORT: "invalid" }),
+        "0",
+      );
+    });
+
+    it("injects the resolved mock SkillRunner endpoint into target tests", function () {
+      const env = buildMockSkillRunnerEndpointEnvironment(
+        { ZOTERO_TEST_MODE: "full" },
+        "http://127.0.0.1:49152",
+      );
+
+      assert.equal(env.ZOTERO_TEST_MODE, "full");
+      assert.equal(
+        env.ZOTERO_TEST_SKILLRUNNER_ENDPOINT,
+        "http://127.0.0.1:49152",
+      );
     });
   });
 
