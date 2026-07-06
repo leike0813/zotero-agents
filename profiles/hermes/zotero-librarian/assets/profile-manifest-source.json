@@ -49,8 +49,8 @@
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
       "version": "0.2.1",
-      "buildFingerprint": "9ca9a8d6af1834d5f2217bb07d873c0d97909388ed71a6d739c7797ded12a977",
-      "binaryAggregateSha256": "84f6a5e7d12678a919049bdd51379488db5864d2f15c4b7b67991263e971f868"
+      "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
+      "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
     },
     "semanticSourceChecksum": "214a20c0eb78dd31d52a0701b97c4e55e0683efd40c229418ca7602cc74b8627",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
