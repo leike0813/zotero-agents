@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "literature-metadata-search-input",
+  "title": "Literature Metadata Search Input",
+  "description": "Input payload for resolving metadata for one bibliographic source record.",
+  "type": "object",
+  "required": ["parent"],
+  "properties": {
+    "parent": {
+      "type": ["object", "null"],
+      "description": "Source bibliographic record snapshot. Named parent for workflow compatibility, but usable as a generic literature record.",
+      "properties": {
+        "id": {
+          "type": ["number", "string", "null"],
+          "description": "Optional upstream record id."
+        },
+        "key": {
+          "type": "string",
+          "description": "Optional upstream record key."
+        },
+        "libraryID": {
+          "type": ["number", "string", "null"],
+          "description": "Optional upstream library id."
+        },
+        "itemType": {
+          "type": "string",
+          "description": "Original record type. This is context only and must not be emitted as an update field."
+        },
+        "title": {
+          "type": "string",
+          "description": "Record title."
+        },
+        "DOI": {
+          "type": "string",
+          "description": "Record DOI, if known."
+        },
+        "ISBN": {
+          "type": "string",
+          "description": "Record ISBN, if known."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Known scalar bibliographic fields.",
+          "additionalProperties": true
+        },
+        "creators": {
+          "type": "array",
+          "description": "Known creators from the source record.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "identifier": {
+      "type": ["object", "null"],
+      "description": "Optional upstream-selected identifier.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["DOI", "ISBN", "PMID", "arXiv"]
+        },
+        "value": {
+          "type": "string"
+        },
+        "normalized": {
+          "type": "string"
+        }
+      },
+      "required": ["type", "value"],
+      "additionalProperties": true
+    },
+    "diagnostics": {
+      "type": "array",
+      "description": "Optional prior lookup diagnostics from the caller.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

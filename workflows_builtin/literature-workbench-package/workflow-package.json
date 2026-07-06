@@ -27,6 +27,7 @@
     "literature-deep-reading/workflow.json",
     "literature-analysis/workflow.json",
     "literature-translator/workflow.json",
+    "literature-metadata-curator/workflow.json",
     "literature-search-ingest/workflow.json",
     "tag-bootstrapper/workflow.json",
     "tag-regulator/workflow.json"

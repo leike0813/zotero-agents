@@ -1,0 +1,54 @@
+{
+  "id": "literature-metadata-curator",
+  "label": "Literature Metadata Curator",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": {
+    "core": true,
+    "emoji": "📇"
+  },
+  "taskNameTemplate": "Curate literature metadata",
+  "trigger": {
+    "requiresSelection": true
+  },
+  "inputs": {
+    "unit": "parent"
+  },
+  "validateSelection": {
+    "require": {
+      "counts": {
+        "parents": {
+          "exact": 1
+        }
+      },
+      "allowMixed": false
+    },
+    "select": {
+      "policy": "selected-parent",
+      "unit": "parent"
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "literature-metadata-search",
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "poll_interval_ms": 2000
+  },
+  "result": {
+    "fetch": {
+      "type": "result"
+    },
+    "expects": {
+      "result_json": "result/result.json"
+    }
+  },
+  "hooks": {
+    "preflight": "hooks/preflight.mjs",
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
+  }
+}

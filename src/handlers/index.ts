@@ -4,6 +4,16 @@ type ItemRef = Zotero.Item | number | string;
 type NotePayload = { content: string };
 type FileSpec = { file: any } | { filePath: string };
 type FieldPatch = Record<string, string | number | boolean | null>;
+type CreatorPatch = Array<{
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  creatorType?: string;
+}>;
+type ParentMetadataPatch = {
+  fields?: FieldPatch | null;
+  creators?: CreatorPatch | null;
+};
 type CreateItemOptions = {
   itemType: string;
   parent?: ItemRef | null;
@@ -134,6 +144,44 @@ async function applyFieldPatch(
     options?.spanName || "handlers:applyFieldPatch:saveTx",
     options?.labels,
   );
+}
+
+function normalizeCreatorPatch(creators: CreatorPatch | null | undefined) {
+  if (!Array.isArray(creators)) {
+    return [];
+  }
+  return creators
+    .map((creator) => {
+      const firstName = String(creator?.firstName || "").trim();
+      const lastName = String(creator?.lastName || "").trim();
+      const name = String(creator?.name || "").trim();
+      const creatorType = String(creator?.creatorType || "").trim() || "author";
+      if (name) {
+        return { name, creatorType };
+      }
+      if (firstName || lastName) {
+        return { firstName, lastName, creatorType };
+      }
+      return null;
+    })
+    .filter(Boolean) as CreatorPatch;
+}
+
+function applyValidFieldPatch(
+  item: Zotero.Item,
+  patch: FieldPatch | null | undefined,
+) {
+  let applied = 0;
+  for (const [field, value] of Object.entries(patch || {})) {
+    try {
+      assertValidField(item, field);
+    } catch {
+      continue;
+    }
+    item.setField(field, value as any);
+    applied += 1;
+  }
+  return applied;
 }
 
 function resolveItem(ref: ItemRef): Zotero.Item {
@@ -448,6 +496,28 @@ export const handlers = {
           fieldCount: Object.keys(patch).length,
         },
       });
+      return parent;
+    },
+    updateMetadata: async (
+      parentRef: ItemRef,
+      metadata: ParentMetadataPatch,
+    ) => {
+      const parent = resolveItem(parentRef);
+      const fieldCount = applyValidFieldPatch(parent, metadata?.fields);
+      const creators = normalizeCreatorPatch(metadata?.creators);
+      if (creators.length > 0) {
+        (
+          parent as unknown as {
+            setCreators?: (creators: CreatorPatch) => void;
+          }
+        ).setCreators?.(creators);
+      }
+      if (fieldCount > 0 || creators.length > 0) {
+        await saveItemTx(parent, "handlers:parent.updateMetadata:saveTx", {
+          fieldCount,
+          creatorCount: creators.length,
+        });
+      }
       return parent;
     },
   },
