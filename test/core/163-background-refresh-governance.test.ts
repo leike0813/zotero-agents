@@ -724,6 +724,78 @@ describe("background refresh governance", function () {
     );
   });
 
+  it("projects ACP sequence active rows from concrete step runs only", function () {
+    const rootRunId = "acp-sequence-root-400";
+    recordWorkflowTaskUpdate({
+      id: "acp-sequence-root-job",
+      workflowId: "literature-workbench",
+      request: { kind: "skillrunner.sequence.v1" },
+      meta: {
+        runId: rootRunId,
+        workflowLabel: "Literature Workbench",
+        taskName: "Literature Sequence Root",
+        providerId: "acp",
+        backendId: "acp-backend",
+        backendType: "acp",
+        requestKind: "skillrunner.sequence.v1",
+      },
+      state: "running",
+      createdAt: "2026-06-18T06:10:00.000Z",
+      updatedAt: "2026-06-18T06:10:00.000Z",
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-request-1",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "running",
+      runId: rootRunId,
+      jobId: "acp-sequence-root-job:first-step",
+      workflowId: "literature-workbench",
+      workflowLabel: "Literature Workbench",
+      taskName: "Literature Workbench / first-step",
+      sequenceStepId: "first-step",
+      sequenceStepIndex: 0,
+      sequenceFinalStepId: "second-step",
+      updatedAt: "2026-06-18T06:10:01.000Z",
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-request-2",
+      backendId: "acp-backend",
+      backendType: "acp",
+      status: "waiting_user",
+      runId: rootRunId,
+      jobId: "acp-sequence-root-job:second-step",
+      workflowId: "literature-workbench",
+      workflowLabel: "Literature Workbench",
+      taskName: "Literature Workbench / second-step",
+      sequenceStepId: "second-step",
+      sequenceStepIndex: 1,
+      sequenceFinalStepId: "second-step",
+      updatedAt: "2026-06-18T06:10:02.000Z",
+    });
+
+    const activeRows = projectDashboardActiveTasks({
+      activeTasks: listActiveWorkflowTaskSummaries({
+        backendId: "acp-backend",
+      }),
+      acpSkillRuns: listAcpSkillRunSummaries({ activeOnly: true }),
+    });
+
+    assert.lengthOf(activeRows, 2);
+    assert.sameMembers(
+      activeRows.map((row) => row.requestId),
+      ["acp-sequence-request-1", "acp-sequence-request-2"],
+    );
+    assert.sameMembers(
+      activeRows.map((row) => row.sequenceStepId),
+      ["first-step", "second-step"],
+    );
+    assert.isTrue(activeRows.every((row) => row.role === "sequence_step"));
+    assert.isFalse(
+      activeRows.some((row) => row.jobId === "acp-sequence-root-job"),
+    );
+  });
+
   it("bounds ACP Skills panel summaries while preserving selected run details", function () {
     for (let index = 0; index < 120; index += 1) {
       const createdAt = `2026-06-18T${String(4 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}:00.000Z`;

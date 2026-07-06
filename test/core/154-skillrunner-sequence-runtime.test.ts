@@ -32,8 +32,11 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
+  getWorkflowSequenceRunStoreEntry,
   listPluginRunStoreEntries,
+  listWorkflowSequenceRunStoreEntries,
   resetPluginStateStoreForTests,
+  upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
@@ -411,6 +414,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
         sequenceStepId: "finalize",
         sequenceStepSkillId: "finalize-skill",
         sequenceStepSkillName: "Finalize Skill",
+        sequenceFinalStepId: "finalize",
       },
     );
     assert.equal(
@@ -423,11 +427,71 @@ describe("skillrunner.sequence.v1 runtime", function () {
     )?.steps[1] as Record<string, unknown> | undefined;
     assert.isOk(storedFinalizeStep);
     assert.notProperty(storedFinalizeStep!, "skillLabel");
-    const sequenceEntry = listPluginRunStoreEntries("skillrunner").find(
-      (entry) =>
-        entry.runKey === "sequence:workflow-run-continuation-skill-display",
+    const providerSequenceEntry = listPluginRunStoreEntries("skillrunner").find(
+      (entry) => entry.runKey.startsWith("sequence:"),
+    );
+    assert.isUndefined(providerSequenceEntry);
+    const sequenceEntry = getWorkflowSequenceRunStoreEntry(
+      "workflow-run-continuation-skill-display",
     );
     assert.notInclude(sequenceEntry?.payload || "", "Skill Label");
+  });
+
+  it("migrates legacy provider-table sequence roots into workflow sequence persistence", function () {
+    const now = "2026-04-18T00:00:00.000Z";
+    upsertPluginRunStoreEntry("acp", {
+      runKey: "sequence:legacy-acp-sequence",
+      requestId: "",
+      backendId: "acp-backend",
+      state: "running_step",
+      updatedAt: now,
+      payload: JSON.stringify({
+        schema: "workflow.sequence.state.v2",
+        sequenceState: {
+          schemaVersion: "2.0.0",
+          sequenceRunId: "legacy-acp-sequence",
+          workflowId: "legacy-workflow",
+          workflowLabel: "Legacy Workflow",
+          workflowRunId: "legacy-acp-sequence",
+          jobId: "legacy-root-job",
+          backendId: "acp-backend",
+          backendType: "acp",
+          providerOptions: {},
+          request: {
+            kind: "skillrunner.sequence.v1",
+            steps: [{ id: "prepare", skill_id: "prepare-skill" }],
+            final_step_id: "prepare",
+          },
+          currentStepIndex: 0,
+          finalStepId: "prepare",
+          status: "running_step",
+          steps: [
+            {
+              stepId: "prepare",
+              skillId: "prepare-skill",
+              index: 0,
+              updatedAt: now,
+            },
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    });
+
+    const state = getSequenceRunState("legacy-acp-sequence");
+
+    assert.equal(state?.workflowId, "legacy-workflow");
+    assert.equal(
+      getWorkflowSequenceRunStoreEntry("legacy-acp-sequence")?.backendType,
+      "acp",
+    );
+    assert.lengthOf(listWorkflowSequenceRunStoreEntries(), 1);
+    assert.isUndefined(
+      listPluginRunStoreEntries("acp").find(
+        (entry) => entry.runKey === "sequence:legacy-acp-sequence",
+      ),
+    );
   });
 
   it("builds foreground continuation steps with the full submission context", function () {
@@ -2290,9 +2354,11 @@ describe("skillrunner.sequence.v1 runtime", function () {
       html_path: "result/deep-reading.html",
     });
 
-    const entry = listPluginRunStoreEntries("skillrunner").find(
+    const providerSequenceEntry = listPluginRunStoreEntries("skillrunner").find(
       (candidate) => candidate.runKey === "sequence:workflow-run-large-bundle",
     );
+    assert.isUndefined(providerSequenceEntry);
+    const entry = getWorkflowSequenceRunStoreEntry("workflow-run-large-bundle");
     assert.isOk(entry);
     assert.notInclude(entry!.payload, "bundleBytes");
     assert.notInclude(entry!.payload, "bundleDir");

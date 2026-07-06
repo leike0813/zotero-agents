@@ -29,6 +29,12 @@ import { runWorkflowPreparationSeam } from "./workflowExecution/preparationSeam"
 import { runWorkflowDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
 import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
 import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
+import {
+  getSequenceRunState,
+  listSequenceRunStates,
+  type SequenceRunState,
+  type SequenceStepRunState,
+} from "./workflowExecution/sequenceStateStore";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
@@ -267,6 +273,7 @@ export type HostBridgeWorkflowTaskDto = {
   requestId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  sequenceFinalStepId?: string;
   sequenceRole?: "single" | "sequence_step";
   engine?: string;
   targetParentID?: number;
@@ -325,6 +332,7 @@ export type HostBridgeSkillRunDto = {
   skillLabel?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  sequenceFinalStepId?: string;
   sequenceRole?: "single" | "sequence_step";
   actions: HostBridgeSkillRunActions;
 };
@@ -339,6 +347,7 @@ export type HostBridgeActiveTaskDto = {
   updatedAt: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  sequenceFinalStepId?: string;
   actions: HostBridgeSkillRunActions;
 };
 
@@ -1919,6 +1928,7 @@ function buildSkillRunFromTask(
       typeof acp?.sequenceStepIndex === "number"
         ? acp.sequenceStepIndex
         : task.sequenceStepIndex,
+    sequenceFinalStepId: acp?.sequenceFinalStepId || task.sequenceFinalStepId,
     sequenceRole:
       acp?.sequenceStepId || task.sequenceStepId ? "sequence_step" : "single",
     actions,
@@ -1997,6 +2007,7 @@ function taskToDto(
   if (typeof workflowTask.sequenceStepIndex === "number") {
     dto.sequenceStepIndex = workflowTask.sequenceStepIndex;
   }
+  assignIfString(dto, "sequenceFinalStepId", workflowTask.sequenceFinalStepId);
   dto.sequenceRole = workflowTask.sequenceStepId ? "sequence_step" : "single";
   if (typeof workflowTask.canReply === "boolean") {
     dto.canReply = workflowTask.canReply;
@@ -2262,6 +2273,156 @@ function summarizeSkillRuns(skillRuns: HostBridgeSkillRunDto[]) {
   return summarizeTasks(skillRunsAsWorkflowTasks(skillRuns));
 }
 
+function workflowStateFromSequenceState(state: SequenceRunState) {
+  switch (state.status) {
+    case "completed":
+      return "succeeded" as const;
+    case "failed":
+      return "failed" as const;
+    case "canceled":
+      return "canceled" as const;
+    case "waiting_interaction":
+      return "waiting" as const;
+    case "running_step":
+    case "continuing":
+      return "running" as const;
+    default:
+      return "unknown" as const;
+  }
+}
+
+function workflowStateFromSequenceStateAndSkillRuns(
+  state: SequenceRunState,
+  skillRuns: HostBridgeSkillRunDto[],
+) {
+  const rootState = workflowStateFromSequenceState(state);
+  if (
+    rootState === "succeeded" ||
+    rootState === "failed" ||
+    rootState === "canceled"
+  ) {
+    return rootState;
+  }
+  const stepState = summarizeRunState(skillRunsAsWorkflowTasks(skillRuns));
+  if (
+    stepState === "waiting" ||
+    stepState === "failed" ||
+    stepState === "canceled" ||
+    stepState === "running"
+  ) {
+    return stepState;
+  }
+  return rootState;
+}
+
+function workflowLivenessFromSequenceState(
+  state: SequenceRunState | null,
+  skillRuns: HostBridgeSkillRunDto[],
+) {
+  const projected = workflowLiveness(skillRuns);
+  if (projected !== "unknown" || !state) {
+    return projected;
+  }
+  switch (state.status) {
+    case "waiting_interaction":
+      return "waiting" as const;
+    case "running_step":
+    case "continuing":
+      return "active" as const;
+    case "completed":
+    case "failed":
+    case "canceled":
+      return "terminal" as const;
+    default:
+      return "unknown" as const;
+  }
+}
+
+function sequenceStepWorkflowTaskState(
+  state: SequenceRunState,
+  step: SequenceStepRunState,
+): WorkflowTaskRecord["state"] {
+  if (step.status === "succeeded") {
+    return "succeeded";
+  }
+  if (step.status === "failed") {
+    return "failed";
+  }
+  if (step.status === "canceled") {
+    return "canceled";
+  }
+  if (step.status === "deferred" || state.status === "waiting_interaction") {
+    return "waiting_user";
+  }
+  if (step.status === "running" || state.status === "continuing") {
+    return "running";
+  }
+  return "queued";
+}
+
+function hasSkillRunForRequest(
+  runs: Map<string, HostBridgeSkillRunDto>,
+  requestId: string,
+) {
+  if (!requestId) {
+    return false;
+  }
+  if (runs.has(requestId)) {
+    return true;
+  }
+  for (const run of runs.values()) {
+    if (normalizeString(run.requestId) === requestId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function addSequenceStepSkillRunFallbacks(args: {
+  byId: Map<string, HostBridgeSkillRunDto>;
+  state?: SequenceRunState | null;
+}) {
+  const state = args.state;
+  if (!state) {
+    return;
+  }
+  for (const step of state.steps) {
+    const requestId = normalizeString(step.requestId);
+    if (!requestId || hasSkillRunForRequest(args.byId, requestId)) {
+      continue;
+    }
+    const taskState = sequenceStepWorkflowTaskState(state, step);
+    args.byId.set(requestId, {
+      skillRunId: requestId,
+      workflowRunId: state.workflowRunId,
+      workflowId: state.workflowId,
+      workflowLabel: state.workflowLabel,
+      taskName:
+        normalizeString(step.skillName) ||
+        `${state.workflowLabel || state.workflowId} / ${step.stepId}`,
+      state: taskState,
+      liveness: livenessForSkillRun({ state: taskState }),
+      updatedAt: step.updatedAt || state.updatedAt,
+      createdAt: state.createdAt,
+      jobId: `${state.jobId}:${step.stepId}`,
+      requestId,
+      backendId: state.backendId,
+      backendType: state.backendType,
+      skillId: step.skillId,
+      skillName: step.skillName,
+      sequenceStepId: step.stepId,
+      sequenceStepIndex: step.index,
+      sequenceFinalStepId: state.finalStepId,
+      sequenceRole: "sequence_step",
+      actions: actionsForSkillRun({
+        state: taskState,
+        canReply: taskState === "waiting_user",
+        canCancelBackendRun: !isTerminalTaskState(taskState),
+      }),
+    });
+  }
+}
+
 function acpSummaryToSkillRun(
   summary: AcpSkillRunSummary,
 ): HostBridgeSkillRunDto {
@@ -2289,6 +2450,7 @@ function acpSummaryToSkillRun(
     skillLabel: summary.skillLabel,
     sequenceStepId: summary.sequenceStepId,
     sequenceStepIndex: summary.sequenceStepIndex,
+    sequenceFinalStepId: summary.sequenceFinalStepId,
     sequenceRole: summary.sequenceStepId ? "sequence_step" : "single",
     actions: actionsForSkillRun({
       state,
@@ -2302,6 +2464,7 @@ function acpSummaryToSkillRun(
 function buildSkillRunsForWorkflow(args: {
   workflowRunId?: string;
   tasks: HostBridgeWorkflowTaskDto[];
+  sequenceState?: SequenceRunState | null;
 }) {
   const acpByRequest = acpSummaryByRequestId();
   const byId = new Map<string, HostBridgeSkillRunDto>();
@@ -2322,6 +2485,10 @@ function buildSkillRunsForWorkflow(args: {
       ...skillRun,
     });
   }
+  addSequenceStepSkillRunFallbacks({
+    byId,
+    state: args.sequenceState,
+  });
   return Array.from(byId.values()).sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt),
   );
@@ -2331,33 +2498,80 @@ export function getHostBridgeWorkflowRunStatus(
   runId: string,
 ): HostBridgeWorkflowRunStatus {
   const normalizedRunId = normalizeString(runId);
+  const sequenceState = normalizedRunId
+    ? getSequenceRunState(normalizedRunId)
+    : null;
   const tasks = normalizedRunId
     ? listHostBridgeTasks({ runId: normalizedRunId, includeHistory: true })
     : [];
   const skillRuns = buildSkillRunsForWorkflow({
     workflowRunId: normalizedRunId,
     tasks,
+    sequenceState,
   });
   const first = tasks[0];
   const firstSkillRun = skillRuns[0];
+  const found = !!sequenceState || tasks.length > 0 || skillRuns.length > 0;
+  const state = sequenceState
+    ? workflowStateFromSequenceStateAndSkillRuns(sequenceState, skillRuns)
+    : tasks.length > 0
+      ? summarizeRunState(tasks)
+      : summarizeRunState(skillRunsAsWorkflowTasks(skillRuns));
   return {
     runId: normalizedRunId,
     workflowRunId: normalizedRunId,
-    found: tasks.length > 0 || skillRuns.length > 0,
-    state:
-      tasks.length > 0
-        ? summarizeRunState(tasks)
-        : summarizeRunState(skillRunsAsWorkflowTasks(skillRuns)),
-    workflowId: first?.workflowId || firstSkillRun?.workflowId,
-    workflowLabel: first?.workflowLabel || firstSkillRun?.workflowLabel,
-    liveness: workflowLiveness(skillRuns),
+    found,
+    state,
+    workflowId:
+      sequenceState?.workflowId ||
+      first?.workflowId ||
+      firstSkillRun?.workflowId,
+    workflowLabel:
+      sequenceState?.workflowLabel ||
+      first?.workflowLabel ||
+      firstSkillRun?.workflowLabel,
+    liveness: workflowLivenessFromSequenceState(sequenceState, skillRuns),
     skillRuns,
     currentSkillRunId: currentSkillRunId(skillRuns),
     tasks,
     summary:
-      tasks.length > 0 ? summarizeTasks(tasks) : summarizeSkillRuns(skillRuns),
-    updatedAt: first?.updatedAt || firstSkillRun?.updatedAt,
+      sequenceState || tasks.length === 0
+        ? summarizeSkillRuns(skillRuns)
+        : summarizeTasks(tasks),
+    updatedAt:
+      sequenceState?.updatedAt || first?.updatedAt || firstSkillRun?.updatedAt,
   };
+}
+
+function sequenceStateMatchesFilters(
+  state: SequenceRunState,
+  filters: HostBridgeTaskFilters,
+) {
+  if (filters.workflowId && state.workflowId !== filters.workflowId) {
+    return false;
+  }
+  if (filters.backendId && state.backendId !== filters.backendId) {
+    return false;
+  }
+  if (filters.backendType && state.backendType !== filters.backendType) {
+    return false;
+  }
+  if (
+    filters.runId &&
+    !matchesRunIdFilter(state.workflowRunId, filters.runId)
+  ) {
+    return false;
+  }
+  if (filters.state) {
+    const workflowState = workflowStateFromSequenceState(state);
+    if (
+      filters.state !== workflowState &&
+      !(filters.state === "waiting_user" && workflowState === "waiting")
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function listHostBridgeWorkflowRuns(
@@ -2377,8 +2591,26 @@ export function listHostBridgeWorkflowRuns(
     runIds.add(runId);
     runs.push(getHostBridgeWorkflowRunStatus(runId));
   }
+  for (const sequenceState of listSequenceRunStates()) {
+    const runId = normalizeString(sequenceState.workflowRunId);
+    if (
+      !runId ||
+      runIds.has(runId) ||
+      !sequenceStateMatchesFilters(sequenceState, filters)
+    ) {
+      continue;
+    }
+    runIds.add(runId);
+    runs.push(getHostBridgeWorkflowRunStatus(runId));
+  }
   return {
-    runs: runs.slice(0, historyLimit(filters.limit)),
+    runs: runs
+      .sort((left, right) =>
+        normalizeString(right.updatedAt).localeCompare(
+          normalizeString(left.updatedAt),
+        ),
+      )
+      .slice(0, historyLimit(filters.limit)),
   };
 }
 
@@ -2411,6 +2643,7 @@ export function listHostBridgeActiveTasks(): HostBridgeActiveTaskDto[] {
       updatedAt: skillRun.updatedAt,
       sequenceStepId: skillRun.sequenceStepId,
       sequenceStepIndex: skillRun.sequenceStepIndex,
+      sequenceFinalStepId: skillRun.sequenceFinalStepId,
       actions: skillRun.actions,
     });
   }
@@ -2431,6 +2664,7 @@ export function listHostBridgeActiveTasks(): HostBridgeActiveTaskDto[] {
         updatedAt: skillRun.updatedAt,
         sequenceStepId: skillRun.sequenceStepId,
         sequenceStepIndex: skillRun.sequenceStepIndex,
+        sequenceFinalStepId: skillRun.sequenceFinalStepId,
         actions: skillRun.actions,
       });
     }

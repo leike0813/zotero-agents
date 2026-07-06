@@ -348,6 +348,7 @@ export type AcpSkillRunSummary = Pick<
   | "runId"
   | "sequenceStepId"
   | "sequenceStepIndex"
+  | "sequenceFinalStepId"
   | "taskName"
   | "skillName"
   | "skillLabel"
@@ -376,7 +377,9 @@ export type AcpSkillRunSummary = Pick<
   | "archivedAt"
   | "createdAt"
   | "updatedAt"
->;
+> & {
+  sequenceRole?: "single" | "sequence_step";
+};
 
 export type AcpSkillRunSummaryListOptions = {
   activeOnly?: boolean;
@@ -5031,13 +5034,14 @@ export function markAcpSkillRunApplyResult(args: {
       ? existing.status
       : "succeeded");
   const terminal = isTerminalAcpSkillRunStatus(existing.status);
-  const nextStatus = terminal
-    ? undefined
-    : args.state === "failed"
+  const nextStatus =
+    args.state === "failed"
       ? "failed"
-      : args.state === "succeeded"
-        ? "succeeded"
-        : undefined;
+      : terminal
+        ? undefined
+        : args.state === "succeeded"
+          ? "succeeded"
+          : undefined;
   upsertAcpSkillRun({
     requestId,
     status: nextStatus,
@@ -5351,6 +5355,8 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
     runId: run.runId,
     sequenceStepId: run.sequenceStepId,
     sequenceStepIndex: run.sequenceStepIndex,
+    sequenceFinalStepId: run.sequenceFinalStepId,
+    sequenceRole: run.sequenceStepId ? "sequence_step" : "single",
     taskName: run.taskName,
     skillName: run.skillName,
     skillLabel: run.skillLabel,

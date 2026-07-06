@@ -6,6 +6,8 @@ import {
 import {
   buildWorkflowTaskRecordFromJob,
   isSkillRunnerJobReadyForTaskProjection,
+  isProjectableWorkflowJob,
+  isProjectableWorkflowTaskRecord,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
@@ -56,6 +58,9 @@ function skillRunnerHistoryKey(record: TaskDashboardHistoryRecord) {
 function writeHistoryRecords(records: TaskDashboardHistoryRecord[]) {
   historyRecords.clear();
   for (const record of records) {
+    if (!isProjectableWorkflowTaskRecord(record)) {
+      continue;
+    }
     if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
       continue;
     }
@@ -137,7 +142,9 @@ export function listTaskDashboardHistory(args?: {
 
 export function cleanupTaskDashboardHistory() {
   const before = readHistoryRecords();
-  const after = pruneExpiredRecords(before);
+  const after = pruneExpiredRecords(before).filter(
+    isProjectableWorkflowTaskRecord,
+  );
   if (after.length !== before.length) {
     writeHistoryRecords(after);
   }
@@ -229,6 +236,9 @@ export function resetTaskDashboardHistory() {
 }
 
 export function recordTaskDashboardHistoryFromJob(job: JobRecord) {
+  if (!isProjectableWorkflowJob(job)) {
+    return null;
+  }
   const record = buildWorkflowTaskRecordFromJob(job);
   if (
     String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE &&

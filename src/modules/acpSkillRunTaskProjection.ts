@@ -40,6 +40,10 @@ export function mapAcpSkillRunSummaryToWorkflowTask(
     runId: normalizeText(run.runId) || requestId,
     jobId: normalizeText(run.jobId) || "-",
     requestId,
+    sequenceStepId: normalizeText(run.sequenceStepId) || undefined,
+    sequenceStepIndex: run.sequenceStepIndex,
+    sequenceFinalStepId: normalizeText(run.sequenceFinalStepId) || undefined,
+    role: run.sequenceStepId ? "sequence_step" : "single",
     workflowId:
       normalizeText(run.workflowId) ||
       normalizeText(run.skillId) ||
@@ -53,6 +57,8 @@ export function mapAcpSkillRunSummaryToWorkflowTask(
     backendBaseUrl: "",
     engine: normalizeText(run.agentFamily) || normalizeText(run.acpModelId),
     state: resolveAcpSkillRunWorkflowTaskState(run),
+    backendStatus: normalizeText(run.backendStatus) || undefined,
+    applyState: run.applyResultState || undefined,
     error: normalizeText(run.error) || normalizeText(run.conversationError),
     createdAt: normalizeText(run.createdAt) || normalizeText(run.updatedAt),
     updatedAt: normalizeText(run.updatedAt) || normalizeText(run.createdAt),

@@ -122,6 +122,7 @@ function buildSequenceStepProgressContext(args: {
     sequenceStepTaskName:
       normalizeString((args.stepRequest as { taskName?: unknown }).taskName) ||
       `${args.state.workflowLabel || args.state.workflowId} / ${args.step.id}`,
+    sequenceFinalStepId: args.state.request.final_step_id,
     workflowRunId: args.state.workflowRunId,
     sequenceJobId: args.state.jobId,
   };

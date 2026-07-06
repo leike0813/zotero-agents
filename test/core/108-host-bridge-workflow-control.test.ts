@@ -63,6 +63,7 @@ import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import { setPref } from "../../src/utils/prefs";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -186,6 +187,7 @@ describe("host bridge workflow control", function () {
     resetHostBridgeFileRegistryForTests();
     resetHostBridgeNotificationInboxForTests();
     resetHostBridgeNotificationProjectionForTests();
+    resetPluginStateStoreForTests();
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
@@ -1458,7 +1460,7 @@ describe("host bridge workflow control", function () {
     const run = createSkillRunnerRun({
       backendId: "backend-1",
       workflowId: "literature-analysis",
-      workflowRunId: "run-sequence-job-1",
+      workflowRunId: "run-sequence",
       jobId: "job-1:digest",
       taskName: "Digest",
       sequenceRunId: "run-sequence",
@@ -1485,10 +1487,7 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(runStatus.json.result.currentSkillRunId, run!.runKey);
     assert.lengthOf(runStatus.json.result.tasks, 1);
     assert.lengthOf(runStatus.json.result.skillRuns, 1);
-    assert.strictEqual(
-      runStatus.json.result.tasks[0].runId,
-      "run-sequence-job-1",
-    );
+    assert.strictEqual(runStatus.json.result.tasks[0].runId, "run-sequence");
     assert.strictEqual(
       runStatus.json.result.skillRuns[0].skillRunId,
       run!.runKey,
@@ -1630,6 +1629,98 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(
       parsed.json.result.skillRuns[0].skillRunId,
       "acp-status-only-1",
+    );
+  });
+
+  it("reports ACP sequence workflow status from root state and concrete step runs only", async function () {
+    const token = configureHostBridgeServerForTests({ token: "task-token" });
+    const now = new Date().toISOString();
+    initializeSequenceRunState({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "digest",
+            skill_id: "digest-skill",
+          },
+        ],
+        final_step_id: "digest",
+      },
+      backend: {
+        id: "backend-acp",
+        type: "acp",
+        baseUrl: "http://127.0.0.1:8031",
+      },
+      workflowId: "bridge-sequence-workflow",
+      workflowLabel: "Bridge Sequence Workflow",
+      workflowRunId: "run-acp-sequence",
+      jobId: "job-sequence-root",
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-step-1",
+      status: "waiting_user",
+      runId: "run-acp-sequence",
+      jobId: "job-sequence-root:digest",
+      workflowId: "bridge-sequence-workflow",
+      workflowLabel: "Bridge Sequence Workflow",
+      taskName: "Bridge Sequence Workflow / digest",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sequenceStepId: "digest",
+      sequenceStepIndex: 0,
+      sequenceFinalStepId: "digest",
+      skillId: "digest-skill",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const runStatus = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows/runs/run-acp-sequence",
+    });
+
+    assert.strictEqual(runStatus.status, 200);
+    assert.strictEqual(runStatus.json.result.found, true);
+    assert.strictEqual(runStatus.json.result.state, "waiting");
+    assert.strictEqual(runStatus.json.result.liveness, "waiting");
+    assert.lengthOf(runStatus.json.result.tasks, 0);
+    assert.lengthOf(runStatus.json.result.skillRuns, 1);
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].skillRunId,
+      "acp-sequence-step-1",
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].workflowRunId,
+      "run-acp-sequence",
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].jobId,
+      "job-sequence-root:digest",
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].sequenceStepId,
+      "digest",
+    );
+    assert.strictEqual(
+      runStatus.json.result.skillRuns[0].sequenceFinalStepId,
+      "digest",
+    );
+
+    const active = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/tasks/active",
+    });
+    assert.strictEqual(active.status, 200);
+    assert.deepEqual(
+      active.json.result.tasks.map((row: any) => row.skillRunId),
+      ["acp-sequence-step-1"],
+    );
+
+    assert.throws(
+      () => getHostBridgeSkillRun("run-acp-sequence"),
+      /Skill run not found/,
     );
   });
 

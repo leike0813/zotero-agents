@@ -13,6 +13,9 @@ async function readProjectFile(relativePath: string) {
 describe("workspace toolbar running tasks popover", function () {
   it("shares Dashboard active task filtering with the toolbar popover", async function () {
     const helper = await readProjectFile("src/modules/dashboardActiveTasks.ts");
+    const acpProjection = await readProjectFile(
+      "src/modules/acpSkillRunTaskProjection.ts",
+    );
     const dashboard = await readProjectFile("src/modules/taskManagerDialog.ts");
     const popover = await readProjectFile(
       "src/modules/workspaceToolbarTaskPopover.ts",
@@ -21,12 +24,13 @@ describe("workspace toolbar running tasks popover", function () {
     assert.include(helper, "filterDashboardActiveTasks");
     assert.include(helper, "projectDashboardActiveTasks");
     assert.include(helper, "countDashboardHumanAttentionTasks");
-    assert.include(helper, "resolveAcpSkillRunTaskState");
-    assert.include(helper, "run.pendingPermission");
+    assert.include(helper, "mapAcpSkillRunSummaryToWorkflowTask");
+    assert.include(acpProjection, "resolveAcpSkillRunWorkflowTaskState");
+    assert.include(acpProjection, "run.pendingPermission");
     assert.include(helper, "PASS_THROUGH_BACKEND_TYPE");
     assert.include(helper, "getVisibleAcpSkillRunRequestIds");
     assert.include(helper, "isActiveAcpSkillRunStatus(run.status)");
-    assert.include(dashboard, "filterDashboardActiveTasks");
+    assert.include(dashboard, "projectDashboardActiveTasks");
     assert.notInclude(dashboard, "function isVisibleDashboardActiveTask");
     assert.include(popover, "listDashboardActiveTasksForPopover");
   });

@@ -467,19 +467,43 @@ export function runWorkflowExecutionSeam(
           executionContext.requestKind === ACP_SKILL_RUN_REQUEST_KIND ||
           executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND;
         if (isAcpSkillRun && backendType === "acp" && requestId) {
+          const sequenceStepId = normalizeText(event.sequenceStepId);
+          const sequenceWorkflowRunId = normalizeText(
+            (event as Record<string, unknown>).workflowRunId,
+          );
+          const sequenceJobId = normalizeText(
+            (event as Record<string, unknown>).sequenceJobId,
+          );
+          const sequenceStepTaskName = normalizeText(
+            (event as Record<string, unknown>).sequenceStepTaskName,
+          );
+          const sequenceFinalStepId = normalizeText(
+            (event as Record<string, unknown>).sequenceFinalStepId,
+          );
+          const isSequenceStep =
+            executionContext.requestKind ===
+              SKILLRUNNER_SEQUENCE_REQUEST_KIND && !!sequenceStepId;
           requestAcpSkillRunForeground({
             requestId,
             backend: executionContext.backend,
             workflowId: args.prepared.workflow.manifest.id,
             workflowLabel: localizeWorkflowLabel(args.prepared.workflow),
-            jobId: job.id,
-            runId: String(job.meta.runId || "").trim() || undefined,
-            sequenceStepId:
-              String(event.sequenceStepId || "").trim() || undefined,
+            jobId:
+              isSequenceStep && sequenceJobId
+                ? `${sequenceJobId}:${sequenceStepId}`
+                : job.id,
+            runId:
+              (isSequenceStep ? sequenceWorkflowRunId : "") ||
+              String(job.meta.runId || "").trim() ||
+              undefined,
+            sequenceStepId: sequenceStepId || undefined,
             sequenceStepIndex: normalizeSequenceStepIndex(
               event.sequenceStepIndex,
             ),
-            taskName: resolveTaskNameFromRequest(requestForMode, requestIndex),
+            sequenceFinalStepId: sequenceFinalStepId || undefined,
+            taskName:
+              (isSequenceStep ? sequenceStepTaskName : "") ||
+              resolveTaskNameFromRequest(requestForMode, requestIndex),
             skillId:
               requestForMode && typeof requestForMode === "object"
                 ? String(
@@ -499,10 +523,7 @@ export function runWorkflowExecutionSeam(
     onJobUpdated: (job) => {
       const executionContext = args.prepared.executionContext;
       const backendType = String(executionContext.backend.type || "").trim();
-      if (
-        executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND &&
-        backendType === "skillrunner"
-      ) {
+      if (executionContext.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
         return;
       }
       if (

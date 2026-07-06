@@ -4,7 +4,9 @@ import {
   clearPluginTaskRowEntries,
   exportPluginStateStoreRowsForTests,
   getPluginRunStoreEntryByRequest,
+  getWorkflowSequenceRunStoreEntry,
   listPluginRunStoreEntries,
+  listWorkflowSequenceRunStoreEntries,
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
@@ -905,7 +907,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.equal(updated?.updatedAt, "2026-06-18T00:00:01.000Z");
   });
 
-  it("keeps SkillRunner sequence root out of the backend request index", function () {
+  it("keeps SkillRunner sequence root in workflow sequence persistence only", function () {
     initializeSequenceRunState({
       request: {
         kind: "skillrunner.sequence.v1",
@@ -936,11 +938,16 @@ describe("separated ACP and SkillRunner run stores", function () {
       requestId: "sr-sequence-root-step-request",
     });
 
-    const root = listPluginRunStoreEntries("skillrunner").find(
+    const providerRoot = listPluginRunStoreEntries("skillrunner").find(
       (entry) => entry.runKey === "sequence:sequence-root-no-request-index",
     );
-    assert.equal(root?.requestId, "");
+    assert.isUndefined(providerRoot);
+    const root = getWorkflowSequenceRunStoreEntry(
+      "sequence-root-no-request-index",
+    );
     assert.equal(root?.state, "running_step");
+    assert.equal(root?.workflowRunId, "sequence-root-no-request-index");
+    assert.lengthOf(listWorkflowSequenceRunStoreEntries(), 1);
     assert.isOk(getSequenceRunState("sequence-root-no-request-index"));
     assert.isNull(
       getPluginRunStoreEntryByRequest({
@@ -1090,7 +1097,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     );
   });
 
-  it("syncs ACP terminal task state without touching SkillRunner run store", function () {
+  it("keeps ACP terminal run state out of SkillRunner and legacy carrier sync", function () {
     const job: JobRecord = {
       id: "job-1",
       workflowId: "workflow-debug-probe",
@@ -1139,6 +1146,7 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.lengthOf(tasks, 1);
     assert.equal(tasks[0].backendType, "acp");
     assert.equal(tasks[0].providerId, "skillrunner");
-    assert.equal(tasks[0].state, "succeeded");
+    assert.equal(tasks[0].state, "running");
+    assert.lengthOf(listAcpSkillRunSummaries({ activeOnly: true }), 0);
   });
 });

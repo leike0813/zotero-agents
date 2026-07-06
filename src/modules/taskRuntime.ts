@@ -3,6 +3,7 @@ import {
   ACP_BACKEND_TYPE,
   DEFAULT_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
+  SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
 import {
   isActive,
@@ -30,6 +31,7 @@ export type WorkflowTaskRecord = {
   skillId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
+  sequenceFinalStepId?: string;
   sequenceJobId?: string;
   workflowRunId?: string;
   engine?: string;
@@ -255,6 +257,20 @@ function resolveTargetParentIDFromJob(job: JobRecord) {
     : undefined;
 }
 
+export function isProjectableWorkflowJob(job: JobRecord) {
+  const requestKind = normalizeMetaString(job.meta, "requestKind");
+  const sequenceStepId = normalizeMetaString(job.meta, "sequenceStepId");
+  return requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND || !!sequenceStepId;
+}
+
+export function isProjectableWorkflowTaskRecord(
+  record: Pick<WorkflowTaskRecord, "requestKind" | "sequenceStepId">,
+) {
+  const requestKind = String(record.requestKind || "").trim();
+  const sequenceStepId = String(record.sequenceStepId || "").trim();
+  return requestKind !== SKILLRUNNER_SEQUENCE_REQUEST_KIND || !!sequenceStepId;
+}
+
 export function buildWorkflowTaskRecordFromJob(
   job: JobRecord,
 ): WorkflowTaskRecord {
@@ -276,6 +292,10 @@ export function buildWorkflowTaskRecordFromJob(
   const sequenceStepIndex = resolveOptionalIntegerFromJobMeta(
     job,
     "sequenceStepIndex",
+  );
+  const sequenceFinalStepId = normalizeMetaString(
+    job.meta,
+    "sequenceFinalStepId",
   );
   const sequenceJobId = normalizeMetaString(job.meta, "sequenceJobId");
   const workflowRunId = normalizeMetaString(job.meta, "workflowRunId");
@@ -319,6 +339,7 @@ export function buildWorkflowTaskRecordFromJob(
     skillId: skillId || undefined,
     sequenceStepId: sequenceStepId || undefined,
     sequenceStepIndex,
+    sequenceFinalStepId: sequenceFinalStepId || undefined,
     sequenceJobId: sequenceJobId || undefined,
     workflowRunId: workflowRunId || undefined,
     engine: engine || undefined,
@@ -439,6 +460,8 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
       Number.isFinite(raw.sequenceStepIndex)
         ? Math.floor(raw.sequenceStepIndex)
         : undefined,
+    sequenceFinalStepId:
+      String(raw.sequenceFinalStepId || "").trim() || undefined,
     sequenceJobId: String(raw.sequenceJobId || "").trim() || undefined,
     workflowRunId: String(raw.workflowRunId || "").trim() || undefined,
     engine: String(raw.engine || "").trim() || undefined,
@@ -837,6 +860,9 @@ export function syncWorkflowTaskFromSkillRunnerProjection(
 }
 
 export function recordWorkflowTaskUpdate(job: JobRecord) {
+  if (!isProjectableWorkflowJob(job)) {
+    return null;
+  }
   const record = buildWorkflowTaskRecordFromJob(job);
   if (String(record.backendType || "").trim() === DEFAULT_BACKEND_TYPE) {
     const removedTask = deleteTaskRecord(record.id);
@@ -1128,7 +1154,13 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
   const now = new Date().toISOString();
   const failedTaskIds: string[] = [];
   const preservedTaskIds: string[] = [];
+  const removedLegacySequenceRootTaskIds: string[] = [];
   for (const [id, record] of taskRecords.entries()) {
+    if (!isProjectableWorkflowTaskRecord(record)) {
+      deleteTaskRecord(id);
+      removedLegacySequenceRootTaskIds.push(id);
+      continue;
+    }
     if (!isActive(record.state)) {
       continue;
     }
@@ -1149,15 +1181,17 @@ export function reconcileWorkflowTaskProjectionsOnStartup() {
     });
     failedTaskIds.push(id);
   }
-  if (failedTaskIds.length > 0) {
+  if (failedTaskIds.length > 0 || removedLegacySequenceRootTaskIds.length > 0) {
     persistTaskRecordsToStore();
     emitTasksChanged({ reason: "record-updated" });
   }
   return {
     failedCount: failedTaskIds.length,
     preservedCount: preservedTaskIds.length,
+    removedLegacySequenceRootCount: removedLegacySequenceRootTaskIds.length,
     failedTaskIds,
     preservedTaskIds,
+    removedLegacySequenceRootTaskIds,
   };
 }
 

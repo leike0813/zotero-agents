@@ -1,12 +1,19 @@
 import type { BackendInstance } from "../../backends/types";
-import { DEFAULT_BACKEND_TYPE } from "../../config/defaults";
 import type {
   ProviderExecutionResult,
   SkillRunnerSequenceRequestV1,
 } from "../../providers/contracts";
 import {
+  deletePluginRunStoreEntry,
+  getPluginMetaValue,
+  getWorkflowSequenceRunStoreEntry,
   listPluginRunStoreEntries,
-  upsertPluginRunStoreEntry,
+  listWorkflowSequenceRunStoreEntries,
+  setPluginMetaValue,
+  upsertWorkflowSequenceRunStoreEntry,
+  type PluginRunStoreEntry,
+  type PluginRunStoreKind,
+  type WorkflowSequenceRunStoreListOptions,
 } from "../pluginStateStore";
 import type { SkillRunnerSkillDisplayById } from "../skillRunnerSubmissionContext";
 
@@ -291,9 +298,9 @@ function parseState(raw: unknown): SequenceRunState | null {
   };
 }
 
-function sequenceRunKey(sequenceRunId: string) {
-  return `sequence:${sequenceRunId}`;
-}
+const SEQUENCE_STATE_SCHEMA = "workflow.sequence.state.v2";
+const SEQUENCE_STATE_MIGRATION_META_KEY =
+  "workflow_sequence_run_store_migration_v1";
 
 function parseStoredSequencePayload(payload: string) {
   try {
@@ -306,29 +313,84 @@ function parseStoredSequencePayload(payload: string) {
   }
 }
 
-function persistState(state: SequenceRunState) {
-  const storeKind =
-    normalizeString(state.backendType) === DEFAULT_BACKEND_TYPE
-      ? "skillrunner"
-      : "acp";
-  upsertPluginRunStoreEntry(storeKind, {
-    runKey: sequenceRunKey(state.sequenceRunId),
-    requestId: "",
-    backendId: state.backendId,
-    state: state.status,
-    updatedAt: state.updatedAt,
-    payload: JSON.stringify({
-      schema: "workflow.sequence.state.v2",
-      sequenceState: state,
-    }),
+function isSequenceStatePayload(payload: string) {
+  try {
+    const raw = JSON.parse(payload || "{}");
+    return (
+      isRecord(raw) &&
+      (normalizeString(raw.schema) === SEQUENCE_STATE_SCHEMA ||
+        isRecord(raw.sequenceState))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function serializeSequenceState(state: SequenceRunState) {
+  return JSON.stringify({
+    schema: SEQUENCE_STATE_SCHEMA,
+    sequenceState: state,
   });
 }
 
-function listSequenceStateEntries() {
-  return [
-    ...listPluginRunStoreEntries("skillrunner"),
-    ...listPluginRunStoreEntries("acp"),
-  ];
+function upsertSequenceStateEntry(state: SequenceRunState) {
+  upsertWorkflowSequenceRunStoreEntry({
+    sequenceRunId: state.sequenceRunId,
+    workflowRunId: state.workflowRunId,
+    workflowId: state.workflowId,
+    backendId: state.backendId,
+    backendType: state.backendType,
+    state: state.status,
+    updatedAt: state.updatedAt,
+    payload: serializeSequenceState(state),
+  });
+}
+
+function migrateLegacySequenceEntry(
+  kind: PluginRunStoreKind,
+  entry: PluginRunStoreEntry,
+) {
+  const runKey = normalizeString(entry.runKey);
+  if (
+    !runKey.startsWith("sequence:") &&
+    !isSequenceStatePayload(entry.payload)
+  ) {
+    return false;
+  }
+  const state = parseStoredSequencePayload(entry.payload);
+  if (!state) {
+    return false;
+  }
+  upsertSequenceStateEntry(state);
+  deletePluginRunStoreEntry(kind, runKey);
+  return true;
+}
+
+function migrateLegacySequenceRunStoreEntries() {
+  if (getPluginMetaValue(SEQUENCE_STATE_MIGRATION_META_KEY) === "done") {
+    return 0;
+  }
+  let migrated = 0;
+  for (const kind of ["skillrunner", "acp"] as const) {
+    for (const entry of listPluginRunStoreEntries(kind)) {
+      if (migrateLegacySequenceEntry(kind, entry)) {
+        migrated += 1;
+      }
+    }
+  }
+  setPluginMetaValue(SEQUENCE_STATE_MIGRATION_META_KEY, "done");
+  return migrated;
+}
+
+function persistState(state: SequenceRunState) {
+  upsertSequenceStateEntry(state);
+}
+
+function listSequenceStateEntries(
+  options: WorkflowSequenceRunStoreListOptions = {},
+) {
+  migrateLegacySequenceRunStoreEntries();
+  return listWorkflowSequenceRunStoreEntries(options);
 }
 
 function updateState(
@@ -409,13 +471,17 @@ export function getSequenceRunState(sequenceRunIdRaw: string) {
   if (!sequenceRunId) {
     return null;
   }
-  const entry = listSequenceStateEntries().find(
-    (entry) => entry.runKey === sequenceRunKey(sequenceRunId),
-  );
-  if (entry) {
-    return parseStoredSequencePayload(entry.payload);
-  }
-  return null;
+  migrateLegacySequenceRunStoreEntries();
+  const entry = getWorkflowSequenceRunStoreEntry(sequenceRunId);
+  return entry ? parseStoredSequencePayload(entry.payload) : null;
+}
+
+export function listSequenceRunStates(
+  options: WorkflowSequenceRunStoreListOptions = {},
+) {
+  return listSequenceStateEntries(options)
+    .map((entry) => parseStoredSequencePayload(entry.payload))
+    .filter((state): state is SequenceRunState => !!state);
 }
 
 export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
@@ -423,8 +489,7 @@ export function getSequenceRunStateByStepRequest(requestIdRaw: string) {
   if (!requestId) {
     return null;
   }
-  for (const entry of listSequenceStateEntries()) {
-    const state = parseStoredSequencePayload(entry.payload);
+  for (const state of listSequenceRunStates()) {
     if (
       state?.steps.some((step) => normalizeString(step.requestId) === requestId)
     ) {

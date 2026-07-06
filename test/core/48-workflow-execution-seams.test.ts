@@ -25,6 +25,11 @@ import {
   listSkillRunnerRunRecords,
   projectSkillRunnerRun,
 } from "../../src/modules/skillRunnerRunStore";
+import {
+  getAcpSkillRunRecord,
+  resetAcpSkillRunsForTests,
+} from "../../src/modules/acpSkillRunStore";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
@@ -2013,6 +2018,131 @@ describe("workflow execution seams", function () {
       ),
       JSON.stringify(focusedSteps),
     );
+  });
+
+  it("keeps ACP sequence roots out of task projections and registers concrete step identity", async function () {
+    resetPluginStateStoreForTests();
+    resetAcpSkillRunsForTests();
+    const taskUpdates: any[] = [];
+    const historyUpdates: any[] = [];
+    let capturedQueueConfig: any;
+
+    const runState = runWorkflowExecutionSeam(
+      {
+        prepared: {
+          workflow: {
+            manifest: {
+              id: "seam-acp-sequence",
+              label: "Seam ACP Sequence",
+              provider: "acp",
+            },
+          } as any,
+          requests: [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "digest",
+                  skill_id: "digest-skill",
+                  workspace: "new",
+                },
+              ],
+              final_step_id: "digest",
+            },
+          ],
+          skippedByFilter: 0,
+          executionContext: {
+            providerId: "acp",
+            requestKind: "skillrunner.sequence.v1",
+            providerOptions: {},
+            backend: {
+              id: "acp-backend",
+              type: "acp",
+              baseUrl: "http://127.0.0.1:8031",
+            },
+          },
+        },
+      },
+      {
+        createQueue: (config) => {
+          capturedQueueConfig = config;
+          return {
+            enqueue() {
+              return "job-1";
+            },
+            waitForIdle() {
+              return Promise.resolve();
+            },
+          } as any;
+        },
+        recordWorkflowTaskUpdate: (job: any) => {
+          taskUpdates.push(job);
+          return buildWorkflowTaskRecordFromJob(job);
+        },
+        recordTaskDashboardHistoryFromJob: (job: any) => {
+          historyUpdates.push(job);
+          return null as any;
+        },
+        selectAcpSkillRun: () => undefined,
+        openAssistantWorkspaceSidebar: async () => undefined,
+      } as any,
+    );
+
+    await runState.idlePromise;
+
+    const rootJob = {
+      id: "job-1",
+      workflowId: "seam-acp-sequence",
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "digest",
+            skill_id: "digest-skill",
+            workspace: "new",
+          },
+        ],
+        final_step_id: "digest",
+      },
+      meta: {
+        index: 0,
+        runId: runState.runId,
+        providerId: "acp",
+        requestKind: "skillrunner.sequence.v1",
+        backendId: "acp-backend",
+        backendType: "acp",
+        backendBaseUrl: "http://127.0.0.1:8031",
+      },
+      state: "running",
+      createdAt: "2026-04-17T00:00:00.000Z",
+      updatedAt: "2026-04-17T00:00:00.000Z",
+    };
+    capturedQueueConfig.onJobProgress(rootJob, {
+      type: "request-created",
+      requestId: "digest-skill-request",
+      workflowRunId: `${runState.runId}-job-1`,
+      sequenceJobId: "job-1",
+      sequenceStepId: "digest",
+      sequenceStepIndex: 0,
+      sequenceFinalStepId: "digest",
+      sequenceStepTaskName: "Seam ACP Sequence / digest",
+      sequenceStepRequest: {
+        kind: "acp.skill.run.v1",
+        skill_id: "digest-skill",
+        workspace: "new",
+      },
+    });
+    capturedQueueConfig.onJobUpdated(rootJob);
+
+    assert.lengthOf(taskUpdates, 0);
+    assert.lengthOf(historyUpdates, 0);
+    const stepRun = getAcpSkillRunRecord("digest-skill-request");
+    assert.isOk(stepRun);
+    assert.equal(stepRun?.runId, `${runState.runId}-job-1`);
+    assert.equal(stepRun?.jobId, "job-1:digest");
+    assert.equal(stepRun?.sequenceStepId, "digest");
+    assert.equal(stepRun?.sequenceStepIndex, 0);
+    assert.equal(stepRun?.sequenceFinalStepId, "digest");
   });
 
   it("stores sequence step auto-reply runtime facts without providerOptions", async function () {

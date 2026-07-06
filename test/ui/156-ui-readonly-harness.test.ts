@@ -80,6 +80,16 @@ async function createPluginStateFixture() {
       created_at TEXT NOT NULL DEFAULT '',
       payload_json TEXT NOT NULL
     );
+    CREATE TABLE plugin_workflow_sequence_runs (
+      sequence_run_id TEXT PRIMARY KEY,
+      workflow_run_id TEXT NOT NULL DEFAULT '',
+      workflow_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      backend_type TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
     INSERT INTO plugin_task_requests VALUES (
       'acp',
       'frontend',
@@ -214,10 +224,12 @@ async function createPluginStateFixture() {
         updatedAt: "2026-01-01T00:05:00.000Z",
       })}'
     );
-    INSERT INTO plugin_skillrunner_runs VALUES (
-      'sequence:sr-seq-run',
-      '',
+    INSERT INTO plugin_workflow_sequence_runs VALUES (
+      'sr-seq-run',
+      'sr-seq-run',
+      'wf-sr',
       'skillrunner-backend',
+      'skillrunner',
       'running_step',
       '2026-01-01T00:04:00.000Z',
       '${sqlJson({

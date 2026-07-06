@@ -111,6 +111,27 @@ export type PluginRunStoreListOptions = {
   limit?: number;
 };
 
+export type WorkflowSequenceRunStoreEntry = {
+  sequenceRunId: string;
+  workflowRunId: string;
+  workflowId: string;
+  backendId: string;
+  backendType: string;
+  state: string;
+  updatedAt: string;
+  payload: string;
+};
+
+export type WorkflowSequenceRunStoreListOptions = {
+  sequenceRunId?: string;
+  workflowRunId?: string;
+  backendId?: string;
+  backendType?: string;
+  states?: string[];
+  excludeStates?: string[];
+  limit?: number;
+};
+
 export type PluginRunEventStoreEntry = {
   eventId: string;
   runKey: string;
@@ -399,6 +420,19 @@ type MemoryTables = {
       payload_json: string;
     }
   >;
+  workflowSequenceRuns: Map<
+    string,
+    {
+      sequence_run_id: string;
+      workflow_run_id: string;
+      workflow_id: string;
+      backend_id: string;
+      backend_type: string;
+      state: string;
+      updated_at: string;
+      payload_json: string;
+    }
+  >;
 };
 
 const memoryTables: MemoryTables = {
@@ -410,6 +444,7 @@ const memoryTables: MemoryTables = {
   acpRunEvents: new Map(),
   skillRunnerRuns: new Map(),
   skillRunnerRunEvents: new Map(),
+  workflowSequenceRuns: new Map(),
 };
 
 function requestKey(domain: string, requestId: string) {
@@ -559,6 +594,51 @@ function buildMemoryAdapter(): SqlAdapter {
             continue;
           }
           runTables.runs.delete(key);
+        }
+        return;
+      }
+      if (
+        normalizedSql.startsWith(
+          "insert or replace into plugin_workflow_sequence_runs",
+        )
+      ) {
+        const sequenceRunId = normalizeString(params.sequence_run_id);
+        if (!sequenceRunId) {
+          return;
+        }
+        memoryTables.workflowSequenceRuns.set(sequenceRunId, {
+          sequence_run_id: sequenceRunId,
+          workflow_run_id: normalizeString(params.workflow_run_id),
+          workflow_id: normalizeString(params.workflow_id),
+          backend_id: normalizeString(params.backend_id),
+          backend_type: normalizeString(params.backend_type),
+          state: normalizeString(params.state),
+          updated_at: normalizeString(params.updated_at),
+          payload_json: normalizeString(params.payload_json) || "{}",
+        });
+        return;
+      }
+      if (
+        normalizedSql.startsWith("delete from plugin_workflow_sequence_runs")
+      ) {
+        const sequenceRunId = normalizeString(params.sequence_run_id);
+        const workflowRunId = normalizeString(params.workflow_run_id);
+        const backendId = normalizeString(params.backend_id);
+        if (!sequenceRunId && !workflowRunId && !backendId) {
+          memoryTables.workflowSequenceRuns.clear();
+          return;
+        }
+        for (const [key, row] of memoryTables.workflowSequenceRuns.entries()) {
+          if (sequenceRunId && row.sequence_run_id !== sequenceRunId) {
+            continue;
+          }
+          if (workflowRunId && row.workflow_run_id !== workflowRunId) {
+            continue;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          memoryTables.workflowSequenceRuns.delete(key);
         }
         return;
       }
@@ -743,6 +823,55 @@ function buildMemoryAdapter(): SqlAdapter {
           ...row,
         }));
       }
+      if (normalizedSql.includes("from plugin_workflow_sequence_runs")) {
+        const sequenceRunId = normalizeString(params.sequence_run_id);
+        const workflowRunId = normalizeString(params.workflow_run_id);
+        const backendId = normalizeString(params.backend_id);
+        const backendType = normalizeString(params.backend_type);
+        const stateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const excludedStateSet = new Set(
+          Object.entries(params)
+            .filter(([key]) => /^exclude_state_\d+$/.test(key))
+            .map(([, value]) => normalizeString(value))
+            .filter(Boolean),
+        );
+        const limit =
+          typeof params.limit === "number" && Number.isFinite(params.limit)
+            ? Math.max(0, Math.floor(params.limit))
+            : 0;
+        const rows = Array.from(
+          memoryTables.workflowSequenceRuns.values(),
+        ).filter((row) => {
+          if (sequenceRunId && row.sequence_run_id !== sequenceRunId) {
+            return false;
+          }
+          if (workflowRunId && row.workflow_run_id !== workflowRunId) {
+            return false;
+          }
+          if (backendId && row.backend_id !== backendId) {
+            return false;
+          }
+          if (backendType && row.backend_type !== backendType) {
+            return false;
+          }
+          if (stateSet.size > 0 && !stateSet.has(row.state)) {
+            return false;
+          }
+          if (excludedStateSet.has(row.state)) {
+            return false;
+          }
+          return true;
+        });
+        const sorted = byUpdatedDesc(rows);
+        return (limit ? sorted.slice(0, limit) : sorted).map((row) => ({
+          ...row,
+        }));
+      }
       if (normalizedSql.includes("from plugin_task_requests")) {
         const domain = normalizeString(params.domain);
         const requestId = normalizeString(params.request_id);
@@ -896,6 +1025,21 @@ function buildMemoryAdapter(): SqlAdapter {
         const backendId = normalizeString(params.backend_id);
         let count = 0;
         for (const row of runTables.runs.values()) {
+          if (backendId && row.backend_id !== backendId) {
+            continue;
+          }
+          count += 1;
+        }
+        return { value: count };
+      }
+      if (
+        normalizedSql.startsWith(
+          "select count(*) as value from plugin_workflow_sequence_runs",
+        )
+      ) {
+        const backendId = normalizeString(params.backend_id);
+        let count = 0;
+        for (const row of memoryTables.workflowSequenceRuns.values()) {
           if (backendId && row.backend_id !== backendId) {
             continue;
           }
@@ -1248,6 +1392,18 @@ function ensureSchema(db: SqlAdapter) {
     );
   `);
   db.run(`
+    CREATE TABLE IF NOT EXISTS plugin_workflow_sequence_runs (
+      sequence_run_id TEXT PRIMARY KEY,
+      workflow_run_id TEXT NOT NULL DEFAULT '',
+      workflow_id TEXT NOT NULL DEFAULT '',
+      backend_id TEXT NOT NULL DEFAULT '',
+      backend_type TEXT NOT NULL DEFAULT '',
+      state TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL
+    );
+  `);
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_task_requests_backend_request
       ON plugin_task_requests(domain, backend_id, request_id);
   `);
@@ -1294,6 +1450,14 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_plugin_skillrunner_run_events_run_created
       ON plugin_skillrunner_run_events(run_key, created_at DESC);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_workflow_sequence_runs_workflow_run
+      ON plugin_workflow_sequence_runs(workflow_run_id);
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_plugin_workflow_sequence_runs_backend_state
+      ON plugin_workflow_sequence_runs(backend_type, backend_id, state, updated_at DESC);
   `);
 }
 
@@ -1517,6 +1681,19 @@ function normalizeRunEventStoreEntry(row: Record<string, unknown>) {
   } satisfies PluginRunEventStoreEntry;
 }
 
+function normalizeWorkflowSequenceRunStoreEntry(row: Record<string, unknown>) {
+  return {
+    sequenceRunId: normalizeString(row.sequence_run_id),
+    workflowRunId: normalizeString(row.workflow_run_id),
+    workflowId: normalizeString(row.workflow_id),
+    backendId: normalizeString(row.backend_id),
+    backendType: normalizeString(row.backend_type),
+    state: normalizeString(row.state),
+    updatedAt: normalizeString(row.updated_at),
+    payload: ensureJsonPayload(normalizeString(row.payload_json)),
+  } satisfies WorkflowSequenceRunStoreEntry;
+}
+
 export function listPluginRunStoreEntries(kind: PluginRunStoreKind) {
   return listPluginRunStoreEntriesFiltered(kind);
 }
@@ -1682,6 +1859,132 @@ export function deletePluginRunStoreEntry(
   db.run(`DELETE FROM ${tables.events} WHERE run_key=@run_key`, {
     run_key: runKey,
   });
+  return true;
+}
+
+export function listWorkflowSequenceRunStoreEntries(
+  options: WorkflowSequenceRunStoreListOptions = {},
+) {
+  const sequenceRunId = normalizeString(options.sequenceRunId);
+  const workflowRunId = normalizeString(options.workflowRunId);
+  const backendId = normalizeString(options.backendId);
+  const backendType = normalizeString(options.backendType);
+  const states = normalizeTaskRowStates(options.states);
+  const excludeStates = normalizeTaskRowStates(options.excludeStates);
+  const limit = normalizeTaskRowLimit(options.limit);
+  const where: string[] = [];
+  const params: SqlParams = {};
+  if (sequenceRunId) {
+    where.push("sequence_run_id=@sequence_run_id");
+    params.sequence_run_id = sequenceRunId;
+  }
+  if (workflowRunId) {
+    where.push("workflow_run_id=@workflow_run_id");
+    params.workflow_run_id = workflowRunId;
+  }
+  if (backendId) {
+    where.push("backend_id=@backend_id");
+    params.backend_id = backendId;
+  }
+  if (backendType) {
+    where.push("backend_type=@backend_type");
+    params.backend_type = backendType;
+  }
+  states.forEach((state, index) => {
+    const key = `state_${index}`;
+    params[key] = state;
+  });
+  excludeStates.forEach((state, index) => {
+    const key = `exclude_state_${index}`;
+    params[key] = state;
+  });
+  if (states.length > 0) {
+    where.push(
+      `state IN (${states.map((_, index) => `@state_${index}`).join(", ")})`,
+    );
+  }
+  if (excludeStates.length > 0) {
+    where.push(
+      `state NOT IN (${excludeStates
+        .map((_, index) => `@exclude_state_${index}`)
+        .join(", ")})`,
+    );
+  }
+  if (limit) {
+    params.limit = limit;
+  }
+  const db = getAdapter();
+  const rows = db.all(
+    `
+      SELECT sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json
+      FROM plugin_workflow_sequence_runs
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY updated_at DESC
+      ${limit ? "LIMIT @limit" : ""}
+    `,
+    params,
+  );
+  const entries = rows.map(normalizeWorkflowSequenceRunStoreEntry);
+  return limit ? entries.slice(0, limit) : entries;
+}
+
+export function getWorkflowSequenceRunStoreEntry(sequenceRunIdRaw: string) {
+  const sequenceRunId = normalizeString(sequenceRunIdRaw);
+  if (!sequenceRunId) {
+    return null;
+  }
+  const db = getAdapter();
+  const row = db.get(
+    `
+      SELECT sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json
+      FROM plugin_workflow_sequence_runs
+      WHERE sequence_run_id=@sequence_run_id
+      LIMIT 1
+    `,
+    { sequence_run_id: sequenceRunId },
+  );
+  return row ? normalizeWorkflowSequenceRunStoreEntry(row) : null;
+}
+
+export function upsertWorkflowSequenceRunStoreEntry(
+  entry: WorkflowSequenceRunStoreEntry,
+) {
+  const sequenceRunId = normalizeString(entry.sequenceRunId);
+  if (!sequenceRunId) {
+    return;
+  }
+  const db = getAdapter();
+  db.run(
+    `
+      INSERT OR REPLACE INTO plugin_workflow_sequence_runs
+      (sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json)
+      VALUES (@sequence_run_id, @workflow_run_id, @workflow_id, @backend_id, @backend_type, @state, @updated_at, @payload_json)
+    `,
+    {
+      sequence_run_id: sequenceRunId,
+      workflow_run_id:
+        normalizeString(entry.workflowRunId) ||
+        normalizeString(entry.sequenceRunId),
+      workflow_id: normalizeString(entry.workflowId),
+      backend_id: normalizeString(entry.backendId),
+      backend_type: normalizeString(entry.backendType),
+      state: normalizeString(entry.state),
+      updated_at: normalizeString(entry.updatedAt) || nowIso(),
+      payload_json: ensureJsonPayload(entry.payload),
+    },
+  );
+}
+
+export function deleteWorkflowSequenceRunStoreEntry(sequenceRunIdRaw: string) {
+  const sequenceRunId = normalizeString(sequenceRunIdRaw);
+  if (!sequenceRunId) {
+    return false;
+  }
+  const db = getAdapter();
+  db.run(
+    "DELETE FROM plugin_workflow_sequence_runs WHERE sequence_run_id=@sequence_run_id",
+    { sequence_run_id: sequenceRunId },
+  );
   return true;
 }
 
@@ -2775,6 +3078,7 @@ export function resetPluginStateStoreForTests() {
     db.run("DELETE FROM plugin_acp_skill_runs");
     db.run("DELETE FROM plugin_skillrunner_run_events");
     db.run("DELETE FROM plugin_skillrunner_runs");
+    db.run("DELETE FROM plugin_workflow_sequence_runs");
     db.run("DELETE FROM plugin_meta");
   }
   memoryTables.requests.clear();
@@ -2784,6 +3088,7 @@ export function resetPluginStateStoreForTests() {
   memoryTables.acpRuns.clear();
   memoryTables.skillRunnerRunEvents.clear();
   memoryTables.skillRunnerRuns.clear();
+  memoryTables.workflowSequenceRuns.clear();
   memoryTables.meta.clear();
   adapter = null;
   initialized = false;
@@ -2795,6 +3100,36 @@ export function getPluginStateMigrationStatus() {
     meta_key: SQLITE_MIGRATION_META_KEY,
   });
   return normalizeString(row?.value);
+}
+
+export function getPluginMetaValue(keyRaw: string) {
+  const key = normalizeString(keyRaw);
+  if (!key) {
+    return "";
+  }
+  const db = getAdapter();
+  const row = db.get("SELECT value FROM plugin_meta WHERE key=@meta_key", {
+    meta_key: key,
+  });
+  return normalizeString(row?.value);
+}
+
+export function setPluginMetaValue(keyRaw: string, valueRaw: string) {
+  const key = normalizeString(keyRaw);
+  if (!key) {
+    return;
+  }
+  const db = getAdapter();
+  db.run(
+    `
+      INSERT OR REPLACE INTO plugin_meta(key, value)
+      VALUES (@meta_key, @meta_value)
+    `,
+    {
+      meta_key: key,
+      meta_value: normalizeString(valueRaw),
+    },
+  );
 }
 
 export function inspectPluginStateStoreCounts() {
@@ -2814,6 +3149,10 @@ export function inspectPluginStateStoreCounts() {
   const skillRunnerRunCount = Number(
     db.get("SELECT COUNT(*) AS value FROM plugin_skillrunner_runs")?.value || 0,
   );
+  const workflowSequenceRunCount = Number(
+    db.get("SELECT COUNT(*) AS value FROM plugin_workflow_sequence_runs")
+      ?.value || 0,
+  );
   return {
     requestCount: Number.isFinite(requestCount) ? requestCount : 0,
     contextCount: Number.isFinite(contextCount) ? contextCount : 0,
@@ -2821,6 +3160,9 @@ export function inspectPluginStateStoreCounts() {
     acpRunCount: Number.isFinite(acpRunCount) ? acpRunCount : 0,
     skillRunnerRunCount: Number.isFinite(skillRunnerRunCount)
       ? skillRunnerRunCount
+      : 0,
+    workflowSequenceRunCount: Number.isFinite(workflowSequenceRunCount)
+      ? workflowSequenceRunCount
       : 0,
   };
 }
@@ -2899,6 +3241,13 @@ export function exportPluginStateStoreRowsForTests() {
         SELECT event_id, run_key, request_id, backend_id, type, created_at, payload_json
         FROM plugin_skillrunner_run_events
         ORDER BY event_id
+      `,
+    ),
+    workflowSequenceRuns: db.all(
+      `
+        SELECT sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json
+        FROM plugin_workflow_sequence_runs
+        ORDER BY sequence_run_id
       `,
     ),
   };

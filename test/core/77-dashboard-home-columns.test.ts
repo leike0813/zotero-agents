@@ -88,14 +88,19 @@ describe("dashboard home columns", function () {
     const activeTasksTs = await readProjectFile(
       "src/modules/dashboardActiveTasks.ts",
     );
+    const acpProjectionTs = await readProjectFile(
+      "src/modules/acpSkillRunTaskProjection.ts",
+    );
     assert.include(activeTasksTs, "function isVisibleDashboardActiveTask");
     assert.include(activeTasksTs, "function isAcpSkillRunTask");
     assert.include(ts, "listAcpSkillRunSummaries({");
-    assert.include(ts, "filterDashboardActiveTasks");
+    assert.include(ts, "projectDashboardActiveTasks");
+    assert.include(activeTasksTs, "mapAcpSkillRunSummaryToWorkflowTask");
     assert.include(activeTasksTs, "visibleAcpRequestIds.has(requestId)");
     assert.include(activeTasksTs, 'taskId.startsWith("acp-skill-run:")');
     assert.include(activeTasksTs, "return false;");
     assert.include(activeTasksTs, "isActiveAcpSkillRunStatus(run.status)");
+    assert.include(acpProjectionTs, "resolveAcpSkillRunWorkflowTaskState");
   });
 
   it("coalesces noisy dashboard task refreshes to keep running-list scrolling stable", async function () {

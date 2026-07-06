@@ -109,6 +109,31 @@ function normalizeRunStoreRow(row: Record<string, unknown>) {
   } satisfies PluginRunStoreReadonlyRow;
 }
 
+function normalizeWorkflowSequenceRunRow(row: Record<string, unknown>) {
+  const payload = rowPayload(row);
+  const sequenceRunId =
+    cleanHarnessString(row.sequence_run_id) ||
+    cleanHarnessString(payload.sequenceRunId);
+  return {
+    ...payload,
+    ...row,
+    runKey: sequenceRunId ? `sequence:${sequenceRunId}` : "",
+    requestId: "",
+    backendId:
+      cleanHarnessString(row.backend_id) ||
+      cleanHarnessString(payload.backendId),
+    state:
+      cleanHarnessString(row.state) ||
+      cleanHarnessString(payload.state) ||
+      cleanHarnessString(payload.status),
+    updatedAt:
+      cleanHarnessString(row.updated_at) ||
+      cleanHarnessString(payload.updatedAt) ||
+      cleanHarnessString(payload.updated_at),
+    payload,
+  } satisfies PluginRunStoreReadonlyRow;
+}
+
 function normalizeTaskRow(row: Record<string, unknown>) {
   const payload = rowPayload(row);
   const domain = cleanHarnessString(row.domain);
@@ -349,26 +374,26 @@ export async function createPluginStateReadonlyStore(
         );
     },
     listSkillRunnerSequenceStateRows(args = {}) {
-      if (!tableExists(db, "plugin_skillrunner_runs")) return [];
-      const { where, params } = runStoreWhereClauses(args);
+      if (!tableExists(db, "plugin_workflow_sequence_runs")) return [];
+      const clauses: string[] = [];
+      const params: Record<string, string | number | null> = {};
+      const backendId = cleanHarnessString(args.backendId);
+      if (backendId) {
+        clauses.push("backend_id=@backend_id");
+        params.backend_id = backendId;
+      }
+      const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
       return safeRows(
         db,
         `
-          SELECT run_key, request_id, backend_id, state, updated_at, payload_json
-          FROM plugin_skillrunner_runs
+          SELECT sequence_run_id, workflow_run_id, workflow_id, backend_id, backend_type, state, updated_at, payload_json
+          FROM plugin_workflow_sequence_runs
           ${where}
           ORDER BY COALESCE(updated_at, '') DESC
           LIMIT @limit
         `,
         { ...params, limit: limitValue(args.limit, 300) },
-      )
-        .map(normalizeRunStoreRow)
-        .filter(
-          (row) =>
-            cleanHarnessString(row.payload.schema) ===
-              "workflow.sequence.state.v2" ||
-            cleanHarnessString(row.runKey).startsWith("sequence:"),
-        );
+      ).map(normalizeWorkflowSequenceRunRow);
     },
     diagnostics() {
       const tables = [
@@ -376,6 +401,7 @@ export async function createPluginStateReadonlyStore(
         "plugin_task_requests",
         "plugin_task_contexts",
         "plugin_task_rows",
+        "plugin_workflow_sequence_runs",
         "plugin_skillrunner_runs",
         "plugin_skillrunner_run_events",
       ];

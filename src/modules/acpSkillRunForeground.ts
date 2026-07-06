@@ -50,6 +50,7 @@ export function requestAcpSkillRunForeground(args: {
   runId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: unknown;
+  sequenceFinalStepId?: string;
   taskName?: string;
   skillId?: string;
   deps?: Partial<AcpSkillRunForegroundDeps>;
@@ -77,6 +78,7 @@ export function requestAcpSkillRunForeground(args: {
     runId: normalizeString(args.runId) || undefined,
     sequenceStepId: normalizeString(args.sequenceStepId) || undefined,
     sequenceStepIndex: normalizeSequenceStepIndex(args.sequenceStepIndex),
+    sequenceFinalStepId: normalizeString(args.sequenceFinalStepId) || undefined,
     taskName: normalizeString(args.taskName) || undefined,
     skillId: normalizeString(args.skillId) || requestSkillId || undefined,
     requestPayload: args.request,

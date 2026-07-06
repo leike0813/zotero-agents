@@ -40,8 +40,10 @@ import {
 } from "../../src/modules/skillRunnerRunStore";
 import {
   getAcpSkillRunRecord,
+  listAcpSkillRunSummaries,
   resetAcpSkillRunsForTests,
 } from "../../src/modules/acpSkillRunStore";
+import { mapAcpSkillRunSummaryToWorkflowTask } from "../../src/modules/acpSkillRunTaskProjection";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { createZipFromNamedFiles } from "../../src/providers/skillrunner/zipTransport";
 import { joinPath, workflowsPath } from "./workflow-test-utils";
@@ -1489,17 +1491,23 @@ describe("workflow single-result behavior integration", function () {
         assert.equal(stored?.status, "failed");
         assert.equal(stored?.backendStatus, "succeeded");
         assert.equal(stored?.apply.state, "failed");
+        const visible = listWorkflowTasks().find(
+          (task) => task.requestId === requestId,
+        );
+        assert.equal(visible?.state, "failed");
+        assert.equal(visible?.backendStatus, "succeeded");
       } else {
         const stored = getAcpSkillRunRecord(requestId);
         assert.equal(stored?.status, "failed");
         assert.equal(stored?.backendStatus, "succeeded");
         assert.equal(stored?.applyResultState, "failed");
+        const summary = listAcpSkillRunSummaries({ requestId })[0];
+        const visible = summary
+          ? mapAcpSkillRunSummaryToWorkflowTask(summary)
+          : undefined;
+        assert.equal(visible?.state, "failed");
+        assert.equal(visible?.backendStatus, "succeeded");
       }
-      const visible = listWorkflowTasks().find(
-        (task) => task.requestId === requestId,
-      );
-      assert.equal(visible?.state, "failed");
-      assert.equal(visible?.backendStatus, "succeeded");
     });
   }
 

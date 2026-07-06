@@ -1666,6 +1666,12 @@ describe("acp ui smoke", function () {
 
   it("adds dashboard entry points and hook wiring for opening the ACP sidebar", async function () {
     const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
+    const activeTasks = await readProjectFile(
+      "src/modules/dashboardActiveTasks.ts",
+    );
+    const acpProjection = await readProjectFile(
+      "src/modules/acpSkillRunTaskProjection.ts",
+    );
     const app = await readProjectFile("addon/content/dashboard/app.js");
     const hooks = await readProjectFile("src/hooks.ts");
     const assistantHtml = await readProjectFile(
@@ -1763,8 +1769,11 @@ describe("acp ui smoke", function () {
     assert.include(dialog, "buildAcpSkillRunPanelSnapshot");
     assert.include(dialog, "listAcpSkillRunSummaries");
     assert.include(dialog, "mergeAcpBackendTaskRows");
+    assert.include(dialog, "mapAcpSkillRunSummaryToWorkflowTask");
+    assert.include(activeTasks, "projectDashboardActiveTasks");
+    assert.include(activeTasks, "mapAcpSkillRunSummaryToWorkflowTask");
+    assert.include(acpProjection, "resolveAcpSkillRunWorkflowTaskState");
     assert.include(dialog, "!run.removedAt && !run.archivedAt");
-    assert.include(dialog, "taskMergeKey");
     assert.include(dialog, "subscribeAcpSkillRunSnapshots");
     assert.include(dialog, "isAcpSkillRunnerTask");
     assert.notInclude(dialog, "homeAcpEntry");
