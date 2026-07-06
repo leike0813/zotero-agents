@@ -2,7 +2,6 @@ import { assert } from "chai";
 import { config } from "../../package.json";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
-import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import {
   clearSkillRunnerModelCache,
   upsertSkillRunnerModelCacheEntry,
@@ -37,10 +36,6 @@ import { installMutablePrefsForTest } from "../mutablePrefsTestUtils";
 const itNodeOnly = isZoteroRuntime() ? it.skip : it;
 const itZoteroFullOrNode =
   isZoteroRuntime() && !isFullTestMode() ? it.skip : it;
-
-async function ensureWorkflowRegistryLoaded() {
-  await rescanWorkflowRegistry({ workflowsDir: workflowsPath() });
-}
 
 describe("workflow settings execution", function () {
   this.timeout(5000);
@@ -1550,7 +1545,6 @@ describe("workflow settings execution", function () {
   itZoteroFullOrNode(
     "does not load deprecated reference workflows as active built-ins",
     async function () {
-      await ensureWorkflowRegistryLoaded();
       const loaded = await loadWorkflowManifests(workflowsPath());
       const workflowIds = loaded.workflows.map((entry) => entry.manifest.id);
       assert.notInclude(workflowIds, "reference-matching");

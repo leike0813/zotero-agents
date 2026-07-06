@@ -1567,7 +1567,10 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "record-binaries --write");
     assert.include(workflow, "npm run render:host-bridge-surface");
     assert.include(workflow, "npm run check:host-bridge-doc-sync");
-    assert.include(workflow, "npm run check:host-bridge-cli-prebuild-freshness");
+    assert.include(
+      workflow,
+      "npm run check:host-bridge-cli-prebuild-freshness",
+    );
     assert.include(workflow, "npm run check:zotero-librarian-profile");
     assert.include(workflow, "Publish Host Bridge CLI bundle branch");
     assert.include(workflow, "Publish zotero-librarian profile repository");
