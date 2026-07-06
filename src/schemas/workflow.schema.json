@@ -319,6 +319,9 @@
       "type": "object",
       "required": ["applyResult"],
       "properties": {
+        "preflight": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
         "buildRequest": {
           "$ref": "#/$defs/nonEmptyString"
         },

@@ -1,5 +1,5 @@
 export type WorkflowHookFailureMeta = {
-  hookName?: "buildRequest" | "applyResult";
+  hookName?: "preflight" | "buildRequest" | "applyResult";
   workflowId?: string;
   packageId?: string;
   workflowSourceKind?: "official" | "dev-local" | "user" | "";

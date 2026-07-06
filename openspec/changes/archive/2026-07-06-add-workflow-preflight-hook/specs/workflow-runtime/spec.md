@@ -1,9 +1,4 @@
-# workflow-runtime Specification
-
-## Purpose
-Defines the workflow execution runtime behavior for sequence workflows, step handoff, and dynamic step resolution.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Hook-driven sequence workflows SHALL support declared candidate steps
 
@@ -25,46 +20,12 @@ Hook-driven sequence workflows SHALL be able to declare candidate steps in
 - **THEN** the workflow manifest MAY declare `include_if`
 - **AND** the runtime SHALL NOT interpret `include_if` as an execution rule.
 
-#### Scenario: Agent-owned handoff uses candidate steps as context
-
-- **WHEN** Host Bridge packages a workflow for agent-owned execution
-- **AND** the workflow declares sequence candidate steps
-- **THEN** the handoff bundle SHALL expose those candidate steps and handoff
-  bindings as agent-readable context
-- **AND** Host Bridge SHALL NOT evaluate `include_if` or decide the executable
-  sequence for the agent.
-
 #### Scenario: Preflight does not replace buildRequest as request source
 
 - **WHEN** a workflow declares `hooks.preflight`
 - **AND** preflight returns continue or replacement units
 - **THEN** provider requests SHALL still be produced by `buildRequest` or declarative request compilation
 - **AND** preflight SHALL NOT be treated as a provider request source.
-
-### Requirement: Declared hook-driven sequence candidates SHALL be semantically checked
-
-The workflow loader SHALL validate declared candidate sequence steps for
-hook-driven sequence workflows when the manifest provides them.
-
-#### Scenario: Candidate step references are valid
-
-- **WHEN** a hook-driven sequence workflow declares candidate steps
-- **THEN** step ids SHALL be unique
-- **AND** any declared final step id SHALL match a candidate step
-- **AND** handoff source step references SHALL match candidate steps.
-
-### Requirement: Agent-run may materialize request context without execution
-
-Agent-owned workflow handoff SHALL be allowed to execute workflow request
-materialization hooks for context while remaining non-executing.
-
-#### Scenario: buildRequest is context-only during agent-run
-
-- **WHEN** Host Bridge handles `workflow agent-run`
-- **THEN** it MAY execute `buildRequest` or declarative request compilation
-- **AND** the resulting payload SHALL be used only for handoff context and later
-  apply-back request reconstruction
-- **AND** Host Bridge SHALL NOT submit that payload to any backend during handoff.
 
 ### Requirement: Workflow runtime SHALL support preflight execution planning
 

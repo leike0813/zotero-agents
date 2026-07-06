@@ -37,6 +37,29 @@ export type WorkflowResultContext = {
   workspaceDir?: string;
   resultJsonPath?: string;
   bundleReader: BundleReader;
+  preflight?: {
+    planId: string;
+    unitId?: string;
+    unitOrder?: number;
+    context?: Record<string, unknown>;
+    aggregate?: {
+      id: string;
+      mode: "single-apply";
+    };
+  };
+  aggregate?: {
+    id: string;
+    mode: "single-apply";
+    children: Array<{
+      unitId: string;
+      order: number;
+      context?: Record<string, unknown>;
+      request: unknown;
+      runResult: unknown;
+      resultContext: WorkflowResultContext;
+      bundleReader: BundleReader;
+    }>;
+  };
   warnings: WorkflowResultResolutionWarning[];
   errors: WorkflowResultResolutionWarning[];
   resolveArtifact: (args: {
@@ -406,6 +429,8 @@ export async function createWorkflowResultContext(args: {
   runResult?: RunResultLike;
   bundleReader: BundleReader;
   manifest: WorkflowResultManifestLike;
+  preflight?: WorkflowResultContext["preflight"];
+  aggregate?: WorkflowResultContext["aggregate"];
 }): Promise<WorkflowResultContext> {
   const warnings: WorkflowResultResolutionWarning[] = [];
   const errors: WorkflowResultResolutionWarning[] = [];
@@ -484,6 +509,8 @@ export async function createWorkflowResultContext(args: {
     workspaceDir: workspaceDir || undefined,
     resultJsonPath: resultJsonPath || undefined,
     bundleReader: args.bundleReader,
+    preflight: args.preflight,
+    aggregate: args.aggregate,
     warnings,
     errors,
     resolveArtifact,

@@ -646,10 +646,12 @@ export function runWorkflowExecutionSeam(
   return {
     workflow: args.prepared.workflow,
     requests: args.prepared.requests,
+    preflight: args.prepared.preflight,
     queue,
     jobIds,
     runId,
-    totalJobs: jobIds.length,
+    totalJobs:
+      jobIds.length + (args.prepared.preflight?.shortCircuitApplies.length || 0),
     idlePromise: queue.waitForIdle(),
   };
 }

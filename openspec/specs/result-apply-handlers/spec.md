@@ -31,6 +31,18 @@ Zotero 数据层。
   either ACP or SkillRunner
 - **THEN** the hook SHALL apply the result using the same business parsing path.
 
+#### Scenario: Preflight short-circuit uses standard applyResult
+
+- **WHEN** preflight returns a short-circuit apply result
+- **THEN** the runtime SHALL call the workflow `applyResult`
+- **AND** the workflow SHALL use the same handlers path as provider-backed applies.
+
+#### Scenario: Aggregate apply uses standard applyResult
+
+- **WHEN** preflight replacement units are grouped into a single aggregate apply
+- **THEN** the runtime SHALL call the workflow `applyResult` once
+- **AND** result writeback SHALL still go through workflow handlers.
+
 ### Requirement: 结果回写必须具备幂等与安全语义
 结果回写链路 MUST 在重试与异常场景下保持幂等、安全且可诊断。
 
@@ -76,4 +88,19 @@ The result apply handlers SHALL create path-backed Zotero attachments with reque
 
 - **WHEN** `handlers.attachment.createFromPath()` receives only creation-time metadata supported by Zotero's attachment creation API
 - **THEN** the handler SHALL NOT perform a second generic item-data save solely to apply title or MIME type.
+
+### Requirement: Result context SHALL expose preflight and aggregate execution metadata
+
+Workflow apply hooks SHALL receive preflight and aggregate metadata through
+`WorkflowResultContext` when runtime generated that metadata.
+
+#### Scenario: Preflight metadata is available to applyResult
+
+- **WHEN** a request was created from a preflight-planned unit
+- **THEN** `resultContext.preflight` SHALL expose the plan id, unit id, unit order, and context.
+
+#### Scenario: Aggregate child results are available to applyResult
+
+- **WHEN** aggregate single-apply runs
+- **THEN** `resultContext.aggregate.children` SHALL expose each child request, child run result, child result context, bundle reader, preflight context, and ordered unit identity.
 

@@ -4,6 +4,7 @@ import type {
   NormalizeWorkflowSettingsHook,
   LoadedWorkflow,
   LoadedWorkflows,
+  PreflightHook,
   WorkflowHooksModule,
   WorkflowI18nLocaleMessages,
   WorkflowLocalizationResources,
@@ -288,7 +289,11 @@ async function importPrecompiledPackageHooksModule(
   filePath: string,
   args: {
     packageRootDir: string;
-    exportName: "applyResult" | "buildRequest" | "normalizeSettings";
+    exportName:
+      | "preflight"
+      | "applyResult"
+      | "buildRequest"
+      | "normalizeSettings";
     workflowSourceKind?: WorkflowModuleResourceKind | "";
   },
 ) {
@@ -411,7 +416,11 @@ async function loadHooksModule(
     allowTextFallback?: boolean;
     workflowSourceKind?: WorkflowModuleResourceKind | "";
     packageRootDir?: string;
-    exportName?: "applyResult" | "buildRequest" | "normalizeSettings";
+    exportName?:
+      | "preflight"
+      | "applyResult"
+      | "buildRequest"
+      | "normalizeSettings";
   },
 ): Promise<{
   loaded: Record<string, unknown>;
@@ -844,6 +853,51 @@ async function loadHooks(args: {
     });
   }
   hooks.applyResult = applyResultModule.applyResult as ApplyResultHook;
+
+  if (manifest.hooks.preflight) {
+    assertPackageHookPath(manifest.hooks.preflight, "preflight");
+    const preflightPath = joinPath(workflowRoot, manifest.hooks.preflight);
+    try {
+      await statPath(preflightPath);
+    } catch (error) {
+      throw new WorkflowLoaderDiagnosticError({
+        category: "hook_missing_error",
+        message: `Hook file missing: ${manifest.hooks.preflight}`,
+        workflowId: manifest.id,
+        path: preflightPath,
+        reason: String(error),
+      });
+    }
+    let preflightModule: Record<string, unknown>;
+    try {
+      const loaded = await loadHooksModule(preflightPath, {
+        allowTextFallback,
+        workflowSourceKind: args.workflowSourceKind,
+        packageRootDir: args.packageRootDir,
+        exportName: "preflight",
+      });
+      preflightModule = loaded.loaded;
+      assignExecutionMode(loaded.executionMode);
+    } catch (error) {
+      throw new WorkflowLoaderDiagnosticError({
+        category: "hook_import_error",
+        message: `Hook import failed: ${manifest.hooks.preflight}`,
+        workflowId: manifest.id,
+        path: preflightPath,
+        reason: String(error),
+      });
+    }
+    if (typeof preflightModule.preflight !== "function") {
+      throw new WorkflowLoaderDiagnosticError({
+        category: "hook_export_error",
+        message: `Hook export preflight() not found: ${manifest.hooks.preflight}`,
+        workflowId: manifest.id,
+        path: preflightPath,
+        reason: "preflight export missing",
+      });
+    }
+    hooks.preflight = preflightModule.preflight as PreflightHook;
+  }
 
   if (manifest.hooks.buildRequest) {
     assertPackageHookPath(manifest.hooks.buildRequest, "buildRequest");

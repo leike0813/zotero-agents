@@ -10,7 +10,7 @@ The simplest form: a directory containing a `workflow.json` and its Hook scripts
 my-workflow/
 ├── workflow.json
 └── hooks/
-    ├── filterInputs.mjs
+    ├── buildRequest.mjs
     └── applyResult.mjs
 ```
 
@@ -29,7 +29,8 @@ my-package/
 ├── workflow-a/
 │   ├── workflow.json
 │   └── hooks/
-│       ├── filterInputs.mjs
+│       ├── preflight.mjs
+│       ├── buildRequest.mjs
 │       └── applyResult.mjs
 ├── workflow-b/
 │   ├── workflow.json

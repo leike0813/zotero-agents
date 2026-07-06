@@ -11,7 +11,10 @@ flowchart TD
   A[User Trigger] --> B[Build SelectionContext]
   B --> C[Input Filter]
   C -->|no valid units| C1[Skip / Disabled]
-  C --> D[Build Requests]
+  C --> C2[Optional preflight hook]
+  C2 -->|skip all| C1
+  C2 -->|short-circuit| L
+  C2 -->|continue / replace units| D[Build Requests]
   D --> E[Resolve Execution Context]
   E --> F{Settings Gate}
   F -->|configurable + no override| F1[Show Settings Dialog]
@@ -53,17 +56,22 @@ Provider 解析在 Preparation 阶段完成（`runWorkflowPreparationSeam` 内�
 
 ## 3. 构建与调度
 
-1. 对每个合法输入单元构建 request
+1. 对每个合法输入单元执行可选 `hooks.preflight`
+   - `continue`：保持当前输入单元
+   - `replace-units`：展开为多个虚拟输入单元
+   - `short-circuit-apply`：跳过 provider，直接进入标准 `applyResult` seam
+   - `skip`：跳过当前输入单元
+2. 对每个需要 provider 的输入单元构建 request
    - `hooks.buildRequest` 优先
    - 否则走声明式 `request` 编译
-2. 解析 execution context
+3. 解析 execution context
    - backend profile（workflow settings）
    - request kind（workflow + backend type）
    - workflow params / provider options（persisted + run-once）
    - backend 兼容性仅由 workflow `provider` 派生，`request.kind` 只描述请求形状
-3. 设置门控：若 workflow 声明 `requireSettingsGate=true` 且未传入 `executionOptionsOverride`，弹出设置 Web 对话框供用户确认/修改配置。用户取消则本次执行中止
-4. 去重守卫：`runWorkflowDuplicateGuardSeam` 检查是否有 pending 的相同请求。若全部为重复则跳过执行
-5. 入队执行（FIFO + provider 决定的并发）
+4. 设置门控：若 workflow 声明 `requireSettingsGate=true` 且未传入 `executionOptionsOverride`，弹出设置 Web 对话框供用户确认/修改配置。用户取消则本次执行中止
+5. 去重守卫：`runWorkflowDuplicateGuardSeam` 检查是否有 pending 的相同请求。若全部为重复则跳过执行
+6. 入队执行（FIFO + provider 决定的并发）
 
 ## 4. Provider 执行
 
@@ -80,6 +88,10 @@ Provider 解析在 Preparation 阶段完成（`runWorkflowPreparationSeam` 内�
 1. `workflowExecute` 根据结果构造 `bundleReader`（或不可用占位 reader）  
 2. 调用 workflow `applyResult`  
 3. 由 handlers 写入 Zotero（note/tag/attachment 等）
+
+若 preflight 声明 aggregate single-apply，child provider 结果先被收集，不逐个
+调用原 workflow 的 `applyResult`。所有 child 成功后，runtime 构造
+`resultContext.aggregate.children` 并只调用一次 `applyResult`；任一 child 失败则不做部分 apply。
 
 ## 5a. 恢复对账
 
