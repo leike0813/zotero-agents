@@ -41,6 +41,7 @@ Future Zotero capability work should start from this model. Do not expose raw Zo
 
 - `context`: current Zotero view and selected items as DTOs
 - `library`: bounded item search, item detail, notes, and attachments as DTOs
+- `metadata`: controlled read-only metadata translation facade as DTOs
 - `mutations`: preview/execute command API for controlled Zotero writes
 
 Workflow runtime currently exposes both `runtime.handlers` and `runtime.hostApi`.
@@ -104,7 +105,9 @@ These guardrails are a reliability layer around the broker; they do not change t
 
 ## Capability Domains
 
-Read/context capabilities include current view, selected items, item search, item detail, notes, attachments, tags, and collection membership. MCP read tools should be backed by `hostApi.context` and `hostApi.library`, not by raw Zotero APIs.
+Read/context capabilities include current view, selected items, item search, item detail, notes, attachments, tags, collection membership, and metadata identifier translation. MCP read tools should be backed by `hostApi.context`, `hostApi.library`, and controlled read-only facades such as `hostApi.metadata`, not by raw Zotero APIs.
+
+`hostApi.metadata` is the broker-owned Zotero Translate facade for deterministic metadata lookup. `metadata.translateIdentifier()` may call Zotero `Translate.Search` for DOI, ISBN, arXiv, and PMID identifiers, but it must return only JSON-compatible DTOs: translated item fields, creator data, translator summaries, item counts, and diagnostics. It must not return raw `Zotero.Item`, window, `nsIFile`, translator runtime, or other host objects.
 
 Mutation capabilities include note creation, tag changes, collection membership changes, item field updates, and the single-paper `literature.ingest` import path used by interactive literature search workflows. They may reuse `handlers` internally, but MCP exposure must go through `hostApi.mutations.preview()` and `hostApi.mutations.execute()` with an explicit permission gate before execute. ACP workflows may opt into a per-run write auto-approval control; when the workflow declares support, the user enables it, and the Host Bridge CLI profile scope is registered for that run, mutation execute may skip the UI approval. This per-run bypass never applies to workflow submit; workflow submit is skipped only by Zotero's global `hostBridgeDisableWriteApproval` debug preference. Deletion and other higher-risk writes require a separate change before MCP exposure. `literature.ingest` may create PDF attachments from an explicit public `pdfUrl` value on a best-effort basis, and may create a linked URL attachment from `landingUrl` when `attachLandingUrlOnMissingPdf` is true and no PDF attachment exists. Attachment failure must not roll back a successfully created or reused bibliographic item. Batch ingest payloads and legacy `paper.ingest` inputs are not supported.
 

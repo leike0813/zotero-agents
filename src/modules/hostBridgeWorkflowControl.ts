@@ -1735,7 +1735,12 @@ export async function submitHostBridgeWorkflow(args: {
       confirmDuplicateSubmission: () => true,
     },
   );
-  if (duplicateGuard.allowedRequests.length === 0) {
+  const shortCircuitApplyCount =
+    preparation.prepared.preflight?.shortCircuitApplies.length || 0;
+  if (
+    duplicateGuard.allowedRequests.length === 0 &&
+    shortCircuitApplyCount === 0
+  ) {
     throw new Error("workflow submission produced no allowed requests");
   }
 

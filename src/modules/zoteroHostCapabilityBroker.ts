@@ -484,6 +484,63 @@ export type ZoteroHostMutationExecuteResponse =
       error: ZoteroHostMutationError;
     });
 
+export type ZoteroHostMetadataIdentifierType =
+  | "DOI"
+  | "ISBN"
+  | "arXiv"
+  | "PMID";
+
+export type ZoteroHostMetadataTranslateIdentifierArgs = {
+  type?: ZoteroHostMetadataIdentifierType | string;
+  value?: string;
+  normalized?: string;
+};
+
+export type ZoteroHostMetadataTranslatorDto = {
+  translatorID: string;
+  label: string;
+  priority?: number;
+  translatorType?: number | string;
+};
+
+export type ZoteroHostMetadataCreatorDto = {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  creatorType?: string;
+};
+
+export type ZoteroHostMetadataItemDto = {
+  itemType: string;
+  fields: Record<string, string | number | boolean>;
+  creators: ZoteroHostMetadataCreatorDto[];
+  title?: string;
+  DOI?: string;
+  ISBN?: string;
+  ISSN?: string;
+  url?: string;
+  abstractNote?: string;
+  date?: string;
+  publicationTitle?: string;
+  archiveID?: string;
+  PMID?: string;
+  extra?: string;
+};
+
+export type ZoteroHostMetadataDiagnosticDto = {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+export type ZoteroHostMetadataTranslateIdentifierResponse = {
+  ok: boolean;
+  item: ZoteroHostMetadataItemDto | null;
+  itemCount: number;
+  translators: ZoteroHostMetadataTranslatorDto[];
+  diagnostics: ZoteroHostMetadataDiagnosticDto[];
+};
+
 const SUMMARY_TEXT_LIMIT = 300;
 const FIELD_TEXT_LIMIT = 4000;
 const NOTE_TEXT_LIMIT = 4000;
@@ -764,6 +821,216 @@ function serializeItemDetail(item: Zotero.Item): ZoteroHostItemDetailDto {
           .filter(Boolean)
       : [],
   };
+}
+
+function normalizeMetadataIdentifierType(
+  value: unknown,
+): ZoteroHostMetadataIdentifierType | "" {
+  const type = trimText(value);
+  if (
+    type === "DOI" ||
+    type === "ISBN" ||
+    type === "arXiv" ||
+    type === "PMID"
+  ) {
+    return type;
+  }
+  return "";
+}
+
+function serializeMetadataTranslators(
+  translators: unknown,
+): ZoteroHostMetadataTranslatorDto[] {
+  return (Array.isArray(translators) ? translators : [])
+    .map((translator) => {
+      const source = translator as Record<string, unknown>;
+      return {
+        translatorID: trimText(source?.translatorID),
+        label: trimText(source?.label),
+        priority:
+          typeof source?.priority === "number" ? source.priority : undefined,
+        translatorType:
+          typeof source?.translatorType === "number" ||
+          typeof source?.translatorType === "string"
+            ? source.translatorType
+            : undefined,
+      };
+    })
+    .filter((translator) => translator.translatorID || translator.label);
+}
+
+function serializeMetadataCreators(
+  creators: unknown,
+): ZoteroHostMetadataCreatorDto[] {
+  return (Array.isArray(creators) ? creators : [])
+    .map((creator) => {
+      const source = creator as Record<string, unknown>;
+      return {
+        firstName: trimText(source?.firstName),
+        lastName: trimText(source?.lastName),
+        name: trimText(source?.name),
+        creatorType: trimText(source?.creatorType),
+      };
+    })
+    .map((creator) => {
+      return Object.fromEntries(
+        Object.entries(creator).filter(([, value]) => Boolean(value)),
+      ) as ZoteroHostMetadataCreatorDto;
+    })
+    .filter((creator) => Object.keys(creator).length > 0)
+    .slice(0, 50);
+}
+
+function readMetadataPlainField(
+  item: Record<string, unknown>,
+  field: string,
+  limit = FIELD_TEXT_LIMIT,
+) {
+  return trimText(item[field], limit);
+}
+
+function serializeMetadataItem(
+  item: unknown,
+): ZoteroHostMetadataItemDto | null {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const source = item as Record<string, unknown>;
+  const fields: Record<string, string | number | boolean> = {};
+  for (const field of DETAIL_FIELDS) {
+    const value =
+      typeof (source as { getField?: unknown }).getField === "function"
+        ? readField(item as Zotero.Item, field, FIELD_TEXT_LIMIT)
+        : readMetadataPlainField(source, field, FIELD_TEXT_LIMIT);
+    if (value) {
+      fields[field] = value;
+    }
+  }
+  for (const field of ["archiveID", "PMID", "extra"]) {
+    const value = readMetadataPlainField(source, field, FIELD_TEXT_LIMIT);
+    if (value) {
+      fields[field] = value;
+    }
+  }
+  let creators: ZoteroHostMetadataCreatorDto[] = [];
+  try {
+    creators = serializeMetadataCreators(
+      typeof (source as { getCreators?: unknown }).getCreators === "function"
+        ? (source as { getCreators: () => unknown }).getCreators()
+        : source.creators,
+    );
+  } catch {
+    creators = [];
+  }
+  const dto: ZoteroHostMetadataItemDto = {
+    itemType: trimText(source.itemType) || "journalArticle",
+    fields,
+    creators,
+  };
+  for (const field of [
+    "title",
+    "DOI",
+    "ISBN",
+    "ISSN",
+    "url",
+    "abstractNote",
+    "date",
+    "publicationTitle",
+    "archiveID",
+    "PMID",
+    "extra",
+  ] as const) {
+    const value = trimText(fields[field]);
+    if (value) {
+      dto[field] = value;
+    }
+  }
+  return dto;
+}
+
+async function translateMetadataIdentifier(
+  args: ZoteroHostMetadataTranslateIdentifierArgs = {},
+): Promise<ZoteroHostMetadataTranslateIdentifierResponse> {
+  const type = normalizeMetadataIdentifierType(args?.type);
+  const value = trimText(args?.normalized || args?.value, FIELD_TEXT_LIMIT);
+  const empty = (
+    code: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ): ZoteroHostMetadataTranslateIdentifierResponse => ({
+    ok: false,
+    item: null,
+    itemCount: 0,
+    translators: [],
+    diagnostics: [{ code, message, ...(details ? { details } : {}) }],
+  });
+  if (!type || !value) {
+    return empty(
+      "invalid_identifier",
+      "metadata.translateIdentifier requires a supported non-empty identifier.",
+    );
+  }
+
+  const Translate = (resolveZotero() as any).Translate;
+  if (!Translate?.Search) {
+    return empty(
+      "translate_search_unavailable",
+      "Zotero Translate.Search is unavailable.",
+    );
+  }
+
+  try {
+    const translate = new Translate.Search();
+    if (type === "ISBN") {
+      translate.setSearch?.({ itemType: "book", ISBN: value });
+    } else {
+      translate.setIdentifier?.({ [type]: value });
+    }
+    const rawTranslators = (await translate.getTranslators?.()) || [];
+    const translators = serializeMetadataTranslators(rawTranslators);
+    if (!Array.isArray(rawTranslators) || rawTranslators.length === 0) {
+      return {
+        ok: false,
+        item: null,
+        itemCount: 0,
+        translators,
+        diagnostics: [
+          {
+            code: "no_translators",
+            message: `No Zotero translator found for ${type}.`,
+          },
+        ],
+      };
+    }
+    translate.setTranslator?.(rawTranslators);
+    const rawItems =
+      (await translate.translate?.({
+        libraryID: false,
+        saveAttachments: false,
+      })) || [];
+    const itemList = Array.isArray(rawItems) ? rawItems : [];
+    const item = serializeMetadataItem(itemList[0]);
+    return {
+      ok: Boolean(item),
+      item,
+      itemCount: itemList.length,
+      translators,
+      diagnostics: item
+        ? []
+        : [
+            {
+              code: "no_items",
+              message: "No items returned from any translator.",
+              details: { itemCount: itemList.length, translators },
+            },
+          ],
+    };
+  } catch (error) {
+    return empty(
+      "translate_search_failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 function countChildItems(
@@ -3250,6 +3517,9 @@ export function createZoteroHostCapabilityBrokerApis() {
         }
         return attachments;
       },
+    },
+    metadata: {
+      translateIdentifier: translateMetadataIdentifier,
     },
     mutations: {
       async preview(

@@ -28,6 +28,12 @@ service endpoints, CLI access through the Host Bridge, and MCP tool backends.
 - **AND** direct exposure of Zotero native objects SHOULD be avoided at external
   boundaries.
 
+#### Scenario: Workflow package needs read-only metadata translation
+
+- **WHEN** a workflow package needs Zotero Translate Search metadata for a stable identifier
+- **THEN** it SHALL request the lookup through `runtime.hostApi.metadata`
+- **AND** it SHALL NOT require raw `runtime.zotero` access under the package host-api contract.
+
 ### Requirement: Handlers remain available for legacy workflow hooks
 
 The system SHALL preserve `runtime.handlers` for legacy workflow hook compatibility.

@@ -8,6 +8,7 @@ import { adaptSkillRunnerJobToAcpSkillRun } from "../../src/modules/acpSkillRunR
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
+import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
 import {
   joinPath,
@@ -18,6 +19,7 @@ import {
 import { preflight } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/preflight.mjs";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/buildRequest.mjs";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/applyResult.mjs";
+import { selectIdentifier } from "../../workflows_builtin/literature-workbench-package/lib/metadataCurator.mjs";
 
 type TranslateCandidate = Record<string, unknown>;
 
@@ -25,6 +27,7 @@ async function createParent(args: {
   title: string;
   doi?: string;
   isbn?: string;
+  url?: string;
   itemType?: string;
 }) {
   const parent = await handlers.item.create({
@@ -33,6 +36,7 @@ async function createParent(args: {
       title: args.title,
       ...(args.doi ? { DOI: args.doi } : {}),
       ...(args.isbn ? { ISBN: args.isbn } : {}),
+      ...(args.url ? { url: args.url } : {}),
     },
   });
   return parent;
@@ -88,7 +92,10 @@ function makeRuntimeWithTranslate(args: {
   };
 }
 
-function makeHostApiOnlyRuntime(parent: Zotero.Item) {
+function makeHostApiOnlyRuntime(
+  parent: Zotero.Item,
+  metadataTranslate?: (args: unknown) => Promise<unknown> | unknown,
+) {
   const resolveParent = (ref: unknown) => {
     if (ref && typeof ref === "object") {
       return ref;
@@ -118,8 +125,68 @@ function makeHostApiOnlyRuntime(parent: Zotero.Item) {
             : null;
         },
       },
+      ...(metadataTranslate
+        ? {
+            metadata: {
+              translateIdentifier: metadataTranslate,
+            },
+          }
+        : {}),
     },
   };
+}
+
+async function withMockGlobalTranslate<T>(
+  args: { items?: TranslateCandidate[]; translators?: unknown[] },
+  callback: () => Promise<T>,
+): Promise<T> {
+  class Search {
+    setIdentifierInput: unknown;
+    setSearchInput: unknown;
+
+    setIdentifier(input: unknown) {
+      this.setIdentifierInput = input;
+    }
+
+    setSearch(input: unknown) {
+      this.setSearchInput = input;
+    }
+
+    async getTranslators() {
+      return (
+        args.translators || [
+          {
+            translatorID: "global-translator-1",
+            label: "Global Mock Translator",
+            priority: 100,
+            translatorType: 8,
+          },
+        ]
+      );
+    }
+
+    setTranslator() {
+      // no-op
+    }
+
+    async translate() {
+      return args.items || [];
+    }
+  }
+
+  const previousTranslate = (Zotero as any).Translate;
+  (Zotero as any).Translate = { Search };
+  resetWorkflowHostApiForTests();
+  try {
+    return await callback();
+  } finally {
+    if (previousTranslate === undefined) {
+      delete (Zotero as any).Translate;
+    } else {
+      (Zotero as any).Translate = previousTranslate;
+    }
+    resetWorkflowHostApiForTests();
+  }
 }
 
 async function selectionFor(parent: Zotero.Item) {
@@ -180,6 +247,10 @@ function assertSchemaValid(
 }
 
 describe("workflow: literature-metadata-curator", function () {
+  afterEach(function () {
+    resetWorkflowHostApiForTests();
+  });
+
   it("declares automation-facing skill assets for generic metadata search", async function () {
     const skill = await fs.readFile(
       path.join(
@@ -427,6 +498,239 @@ describe("workflow: literature-metadata-curator", function () {
     ]);
   });
 
+  it("derives stable identifiers from DOI, arXiv, and PubMed URLs", function () {
+    assert.deepInclude(
+      selectIdentifier({
+        fields: {
+          url: "https://doi.org/10.1016/j.engappai.2025.113628",
+        },
+      }),
+      {
+        type: "DOI",
+        normalized: "10.1016/j.engappai.2025.113628",
+        source: "url",
+      },
+    );
+    assert.deepInclude(
+      selectIdentifier({
+        fields: {
+          url: "https://arxiv.org/pdf/2301.12345v2.pdf",
+        },
+      }),
+      {
+        type: "arXiv",
+        normalized: "2301.12345v2",
+        source: "url",
+      },
+    );
+    assert.deepInclude(
+      selectIdentifier({
+        fields: {
+          url: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        },
+      }),
+      {
+        type: "PMID",
+        normalized: "12345678",
+        source: "url",
+      },
+    );
+    assert.isNull(
+      selectIdentifier({
+        fields: {
+          url: "https://example.org/article-without-stable-id",
+        },
+      }),
+    );
+  });
+
+  it("short-circuits apply from a DOI URL when DOI field is absent", async function () {
+    const parent = await createParent({
+      title: "URL DOI draft",
+      url: "https://doi.org/10.1016/j.engappai.2025.113628",
+    });
+    const outcome = await preflight({
+      selectionContext: await selectionFor(parent),
+      runtime: makeRuntimeWithTranslate({
+        items: [
+          {
+            DOI: "10.1016/j.engappai.2025.113628",
+            title: "URL DOI metadata",
+          },
+        ],
+      }),
+    } as any);
+
+    assert.equal(outcome.kind, "short-circuit-apply");
+    assert.equal(
+      (outcome as any).apply.resultJson.metadata.fields.title,
+      "URL DOI metadata",
+    );
+    assert.equal((outcome as any).context.identifierType, "DOI");
+  });
+
+  it("short-circuits package precompiled host hook from a DOI URL through hostApi metadata", async function () {
+    const workflow = await getWorkflow();
+    const parent = await createParent({
+      title: "URL DOI package draft",
+      url: "https://doi.org/10.1109/elmar55880.2022.9899786",
+    });
+
+    const requests = await withMockGlobalTranslate(
+      {
+        items: [
+          {
+            itemType: "conferencePaper",
+            DOI: "10.1109/elmar55880.2022.9899786",
+            title: "URL DOI package metadata",
+            publicationTitle: "ELMAR Proceedings",
+          },
+        ],
+      },
+      async () =>
+        executeBuildRequests({
+          workflow,
+          selectionContext: await buildSelectionContext([parent]),
+        }),
+    );
+
+    assert.lengthOf(requests as any[], 0);
+    assert.lengthOf((requests as any).__preflight.shortCircuitApplies, 1);
+    assert.equal(
+      (requests as any).__preflight.shortCircuitApplies[0].runResult.resultJson
+        .metadata.fields.title,
+      "URL DOI package metadata",
+    );
+  });
+
+  it("uses hostApi metadata fast path for DOI, ISBN, and supported URL identifiers", async function () {
+    const cases = [
+      {
+        parent: await createParent({
+          title: "DOI host draft",
+          doi: "10.1000/doi-host",
+        }),
+        expectedType: "DOI",
+        item: { DOI: "10.1000/doi-host", title: "DOI host metadata" },
+      },
+      {
+        parent: await createParent({
+          title: "ISBN host draft",
+          isbn: "978-0-262-03384-8",
+          itemType: "book",
+        }),
+        expectedType: "ISBN",
+        item: { ISBN: "9780262033848", title: "ISBN host metadata" },
+      },
+      {
+        parent: await createParent({
+          title: "DOI URL host draft",
+          url: "https://doi.org/10.1000/url-host",
+        }),
+        expectedType: "DOI",
+        item: { DOI: "10.1000/url-host", title: "DOI URL host metadata" },
+      },
+      {
+        parent: await createParent({
+          title: "arXiv URL host draft",
+          url: "https://arxiv.org/abs/2301.12345",
+        }),
+        expectedType: "arXiv",
+        item: { archiveID: "arXiv:2301.12345", title: "arXiv host metadata" },
+      },
+      {
+        parent: await createParent({
+          title: "PubMed URL host draft",
+          url: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        }),
+        expectedType: "PMID",
+        item: { PMID: "12345678", title: "PubMed host metadata" },
+      },
+    ];
+
+    for (const entry of cases) {
+      let requestedType = "";
+      const runtime = makeHostApiOnlyRuntime(
+        entry.parent,
+        async (args: any) => {
+          requestedType = args?.type || "";
+          return {
+            ok: true,
+            item: {
+              itemType: entry.parent.itemType,
+              fields: { ...entry.item },
+              creators: [],
+              ...entry.item,
+            },
+            itemCount: 1,
+            translators: [{ translatorID: "host-api", label: "Host API" }],
+            diagnostics: [],
+          };
+        },
+      );
+
+      const outcome = await preflight({
+        selectionContext: await selectionFor(entry.parent),
+        runtime,
+      } as any);
+
+      assert.equal(outcome.kind, "short-circuit-apply");
+      assert.equal(requestedType, entry.expectedType);
+      assert.equal(
+        (outcome as any).apply.resultJson.metadata.fields.title,
+        entry.item.title,
+      );
+    }
+  });
+
+  it("short-circuits apply from arXiv and PubMed URLs", async function () {
+    const arxivParent = await createParent({
+      title: "arXiv draft",
+      url: "https://arxiv.org/abs/2301.12345",
+    });
+    const arxivOutcome = await preflight({
+      selectionContext: await selectionFor(arxivParent),
+      runtime: makeRuntimeWithTranslate({
+        items: [
+          {
+            archiveID: "arXiv:2301.12345",
+            title: "arXiv metadata",
+          },
+        ],
+      }),
+    } as any);
+
+    assert.equal(arxivOutcome.kind, "short-circuit-apply");
+    assert.equal(
+      (arxivOutcome as any).apply.resultJson.metadata.fields.title,
+      "arXiv metadata",
+    );
+    assert.equal((arxivOutcome as any).context.identifierType, "arXiv");
+
+    const pubmedParent = await createParent({
+      title: "PubMed draft",
+      url: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+    });
+    const pubmedOutcome = await preflight({
+      selectionContext: await selectionFor(pubmedParent),
+      runtime: makeRuntimeWithTranslate({
+        items: [
+          {
+            PMID: "12345678",
+            title: "PubMed metadata",
+          },
+        ],
+      }),
+    } as any);
+
+    assert.equal(pubmedOutcome.kind, "short-circuit-apply");
+    assert.equal(
+      (pubmedOutcome as any).apply.resultJson.metadata.fields.title,
+      "PubMed metadata",
+    );
+    assert.equal((pubmedOutcome as any).context.identifierType, "PMID");
+  });
+
   it("continues to fallback when DOI Translate Search returns no items", async function () {
     const parent = await createParent({
       title: "CNKI thesis",
@@ -439,6 +743,34 @@ describe("workflow: literature-metadata-curator", function () {
 
     assert.equal(outcome.kind, "continue");
     assert.equal((outcome as any).context.parent.id, parent.id);
+    assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
+  });
+
+  it("continues to fallback with hostApi metadata diagnostics when candidates are inconclusive", async function () {
+    const parent = await createParent({
+      title: "Host inconclusive",
+      doi: "10.1000/host-inconclusive",
+    });
+    const runtime = makeHostApiOnlyRuntime(parent, async () => ({
+      ok: false,
+      item: null,
+      itemCount: 0,
+      translators: [{ translatorID: "host-api", label: "Host API" }],
+      diagnostics: [
+        {
+          code: "no_items",
+          message: "No items returned from any translator.",
+          details: { itemCount: 0 },
+        },
+      ],
+    }));
+    const outcome = await preflight({
+      selectionContext: await selectionFor(parent),
+      runtime,
+    } as any);
+
+    assert.equal(outcome.kind, "continue");
+    assert.equal((outcome as any).context.identifier.type, "DOI");
     assert.equal((outcome as any).context.diagnostics[0].code, "no_items");
   });
 
@@ -458,28 +790,47 @@ describe("workflow: literature-metadata-curator", function () {
     );
   });
 
-  it("resolves selected parent through package hostApi items when Zotero runtime is not exposed", async function () {
+  it("resolves selected parent and fast-path metadata through hostApi when Zotero runtime is not exposed", async function () {
     const parent = await createParent({
       title: "Host API parent",
       doi: "10.1000/host-api-parent",
     });
     const selectionContext = await selectionFor(parent);
-    const runtime = makeHostApiOnlyRuntime(parent);
+    const runtime = makeHostApiOnlyRuntime(parent, async () => ({
+      ok: true,
+      item: {
+        itemType: "journalArticle",
+        DOI: "10.1000/host-api-parent",
+        title: "Host API metadata",
+        fields: {
+          DOI: "10.1000/host-api-parent",
+          title: "Host API metadata",
+        },
+        creators: [],
+      },
+      itemCount: 1,
+      translators: [
+        {
+          translatorID: "host-api-translator",
+          label: "Host API Translator",
+        },
+      ],
+      diagnostics: [],
+    }));
 
     const outcome = await preflight({
       selectionContext,
       runtime,
     } as any);
-    assert.equal(outcome.kind, "continue");
-    assert.equal((outcome as any).context.parent.id, parent.id);
+    assert.equal(outcome.kind, "short-circuit-apply");
     assert.equal(
-      (outcome as any).context.diagnostics[0].code,
-      "translate_search_unavailable",
+      (outcome as any).apply.resultJson.metadata.fields.title,
+      "Host API metadata",
     );
 
     const request = (await buildRequest({
       selectionContext,
-      runtime,
+      runtime: makeHostApiOnlyRuntime(parent),
     } as any)) as any;
     assert.equal(request.targetParentID, parent.id);
     assert.equal(request.input.parent.id, parent.id);

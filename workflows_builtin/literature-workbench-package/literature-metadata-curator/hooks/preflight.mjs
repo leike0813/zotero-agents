@@ -20,6 +20,81 @@ function summarizeTranslators(translators) {
 }
 
 async function translateIdentifier({ runtime, identifier }) {
+  const translateIdentifierHostApi =
+    runtime?.hostApi?.metadata?.translateIdentifier;
+  if (typeof translateIdentifierHostApi === "function") {
+    try {
+      const translated = await translateIdentifierHostApi({
+        type: identifier.type,
+        value: identifier.value,
+        normalized: identifier.normalized,
+      });
+      const translators = summarizeTranslators(translated?.translators);
+      const itemCount = Number(translated?.itemCount || 0);
+      if (
+        translated?.ok &&
+        translated?.item &&
+        candidateMatchesIdentifier(translated.item, identifier) &&
+        hasCoreBibliographicMetadata(translated.item)
+      ) {
+        return {
+          ok: true,
+          item: translated.item,
+          translators,
+          itemCount,
+        };
+      }
+      if (translated?.ok && translated?.item) {
+        return {
+          ok: false,
+          reason: "candidate_not_trustworthy",
+          diagnostics: [
+            {
+              code: "candidate_not_trustworthy",
+              message:
+                "Zotero Translate.Search returned candidates, but none matched the selected identifier with enough metadata.",
+              details: {
+                itemCount,
+                translators,
+              },
+            },
+          ],
+        };
+      }
+      return {
+        ok: false,
+        reason: translated?.diagnostics?.[0]?.code || "no_items",
+        diagnostics:
+          Array.isArray(translated?.diagnostics) &&
+          translated.diagnostics.length > 0
+            ? translated.diagnostics
+            : [
+                {
+                  code: itemCount ? "candidate_not_trustworthy" : "no_items",
+                  message: itemCount
+                    ? "Zotero Translate.Search returned candidates, but none matched the selected identifier with enough metadata."
+                    : "No items returned from any translator.",
+                  details: {
+                    itemCount,
+                    translators,
+                  },
+                },
+              ],
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "translate_search_failed",
+        diagnostics: [
+          {
+            code: "translate_search_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      };
+    }
+  }
+
   const Translate = runtime?.zotero?.Translate;
   if (!Translate?.Search) {
     return {
@@ -38,6 +113,10 @@ async function translateIdentifier({ runtime, identifier }) {
     const translate = new Translate.Search();
     if (identifier.type === "DOI") {
       translate.setIdentifier?.({ DOI: identifier.value });
+    } else if (identifier.type === "arXiv") {
+      translate.setIdentifier?.({ arXiv: identifier.value });
+    } else if (identifier.type === "PMID") {
+      translate.setIdentifier?.({ PMID: identifier.value });
     } else if (identifier.type === "ISBN") {
       translate.setSearch?.({ itemType: "book", ISBN: identifier.value });
     }
@@ -121,7 +200,8 @@ async function preflightImpl({ selectionContext, runtime }) {
         diagnostics: [
           {
             code: "identifier_missing",
-            message: "Selected parent has no DOI or ISBN.",
+            message:
+              "Selected parent has no DOI, ISBN, or supported URL-derived identifier.",
           },
         ],
       }),

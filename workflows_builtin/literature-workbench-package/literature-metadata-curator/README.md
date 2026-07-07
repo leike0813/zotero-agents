@@ -6,7 +6,7 @@
 
 ## 前置准备
 
-无硬性前置条件。条目如果已有 DOI 或 ISBN，workflow 会优先使用 Zotero 内置的标识符检索能力；没有可靠标识符时，需要后端 agent 具备联网搜索能力。
+无硬性前置条件。条目如果已有 DOI、ISBN，或 URL 中包含 DOI、arXiv、PubMed 标识符，workflow 会优先使用 Zotero Host API 的只读元数据检索能力；没有可靠标识符时，需要后端 agent 具备联网搜索能力。
 
 ## 怎么输入？
 
@@ -20,7 +20,7 @@
 
 执行时有两条路径：
 
-1. **本地 fast path**：如果条目有 DOI 或 ISBN，先调用 Zotero `Translate.Search` 做只读标识符检索。候选标识符匹配且包含有价值书目信息时，直接通过 `applyResult` 写回。
+1. **本地 fast path**：如果条目有 DOI、ISBN，或 URL 可确定性解析出 DOI、arXiv、PubMed 标识符，先通过 `runtime.hostApi.metadata.translateIdentifier` 调用受控的 Zotero `Translate.Search` 只读 facade。候选标识符匹配且包含有价值书目信息时，直接通过 `applyResult` 写回。
 2. **SkillRunner fallback**：如果没有可靠标识符、本地检索无结果、translator 失败、候选不可信或标识符不匹配，则运行 `literature-metadata-search` skill 做轻量联网元数据检索。
 
 两条路径使用同一个 canonical result 和同一个 apply handler。
@@ -47,7 +47,7 @@ workflow 不会修改：
 
 ## 模型建议
 
-🟡 有 DOI/ISBN 且 fast path 命中时不依赖后端模型。
+🟡 有 DOI、ISBN 或受支持 URL 标识符且 fast path 命中时不依赖后端模型。
 
 🔴 进入 `literature-metadata-search` 时建议使用具备联网搜索能力的模型。任务本身是轻量检索与证据核对，不需要长程写作能力，但需要严格区分同名、预印本/正式版、论文/学位论文和不同版本。
 
@@ -55,7 +55,7 @@ workflow 不会修改：
 
 - **后端**：Skill-Runner（用于本地检索未命中后的 fallback）
 - **Skill**：`literature-metadata-search`
-- **Zotero API**：`Translate.Search`（只读 fast path）
+- **Zotero Host API**：`metadata.translateIdentifier`（受控只读 fast path）
 - **Apply Handler**：`handlers.parent.updateMetadata`
 
 ## 相关 Workflow

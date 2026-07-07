@@ -61,6 +61,96 @@ export function normalizeIsbn(value) {
     .toUpperCase();
 }
 
+export function normalizeArxiv(value) {
+  const normalized = normalizeString(value)
+    .replace(/^arxiv:\s*/i, "")
+    .replace(/^https?:\/\/(?:www\.)?arxiv\.org\/(?:abs|pdf)\//i, "")
+    .replace(/\.pdf(?:[?#].*)?$/i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/[.,;]+$/g, "");
+  const match =
+    normalized.match(/^\d{4}\.\d{4,5}(?:v\d+)?$/i) ||
+    normalized.match(/^[a-z-]+(?:\.[A-Z]{2})?\/\d{7}(?:v\d+)?$/i);
+  return match ? match[0] : "";
+}
+
+export function normalizePmid(value) {
+  const normalized = normalizeString(value)
+    .replace(/^PMID:\s*/i, "")
+    .replace(/[?#].*$/g, "")
+    .replace(/[.,;]+$/g, "");
+  return /^\d{1,12}$/.test(normalized) ? normalized : "";
+}
+
+function decodeUrlComponentSafe(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function trimIdentifierTail(value) {
+  return normalizeString(value).replace(/[)\].,;'"<>]+$/g, "");
+}
+
+function extractDoiFromText(value) {
+  const decoded = decodeUrlComponentSafe(normalizeString(value));
+  const match = decoded.match(/\b10\.\d{4,9}\/[^\s"'<>]+/i);
+  return match ? normalizeDoi(trimIdentifierTail(match[0])) : "";
+}
+
+export function selectIdentifierFromUrl(value) {
+  const raw = normalizeString(value);
+  if (!raw) {
+    return null;
+  }
+  const doi = extractDoiFromText(raw);
+  if (doi) {
+    return {
+      type: "DOI",
+      value: doi,
+      normalized: doi,
+      source: "url",
+    };
+  }
+
+  let parsed = null;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return null;
+  }
+  const hostname = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  if (hostname === "arxiv.org" && pathParts.length >= 2) {
+    const namespace = pathParts[0].toLowerCase();
+    if (namespace === "abs" || namespace === "pdf") {
+      const arxiv = normalizeArxiv(pathParts[1]);
+      if (arxiv) {
+        return {
+          type: "arXiv",
+          value: arxiv,
+          normalized: arxiv.toLowerCase(),
+          source: "url",
+        };
+      }
+    }
+  }
+  if (hostname === "pubmed.ncbi.nlm.nih.gov" && pathParts.length >= 1) {
+    const pmid = normalizePmid(pathParts[0]);
+    if (pmid) {
+      return {
+        type: "PMID",
+        value: pmid,
+        normalized: pmid,
+        source: "url",
+      };
+    }
+  }
+  return null;
+}
+
 function readField(item, field) {
   try {
     return normalizeString(item?.getField?.(field));
@@ -151,6 +241,7 @@ export function buildParentSnapshot(parent) {
     title: fields.title || "",
     DOI: fields.DOI || "",
     ISBN: fields.ISBN || "",
+    url: fields.url || "",
     fields,
     creators: getCreators(parent),
   };
@@ -172,6 +263,12 @@ export function selectIdentifier(snapshot) {
       value: snapshot?.ISBN || snapshot?.fields?.ISBN,
       normalized: isbn,
     };
+  }
+  const urlIdentifier = selectIdentifierFromUrl(
+    snapshot?.url || snapshot?.fields?.url,
+  );
+  if (urlIdentifier) {
+    return urlIdentifier;
   }
   return null;
 }
@@ -231,6 +328,20 @@ export function candidateMatchesIdentifier(candidate, identifier) {
   }
   if (identifier.type === "ISBN") {
     return normalizeIsbn(candidate?.ISBN) === identifier.normalized;
+  }
+  if (identifier.type === "arXiv") {
+    const candidateArxiv =
+      normalizeArxiv(candidate?.archiveID) ||
+      normalizeArxiv(candidate?.arXiv) ||
+      normalizeArxiv(candidate?.extra);
+    return candidateArxiv.toLowerCase() === identifier.normalized;
+  }
+  if (identifier.type === "PMID") {
+    return (
+      normalizePmid(candidate?.PMID) === identifier.normalized ||
+      normalizePmid(candidate?.pmid) === identifier.normalized ||
+      normalizePmid(candidate?.extra) === identifier.normalized
+    );
   }
   return false;
 }

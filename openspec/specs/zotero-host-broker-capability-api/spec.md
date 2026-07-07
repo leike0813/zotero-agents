@@ -19,6 +19,14 @@ The system SHALL expose JSON-safe Zotero read/context capabilities through `host
 - **THEN** the returned values SHALL be bounded DTOs suitable for JSON serialization
 - **AND** raw Zotero objects SHALL NOT be returned.
 
+#### Scenario: Metadata translate identifier DTO
+
+- **WHEN** a workflow calls `hostApi.metadata.translateIdentifier()` with a DOI, ISBN, arXiv identifier, or PMID
+- **THEN** the result SHALL be JSON-safe and suitable for workflow package consumption
+- **AND** successful results SHALL include returned item metadata, translator summaries, and item count
+- **AND** inconclusive results SHALL include structured diagnostics
+- **AND** the result SHALL NOT expose raw Zotero native objects.
+
 ### Requirement: Controlled mutation command API
 
 The system SHALL expose limited Zotero write operations through

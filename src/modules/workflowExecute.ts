@@ -201,8 +201,13 @@ export async function executeWorkflowFromCurrentSelection(args: {
   });
   const skippedByGuard = duplicateGuard.skippedByDuplicate;
   const totalSkipped = preparation.prepared.skippedByFilter + skippedByGuard;
+  const shortCircuitApplyCount =
+    preparation.prepared.preflight?.shortCircuitApplies.length || 0;
 
-  if (duplicateGuard.allowedRequests.length === 0) {
+  if (
+    duplicateGuard.allowedRequests.length === 0 &&
+    shortCircuitApplyCount === 0
+  ) {
     appendRuntimeLog({
       level: "warn",
       scope: "workflow-trigger",

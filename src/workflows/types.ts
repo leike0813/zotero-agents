@@ -11,6 +11,8 @@ import type {
   ZoteroHostMutationExecuteResponse,
   ZoteroHostMutationPreviewResponse,
   ZoteroHostMutationRequest,
+  ZoteroHostMetadataTranslateIdentifierArgs,
+  ZoteroHostMetadataTranslateIdentifierResponse,
   ZoteroHostNoteDetailArgs,
   ZoteroHostNoteDetailChunkDto,
   ZoteroHostNoteDto,
@@ -369,6 +371,11 @@ export type WorkflowHostApi = {
     execute: (
       request: ZoteroHostMutationRequest,
     ) => Promise<ZoteroHostMutationExecuteResponse>;
+  };
+  metadata: {
+    translateIdentifier: (
+      args: ZoteroHostMetadataTranslateIdentifierArgs,
+    ) => Promise<ZoteroHostMetadataTranslateIdentifierResponse>;
   };
   prefs: {
     get: (key: string, global?: boolean) => unknown;

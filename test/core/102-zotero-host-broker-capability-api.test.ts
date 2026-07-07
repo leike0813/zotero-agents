@@ -41,6 +41,63 @@ async function createCollection(name: string) {
   return collection;
 }
 
+async function withMockTranslate<T>(
+  args: { items?: Array<Record<string, unknown>>; translators?: unknown[] },
+  callback: () => Promise<T>,
+): Promise<T> {
+  class Search {
+    setIdentifierInput: unknown;
+    setSearchInput: unknown;
+
+    setIdentifier(input: unknown) {
+      this.setIdentifierInput = input;
+    }
+
+    setSearch(input: unknown) {
+      this.setSearchInput = input;
+    }
+
+    async getTranslators() {
+      return (
+        args.translators || [
+          {
+            translatorID: "metadata-translator",
+            label: "Metadata Translator",
+            priority: 100,
+            translatorType: 8,
+          },
+        ]
+      );
+    }
+
+    setTranslator() {
+      // no-op
+    }
+
+    async translate(options: unknown) {
+      assert.deepEqual(options, {
+        libraryID: false,
+        saveAttachments: false,
+      });
+      return args.items || [];
+    }
+  }
+
+  const previousTranslate = (Zotero as any).Translate;
+  (Zotero as any).Translate = { Search };
+  resetWorkflowHostApiForTests();
+  try {
+    return await callback();
+  } finally {
+    if (previousTranslate === undefined) {
+      delete (Zotero as any).Translate;
+    } else {
+      (Zotero as any).Translate = previousTranslate;
+    }
+    resetWorkflowHostApiForTests();
+  }
+}
+
 describe("zotero host broker capability api", function () {
   afterEach(function () {
     resetWorkflowHostApiForTests();
@@ -56,6 +113,7 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
+    assert.isFunction(hostApi.metadata.translateIdentifier);
     assert.isFunction(hostApi.images.prepareForNoteEmbedding);
     assert.isFunction(hostApi.notes.importEmbeddedImage);
     assert.isFunction(hostApi.file.readBytes);
@@ -151,6 +209,56 @@ describe("zotero host broker capability api", function () {
     assert.deepEqual(attachments, []);
     assert.doesNotThrow(() =>
       JSON.stringify({ searchResults, detail, notes, attachments }),
+    );
+  });
+
+  it("translates metadata identifiers through a JSON-safe hostApi facade", async function () {
+    await withMockTranslate(
+      {
+        items: [
+          {
+            itemType: "journalArticle",
+            DOI: "10.1000/metadata-facade",
+            title: "Broker Metadata Facade Paper",
+            publicationTitle: "Broker Metadata Journal",
+            creators: [
+              {
+                firstName: "Grace",
+                lastName: "Hopper",
+                creatorType: "author",
+              },
+            ],
+          },
+        ],
+      },
+      async () => {
+        const hostApi = createWorkflowHostApi();
+        const result = await hostApi.metadata.translateIdentifier({
+          type: "DOI",
+          value: "10.1000/metadata-facade",
+        });
+
+        assert.isTrue(result.ok);
+        assert.strictEqual(result.itemCount, 1);
+        assert.strictEqual(
+          result.item?.fields.title,
+          "Broker Metadata Facade Paper",
+        );
+        assert.strictEqual(result.item?.DOI, "10.1000/metadata-facade");
+        assert.deepEqual(result.item?.creators, [
+          {
+            firstName: "Grace",
+            lastName: "Hopper",
+            creatorType: "author",
+          },
+        ]);
+        assert.strictEqual(
+          result.translators[0].translatorID,
+          "metadata-translator",
+        );
+        assert.notProperty(result.item as any, "getField");
+        assert.doesNotThrow(() => JSON.stringify(result));
+      },
     );
   });
 

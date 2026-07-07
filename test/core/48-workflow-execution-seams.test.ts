@@ -37,6 +37,7 @@ import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
 async function createWorkflowRoot(args: {
   id: string;
+  preflightBody?: string;
   buildRequestBody?: string;
   applyResultBody?: string;
   parameters?: Record<string, unknown>;
@@ -54,6 +55,7 @@ async function createWorkflowRoot(args: {
         ...(args.execution ? { execution: args.execution } : {}),
         ...(args.parameters ? { parameters: args.parameters } : {}),
         hooks: {
+          ...(args.preflightBody ? { preflight: "hooks/preflight.js" } : {}),
           ...(args.buildRequestBody
             ? { buildRequest: "hooks/buildRequest.js" }
             : {}),
@@ -64,6 +66,12 @@ async function createWorkflowRoot(args: {
       2,
     ),
   );
+  if (args.preflightBody) {
+    await writeUtf8(
+      joinPath(workflowRoot, "hooks", "preflight.js"),
+      args.preflightBody,
+    );
+  }
   if (args.buildRequestBody) {
     await writeUtf8(
       joinPath(workflowRoot, "hooks", "buildRequest.js"),
@@ -267,6 +275,107 @@ describe("workflow execution seams", function () {
     assert.deepEqual(
       (requests as any).__preflight.shortCircuitApplies[0].runResult.resultJson,
       { kind: "metadata", title: "Resolved" },
+    );
+  });
+
+  it("executes preflight short-circuit apply when no provider requests remain", async function () {
+    const root = await createWorkflowRoot({
+      id: "seam-preflight-short-circuit-entry",
+      preflightBody: [
+        "export async function preflight({ selectionContext }) {",
+        "  const parent = selectionContext.items.parents[0].item;",
+        "  return {",
+        "    kind: 'short-circuit-apply',",
+        "    context: { source: 'entry-short-circuit' },",
+        "    apply: {",
+        "      parent: parent.id,",
+        "      resultJson: { kind: 'metadata', title: 'Resolved From Preflight' },",
+        "    },",
+        "  };",
+        "}",
+        "",
+      ].join("\n"),
+      applyResultBody: [
+        "export async function applyResult({ parent, runtime, resultContext }) {",
+        "  const item = runtime.helpers.resolveItemRef(parent);",
+        "  await runtime.handlers.parent.addNote(item, {",
+        "    content: `<p data-zs-short-circuit='ok'>${resultContext.resultJson.title}</p>`,",
+        "  });",
+        "  return { ok: true };",
+        "}",
+        "",
+      ].join("\n"),
+    });
+    const loaded = await loadWorkflowManifests(root);
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "seam-preflight-short-circuit-entry",
+    );
+    assert.isOk(workflow);
+
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Seam Short Circuit Entry Parent" },
+    });
+    const toasts: string[] = [];
+    const runtime = globalThis as { ztoolkit?: Record<string, unknown> };
+    const createdToolkit = !runtime.ztoolkit;
+    runtime.ztoolkit = runtime.ztoolkit || {};
+    const originalProgressWindow = runtime.ztoolkit.ProgressWindow;
+    runtime.ztoolkit.ProgressWindow = class MockProgressWindow {
+      createLine(args: { text?: string }) {
+        toasts.push(String(args?.text || ""));
+        return this;
+      }
+      show() {
+        return this;
+      }
+      startCloseTimer() {
+        return this;
+      }
+      close() {
+        return this;
+      }
+    };
+
+    try {
+      await executeWorkflowFromCurrentSelection({
+        win: {
+          ZoteroPane: {
+            getSelectedItems: () => [parent],
+          },
+          alert: (message: string) => {
+            throw new Error(`unexpected modal alert: ${message}`);
+          },
+        } as unknown as _ZoteroTypes.MainWindow,
+        workflow: workflow!,
+      });
+    } finally {
+      if (createdToolkit) {
+        delete runtime.ztoolkit;
+      } else {
+        runtime.ztoolkit!.ProgressWindow = originalProgressWindow;
+      }
+    }
+
+    const parentItem = Zotero.Items.get(parent.id)!;
+    const notes = parentItem.getNotes();
+    assert.isAtLeast(notes.length, 1);
+    const newest = Zotero.Items.get(notes[notes.length - 1])!;
+    assert.include(newest.getNote(), "data-zs-short-circuit");
+    assert.include(newest.getNote(), "Resolved From Preflight");
+    assert.isTrue(
+      toasts.some(
+        (entry) => /succeeded=1/.test(entry) && /failed=0/.test(entry),
+      ),
+      `missing short-circuit completion toast: ${JSON.stringify(toasts)}`,
+    );
+    assert.isFalse(
+      listRuntimeLogs({
+        workflowId: "seam-preflight-short-circuit-entry",
+      }).some(
+        (entry) => entry.stage === "trigger-no-requests-after-duplicate-guard",
+      ),
+      "short-circuit apply should not halt at duplicate guard",
     );
   });
 

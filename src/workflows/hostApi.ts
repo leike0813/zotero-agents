@@ -907,6 +907,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     context: zoteroBroker.context,
     library: zoteroBroker.library,
     mutations: zoteroBroker.mutations,
+    metadata: zoteroBroker.metadata,
     prefs: {
       get(key, global = true) {
         return resolveHostZotero().Prefs.get(
@@ -1035,6 +1036,7 @@ export function summarizeWorkflowHostApiCapabilities(
     context: !!hostApi?.context,
     library: !!hostApi?.library,
     mutations: !!hostApi?.mutations,
+    metadata: !!hostApi?.metadata,
     synthesis: !!hostApi?.synthesis,
   };
 }
