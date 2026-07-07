@@ -564,7 +564,16 @@ tr.clickable {
 }
 
 .log-level-badge {
+  align-items: center;
+  border: 1px solid var(--log-level-unknown-border);
+  border-radius: 999px;
+  background: var(--log-level-unknown-bg);
+  color: var(--log-level-unknown-text);
+  display: inline-flex;
+  font-size: 11px;
+  line-height: 1.3;
   min-width: 54px;
+  padding: 2px 8px;
   justify-content: center;
   font-weight: 700;
 }

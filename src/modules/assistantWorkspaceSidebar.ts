@@ -3093,8 +3093,8 @@ export async function openAssistantWorkspaceSidebar(args?: {
   if (!win) return false;
   const host = installAssistantWorkspaceSidebarShell(win);
   const hasExplicitTab = Boolean(args && "tab" in args && args.tab);
-  if (hasExplicitTab || !host.activeTarget) {
-    host.activeTab = hasExplicitTab ? normalizeTab(args?.tab) : DEFAULT_TAB;
+  if (hasExplicitTab) {
+    host.activeTab = normalizeTab(args?.tab);
     if (host.activeTab !== "skillrunner") {
       clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerFromShell(host, "open-non-skillrunner-tab");

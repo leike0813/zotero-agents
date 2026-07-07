@@ -104,7 +104,10 @@ describe("skillrunner sidebar entrypoints", function () {
       hooks,
       'case "toggleAssistantSidebar":\n      if (isAssistantWorkspaceSidebarOpen({ window: data.window }))',
     );
-    assert.include(hooks, 'tab: "acp-chat"');
+    assert.notInclude(
+      hooks,
+      'case "toggleAssistantSidebar":\n      if (isAssistantWorkspaceSidebarOpen({ window: data.window })) {\n        closeAssistantWorkspaceSidebar({ window: data.window });\n      } else {\n        await openAssistantWorkspaceSidebar({\n          window: data.window,\n          tab: "acp-chat",',
+    );
     assert.include(hooks, 'case "toggleSkillRunnerSidebar":');
     assert.include(
       hooks,

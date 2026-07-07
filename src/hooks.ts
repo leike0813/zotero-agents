@@ -1368,7 +1368,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       } else {
         await openAssistantWorkspaceSidebar({
           window: data.window,
-          tab: "acp-chat",
         });
       }
       break;

@@ -1713,6 +1713,14 @@ describe("acp ui smoke", function () {
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
+    const openAssistantWorkspaceSidebarBlock = assistantSidebar.slice(
+      assistantSidebar.indexOf(
+        "export async function openAssistantWorkspaceSidebar",
+      ),
+      assistantSidebar.indexOf(
+        "export function closeAssistantWorkspaceSidebar",
+      ),
+    );
     const acpSkillRunStoreTs = await readProjectFile(
       "src/modules/acpSkillRunStore.ts",
     );
@@ -3336,6 +3344,12 @@ describe("acp ui smoke", function () {
     assert.notInclude(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
     assert.notInclude(assistantSidebar, "if (tab !== host.activeTab)");
     assert.notInclude(assistantSidebar, "postFreshAcpChatSnapshot");
+    assert.include(openAssistantWorkspaceSidebarBlock, "if (hasExplicitTab) {");
+    assert.notInclude(
+      openAssistantWorkspaceSidebarBlock,
+      "hasExplicitTab || !host.activeTarget",
+    );
+    assert.notInclude(openAssistantWorkspaceSidebarBlock, ": DEFAULT_TAB");
     assert.include(assistantSidebar, "set-active-backend");
     assert.include(assistantSidebar, "archive-conversation");
     assert.include(assistantSidebar, '"connect"');
@@ -4446,6 +4460,9 @@ describe("acp ui smoke", function () {
     assert.include(dashboardApp, "DASHBOARD_BUSY_STATUS_TOKENS.has(token)");
     assert.notInclude(renderLogLevelBadgeBlock, "renderStatusBadge(");
     assert.include(renderLogLevelBadgeBlock, "log-level-badge--");
+    assert.include(dashboardCss, ".log-level-badge");
+    assert.include(dashboardCss, "border-radius: 999px;");
+    assert.include(dashboardCss, "display: inline-flex;");
     assert.include(
       taskManagerDialogTs,
       'const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];',
