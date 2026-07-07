@@ -552,7 +552,8 @@ Hook 接收的 `runtime` 对象包含：
 - `hostApi.file.writeText(path, content)`：写入文本文件
 - `hostApi.file.exists(path)`：检查文件是否存在
 - `hostApi.file.makeDirectory(path)`：创建目录
-- `hostApi.file.getTempDirectoryPath()`：获取临时目录路径
+- `hostApi.file.materializeWorkflowInputFile(args)`：将 workflow 生成的 provider 输入文件写入插件管理的 runtime tmp，并返回本机绝对路径
+- `hostApi.file.getTempDirectoryPath()`：获取短生命周期 scratch 临时目录；不得用于 provider 请求输入文件
 - `hostApi.file.pickDirectory(args?)`：选择目录（返回路径或 null）
 - `hostApi.file.pickFile(args?)`：选择单个文件（返回路径或 null）
 - `hostApi.file.pickFiles(args?)`：**v0.3.0 新增** 选择多个文件（返回路径数组或 null）

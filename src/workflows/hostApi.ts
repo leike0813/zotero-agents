@@ -12,7 +12,12 @@ import {
 import { recordTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import { createZoteroHostCapabilityBrokerApis } from "../modules/zoteroHostCapabilityBroker";
 import { showWorkflowToast } from "../modules/workflowExecution/feedbackSeam";
-import { copyRuntimeFile } from "../modules/runtimePersistence";
+import {
+  copyRuntimeFile,
+  getRuntimePersistencePaths,
+  writeRuntimeBytes,
+  writeRuntimeTextFile,
+} from "../modules/runtimePersistence";
 import {
   getDefaultSynthesisService,
   type SynthesisService,
@@ -23,13 +28,14 @@ import {
   resolveRuntimeToolkit,
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
+import { joinPath } from "../utils/path";
 import type {
   WorkflowHostApi,
   WorkflowImagePreparationOptions,
   WorkflowPreparedNoteImage,
 } from "./types";
 
-export const WORKFLOW_HOST_API_VERSION = 5;
+export const WORKFLOW_HOST_API_VERSION = 6;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -46,6 +52,31 @@ const DEFAULT_NOTE_IMAGE_OPTIONS = {
   minQuality: 0.7,
   background: "#ffffff",
 };
+
+const RESERVED_FILE_SEGMENTS = new Set([
+  "con",
+  "prn",
+  "aux",
+  "nul",
+  "com1",
+  "com2",
+  "com3",
+  "com4",
+  "com5",
+  "com6",
+  "com7",
+  "com8",
+  "com9",
+  "lpt1",
+  "lpt2",
+  "lpt3",
+  "lpt4",
+  "lpt5",
+  "lpt6",
+  "lpt7",
+  "lpt8",
+  "lpt9",
+]);
 
 function createWorkflowSynthesisHostApi(): SynthesisService {
   const service = getDefaultSynthesisService();
@@ -204,6 +235,83 @@ async function makeDirectory(path: string) {
   }
   const fs = await dynamicImport("fs/promises");
   await fs.mkdir(path, { recursive: true });
+}
+
+function normalizeManagedPathSegment(value: unknown, fallback: string) {
+  const fallbackText = String(fallback || "file").trim() || "file";
+  const raw = String(value || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .join("-");
+  let segment = raw
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/[. ]+$/g, "")
+    .slice(0, 96);
+  if (!segment || segment === "." || segment === "..") {
+    segment = fallbackText;
+  }
+  const lower = segment.toLowerCase();
+  const reservedCandidate = lower.split(".")[0] || lower;
+  if (RESERVED_FILE_SEGMENTS.has(reservedCandidate)) {
+    segment = `${segment}-file`;
+  }
+  return segment;
+}
+
+function splitManagedFileName(fileName: unknown) {
+  const segment = normalizeManagedPathSegment(fileName, "input.dat");
+  const dotIndex = segment.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === segment.length - 1) {
+    return { stem: segment, extension: "" };
+  }
+  return {
+    stem: segment.slice(0, dotIndex) || "input",
+    extension: segment.slice(dotIndex),
+  };
+}
+
+function uniqueManagedFileName(fileName: unknown) {
+  const { stem, extension } = splitManagedFileName(fileName);
+  const nonce = Math.random().toString(36).slice(2, 10);
+  return `${stem}-${Date.now()}-${nonce}${extension}`;
+}
+
+async function materializeWorkflowInputFile(args: {
+  workflowId?: string;
+  key?: string;
+  fileName?: string;
+  content?: string;
+  bytes?: Uint8Array | ArrayBuffer;
+}) {
+  const hasContent = Object.prototype.hasOwnProperty.call(args || {}, "content");
+  const hasBytes = Object.prototype.hasOwnProperty.call(args || {}, "bytes");
+  if (hasContent === hasBytes) {
+    throw new Error(
+      "materializeWorkflowInputFile requires exactly one of content or bytes",
+    );
+  }
+  const workflowSegment = normalizeManagedPathSegment(
+    args?.workflowId,
+    "workflow",
+  );
+  const keySegment = normalizeManagedPathSegment(args?.key, "input");
+  const fileName = uniqueManagedFileName(args?.fileName || "input.dat");
+  const targetPath = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "workflow-inputs",
+    workflowSegment,
+    keySegment,
+    fileName,
+  );
+  if (hasBytes) {
+    await writeRuntimeBytes(targetPath, args.bytes as Uint8Array | ArrayBuffer);
+  } else {
+    await writeRuntimeTextFile(targetPath, String(args.content ?? ""));
+  }
+  return { path: targetPath };
 }
 
 function normalizeImageOptions(options?: WorkflowImagePreparationOptions) {
@@ -865,6 +973,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       copy: copyFile,
       exists: pathExists,
       makeDirectory,
+      materializeWorkflowInputFile,
       getTempDirectoryPath() {
         const tempDir = resolveHostZotero().getTempDirectory?.();
         return String(tempDir?.path || "").trim();

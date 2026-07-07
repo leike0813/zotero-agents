@@ -2446,7 +2446,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
       getTags: () => [{ tag: "legacy:tag" }],
     };
     const runtime = {
-      hostApiVersion: 5,
+      hostApiVersion: 6,
       helpers: {
         resolveItemRef: () => parentItem,
         getAttachmentFilePath: (entry: any) => String(entry.filePath || ""),
@@ -2458,7 +2458,33 @@ describe("skillrunner.sequence.v1 runtime", function () {
           ],
         },
         file: {
-          getTempDirectoryPath: () => tempRoot,
+          materializeWorkflowInputFile: async (args: {
+            workflowId?: string;
+            key?: string;
+            fileName?: string;
+            content?: string;
+            bytes?: Uint8Array | ArrayBuffer;
+          }) => {
+            const filePath = path.join(
+              tempRoot,
+              "runtime",
+              "tmp",
+              "workflow-inputs",
+              String(args.workflowId || "workflow"),
+              String(args.key || "input"),
+              String(args.fileName || "input.dat"),
+            );
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+            if (typeof args.content === "string") {
+              await fs.writeFile(filePath, args.content, "utf8");
+            } else {
+              await fs.writeFile(
+                filePath,
+                Buffer.from(args.bytes || new Uint8Array()),
+              );
+            }
+            return { path: filePath };
+          },
         },
         logging: {},
       },
@@ -2512,7 +2538,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     assert.equal(tagStep.parameter.tag_note_language, "fr-FR");
     assert.match(
       String(tagStep.input.valid_tags || ""),
-      /valid_tags-parent-42/,
+      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-42\.yaml$/,
     );
     assert.deepEqual(tagStep.handoff, {
       bindings: [

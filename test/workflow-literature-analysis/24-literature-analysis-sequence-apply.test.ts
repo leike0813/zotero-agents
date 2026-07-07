@@ -19,10 +19,36 @@ describe("workflow: literature-analysis sequence step apply", function () {
       getTags: () => [],
     };
     const runtime = {
-      hostApiVersion: 5,
+      hostApiVersion: 6,
       hostApi: {
         file: {
-          getTempDirectoryPath: () => tempDir,
+          materializeWorkflowInputFile: async (args: {
+            workflowId?: string;
+            key?: string;
+            fileName?: string;
+            content?: string;
+            bytes?: Uint8Array | ArrayBuffer;
+          }) => {
+            const filePath = path.join(
+              tempDir,
+              "runtime",
+              "tmp",
+              "workflow-inputs",
+              String(args.workflowId || "workflow"),
+              String(args.key || "input"),
+              String(args.fileName || "input.dat"),
+            );
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+            if (typeof args.content === "string") {
+              await fs.writeFile(filePath, args.content, "utf8");
+            } else {
+              await fs.writeFile(
+                filePath,
+                Buffer.from(args.bytes || new Uint8Array()),
+              );
+            }
+            return { path: filePath };
+          },
         },
         synthesis: {
           exportTagVocabularyForRegulator: async () => ["segmentation"],
@@ -74,6 +100,10 @@ describe("workflow: literature-analysis sequence step apply", function () {
         workflow_id: "tag-regulator",
         on_failure: "continue",
       });
+      assert.match(
+        String((request.steps[1] as any).input?.valid_tags || ""),
+        /runtime[\\/]tmp[\\/]workflow-inputs[\\/]tag-regulator[\\/]valid_tags[\\/]valid_tags-parent-10\.yaml$/,
+      );
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }

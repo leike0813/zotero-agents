@@ -1,5 +1,7 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
 import { handlers } from "../../src/handlers";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
@@ -45,12 +47,12 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v5 broker domains without removing legacy APIs", async function () {
+  it("exposes v6 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 5);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 6);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
@@ -59,12 +61,61 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.file.readBytes);
     assert.isFunction(hostApi.file.writeBytes);
     assert.isFunction(hostApi.file.copy);
+    assert.isFunction(hostApi.file.materializeWorkflowInputFile);
     assert.strictEqual(hostApi.items.get(item.id), item);
 
     await handlers.parent.updateFields(item, {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("materializes workflow input files under managed runtime tmp", async function () {
+    const hostApi = createWorkflowHostApi();
+    const paths = getRuntimePersistencePaths();
+
+    const first = await hostApi.file.materializeWorkflowInputFile({
+      workflowId: "tag-regulator/../unsafe",
+      key: "valid_tags",
+      fileName: "CON.yaml",
+      content: "- topic:sequence\n",
+    });
+    const second = await hostApi.file.materializeWorkflowInputFile({
+      workflowId: "tag-regulator/../unsafe",
+      key: "valid_tags",
+      fileName: "CON.yaml",
+      content: "- topic:other\n",
+    });
+    const binary = await hostApi.file.materializeWorkflowInputFile({
+      workflowId: "literature-deep-reading",
+      key: "source_bundle_path",
+      fileName: "source_bundle.zip",
+      bytes: new Uint8Array([1, 2, 3]),
+    });
+
+    const normalizedTmp = paths.tmpDir.replace(/\\/g, "/");
+    for (const materialized of [first, second, binary]) {
+      const normalized = materialized.path.replace(/\\/g, "/");
+      assert.include(normalized, `${normalizedTmp}/workflow-inputs/`);
+      assert.notInclude(normalized, "../");
+    }
+    assert.notEqual(first.path, second.path);
+    assert.equal(await fs.readFile(first.path, "utf8"), "- topic:sequence\n");
+    assert.deepEqual(
+      Array.from(new Uint8Array(await fs.readFile(binary.path))),
+      [1, 2, 3],
+    );
+
+    try {
+      await hostApi.file.materializeWorkflowInputFile({
+        workflowId: "tag-regulator",
+        key: "valid_tags",
+        fileName: "valid_tags.yaml",
+      });
+      assert.fail("expected missing content/bytes to fail");
+    } catch (error) {
+      assert.match(String(error), /exactly one of content or bytes/);
+    }
   });
 
   it("returns JSON-safe read DTOs for search, detail, notes, and attachments", async function () {

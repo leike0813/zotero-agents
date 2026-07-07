@@ -752,6 +752,7 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     runtime,
     workflowParams,
     translatorAlignmentPath,
+    workflowId = "literature-deep-reading",
   } = args;
   const hostFile = runtime.hostApi.file;
   const sourcePath = await resolveAttachmentFilePath(sourceEntry, runtime);
@@ -902,14 +903,19 @@ export async function buildLiteratureDeepReadingSourceBundle(args) {
     text: JSON.stringify(sourceManifest, null, 2),
   });
 
-  const tempRoot = await hostFile.getTempDirectoryPath();
-  const runDir = joinPath(
-    tempRoot,
-    `literature-deep-reading-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-  );
-  await hostFile.makeDirectory(runDir);
-  const bundlePath = joinPath(runDir, "source_bundle.zip");
-  await hostFile.writeBytes(bundlePath, createStoreZipBytes(entries));
+  if (typeof hostFile.materializeWorkflowInputFile !== "function") {
+    throw new Error("hostApi.file.materializeWorkflowInputFile is required");
+  }
+  const materialized = await hostFile.materializeWorkflowInputFile({
+    workflowId,
+    key: "source_bundle_path",
+    fileName: `source-bundle-parent-${String(parentItem?.id || "unknown")}.zip`,
+    bytes: createStoreZipBytes(entries),
+  });
+  const bundlePath = String(materialized?.path || "").trim();
+  if (!bundlePath) {
+    throw new Error("hostApi.file.materializeWorkflowInputFile returned empty path");
+  }
 
   return {
     bundlePath,

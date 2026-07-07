@@ -454,6 +454,13 @@ export type WorkflowHostApi = {
     copy: (sourcePath: string, targetPath: string) => Promise<void>;
     exists: (path: string) => Promise<boolean>;
     makeDirectory: (path: string) => Promise<void>;
+    materializeWorkflowInputFile: (args: {
+      workflowId?: string;
+      key?: string;
+      fileName?: string;
+      content?: string;
+      bytes?: Uint8Array | ArrayBuffer;
+    }) => Promise<{ path: string }>;
     getTempDirectoryPath: () => string;
     pickDirectory: (args?: {
       title?: string;

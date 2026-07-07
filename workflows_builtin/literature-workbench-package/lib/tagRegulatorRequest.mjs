@@ -1,8 +1,6 @@
 import { requireHostApi } from "./runtime.mjs";
 import { resolveDigestMarkdownForParent } from "./digestPayload.mjs";
 
-const dynamicImport = new Function("specifier", "return import(specifier)");
-
 export const DEFAULT_TAG_NOTE_LANGUAGE = "zh-CN";
 
 export function normalizePath(value) {
@@ -48,41 +46,6 @@ export function joinPath(...segments) {
     return `${separator}${body}`;
   }
   return toNativePath(body);
-}
-
-function resolveIOUtils() {
-  const runtime = globalThis;
-  const io = runtime.IOUtils;
-  if (!io || typeof io !== "object") {
-    return null;
-  }
-  return io;
-}
-
-async function ensureDirectory(targetPath) {
-  const nativePath = toNativePath(targetPath);
-  const io = resolveIOUtils();
-  if (io?.makeDirectory) {
-    await io.makeDirectory(nativePath, { createAncestors: true });
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(nativePath, { recursive: true });
-}
-
-async function writeText(targetPath, content) {
-  const nativePath = toNativePath(targetPath);
-  const dirPath = nativePath.replace(/[\\/][^\\/]+$/, "");
-  if (dirPath) {
-    await ensureDirectory(dirPath);
-  }
-  const io = resolveIOUtils();
-  if (io?.writeUTF8) {
-    await io.writeUTF8(nativePath, String(content || ""));
-    return;
-  }
-  const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(nativePath, String(content || ""), "utf8");
 }
 
 export function normalizeVocabularyTags(entries) {
@@ -153,22 +116,33 @@ function renderYamlTagList(tags) {
   return `${tags.map((tag) => `- ${tag}`).join("\n")}\n`;
 }
 
-async function resolveTempDirectoryPath(runtime) {
-  const tempPath = requireHostApi(runtime).file?.getTempDirectoryPath?.();
-  if (typeof tempPath === "string" && tempPath.trim()) {
-    return joinPath(tempPath, "zotero-agents", "tag-regulator");
+function resolveWorkflowInputMaterializer(runtime) {
+  const materialize =
+    requireHostApi(runtime).file?.materializeWorkflowInputFile;
+  if (typeof materialize !== "function") {
+    throw new Error("hostApi.file.materializeWorkflowInputFile is required");
   }
-  const os = await dynamicImport("os");
-  return joinPath(os.tmpdir(), "zotero-agents", "tag-regulator");
+  return materialize;
 }
 
-export async function materializeValidTagsYaml(tags, parentId, runtime) {
-  const tempDir = await resolveTempDirectoryPath(runtime);
-  await ensureDirectory(tempDir);
-  const nonce = Math.random().toString(36).slice(2, 10);
-  const fileName = `valid_tags-parent-${String(parentId || "unknown")}-${Date.now()}-${nonce}.yaml`;
-  const filePath = joinPath(tempDir, fileName);
-  await writeText(filePath, renderYamlTagList(tags));
+export async function materializeValidTagsYaml(
+  tags,
+  parentId,
+  runtime,
+  workflowId = "tag-regulator",
+) {
+  const result = await resolveWorkflowInputMaterializer(runtime)({
+    workflowId,
+    key: "valid_tags",
+    fileName: `valid_tags-parent-${String(parentId || "unknown")}.yaml`,
+    content: renderYamlTagList(tags),
+  });
+  const filePath = String(result?.path || "").trim();
+  if (!filePath) {
+    throw new Error(
+      "hostApi.file.materializeWorkflowInputFile returned empty path",
+    );
+  }
   try {
     requireHostApi(runtime).logging?.recordLeakProbeTempArtifactForTests?.({
       kind: "tag-regulator-valid-tags-yaml",
@@ -184,23 +158,28 @@ export function buildValidTagsUploadRelativePath() {
   return "inputs/valid_tags/valid_tags.yaml";
 }
 
-export async function materializeDigestMarkdown(markdown, parentId, runtime) {
+export async function materializeDigestMarkdown(
+  markdown,
+  parentId,
+  runtime,
+  workflowId = "tag-regulator",
+) {
   const content = String(markdown || "");
   if (!content.trim()) {
     return null;
   }
-  const tempDir = await resolveTempDirectoryPath(runtime);
-  await ensureDirectory(tempDir);
-  const nonce = Math.random().toString(36).slice(2, 10);
-  const fileName =
-    [
-      "digest-markdown-parent",
-      String(parentId || "unknown"),
-      String(Date.now()),
-      nonce,
-    ].join("-") + ".md";
-  const filePath = joinPath(tempDir, fileName);
-  await writeText(filePath, content);
+  const result = await resolveWorkflowInputMaterializer(runtime)({
+    workflowId,
+    key: "digest_markdown",
+    fileName: `digest-markdown-parent-${String(parentId || "unknown")}.md`,
+    content,
+  });
+  const filePath = String(result?.path || "").trim();
+  if (!filePath) {
+    throw new Error(
+      "hostApi.file.materializeWorkflowInputFile returned empty path",
+    );
+  }
   return toNativePath(filePath);
 }
 
@@ -329,6 +308,7 @@ export async function buildTagRegulatorInputFromParent(args) {
           controlledTags,
           parentItem.id,
           args.runtime,
+          args.workflowId || "tag-regulator",
         )
       : "";
   const input = {
@@ -353,6 +333,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
       selectionContext: args.selectionContext,
       runtime: args.runtime,
       useAbsoluteValidTagsPath: false,
+      workflowId: args?.manifest?.id || "tag-regulator",
     });
   const uploadFiles = validTagsPath
     ? [
@@ -370,6 +351,7 @@ export async function buildTagRegulatorStandaloneRequest(args) {
     digestMarkdown,
     parentItem.id,
     args.runtime,
+    args?.manifest?.id || "tag-regulator",
   );
   if (digestMarkdownPath) {
     input.digest_markdown = buildDigestMarkdownUploadRelativePath();

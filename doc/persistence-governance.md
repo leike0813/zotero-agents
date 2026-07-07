@@ -35,6 +35,8 @@ files from `runtime/tmp`, `runtime/cache`, and `runtime/logs`.
 Default TTL rules:
 
 - `runtime/tmp`: eligible after 24 hours.
+- `runtime/tmp/workflow-inputs`: workflow-generated provider input files; use
+  the host API materialization helper instead of Zotero core temp directories.
 - `runtime/cache`: eligible after 30 days.
 - completed/cancelled/failed skill-run workspaces: eligible after 30 days.
 - orphan workflow product cached assets: eligible after 7 days.

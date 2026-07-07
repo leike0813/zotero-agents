@@ -222,6 +222,14 @@ Primary implementation: `src/modules/workflowEditorHost.ts`.
 `copy(src, dest): Promise<void>`
 - Copies file or directory from `src` to `dest`.
 
+`materializeWorkflowInputFile(args): Promise<{ path: string }>`
+- Writes a workflow-generated provider input file under the plugin-managed runtime tmp root.
+- Use this for files referenced by provider request inputs or `upload_files`.
+- `args.workflowId`: workflow id used for managed namespacing.
+- `args.key`: provider input key used for managed namespacing.
+- `args.fileName`: suggested file name; the host sanitizes and uniquifies it.
+- Provide exactly one of `args.content` for text or `args.bytes` for binary data.
+
 `pathToFile(path): string`
 - Converts a filesystem path string to a Zotero `nsIFile` path.
 
@@ -232,7 +240,8 @@ Primary implementation: `src/modules/workflowEditorHost.ts`.
 - Creates directory (including parents).
 
 `getTempDirectoryPath(): string`
-- Returns plugin-scoped temporary directory path.
+- Returns an ephemeral Zotero temp directory path for short-lived scratch files only.
+- Do not use this for files referenced by provider request inputs or ACP schema validation.
 
 ## Runtime Context Fields
 

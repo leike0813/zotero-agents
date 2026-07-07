@@ -23,6 +23,7 @@ function resolveWorkflowParams(executionOptions) {
 async function buildRequestImpl({
   selectionContext,
   executionOptions,
+  manifest,
   runtime,
 }) {
   const attachments = collectAttachments(selectionContext);
@@ -48,6 +49,7 @@ async function buildRequestImpl({
     parentItem,
     runtime,
     workflowParams,
+    workflowId: manifest?.id || "literature-deep-reading",
     translatorAlignmentPath:
       existingAlignment.status === "available" ? existingAlignment.path : "",
   });

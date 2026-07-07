@@ -337,7 +337,7 @@ describe("workflow: literature-deep-reading", function () {
     });
     assert.match(
       request.steps[1].input?.source_bundle_path || "",
-      /source_bundle\.zip$/,
+      /runtime[\\/]tmp[\\/]workflow-inputs[\\/]literature-deep-reading[\\/]source_bundle_path[\\/].+\.zip$/,
     );
 
     const bundle = new ZipBundleReader(
