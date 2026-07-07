@@ -4,7 +4,9 @@ import hooks from "../../src/hooks";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../../src/modules/skillRunnerBackendReachabilityCoordinator";
 import {
+  clearRuntimeLogs,
   getRuntimeLogDiagnosticMode,
+  listRuntimeLogs,
   resetRuntimeLogAllowedLevels,
   setRuntimeLogDiagnosticMode,
 } from "../../src/modules/runtimeLogManager";
@@ -83,6 +85,29 @@ describe("hooks startup template cleanup", function () {
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
     await cleanupBackgroundRuntimeForZoteroTests();
+  });
+
+  it("emits runtime startup preflight info logs", async function () {
+    clearRuntimeLogs();
+
+    await hooks.onStartup();
+
+    const logs = listRuntimeLogs({
+      component: "runtime-platform",
+      operation: "startup-preflight",
+      levels: ["info"],
+    });
+    const stages = new Set(logs.map((entry) => entry.stage));
+
+    assert.includeMembers(Array.from(stages), [
+      "command",
+      "environment",
+      "process-control",
+    ]);
+    for (const entry of logs) {
+      assert.notInclude(JSON.stringify(entry.details || {}), "OPENAI_API_KEY");
+      assert.notInclude(JSON.stringify(entry.details || {}), "PATH=");
+    }
   });
 
   it("registers preferences pane on startup", async function () {

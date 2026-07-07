@@ -22,6 +22,9 @@ function normalizeString(value: unknown) {
 export type RuntimeCommandName =
   | "powershell"
   | "pwsh"
+  | "sh"
+  | "setsid"
+  | "kill"
   | "uv"
   | "python"
   | "python3"
@@ -75,6 +78,9 @@ type RuntimeCommandResolverOptions = {
 const STARTUP_COMMANDS: RuntimeCommandName[] = [
   "pwsh",
   "powershell",
+  "sh",
+  "setsid",
+  "kill",
   "uv",
   "python",
   "python3",

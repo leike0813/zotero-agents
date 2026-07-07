@@ -17,6 +17,10 @@ import {
   seedRuntimeEnvironmentSnapshotForTests,
 } from "../../src/platform/env";
 import {
+  resetRuntimeProcessControlSnapshotForTests,
+  seedRuntimeProcessControlSnapshotForTests,
+} from "../../src/platform/processControl";
+import {
   acpWebSocketBridgeServiceInternalsForTests,
   ensureAcpWebSocketBridgeService,
   getAcpWebSocketBridgeSnapshot,
@@ -282,12 +286,14 @@ describe("acp transport", function () {
   beforeEach(function () {
     resetRuntimeCommandRegistryForTests();
     resetRuntimeEnvironmentSnapshotForTests();
+    resetRuntimeProcessControlSnapshotForTests();
     setAcpWebSocketBridgeTestOverridesForTests();
   });
 
   afterEach(async function () {
     resetRuntimeCommandRegistryForTests();
     resetRuntimeEnvironmentSnapshotForTests();
+    resetRuntimeProcessControlSnapshotForTests();
     await resetAcpWebSocketBridgeServiceForTests();
   });
 
@@ -742,6 +748,205 @@ describe("acp transport", function () {
       assert.isString(transport.getLifecycle().cleanupKillTimedOutAt);
     } finally {
       restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("uses POSIX pidfile supervisor for wrapper-prone Mozilla ACP transports", async function () {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "acp-supervisor-"));
+    const calls: Array<{
+      command: string;
+      arguments: string[];
+    }> = [];
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      initializedAt: "2026-07-07T00:00:00.000Z",
+      commands: {
+        sh: {
+          command: "sh",
+          available: true,
+          resolvedPath: "/bin/sh",
+          checkedCandidates: [],
+        },
+        setsid: {
+          command: "setsid",
+          available: true,
+          resolvedPath: "/usr/bin/setsid",
+          checkedCandidates: [],
+        },
+        kill: {
+          command: "kill",
+          available: true,
+          resolvedPath: "/bin/kill",
+          checkedCandidates: [],
+        },
+        uv: {
+          command: "uv",
+          available: true,
+          resolvedPath: "/usr/bin/uv",
+          checkedCandidates: [],
+        },
+      },
+    });
+    seedRuntimeProcessControlSnapshotForTests({
+      initialized: true,
+      initializedAt: "2026-07-07T00:00:00.000Z",
+      platform: "linux",
+      preferredCleanupStrategy: "posix-pidfile-supervisor",
+      supportsProcessTreeCleanup: true,
+      supportsProcessGroupLaunch: true,
+      supportsNegativePidSignal: true,
+      supportsPidFileSupervisor: true,
+    });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async (command: string) => `/usr/bin/${command}`,
+          call: async (invocation: {
+            command: string;
+            arguments?: string[];
+          }) => {
+            calls.push({
+              command: invocation.command,
+              arguments: invocation.arguments || [],
+            });
+            if (invocation.command === "/usr/bin/setsid") {
+              const pidFile = invocation.arguments?.[4] || "";
+              await fs.writeFile(pidFile, "4321", "utf8");
+              return {
+                stdin: {
+                  write: async () => undefined,
+                  close: async () => undefined,
+                },
+                stdout: {
+                  readString: async () => "",
+                },
+                stderr: {
+                  readString: async () => "",
+                },
+                wait: async () => new Promise(() => undefined),
+                kill: () => undefined,
+              };
+            }
+            return {
+              stdout: {
+                readString: async () => "",
+              },
+              stderr: {
+                readString: async () => "",
+              },
+              wait: async () => ({ exitCode: 0 }),
+            };
+          },
+        },
+      }),
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+    });
+
+    try {
+      const transport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv",
+          displayName: "ACP uv",
+          type: "acp",
+          baseUrl: "local://acp-uv",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+
+      await transport.close({ graceMs: 0 });
+
+      const launch = calls[0];
+      assert.equal(launch.command, "/usr/bin/setsid");
+      assert.deepEqual(launch.arguments.slice(0, 5), [
+        "/bin/sh",
+        "-c",
+        'printf "%s" "$$" > "$1"; shift; exec "$@"',
+        "zotero-acp-supervisor",
+        launch.arguments[4],
+      ]);
+      assert.equal(launch.arguments[5], "/usr/bin/uv");
+      assert.deepEqual(launch.arguments.slice(6), [
+        "run",
+        "--",
+        "agent",
+        "acp",
+      ]);
+      assert.include(calls[1], {
+        command: "/bin/kill",
+      });
+      assert.deepEqual(calls[1].arguments, ["-TERM", "-4321"]);
+      assert.deepEqual(calls[2].arguments, ["-KILL", "-4321"]);
+      assert.include(transport.getLifecycle(), {
+        wrapperProneCommand: true,
+        processTreeCleanupSupported: true,
+        processTreeCleanupStrategy: "posix-pidfile-supervisor",
+        processTreeCleanupPid: 4321,
+      });
+      assert.equal(transport.getStdoutText(), "");
+    } finally {
+      restoreGlobalProperty("Zotero", previousZotero);
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+    }
+  });
+
+  it("uses cached process-control snapshot for Node process group cleanup", async function () {
+    if (process.platform === "win32") {
+      this.skip();
+    }
+    const previousChromeUtils = redefineGlobalProperty(
+      "ChromeUtils",
+      undefined,
+    );
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      initializedAt: "2026-07-07T00:00:00.000Z",
+      commands: {
+        node: {
+          command: "node",
+          available: true,
+          resolvedPath: process.execPath,
+          checkedCandidates: [],
+        },
+      },
+    });
+    seedRuntimeProcessControlSnapshotForTests({
+      initialized: true,
+      initializedAt: "2026-07-07T00:00:00.000Z",
+      platform: process.platform,
+      preferredCleanupStrategy: "posix-pidfile-supervisor",
+      supportsProcessTreeCleanup: true,
+      supportsProcessGroupLaunch: true,
+      supportsNegativePidSignal: true,
+      supportsPidFileSupervisor: true,
+    });
+
+    try {
+      const transport = await launchAcpTransport({
+        backend: {
+          id: "acp-node",
+          displayName: "ACP Node",
+          type: "acp",
+          baseUrl: "local://acp-node",
+          command: "node",
+          args: ["-e", "setInterval(() => undefined, 1000);"],
+        } as BackendInstance,
+        cwd: process.cwd(),
+      });
+
+      await transport.close({ graceMs: 0 });
+
+      assert.include(transport.getLifecycle(), {
+        processTreeCleanupSupported: true,
+        processTreeCleanupStrategy: "node-process-group",
+        killedByClose: true,
+      });
+      assert.isNumber(transport.getLifecycle().childPid);
+    } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
     }
   });
@@ -1585,7 +1790,20 @@ describe("acp transport", function () {
           source: "path",
           checkedCandidates: [],
         },
+        node: {
+          command: "node",
+          available: true,
+          resolvedPath: "C:\\Program Files\\nodejs\\node.exe",
+          source: "path",
+          checkedCandidates: [],
+        },
       },
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", {
+      exists: async (candidate: string) =>
+        /node_modules[\\/]npm[\\/]bin[\\/]npx-cli\.js$/i.test(candidate),
+      readUTF8: async () =>
+        'SET "NPX_CLI_JS=%~dp0\\node_modules\\npm\\bin\\npx-cli.js"',
     });
     const previousZotero = redefineGlobalProperty("Zotero", {
       isWin: true,
@@ -1656,6 +1874,7 @@ describe("acp transport", function () {
       await transport.close();
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
       restoreGlobalProperty("Zotero", previousZotero);
     }
   });

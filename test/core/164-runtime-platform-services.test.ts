@@ -27,6 +27,12 @@ import {
   seedRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
 import {
+  getRuntimeProcessControlSnapshot,
+  preflightRuntimeProcessControlOnStartup,
+  resetRuntimeProcessControlSnapshotForTests,
+  seedRuntimeProcessControlSnapshotForTests,
+} from "../../src/platform/processControl";
+import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
@@ -59,11 +65,13 @@ describe("runtime platform services", function () {
   beforeEach(function () {
     resetRuntimeCommandRegistryForTests();
     resetRuntimeEnvironmentSnapshotForTests();
+    resetRuntimeProcessControlSnapshotForTests();
   });
 
   afterEach(function () {
     resetRuntimeCommandRegistryForTests();
     resetRuntimeEnvironmentSnapshotForTests();
+    resetRuntimeProcessControlSnapshotForTests();
   });
 
   it("preserves Windows path style when joining from a Windows root", function () {
@@ -142,6 +150,25 @@ describe("runtime platform services", function () {
     );
   });
 
+  it("includes POSIX process-control commands in non-interactive lookup candidates", function () {
+    assert.deepInclude(
+      buildNonInteractiveCommandCandidates({
+        command: "setsid",
+        platform: "linux",
+        homeDir: "/home/leike",
+      }),
+      "/usr/bin/setsid",
+    );
+    assert.deepInclude(
+      buildNonInteractiveCommandCandidates({
+        command: "kill",
+        platform: "linux",
+        homeDir: "/home/leike",
+      }),
+      "/bin/kill",
+    );
+  });
+
   it("orders Windows PATH command candidates by executable preference", function () {
     assert.deepEqual(
       buildPathCommandCandidates({
@@ -216,6 +243,114 @@ describe("runtime platform services", function () {
       "C:\\Users\\tester\\AppData\\Roaming\\npm\\npx.cmd",
     );
     assert.notInclude(launch?.args.join("\n") || "", "$nativeCommandLine");
+  });
+
+  it("preflights POSIX process-control cleanup from cached command registry", async function () {
+    const snapshot = await preflightRuntimeProcessControlOnStartup({
+      platform: "linux",
+      now: () => "2026-07-07T00:00:00.000Z",
+      commandRegistry: {
+        initialized: true,
+        commands: {
+          sh: {
+            command: "sh",
+            available: true,
+            resolvedPath: "/bin/sh",
+            checkedCandidates: [],
+          },
+          setsid: {
+            command: "setsid",
+            available: true,
+            resolvedPath: "/usr/bin/setsid",
+            checkedCandidates: [],
+          },
+          kill: {
+            command: "kill",
+            available: true,
+            resolvedPath: "/bin/kill",
+            checkedCandidates: [],
+          },
+        },
+      },
+    });
+
+    assert.include(snapshot, {
+      initialized: true,
+      platform: "linux",
+      preferredCleanupStrategy: "posix-pidfile-supervisor",
+      supportsProcessTreeCleanup: true,
+      supportsProcessGroupLaunch: true,
+      supportsNegativePidSignal: true,
+      supportsPidFileSupervisor: true,
+    });
+    assert.equal(snapshot.initializedAt, "2026-07-07T00:00:00.000Z");
+    assert.equal(
+      getRuntimeProcessControlSnapshot().preferredCleanupStrategy,
+      "posix-pidfile-supervisor",
+    );
+  });
+
+  it("keeps process-control preflight cached after initialization", async function () {
+    const first = await preflightRuntimeProcessControlOnStartup({
+      platform: "linux",
+      now: () => "first",
+      commandRegistry: {
+        initialized: true,
+        commands: {
+          sh: {
+            command: "sh",
+            available: true,
+            resolvedPath: "/bin/sh",
+            checkedCandidates: [],
+          },
+          setsid: {
+            command: "setsid",
+            available: true,
+            resolvedPath: "/usr/bin/setsid",
+            checkedCandidates: [],
+          },
+          kill: {
+            command: "kill",
+            available: true,
+            resolvedPath: "/bin/kill",
+            checkedCandidates: [],
+          },
+        },
+      },
+    });
+    const second = await preflightRuntimeProcessControlOnStartup({
+      platform: "win32",
+      now: () => "second",
+      commandRegistry: { initialized: true, commands: {} },
+    });
+
+    assert.equal(first.initializedAt, "first");
+    assert.equal(second.initializedAt, "first");
+    assert.equal(second.platform, "linux");
+  });
+
+  it("allows tests to seed process-control snapshots", function () {
+    seedRuntimeProcessControlSnapshotForTests({
+      initialized: true,
+      initializedAt: "seeded",
+      platform: "linux",
+      preferredCleanupStrategy: "direct-kill-only",
+      supportsProcessTreeCleanup: false,
+      supportsProcessGroupLaunch: false,
+      supportsNegativePidSignal: true,
+      supportsPidFileSupervisor: false,
+      diagnostics: [
+        {
+          stage: "startup-process-control",
+          ok: false,
+          message: "seeded diagnostic",
+        },
+      ],
+    });
+
+    const snapshot = getRuntimeProcessControlSnapshot();
+    assert.equal(snapshot.initializedAt, "seeded");
+    assert.equal(snapshot.diagnostics?.[0]?.message, "seeded diagnostic");
   });
 
   it("builds cmd.exe launch specs for nvm-windows symlink npm commands", async function () {

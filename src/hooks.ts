@@ -170,8 +170,16 @@ import {
   getPreferredWindowsShellCommandsFromRegistry,
   preflightRuntimeCommandsOnStartup,
   type RuntimeCommandName,
+  type RuntimeCommandRegistrySnapshot,
 } from "./platform/command";
-import { preflightRuntimeEnvironmentOnStartup } from "./platform/env";
+import {
+  preflightRuntimeEnvironmentOnStartup,
+  type RuntimeEnvironmentSnapshot,
+} from "./platform/env";
+import {
+  preflightRuntimeProcessControlOnStartup,
+  type RuntimeProcessControlSnapshot,
+} from "./platform/processControl";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -182,6 +190,75 @@ let startupHostBridgeCliInstallPromptStarted = false;
 let startupRuntimePreflightPromise: Promise<void> | null = null;
 let libraryArtifactsNotifierObserverToken: unknown;
 const STARTUP_SHELL_COMMANDS: RuntimeCommandName[] = ["pwsh", "powershell"];
+
+function availableRuntimeCommands(snapshot: RuntimeCommandRegistrySnapshot) {
+  return Object.entries(snapshot.commands)
+    .filter(([, value]) => value?.available === true)
+    .map(([command]) => command)
+    .sort();
+}
+
+function unavailableRuntimeCommands(snapshot: RuntimeCommandRegistrySnapshot) {
+  return Object.entries(snapshot.commands)
+    .filter(([, value]) => value?.available !== true)
+    .map(([command]) => command)
+    .sort();
+}
+
+function appendStartupRuntimePreflightInfo(
+  stage: "command" | "environment" | "process-control",
+  details: Record<string, unknown>,
+) {
+  try {
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      component: "runtime-platform",
+      operation: "startup-preflight",
+      stage,
+      message: `runtime startup ${stage} preflight completed`,
+      details,
+    });
+  } catch {
+    // Startup diagnostics must not affect plugin initialization.
+  }
+}
+
+function appendCommandPreflightInfo(snapshot: RuntimeCommandRegistrySnapshot) {
+  appendStartupRuntimePreflightInfo("command", {
+    initialized: snapshot.initialized,
+    availableCommands: availableRuntimeCommands(snapshot),
+    unavailableCommands: unavailableRuntimeCommands(snapshot),
+    primaryPython: snapshot.primaryPython?.command,
+  });
+}
+
+function appendEnvironmentPreflightInfo(snapshot: RuntimeEnvironmentSnapshot) {
+  appendStartupRuntimePreflightInfo("environment", {
+    initialized: snapshot.initialized,
+    platform: snapshot.platform,
+    source: snapshot.source,
+    pathKey: snapshot.pathKey,
+    pathEntryCount: snapshot.pathEntryCount,
+    diagnosticCount: snapshot.diagnostics?.length || 0,
+    hasError: Boolean(snapshot.error),
+  });
+}
+
+function appendProcessControlPreflightInfo(
+  snapshot: RuntimeProcessControlSnapshot,
+) {
+  appendStartupRuntimePreflightInfo("process-control", {
+    initialized: snapshot.initialized,
+    platform: snapshot.platform,
+    preferredCleanupStrategy: snapshot.preferredCleanupStrategy,
+    supportsProcessTreeCleanup: snapshot.supportsProcessTreeCleanup,
+    supportsProcessGroupLaunch: snapshot.supportsProcessGroupLaunch,
+    supportsNegativePidSignal: snapshot.supportsNegativePidSignal,
+    supportsPidFileSupervisor: snapshot.supportsPidFileSupervisor,
+    diagnosticCount: snapshot.diagnostics?.length || 0,
+  });
+}
 
 let registeredZoteroPaneStylesheet:
   | {
@@ -272,11 +349,16 @@ async function ensureStartupRuntimePreflight() {
       const shellSnapshot = await preflightRuntimeCommandsOnStartup({
         commands: STARTUP_SHELL_COMMANDS,
       });
-      await preflightRuntimeEnvironmentOnStartup({
+      const environmentSnapshot = await preflightRuntimeEnvironmentOnStartup({
         powershellCommands:
           getPreferredWindowsShellCommandsFromRegistry(shellSnapshot),
       });
-      await preflightRuntimeCommandsOnStartup();
+      appendEnvironmentPreflightInfo(environmentSnapshot);
+      const commandSnapshot = await preflightRuntimeCommandsOnStartup();
+      appendCommandPreflightInfo(commandSnapshot);
+      const processControlSnapshot =
+        await preflightRuntimeProcessControlOnStartup();
+      appendProcessControlPreflightInfo(processControlSnapshot);
     })().catch((error) => {
       if (typeof console !== "undefined") {
         console.warn("[runtime-preflight] startup preflight failed", error);

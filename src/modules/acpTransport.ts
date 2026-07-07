@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import {
   getMozillaSubprocessModule as getCompatMozillaSubprocessModule,
+  runtimeRemoveFile,
   runtimeFileExists,
   runtimeReadTextFile,
 } from "../utils/runtimeCompatibility";
@@ -12,6 +13,11 @@ import {
   type RuntimeCommandResolution,
 } from "../platform/command";
 import { buildSubprocessEnvironment } from "../platform/env";
+import { joinNativePath } from "../platform/path";
+import {
+  getRuntimeProcessControlSnapshot,
+  type RuntimeProcessCleanupStrategy,
+} from "../platform/processControl";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import {
   ensureAcpWebSocketBridgeService,
@@ -51,6 +57,7 @@ type MozillaSubprocessModule = {
     exitCode?: unknown;
     exitValue?: unknown;
     kill?: (timeout?: number) => void;
+    pid?: unknown;
   }>;
 };
 
@@ -129,6 +136,13 @@ export type AcpTransportLifecycle = {
   webSocketError?: string;
   webSocketClose?: string;
   readError?: string;
+  wrapperProneCommand?: boolean;
+  processTreeCleanupSupported?: boolean;
+  processTreeCleanupStrategy?:
+    | RuntimeProcessCleanupStrategy
+    | "node-process-group";
+  processTreeCleanupDiagnostic?: string;
+  processTreeCleanupPid?: number | null;
 };
 
 export type AcpTransportCloseOptions = {
@@ -173,6 +187,127 @@ function toFiniteExitCode(value: unknown) {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.floor(value)
     : null;
+}
+
+function toPositiveProcessId(value: unknown) {
+  const pid = toFiniteExitCode(value);
+  return pid !== null && pid > 0 ? pid : null;
+}
+
+function basenameCommand(commandRaw: unknown) {
+  const command = normalizeString(commandRaw).replace(/[\\/]+$/, "");
+  const index = Math.max(command.lastIndexOf("/"), command.lastIndexOf("\\"));
+  return (index >= 0 ? command.slice(index + 1) : command).toLowerCase();
+}
+
+function isWrapperProneCommand(
+  commandRaw: unknown,
+  launchPlan?: AcpLaunchPlan,
+) {
+  const command = basenameCommand(commandRaw).replace(
+    /\.(exe|cmd|bat|ps1)$/i,
+    "",
+  );
+  if (
+    [
+      "uv",
+      "npx",
+      "npm",
+      "pnpm",
+      "yarn",
+      "sh",
+      "bash",
+      "zsh",
+      "cmd",
+      "powershell",
+      "pwsh",
+    ].includes(command)
+  ) {
+    return true;
+  }
+  return launchPlan?.mode === "cmd" || launchPlan?.mode === "powershell";
+}
+
+function applyProcessControlLifecycle(args: {
+  lifecycle: AcpTransportLifecycle;
+  backendCommand: string;
+  launchPlan: AcpLaunchPlan;
+  strategy?: RuntimeProcessCleanupStrategy | "node-process-group";
+  supported?: boolean;
+  diagnostic?: string;
+}) {
+  const snapshot = getRuntimeProcessControlSnapshot();
+  const wrapperProne = isWrapperProneCommand(
+    args.backendCommand,
+    args.launchPlan,
+  );
+  args.lifecycle.wrapperProneCommand = wrapperProne;
+  args.lifecycle.processTreeCleanupSupported =
+    args.supported ?? snapshot.supportsProcessTreeCleanup;
+  args.lifecycle.processTreeCleanupStrategy =
+    args.strategy || snapshot.preferredCleanupStrategy;
+  if (args.diagnostic) {
+    args.lifecycle.processTreeCleanupDiagnostic = args.diagnostic;
+  } else if (wrapperProne && !args.lifecycle.processTreeCleanupSupported) {
+    args.lifecycle.processTreeCleanupDiagnostic =
+      "Wrapper-prone ACP backend will use direct process kill only because process tree cleanup is unavailable";
+  }
+}
+
+function getCachedResolvedCommand(command: "sh" | "setsid" | "kill") {
+  const resolution = getCachedRuntimeCommand(command);
+  return normalizeString(
+    resolution?.resolvedPath || resolution?.launch?.command,
+  );
+}
+
+function buildSupervisorPidFilePath(cwd: string) {
+  return joinNativePath(cwd, `.zotero-acp-${randomTransportId()}.pid`);
+}
+
+function buildMozillaProcessLaunch(args: {
+  cwd: string;
+  backendCommand: string;
+  launchPlan: AcpLaunchPlan;
+}) {
+  const snapshot = getRuntimeProcessControlSnapshot();
+  const wrapperProne = isWrapperProneCommand(
+    args.backendCommand,
+    args.launchPlan,
+  );
+  if (
+    wrapperProne &&
+    snapshot.preferredCleanupStrategy === "posix-pidfile-supervisor" &&
+    snapshot.supportsPidFileSupervisor
+  ) {
+    const setsid = getCachedResolvedCommand("setsid");
+    const shell = getCachedResolvedCommand("sh");
+    if (setsid && shell) {
+      const pidFilePath = buildSupervisorPidFilePath(args.cwd);
+      return {
+        command: setsid,
+        args: [
+          shell,
+          "-c",
+          'printf "%s" "$$" > "$1"; shift; exec "$@"',
+          "zotero-acp-supervisor",
+          pidFilePath,
+          args.launchPlan.command,
+          ...args.launchPlan.args,
+        ],
+        pidFilePath,
+        strategy: "posix-pidfile-supervisor" as const,
+        supported: true,
+      };
+    }
+  }
+  return {
+    command: args.launchPlan.command,
+    args: args.launchPlan.args,
+    pidFilePath: "",
+    strategy: snapshot.preferredCleanupStrategy,
+    supported: !wrapperProne || snapshot.supportsProcessTreeCleanup,
+  };
 }
 
 function extractExitCode(value: unknown) {
@@ -757,6 +892,57 @@ async function waitForCleanupKillExit(args: {
   return settled;
 }
 
+async function readSupervisorPid(pidFilePath: string) {
+  const path = normalizeString(pidFilePath);
+  if (!path) {
+    return null;
+  }
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const text = normalizeString(await runtimeReadTextFile(path));
+    const pid = toPositiveProcessId(Number.parseInt(text, 10));
+    if (pid !== null) {
+      return pid;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return null;
+}
+
+async function removeSupervisorPidFile(pidFilePath: string) {
+  const path = normalizeString(pidFilePath);
+  if (!path) {
+    return;
+  }
+  try {
+    await runtimeRemoveFile(path);
+  } catch {
+    // Pidfile cleanup is best-effort diagnostic hygiene.
+  }
+}
+
+async function terminatePosixProcessGroupWithMozilla(args: {
+  subprocess: MozillaSubprocessModule;
+  pid: number;
+  signal: "TERM" | "KILL";
+}) {
+  const killCommand = getCachedResolvedCommand("kill");
+  if (!killCommand || !args.subprocess.call) {
+    return false;
+  }
+  try {
+    const killProc = await args.subprocess.call({
+      command: killCommand,
+      arguments: [`-${args.signal}`, `-${args.pid}`],
+    });
+    if (typeof killProc.wait === "function") {
+      await killProc.wait();
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function waitForPromiseWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -837,9 +1023,14 @@ async function launchMozillaAcpTransport(
     preferWindowsBareCommandPowerShell: !registryResolution,
     nodeDirectNpx,
   });
+  const processLaunch = buildMozillaProcessLaunch({
+    cwd: args.cwd,
+    backendCommand,
+    launchPlan,
+  });
   const proc = await subprocess.call({
-    command: launchPlan.command,
-    arguments: launchPlan.args,
+    command: processLaunch.command,
+    arguments: processLaunch.args,
     environment: buildSubprocessEnvironment({
       ...(launchPlan.environment || {}),
       ...(args.backend.env || {}),
@@ -851,6 +1042,13 @@ async function launchMozillaAcpTransport(
   let stdoutText = "";
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "mozilla-subprocess";
+  applyProcessControlLifecycle({
+    lifecycle,
+    backendCommand,
+    launchPlan,
+    strategy: processLaunch.strategy,
+    supported: processLaunch.supported,
+  });
   const stderrCapture = captureMozillaPipeTail(proc.stderr, (chunk) => {
     stderrText = appendTail(stderrText, chunk);
     lifecycle.stderrChars += String(chunk || "").length;
@@ -907,6 +1105,7 @@ async function launchMozillaAcpTransport(
       lifecycle.closeRequestedAt ||= nowIso();
       const graceMs = options?.graceMs ?? ACP_TRANSPORT_CLOSE_GRACE_MS;
       if (await waitForExit(graceMs)) {
+        await removeSupervisorPidFile(processLaunch.pidFilePath);
         return;
       }
       if (options?.kill === false) {
@@ -914,12 +1113,38 @@ async function launchMozillaAcpTransport(
       }
       lifecycle.cleanupKillRequestedAt ||= nowIso();
       lifecycle.killedByClose = true;
+      if (processLaunch.pidFilePath) {
+        const pid = await readSupervisorPid(processLaunch.pidFilePath);
+        lifecycle.processTreeCleanupPid = pid;
+        if (pid !== null) {
+          const terminated = await terminatePosixProcessGroupWithMozilla({
+            subprocess,
+            pid,
+            signal: "TERM",
+          });
+          if (terminated && (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS))) {
+            await removeSupervisorPidFile(processLaunch.pidFilePath);
+            return;
+          }
+          await terminatePosixProcessGroupWithMozilla({
+            subprocess,
+            pid,
+            signal: "KILL",
+          });
+          await waitForCleanupKillExit({ waitForExit, lifecycle });
+          await removeSupervisorPidFile(processLaunch.pidFilePath);
+          return;
+        }
+        lifecycle.processTreeCleanupDiagnostic =
+          "POSIX pidfile supervisor did not publish a valid process id before cleanup";
+      }
       try {
         proc.kill?.(0);
       } catch {
         // ignore
       }
       await waitForCleanupKillExit({ waitForExit, lifecycle });
+      await removeSupervisorPidFile(processLaunch.pidFilePath);
     },
     closed,
     waitForExit,
@@ -972,8 +1197,10 @@ async function launchNodeAcpTransport(
       cwd?: string;
       env?: Record<string, string | undefined>;
       stdio: ["pipe", "pipe", "pipe"];
+      detached?: boolean;
     },
   ) => {
+    pid?: number;
     stdin: NodeWritable;
     stdout: NodeReadable;
     stderr: {
@@ -983,7 +1210,7 @@ async function launchNodeAcpTransport(
       event: string,
       handler: (errorOrCode?: unknown, signal?: unknown) => void,
     ) => void;
-    kill: () => void;
+    kill: (signal?: string) => void;
   };
   const command = normalizeString(args.backend.command);
   const resolved = await resolveNodeCommand(command);
@@ -1005,15 +1232,34 @@ async function launchNodeAcpTransport(
     ...(launchPlan.environment || {}),
     ...(args.backend.env || {}),
   };
+  const processControl = getRuntimeProcessControlSnapshot();
+  const platform = String(processModule.platform || "").trim();
+  const useNodeProcessGroup =
+    platform !== "win32" && processControl.supportsProcessGroupLaunch;
   const child = spawn(launchPlan.command, launchPlan.args, {
     cwd: args.cwd,
     env,
     stdio: ["pipe", "pipe", "pipe"],
+    detached: useNodeProcessGroup,
   });
   let stderrText = "";
   let stdoutText = "";
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "node-subprocess";
+  lifecycle.childPid = toPositiveProcessId(child.pid);
+  applyProcessControlLifecycle({
+    lifecycle,
+    backendCommand: command,
+    launchPlan,
+    strategy: useNodeProcessGroup
+      ? "node-process-group"
+      : processControl.preferredCleanupStrategy,
+    supported:
+      useNodeProcessGroup ||
+      !isWrapperProneCommand(command, launchPlan) ||
+      processControl.supportsProcessTreeCleanup,
+  });
+  lifecycle.processTreeCleanupPid = lifecycle.childPid;
   child.stderr.on("data", (chunk: Buffer | string) => {
     stderrText = appendTail(stderrText, chunk);
     lifecycle.stderrChars += String(chunk || "").length;
@@ -1185,6 +1431,30 @@ async function launchNodeAcpTransport(
       }
       lifecycle.cleanupKillRequestedAt ||= nowIso();
       lifecycle.killedByClose = true;
+      if (useNodeProcessGroup && lifecycle.childPid) {
+        let groupSignalSent = false;
+        try {
+          processModule.kill(-lifecycle.childPid, "SIGTERM");
+          groupSignalSent = true;
+        } catch (error) {
+          lifecycle.processTreeCleanupDiagnostic = String(
+            (error as Error)?.message || error,
+          );
+        }
+        if (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS)) {
+          return;
+        }
+        try {
+          processModule.kill(-lifecycle.childPid, "SIGKILL");
+          groupSignalSent = true;
+        } catch {
+          // Fall through to direct child kill below.
+        }
+        if (groupSignalSent) {
+          await waitForCleanupKillExit({ waitForExit, lifecycle });
+          return;
+        }
+      }
       try {
         child.kill();
       } catch {
@@ -1344,6 +1614,13 @@ async function launchWebSocketBridgeAcpTransport(
   lifecycle.bridgePid = bridge.pid;
   lifecycle.bridgeUrl = bridgeSnapshot?.url;
   lifecycle.spawnId = randomTransportId();
+  applyProcessControlLifecycle({
+    lifecycle,
+    backendCommand,
+    launchPlan,
+    strategy: "windows-bridge",
+    supported: true,
+  });
   const emitAudit = (event: string, details: Record<string, unknown> = {}) => {
     dispatchTransportAuditEvent(args.diagnosticCapture, {
       schema: "zotero-skills.acp.transport-audit.v1",
