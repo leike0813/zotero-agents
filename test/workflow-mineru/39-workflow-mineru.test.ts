@@ -260,11 +260,10 @@ describe("workflow: mineru", function () {
       requests.map((entry) => entry.context?.partIndex),
       [1, 2, 3],
     );
-    assert.deepEqual(requests.__preflight?.aggregates?.[0]?.requestIndexes, [
-      0,
-      1,
-      2,
-    ]);
+    assert.deepEqual(
+      requests.__preflight?.aggregates?.[0]?.requestIndexes,
+      [0, 1, 2],
+    );
   });
 
   itNodeOnly(

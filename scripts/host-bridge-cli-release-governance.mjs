@@ -304,7 +304,9 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   }
 
   const previousVersion = status.currentVersion;
-  const version = options.noBump ? previousVersion : bumpPatchVersion(previousVersion);
+  const version = options.noBump
+    ? previousVersion
+    : bumpPatchVersion(previousVersion);
   if (!options.noBump) {
     const cargoToml = await readText(root, CARGO_TOML_PATH);
     const cargoLock = await readText(root, CARGO_LOCK_PATH);
@@ -418,7 +420,9 @@ async function main(argv) {
       throw new Error("bump-patch requires --write");
     }
     const noBump = args.includes("--no-bump");
-    printJson(await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }));
+    printJson(
+      await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }),
+    );
     return;
   }
   if (command === "record-binaries") {

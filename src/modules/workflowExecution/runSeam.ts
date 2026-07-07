@@ -651,7 +651,8 @@ export function runWorkflowExecutionSeam(
     jobIds,
     runId,
     totalJobs:
-      jobIds.length + (args.prepared.preflight?.shortCircuitApplies.length || 0),
+      jobIds.length +
+      (args.prepared.preflight?.shortCircuitApplies.length || 0),
     idlePromise: queue.waitForIdle(),
   };
 }
