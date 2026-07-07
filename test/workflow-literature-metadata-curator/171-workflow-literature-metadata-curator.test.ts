@@ -3,9 +3,18 @@ import Ajv from "ajv";
 import fs from "fs/promises";
 import path from "path";
 import { handlers } from "../../src/handlers";
+import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
+import { adaptSkillRunnerJobToAcpSkillRun } from "../../src/modules/acpSkillRunRequestAdapter";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { workflowsPath } from "../zotero/workflow-test-utils";
+import { executeBuildRequests } from "../../src/workflows/runtime";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import {
+  joinPath,
+  mkTempDir,
+  workflowsPath,
+  writeUtf8,
+} from "../zotero/workflow-test-utils";
 import { preflight } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/preflight.mjs";
 import { buildRequest } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/buildRequest.mjs";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-metadata-curator/hooks/applyResult.mjs";
@@ -79,8 +88,57 @@ function makeRuntimeWithTranslate(args: {
   };
 }
 
+function makeHostApiOnlyRuntime(parent: Zotero.Item) {
+  const resolveParent = (ref: unknown) => {
+    if (ref && typeof ref === "object") {
+      return ref;
+    }
+    if (typeof ref === "number" && ref === parent.id) {
+      return parent;
+    }
+    if (typeof ref === "string" && ref === parent.key) {
+      return parent;
+    }
+    throw new Error(`Item not found: ${String(ref)}`);
+  };
+  return {
+    hostApi: {
+      items: {
+        get(ref: unknown) {
+          try {
+            return resolveParent(ref);
+          } catch {
+            return null;
+          }
+        },
+        resolve: resolveParent,
+        getByLibraryAndKey(libraryID: number, key: string) {
+          return libraryID === parent.libraryID && key === parent.key
+            ? parent
+            : null;
+        },
+      },
+    },
+  };
+}
+
 async function selectionFor(parent: Zotero.Item) {
   return buildSelectionContext([parent]);
+}
+
+async function createPdfAttachment(args: {
+  parent: Zotero.Item;
+  dirPath: string;
+  name: string;
+}) {
+  const pdfPath = joinPath(args.dirPath, args.name);
+  await writeUtf8(pdfPath, "pdf");
+  return handlers.attachment.createFromPath({
+    parent: args.parent,
+    path: pdfPath,
+    title: args.name,
+    mimeType: "application/pdf",
+  });
 }
 
 async function getWorkflow() {
@@ -150,6 +208,13 @@ describe("workflow: literature-metadata-curator", function () {
     assert.include(skill, "Crossref");
     assert.include(skill, "OpenAlex");
     assert.include(skill, "Sci-Hub");
+    for (const key of ["parent", "identifier", "diagnostics"]) {
+      assert.equal(
+        inputSchema.properties?.[key]?.["x-input-source"],
+        "inline",
+        `${key} must not be validated as an uploaded file input`,
+      );
+    }
 
     assertSchemaValid(inputSchema, {
       parent: {
@@ -231,8 +296,8 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(workflow.manifest.provider, "skillrunner");
     assert.equal(workflow.manifest.inputs?.unit, "parent");
     assert.equal(
-      workflow.manifest.validateSelection?.require?.counts?.parents?.exact,
-      1,
+      workflow.manifest.validateSelection?.select?.policy,
+      "literature-parent",
     );
     assert.equal(workflow.manifest.request?.kind, "skillrunner.job.v1");
     assert.equal(
@@ -242,6 +307,79 @@ describe("workflow: literature-metadata-curator", function () {
     assert.isFunction(workflow.hooks.preflight);
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
+  });
+
+  it("normalizes parent and attachment selections into one unit per parent", async function () {
+    const workflow = await getWorkflow();
+    const dirPath = await mkTempDir("metadata-curator-selection");
+    const parentA = await createParent({ title: "Parent A" });
+    const parentB = await createParent({ title: "Parent B" });
+    const attachmentA1 = await createPdfAttachment({
+      parent: parentA,
+      dirPath,
+      name: "a-1.pdf",
+    });
+    const attachmentA2 = await createPdfAttachment({
+      parent: parentA,
+      dirPath,
+      name: "a-2.pdf",
+    });
+    const attachmentB = await createPdfAttachment({
+      parent: parentB,
+      dirPath,
+      name: "b.pdf",
+    });
+
+    const validation = await evaluateWorkflowSelection({
+      workflow,
+      selectionContext: await buildSelectionContext([
+        parentA,
+        attachmentA1,
+        attachmentA2,
+        attachmentB,
+      ]),
+      mode: "execute",
+    });
+
+    assert.equal(validation.state, "enabled");
+    assert.equal(validation.stats.totalUnits, 2);
+    assert.sameMembers(
+      validation.scopedSelectionContexts.map(
+        (context: any) => context.items.parents[0].item.id,
+      ),
+      [parentA.id, parentB.id],
+    );
+    for (const context of validation.scopedSelectionContexts as any[]) {
+      assert.equal(context.selectionType, "parent");
+      assert.lengthOf(context.items.parents, 1);
+      assert.lengthOf(context.items.attachments, 0);
+      assert.lengthOf(context.items.children, 0);
+      assert.lengthOf(context.items.notes, 0);
+    }
+  });
+
+  it("builds one request for an attachment-only selection by resolving its parent", async function () {
+    const workflow = await getWorkflow();
+    const dirPath = await mkTempDir("metadata-curator-attachment");
+    const parent = await createParent({
+      title: "Attachment parent",
+      doi: "10.1000/attachment-parent",
+    });
+    const attachment = await createPdfAttachment({
+      parent,
+      dirPath,
+      name: "source.pdf",
+    });
+
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([attachment]),
+    })) as any[];
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].targetParentID, parent.id);
+    assert.equal(requests[0].input.parent.id, parent.id);
+    assert.equal(requests[0].input.parent.title, "Attachment parent");
   });
 
   it("short-circuits apply when DOI Translate Search returns trustworthy metadata", async function () {
@@ -320,6 +458,35 @@ describe("workflow: literature-metadata-curator", function () {
     );
   });
 
+  it("resolves selected parent through package hostApi items when Zotero runtime is not exposed", async function () {
+    const parent = await createParent({
+      title: "Host API parent",
+      doi: "10.1000/host-api-parent",
+    });
+    const selectionContext = await selectionFor(parent);
+    const runtime = makeHostApiOnlyRuntime(parent);
+
+    const outcome = await preflight({
+      selectionContext,
+      runtime,
+    } as any);
+    assert.equal(outcome.kind, "continue");
+    assert.equal((outcome as any).context.parent.id, parent.id);
+    assert.equal(
+      (outcome as any).context.diagnostics[0].code,
+      "translate_search_unavailable",
+    );
+
+    const request = (await buildRequest({
+      selectionContext,
+      runtime,
+    } as any)) as any;
+    assert.equal(request.targetParentID, parent.id);
+    assert.equal(request.input.parent.id, parent.id);
+    assert.equal(request.input.parent.title, "Host API parent");
+    assert.equal(request.input.identifier.type, "DOI");
+  });
+
   it("short-circuits apply when ISBN Translate Search returns trustworthy metadata", async function () {
     const parent = await createParent({
       title: "Book draft",
@@ -383,6 +550,18 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(request.input.parent.id, parent.id);
     assert.equal(request.input.diagnostics[0].code, "no_items");
     assertSchemaValid(await readSkillAsset("input.schema.json"), request.input);
+
+    const validation = await validateAcpSkillRunRequestAgainstSchemas({
+      request: adaptSkillRunnerJobToAcpSkillRun(request),
+      runnerJson: await readSkillAsset("runner.json"),
+      skillDir: path.join(
+        process.cwd(),
+        "skills_builtin",
+        "literature-metadata-search",
+      ),
+      workspaceDir: process.cwd(),
+    });
+    assert.isTrue(validation.ok, validation.errors.join("\n"));
   });
 
   it("applies canonical metadata fields and creators without changing item type", async function () {

@@ -27,9 +27,16 @@ type AttachmentLike = {
 };
 
 type ParentLike = {
-  item?: { id?: number; key?: string; title?: string };
+  item?: { id?: number; key?: string; title?: string; libraryID?: number };
   attachments?: AttachmentLike[];
   notes?: Array<Record<string, unknown>>;
+};
+
+type ParentRefLike = {
+  id?: number | null;
+  key?: string;
+  title?: string;
+  libraryID?: number;
 };
 
 type NoteLike = {
@@ -351,6 +358,101 @@ function withScopedAttachments(
 function buildParentSelectionUnits(selection: SelectionLike) {
   const parents = selection.items?.parents || [];
   return parents.map((parent) => {
+    const cloned = copySelection(selection);
+    cloned.items = {
+      parents: [parent],
+      attachments: [],
+      children: [],
+      notes: [],
+    };
+    cloned.summary = {
+      ...(cloned.summary || {}),
+      parentCount: 1,
+      attachmentCount: 0,
+      childCount: 0,
+      noteCount: 0,
+    };
+    cloned.selectionType = "parent";
+    return cloned;
+  });
+}
+
+function parentKeyFromEntry(entry: ParentLike | null | undefined) {
+  const item = entry?.item || {};
+  const id = Number(item.id || 0);
+  if (id) {
+    return `id:${id}`;
+  }
+  const key = String(item.key || "").trim();
+  if (key) {
+    return `key:${item.libraryID || ""}:${key}`;
+  }
+  return "";
+}
+
+function parentEntryFromRef(
+  ref: ParentLike | ParentRefLike | null | undefined,
+) {
+  if (!ref) {
+    return null;
+  }
+  if ((ref as ParentLike).item) {
+    return ref as ParentLike;
+  }
+  const raw = ref as ParentRefLike;
+  const id = Number(raw.id || 0);
+  const key = String(raw.key || "").trim();
+  if (!id && !key) {
+    return null;
+  }
+  return {
+    item: {
+      id: id || undefined,
+      key,
+      title: String(raw.title || "").trim(),
+      libraryID: raw.libraryID,
+    },
+    attachments: [],
+    notes: [],
+  } satisfies ParentLike;
+}
+
+function addParentEntry(
+  entries: Map<string, ParentLike>,
+  entry: ParentLike | null | undefined,
+) {
+  const key = parentKeyFromEntry(entry);
+  if (!key || !entry || entries.has(key)) {
+    return;
+  }
+  entries.set(key, entry);
+}
+
+function collectLiteratureParentEntries(selection: SelectionLike) {
+  const entries = new Map<string, ParentLike>();
+  for (const parent of selection.items?.parents || []) {
+    addParentEntry(entries, parent);
+  }
+  for (const attachment of selection.items?.attachments || []) {
+    addParentEntry(entries, parentEntryFromRef(attachment.parent));
+    if (!attachment.parent) {
+      addParentEntry(
+        entries,
+        parentEntryFromRef({ id: attachment.item?.parentItemID || 0 }),
+      );
+    }
+  }
+  for (const note of selection.items?.notes || []) {
+    addParentEntry(entries, parentEntryFromRef(note.parent));
+  }
+  for (const child of selection.items?.children || []) {
+    addParentEntry(entries, parentEntryFromRef(child.parent));
+  }
+  return Array.from(entries.values());
+}
+
+function buildLiteratureParentSelectionUnits(selection: SelectionLike) {
+  return collectLiteratureParentEntries(selection).map((parent) => {
     const cloned = copySelection(selection);
     cloned.items = {
       parents: [parent],
@@ -1140,6 +1242,10 @@ async function selectByValidateSelectionPolicy(args: {
   }
   if (policy === "selected-parent") {
     const contexts = buildParentSelectionUnits(args.selection);
+    return { contexts, totalUnits: contexts.length };
+  }
+  if (policy === "literature-parent") {
+    const contexts = buildLiteratureParentSelectionUnits(args.selection);
     return { contexts, totalUnits: contexts.length };
   }
   if (policy === "generated-note-candidates") {

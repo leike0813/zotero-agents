@@ -15,16 +15,8 @@
     "unit": "parent"
   },
   "validateSelection": {
-    "require": {
-      "counts": {
-        "parents": {
-          "exact": 1
-        }
-      },
-      "allowMixed": false
-    },
     "select": {
-      "policy": "selected-parent",
+      "policy": "literature-parent",
       "unit": "parent"
     }
   },

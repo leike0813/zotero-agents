@@ -88,15 +88,41 @@ export function resolveParentEntry(selectionContext) {
 export function resolveParentItem(selectionContext, runtime) {
   const entry = resolveParentEntry(selectionContext);
   const item = entry?.item || null;
+  if (item && typeof item.getField === "function") {
+    return item;
+  }
   const id = Number(item?.id || entry?.id || 0);
+  const hostItems = runtime?.hostApi?.items;
+  if (id && typeof hostItems?.get === "function") {
+    const resolved = hostItems.get(id);
+    if (resolved) {
+      return resolved;
+    }
+  }
+  if (id && typeof hostItems?.resolve === "function") {
+    try {
+      const resolved = hostItems.resolve(id);
+      if (resolved) {
+        return resolved;
+      }
+    } catch {
+      // Fall through to key-based and legacy runtime resolution.
+    }
+  }
+  const key = normalizeString(item?.key || entry?.key);
+  const libraryID = Number(item?.libraryID || entry?.libraryID || 0);
+  if (key && typeof hostItems?.getByLibraryAndKey === "function") {
+    const resolved = hostItems.getByLibraryAndKey(libraryID, key);
+    if (resolved) {
+      return resolved;
+    }
+  }
   if (id && runtime?.zotero?.Items?.get) {
     const resolved = runtime.zotero.Items.get(id);
     if (resolved) {
       return resolved;
     }
   }
-  const key = normalizeString(item?.key || entry?.key);
-  const libraryID = Number(item?.libraryID || entry?.libraryID || 0);
   if (key && runtime?.zotero?.Items?.getByLibraryAndKey) {
     const resolved = runtime.zotero.Items.getByLibraryAndKey(
       libraryID || runtime.zotero.Libraries?.userLibraryID,
@@ -105,9 +131,6 @@ export function resolveParentItem(selectionContext, runtime) {
     if (resolved) {
       return resolved;
     }
-  }
-  if (item && typeof item.getField === "function") {
-    return item;
   }
   throw new Error("literature-metadata-curator requires one selected parent item");
 }

@@ -118,6 +118,7 @@ export type WorkflowValidateSelectionSpec = {
     policy?:
       | "input-unit"
       | "literature-source"
+      | "literature-parent"
       | "pdf-attachment"
       | "selected-parent"
       | "generated-note-candidates"

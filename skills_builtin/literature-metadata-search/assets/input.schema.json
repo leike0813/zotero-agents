@@ -8,6 +8,7 @@
   "properties": {
     "parent": {
       "type": ["object", "null"],
+      "x-input-source": "inline",
       "description": "Source bibliographic record snapshot. Named parent for workflow compatibility, but usable as a generic literature record.",
       "properties": {
         "id": {
@@ -56,6 +57,7 @@
     },
     "identifier": {
       "type": ["object", "null"],
+      "x-input-source": "inline",
       "description": "Optional upstream-selected identifier.",
       "properties": {
         "type": {
@@ -74,6 +76,7 @@
     },
     "diagnostics": {
       "type": "array",
+      "x-input-source": "inline",
       "description": "Optional prior lookup diagnostics from the caller.",
       "items": {
         "type": "object",
