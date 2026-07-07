@@ -345,18 +345,54 @@
     return positions[positions.length - 1];
   }
 
+  function findVirtualAnchorForScroll(positions, scrollTop) {
+    if (!positions.length) return null;
+    const top = finiteNumber(scrollTop, 0);
+    for (let index = 0; index < positions.length; index += 1) {
+      const position = positions[index];
+      if (top < position.top) {
+        return {
+          type: "spacer",
+          scrollTop: Math.max(0, top),
+        };
+      }
+      if (top < position.bottom) {
+        return {
+          type: "row",
+          position,
+        };
+      }
+    }
+    return {
+      type: "spacer",
+      scrollTop: Math.max(0, top),
+    };
+  }
+
   function captureVirtualScrollAnchor(container, virtual) {
     if (!container || !virtual || !Array.isArray(virtual.positions)) {
       return null;
     }
     const scrollTop = finiteNumber(container.scrollTop, 0);
-    const position = findVirtualPositionForScroll(virtual.positions, scrollTop);
-    if (!position) return null;
+    const anchor = findVirtualAnchorForScroll(virtual.positions, scrollTop);
+    if (!anchor) return null;
+    if (anchor.type === "spacer") {
+      return {
+        type: "spacer",
+        scrollTop: Math.max(0, scrollTop),
+      };
+    }
+    const position = anchor.position;
     return {
+      type: "row",
       key: position.key,
       index: position.index,
       offset: Math.max(0, scrollTop - position.top),
     };
+  }
+
+  function isVirtualSpacerAnchor(anchor) {
+    return anchor && anchor.type === "spacer";
   }
 
   function restoreVirtualScrollAnchor(container, virtual, anchor) {
@@ -367,6 +403,13 @@
       !Array.isArray(virtual.positions)
     ) {
       return false;
+    }
+    if (isVirtualSpacerAnchor(anchor)) {
+      container.scrollTop = Math.max(
+        0,
+        Math.floor(finiteNumber(anchor.scrollTop, container.scrollTop || 0)),
+      );
+      return true;
     }
     const position =
       virtual.positions.find(function (entry) {
@@ -1846,8 +1889,10 @@
         : false;
     if (shouldStick) stickAssistantTranscriptToBottom(container);
     else if (virtualized) {
+      const hasSpacerScrollAnchor = isVirtualSpacerAnchor(scrollAnchor);
       if (
         !restoreVirtualScrollAnchor(container, virtual, scrollAnchor) &&
+        !hasSpacerScrollAnchor &&
         !restoreVirtualScrollAnchor(container, virtual, virtualState.lastAnchor)
       ) {
         container.scrollTop = preservedScrollTop;

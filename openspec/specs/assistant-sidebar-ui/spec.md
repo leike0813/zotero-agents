@@ -717,6 +717,18 @@ boundary checks from cumulative row heights rather than fixed item counts.
 - **AND** spacer recalculation SHALL NOT pull the transcript back to the bottom
   or create an empty scroll wall above the row.
 
+#### Scenario: Unloaded spacer scroll is preserved
+
+- **GIVEN** a virtualized transcript has a cached page with an unloaded previous
+  or next page represented by a spacer
+- **WHEN** the user scrolls into that unloaded spacer while the page request is
+  loading
+- **THEN** the renderer SHALL preserve the user's scroll position inside the
+  spacer
+- **AND** it SHALL NOT clamp the transcript back to the first or last cached
+  row boundary
+- **AND** it SHALL continue to deduplicate page requests for the unloaded page.
+
 #### Scenario: Measured heights drive spacer calculation
 
 - **GIVEN** virtualized transcript rows have measured heights

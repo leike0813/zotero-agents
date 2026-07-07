@@ -6575,6 +6575,98 @@ describe("acp ui smoke", function () {
     );
   });
 
+  it("preserves scroll position inside an unloaded virtual transcript top spacer", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 15000;
+    transcript.scrollTop = 14700;
+    const requests: any[] = [];
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-top-spacer",
+      page: {
+        requestId: "run-top-spacer",
+        cursor: 80,
+        prevCursor: 0,
+        total: 160,
+        transcriptRevision: 1,
+        limit: 80,
+        items: Array.from({ length: 80 }, (_entry, index) => ({
+          id: `message-${80 + index}`,
+          kind: "message",
+          role: "assistant",
+          text: `message ${80 + index}`,
+        })),
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+      estimatedRowHeight: 88,
+      renderBuffer: 1,
+      renderWindowLimit: 6,
+      onRequestPage: (request: any) => requests.push(request),
+    });
+
+    transcript.scrollTop = 6500;
+    transcript.dispatchEventType("scroll");
+    transcript.dispatchEventType("scroll");
+
+    assert.equal(transcript.scrollTop, 6500);
+    assert.deepEqual(
+      requests.map((request) => [request.pageKey, request.cursor]),
+      [["run-top-spacer", 0]],
+    );
+  });
+
+  it("preserves scroll position inside an unloaded virtual transcript bottom spacer", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("div");
+    transcript.clientHeight = 300;
+    transcript.scrollHeight = 15000;
+    transcript.scrollTop = 0;
+    const requests: any[] = [];
+
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "run-bottom-spacer",
+      page: {
+        requestId: "run-bottom-spacer",
+        cursor: 0,
+        nextCursor: 80,
+        total: 160,
+        transcriptRevision: 1,
+        limit: 80,
+        items: Array.from({ length: 80 }, (_entry, index) => ({
+          id: `message-${index}`,
+          kind: "message",
+          role: "assistant",
+          text: `message ${index}`,
+        })),
+      },
+      mode: "plain",
+      nodeMap: new Map(),
+      estimatedRowHeight: 88,
+      renderBuffer: 1,
+      renderWindowLimit: 6,
+      onRequestPage: (request: any) => requests.push(request),
+    });
+
+    transcript.scrollTop = 7600;
+    transcript.dispatchEventType("scroll");
+    transcript.dispatchEventType("scroll");
+
+    assert.equal(transcript.scrollTop, 7600);
+    assert.deepEqual(
+      requests.map((request) => [request.pageKey, request.cursor]),
+      [["run-bottom-spacer", 80]],
+    );
+  });
+
   it("does not render mismatched virtual transcript page fallback items", async function () {
     const fakeDocument = createFakeDocumentForAssistantPanel();
     const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
@@ -7016,7 +7108,8 @@ describe("acp ui smoke", function () {
     const panelModel = await loadAssistantPanelModelForSmoke({
       conversationView,
     });
-    const panelRenderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const panelRenderer =
+      await loadAssistantPanelRendererForSmoke(fakeDocument);
     const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument, {
       panelModel,
       panelRenderer,
@@ -7073,7 +7166,9 @@ describe("acp ui smoke", function () {
       },
     });
 
-    const firstMount = details.querySelector(".assistant-panel-managed-details");
+    const firstMount = details.querySelector(
+      ".assistant-panel-managed-details",
+    );
     const firstRunnerSection = details
       .querySelectorAll(".assistant-panel-details-section")
       .find((section: any) => collectFakeText(section).includes("Runner"));
@@ -7399,16 +7494,24 @@ describe("acp ui smoke", function () {
     });
 
     const firstNodes = {
-      toolbar: regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
+      toolbar: regions.toolbar.querySelector(
+        ".assistant-panel-managed-toolbar",
+      ),
       banner: regions.banner.querySelector(".assistant-panel-managed-banner"),
       plan: regions.plan.querySelector(".assistant-panel-managed-plan"),
       hint: regions.hint.querySelector(".assistant-panel-managed-hint"),
       reply: regions.reply.querySelector(".assistant-panel-managed-reply"),
       replyHint: regions.reply.querySelector(".assistant-panel-reply-hint"),
       drawer: regions.drawer.querySelector(".assistant-panel-managed-drawer"),
-      drawerTask: regions.drawer.querySelector(".assistant-workspace-drawer-task"),
-      details: regions.details.querySelector(".assistant-panel-managed-details"),
-      permission: root.querySelector(".assistant-panel-permission-drawer-panel"),
+      drawerTask: regions.drawer.querySelector(
+        ".assistant-workspace-drawer-task",
+      ),
+      details: regions.details.querySelector(
+        ".assistant-panel-managed-details",
+      ),
+      permission: root.querySelector(
+        ".assistant-panel-permission-drawer-panel",
+      ),
     };
     Object.values(firstNodes).forEach((node) => assert.ok(node));
 
