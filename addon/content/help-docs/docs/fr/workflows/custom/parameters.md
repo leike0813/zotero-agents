@@ -167,7 +167,7 @@ Les options de valeur des paramètres peuvent provenir des données en direct de
 
 ## Lecture des paramètres dans les hooks
 
-Dans `buildRequest`, `filterInputs` et `applyResult`, vous pouvez lire les valeurs des paramètres définis par l'utilisateur via `executionOptions.workflowParams` :
+Dans `preflight`, `buildRequest` et `applyResult`, vous pouvez lire les valeurs des paramètres définis par l'utilisateur via `executionOptions.workflowParams` :
 
 ```js
 export function buildRequest({ executionOptions, runtime }) {

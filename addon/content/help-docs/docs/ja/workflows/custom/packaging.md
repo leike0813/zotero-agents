@@ -10,7 +10,7 @@ Workflow は**単一の Workflow** と**マルチ Workflow パッケージ**の2
 my-workflow/
 ├── workflow.json
 └── hooks/
-    ├── filterInputs.mjs
+    ├── buildRequest.mjs
     └── applyResult.mjs
 ```
 
@@ -29,7 +29,7 @@ my-package/
 ├── workflow-a/
 │   ├── workflow.json
 │   └── hooks/
-│       ├── filterInputs.mjs
+│       ├── buildRequest.mjs
 │       └── applyResult.mjs
 ├── workflow-b/
 │   ├── workflow.json

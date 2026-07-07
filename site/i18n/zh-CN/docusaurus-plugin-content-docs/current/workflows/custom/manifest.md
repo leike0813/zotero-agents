@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@
 | 字段 | 必需 | 说明 |
 |------|------|------|
 | `applyResult` | ✅ | **必需**。执行后处理结果的脚本路径 |
+| `preflight` | | 可选。在选择解析之后、请求构造之前运行。可继续、跳过、短路到 `applyResult`，或将一个输入单元替换为多个虚拟请求单元 |
 | `buildRequest` | | 可选。构建发送给后端的请求。与 `request` 字段互斥 |
 | `normalizeSettings` | | 可选。规范化用户设置参数 |
 
 > **输入过滤**已被声明式 `validateSelection` 机制替代——参见 [选择验证](#selection-validation) 章节。
+
+`preflight` 不参与菜单启用判断、debug-probe 选择分类或 Host Bridge 就绪检查。请将选择约束放在 `validateSelection` 中，将后端请求构造放在 `buildRequest` 或 `request` 中，将 Zotero 写入放在 `applyResult` 中。
 
 路径是相对于 `workflow.json` 所在目录的。
 

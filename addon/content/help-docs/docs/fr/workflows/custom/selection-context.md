@@ -1,8 +1,8 @@
-# Contexte de sélection
+# Contexte de Sélection
 
-Lorsqu'un utilisateur sélectionne des éléments dans Zotero, le plugin construit un **contexte de sélection (SelectionContext)** structuré qui décrit ce que l'utilisateur a sélectionné et le type de chaque élément sélectionné. Ce contexte sert de base d'entrée pour le hook `buildRequest`.
+Lorsqu'un utilisateur sélectionne des éléments dans Zotero, le plugin construit un **Contexte de Sélection (SelectionContext)** structuré qui décrit ce que l'utilisateur a sélectionné et le type de chaque élément sélectionné. Ce contexte sert de base d'entrée pour le hook `buildRequest`.
 
-## Types de sélection
+## Types de Sélection
 
 Selon la combinaison des types d'éléments sélectionnés, `selectionContext.selectionType` retourne l'une des valeurs suivantes :
 
@@ -15,7 +15,7 @@ Selon la combinaison des types d'éléments sélectionnés, `selectionContext.se
 | `"mixed"` | Les éléments sélectionnés sont un mélange de plusieurs types |
 | `"none"` | Aucun élément n'est sélectionné |
 
-## Structure du contexte
+## Structure du Contexte
 
 ```ts
 selectionContext = {
@@ -39,7 +39,7 @@ selectionContext = {
 
 Chaque type d'élément contient des informations contextuelles riches.
 
-### Notice parente (ParentContext)
+### Notice Parente (ParentContext)
 
 Une notice parente est un élément de niveau supérieur dans la bibliothèque Zotero (par ex. article de revue, livre, page web, etc.). Chaque contexte de notice parente contient :
 
@@ -62,7 +62,7 @@ Une notice parente est un élément de niveau supérieur dans la bibliothèque Z
 }
 ```
 
-### Pièce jointe (AttachmentContext)
+### Pièce Jointe (AttachmentContext)
 
 Une pièce jointe est un fichier attaché à un élément (PDF, Markdown, etc.). Chaque contexte de pièce jointe contient :
 
@@ -96,25 +96,28 @@ Une pièce jointe est un fichier attaché à un élément (PDF, Markdown, etc.).
 }
 ```
 
-## Utilisation du contexte de sélection dans les hooks
+## Utilisation du Contexte de Sélection dans les Hooks
 
-### Obtenir les pièces jointes sélectionnées
+### Obtenir les Pièces Jointes Sélectionnées
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Traiter la pièce jointe
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
-### Obtenir les notices parentes sélectionnées et leur contenu enfant
+### Obtenir les Notices Parentes Sélectionnées et leur Contenu Enfant
 
 ```js
 export function buildRequest({ selectionContext, runtime }) {
@@ -130,15 +133,15 @@ export function buildRequest({ selectionContext, runtime }) {
 }
 ```
 
-### Vérifier le type de sélection pour déterminer le comportement
+### Vérifier le Type de Sélection pour Déterminer le Comportement
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // Aucun élément sélectionné, ignorer
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,45 +150,51 @@ export function filterInputs({ selectionContext, runtime }) {
     // L'utilisateur a sélectionné uniquement des notices parentes, développer la première pièce jointe qualifiée
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
-### Filtrer les pièces jointes
+### Filtrer les Pièces Jointes
 
-Utiliser `helpers.withFilteredAttachments` pour mettre à jour le contexte de sélection après le traitement :
+Utilisez `validateSelection` déclaratif pour le filtrage courant des pièces jointes :
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+Pour les décisions d'exécution uniquement qui dépendent de l'unité résolue, utilisez `preflight` pour ignorer ou continuer :
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Conserver uniquement les pièces jointes PDF
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Conserver uniquement les notices parentes ayant des pièces jointes PDF parmi tous les éléments
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // Si aucune correspondance, ignorer l'exécution
-  if (matched.length === 0) return null;
-
-  // Mettre à jour le contexte avec le résultat filtré
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
-### Workflows sans sélection d'éléments
+### Workflows Sans Sélection d'Éléments
 
 Lorsque `inputs.unit: "workflow"` et `trigger.requiresSelection: false`, le workflow peut être déclenché sans aucune sélection d'éléments. Dans ce cas, `selectionContext.selectionType` est `"none"`, et tous les tableaux dans `items` sont vides. Ce mode convient à la création d'opérations globales (par ex. « Créer une synthèse de sujet »).
 
-## Validation déclarative de la sélection
+## Validation Déclarative de la Sélection
 
-Si votre workflow a uniquement besoin d'**ignorer les éléments qui ont déjà des résultats** ou de **filtrer des types d'entrée spécifiques**, vous pouvez utiliser le champ déclaratif `validateSelection` sans écrire de hook `filterInputs`.
+Si votre workflow a uniquement besoin d'**ignorer les éléments qui ont déjà des résultats** ou de **filtrer des types d'entrée spécifiques**, utilisez le champ déclaratif `validateSelection` sans écrire de hook JavaScript.
 
 ```json
 {
@@ -198,11 +207,11 @@ Si votre workflow a uniquement besoin d'**ignorer les éléments qui ont déjà 
 }
 ```
 
-Voir la documentation complète dans [Rédaction du manifeste](#doc/workflows%2Fcustom%2Fmanifest#selection-validation).
+Voir la documentation complète dans [Rédaction du Manifeste](#doc/workflows%2Fcustom%2Fmanifest#selection-validation).
 
 > **Guide de sélection :** Utilisez `validateSelection` déclaratif autant que possible — il ne nécessite ni JavaScript ni maintenance. La logique de sélection complexe peut être implémentée dans le hook `buildRequest`.
 
-## Prochaines étapes
+## Prochaines Étapes
 
-- [Référence de l'API hôte](#doc/workflows%2Fcustom%2Fhost-api) — API complète pour manipuler les données Zotero dans les hooks
-- [Rédaction du manifeste](#doc/workflows%2Fcustom%2Fmanifest) — Définir les types d'unités d'entrée du workflow
+- [Référence de l'API Hôte](#doc/workflows%2Fcustom%2Fhost-api) — API complète pour manipuler les données Zotero dans les hooks
+- [Rédaction du Manifeste](#doc/workflows%2Fcustom%2Fmanifest) — Définir les types d'unités d'entrée du workflow

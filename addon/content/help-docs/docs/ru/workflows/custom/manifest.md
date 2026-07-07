@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@
 | Поле | Обязательно | Описание |
 |------|-------------|----------|
 | `applyResult` | ✅ | **Обязательный**. Путь к скрипту для обработки результатов после выполнения |
+| `preflight` | | Необязательный. Выполняется после разрешения выделения и перед построением запроса. Может продолжить, пропустить, сократить до `applyResult` или заменить одну входную единицу виртуальными единицами запроса |
 | `buildRequest` | | Необязательный. Построить запрос для отправки бэкенду. Взаимоисключающий с полем `request` |
 | `normalizeSettings` | | Необязательный. Нормализовать установленные пользователем параметры |
 
 > **Фильтрация входных данных** заменена декларативным механизмом `validateSelection` — см. [Проверка выделения](#selection-validation) ниже.
+
+`preflight` не участвует в активации меню, классификации выделения debug-probe или проверках готовности Host Bridge. Ограничения выделения оставляйте в `validateSelection`, построение запросов к провайдеру — в `buildRequest` или `request`, а записи в Zotero — в `applyResult`.
 
 Пути относительно каталога, содержащего `workflow.json`.
 

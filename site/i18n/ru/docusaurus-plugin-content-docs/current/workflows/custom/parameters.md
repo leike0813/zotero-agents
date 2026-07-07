@@ -167,7 +167,7 @@ Workflow могут определять настраиваемые параме
 
 ## Чтение параметров в хуках
 
-В `buildRequest`, `filterInputs` и `applyResult` вы можете читать значения параметров, установленных пользователем, через `executionOptions.workflowParams`:
+В `preflight`, `buildRequest` и `applyResult` вы можете читать значения параметров, установленных пользователем, через `executionOptions.workflowParams`:
 
 ```js
 export function buildRequest({ executionOptions, runtime }) {

@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@ Für detaillierte Informationen zu jedem `kind` siehe [Anfragetypen](request-kin
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@ Für detaillierte Informationen zu jedem `kind` siehe [Anfragetypen](request-kin
 | Feld | Erforderlich | Beschreibung |
 |------|--------------|-------------|
 | `applyResult` | ✅ | **Erforderlich**. Skriptpfad für Ergebnisverarbeitung nach der Ausführung |
+| `preflight` | | Optional. Läuft nach der Auswahlauflösung und vor der Anfragekonstruktion. Kann fortsetzen, überspringen, zu `applyResult` kurzschließen oder eine Eingabe-Unit durch virtuelle Anfrage-Units ersetzen |
 | `buildRequest` | | Optional. Die an das Backend zu sendende Anfrage erstellen. Gegenseitig ausschließend mit dem `request`-Feld |
 | `normalizeSettings` | | Optional. Vom Benutzer gesetzte Parameter normalisieren |
 
 > Die **Eingabefilterung** wurde durch den deklarativen `validateSelection`-Mechanismus ersetzt — siehe [Auswahlvalidierung](#selection-validation) unten.
+
+`preflight` nimmt nicht an der Menü-Aktivierung, der Debug-Probe-Auswahlklassifizierung oder den Host-Bridge-Bereitschaftsprüfungen teil. Behalten Sie Auswahlbeschränkungen in `validateSelection`, Provider-Anfragekonstruktion in `buildRequest` oder `request` und Zotero-Schreibvorgänge in `applyResult`.
 
 Pfade sind relativ zum Verzeichnis, das `workflow.json` enthält.
 

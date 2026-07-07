@@ -63,9 +63,9 @@ export function applyResult({ parent, bundleReader, runtime }) {
 4. 确认 `applyResult` 脚本路径正确
 5. 查看插件错误日志（Zotero → 帮助 → 故障排除 → 查看日志文件）
 
-### filterInputs 返回 null
+### 选择验证跳过了所有输入单元
 
-如果 `filterInputs` 返回 `null`，表示没有符合条件的选择，workflow 不会执行。检查过滤逻辑是否正确。
+如果声明式 `validateSelection` 或 `preflight` 跳过了每个输入单元，workflow 不会提交任何后端请求。请检查选择策略、排除规则，以及任何返回 `kind: "skip"` 的 `preflight` 结果。
 
 ### buildRequest 与声明式 request 冲突
 
@@ -74,7 +74,7 @@ export function applyResult({ parent, bundleReader, runtime }) {
 ### Hook 脚本执行失败
 
 - 确认 Hook 脚本是 `.mjs`（ES Module）格式
-- 确认导出了正确的函数名：`filterInputs`、`buildRequest`、`applyResult`
+- 确认导出了正确的函数名：`preflight`、`buildRequest`、`normalizeSettings` 或 `applyResult`
 - 确认函数签名正确接收了 `{ parent, bundleReader, runtime }` 等参数
 - 检查相对导入路径是否正确
 
@@ -91,14 +91,14 @@ export function applyResult({ parent, bundleReader, runtime }) {
 ### 从简单开始
 
 1. 先用 `pass-through` provider 和最小的 `applyResult` 验证 workflow 加载成功
-2. 逐步添加 `filterInputs` 和 `buildRequest`
+2. 先添加 `validateSelection`，然后仅在需要时添加 `preflight` 或 `buildRequest`
 3. 最后接入实际后端
 
 ### 使用 notifications.toast 快速反馈
 
 ```js
 hostApi.notifications.toast({
-  text: `filterInputs 收到 ${selectionContext.items.parents.length} 个父条目`,
+  text: `buildRequest 收到 ${selectionContext.items.parents.length} 个父条目`,
   type: "default",
 });
 ```

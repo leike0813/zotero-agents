@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -94,7 +95,7 @@
 
 ### validateSelection — 選択の検証 {#selection-validation}
 
-`validateSelection` は宣言的な選択検証である。「すでに結果を持つアイテムをスキップする」や「特定の種の選択のみを受け付ける」といった一般的なシナリオを、JavaScript を書かずにカバーする。
+`validateSelection` は宣言的な選択検証である。「すでに結果を持つアイテムをスキップする」や「特定の種別の選択のみを受け付ける」といった一般的なシナリオを、JavaScript を書かずにカバーする。
 
 ```json
 {
@@ -157,7 +158,7 @@
 
 | kind | 説明 | 追加パラメータ |
 |------|------|---------------|
-| `generated-notes-all` | アイテムがすでに指定種の生成ノートを持っている | `noteKinds`：ノート種のリスト。例：`["digest", "references", "citation-analysis"]` |
+| `generated-notes-all` | アイテムがすでに指定種別の生成ノートを持っている | `noteKinds`：ノート種別のリスト。例：`["digest", "references", "citation-analysis"]` |
 | `artifact-exists` | アイテムがすでに指定のアーティファクトを持っている（冗長な実行を避けるため） | `target`：`"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`。`parameter`：アーティファクト照合のためのオプションの言語パラメータ |
 
 ### `derive` — 派生選択
@@ -286,6 +287,7 @@
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@
 | フィールド | 必須 | 説明 |
 |-----------|------|------|
 | `applyResult` | ✅ | **必須**。実行後の結果処理用スクリプトパス |
+| `preflight` | | オプション。選択解決の後、リクエスト構築の前に実行される。continue、skip、`applyResult` へのショートサーキット、または1つの入力ユニットを仮想リクエストユニットに置き換えることができる |
 | `buildRequest` | | オプション。バックエンドに送信するリクエストを構築する。`request` フィールドと相互排他 |
 | `normalizeSettings` | | オプション。ユーザーが設定したパラメータを正規化する |
 
 > **入力のフィルタリング**は宣言的な `validateSelection` メカニズムに置き換えられた — 以下の[選択の検証](#selection-validation)を参照。
+
+`preflight` はメニュー有効化判断、デバッグプローブの選択分類、Host Bridge の準備状態チェックには関与しません。選択制約は `validateSelection` に、プロバイダーリクエスト構築は `buildRequest` または `request` に、Zotero 書き込みは `applyResult` に保持してください。
 
 パスは `workflow.json` を含むディレクトリからの相対パスである。
 

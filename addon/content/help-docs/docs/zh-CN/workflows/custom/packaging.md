@@ -10,7 +10,7 @@ Workflow 支持两种形式：**单 workflow** 和 **多 workflow 包**。单 wo
 my-workflow/
 ├── workflow.json
 └── hooks/
-    ├── filterInputs.mjs
+    ├── buildRequest.mjs
     └── applyResult.mjs
 ```
 
@@ -29,7 +29,8 @@ my-package/
 ├── workflow-a/
 │   ├── workflow.json
 │   └── hooks/
-│       ├── filterInputs.mjs
+│       ├── preflight.mjs
+│       ├── buildRequest.mjs
 │       └── applyResult.mjs
 ├── workflow-b/
 │   ├── workflow.json

@@ -28,7 +28,8 @@ workflow.json (archivo de manifiesto)
 
 Los flujos de trabajo pueden ejecutar scripts personalizados de JavaScript en varias etapas de la ejecución:
 
-- **filterInputs**: Filtrar y seleccionar entradas
+- **validateSelection**: Filtrar y validar entradas de forma declarativa antes de que se ejecuten los hooks de JavaScript
+- **preflight**: Inspeccionar la unidad de entrada resuelta, adjuntar contexto de ejecución, omitir, cortocircuitar a `applyResult` o expandir una entrada en múltiples unidades de solicitud
 - **buildRequest**: Construir el contenido de la solicitud enviada al backend
 - **normalizeSettings**: Normalizar la configuración del usuario
 - **applyResult**: Aplicar los resultados devueltos por el backend a Zotero

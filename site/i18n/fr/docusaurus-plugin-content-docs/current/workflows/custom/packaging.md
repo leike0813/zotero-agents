@@ -10,7 +10,7 @@ La forme la plus simple : un répertoire contenant un `workflow.json` et ses scr
 my-workflow/
 ├── workflow.json
 └── hooks/
-    ├── filterInputs.mjs
+    ├── buildRequest.mjs
     └── applyResult.mjs
 ```
 
@@ -29,7 +29,7 @@ my-package/
 ├── workflow-a/
 │   ├── workflow.json
 │   └── hooks/
-│       ├── filterInputs.mjs
+│       ├── buildRequest.mjs
 │       └── applyResult.mjs
 ├── workflow-b/
 │   ├── workflow.json

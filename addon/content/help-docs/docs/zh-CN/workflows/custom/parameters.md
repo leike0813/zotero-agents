@@ -167,7 +167,7 @@ Workflow 可以定义可配置的参数，在运行前弹出设置对话框让�
 
 ## 在 Hook 中读取参数
 
-在 `buildRequest`、`normalizeSettings` 和 `applyResult` 中，可以通过 `executionOptions.workflowParams` 读取用户设置的参数值：
+在 `preflight`、`buildRequest` 和 `applyResult` 中，可以通过 `executionOptions.workflowParams` 读取用户设置的参数值：
 
 ```js
 export function buildRequest({ executionOptions, runtime }) {

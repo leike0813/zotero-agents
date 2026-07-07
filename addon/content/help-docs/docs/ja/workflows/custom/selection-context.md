@@ -101,16 +101,19 @@ selectionContext = {
 ### 選択された添付ファイルの取得
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // 添付ファイルを処理
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### 選択種別を確認して動作を決定する
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // アイテムが選択されていない。スキップ
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // ユーザーが親アイテムのみを選択。最初の該当添付ファイルを展開
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### 添付ファイルのフィルタリング
 
-`helpers.withFilteredAttachments` を使用して、処理後に選択コンテキストを更新する。
+一般的な添付ファイルのフィルタリングには宣言的な `validateSelection` を使用します：
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+解決済みのユニットに依存するランタイムのみの判断には、`preflight` でスキップまたは続行します：
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // PDF 添付ファイルのみを保持
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // 全アイテムから PDF 添付ファイルを持つ親アイテムのみを保持
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // 一致がない場合、実行をスキップ
-  if (matched.length === 0) return null;
-
-  // フィルタリング結果でコンテキストを更新
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ export function filterInputs({ selectionContext, runtime }) {
 
 ## 宣言的な選択検証
 
-Workflow が**すでに結果を持つアイテムをスキップする**、または**特定種の入力をフィルタリングする**だけであれば、`filterInputs` フックを書かずに宣言的な `validateSelection` フィールドを使用できる。
+Workflow が**すでに結果を持つアイテムをスキップする**、または**特定種別の入力をフィルタリングする**だけであれば、JavaScript フックを書かずに宣言的な `validateSelection` フィールドを使用できる。
 
 ```json
 {

@@ -101,16 +101,19 @@ Un adjunto es un archivo adjunto de un elemento (PDF, Markdown, etc.). Cada cont
 ### Obtener adjuntos seleccionados
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Procesar adjunto
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### Verificar el tipo de selección para determinar el comportamiento
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // No hay elementos seleccionados, omitir
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // El usuario seleccionó solo elementos padre, expandir el primer adjunto que cumpla los requisitos
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### Filtrar adjuntos
 
-Usa `helpers.withFilteredAttachments` para actualizar el contexto de selección después del procesamiento:
+Usa `validateSelection` declarativo para el filtrado común de adjuntos:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+Para decisiones solo en tiempo de ejecución que dependen de la unidad resuelta, usa `preflight` para omitir o continuar:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Mantener solo adjuntos PDF
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Mantener solo elementos padre que tengan adjuntos PDF de todos los elementos
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // Si no hay coincidencias, omitir la ejecución
-  if (matched.length === 0) return null;
-
-  // Actualizar contexto con el resultado filtrado
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ Cuando `inputs.unit: "workflow"` y `trigger.requiresSelection: false`, el workfl
 
 ## Validación de selección declarativa
 
-Si tu workflow solo necesita **omitir elementos que ya tienen resultados** o **filtrar tipos específicos de entrada**, puedes usar el campo declarativo `validateSelection` sin escribir un Hook `filterInputs`.
+Si tu workflow solo necesita **omitir elementos que ya tienen resultados** o **filtrar tipos específicos de entrada**, usa el campo declarativo `validateSelection` sin escribir un hook de JavaScript.
 
 ```json
 {

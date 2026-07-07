@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@
 | 필드 | 필수 | 설명 |
 |------|------|------|
 | `applyResult` | ✅ | **필수**. 실행 후 결과 처리를 위한 스크립트 경로 |
+| `preflight` | | 선택. 선택 해석 후, 요청 구축 전에 실행됩니다. 계속 진행, 건너뛰기, `applyResult`로 단축, 또는 하나의 입력 유닛을 가상 요청 유닛으로 교체할 수 있습니다 |
 | `buildRequest` | | 선택. 백엔드로 전송할 요청을 구축. `request` 필드와 상호 배타적 |
 | `normalizeSettings` | | 선택. 사용자가 설정한 파라미터를 정규화 |
 
 > **입력 필터링**은 선언적 `validateSelection` 메커니즘으로 대체되었습니다 — 아래 [선택 검증](#selection-validation) 참조.
+
+`preflight`는 메뉴 활성화, debug-probe 선택 분류, 또는 Host Bridge 준비 확인에 관여하지 않습니다. 선택 제약은 `validateSelection`에, provider 요청 구성은 `buildRequest` 또는 `request`에, Zotero 쓰기는 `applyResult`에 유지하세요.
 
 경로는 `workflow.json`이 포함된 디렉터리 기준 상대 경로입니다.
 

@@ -101,16 +101,19 @@ An attachment is a file attachment of an item (PDF, Markdown, etc.). Each attach
 ### Getting Selected Attachments
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Process attachment
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### Checking Selection Type to Determine Behavior
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // No items selected, skip
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // User selected only parent items, expand the first qualifying attachment
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### Filtering Attachments
 
-Use `helpers.withFilteredAttachments` to update the selection context after processing:
+Use declarative `validateSelection` for common attachment filtering:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+For runtime-only decisions that depend on the resolved unit, use `preflight` to skip or continue:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Keep only PDF attachments
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Keep only parent items that have PDF attachments from all items
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // If no matches, skip execution
-  if (matched.length === 0) return null;
-
-  // Update context with the filtered result
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ When `inputs.unit: "workflow"` and `trigger.requiresSelection: false`, the workf
 
 ## Declarative Selection Validation
 
-If your workflow only needs to **skip items that already have results** or **filter specific types of input**, you can use the declarative `validateSelection` field without writing a `filterInputs` Hook.
+If your workflow only needs to **skip items that already have results** or **filter specific types of input**, use the declarative `validateSelection` field without writing a JavaScript hook.
 
 ```json
 {

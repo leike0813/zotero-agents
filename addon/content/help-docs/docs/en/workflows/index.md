@@ -11,7 +11,8 @@ workflow.json (manifest file)
 ├── manifest: declares metadata, version, name
 ├── parameters: defines configurable parameters
 ├── inputs: defines input types (attachments, items, notes, etc.)
-├── hooks: JavaScript hook scripts (filter inputs, build requests, apply results)
+├── validateSelection: declarative input validation and filtering
+├── hooks: JavaScript hook scripts (preflight, build requests, apply results)
 └── provider: specifies the required backend type
 ```
 
@@ -28,7 +29,8 @@ workflow.json (manifest file)
 
 Workflows can run custom JavaScript scripts at various stages of execution:
 
-- **filterInputs**: Filter and select inputs
+- **validateSelection**: Declaratively filter and validate inputs before JavaScript hooks run
+- **preflight**: Inspect the resolved input unit, attach execution context, skip, short-circuit to `applyResult`, or expand one input into multiple request units
 - **buildRequest**: Build the request content sent to the backend
 - **normalizeSettings**: Normalize user settings
 - **applyResult**: Apply the results returned by the backend to Zotero

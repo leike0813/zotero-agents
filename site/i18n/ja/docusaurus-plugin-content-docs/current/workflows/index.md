@@ -28,7 +28,8 @@ workflow.json (マニフェストファイル)
 
 Workflowは実行のさまざまな段階でカスタムJavaScriptスクリプトを実行できます。
 
-- **filterInputs**: 入力のフィルタリングと選択
+- **validateSelection**: JavaScriptフックの実行前に入力を宣言的にフィルタリングおよび検証します
+- **preflight**: 解決された入力ユニットを検査し、実行コンテキストを添付し、スキップ、`applyResult`への短絡、または1つの入力を複数のリクエストユニットに展開します
 - **buildRequest**: バックエンドに送信するリクエストコンテンツを構築
 - **normalizeSettings**: ユーザー設定を正規化
 - **applyResult**: バックエンドから返された結果をZoteroに適用

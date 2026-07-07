@@ -167,7 +167,7 @@ Parameterwertoptionen können aus Zotos Live-Daten stammen:
 
 ## Parameter in Hooks lesen
 
-In `buildRequest`, `filterInputs` und `applyResult` können Sie vom Benutzer festgelegte Parameterwerte über `executionOptions.workflowParams` lesen:
+In `preflight`, `buildRequest` und `applyResult` können Sie vom Benutzer festgelegte Parameterwerte über `executionOptions.workflowParams` lesen:
 
 ```js
 export function buildRequest({ executionOptions, runtime }) {

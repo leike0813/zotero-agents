@@ -28,7 +28,8 @@ workflow.json (file manifesto)
 
 I Workflow possono eseguire script JavaScript personalizzati in varie fasi dell'esecuzione:
 
-- **filterInputs**: Filtrare e selezionare gli input
+- **validateSelection**: Filtrare e convalidare gli input in modo dichiarativo prima dell'esecuzione degli hook JavaScript
+- **preflight**: Ispezionare l'unità di input risolta, allegare il contesto di esecuzione, saltare, cortocircuitare su `applyResult` o espandere un input in più unità di richiesta
 - **buildRequest**: Costruire il contenuto della richiesta inviata al backend
 - **normalizeSettings**: Normalizzare le impostazioni dell'utente
 - **applyResult**: Applicare i risultati restituiti dal backend a Zotero

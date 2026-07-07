@@ -104,13 +104,16 @@ selectionContext = {
 export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // 处理附件
-  }
-
-  // ...
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,11 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### 检查选择类型决定行为
 
 ```js
-export function buildRequest({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
-    // 没有选中任何条目
+    // 没有选中任何条目，跳过
+    return { kind: "skip", reason: "未选中条目" };
   }
 
   if (selectionType === "attachment") {
@@ -146,35 +150,41 @@ export function buildRequest({ selectionContext, runtime }) {
     // 用户选中的都是父条目，展开第一个符合条件的附件
   }
 
-  // ...
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### 过滤附件
 
-使用 `helpers.withFilteredAttachments` 在处理后更新选择上下文：
+使用声明式 `validateSelection` 处理常见的附件过滤：
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+对于需要依赖已解析单元的运行时决策，使用 `preflight` 来跳过或继续：
 
 ```js
-export function buildRequest({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // 只保留 PDF 附件
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // 从所有条目中只保留有 PDF 附件的父条目
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "没有 PDF 附件" };
+  }
 
-  // 如果没有任何匹配，跳过执行
-  if (matched.length === 0) return null;
-
-  // 用过滤后的结果更新上下文
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -184,7 +194,7 @@ export function buildRequest({ selectionContext, runtime }) {
 
 ## 声明式选择验证
 
-如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，可以使用声明式 `validateSelection` 字段，无需在 Hook 中手动筛选。
+如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，使用声明式 `validateSelection` 字段，无需编写 JavaScript hook。
 
 ```json
 {
@@ -199,7 +209,7 @@ export function buildRequest({ selectionContext, runtime }) {
 
 详见[清单文件编写](manifest#selection-validation)中的完整说明。
 
-> **选择指南：** 声明式 `validateSelection` 能覆盖的场景就用声明式（零 JS 代码、零维护成本）。复杂的筛选逻辑可以在 `buildRequest` Hook 中实现。
+> **选择指南：** 尽可能使用声明式 `validateSelection`——零 JS 代码、零维护成本。复杂的筛选逻辑可以在 `buildRequest` Hook 中实现。
 
 ## 下一步
 

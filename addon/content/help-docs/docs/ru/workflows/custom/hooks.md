@@ -2,7 +2,7 @@
 
 Хуки — это точки расширения Workflow. На разных этапах выполнения Workflow Runtime плагина вызывает соответствующие скрипты хуков, позволяя вам вмешиваться в поток выполнения и управлять им с помощью JavaScript.
 
-Workflow может содержать до **3 хуков**, из которых `applyResult` является единственным обязательным.
+Workflow может содержать до **4 хуков**, из которых `applyResult` является единственным обязательным.
 
 > **Примечание о фильтрации входных данных:** Старый хук `filterInputs` заменён декларативным механизмом `validateSelection`. Используйте `validateSelection` в `workflow.json` для определения ограничений входных данных без написания JavaScript. Подробности см. в разделе [Создание файла манифеста](#doc/workflows%2Fcustom%2Fmanifest#selection-validation).
 
@@ -12,7 +12,7 @@ Workflow может содержать до **3 хуков**, из которы�
 
 ```js
 // hooks/buildRequest.mjs
-export function buildRequest({ selectionContext, manifest, executionOptions, runtime }) {
+export function buildRequest({ selectionContext, preflight, manifest, executionOptions, runtime }) {
   // Логика реализации
   return requestSpec;
 }
@@ -37,7 +37,7 @@ runtime = {
   packageRootDir,   // Абсолютный путь к корневому каталогу пакета
 
   hostApiVersion,   // Номер версии API хоста
-  hookName,         // Имя текущего хука: "buildRequest" | "applyResult" | ""
+  hookName,         // Имя текущего хука: "preflight" | "buildRequest" | "applyResult" | ""
   debugMode,        // Находится ли в режиме отладки
 
   fetch,            // Глобальный fetch (если доступен)
@@ -62,6 +62,7 @@ runtime = {
 ```ts
 function buildRequest({
   selectionContext,  // Отфильтрованный контекст выделения
+  preflight,         // Необязательный preflight-план/unit/контекст
   manifest,         // workflow.json
   executionOptions, // { workflowParams, providerOptions }
   runtime,          // Контекст выполнения
@@ -69,6 +70,8 @@ function buildRequest({
 ```
 
 **Связь с декларативным запросом:** `buildRequest` является взаимоисключающим с полем `request` в `workflow.json`. Если существуют оба, `buildRequest` имеет приоритет.
+
+Когда workflow объявляет `hooks.preflight`, runtime передаёт нормализованный preflight-контекст в `buildRequest` как `preflight`. Этот контекст не сливается с `selectionContext`; рассматривайте его как отдельные метаданные планирования выполнения.
 
 **Пример: сквозной запрос**
 
@@ -78,6 +81,21 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
     kind: "pass-through.run.v1",
     selectionContext,
     parameter: executionOptions?.workflowParams || {},
+  };
+}
+```
+
+**Пример: запрос с использованием контекста preflight unit**
+
+```js
+export function buildRequest({ selectionContext, preflight, runtime }) {
+  const attachment = selectionContext.items.attachments[0];
+  return {
+    kind: "generic-http.steps.v1",
+    file: {
+      path: runtime.helpers.getAttachmentFilePath(attachment),
+      page_ranges: preflight?.unit?.context?.page_ranges,
+    },
   };
 }
 ```
@@ -122,7 +140,127 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 }
 ```
 
-## 2. normalizeSettings — Нормализация параметров
+## 2. preflight — Планирование или сокращённое выполнение
+
+`preflight` выполняется после декларативного разрешения выделения и перед `buildRequest` или построением декларативного запроса. Используйте его для лёгких локальных решений, которым нужна разрешённая входная единица, но которые не должны участвовать в активации меню.
+
+`preflight` не должен записывать данные в Zotero, не должен строить запросы к провайдеру и не должен заменять `validateSelection`. Все записи в Zotero по-прежнему относятся к `applyResult`, а все payload запросов к провайдеру — к `buildRequest` или полю `request` манифеста.
+
+**Сигнатура:**
+
+```ts
+function preflight({
+  selectionContext,  // Контекст разрешённой входной единицы
+  parent,            // Родительский элемент для текущей единицы, если доступен
+  attachment,        // Элемент вложения для текущей единицы, если доступен
+  note,              // Элемент заметки для текущей единицы, если доступен
+  manifest,          // workflow.json
+  executionOptions,  // { workflowParams, providerOptions }
+  runtime,           // Контекст выполнения
+}): PreflightOutcome
+```
+
+**Результат: Continue**
+
+Продолжить с обычным построением запроса и, при необходимости, прикрепить контекст планирования:
+
+```js
+export async function preflight({ parent }) {
+  return {
+    kind: "continue",
+    context: {
+      doi: parent?.DOI || "",
+      source: "selected-parent",
+    },
+  };
+}
+```
+
+`context` доступен как `preflight.context` в `buildRequest` и как `resultContext.preflight.context` в `applyResult`.
+
+**Результат: Skip**
+
+Пропустить только текущую входную единицу:
+
+```js
+export function preflight({ parent }) {
+  if (!parent?.DOI) {
+    return { kind: "skip", reason: "missing DOI" };
+  }
+  return { kind: "continue" };
+}
+```
+
+Если все входные единицы пропущены, выполнение завершается без отправки задач провайдеру.
+
+**Результат: Short-Circuit Apply**
+
+Пропустить выполнение провайдера и напрямую вызвать стандартный путь `applyResult`:
+
+```js
+export async function preflight({ parent, runtime }) {
+  const metadata = await lookupMetadataLocally(parent?.DOI, runtime);
+  if (!metadata) {
+    return { kind: "continue" };
+  }
+  return {
+    kind: "short-circuit-apply",
+    apply: {
+      result: { ok: true, source: "local-metadata", item: metadata },
+      request: { kind: "local.metadata.preflight.v1" },
+      runResult: { status: "success" },
+    },
+    context: { source: "local-metadata" },
+  };
+}
+```
+
+Это полезно для workflow, таких как куратор метаданных: если поиск по доверенному идентификатору успешен локально, `applyResult` может обновить родительский элемент без вызова бэкенда. Если поиск не дал результатов или качество низкое, верните `continue` и позвольте `buildRequest` построить обычный запрос к бэкенду.
+
+**Результат: Replace Units**
+
+Заменить одну разрешённую входную единицу несколькими виртуальными единицами запроса:
+
+```js
+export function preflight({ attachment }) {
+  const chunks = [
+    { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+    { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+  ];
+  return {
+    kind: "replace-units",
+    units: chunks,
+  };
+}
+```
+
+Каждая виртуальная единица проходит через обычный путь `buildRequest`. Специфичный для единицы контекст доступен через `preflight.unit.context`.
+
+**Агрегированное одиночное применение (Aggregate Single Apply)**
+
+Для workflow с разделением входных данных, которым необходимо объединить несколько результатов провайдера в одну финальную запись в Zotero, добавьте агрегированный план:
+
+```js
+export function preflight() {
+  return {
+    kind: "replace-units",
+    units: [
+      { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+      { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+    ],
+    aggregate: {
+      id: "pdf-pages",
+      mode: "single-apply",
+      applyWhen: "all-succeeded",
+      orderBy: "unit.order",
+    },
+  };
+}
+```
+
+В v1 агрегированное применение поддерживает только `mode: "single-apply"`, `applyWhen: "all-succeeded"` и `orderBy: "unit.order"`. Дочерние задачи провайдера собираются, и `applyResult` вызывается однократно после успешного завершения всех дочерних задач. Если любая дочерняя задача завершается ошибкой, частичное агрегированное применение не выполняется.
+
+## 3. normalizeSettings — Нормализация параметров
 
 Нормализуйте параметры перед сохранением настроек или перед выполнением.
 
@@ -153,7 +291,7 @@ function normalizeSettings(args: {
 - Обработка устаревших параметров (например, миграция старых параметров на новые версии)
 - Очистка недействительных значений перед выполнением
 
-## 3. applyResult — Обработка результата (обязательный)
+## 4. applyResult — Обработка результата (обязательный)
 
 Это **единственный обязательный хук** для workflow, отвечающий за запись результатов выполнения бэкенда в Zotero.
 
@@ -163,7 +301,7 @@ function normalizeSettings(args: {
 function applyResult({
   parent,           // Родительский элемент Zotero
   bundleReader,     // Читатель пакета результатов
-  resultContext,    // Структурированный контекст результата
+  resultContext,    // Структурированный контекст результата, включая метаданные preflight/aggregate
   sequenceStep,     // Метаданные шага последовательности (присутствуют в последовательных запусках)
   productStorage,   // API хранилища артефактов
   request,          // Исходный отправленный запрос
@@ -182,6 +320,33 @@ function applyResult({
 //   phase: "sequence-step";
 // }
 ```
+
+Когда объявлен `preflight`, `resultContext.preflight` предоставляет план выполнения, id единицы, контекст единицы и общий контекст для текущего вызова `applyResult`. `selectionContext` не изменяется preflight.
+
+Когда `replace-units` использует `aggregate.single-apply`, `resultContext.aggregate.children` содержит упорядоченные дочерние результаты:
+
+```ts
+resultContext.aggregate.children = [
+  {
+    unitId: "part-1",
+    order: 0,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+  {
+    unitId: "part-2",
+    order: 1,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+];
+```
+
+Агрегированный `applyResult` должен читать каждый дочерний бандл из `child.bundleReader`, объединять артефакты по порядку и записывать финальный результат в Zotero однократно. Например, workflow в стиле MinerU может отправить один PDF в виде нескольких задач `page_ranges`, а затем объединить файлы `full.md` и неймспейсить пути изображений перед созданием одного финального вложения Markdown.
 
 **Использование bundleReader:**
 
@@ -202,7 +367,7 @@ export async function applyResult({ parent, bundleReader, runtime }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
   const digestMd = await bundleReader.readText("artifacts/digest.md");
 
-  const htmlContent = runtime.helpers.toHtmlNote("Описание статьи", digestMd);
+  const htmlContent = runtime.helpers.toHtmlNote("Paper Digest", digestMd);
   const newNote = await runtime.hostApi.mutations.execute({
     operation: "note.createChild",
     parentItem: parentItem.getField("id"),

@@ -1,50 +1,50 @@
-# Debug e test
+# Debugging e Test
 
-Dopo aver scritto un Workflow personalizzato, puoi utilizzare i seguenti metodi per validarlo e fare il debug.
+Dopo aver scritto un workflow personalizzato, puoi utilizzare i seguenti metodi per convalidarlo e debuggarne il funzionamento.
 
-## Abilitare la modalità debug
+## Attivare la Modalità Debug
 
-Abilita la modalità debug nelle preferenze per sbloccare strumenti di debug aggiuntivi e visualizzazioni di informazioni:
+Attiva la modalità debug nelle preferenze per sbloccare strumenti di debugging aggiuntivi e visualizzazioni informative:
 
-Zotero → Impostazioni → Zotero Agents → Abilita modalità debug
+Zotero → Impostazioni → Zotero Agents → Attiva Modalità Debug
 
-Quando la modalità debug è abilitata:
+Quando la modalità debug è attivata:
 
-- I Workflow relativi al debug vengono visualizzati nella Dashboard
+- I workflow relativi al debug vengono visualizzati nella Dashboard
 - I log di runtime diventano più dettagliati
 - Alcuni strumenti diagnostici diventano disponibili
 
-## Utilizzo del toolkit Debug Probe
+## Utilizzo del Toolkit Debug Probe
 
-Il plugin include un toolkit di debug integrato `workflow-debug-probe`, contenente diversi Workflow diagnostici:
+Il plugin include un toolkit di debugging integrato `workflow-debug-probe`, contenente diversi workflow diagnostici:
 
 | Workflow | Scopo |
 |----------|-------|
-| **Workflow Debug Probe** | Esamina lo stato pre-esecuzione del Workflow, apri il pannello diagnostico |
-| **Debug Sequence Linear Probe** | Valida l'esecuzione sequenziale e il passaggio predefinito dell'handoff |
-| **Debug Sequence Workspace Reuse Probe** | Valida il riutilizzo dello spazio di lavoro tra i passaggi |
-| **Debug Sequence Context Isolation Probe** | Valida il filtraggio esplicito dell'handoff e gli spazi di lavoro isolati |
+| **Workflow Debug Probe** | Ispeziona lo stato di pre-esecuzione del workflow, apre il pannello diagnostico |
+| **Debug Sequence Linear Probe** | Convalida l'esecuzione sequenziale e il passaggio di handoff predefinito |
+| **Debug Sequence Workspace Reuse Probe** | Convalida il riutilizzo del workspace tra i passaggi |
+| **Debug Sequence Context Isolation Probe** | Convalida il filtraggio esplicito di handoff e i workspace isolati |
 
-Questi Workflow sono visibili nell'elenco dei Workflow della Dashboard (in modalità debug) e possono essere eseguiti direttamente per validare i meccanismi di esecuzione delle sequenze.
+Questi workflow sono visibili nell'elenco dei workflow della Dashboard (in modalità debug) e possono essere eseguiti direttamente per convalidare i meccanismi di esecuzione delle sequenze.
 
-## Visualizzazione dei log
+## Visualizzazione dei Log
 
-### Log di runtime
+### Log di Runtime
 
-I Workflow generano log di runtime durante l'esecuzione, visualizzabili nella Dashboard:
+I workflow generano log di runtime durante l'esecuzione, visualizzabili nella Dashboard:
 
 1. Apri la Dashboard
 2. Trova un'attività in esecuzione o completata
-3. Fai clic su "Visualizza log" per espandere il pannello dei log
+3. Clicca su "View Logs" per espandere il pannello dei log
 
-### Scrittura dei log negli Hook
+### Scrivere Log negli Hook
 
 ```js
 export function applyResult({ parent, bundleReader, runtime }) {
   // Scrivi nel log di runtime
   runtime.hostApi.logging.appendRuntimeLog({
     level: "info",
-    message: `Processing parent: ${parent}`,
+    message: `Elaborazione parent: ${parent}`,
     workflowId: runtime.workflowId,
   });
 
@@ -53,68 +53,68 @@ export function applyResult({ parent, bundleReader, runtime }) {
 }
 ```
 
-## Risoluzione dei problemi comuni
+## Risoluzione dei Problemi Comuni
 
-### Il Workflow non appare nella Dashboard
+### Il Workflow Non Appare nella Dashboard
 
 1. Verifica che `workflow.json` sia posizionato nella directory corretta
 2. Conferma che `workflow.json` sia formattato correttamente (sintassi JSON)
-3. Controlla che `id` sia univoco e non entri in conflitto con i Workflow ufficiali
+3. Verifica che `id` sia univoco e non entri in conflitto con i workflow ufficiali
 4. Conferma che il percorso dello script `applyResult` sia corretto
-5. Controlla il log degli errori del plugin (Zotero → Aiuto → Risoluzione problemi → Visualizza file di log)
+5. Controlla il log degli errori del plugin (Zotero → Aiuto → Risoluzione dei problemi → Visualizza file di log)
 
-### filterInputs restituisce null
+### La Validazione della Selezione Salta Ogni Unità
 
-Se `filterInputs` restituisce `null`, significa che non è stata trovata alcuna selezione idonea e il Workflow non verrà eseguito. Controlla che la logica di filtraggio sia corretta.
+Se la `validateSelection` dichiarativa o `preflight` salta ogni unità di input, il workflow non invierà alcuna richiesta al provider. Controlla la politica di selezione, le regole di esclusione e qualsiasi risultato di `preflight` che restituisca `kind: "skip"`.
 
-### Conflitto tra buildRequest e richiesta dichiarativa
+### Conflitto Tra buildRequest e Richiesta Dichiarativa
 
-L'hook `buildRequest` e il campo `request` in `workflow.json` sono **mutuamente esclusivi**. Se entrambi esistono, `buildRequest` ha la priorità. Se il comportamento della richiesta non è quello previsto, verifica se entrambi sono stati definiti inavvertitamente contemporaneamente.
+L'hook `buildRequest` e il campo `request` in `workflow.json` sono **mutualmente esclusivi**. Se entrambi esistono, `buildRequest` ha la priorità. Se il comportamento della richiesta non è come previsto, verifica se entrambi sono stati definiti inavvertitamente contemporaneamente.
 
-### Esecuzione dello script Hook fallita
+### Errore nell'Esecuzione dello Script Hook
 
 - Conferma che lo script Hook sia in formato `.mjs` (ES Module)
-- Conferma che vengano esportati i nomi delle funzioni corretti: `filterInputs`, `buildRequest`, `applyResult`
+- Conferma che i nomi delle funzioni esportate siano corretti: `preflight`, `buildRequest`, `normalizeSettings` o `applyResult`
 - Conferma che la firma della funzione riceva correttamente parametri come `{ parent, bundleReader, runtime }`
-- Controlla che i percorsi di importazione relativi siano corretti
+- Verifica che i percorsi di importazione relativi siano corretti
 
-### Il risultato non viene scritto in Zotero
+### Il Risultato Non Viene Scritto in Zotero
 
-Se `applyResult` usa `hostApi.mutations.execute()` ma non ha effetto, le possibili cause sono:
+Se `applyResult` utilizza `hostApi.mutations.execute()` ma non ha effetto, possibili cause:
 
 - Le operazioni di scrittura richiedono l'approvazione dell'utente, ma il popup di approvazione è stato ignorato o è scaduto
-- È stata tentata un'operazione di scrittura quando `execution.zoteroHostAccess.required` non era impostato a `true`
+- È stata tentata un'operazione di scrittura quando `execution.zoteroHostAccess.required` non era impostato su `true`
 - `allowWriteApprovalBypass` deve essere utilizzato insieme alla configurazione dei permessi del plugin
 
-## Suggerimenti per lo sviluppo
+## Suggerimenti per lo Sviluppo
 
-### Inizia in modo semplice
+### Inizia in Modo Semplice
 
-1. Usa prima il provider `pass-through` con un `applyResult` minimo per verificare che il Workflow venga caricato con successo
-2. Aggiungi gradualmente `filterInputs` e `buildRequest`
+1. Per prima cosa utilizza il provider `pass-through` con un `applyResult` minimo per verificare che il workflow venga caricato correttamente
+2. Aggiungi prima `validateSelection`, poi aggiungi `preflight` o `buildRequest` solo quando necessario
 3. Infine connettiti al backend effettivo
 
-### Usa notifications.toast per un feedback rapido
+### Usa notifications.toast per un Feedback Rapido
 
 ```js
 hostApi.notifications.toast({
-  text: `filterInputs received ${selectionContext.items.parents.length} parent items`,
+  text: `buildRequest ha ricevuto ${selectionContext.items.parents.length} elementi principali`,
   type: "default",
 });
 ```
 
-Questa è una tecnica di debug rapida che ti permette di vedere i risultati dell'esecuzione senza controllare i log.
+Questa è una tecnica di debugging rapida che ti consente di vedere i risultati dell'esecuzione senza controllare i log.
 
-### Fai riferimento ai Workflow ufficiali
+### Fai Riferimento ai Workflow Ufficiali
 
-I Workflow ufficiali sono il miglior riferimento di apprendimento. Dopo aver installato il pacchetto ufficiale, puoi visualizzare il codice sorgente nella directory `<Zotero Data>/zotero-agents/content/official/workflows/`:
+I workflow ufficiali sono il miglior riferimento per l'apprendimento. Dopo aver installato il pacchetto ufficiale, puoi visualizzare il codice sorgente nella directory `<Zotero Data>/zotero-agents/content/official/workflows/`:
 
 - `literature-workbench-package/literature-analysis/` — Esempio completo di skillrunner.job.v1
 - `content/official/workflows/literature-workbench-package/export-notes/` — Semplice esempio pass-through
-- `content/official/workflows/mineru/` — Esempio con buildRequest + gestione dei file
+- `content/official/workflows/mineru/` — Esempio con buildRequest + gestione file
 - `content/official/workflows/literature-workbench-package/literature-search-ingest/` — Esempio di modalità interattiva
 
-## Passi successivi
+## Passaggi Successivi
 
-- [Riferimento completo del manifesto del Workflow](manifest) — Tutti i campi in workflow.json
-- [Riferimento dell'API host](host-api) — Tutte le API disponibili negli Hook
+- [Riferimento Completo del Manifesto del Workflow](manifest) — Tutti i campi in workflow.json
+- [Riferimento API Host](host-api) — Tutte le API disponibili negli hook

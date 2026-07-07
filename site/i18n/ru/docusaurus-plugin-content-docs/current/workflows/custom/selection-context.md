@@ -101,16 +101,19 @@ selectionContext = {
 ### Получение выбранных вложений
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Обработка вложения
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### Проверка типа выделения для определения поведения
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // Никакие элементы не выбраны, пропустить
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // Пользователь выбрал только родительские элементы, расширить первое подходящее вложение
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### Фильтрация вложений
 
-Используйте `helpers.withFilteredAttachments` для обновления контекста выделения после обработки:
+Используйте декларативный `validateSelection` для распространённой фильтрации вложений:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+Для решений только во время выполнения, зависящих от разрешённой единицы, используйте `preflight` для пропуска или продолжения:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Оставить только PDF-вложения
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Оставить только родительские элементы, имеющие PDF-вложения из всех элементов
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // Если совпадений нет, пропустить выполнение
-  if (matched.length === 0) return null;
-
-  // Обновить контекст отфильтрованным результатом
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ export function filterInputs({ selectionContext, runtime }) {
 
 ## Декларативная проверка выделения
 
-Если вашему workflow нужно только **пропускать элементы, которые уже имеют результаты**, или **фильтровать определённые типы входных данных**, вы можете использовать декларативное поле `validateSelection` без написания хука `filterInputs`.
+Если вашему workflow нужно только **пропускать элементы, которые уже имеют результаты**, или **фильтровать определённые типы входных данных**, используйте декларативное поле `validateSelection` без написания JavaScript-хука.
 
 ```json
 {

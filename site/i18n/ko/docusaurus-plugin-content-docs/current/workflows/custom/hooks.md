@@ -1,8 +1,8 @@
-# Sistema Hook
+# 훅 시스템
 
 훅은 Workflow의 확장 가능성 지점입니다. Workflow 실행의 여러 단계에서 플러그인의 Workflow Runtime이 해당 훅 스크립트를 호출하여 JavaScript로 실행 흐름에 개입하고 제어할 수 있습니다.
 
-하나의 Workflow에는 최대 **3개의 훅**을 포함할 수 있으며, 이 중 `applyResult`는 유일하게 필수인 훅입니다.
+하나의 Workflow에는 최대 **4개의 훅**을 포함할 수 있으며, 이 중 `applyResult`는 유일하게 필수인 훅입니다.
 
 > **입력 필터링에 관한 참고사항:** 기존 `filterInputs` 훅은 선언적 `validateSelection` 메커니즘으로 대체되었습니다. `workflow.json`에서 `validateSelection`을 사용하면 JavaScript를 작성하지 않고도 입력 제약을 정의할 수 있습니다. 자세한 내용은 [매니페스트 파일 작성](manifest#selection-validation)을 참조하세요.
 
@@ -12,7 +12,7 @@
 
 ```js
 // hooks/buildRequest.mjs
-export function buildRequest({ selectionContext, manifest, executionOptions, runtime }) {
+export function buildRequest({ selectionContext, preflight, manifest, executionOptions, runtime }) {
   // 구현 로직
   return requestSpec;
 }
@@ -37,7 +37,7 @@ runtime = {
   packageRootDir,   // 패키지 루트 디렉터리의 절대 경로
 
   hostApiVersion,   // 호스트 API 버전 번호
-  hookName,         // 현재 훅 이름: "buildRequest" | "applyResult" | ""
+  hookName,         // 현재 훅 이름: "preflight" | "buildRequest" | "applyResult" | ""
   debugMode,        // 디버그 모드 여부
 
   fetch,            // 전역 fetch (사용 가능한 경우)
@@ -62,6 +62,7 @@ runtime = {
 ```ts
 function buildRequest({
   selectionContext,  // 필터링된 선택 컨텍스트
+  preflight,         // 선택적 preflight plan/unit/context
   manifest,         // workflow.json
   executionOptions, // { workflowParams, providerOptions }
   runtime,          // 런타임 컨텍스트
@@ -69,6 +70,8 @@ function buildRequest({
 ```
 
 **선언적 요청과의 관계:** `buildRequest`는 `workflow.json`의 `request` 필드와 상호 배타적입니다. 둘 다 존재하면 `buildRequest`가 우선합니다.
+
+Workflow가 `hooks.preflight`를 선언하면, 런타임은 정규화된 preflight 컨텍스트를 `preflight`로 `buildRequest`에 전달합니다. 이 컨텍스트는 `selectionContext`에 병합되지 않으며, 별도의 실행 계획 메타데이터로 취급합니다.
 
 **예시: pass-through 요청**
 
@@ -78,6 +81,21 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
     kind: "pass-through.run.v1",
     selectionContext,
     parameter: executionOptions?.workflowParams || {},
+  };
+}
+```
+
+**예시: Preflight 유닛 컨텍스트를 사용한 요청**
+
+```js
+export function buildRequest({ selectionContext, preflight, runtime }) {
+  const attachment = selectionContext.items.attachments[0];
+  return {
+    kind: "generic-http.steps.v1",
+    file: {
+      path: runtime.helpers.getAttachmentFilePath(attachment),
+      page_ranges: preflight?.unit?.context?.page_ranges,
+    },
   };
 }
 ```
@@ -122,7 +140,127 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 }
 ```
 
-## 2. normalizeSettings — 파라미터 정규화
+## 2. preflight — 계획 수립 또는 실행 단축
+
+`preflight`는 선언적 선택 해석 후, `buildRequest` 또는 선언적 요청 구축 전에 실행됩니다. 해석된 입력 유닛이 필요하지만 메뉴 활성화에는 관여하지 않아야 하는 가벼운 로컬 결정에 사용합니다.
+
+`preflight`는 Zotero 데이터를 쓰면 안 되고, provider 요청을 구성하면 안 되며, `validateSelection`을 대체해서는 안 됩니다. 모든 Zotero 쓰기는 여전히 `applyResult`에, 모든 provider 요청 페이로드는 여전히 `buildRequest` 또는 매니페스트 `request` 필드에 속합니다.
+
+**시그니처:**
+
+```ts
+function preflight({
+  selectionContext,  // 해석된 입력 유닛 컨텍스트
+  parent,            // 현재 유닛의 부모 항목 (사용 가능한 경우)
+  attachment,        // 현재 유닛의 첨부파일 항목 (사용 가능한 경우)
+  note,              // 현재 유닛의 노트 항목 (사용 가능한 경우)
+  manifest,          // workflow.json
+  executionOptions,  // { workflowParams, providerOptions }
+  runtime,           // 런타임 컨텍스트
+}): PreflightOutcome
+```
+
+**아웃컴: Continue**
+
+정상적인 요청 구축을 계속하고 선택적으로 계획 컨텍스트를 첨부합니다:
+
+```js
+export async function preflight({ parent }) {
+  return {
+    kind: "continue",
+    context: {
+      doi: parent?.DOI || "",
+      source: "selected-parent",
+    },
+  };
+}
+```
+
+`context`는 `buildRequest`에서 `preflight.context`로, `applyResult`에서 `resultContext.preflight.context`로 접근할 수 있습니다.
+
+**아웃컴: Skip**
+
+현재 입력 유닛만 건너뜁니다:
+
+```js
+export function preflight({ parent }) {
+  if (!parent?.DOI) {
+    return { kind: "skip", reason: "missing DOI" };
+  }
+  return { kind: "continue" };
+}
+```
+
+모든 입력 유닛이 건너뛰어지면, provider 작업을 제출하지 않고 실행이 종료됩니다.
+
+**아웃컴: Short-Circuit Apply**
+
+Provider 실행을 건너뛰고 표준 `applyResult` 경로를 직접 호출합니다:
+
+```js
+export async function preflight({ parent, runtime }) {
+  const metadata = await lookupMetadataLocally(parent?.DOI, runtime);
+  if (!metadata) {
+    return { kind: "continue" };
+  }
+  return {
+    kind: "short-circuit-apply",
+    apply: {
+      result: { ok: true, source: "local-metadata", item: metadata },
+      request: { kind: "local.metadata.preflight.v1" },
+      runResult: { status: "success" },
+    },
+    context: { source: "local-metadata" },
+  };
+}
+```
+
+이는 메타데이터 큐레이터와 같은 Workflow에 유용합니다: 신뢰할 수 있는 식별자 조회가 로컬에서 성공하면, 백엔드 호출 없이 `applyResult`로 부모 항목을 업데이트할 수 있습니다. 조회 결과가 없거나 품질이 낮으면 `continue`를 반환하여 `buildRequest`가 정상적인 백엔드 요청을 구성하도록 합니다.
+
+**아웃컴: Replace Units**
+
+하나의 해석된 입력 유닛을 여러 가상 요청 유닛으로 교체합니다:
+
+```js
+export function preflight({ attachment }) {
+  const chunks = [
+    { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+    { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+  ];
+  return {
+    kind: "replace-units",
+    units: chunks,
+  };
+}
+```
+
+각 가상 유닛은 정상적인 `buildRequest` 경로를 통해 실행됩니다. 유닛별 컨텍스트는 `preflight.unit.context`에서 접근할 수 있습니다.
+
+**Aggregate Single Apply**
+
+여러 provider 결과를 하나의 최종 Zotero 쓰기로 병합해야 하는 분할 입력 Workflow의 경우, aggregate 계획을 추가합니다:
+
+```js
+export function preflight() {
+  return {
+    kind: "replace-units",
+    units: [
+      { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+      { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+    ],
+    aggregate: {
+      id: "pdf-pages",
+      mode: "single-apply",
+      applyWhen: "all-succeeded",
+      orderBy: "unit.order",
+    },
+  };
+}
+```
+
+v1에서 aggregate apply는 `mode: "single-apply"`, `applyWhen: "all-succeeded"`, `orderBy: "unit.order"`만 지원합니다. 자식 provider 작업이 수집되고 모든 자식이 성공한 후 `applyResult`가 한 번 호출됩니다. 자식 중 하나라도 실패하면 부분 aggregate apply는 수행되지 않습니다.
+
+## 3. normalizeSettings — 파라미터 정규화
 
 설정이 저장되기 전 또는 실행되기 전에 파라미터를 정규화합니다.
 
@@ -153,7 +291,7 @@ function normalizeSettings(args: {
 - 파라미터 다운그레이드 처리 (예: 이전 파라미터를 새 버전으로 마이그레이션)
 - 실행 전 유효하지 않은 값 정리
 
-## 3. applyResult — 결과 처리 (필수)
+## 4. applyResult — 결과 처리 (필수)
 
 이것은 Workflow의 **유일하게 필수인 훅**으로, 백엔드의 실행 결과를 Zotero에 기록하는 역할을 합니다.
 
@@ -163,7 +301,7 @@ function normalizeSettings(args: {
 function applyResult({
   parent,           // 부모 Zotero 항목
   bundleReader,     // 결과 번들 리더
-  resultContext,    // 구조화된 결과 컨텍스트
+  resultContext,    // 구조화된 결과 컨텍스트 (preflight/aggregate 메타데이터 포함)
   sequenceStep,     // 시퀀스 단계 메타데이터 (시퀀스 실행 시 존재)
   productStorage,   // 아티팩트 저장 API
   request,          // 전송된 원본 요청
@@ -182,6 +320,33 @@ function applyResult({
 //   phase: "sequence-step";
 // }
 ```
+
+`preflight`가 선언된 경우, `resultContext.preflight`는 현재 apply 호출에 대한 실행 계획, 유닛 id, 유닛 컨텍스트 및 공유 컨텍스트를 노출합니다. `selectionContext`는 preflight에 의해 변경되지 않습니다.
+
+`replace-units`가 `aggregate.single-apply`를 사용하는 경우, `resultContext.aggregate.children`에는 정렬된 자식 결과가 포함됩니다:
+
+```ts
+resultContext.aggregate.children = [
+  {
+    unitId: "part-1",
+    order: 0,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+  {
+    unitId: "part-2",
+    order: 1,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+];
+```
+
+Aggregate `applyResult`는 각 자식 번들을 `child.bundleReader`에서 읽고, 순서대로 아티팩트를 병합한 후 최종 Zotero 결과를 한 번 기록해야 합니다. 예를 들어, MinerU 스타일의 Workflow는 하나의 PDF를 여러 `page_ranges` 작업으로 제출한 다음, `full.md` 파일을 병합하고 이미지 경로에 네임스페이스를 부여한 후 최종 Markdown 첨부파일을 하나 생성할 수 있습니다.
 
 **bundleReader 사용:**
 

@@ -101,16 +101,19 @@ selectionContext = {
 ### 선택된 첨부파일 가져오기
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // 첨부파일 처리
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### 선택 타입 확인하여 동작 결정
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // 선택된 항목 없음, 건너뛰기
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // 사용자가 부모 항목만 선택, 첫 번째 적절한 첨부파일 확장
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### 첨부파일 필터링
 
-`helpers.withFilteredAttachments`를 사용하여 처리 후 선택 컨텍스트를 업데이트합니다:
+일반적인 첨부파일 필터링에는 선언적 `validateSelection`을 사용하세요:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+해석된 유닛에 의존하는 런타임 전용 결정에는 `preflight`를 사용하여 건너뛰거나 계속 진행하세요:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // PDF 첨부파일만 유지
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // 모든 항목 중 PDF 첨부파일이 있는 부모 항목만 유지
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // 일치하는 항목이 없으면 실행 건너뛰기
-  if (matched.length === 0) return null;
-
-  // 필터링된 결과로 컨텍스트 업데이트
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ export function filterInputs({ selectionContext, runtime }) {
 
 ## 선언적 선택 검증
 
-Workflow에서 **이미 결과가 있는 항목을 건너뛰기** 또는 **특정 타입의 입력 필터링**만 필요하면, `filterInputs` 훅을 작성하지 않고도 선언적 `validateSelection` 필드를 사용할 수 있습니다.
+Workflow에서 **이미 결과가 있는 항목을 건너뛰기** 또는 **특정 타입의 입력 필터링**만 필요하면, JavaScript 훅을 작성하지 않고도 선언적 `validateSelection` 필드를 사용할 수 있습니다.
 
 ```json
 {

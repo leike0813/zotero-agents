@@ -101,16 +101,19 @@ Ein Anhang ist ein Datei-Anhang eines Elements (PDF, Markdown usw.). Jeder Anhan
 ### Ausgewählte Anhänge abrufen
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Anhang verarbeiten
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### Auswahltyp prüfen, um das Verhalten zu bestimmen
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // Keine Elemente ausgewählt, überspringen
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // Benutzer hat nur übergeordnete Elemente ausgewählt, ersten passenden Anhang erweitern
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### Anhänge filtern
 
-Verwenden Sie `helpers.withFilteredAttachments`, um den Auswahlkontext nach der Verarbeitung zu aktualisieren:
+Verwenden Sie deklaratives `validateSelection` für gängige Anhangsfilterung:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+Für laufzeitabhängige Entscheidungen, die von der aufgelösten Unit abhängen, verwenden Sie `preflight`, um zu überspringen oder fortzusetzen:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Nur PDF-Anhänge behalten
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Nur übergeordnete Elemente behalten, die PDF-Anhänge aus allen Elementen haben
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // Wenn keine Treffer, Ausführung überspringen
-  if (matched.length === 0) return null;
-
-  // Kontext mit dem gefilterten Ergebnis aktualisieren
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ Wenn `inputs.unit: "workflow"` und `trigger.requiresSelection: false`, kann der 
 
 ## Deklarative Auswahlvalidierung
 
-Wenn Ihr Workflow nur **Elemente überspringen muss, die bereits Ergebnisse haben** oder **bestimmte Eingabetypen filtern** muss, können Sie das deklarative `validateSelection`-Feld verwenden, ohne einen `filterInputs`-Hook zu schreiben.
+Wenn Ihr Workflow nur **Elemente überspringen muss, die bereits Ergebnisse haben** oder **bestimmte Eingabetypen filtern** muss, verwenden Sie das deklarative `validateSelection`-Feld, ohne einen JavaScript-Hook zu schreiben.
 
 ```json
 {

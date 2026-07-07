@@ -2,7 +2,7 @@
 
 Los hooks son los puntos de extensibilidad de un workflow — en diferentes etapas de la ejecución del workflow, el Workflow Runtime del plugin llama a los scripts de Hook correspondientes, permitiéndote intervenir y controlar el flujo de ejecución con JavaScript.
 
-Un workflow puede contener hasta **3 Hooks**, de los cuales `applyResult` es el único obligatorio.
+Un workflow puede contener hasta **4 Hooks**, de los cuales `applyResult` es el único obligatorio.
 
 > **Nota sobre el filtrado de entrada:** El antiguo hook `filterInputs` ha sido reemplazado por el mecanismo declarativo `validateSelection`. Usa `validateSelection` en `workflow.json` para definir restricciones de entrada sin escribir JavaScript. Consulta [Redacción del archivo de manifiesto](#doc/workflows%2Fcustom%2Fmanifest#selection-validation) para más detalles.
 
@@ -12,7 +12,7 @@ Cada script de Hook es un archivo `.mjs` (módulo ES) que exporta funciones nomb
 
 ```js
 // hooks/buildRequest.mjs
-export function buildRequest({ selectionContext, manifest, executionOptions, runtime }) {
+export function buildRequest({ selectionContext, preflight, manifest, executionOptions, runtime }) {
   // Lógica de implementación
   return requestSpec;
 }
@@ -37,7 +37,7 @@ runtime = {
   packageRootDir,   // Ruta absoluta del directorio raíz del paquete
 
   hostApiVersion,   // Número de versión de la API del host
-  hookName,         // Nombre del hook actual: "buildRequest" | "applyResult" | ""
+  hookName,         // Nombre del hook actual: "preflight" | "buildRequest" | "applyResult" | ""
   debugMode,        // Si está en modo de depuración
 
   fetch,            // Fetch global (si está disponible)
@@ -62,6 +62,7 @@ Cuando la `request` declarativa en `workflow.json` no es suficiente para describ
 ```ts
 function buildRequest({
   selectionContext,  // Contexto de selección filtrado
+  preflight,         // Plan/unidad/contexto opcional de preflight
   manifest,         // workflow.json
   executionOptions, // { workflowParams, providerOptions }
   runtime,          // Contexto de ejecución
@@ -69,6 +70,8 @@ function buildRequest({
 ```
 
 **Relación con la solicitud declarativa:** `buildRequest` es mutuamente excluyente con el campo `request` en `workflow.json`. Si ambos existen, `buildRequest` tiene prioridad.
+
+Cuando un workflow declara `hooks.preflight`, el runtime pasa el contexto de preflight normalizado a `buildRequest` como `preflight`. Este contexto no se fusiona dentro de `selectionContext`; trátalo como metadatos de planificación de ejecución independientes.
 
 **Ejemplo: Solicitud pass-through**
 
@@ -78,6 +81,21 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
     kind: "pass-through.run.v1",
     selectionContext,
     parameter: executionOptions?.workflowParams || {},
+  };
+}
+```
+
+**Ejemplo: Solicitud usando el contexto de unidad de preflight**
+
+```js
+export function buildRequest({ selectionContext, preflight, runtime }) {
+  const attachment = selectionContext.items.attachments[0];
+  return {
+    kind: "generic-http.steps.v1",
+    file: {
+      path: runtime.helpers.getAttachmentFilePath(attachment),
+      page_ranges: preflight?.unit?.context?.page_ranges,
+    },
   };
 }
 ```
@@ -122,7 +140,127 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 }
 ```
 
-## 2. normalizeSettings — Normalizar parámetros
+## 2. preflight — Planificar o cortocircuitar la ejecución
+
+`preflight` se ejecuta después de la resolución declarativa de la selección y antes de `buildRequest` o la construcción declarativa de la solicitud. Úsalo para decisiones locales ligeras que necesitan la unidad de entrada resuelta pero no deben formar parte de la habilitación del menú.
+
+`preflight` no debe escribir datos de Zotero, no debe construir solicitudes del proveedor y no debe reemplazar `validateSelection`. Todas las escrituras de Zotero siguen perteneciendo a `applyResult`, y todos los payloads de solicitudes del proveedor siguen perteneciendo a `buildRequest` o al campo `request` del manifiesto.
+
+**Firma:**
+
+```ts
+function preflight({
+  selectionContext,  // Contexto de unidad de entrada resuelto
+  parent,            // Elemento padre de la unidad actual, si está disponible
+  attachment,        // Elemento adjunto de la unidad actual, si está disponible
+  note,              // Elemento nota de la unidad actual, si está disponible
+  manifest,          // workflow.json
+  executionOptions,  // { workflowParams, providerOptions }
+  runtime,           // Contexto de ejecución
+}): PreflightOutcome
+```
+
+**Resultado: Continuar**
+
+Continúa con la construcción normal de la solicitud y opcionalmente adjunta contexto de planificación:
+
+```js
+export async function preflight({ parent }) {
+  return {
+    kind: "continue",
+    context: {
+      doi: parent?.DOI || "",
+      source: "selected-parent",
+    },
+  };
+}
+```
+
+`context` está disponible como `preflight.context` en `buildRequest` y como `resultContext.preflight.context` en `applyResult`.
+
+**Resultado: Omitir**
+
+Omite solo la unidad de entrada actual:
+
+```js
+export function preflight({ parent }) {
+  if (!parent?.DOI) {
+    return { kind: "skip", reason: "missing DOI" };
+  }
+  return { kind: "continue" };
+}
+```
+
+Si cada unidad de entrada es omitida, la ejecución termina sin enviar trabajos al proveedor.
+
+**Resultado: Cortocircuitar a Apply**
+
+Omite la ejecución del proveedor y llama directamente a la ruta estándar de `applyResult`:
+
+```js
+export async function preflight({ parent, runtime }) {
+  const metadata = await lookupMetadataLocally(parent?.DOI, runtime);
+  if (!metadata) {
+    return { kind: "continue" };
+  }
+  return {
+    kind: "short-circuit-apply",
+    apply: {
+      result: { ok: true, source: "local-metadata", item: metadata },
+      request: { kind: "local.metadata.preflight.v1" },
+      runResult: { status: "success" },
+    },
+    context: { source: "local-metadata" },
+  };
+}
+```
+
+Esto es útil para workflows como un curador de metadatos: si una búsqueda de identificador confiable tiene éxito localmente, `applyResult` puede actualizar el elemento padre sin llamar a un backend. Si la búsqueda falla o es de baja calidad, devuelve `continue` y deja que `buildRequest` construya la solicitud normal al backend.
+
+**Resultado: Reemplazar unidades**
+
+Reemplaza una unidad de entrada resuelta con múltiples unidades de solicitud virtuales:
+
+```js
+export function preflight({ attachment }) {
+  const chunks = [
+    { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+    { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+  ];
+  return {
+    kind: "replace-units",
+    units: chunks,
+  };
+}
+```
+
+Cada unidad virtual pasa por la ruta normal de `buildRequest`. El contexto específico de la unidad está disponible en `preflight.unit.context`.
+
+**Apply único agregado**
+
+Para workflows de entrada dividida que deben fusionar varios resultados del proveedor en una sola escritura final de Zotero, añade un plan agregado:
+
+```js
+export function preflight() {
+  return {
+    kind: "replace-units",
+    units: [
+      { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+      { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+    ],
+    aggregate: {
+      id: "pdf-pages",
+      mode: "single-apply",
+      applyWhen: "all-succeeded",
+      orderBy: "unit.order",
+    },
+  };
+}
+```
+
+En v1, el apply agregado solo admite `mode: "single-apply"`, `applyWhen: "all-succeeded"` y `orderBy: "unit.order"`. Los trabajos hijo del proveedor se recopilan y `applyResult` se llama una vez después de que todos los hijos tengan éxito. Si algún hijo falla, no se realiza ningún apply agregado parcial.
+
+## 3. normalizeSettings — Normalizar parámetros
 
 Normaliza los parámetros antes de que se persistan las configuraciones o antes de la ejecución.
 
@@ -153,7 +291,7 @@ function normalizeSettings(args: {
 - Manejo de downgrade de parámetros (p. ej., migrar parámetros antiguos a nuevas versiones)
 - Limpiar valores inválidos antes de la ejecución
 
-## 3. applyResult — Manejar resultado (requerido)
+## 4. applyResult — Manejar resultado (requerido)
 
 Este es el **único Hook requerido** para un workflow, responsable de escribir los resultados de ejecución del backend en Zotero.
 
@@ -163,7 +301,7 @@ Este es el **único Hook requerido** para un workflow, responsable de escribir l
 function applyResult({
   parent,           // Elemento padre de Zotero
   bundleReader,     // Lector de bundle de resultados
-  resultContext,    // Contexto de resultado estructurado
+  resultContext,    // Contexto de resultado estructurado, incluyendo metadatos de preflight/aggregate
   sequenceStep,     // Metadatos del paso de secuencia (presente en ejecuciones de secuencia)
   productStorage,   // API de almacenamiento de artefactos
   request,          // Solicitud original enviada
@@ -182,6 +320,33 @@ function applyResult({
 //   phase: "sequence-step";
 // }
 ```
+
+Cuando se declara `preflight`, `resultContext.preflight` expone el plan de ejecución, el id de unidad, el contexto de unidad y el contexto compartido para la llamada actual de apply. `selectionContext` no es mutado por preflight.
+
+Cuando `replace-units` usa `aggregate.single-apply`, `resultContext.aggregate.children` contiene los resultados hijo ordenados:
+
+```ts
+resultContext.aggregate.children = [
+  {
+    unitId: "part-1",
+    order: 0,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+  {
+    unitId: "part-2",
+    order: 1,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+];
+```
+
+Un `applyResult` agregado debe leer cada bundle hijo desde `child.bundleReader`, fusionar los artefactos en orden y escribir el resultado final en Zotero una sola vez. Por ejemplo, un workflow estilo MinerU puede enviar un PDF como varios trabajos de `page_ranges`, luego fusionar los archivos `full.md` y asignar espacio de nombres a las rutas de imágenes antes de crear un adjunto Markdown final.
 
 **Uso de bundleReader:**
 

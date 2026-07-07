@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@ Per informazioni dettagliate su ciascun `kind`, vedere [Tipi di richiesta](reque
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@ Per informazioni dettagliate su ciascun `kind`, vedere [Tipi di richiesta](reque
 | Campo | Obbligatorio | Descrizione |
 |-------|-------------|-------------|
 | `applyResult` | ✅ | **Obbligatorio**. Percorso dello script per la gestione del risultato post-esecuzione |
+| `preflight` | | Facoltativo. Viene eseguito dopo la risoluzione della selezione e prima della costruzione della richiesta. Può continuare, saltare, cortocircuitare verso `applyResult` o sostituire un'unità di input con unità di richiesta virtuali |
 | `buildRequest` | | Facoltativo. Costruisce la richiesta da inviare al backend. Mutualmente esclusivo con il campo `request` |
 | `normalizeSettings` | | Facoltativo. Normalizza i parametri impostati dall'utente |
 
 > Il **filtraggio degli input** è stato sostituito dal meccanismo dichiarativo `validateSelection` — vedere [Validazione della selezione](#selection-validation) di seguito.
+
+`preflight` non partecipa all'abilitazione del menu, alla classificazione della selezione per debug-probe né ai controlli di prontezza di Host Bridge. Mantenere i vincoli di selezione in `validateSelection`, la costruzione della richiesta al provider in `buildRequest` o `request`, e le scritture in Zotero in `applyResult`.
 
 I percorsi sono relativi alla directory contenente `workflow.json`.
 
@@ -311,8 +316,8 @@ I percorsi sono relativi alla directory contenente `workflow.json`.
     "defaultLocale": "en-US",
     "messages": {
       "zh-CN": {
-        "label": "Il mio Workflow",
-        "parameters.language.title": "Lingua"
+        "label": "My Workflow",
+        "parameters.language.title": "Language"
       }
     }
   }
@@ -326,7 +331,7 @@ Vedere la pagina [Localizzazione](localization) per informazioni dettagliate.
 ```json
 {
   "id": "my-literature-analysis",
-  "label": "La mia analisi letteraria",
+  "label": "My Literature Analysis",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
@@ -338,7 +343,7 @@ Vedere la pagina [Localizzazione](localization) per informazioni dettagliate.
   "parameters": {
     "language": {
       "type": "string",
-      "title": "Lingua di output",
+      "title": "Output Language",
       "default": "en-US",
       "enum": ["en-US", "zh-CN", "ja-JP"],
       "allowCustom": true

@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@ Para información detallada sobre cada `kind`, consulta [Tipos de solicitud](req
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@ Para información detallada sobre cada `kind`, consulta [Tipos de solicitud](req
 | Campo | Requerido | Descripción |
 |-------|-----------|-------------|
 | `applyResult` | ✅ | **Requerido**. Ruta del script para el manejo de resultados post-ejecución |
+| `preflight` | | Opcional. Se ejecuta después de la resolución de selección y antes de la construcción de la solicitud. Puede continuar, omitir, cortocircuitar hacia `applyResult`, o reemplazar una unidad de entrada con unidades de solicitud virtuales |
 | `buildRequest` | | Opcional. Construir la solicitud a enviar al backend. Mutuamente excluyente con el campo `request` |
 | `normalizeSettings` | | Opcional. Normalizar parámetros establecidos por el usuario |
 
 > El **filtrado de entrada** ha sido reemplazado por el mecanismo declarativo `validateSelection` — consulta [Validación de selección](#selection-validation) abajo.
+
+`preflight` no participa en la habilitación del menú, la clasificación de selección de depuración ni las verificaciones de disponibilidad de Host Bridge. Mantén las restricciones de selección en `validateSelection`, la construcción de solicitudes del proveedor en `buildRequest` o `request`, y las escrituras de Zotero en `applyResult`.
 
 Las rutas son relativas al directorio que contiene `workflow.json`.
 

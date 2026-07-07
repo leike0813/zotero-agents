@@ -11,7 +11,8 @@ workflow.json（清单文件）
 ├── manifest：声明元数据、版本、名称
 ├── parameters：定义可配置的参数
 ├── inputs：定义输入类型（附件、条目、笔记等）
-├── hooks：JavaScript 钩子脚本（过滤输入、构建请求、应用结果）
+├── validateSelection：声明式输入验证和过滤
+├── hooks：JavaScript 钩子脚本（预检、构建请求、应用结果）
 └── provider：指定需要的后端类型
 ```
 
@@ -28,7 +29,8 @@ workflow.json（清单文件）
 
 Workflow 可以在执行的各个阶段运行自定义 JavaScript 脚本：
 
-- **filterInputs**：对输入进行过滤和筛选
+- **validateSelection**：在 JavaScript hook 运行之前声明式地过滤和验证输入
+- **preflight**：检查已解析的输入单元，附加执行上下文，跳过、短路到 `applyResult`，或将一个输入扩展为多个请求单元
 - **buildRequest**：构建发送给后端的请求内容
 - **normalizeSettings**：规范化用户设置
 - **applyResult**：将后端返回的结果应用到 Zotero

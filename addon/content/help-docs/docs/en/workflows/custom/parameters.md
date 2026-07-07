@@ -167,7 +167,7 @@ Parameter value options can come from Zotero's live data:
 
 ## Reading Parameters in Hooks
 
-In `buildRequest`, `filterInputs`, and `applyResult`, you can read user-set parameter values via `executionOptions.workflowParams`:
+In `preflight`, `buildRequest`, and `applyResult`, you can read user-set parameter values via `executionOptions.workflowParams`:
 
 ```js
 export function buildRequest({ executionOptions, runtime }) {

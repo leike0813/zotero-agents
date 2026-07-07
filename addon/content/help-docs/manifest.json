@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-07-07T08:05:00.614Z",
+  "generated_at": "2026-07-07T08:51:59.815Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -169,7 +169,7 @@
     {
       "id": "workflows/custom/debugging",
       "locale": "de",
-      "title": "Debugging & Tests",
+      "title": "Debugging & Testen",
       "path": "docs/de/workflows/custom/debugging.md"
     },
     {
@@ -769,7 +769,7 @@
     {
       "id": "workflows/custom/debugging",
       "locale": "es",
-      "title": "Depuración y pruebas",
+      "title": "Depuración y Pruebas",
       "path": "docs/es/workflows/custom/debugging.md"
     },
     {
@@ -1069,7 +1069,7 @@
     {
       "id": "workflows/custom/debugging",
       "locale": "fr",
-      "title": "Débogage et tests",
+      "title": "Débogage et Tests",
       "path": "docs/fr/workflows/custom/debugging.md"
     },
     {
@@ -1099,7 +1099,7 @@
     {
       "id": "workflows/custom/manifest",
       "locale": "fr",
-      "title": "Rédaction du manifeste de Workflow",
+      "title": "Rédaction du Manifeste de Workflow",
       "path": "docs/fr/workflows/custom/manifest.md"
     },
     {
@@ -1123,7 +1123,7 @@
     {
       "id": "workflows/custom/selection-context",
       "locale": "fr",
-      "title": "Contexte de sélection",
+      "title": "Contexte de Sélection",
       "path": "docs/fr/workflows/custom/selection-context.md"
     },
     {
@@ -1369,7 +1369,7 @@
     {
       "id": "workflows/custom/debugging",
       "locale": "it",
-      "title": "Debug e test",
+      "title": "Debugging e Test",
       "path": "docs/it/workflows/custom/debugging.md"
     },
     {
@@ -1975,7 +1975,7 @@
     {
       "id": "workflows/custom/hooks",
       "locale": "ko",
-      "title": "Sistema Hook",
+      "title": "훅 시스템",
       "path": "docs/ko/workflows/custom/hooks.md"
     },
     {
@@ -3148,7 +3148,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/debugging",
-                "label": "Debugging & Tests"
+                "label": "Debugging & Testen"
               }
             ]
           }
@@ -3406,7 +3406,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/debugging",
-                "label": "Depuración y pruebas"
+                "label": "Depuración y Pruebas"
               }
             ]
           }
@@ -3632,7 +3632,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/manifest",
-                "label": "Rédaction du manifeste de Workflow"
+                "label": "Rédaction du Manifeste de Workflow"
               },
               {
                 "type": "doc",
@@ -3647,7 +3647,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/selection-context",
-                "label": "Contexte de sélection"
+                "label": "Contexte de Sélection"
               },
               {
                 "type": "doc",
@@ -3672,7 +3672,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/debugging",
-                "label": "Débogage et tests"
+                "label": "Débogage et Tests"
               }
             ]
           }
@@ -3942,7 +3942,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/debugging",
-                "label": "Debug e test"
+                "label": "Debugging e Test"
               }
             ]
           }
@@ -4415,7 +4415,7 @@
               {
                 "type": "doc",
                 "id": "workflows/custom/hooks",
-                "label": "Sistema Hook"
+                "label": "훅 시스템"
               },
               {
                 "type": "doc",

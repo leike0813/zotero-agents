@@ -101,16 +101,19 @@ Un allegato è un allegato file di un elemento (PDF, Markdown, ecc.). Ogni conte
 ### Ottenere gli allegati selezionati
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function buildRequest({ selectionContext, runtime }) {
   const attachments = selectionContext.items.attachments;
 
-  for (const attachment of attachments) {
-    const filePath = runtime.helpers.getAttachmentFilePath(attachment);
-    const fileName = runtime.helpers.getAttachmentFileName(attachment);
-    // Elabora l'allegato
-  }
-
-  return selectionContext;
+  return {
+    kind: "skillrunner.job.v1",
+    create: { skill_id: "my-skill" },
+    input: {
+      files: attachments.map((attachment) => ({
+        path: runtime.helpers.getAttachmentFilePath(attachment),
+        name: runtime.helpers.getAttachmentFileName(attachment),
+      })),
+    },
+  };
 }
 ```
 
@@ -133,12 +136,12 @@ export function buildRequest({ selectionContext, runtime }) {
 ### Controllare il tipo di selezione per determinare il comportamento
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext }) {
   const { selectionType } = selectionContext;
 
   if (selectionType === "none") {
     // Nessun elemento selezionato, salta
-    return null;
+    return { kind: "skip", reason: "no selected items" };
   }
 
   if (selectionType === "attachment") {
@@ -147,35 +150,41 @@ export function filterInputs({ selectionContext, runtime }) {
     // L'utente ha selezionato solo elementi genitore, espandi il primo allegato idoneo
   }
 
-  return selectionContext;
+  return { kind: "continue", context: { selectionType } };
 }
 ```
 
 ### Filtrare gli allegati
 
-Utilizzare `helpers.withFilteredAttachments` per aggiornare il contesto di selezione dopo l'elaborazione:
+Utilizzare `validateSelection` dichiarativo per il filtraggio comune degli allegati:
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "pdf-attachment" },
+    "require": {
+      "counts": { "attachments": 1 },
+      "allowMixed": false
+    }
+  }
+}
+```
+
+Per decisioni solo a runtime che dipendono dall'unità risolta, utilizzare `preflight` per saltare o continuare:
 
 ```js
-export function filterInputs({ selectionContext, runtime }) {
+export function preflight({ selectionContext, runtime }) {
   const { helpers } = runtime;
 
-  // Mantieni solo gli allegati PDF
-  const pdfs = selectionContext.items.attachments.filter(
+  const hasPdf = selectionContext.items.attachments.some(
     a => helpers.isPdfAttachment(a)
   );
 
-  // Mantieni solo gli elementi genitore che hanno allegati PDF da tutti gli elementi
-  const matched = selectionContext.items.parents.filter(parent => {
-    return parent.attachments.some(
-      a => helpers.isPdfAttachment(a)
-    );
-  });
+  if (!hasPdf) {
+    return { kind: "skip", reason: "no PDF attachments" };
+  }
 
-  // Se nessuna corrispondenza, salta l'esecuzione
-  if (matched.length === 0) return null;
-
-  // Aggiorna il contesto con il risultato filtrato
-  return helpers.withFilteredAttachments(selectionContext, matched);
+  return { kind: "continue" };
 }
 ```
 
@@ -185,7 +194,7 @@ Quando `inputs.unit: "workflow"` e `trigger.requiresSelection: false`, il Workfl
 
 ## Validazione dichiarativa della selezione
 
-Se il tuo Workflow ha solo bisogno di **saltare gli elementi che hanno già risultati** o **filtrare tipi specifici di input**, puoi utilizzare il campo dichiarativo `validateSelection` senza scrivere un Hook `filterInputs`.
+Se il tuo Workflow ha solo bisogno di **saltare gli elementi che hanno già risultati** o **filtrare tipi specifici di input**, puoi utilizzare il campo dichiarativo `validateSelection` senza scrivere un Hook JavaScript.
 
 ```json
 {

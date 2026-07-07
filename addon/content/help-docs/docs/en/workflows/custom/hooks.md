@@ -2,7 +2,7 @@
 
 Hooks are the extensibility points of a workflow — at different stages of workflow execution, the plugin's Workflow Runtime calls the corresponding Hook scripts, allowing you to intervene in and control the execution flow with JavaScript.
 
-A workflow can contain up to **3 Hooks**, of which `applyResult` is the only required one.
+A workflow can contain up to **4 Hooks**, of which `applyResult` is the only required one.
 
 > **Note on input filtering:** The old `filterInputs` hook has been replaced by the declarative `validateSelection` mechanism. Use `validateSelection` in `workflow.json` to define input constraints without writing JavaScript. See [Manifest File Authoring](#doc/workflows%2Fcustom%2Fmanifest#selection-validation) for details.
 
@@ -12,7 +12,7 @@ Each Hook script is an `.mjs` (ES Module) file that exports named functions:
 
 ```js
 // hooks/buildRequest.mjs
-export function buildRequest({ selectionContext, manifest, executionOptions, runtime }) {
+export function buildRequest({ selectionContext, preflight, manifest, executionOptions, runtime }) {
   // Implementation logic
   return requestSpec;
 }
@@ -37,7 +37,7 @@ runtime = {
   packageRootDir,   // Absolute path of the package root directory
 
   hostApiVersion,   // Host API version number
-  hookName,         // Current hook name: "buildRequest" | "applyResult" | ""
+  hookName,         // Current hook name: "preflight" | "buildRequest" | "applyResult" | ""
   debugMode,        // Whether in debug mode
 
   fetch,            // Global fetch (if available)
@@ -62,6 +62,7 @@ When the declarative `request` in `workflow.json` is insufficient to describe a 
 ```ts
 function buildRequest({
   selectionContext,  // Filtered selection context
+  preflight,         // Optional preflight plan/unit/context
   manifest,         // workflow.json
   executionOptions, // { workflowParams, providerOptions }
   runtime,          // Runtime context
@@ -69,6 +70,8 @@ function buildRequest({
 ```
 
 **Relationship with Declarative Request:** `buildRequest` is mutually exclusive with the `request` field in `workflow.json`. If both exist, `buildRequest` takes priority.
+
+When a workflow declares `hooks.preflight`, the runtime passes the normalized preflight context to `buildRequest` as `preflight`. This context is not merged into `selectionContext`; treat it as separate execution planning metadata.
 
 **Example: Pass-through Request**
 
@@ -78,6 +81,21 @@ export function buildRequest({ selectionContext, executionOptions, runtime }) {
     kind: "pass-through.run.v1",
     selectionContext,
     parameter: executionOptions?.workflowParams || {},
+  };
+}
+```
+
+**Example: Request Using Preflight Unit Context**
+
+```js
+export function buildRequest({ selectionContext, preflight, runtime }) {
+  const attachment = selectionContext.items.attachments[0];
+  return {
+    kind: "generic-http.steps.v1",
+    file: {
+      path: runtime.helpers.getAttachmentFilePath(attachment),
+      page_ranges: preflight?.unit?.context?.page_ranges,
+    },
   };
 }
 ```
@@ -122,7 +140,127 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 }
 ```
 
-## 2. normalizeSettings — Normalize Parameters
+## 2. preflight — Plan or Short-Circuit Execution
+
+`preflight` runs after declarative selection resolution and before `buildRequest` or declarative request construction. Use it for lightweight local decisions that need the resolved input unit but should not be part of menu enablement.
+
+`preflight` must not write Zotero data, must not construct provider requests, and must not replace `validateSelection`. All Zotero writes still belong in `applyResult`, and all provider request payloads still belong in `buildRequest` or the manifest `request` field.
+
+**Signature:**
+
+```ts
+function preflight({
+  selectionContext,  // Resolved input unit context
+  parent,            // Parent item for the current unit when available
+  attachment,        // Attachment item for the current unit when available
+  note,              // Note item for the current unit when available
+  manifest,          // workflow.json
+  executionOptions,  // { workflowParams, providerOptions }
+  runtime,           // Runtime context
+}): PreflightOutcome
+```
+
+**Outcome: Continue**
+
+Continue with normal request construction and optionally attach planning context:
+
+```js
+export async function preflight({ parent }) {
+  return {
+    kind: "continue",
+    context: {
+      doi: parent?.DOI || "",
+      source: "selected-parent",
+    },
+  };
+}
+```
+
+`context` is available as `preflight.context` in `buildRequest` and `resultContext.preflight.context` in `applyResult`.
+
+**Outcome: Skip**
+
+Skip only the current input unit:
+
+```js
+export function preflight({ parent }) {
+  if (!parent?.DOI) {
+    return { kind: "skip", reason: "missing DOI" };
+  }
+  return { kind: "continue" };
+}
+```
+
+If every input unit is skipped, the execution ends without submitting provider jobs.
+
+**Outcome: Short-Circuit Apply**
+
+Skip provider execution and call the standard `applyResult` path directly:
+
+```js
+export async function preflight({ parent, runtime }) {
+  const metadata = await lookupMetadataLocally(parent?.DOI, runtime);
+  if (!metadata) {
+    return { kind: "continue" };
+  }
+  return {
+    kind: "short-circuit-apply",
+    apply: {
+      result: { ok: true, source: "local-metadata", item: metadata },
+      request: { kind: "local.metadata.preflight.v1" },
+      runResult: { status: "success" },
+    },
+    context: { source: "local-metadata" },
+  };
+}
+```
+
+This is useful for workflows such as a metadata curator: if a trusted identifier lookup succeeds locally, `applyResult` can update the parent item without calling a backend. If the lookup is missing or low quality, return `continue` and let `buildRequest` construct the normal backend request.
+
+**Outcome: Replace Units**
+
+Replace one resolved input unit with multiple virtual request units:
+
+```js
+export function preflight({ attachment }) {
+  const chunks = [
+    { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+    { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+  ];
+  return {
+    kind: "replace-units",
+    units: chunks,
+  };
+}
+```
+
+Each virtual unit runs through the normal `buildRequest` path. The unit-specific context is available at `preflight.unit.context`.
+
+**Aggregate Single Apply**
+
+For split-input workflows that must merge several provider results into one final Zotero write, add an aggregate plan:
+
+```js
+export function preflight() {
+  return {
+    kind: "replace-units",
+    units: [
+      { id: "part-1", order: 0, context: { page_ranges: "1-200" } },
+      { id: "part-2", order: 1, context: { page_ranges: "201-360" } },
+    ],
+    aggregate: {
+      id: "pdf-pages",
+      mode: "single-apply",
+      applyWhen: "all-succeeded",
+      orderBy: "unit.order",
+    },
+  };
+}
+```
+
+In v1, aggregate apply supports only `mode: "single-apply"`, `applyWhen: "all-succeeded"`, and `orderBy: "unit.order"`. Child provider jobs are collected and `applyResult` is called once after all children succeed. If any child fails, no partial aggregate apply is performed.
+
+## 3. normalizeSettings — Normalize Parameters
 
 Normalize parameters before settings are persisted or before execution.
 
@@ -153,7 +291,7 @@ function normalizeSettings(args: {
 - Parameter downgrade handling (e.g., migrating old parameters to new versions)
 - Clean up invalid values before execution
 
-## 3. applyResult — Handle Result (Required)
+## 4. applyResult — Handle Result (Required)
 
 This is the **only required Hook** for a workflow, responsible for writing the backend's execution results into Zotero.
 
@@ -163,7 +301,7 @@ This is the **only required Hook** for a workflow, responsible for writing the b
 function applyResult({
   parent,           // Parent Zotero item
   bundleReader,     // Result bundle reader
-  resultContext,    // Structured result context
+  resultContext,    // Structured result context, including preflight/aggregate metadata
   sequenceStep,     // Sequence step metadata (present in sequence runs)
   productStorage,   // Artifact storage API
   request,          // Original request sent
@@ -182,6 +320,33 @@ function applyResult({
 //   phase: "sequence-step";
 // }
 ```
+
+When `preflight` is declared, `resultContext.preflight` exposes the execution plan, unit id, unit context, and shared context for the current apply call. `selectionContext` is not mutated by preflight.
+
+When `replace-units` uses `aggregate.single-apply`, `resultContext.aggregate.children` contains the ordered child results:
+
+```ts
+resultContext.aggregate.children = [
+  {
+    unitId: "part-1",
+    order: 0,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+  {
+    unitId: "part-2",
+    order: 1,
+    request,
+    runResult,
+    resultContext,
+    bundleReader,
+  },
+];
+```
+
+An aggregate `applyResult` should read each child bundle from `child.bundleReader`, merge artifacts in order, and write the final Zotero result once. For example, a MinerU-style workflow can submit one PDF as several `page_ranges` jobs, then merge `full.md` files and namespace image paths before creating one final Markdown attachment.
 
 **Using bundleReader:**
 

@@ -1,8 +1,8 @@
-# Rédaction du manifeste de Workflow
+# Rédaction du Manifeste de Workflow
 
 `workflow.json` est le fichier manifeste d'un workflow, définissant toutes ses métadonnées et son comportement. Le Workflow Manager découvre et charge les workflows à travers ce fichier.
 
-## Structure de base
+## Structure de Base
 
 ```json
 {
@@ -19,14 +19,15 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
 ```
 
-## Référence des champs
+## Référence des Champs
 
-### Identification de base
+### Identification de Base
 
 | Champ | Requis | Type | Description |
 |-------|--------|------|-------------|
@@ -35,7 +36,7 @@
 | `version` | | string | Numéro de version sémantique, par ex. `"1.0.0"` |
 | `provider` | ✅ | string | Type de backend. Voir ci-dessous pour les valeurs disponibles |
 
-### Valeurs du provider
+### Valeurs du Provider
 
 | Valeur | Description |
 |--------|-------------|
@@ -46,7 +47,7 @@
 
 `provider` détermine les types de backends avec lesquels le workflow est compatible, et également les backends affichés comme exécutables dans le Dashboard.
 
-### Contrôle de l'affichage
+### Contrôle de l'Affichage
 
 ```json
 {
@@ -66,7 +67,7 @@
 | `taskNameTemplate` | string | Modèle de nom de tâche utilisant des marqueurs `{nom du paramètre}`, remplacés par les valeurs réelles au moment de l'exécution |
 | `debug_only` | boolean | Lorsque `true`, visible uniquement en mode debug |
 
-### Définition des entrées
+### Définition des Entrées
 
 ```json
 {
@@ -92,7 +93,7 @@
 
 Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'est requise pour le déclenchement (par ex. « Créer une synthèse de sujet »).
 
-### validateSelection — Validation de la sélection {#selection-validation}
+### validateSelection — Validation de la Sélection {#selection-validation}
 
 `validateSelection` est une validation déclarative de la sélection. Il couvre les cas courants comme « ignorer les éléments qui ont déjà des résultats » ou « n'accepter que les sélections de types spécifiques » — sans écrire de JavaScript.
 
@@ -118,7 +119,7 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 }
 ```
 
-### `select` — Politique de sélection
+### `select` — Politique de Sélection
 
 | Champ | Type | Description |
 |-------|------|-------------|
@@ -136,7 +137,7 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 | `generated-note-candidates` | Accepter les éléments candidats pour les notes générées |
 | `digest-representative-image` | Éléments cibles pour l'extraction d'image représentative |
 
-### `require` — Exigences de sélection
+### `require` — Exigences de Sélection
 
 | Champ | Type | Description |
 |-------|------|-------------|
@@ -147,7 +148,7 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 | `require.counts.total` | number | Nombre total minimum requis d'éléments |
 | `require.allowMixed` | boolean | Le mélange de différents types d'éléments dans la sélection est-il autorisé |
 
-### `exclude` — Règles d'exclusion
+### `exclude` — Règles d'Exclusion
 
 | Champ | Type | Description |
 |-------|------|-------------|
@@ -155,12 +156,12 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 
 **Valeurs prises en charge pour `exclude.kind` :**
 
-| kind | Description | Paramètres supplémentaires |
+| kind | Description | Paramètres Supplémentaires |
 |------|-------------|---------------------------|
 | `generated-notes-all` | L'élément possède déjà des notes générées du type spécifié | `noteKinds` : liste des types de notes, par ex. `["digest", "references", "citation-analysis"]` |
 | `artifact-exists` | L'élément possède déjà l'artefact spécifié (pour éviter l'exécution redondante) | `target` : `"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"` ; `parameter` : paramètre de langue optionnel pour la correspondance des artefacts |
 
-### `derive` — Sélections dérivées
+### `derive` — Sélections Dérivées
 
 | Champ | Type | Description |
 |-------|------|-------------|
@@ -181,7 +182,7 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 
 > Dans cet exemple, les éléments qui possèdent déjà l'artefact HTML de lecture approfondie sont automatiquement ignorés, sans nécessiter de filtrage manuel par l'utilisateur.
 
-### Contrôle du déclenchement
+### Contrôle du Déclenchement
 
 ```json
 {
@@ -195,7 +196,7 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 |-------|-------------|
 | `requiresSelection` | La sélection d'éléments par l'utilisateur est-elle requise pour le déclenchement. Par défaut `true`. Lorsque `false`, le workflow peut être exécuté depuis le Dashboard sans sélectionner d'éléments. Généralement défini à `false` quand `inputs.unit: "workflow"` |
 
-### Contrôle de l'exécution
+### Contrôle de l'Exécution
 
 ```json
 {
@@ -225,9 +226,9 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 | `zoteroHostAccess.allowWriteApprovalBypass` | Le contournement de l'approbation des opérations d'écriture est-il autorisé |
 | `feedback.showNotifications` | Afficher les notifications d'exécution. Par défaut `true` ; définir à `false` pour exécuter silencieusement |
 
-> **Mode d'exécution** (`auto` / `interactive`) a été déplacé vers `request.create.mode` — voir [Types de requêtes](request-kinds).
+> **Le mode d'exécution** (`auto` / `interactive`) a été déplacé vers `request.create.mode` — voir [Types de Requêtes](request-kinds).
 
-### Récupération des résultats
+### Récupération des Résultats
 
 ```json
 {
@@ -248,11 +249,11 @@ Lorsque `unit: "workflow"`, aucune sélection d'éléments par l'utilisateur n'e
 | Champ | Description |
 |-------|-------------|
 | `fetch.type` | Méthode de récupération. `"bundle"` (télécharger un bundle zip), `"result"` (récupérer uniquement le JSON de résultat) |
-| `final_step_id` | Pour les workflows séquentiels, spécifie l'identifiant de l'étape finale, utilisé pour déterminer le résultat final |
+| `final_step_id` | Pour les workflows séquentiels, spécifie l'id de l'étape finale, utilisé pour déterminer le résultat final |
 | `expects.result_json` | Chemin du fichier JSON de résultat attendu (relatif à l'espace de travail d'exécution) |
 | `expects.artifacts` | Liste des chemins de fichiers d'artefacts attendus |
 
-### Définition de la requête
+### Définition de la Requête
 
 Définition déclarative de la requête, **mutuellement exclusive** avec `hooks.buildRequest` (si les deux existent, `hooks.buildRequest` est prioritaire).
 
@@ -279,13 +280,14 @@ Définition déclarative de la requête, **mutuellement exclusive** avec `hooks.
 }
 ```
 
-Pour des informations détaillées sur chaque `kind`, voir [Types de requêtes](request-kinds).
+Pour des informations détaillées sur chaque `kind`, voir [Types de Requêtes](request-kinds).
 
-### Déclaration des hooks
+### Déclaration des Hooks
 
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@ Pour des informations détaillées sur chaque `kind`, voir [Types de requêtes](
 | Champ | Requis | Description |
 |-------|--------|-------------|
 | `applyResult` | ✅ | **Requis**. Chemin du script pour le traitement des résultats après exécution |
+| `preflight` | | Optionnel. S'exécute après la résolution de la sélection et avant la construction de la requête. Il peut continuer, ignorer, court-circuiter vers `applyResult` ou remplacer une unité d'entrée par des unités de requête virtuelles |
 | `buildRequest` | | Optionnel. Construire la requête à envoyer au backend. Mutuellement exclusif avec le champ `request` |
 | `normalizeSettings` | | Optionnel. Normaliser les paramètres définis par l'utilisateur |
 
-> **Le filtrage des entrées** a été remplacé par le mécanisme déclaratif `validateSelection` — voir [Validation de la sélection](#selection-validation) ci-dessous.
+> **Le filtrage des entrées** a été remplacé par le mécanisme déclaratif `validateSelection` — voir [Validation de la Sélection](#selection-validation) ci-dessous.
+
+`preflight` ne participe pas à l'activation du menu, à la classification de sélection debug-probe ni aux vérifications de disponibilité Host Bridge. Conservez les contraintes de sélection dans `validateSelection`, la construction des requêtes fournisseur dans `buildRequest` ou `request`, et les écritures Zotero dans `applyResult`.
 
 Les chemins sont relatifs au répertoire contenant `workflow.json`.
 
@@ -321,7 +326,7 @@ Les chemins sont relatifs au répertoire contenant `workflow.json`.
 
 Voir la page [Localisation](localization) pour plus de détails.
 
-### Exemple complet : un workflow d'analyse littéraire avec paramètres
+### Exemple Complet : un Workflow d'Analyse Littéraire avec Paramètres
 
 ```json
 {
@@ -365,8 +370,8 @@ Voir la page [Localisation](localization) pour plus de détails.
 }
 ```
 
-## Prochaines étapes
+## Prochaines Étapes
 
-- [Système de hooks](hooks) — Apprendre les signatures d'API et les méthodes d'écriture de chaque hook
-- [Système de paramètres](parameters) — Types de paramètres, valeurs enum, sources d'options dynamiques
-- [Sélection et contexte](selection-context) — Comment obtenir les informations sur les éléments sélectionnés par l'utilisateur
+- [Système de Hooks](hooks) — Apprendre les signatures d'API et les méthodes d'écriture de chaque hook
+- [Système de Paramètres](parameters) — Types de paramètres, valeurs enum, sources d'options dynamiques
+- [Sélection et Contexte](selection-context) — Comment obtenir les informations sur les éléments sélectionnés par l'utilisateur
