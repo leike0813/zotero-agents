@@ -125,6 +125,8 @@ type AcpConversationUiSnapshotReadOptions = {
 };
 
 const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
+const ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10;
+const coldAcpChatTranscriptMirrorLru = new Map<string, true>();
 export type AcpChatSessionRuntime = {
   key: string;
   backendId: string;
@@ -722,6 +724,82 @@ function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   );
 }
 
+function acpChatTranscriptMirrorCacheKey(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  return acpChatSessionKey(
+    sessionRuntime.backendId,
+    sessionRuntime.snapshot.conversationId,
+  );
+}
+
+function isPinnedAcpChatTranscriptMirror(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  return (
+    isLiveAcpChatSessionRuntime(sessionRuntime) ||
+    isForegroundSessionRuntime(sessionRuntime)
+  );
+}
+
+function forceReleaseAcpChatTranscriptMirror(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const key = acpChatTranscriptMirrorCacheKey(sessionRuntime);
+  coldAcpChatTranscriptMirrorLru.delete(key);
+  resetChatTranscriptMirror(sessionRuntime);
+  sessionRuntime.transcriptMirrorLoaded = false;
+  sessionRuntime.transcriptHydrateState = undefined;
+  sessionRuntime.transcriptHydrateError = undefined;
+  sessionRuntime.transcriptHydratePromise = undefined;
+  sessionRuntime.uiSnapshot = null;
+  sessionRuntime.uiHasUnpublishedTranscript = false;
+  sessionRuntime.uiPendingPublishMode = null;
+}
+
+function pruneColdAcpChatTranscriptMirrorLru() {
+  for (const key of Array.from(coldAcpChatTranscriptMirrorLru.keys())) {
+    const sessionRuntime = sessionRuntimes.get(key);
+    if (!sessionRuntime) {
+      coldAcpChatTranscriptMirrorLru.delete(key);
+      continue;
+    }
+    if (isLiveAcpChatSessionRuntime(sessionRuntime)) {
+      coldAcpChatTranscriptMirrorLru.delete(key);
+    }
+  }
+  while (
+    coldAcpChatTranscriptMirrorLru.size >
+    ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT
+  ) {
+    const key = coldAcpChatTranscriptMirrorLru.keys().next().value;
+    if (!key) {
+      break;
+    }
+    const sessionRuntime = sessionRuntimes.get(key);
+    coldAcpChatTranscriptMirrorLru.delete(key);
+    if (sessionRuntime && !isPinnedAcpChatTranscriptMirror(sessionRuntime)) {
+      forceReleaseAcpChatTranscriptMirror(sessionRuntime);
+    }
+  }
+}
+
+function touchColdAcpChatTranscriptMirror(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const key = acpChatTranscriptMirrorCacheKey(sessionRuntime);
+  if (!key || isLiveAcpChatSessionRuntime(sessionRuntime)) {
+    coldAcpChatTranscriptMirrorLru.delete(key);
+    return;
+  }
+  if (!sessionRuntime.transcriptMirrorLoaded) {
+    return;
+  }
+  coldAcpChatTranscriptMirrorLru.delete(key);
+  coldAcpChatTranscriptMirrorLru.set(key, true);
+  pruneColdAcpChatTranscriptMirrorLru();
+}
+
 function updateSnapshotTimestamp(sessionRuntime: AcpChatSessionRuntime) {
   sessionRuntime.snapshot.authMethodIds =
     sessionRuntime.snapshot.authMethods.map((entry) => entry.id);
@@ -773,9 +851,20 @@ function markSessionRuntimeConnectionIdle(
 function releaseIdleBackgroundTranscriptMirror(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
+  if (isLiveAcpChatSessionRuntime(sessionRuntime)) {
+    coldAcpChatTranscriptMirrorLru.delete(
+      acpChatTranscriptMirrorCacheKey(sessionRuntime),
+    );
+    return;
+  }
+  if (isForegroundSessionRuntime(sessionRuntime)) {
+    touchColdAcpChatTranscriptMirror(sessionRuntime);
+    return;
+  }
   if (
-    isForegroundSessionRuntime(sessionRuntime) ||
-    isLiveAcpChatSessionRuntime(sessionRuntime)
+    coldAcpChatTranscriptMirrorLru.has(
+      acpChatTranscriptMirrorCacheKey(sessionRuntime),
+    )
   ) {
     return;
   }
@@ -795,14 +884,7 @@ function releaseIdleBackgroundTranscriptMirror(
     }
     return;
   }
-  resetChatTranscriptMirror(sessionRuntime);
-  sessionRuntime.transcriptMirrorLoaded = false;
-  sessionRuntime.transcriptHydrateState = undefined;
-  sessionRuntime.transcriptHydrateError = undefined;
-  sessionRuntime.transcriptHydratePromise = undefined;
-  sessionRuntime.uiSnapshot = null;
-  sessionRuntime.uiHasUnpublishedTranscript = false;
-  sessionRuntime.uiPendingPublishMode = null;
+  forceReleaseAcpChatTranscriptMirror(sessionRuntime);
 }
 
 function pruneIdleBackgroundTranscriptMirrors() {
@@ -970,7 +1052,10 @@ function notifyConversationListenersNow(sessionRuntime: AcpChatSessionRuntime) {
 }
 
 function notifyFrontendListenersNow(change?: AcpChatPanelSnapshotChange) {
-  const frontend = buildFrontendSnapshot({ uiVisible: true });
+  const frontend = buildFrontendSnapshot({
+    uiVisible: true,
+    itemMode: "structural",
+  });
   for (const listener of frontendListeners) {
     listener(frontend);
   }
@@ -3495,6 +3580,7 @@ async function hydrateAcpChatTranscriptMirror(
     const { items, eventSeq } =
       await readFullAcpChatTranscriptFromStore(sessionRuntime);
     loadChatTranscriptMirrorFromItems(sessionRuntime, { items, eventSeq });
+    touchColdAcpChatTranscriptMirror(sessionRuntime);
   })();
   sessionRuntime.transcriptHydratePromise = hydrate;
   try {
@@ -3529,6 +3615,21 @@ function scheduleAcpChatTranscriptHydrate(
         publishMode: "full",
       });
     });
+}
+
+export function scheduleAcpChatTranscriptHydrateForOwner(args?: {
+  backendId?: string;
+  conversationId?: string;
+}) {
+  ensureInitialized();
+  const backendId = normalizeBackendId(args?.backendId || activeBackendId);
+  const conversationId = normalizeConversationId(args?.conversationId);
+  if (!backendId || !conversationId) {
+    return;
+  }
+  scheduleAcpChatTranscriptHydrate(
+    getOrCreateSessionRuntime(backendId, conversationId),
+  );
 }
 
 function selectedTranscriptStateForSessionRuntime(
@@ -3610,6 +3711,7 @@ export function readAcpConversationTranscriptMirrorPage(args: {
   if (!sessionRuntime.transcriptMirrorLoaded) {
     return undefined;
   }
+  touchColdAcpChatTranscriptMirror(sessionRuntime);
   const page = readUiVisibleTranscriptPage<AcpConversationItem>({
     itemIds: sessionRuntime.transcriptItemIds,
     getItem: (itemId) => sessionRuntime.transcriptItemsById.get(itemId),
@@ -3692,6 +3794,43 @@ export async function readAcpConversationTranscriptPage(args: {
   };
 }
 
+export function getAcpChatTranscriptMirrorDiagnosticsForTests(args?: {
+  backendId?: string;
+  conversationId?: string;
+}) {
+  ensureInitialized();
+  const backendId = normalizeBackendId(args?.backendId || activeBackendId);
+  const conversationId =
+    normalizeConversationId(args?.conversationId) ||
+    normalizeConversationId(
+      backendId
+        ? getOrCreateSessionRuntime(backendId).snapshot.conversationId
+        : "",
+    );
+  const key = acpChatSessionKey(backendId, conversationId);
+  const sessionRuntime = sessionRuntimes.get(key);
+  if (!sessionRuntime) {
+    return {
+      mirrorLoaded: false,
+      itemCount: 0,
+      eventSeq: 0,
+      hydrateState: "idle",
+      hydrateInFlight: false,
+      coldMirrorCached: coldAcpChatTranscriptMirrorLru.has(key),
+      coldMirrorCacheSize: coldAcpChatTranscriptMirrorLru.size,
+    };
+  }
+  return {
+    mirrorLoaded: sessionRuntime.transcriptMirrorLoaded,
+    itemCount: sessionRuntime.transcriptItemIds.length,
+    eventSeq: sessionRuntime.transcriptEventSeq,
+    hydrateState: sessionRuntime.transcriptHydrateState,
+    hydrateInFlight: !!sessionRuntime.transcriptHydratePromise,
+    coldMirrorCached: coldAcpChatTranscriptMirrorLru.has(key),
+    coldMirrorCacheSize: coldAcpChatTranscriptMirrorLru.size,
+  };
+}
+
 export function subscribeAcpConversationSnapshots(
   listener: AcpSnapshotListener,
 ) {
@@ -3721,7 +3860,6 @@ export async function setActiveAcpBackend(args: { backendId: string }) {
     applyRuntimeOptionsCache(sessionRuntime, backend);
   }
   pruneIdleBackgroundTranscriptMirrors();
-  scheduleAcpChatTranscriptHydrate(sessionRuntime);
   notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow(
     buildAcpChatPanelSnapshotChange(sessionRuntime, [
@@ -3846,7 +3984,6 @@ export async function setActiveAcpConversation(args: {
       conversationId
   ) {
     const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
-    scheduleAcpChatTranscriptHydrate(sessionRuntime);
     notifyConversationListenersNow(sessionRuntime);
     notifyFrontendListenersNow(
       buildAcpChatPanelSnapshotChange(sessionRuntime, ["active-scope"]),
@@ -3864,7 +4001,6 @@ export async function setActiveAcpConversation(args: {
   saveActiveAcpConversationSelection(backendId, conversationId);
   const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
   pruneIdleBackgroundTranscriptMirrors();
-  scheduleAcpChatTranscriptHydrate(sessionRuntime);
   notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow(
     buildAcpChatPanelSnapshotChange(sessionRuntime, ["active-scope"]),
@@ -4779,6 +4915,7 @@ export async function shutdownAcpSessionManager() {
   await shutdownZoteroMcpServer();
   resetAcpConversationHostBridgePermissionHandlersForTests();
   sessionRuntimes.clear();
+  coldAcpChatTranscriptMirrorLru.clear();
   listeners.clear();
   frontendListeners.clear();
   acpChatPanelListeners.clear();
@@ -4815,6 +4952,7 @@ export function resetAcpSessionManagerForTests() {
   }
   resetAcpConversationHostBridgePermissionHandlersForTests();
   sessionRuntimes.clear();
+  coldAcpChatTranscriptMirrorLru.clear();
   listeners.clear();
   frontendListeners.clear();
   acpChatPanelListeners.clear();

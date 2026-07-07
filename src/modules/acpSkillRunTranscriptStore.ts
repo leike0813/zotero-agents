@@ -3,7 +3,7 @@ import type { AcpSkillRunTranscriptItem } from "./acpSkillRunStore";
 import {
   appendRuntimeTextFile,
   readRuntimeTextFile,
-  readRuntimeTextRange,
+  readRuntimeTextRanges,
   statRuntimePath,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
@@ -530,33 +530,37 @@ function withWriteQueue(path: string, write: () => Promise<void>) {
   return next;
 }
 
-async function readEventAtIndexedOffset(
+async function readIndexedItems(
   paths: ReturnType<typeof resolveAcpSkillRunTranscriptPaths>,
-  offset: number,
-  length: number,
+  entries: AcpSkillRunTranscriptIndexItem[],
 ) {
-  const line = await readRuntimeTextRange(paths.transcriptPath, offset, length);
-  return parseTranscriptEvent(line.trim());
-}
-
-async function readIndexedItem(
-  paths: ReturnType<typeof resolveAcpSkillRunTranscriptPaths>,
-  entry: AcpSkillRunTranscriptIndexItem,
-) {
-  const events: AcpSkillRunTranscriptEvent[] = [];
-  for (let index = 0; index < entry.eventOffsets.length; index += 1) {
-    const event = await readEventAtIndexedOffset(
-      paths,
-      entry.eventOffsets[index],
-      entry.eventLengths[index],
-    );
-    if (event) {
-      events.push(event);
+  const ranges: Array<{ offset: number; length: number }> = [];
+  const owners: number[] = [];
+  entries.forEach((entry, entryIndex) => {
+    for (let index = 0; index < entry.eventOffsets.length; index += 1) {
+      ranges.push({
+        offset: entry.eventOffsets[index],
+        length: entry.eventLengths[index],
+      });
+      owners.push(entryIndex);
     }
-  }
-  return foldTranscriptEvents(events).items.find(
-    (item) => item.id === entry.itemId,
-  );
+  });
+  const lines = await readRuntimeTextRanges(paths.transcriptPath, ranges);
+  const eventsByEntry = entries.map(() => [] as AcpSkillRunTranscriptEvent[]);
+  lines.forEach((line, index) => {
+    const owner = owners[index];
+    const event = parseTranscriptEvent(String(line || "").trim());
+    if (event) {
+      eventsByEntry[owner]?.push(event);
+    }
+  });
+  return entries
+    .map((entry, index) =>
+      foldTranscriptEvents(eventsByEntry[index] || []).items.find(
+        (item) => item.id === entry.itemId,
+      ),
+    )
+    .filter((entry): entry is AcpSkillRunTranscriptItem => !!entry);
 }
 
 async function readOrRebuildTranscriptIndex(
@@ -676,9 +680,7 @@ export async function readAcpSkillRunTranscriptPage(args: {
       : Math.max(0, index.itemCount - limit);
   const cursor = Math.min(requestedCursor, index.itemCount);
   const pageEntries = index.items.slice(cursor, cursor + limit);
-  const items = (
-    await Promise.all(pageEntries.map((entry) => readIndexedItem(paths, entry)))
-  ).filter((entry): entry is AcpSkillRunTranscriptItem => !!entry);
+  const items = await readIndexedItems(paths, pageEntries);
   const prevCursor = cursor > 0 ? Math.max(0, cursor - limit) : undefined;
   const nextCursor =
     cursor + pageEntries.length < index.itemCount

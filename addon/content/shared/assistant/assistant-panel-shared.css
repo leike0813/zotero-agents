@@ -2088,6 +2088,15 @@ details.assistant-panel-details-section[open]
   pointer-events: none;
 }
 
+.assistant-transcript-virtual-loading {
+  display: grid;
+  place-items: center;
+  min-height: 24px;
+  color: var(--asst-muted);
+  font-size: 12px;
+  pointer-events: none;
+}
+
 .assistant-transcript.plain-mode {
   gap: 0;
   padding: 14px 16px;

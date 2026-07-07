@@ -1288,6 +1288,7 @@ describe("host bridge cli packaging and install", function () {
         relativePath.endsWith("zotero-bridge-release.json")
           ? encodeText('{"version":"0.1.0"}')
           : bundled,
+      readInstalledVersion: async () => "",
       hashBytes: async (bytes: Uint8Array) => sha256Hex(bytes),
     };
 
@@ -1308,6 +1309,21 @@ describe("host bridge cli packaging and install", function () {
       readRuntimeFile: async () => stale,
     });
     assert.strictEqual(staleResult.status, "stale");
+
+    const newerInstalled = await resolveHostBridgeCliInstallPromptState({
+      ...baseDeps,
+      runtimePathExists: async () => true,
+      readRuntimeFile: async () => stale,
+      readInstalledVersion: async () => "0.1.1",
+    });
+    assert.strictEqual(newerInstalled.status, "current");
+    assert.strictEqual(newerInstalled.installedVersion, "0.1.1");
+    assert.isFalse(
+      shouldPromptHostBridgeCliInstall({
+        state: newerInstalled,
+        dismissedIdentity: "",
+      }),
+    );
 
     const current = await resolveHostBridgeCliInstallPromptState({
       ...baseDeps,

@@ -301,9 +301,12 @@ async function loadAcpSkillRunSidebarForSmoke(
       )
     : "";
   const listeners = new Map<string, any[]>();
+  const actions: Array<{ action: string; payload: Record<string, unknown> }> =
+    [];
   if (typeof document.addEventListener !== "function") {
     document.addEventListener = () => undefined;
   }
+  const bridgeKey = "__zsAcpSkillRunSidebarBridge";
   const windowRef: any = {
     parent: null,
     top: null,
@@ -336,6 +339,11 @@ async function loadAcpSkillRunSidebarForSmoke(
       },
     },
   };
+  windowRef[bridgeKey] = {
+    sendAction(action: string, payload: Record<string, unknown>) {
+      actions.push({ action, payload });
+    },
+  };
   if (!options.useActualTranscriptRenderer) {
     windowRef.AssistantTranscriptRenderer = {
       renderAssistantTranscript(options: any = {}) {
@@ -366,6 +374,7 @@ async function loadAcpSkillRunSidebarForSmoke(
   }
   vm.runInNewContext(code, context);
   return {
+    actions,
     postSnapshot(snapshot: Record<string, unknown>) {
       for (const handler of listeners.get("message") || []) {
         handler({
@@ -387,6 +396,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     [];
   const transcriptRenderCalls: any[] = [];
   const panelRenderCalls: any[] = [];
+  const panelActionHooks: Array<(action: string, payload: any) => void> = [];
   const resetCalls: string[] = [];
   if (typeof document.addEventListener !== "function") {
     document.addEventListener = () => undefined;
@@ -432,8 +442,11 @@ async function loadAcpChatSidebarForSmoke(document: any) {
       },
     },
     AssistantPanelRenderer: {
-      renderAssistantPanelSnapshot(panelSnapshot: any) {
+      renderAssistantPanelSnapshot(panelSnapshot: any, options: any = {}) {
         panelRenderCalls.push(panelSnapshot);
+        if (typeof options.onAction === "function") {
+          panelActionHooks.push(options.onAction);
+        }
         return undefined;
       },
     },
@@ -476,6 +489,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
   vm.runInNewContext(code, context);
   return {
     actions,
+    panelActionHooks,
     panelRenderCalls,
     resetCalls,
     transcriptRenderCalls,
@@ -2755,6 +2769,9 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "pageKey: page ? pageKey : undefined");
     assert.include(acpChatJs, 'sendAction("load-transcript-page"');
     assert.include(acpChatJs, 'variant: "acp-chat"');
+    assert.include(acpChatJs, "pendingTranscriptOwnerKey");
+    assert.include(acpChatJs, "pendingTranscriptBackendId");
+    assert.include(acpChatJs, "shouldAcceptSnapshot");
     assert.include(acpChatJs, "function assistantPanelModel()");
     assert.include(acpChatJs, "function assistantPanelRenderer()");
     assert.include(acpChatJs, "function projectPanelSnapshot(snapshot)");
@@ -3369,7 +3386,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
     assert.include(
       assistantSidebar,
-      "void postAcpChatPanelSnapshot(host, target, phase);",
+      "void postAcpChatLoadingFirstSnapshot(host, target, phase);",
     );
     assert.notInclude(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
     assert.notInclude(assistantSidebar, "if (tab !== host.activeTab)");
@@ -3499,14 +3516,18 @@ describe("acp ui smoke", function () {
       acpChatPanelReadModel,
       "readAcpConversationTranscriptMirrorPage",
     );
-    assert.notInclude(
+    assert.include(acpChatPanelReadModel, "readAcpConversationTranscriptPage");
+    assert.include(
       acpChatPanelReadModel,
-      "readAcpConversationTranscriptPage",
+      "selectedAcpChatTranscriptPageReadable",
     );
     assert.include(acpChatPanelReadModel, "prepareAcpChatPanelSnapshot");
+    assert.include(acpChatPanelReadModel, "transcriptReadMode");
     assert.include(acpChatPanelReadModel, "selectedTranscriptPage");
     assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
     assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
+    assert.include(assistantSidebar, "postAcpChatLoadingFirstSnapshot");
+    assert.include(assistantSidebar, "queueAcpChatPageFirstSnapshot");
     assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
     assert.include(assistantSidebar, "isPureAcpChatBackgroundChange");
     assert.notInclude(assistantSidebar, "subscribeAcpConversationSnapshots");
@@ -3523,12 +3544,13 @@ describe("acp ui smoke", function () {
       handlerStart,
     );
     const chatBranchEnd = assistantSidebar.indexOf(
-      "await handleAcpChatAction",
+      "async function handleAcpSkillRunAction",
       chatBranchStart,
     );
     const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
     assert.include(chatBranch, 'action === "load-transcript-page"');
     assert.include(chatBranch, "postAcpChatPanelSnapshot");
+    assert.include(chatBranch, "postAcpChatLoadingFirstSnapshot");
     assert.notInclude(chatBranch, "refreshAcpConversationBackends");
 
     const ordinaryPostStart = assistantSidebar.indexOf(
@@ -3543,8 +3565,157 @@ describe("acp ui smoke", function () {
       ordinaryPostEnd,
     );
     assert.include(ordinaryPost, "postAcpChatPanelSnapshot");
+    assert.include(ordinaryPost, "postAcpChatLoadingFirstSnapshot");
     assert.notInclude(ordinaryPost, "refreshAcpConversationBackends");
     assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
+  });
+
+  it("guards Assistant transcript cold page-first and bounded mirror cache policy", async function () {
+    const acpSkillRunStore = await readProjectFile(
+      "src/modules/acpSkillRunStore.ts",
+    );
+    const acpSessionManager = await readProjectFile(
+      "src/modules/acpSessionManager.ts",
+    );
+    const acpChatPanelReadModel = await readProjectFile(
+      "src/modules/acpChatPanelReadModel.ts",
+    );
+    const acpSkillRunTranscriptStore = await readProjectFile(
+      "src/modules/acpSkillRunTranscriptStore.ts",
+    );
+    const runtimePersistence = await readProjectFile(
+      "src/modules/runtimePersistence.ts",
+    );
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+
+    assert.include(
+      acpSkillRunStore,
+      "ACP_SKILL_RUN_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10",
+    );
+    assert.include(acpSkillRunStore, "readSelectedTranscriptPageFromStore");
+    assert.include(acpSkillRunStore, "readAcpSkillRunTranscriptPageFromStore");
+    assert.include(runtimePersistence, "readRuntimeTextRanges");
+    assert.include(acpSkillRunTranscriptStore, "readIndexedItems");
+    assert.include(acpSkillRunTranscriptStore, "readRuntimeTextRanges");
+    assert.notInclude(acpSkillRunTranscriptStore, "readEventAtIndexedOffset");
+    assert.notInclude(acpSkillRunTranscriptStore, "readIndexedItem(");
+    assert.include(
+      acpSessionManager,
+      "ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10",
+    );
+    assert.include(acpSessionManager, "touchColdAcpChatTranscriptMirror");
+    assert.include(
+      acpChatPanelReadModel,
+      "readAcpConversationTranscriptPage(requestArgs)",
+    );
+    assert.include(
+      acpChatPanelReadModel,
+      "selectedAcpChatTranscriptPageReadable",
+    );
+    assert.include(
+      acpSkillRunStore,
+      'type AcpSkillRunTranscriptReadMode = "loading-first" | "page-first"',
+    );
+    assert.include(
+      acpChatPanelReadModel,
+      'type AcpChatTranscriptReadMode = "loading-first" | "page-first"',
+    );
+    const selectRunStart = acpSkillRunStore.indexOf(
+      "export async function selectAcpSkillRun",
+    );
+    const selectRunEnd = acpSkillRunStore.indexOf(
+      "export function getSelectedAcpSkillRunRequestId",
+      selectRunStart,
+    );
+    const selectRunBody = acpSkillRunStore.slice(selectRunStart, selectRunEnd);
+    assert.notInclude(selectRunBody, "scheduleAcpSkillRunTranscriptHydrate");
+    assert.include(assistantSidebar, "queueAcpSkillRunPageFirstSnapshot");
+    assert.include(assistantSidebar, "postAcpSkillRunLoadingFirstSnapshot");
+    assert.include(assistantSidebar, "queueAcpChatPageFirstSnapshot");
+    assert.include(assistantSidebar, "postAcpChatLoadingFirstSnapshot");
+    assert.include(assistantSidebar, 'transcriptReadMode: "loading-first"');
+    assert.include(assistantSidebar, 'transcriptReadMode: "page-first"');
+    const setActiveConversationStart = acpSessionManager.indexOf(
+      "export async function setActiveAcpConversation",
+    );
+    const setActiveConversationEnd = acpSessionManager.indexOf(
+      "export async function ensureAcpConversationReady",
+      setActiveConversationStart,
+    );
+    const setActiveConversationBody = acpSessionManager.slice(
+      setActiveConversationStart,
+      setActiveConversationEnd,
+    );
+    assert.notInclude(
+      setActiveConversationBody,
+      "scheduleAcpChatTranscriptHydrate",
+    );
+    const notifyFrontendStart = acpSessionManager.indexOf(
+      "function notifyFrontendListenersNow",
+    );
+    const notifyFrontendEnd = acpSessionManager.indexOf(
+      "function flushPendingPersistence",
+      notifyFrontendStart,
+    );
+    const notifyFrontendBody = acpSessionManager.slice(
+      notifyFrontendStart,
+      notifyFrontendEnd,
+    );
+    assert.include(notifyFrontendBody, 'itemMode: "structural"');
+    assert.notInclude(
+      notifyFrontendBody,
+      "buildFrontendSnapshot({ uiVisible: true });",
+    );
+    const loadingFirstStart = acpChatPanelReadModel.indexOf(
+      'args.transcriptReadMode === "loading-first"',
+    );
+    const loadingFirstEnd = acpChatPanelReadModel.indexOf(
+      "try {",
+      loadingFirstStart,
+    );
+    const loadingFirstBlock = acpChatPanelReadModel.slice(
+      loadingFirstStart,
+      loadingFirstEnd,
+    );
+    assert.notInclude(loadingFirstBlock, "readSelectedAcpChatTranscriptPage");
+    const hostSelectRunStart = assistantSidebar.indexOf(
+      'if (action === "select-run")',
+    );
+    const hostSelectRunEnd = assistantSidebar.indexOf(
+      "await handleAcpSkillRunAction",
+      hostSelectRunStart,
+    );
+    const hostSelectRunBlock = assistantSidebar.slice(
+      hostSelectRunStart,
+      hostSelectRunEnd,
+    );
+    assert.include(hostSelectRunBlock, "await selectAcpSkillRun");
+    assert.include(hostSelectRunBlock, "postAcpSkillRunLoadingFirstSnapshot");
+    const tabPostStart = assistantSidebar.indexOf('if (tab === "acp-skills")');
+    const tabPostEnd = assistantSidebar.indexOf(
+      "postSkillRunnerSnapshot",
+      tabPostStart,
+    );
+    const tabPostBlock = assistantSidebar.slice(tabPostStart, tabPostEnd);
+    assert.include(tabPostBlock, "postAcpSkillRunLoadingFirstSnapshot");
+    const tabPostFunctionStart = assistantSidebar.indexOf(
+      "function postSnapshotForTab",
+    );
+    const tabPostChatStart = assistantSidebar.indexOf(
+      'if (tab === "acp-chat")',
+      tabPostFunctionStart,
+    );
+    const tabPostChatEnd = assistantSidebar.indexOf(
+      'if (tab === "acp-skills")',
+      tabPostChatStart,
+    );
+    const tabPostChatBlock = assistantSidebar.slice(
+      tabPostChatStart,
+      tabPostChatEnd,
+    );
+    assert.include(tabPostChatBlock, "postAcpChatLoadingFirstSnapshot");
   });
 
   it("keeps Assistant Workspace call chain idempotent after explicit handshake", async function () {
@@ -6117,6 +6288,93 @@ describe("acp ui smoke", function () {
     );
   });
 
+  it("accepts an ACP Chat loading snapshot for a pending selected conversation", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+    const conversationAReadySnapshot = {
+      activeBackendId: "backend-pending",
+      backendId: "backend-pending",
+      activeConversationId: "conversation-a",
+      conversationId: "conversation-a",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 1,
+      transcriptState: {
+        backendId: "backend-pending",
+        conversationId: "conversation-a",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "backend-pending\nconversation-a",
+        backendId: "backend-pending",
+        conversationId: "conversation-a",
+        cursor: 0,
+        total: 1,
+        eventSeq: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "conversation-a-message",
+            kind: "message",
+            role: "assistant",
+            text: "conversation A visible transcript",
+          },
+        ],
+      },
+      chatSessions: [
+        {
+          backendId: "backend-pending",
+          conversationId: "conversation-a",
+          title: "Conversation A",
+        },
+        {
+          backendId: "backend-pending",
+          conversationId: "conversation-b",
+          title: "Conversation B",
+        },
+      ],
+      items: [],
+      labels: {},
+    };
+
+    sidebar.postSnapshot(conversationAReadySnapshot);
+    assert.include(collectFakeText(transcript), "conversation A visible");
+    sidebar.panelActionHooks.at(-1)?.("set-active-conversation", {
+      backendId: "backend-pending",
+      conversationId: "conversation-b",
+    });
+    assert.deepEqual(sidebar.actions.at(-1), {
+      action: "set-active-conversation",
+      payload: {
+        backendId: "backend-pending",
+        conversationId: "conversation-b",
+      },
+    });
+
+    sidebar.postSnapshot(conversationAReadySnapshot);
+    assert.include(collectFakeText(transcript), "conversation A visible");
+
+    sidebar.postSnapshot({
+      activeBackendId: "backend-pending",
+      backendId: "backend-pending",
+      activeConversationId: "conversation-b",
+      conversationId: "conversation-b",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 2,
+      transcriptState: {
+        backendId: "backend-pending",
+        conversationId: "conversation-b",
+        state: "loading",
+      },
+      chatSessions: conversationAReadySnapshot.chatSessions,
+      items: [],
+      labels: {},
+    });
+
+    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "conversation A visible");
+  });
+
   it("renders ACP Chat empty conversation scope without transcript page loading", async function () {
     const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
     const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
@@ -6615,6 +6873,9 @@ describe("acp ui smoke", function () {
     transcript.dispatchEventType("scroll");
 
     assert.equal(transcript.scrollTop, 6500);
+    assert.ok(
+      transcript.querySelector(".assistant-transcript-virtual-loading"),
+    );
     assert.deepEqual(
       requests.map((request) => [request.pageKey, request.cursor]),
       [["run-top-spacer", 0]],
@@ -6661,6 +6922,9 @@ describe("acp ui smoke", function () {
     transcript.dispatchEventType("scroll");
 
     assert.equal(transcript.scrollTop, 7600);
+    assert.ok(
+      transcript.querySelector(".assistant-transcript-virtual-loading"),
+    );
     assert.deepEqual(
       requests.map((request) => [request.pageKey, request.cursor]),
       [["run-bottom-spacer", 80]],
@@ -7006,6 +7270,89 @@ describe("acp ui smoke", function () {
       transcript.querySelector(".acp-skill-transcript-loading"),
       firstSpinner,
     );
+  });
+
+  it("accepts an ACP Skills loading snapshot for a pending selected run", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const actionHooks: Array<(action: string, payload: any) => void> = [];
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
+      panelRenderer: {
+        renderAssistantPanelSnapshot(_panel: any, options: any = {}) {
+          if (typeof options.onAction === "function") {
+            actionHooks.push(options.onAction);
+          }
+          return undefined;
+        },
+      },
+    });
+    const transcript = harness.elements.get("acp-skill-run-transcript");
+    const runAReadySnapshot = {
+      selectedRequestId: "run-pending-a",
+      selectedRun: {
+        requestId: "run-pending-a",
+        status: "succeeded",
+        transcriptRevision: 1,
+      },
+      runs: [
+        {
+          requestId: "run-pending-a",
+          status: "succeeded",
+          transcriptRevision: 1,
+        },
+        {
+          requestId: "run-pending-b",
+          status: "succeeded",
+          transcriptRevision: 2,
+        },
+      ],
+      selectedTranscript: {
+        requestId: "run-pending-a",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-pending-a",
+        cursor: 0,
+        total: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "run-pending-a-message",
+            kind: "message",
+            role: "assistant",
+            text: "run A visible transcript",
+          },
+        ],
+      },
+    };
+
+    sidebar.postSnapshot(runAReadySnapshot);
+    assert.include(collectFakeText(transcript), "run A visible transcript");
+    actionHooks.at(-1)?.("select-run", { requestId: "run-pending-b" });
+    assert.deepEqual(sidebar.actions.at(-1), {
+      action: "select-run",
+      payload: { requestId: "run-pending-b" },
+    });
+
+    sidebar.postSnapshot(runAReadySnapshot);
+    assert.include(collectFakeText(transcript), "run A visible transcript");
+
+    sidebar.postSnapshot({
+      selectedRequestId: "run-pending-b",
+      selectedRun: {
+        requestId: "run-pending-b",
+        status: "succeeded",
+        transcriptRevision: 2,
+      },
+      runs: runAReadySnapshot.runs,
+      selectedTranscript: {
+        requestId: "run-pending-b",
+        state: "loading",
+      },
+    });
+
+    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
+    assert.notInclude(collectFakeText(transcript), "run A visible transcript");
   });
 
   it("keeps a rendered ACP Skills transcript when a stale loading snapshot arrives", async function () {

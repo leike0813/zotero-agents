@@ -105,7 +105,10 @@ import {
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
-import { readAcpSkillRunTranscriptItems } from "../../src/modules/acpSkillRunTranscriptStore";
+import {
+  readAcpSkillRunTranscriptItems,
+  readAcpSkillRunTranscriptPage,
+} from "../../src/modules/acpSkillRunTranscriptStore";
 import { listRuntimeLogs } from "../../src/modules/runtimeLogManager";
 import {
   SKILL_RUN_FEEDBACK_ASSET_ID,
@@ -6203,26 +6206,13 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isTrue(afterEvent.needsHydrate);
 
       await selectAcpSkillRun("run-release-settled-a");
-      const loadingSnapshot = await prepareAcpSkillRunPanelSnapshot({
+      const readySnapshot = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-release-settled-a",
       });
       assert.equal(
-        loadingSnapshot.selectedRun?.requestId,
+        readySnapshot.selectedRun?.requestId,
         "run-release-settled-a",
       );
-      assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
-      assert.deepEqual(loadingSnapshot.selectedTranscriptPage?.items || [], []);
-
-      let readySnapshot = loadingSnapshot;
-      for (let index = 0; index < 20; index += 1) {
-        await delay(25);
-        readySnapshot = buildAcpSkillRunPanelSnapshot({
-          selectedRequestId: "run-release-settled-a",
-        });
-        if (readySnapshot.selectedTranscript?.state === "ready") {
-          break;
-        }
-      }
       assert.equal(readySnapshot.selectedTranscript?.state, "ready");
       assert.isTrue(
         (readySnapshot.selectedTranscriptPage?.items || []).some(
@@ -6308,7 +6298,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("cold hydrates a selected completed run before returning its snapshot", async function () {
+  it("returns a selected completed run transcript page before full cold mirror hydrate completes", async function () {
     const root = await mkTempRoot();
     const runtimeA = path.join(root, ".acp-a");
     const runtimeB = path.join(root, ".acp-b");
@@ -6359,22 +6349,33 @@ describe("ACP SkillRunner-compatible runner", function () {
         activePrompt: false,
       });
       await selectAcpSkillRun("run-partial-complete-a");
+      assert.isUndefined(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+          "run-partial-complete-a",
+        ).hydrateState,
+      );
 
       const loadingSnapshot = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "run-partial-complete-a",
+        transcriptReadMode: "loading-first",
       });
+      assert.equal(
+        loadingSnapshot.selectedRun?.requestId,
+        "run-partial-complete-a",
+      );
       assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
+      assert.isUndefined(loadingSnapshot.selectedTranscriptPage);
+      assert.isUndefined(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+          "run-partial-complete-a",
+        ).hydrateState,
+      );
 
-      let snapshot = loadingSnapshot;
-      for (let index = 0; index < 20; index += 1) {
-        await delay(25);
-        snapshot = buildAcpSkillRunPanelSnapshot({
-          selectedRequestId: "run-partial-complete-a",
-        });
-        if (snapshot.selectedTranscript?.state === "ready") {
-          break;
-        }
-      }
+      const snapshot = await prepareAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-partial-complete-a",
+        transcriptReadMode: "page-first",
+      });
+      assert.equal(snapshot.selectedTranscript?.state, "ready");
       assert.isTrue(
         (snapshot.selectedTranscriptPage?.items || []).some(
           (item) =>
@@ -6382,10 +6383,131 @@ describe("ACP SkillRunner-compatible runner", function () {
             String(item.text || "").includes("old persisted"),
         ),
       );
-      const hydrated = getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
+      const warmed = getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
         "run-partial-complete-a",
       );
-      assert.isTrue(hydrated.mirrorLoaded);
+      assert.isAtMost(warmed.coldMirrorCacheSize, 10);
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads ACP Skills transcript page items with many indexed event ranges", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-indexed-ranges",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-indexed-ranges", {
+        sessionId: "session-indexed-ranges",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "start" },
+        },
+      } as any);
+      for (let index = 0; index < 40; index += 1) {
+        recordAcpSkillRunSessionUpdate("run-indexed-ranges", {
+          sessionId: "session-indexed-ranges",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: ` chunk-${index}` },
+          },
+        } as any);
+      }
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+
+      const page = await readAcpSkillRunTranscriptPage({
+        runtimeDir,
+        cursor: 0,
+        limit: 1,
+      });
+
+      assert.equal(page.items.length, 1);
+      const item = page.items[0];
+      assert.equal(item.kind, "message");
+      assert.include(String((item as any).text || ""), "start chunk-0");
+      assert.include(String((item as any).text || ""), "chunk-39");
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps ACP Skills live transcript mirrors pinned while cold mirrors use a 10 slot LRU", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-lru-live",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-live"),
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-lru-live", {
+        sessionId: "session-lru-live",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "live mirror" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+
+      for (let index = 0; index < 11; index += 1) {
+        const requestId = `run-lru-cold-${index}`;
+        upsertAcpSkillRun({
+          requestId,
+          status: "running",
+          backendId: "backend-acp",
+          backendType: "acp",
+          workspaceDir: root,
+          runtimeDir: path.join(root, `.acp-cold-${index}`),
+          activePrompt: true,
+        });
+        recordAcpSkillRunSessionUpdate(requestId, {
+          sessionId: `session-lru-cold-${index}`,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `cold mirror ${index}` },
+          },
+        } as any);
+        await flushAcpSkillRunRuntimeFileWritesForTests();
+        upsertAcpSkillRun({
+          requestId,
+          status: "succeeded",
+          activePrompt: false,
+        });
+        await hydrateAcpSkillRunTranscriptMirror(requestId);
+      }
+
+      assert.isTrue(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-lru-live")
+          .mirrorLoaded,
+      );
+      assert.isFalse(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-lru-cold-0")
+          .mirrorLoaded,
+      );
+      assert.isTrue(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-lru-cold-10")
+          .mirrorLoaded,
+      );
+      assert.equal(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-lru-cold-10")
+          .coldMirrorCacheSize,
+        10,
+      );
     } finally {
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
@@ -6583,23 +6705,12 @@ describe("ACP SkillRunner-compatible runner", function () {
         ).mirrorLoaded,
       );
 
-      const loadingSnapshot = await prepareAcpSkillRunPanelSnapshot();
+      const readySnapshot = await prepareAcpSkillRunPanelSnapshot();
       assert.equal(
-        loadingSnapshot.selectedRun?.requestId,
+        readySnapshot.selectedRun?.requestId,
         "run-implicit-selection",
       );
       assert.equal(getSelectedAcpSkillRunRequestId(), "run-implicit-selection");
-      assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
-
-      let readySnapshot = loadingSnapshot;
-      for (let index = 0; index < 20; index += 1) {
-        await delay(25);
-        readySnapshot = buildAcpSkillRunPanelSnapshot();
-        if (readySnapshot.selectedTranscript?.state === "ready") {
-          break;
-        }
-      }
-
       assert.equal(readySnapshot.selectedTranscript?.state, "ready");
       assert.equal(
         readySnapshot.selectedTranscriptPage?.requestId,

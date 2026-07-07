@@ -24,6 +24,9 @@
     renderScheduled: false,
     panelRenderKey: "",
     drawerGroupCollapsed: new Map(),
+    pendingTranscriptOwnerKey: "",
+    pendingTranscriptBackendId: "",
+    pendingTranscriptPreviousOwnerKey: "",
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -232,6 +235,83 @@
       : "";
   }
 
+  function snapshotBackendId(snapshot) {
+    return safeText(
+      snapshot && (snapshot.activeBackendId || snapshot.backendId),
+    );
+  }
+
+  function snapshotConversationId(snapshot) {
+    return safeText(
+      snapshot && (snapshot.activeConversationId || snapshot.conversationId),
+    );
+  }
+
+  function snapshotTranscriptOwnerKey(snapshot) {
+    return transcriptPageKey(
+      snapshotBackendId(snapshot),
+      snapshotConversationId(snapshot),
+    );
+  }
+
+  function clearPendingTranscriptOwner() {
+    state.pendingTranscriptOwnerKey = "";
+    state.pendingTranscriptBackendId = "";
+    state.pendingTranscriptPreviousOwnerKey = "";
+  }
+
+  function shouldAcceptSnapshot(snapshot) {
+    const backendId = snapshotBackendId(snapshot || {});
+    const ownerKey = snapshotTranscriptOwnerKey(snapshot || {});
+    if (state.pendingTranscriptOwnerKey) {
+      if (ownerKey !== state.pendingTranscriptOwnerKey) {
+        trace("snapshot-reject-pending-owner", {
+          expectedOwnerKey: state.pendingTranscriptOwnerKey,
+          ownerKey,
+          summary: snapshotSummary(snapshot || {}),
+        });
+        return false;
+      }
+      clearPendingTranscriptOwner();
+      return true;
+    }
+    if (state.pendingTranscriptPreviousOwnerKey) {
+      if (ownerKey && ownerKey === state.pendingTranscriptPreviousOwnerKey) {
+        trace("snapshot-reject-previous-owner", {
+          previousOwnerKey: state.pendingTranscriptPreviousOwnerKey,
+          ownerKey,
+          summary: snapshotSummary(snapshot || {}),
+        });
+        return false;
+      }
+      if (
+        state.pendingTranscriptBackendId &&
+        backendId !== state.pendingTranscriptBackendId
+      ) {
+        trace("snapshot-reject-pending-backend", {
+          expectedBackendId: state.pendingTranscriptBackendId,
+          backendId,
+          summary: snapshotSummary(snapshot || {}),
+        });
+        return false;
+      }
+      clearPendingTranscriptOwner();
+      return true;
+    }
+    if (state.pendingTranscriptBackendId) {
+      if (backendId !== state.pendingTranscriptBackendId) {
+        trace("snapshot-reject-pending-backend", {
+          expectedBackendId: state.pendingTranscriptBackendId,
+          backendId,
+          summary: snapshotSummary(snapshot || {}),
+        });
+        return false;
+      }
+      clearPendingTranscriptOwner();
+    }
+    return true;
+  }
+
   function selectedTranscriptPage(snapshot) {
     const page =
       snapshot &&
@@ -321,9 +401,17 @@
   }
 
   function renderTranscriptLoading(kind, backendId, conversationId) {
-    const signature = transcriptLoadingSignature(kind, backendId, conversationId);
+    const signature = transcriptLoadingSignature(
+      kind,
+      backendId,
+      conversationId,
+    );
     const existing = transcriptEl.querySelector(".acp-chat-transcript-loading");
-    if (signature && state.transcriptLoadingSignature === signature && existing) {
+    if (
+      signature &&
+      state.transcriptLoadingSignature === signature &&
+      existing
+    ) {
       return;
     }
     clear(transcriptEl);
@@ -576,6 +664,9 @@
     if (action === "set-active-backend") {
       const backendId = safeText(data.backendId || data.value);
       if (!backendId) return;
+      state.pendingTranscriptOwnerKey = "";
+      state.pendingTranscriptPreviousOwnerKey = "";
+      state.pendingTranscriptBackendId = backendId;
       sendAction("set-active-backend", {
         backendId,
       });
@@ -597,6 +688,12 @@
       );
       const conversationId = safeText(data.conversationId || data.value);
       if (!backendId || !conversationId) return;
+      state.pendingTranscriptOwnerKey = transcriptPageKey(
+        backendId,
+        conversationId,
+      );
+      state.pendingTranscriptBackendId = backendId;
+      state.pendingTranscriptPreviousOwnerKey = "";
       sendAction("set-active-conversation", {
         conversationId,
         backendId,
@@ -608,6 +705,10 @@
         data.backendId || snapshot.activeBackendId || snapshot.backendId,
       );
       if (!backendId) return;
+      state.pendingTranscriptOwnerKey = "";
+      state.pendingTranscriptBackendId = backendId;
+      state.pendingTranscriptPreviousOwnerKey =
+        snapshotTranscriptOwnerKey(snapshot);
       sendAction("new-conversation", {
         backendId,
       });
@@ -1087,6 +1188,9 @@
       type: data.type,
       summary: snapshotSummary(payload),
     });
+    if (!shouldAcceptSnapshot(payload)) {
+      return;
+    }
     queueRender(payload);
   });
 

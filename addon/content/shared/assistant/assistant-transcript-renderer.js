@@ -336,6 +336,82 @@
     };
   }
 
+  function buildVirtualTranscriptLoadingGap(args) {
+    const container = args && args.container;
+    const state = args && args.state;
+    const options = args && args.options;
+    const layout = args && args.layout;
+    const cache = args && args.cache;
+    const firstPosition = args && args.firstPosition;
+    const lastPosition = args && args.lastPosition;
+    if (
+      !container ||
+      !state ||
+      !options ||
+      !layout ||
+      !cache ||
+      !firstPosition ||
+      !lastPosition
+    ) {
+      return null;
+    }
+    const viewportTop = finiteNumber(container.scrollTop, 0);
+    const viewportBottom =
+      viewportTop + Math.max(1, finiteNumber(container.clientHeight, 0));
+    const estimatedHeight = positiveInteger(
+      options.estimatedRowHeight,
+      VIRTUAL_ESTIMATED_ROW_HEIGHT,
+    );
+    const sentinelHeight = Math.min(estimatedHeight, 96);
+    const topGapHeight = Math.max(0, finiteNumber(firstPosition.top, 0));
+    if (
+      typeof cache.prevCursor === "number" &&
+      topGapHeight > 0 &&
+      viewportTop < topGapHeight &&
+      viewportBottom > 0
+    ) {
+      requestVirtualTranscriptPage(state, options, cache.prevCursor);
+      const height = Math.min(sentinelHeight, topGapHeight);
+      const top = Math.max(
+        0,
+        Math.min(viewportTop, Math.max(0, topGapHeight - height)),
+      );
+      return {
+        placement: "top",
+        cursor: cache.prevCursor,
+        before: top,
+        height,
+        after: Math.max(0, topGapHeight - top - height),
+      };
+    }
+    const bottomGapStart = Math.max(0, finiteNumber(lastPosition.bottom, 0));
+    const bottomGapHeight = Math.max(0, layout.totalHeight - bottomGapStart);
+    if (
+      typeof cache.nextCursor === "number" &&
+      bottomGapHeight > 0 &&
+      viewportBottom > bottomGapStart &&
+      viewportTop < layout.totalHeight
+    ) {
+      requestVirtualTranscriptPage(state, options, cache.nextCursor);
+      const height = Math.min(sentinelHeight, bottomGapHeight);
+      const top = Math.max(
+        bottomGapStart,
+        Math.min(
+          viewportTop,
+          Math.max(bottomGapStart, layout.totalHeight - height),
+        ),
+      );
+      return {
+        placement: "bottom",
+        cursor: cache.nextCursor,
+        before: Math.max(0, top - bottomGapStart),
+        height,
+        after: Math.max(0, layout.totalHeight - top - height),
+      };
+    }
+    return null;
+  }
+
   function findVirtualPositionForScroll(positions, scrollTop) {
     if (!positions.length) return null;
     const top = finiteNumber(scrollTop, 0);
@@ -564,6 +640,15 @@
     const rowKeys = windowPositions.map(function (position) {
       return position.key;
     });
+    const loadingGap = buildVirtualTranscriptLoadingGap({
+      container,
+      state,
+      options,
+      layout,
+      cache,
+      firstPosition,
+      lastPosition,
+    });
     return {
       items: windowPositions.map(function (position) {
         return position.entry.item;
@@ -584,6 +669,7 @@
       revision: cache.revision,
       prevCursor: cache.prevCursor,
       nextCursor: cache.nextCursor,
+      loadingGap,
       signature: [
         startIndex,
         endIndex,
@@ -591,6 +677,16 @@
         cache.revision,
         Math.round(firstPosition.top),
         Math.round(layout.totalHeight - lastPosition.bottom),
+        loadingGap
+          ? [
+              "gap",
+              loadingGap.placement,
+              loadingGap.cursor,
+              Math.round(loadingGap.before),
+              Math.round(loadingGap.height),
+              Math.round(loadingGap.after),
+            ].join(":")
+          : "",
         windowPositions
           .map(function (position) {
             return [
@@ -670,6 +766,71 @@
     spacer.style.height = Math.max(0, Math.floor(Number(height) || 0)) + "px";
     spacer.setAttribute("aria-hidden", "true");
     return spacer;
+  }
+
+  function createVirtualTranscriptLoadingGap(gap, options) {
+    const loading = el(
+      "div",
+      "assistant-transcript-virtual-loading",
+      transcriptLabel(options, "loading", "Loading transcript..."),
+    );
+    loading.style.height =
+      Math.max(24, Math.floor(Number(gap && gap.height) || 0)) + "px";
+    loading.setAttribute("role", "status");
+    loading.setAttribute("aria-live", "polite");
+    loading.setAttribute(
+      "data-assistant-virtual-loading-cursor",
+      String(nonNegativeInteger(gap && gap.cursor, 0)),
+    );
+    loading.setAttribute(
+      "data-assistant-virtual-loading-placement",
+      String((gap && gap.placement) || ""),
+    );
+    return loading;
+  }
+
+  function appendVirtualTranscriptTopSpacer(container, virtual, options) {
+    if (
+      !virtual ||
+      !virtual.loadingGap ||
+      virtual.loadingGap.placement !== "top"
+    ) {
+      container.appendChild(
+        createVirtualTranscriptSpacer(virtual.topSpacerHeight),
+      );
+      return;
+    }
+    container.appendChild(
+      createVirtualTranscriptSpacer(virtual.loadingGap.before),
+    );
+    container.appendChild(
+      createVirtualTranscriptLoadingGap(virtual.loadingGap, options),
+    );
+    container.appendChild(
+      createVirtualTranscriptSpacer(virtual.loadingGap.after),
+    );
+  }
+
+  function appendVirtualTranscriptBottomSpacer(container, virtual, options) {
+    if (
+      !virtual ||
+      !virtual.loadingGap ||
+      virtual.loadingGap.placement !== "bottom"
+    ) {
+      container.appendChild(
+        createVirtualTranscriptSpacer(virtual.bottomSpacerHeight),
+      );
+      return;
+    }
+    container.appendChild(
+      createVirtualTranscriptSpacer(virtual.loadingGap.before),
+    );
+    container.appendChild(
+      createVirtualTranscriptLoadingGap(virtual.loadingGap, options),
+    );
+    container.appendChild(
+      createVirtualTranscriptSpacer(virtual.loadingGap.after),
+    );
   }
 
   function measuredElementHeight(node, fallback) {
@@ -1854,9 +2015,7 @@
       clearNode(container);
       if (canDiff) nodeMap.clear();
       if (virtualized && virtual) {
-        container.appendChild(
-          createVirtualTranscriptSpacer(virtual.topSpacerHeight),
-        );
+        appendVirtualTranscriptTopSpacer(container, virtual, opts);
       }
       items.forEach(function (item, index) {
         const row = createRow(item, { variant });
@@ -1866,9 +2025,7 @@
         container.appendChild(row);
       });
       if (virtualized && virtual) {
-        container.appendChild(
-          createVirtualTranscriptSpacer(virtual.bottomSpacerHeight),
-        );
+        appendVirtualTranscriptBottomSpacer(container, virtual, opts);
       }
     } else {
       items.forEach(function (item, index) {

@@ -1197,11 +1197,23 @@ export async function readRuntimeTextRange(
   offsetRaw: number,
   lengthRaw: number,
 ) {
+  const [value] = await readRuntimeTextRanges(pathRaw, [
+    { offset: offsetRaw, length: lengthRaw },
+  ]);
+  return value || "";
+}
+
+export async function readRuntimeTextRanges(
+  pathRaw: string,
+  rangesRaw: Array<{ offset: number; length: number }>,
+) {
   const path = normalizeString(pathRaw);
-  const offset = Math.max(0, Math.floor(Number(offsetRaw || 0) || 0));
-  const length = Math.max(0, Math.floor(Number(lengthRaw || 0) || 0));
-  if (!path || length <= 0 || !(await runtimePathExists(path))) {
-    return "";
+  const ranges = rangesRaw.map((range) => ({
+    offset: Math.max(0, Math.floor(Number(range?.offset || 0) || 0)),
+    length: Math.max(0, Math.floor(Number(range?.length || 0) || 0)),
+  }));
+  if (!path || ranges.length <= 0 || !(await runtimePathExists(path))) {
+    return ranges.map(() => "");
   }
   assertNativeRuntimeFsPath(path, "read text runtime file range");
   const decoder = new TextDecoder("utf-8");
@@ -1209,9 +1221,17 @@ export async function readRuntimeTextRange(
   if (fs?.open) {
     const handle = await fs.open(path, "r");
     try {
-      const buffer = new Uint8Array(length);
-      const result = await handle.read(buffer, 0, length, offset);
-      return decoder.decode(buffer.subarray(0, result.bytesRead));
+      const output: string[] = [];
+      for (const range of ranges) {
+        if (range.length <= 0) {
+          output.push("");
+          continue;
+        }
+        const buffer = new Uint8Array(range.length);
+        const result = await handle.read(buffer, 0, range.length, range.offset);
+        output.push(decoder.decode(buffer.subarray(0, result.bytesRead)));
+      }
+      return output;
     } finally {
       await handle.close().catch(() => undefined);
     }
@@ -1233,16 +1253,27 @@ export async function readRuntimeTextRange(
         typeof inputStream.QueryInterface === "function"
           ? inputStream.QueryInterface(interfaces?.nsISeekableStream)
           : inputStream;
-      if (seekable && typeof seekable.seek === "function") {
-        seekable.seek(interfaces?.nsISeekableStream?.NS_SEEK_SET ?? 0, offset);
-      }
       binaryStream.setInputStream(inputStream);
-      const available =
-        typeof binaryStream.available === "function"
-          ? Math.min(length, Math.max(0, binaryStream.available()))
-          : length;
-      const bytes = binaryStream.readByteArray(available);
-      return decoder.decode(new Uint8Array(bytes));
+      const output: string[] = [];
+      for (const range of ranges) {
+        if (range.length <= 0) {
+          output.push("");
+          continue;
+        }
+        if (seekable && typeof seekable.seek === "function") {
+          seekable.seek(
+            interfaces?.nsISeekableStream?.NS_SEEK_SET ?? 0,
+            range.offset,
+          );
+        }
+        const available =
+          typeof binaryStream.available === "function"
+            ? Math.min(range.length, Math.max(0, binaryStream.available()))
+            : range.length;
+        const bytes = binaryStream.readByteArray(available);
+        output.push(decoder.decode(new Uint8Array(bytes)));
+      }
+      return output;
     } finally {
       try {
         binaryStream.close?.();
@@ -1256,7 +1287,12 @@ export async function readRuntimeTextRange(
       }
     }
   }
-  return (await readRuntimeTextFile(path)).slice(offset, offset + length);
+  const text = await readRuntimeTextFile(path);
+  return ranges.map((range) =>
+    range.length > 0
+      ? text.slice(range.offset, range.offset + range.length)
+      : "",
+  );
 }
 
 export async function writeRuntimeTextFile(pathRaw: string, content: string) {

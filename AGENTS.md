@@ -111,6 +111,11 @@
 - 如果需要刷新非 transcript region，必须使用该 region 自身的稳定 signature，signature 只能包含该 region 用户可见内容和打开/折叠状态。
 - 所有 Assistant Workspace shared managed regions（toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer）都必须经由区域级 signature guard；不得让 transcript-only/loading/streaming snapshot 直接触发这些区域的 clear/rebuild。
 - 涉及 transcript 渲染、prompting、snapshot、drawer/details 的改动必须补充或更新能锁定上述 DOM identity 不变量的测试。
+- cold transcript 前台渲染必须 page-first，不得以 full mirror hydrate 完成为首屏 transcript page 的正确性前提；`transcript page ready` 与 `full mirror ready` 是两个独立状态。
+- Assistant Workspace 中任何 selected transcript owner 切换都必须 owner-first：ACP Chat conversation/backend 切换、ACP Skills run 切换等路径必须先发布新 owner 的 loading-first/empty snapshot；indexed page read 与 full mirror hydrate 不得阻塞 owner first paint。
+- live/prompting/lifecycle-open transcript mirror 必须 pinned，不参与 cold mirror LRU 淘汰；cold full mirror cache 只是性能缓存，不能成为 transcript 可见性的必要条件。
+- cold full mirror LRU 按 owner 维护：ACP Skills 使用 `requestId`，ACP Chat 使用 `backendId + "\n" + conversationId`；缓存命中可以加速切换，缓存未命中必须仍能通过 indexed page read 渲染 selected page。
+- 新增 transcript cold-load / hydrate / mirror cache 逻辑时，不得把分页缓存设计成正确性 SSOT，也不得改写历史 transcript store 格式来满足 UI 首屏性能。
 
 # ACP Transcript Projection硬约束
 

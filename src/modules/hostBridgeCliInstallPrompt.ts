@@ -1,3 +1,4 @@
+import semver from "semver";
 import {
   installHostBridgeCli,
   resolveHostBridgeCliInstallTarget,
@@ -9,6 +10,7 @@ import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import { readRuntimeEnv } from "../platform/env";
 import { readRuntimeBytes, runtimePathExists } from "./runtimePersistence";
+import { getMozillaSubprocessModule } from "../utils/runtimeCompatibility";
 import { getPref, setPref } from "../utils/prefs";
 
 type DynamicImport = (specifier: string) => Promise<any>;
@@ -49,6 +51,7 @@ export type HostBridgeCliInstallPromptState =
       bundledSha256: string;
       bundledIdentity: string;
       targetSha256: string;
+      installedVersion: string;
     }
   | {
       status: "unavailable";
@@ -58,6 +61,7 @@ export type HostBridgeCliInstallPromptState =
       bundledSha256: string;
       bundledIdentity: string;
       targetSha256: string;
+      installedVersion: string;
       message: string;
       details?: Record<string, unknown>;
     };
@@ -76,6 +80,7 @@ export type HostBridgeCliInstallPromptDeps = Pick<
   readRuntimeFile?: (path: string) => Promise<Uint8Array>;
   runtimePathExists?: (path: string) => Promise<boolean>;
   readBundledAsset?: (relativePath: string) => Promise<Uint8Array | null>;
+  readInstalledVersion?: (targetPath: string) => Promise<string>;
   hashBytes?: (bytes: Uint8Array) => Promise<string>;
   getDismissedIdentity?: () => string;
   setDismissedIdentity?: (identity: string) => void;
@@ -200,12 +205,128 @@ function buildBundledIdentity(args: { version: string; sha256: string }) {
     : `sha256:${args.sha256}`;
 }
 
+function parseHostBridgeCliVersionOutput(output: string) {
+  const match = normalizeString(output).match(
+    /(?:^|\s)v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?(?:\+[0-9A-Za-z-.]+)?)(?:\s|$)/,
+  );
+  return match ? match[1] : "";
+}
+
+async function readPipeText(pipe: unknown) {
+  const reader = pipe as
+    | {
+        readString?: () => Promise<string>;
+      }
+    | null
+    | undefined;
+  if (typeof reader?.readString !== "function") {
+    return "";
+  }
+  return String((await reader.readString()) || "");
+}
+
+async function readVersionWithZoteroSubprocess(command: string) {
+  const runtime = globalThis as {
+    Zotero?: {
+      Utilities?: {
+        Internal?: {
+          subprocess?: (command: string, args?: string[]) => Promise<string>;
+        };
+      };
+    };
+  };
+  const subprocess = runtime.Zotero?.Utilities?.Internal?.subprocess;
+  if (typeof subprocess !== "function") {
+    return "";
+  }
+  return subprocess(command, ["--version"]);
+}
+
+async function readVersionWithMozillaSubprocess(command: string) {
+  const subprocess = getMozillaSubprocessModule();
+  if (typeof subprocess?.call !== "function") {
+    return "";
+  }
+  const proc = await subprocess.call({
+    command,
+    arguments: ["--version"],
+  });
+  const [stdout, stderr] = await Promise.all([
+    readPipeText(proc.stdout),
+    readPipeText(proc.stderr),
+  ]);
+  const waited = await proc.wait?.();
+  const exitCodeRaw =
+    typeof waited === "number"
+      ? waited
+      : typeof proc.exitCode === "number"
+        ? proc.exitCode
+        : typeof proc.exitValue === "number"
+          ? proc.exitValue
+          : 0;
+  const exitCode = Number.isFinite(Number(exitCodeRaw))
+    ? Math.floor(Number(exitCodeRaw))
+    : 0;
+  return exitCode === 0 ? stdout || stderr : "";
+}
+
+async function readVersionWithNodeChildProcess(command: string) {
+  const runtime = globalThis as {
+    ChromeUtils?: unknown;
+    Zotero?: unknown;
+    process?: unknown;
+  };
+  if (!runtime.process || runtime.Zotero || runtime.ChromeUtils) {
+    return "";
+  }
+  const childProcess = await dynamicImport("child_process").catch(() => null);
+  if (!childProcess?.execFile) {
+    return "";
+  }
+  return new Promise<string>((resolve) => {
+    childProcess.execFile(
+      command,
+      ["--version"],
+      { windowsHide: true, timeout: 5000 },
+      (error: unknown, stdout: unknown, stderr: unknown) => {
+        resolve(error ? "" : String(stdout || stderr || ""));
+      },
+    );
+  });
+}
+
+async function defaultReadInstalledVersion(targetPath: string) {
+  for (const readVersion of [
+    readVersionWithZoteroSubprocess,
+    readVersionWithMozillaSubprocess,
+    readVersionWithNodeChildProcess,
+  ]) {
+    const output = await readVersion(targetPath).catch(() => "");
+    const version = parseHostBridgeCliVersionOutput(output);
+    if (version) {
+      return version;
+    }
+  }
+  return "";
+}
+
+function isInstalledVersionNewer(args: {
+  installedVersion: string;
+  bundledVersion: string;
+}) {
+  const installed = semver.valid(normalizeString(args.installedVersion));
+  const bundled = semver.valid(normalizeString(args.bundledVersion));
+  return !!installed && !!bundled && semver.gt(installed, bundled);
+}
+
 export async function resolveHostBridgeCliInstallPromptState(
   deps: HostBridgeCliInstallPromptDeps = {},
 ): Promise<HostBridgeCliInstallPromptState> {
   const target = resolveHostBridgeCliInstallTarget(deps);
   const readBundledAsset = deps.readBundledAsset || defaultReadBundledAsset;
   const readRuntimeFile = deps.readRuntimeFile || readRuntimeBytes;
+  const readInstalledVersion =
+    deps.readInstalledVersion || defaultReadInstalledVersion;
   const pathExists = deps.runtimePathExists || runtimePathExists;
   const hashBytes = deps.hashBytes || sha256Bytes;
   const bundledBytes = await readBundledAsset(packagedCliRelativePath(deps));
@@ -220,6 +341,7 @@ export async function resolveHostBridgeCliInstallPromptState(
       bundledSha256: "",
       bundledIdentity: "",
       targetSha256: "",
+      installedVersion: "",
       message: "Bundled Host Bridge CLI binary is unavailable.",
     };
   }
@@ -239,29 +361,41 @@ export async function resolveHostBridgeCliInstallPromptState(
       bundledSha256,
       bundledIdentity,
       targetSha256,
+      installedVersion: "",
     };
   }
+  const installedVersion = normalizeString(
+    await readInstalledVersion(target.targetPath).catch(() => ""),
+  );
   try {
     targetSha256 = await hashBytes(await readRuntimeFile(target.targetPath));
   } catch (error) {
     return {
-      status: "stale",
+      status: isInstalledVersionNewer({ installedVersion, bundledVersion })
+        ? "current"
+        : "stale",
       targetPath: target.targetPath,
       targetDir: target.targetDir,
       bundledVersion,
       bundledSha256,
       bundledIdentity,
       targetSha256,
+      installedVersion,
     };
   }
   return {
-    status: targetSha256 === bundledSha256 ? "current" : "stale",
+    status:
+      targetSha256 === bundledSha256 ||
+      isInstalledVersionNewer({ installedVersion, bundledVersion })
+        ? "current"
+        : "stale",
     targetPath: target.targetPath,
     targetDir: target.targetDir,
     bundledVersion,
     bundledSha256,
     bundledIdentity,
     targetSha256,
+    installedVersion,
   };
 }
 

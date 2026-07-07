@@ -20,6 +20,7 @@ import {
   deleteActiveAcpConversation,
   disconnectAcpConversation,
   fs,
+  getAcpChatTranscriptMirrorDiagnosticsForTests,
   getAcpConversationSnapshot,
   getAcpConversationUiSnapshot,
   getAcpFrontendSnapshot,
@@ -857,7 +858,7 @@ describe("acp session manager", function () {
     );
   });
 
-  it("keeps the foreground transcript after disconnect and hydrates it after switching away and back", async function () {
+  it("keeps the foreground transcript after disconnect and restores it without a cold loading gap", async function () {
     await sendAcpConversationPrompt({
       message: "Disconnect hydrate transcript",
     });
@@ -879,20 +880,17 @@ describe("acp session manager", function () {
 
     await startNewAcpConversation();
     await setActiveAcpConversation({ conversationId: firstConversationId });
-    const loading = getAcpConversationUiSnapshot();
-    assert.equal(loading.conversationId, firstConversationId);
-    assert.equal(loading.transcriptState?.state, "loading");
-    assert.lengthOf(loading.items, 0);
-
-    const ready = await waitForAcpConversationUiSnapshot((snapshot) =>
-      snapshot.items.some(
+    const ready = getAcpConversationUiSnapshot();
+    assert.equal(ready.conversationId, firstConversationId);
+    assert.equal(ready.transcriptState?.state, "ready");
+    assert.isTrue(
+      ready.items.some(
         (entry) =>
           entry.kind === "message" &&
           entry.role === "user" &&
           entry.text === "Disconnect hydrate transcript",
       ),
     );
-    assert.equal(ready.transcriptState?.state, "ready");
   });
 
   it("streams ACP chat text naturally while preserving the final transcript", async function () {
@@ -1288,7 +1286,7 @@ describe("acp session manager", function () {
     assert.equal(pageReadCount, 0);
   });
 
-  it("omits ACP chat selected pages while the selected mirror is loading", async function () {
+  it("returns ACP chat selected pages from the store while the cold mirror is loading", async function () {
     setAssistantTranscriptPaginationVirtualizationEnabled(true);
     await sendAcpConversationPrompt({
       message: "Panel mirror loading source",
@@ -1302,19 +1300,161 @@ describe("acp session manager", function () {
     let pageReadCount = 0;
     const panel = await prepareAcpChatPanelSnapshot({
       target: "library",
-      readTranscriptPage: async () => {
+      readTranscriptPage: async (request) => {
         pageReadCount += 1;
-        throw new Error("loading mirror must not read a page");
+        return readAcpConversationTranscriptPage(request);
       },
     });
 
     assert.equal(panel.activeConversationId, firstConversationId);
     assert.equal(
       (panel.transcriptState as { state?: string } | undefined)?.state,
+      "ready",
+    );
+    assert.isTrue(
+      (
+        (
+          panel.selectedTranscriptPage as
+            | { items?: Array<{ kind?: string; text?: string }> }
+            | undefined
+        )?.items || []
+      ).some(
+        (item) =>
+          item.kind === "message" &&
+          String(item.text || "").includes("Panel mirror loading source"),
+      ),
+    );
+    assert.equal(pageReadCount, 1);
+  });
+
+  it("selects ACP Chat cold conversations owner-first before page-first hydrate", async function () {
+    resetAcpSessionManagerForTests();
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await sendAcpConversationPrompt({
+      message: "ACP Chat owner-first cold transcript",
+    });
+    const coldConversationId = getAcpConversationSnapshot().conversationId;
+
+    await disconnectAcpConversation({ conversationId: coldConversationId });
+    for (let index = 0; index < 11; index += 1) {
+      await startNewAcpConversation();
+      await sendAcpConversationPrompt({
+        message: `ACP Chat owner-first eviction filler ${index}`,
+      });
+      await disconnectAcpConversation({
+        conversationId: getAcpConversationSnapshot().conversationId,
+      });
+    }
+    await setActiveAcpConversation({ conversationId: coldConversationId });
+
+    const selectedDiagnostics = getAcpChatTranscriptMirrorDiagnosticsForTests({
+      conversationId: coldConversationId,
+    });
+    assert.equal(selectedDiagnostics.mirrorLoaded, false);
+    assert.notEqual(selectedDiagnostics.hydrateState, "loading");
+    assert.equal(selectedDiagnostics.hydrateInFlight, false);
+
+    let pageReadCount = 0;
+    const loadingPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      transcriptReadMode: "loading-first",
+      readTranscriptPage: async () => {
+        pageReadCount += 1;
+        throw new Error("loading-first must not read transcript pages");
+      },
+    });
+
+    assert.equal(loadingPanel.activeConversationId, coldConversationId);
+    assert.equal(
+      (loadingPanel.transcriptState as { state?: string } | undefined)?.state,
       "loading",
     );
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.isUndefined(loadingPanel.selectedTranscriptPage);
     assert.equal(pageReadCount, 0);
+    const afterLoadingDiagnostics =
+      getAcpChatTranscriptMirrorDiagnosticsForTests({
+        conversationId: coldConversationId,
+      });
+    assert.notEqual(afterLoadingDiagnostics.hydrateState, "loading");
+    assert.equal(afterLoadingDiagnostics.hydrateInFlight, false);
+
+    const pagePanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+      transcriptReadMode: "page-first",
+      readTranscriptPage: async (request) => {
+        pageReadCount += 1;
+        return readAcpConversationTranscriptPage(request);
+      },
+    });
+
+    assert.equal(pagePanel.activeConversationId, coldConversationId);
+    assert.equal(
+      (pagePanel.transcriptState as { state?: string } | undefined)?.state,
+      "ready",
+    );
+    assert.isTrue(
+      (
+        (
+          pagePanel.selectedTranscriptPage as
+            | { items?: Array<{ kind?: string; text?: string }> }
+            | undefined
+        )?.items || []
+      ).some(
+        (item) =>
+          item.kind === "message" &&
+          String(item.text || "").includes("ACP Chat owner-first cold"),
+      ),
+    );
+    assert.equal(pageReadCount, 1);
+    const afterPageDiagnostics = getAcpChatTranscriptMirrorDiagnosticsForTests({
+      conversationId: coldConversationId,
+    });
+    assert.isTrue(
+      afterPageDiagnostics.mirrorLoaded ||
+        afterPageDiagnostics.hydrateInFlight ||
+        afterPageDiagnostics.hydrateState === "loading",
+    );
+  });
+
+  it("keeps ACP Chat live transcript mirrors pinned while cold mirrors use a 10 slot LRU", async function () {
+    setAssistantTranscriptPaginationVirtualizationEnabled(true);
+    await sendAcpConversationPrompt({
+      message: "ACP Chat live mirror stays pinned",
+    });
+    const liveConversationId = getAcpConversationSnapshot().conversationId;
+
+    const coldConversationIds: string[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      await startNewAcpConversation();
+      await sendAcpConversationPrompt({
+        message: `ACP Chat cold mirror ${index}`,
+      });
+      const conversationId = getAcpConversationSnapshot().conversationId;
+      coldConversationIds.push(conversationId);
+      await disconnectAcpConversation({ conversationId });
+    }
+
+    assert.isTrue(
+      getAcpChatTranscriptMirrorDiagnosticsForTests({
+        conversationId: liveConversationId,
+      }).mirrorLoaded,
+    );
+    assert.isFalse(
+      getAcpChatTranscriptMirrorDiagnosticsForTests({
+        conversationId: coldConversationIds[0],
+      }).mirrorLoaded,
+    );
+    assert.isTrue(
+      getAcpChatTranscriptMirrorDiagnosticsForTests({
+        conversationId: coldConversationIds[10],
+      }).mirrorLoaded,
+    );
+    assert.equal(
+      getAcpChatTranscriptMirrorDiagnosticsForTests({
+        conversationId: coldConversationIds[10],
+      }).coldMirrorCacheSize,
+      10,
+    );
   });
 
   it("projects ACP chat selected pages through the streaming render policy", async function () {

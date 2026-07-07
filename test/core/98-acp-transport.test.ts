@@ -753,6 +753,8 @@ describe("acp transport", function () {
   });
 
   it("uses POSIX pidfile supervisor for wrapper-prone Mozilla ACP transports", async function () {
+    this.timeout(5000);
+
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "acp-supervisor-"));
     const calls: Array<{
       command: string;

@@ -1,7 +1,9 @@
-# ACP Skills Transcript Selection and Hydration Sequence
+# Assistant Workspace Transcript Owner Transition and Hydration Sequence
 
-本文档是 ACP Skills 对话任务切换、`transcript.jsonl` hydrate、transcript
-mirror 重建、transcript page 加载与共享 renderer 渲染的实现校对基准。
+本文档是 Assistant Workspace selected transcript owner 切换、`transcript.jsonl`
+hydrate、transcript mirror 重建、transcript page 加载与共享 renderer 渲染的实现
+校对基准。ACP Skills run 切换和 ACP Chat conversation/backend 切换必须遵守同
+一条 owner-first 时序。
 
 它描述目标时序和必须满足的不变量。代码实现若与本文档不一致，应优先判断是
 代码缺陷还是本文档需要随设计更新。
@@ -11,11 +13,13 @@ mirror 重建、transcript page 加载与共享 renderer 渲染的实现校对�
 | 名称 | 所有者 | 含义 |
 | --- | --- | --- |
 | `selectedRequestId` | `src/modules/acpSkillRunStore.ts` | ACP Skills 当前选中 run 的唯一 SSOT。 |
+| `activeBackendId` / `activeConversationId` | `src/modules/acpSessionManager.ts` | ACP Chat 当前选中 transcript owner 的唯一 SSOT。 |
 | `transcript.jsonl` | run runtime directory | 持久化 transcript SSOT，按事件追加。 |
 | `transcript.index.json` | run runtime directory | 可重建索引，用于分页读取 `transcript.jsonl`。 |
 | transcript mirror | `acpSkillRunStore.ts` | 活动会话或当前选中 run 的内存读模型，用于 UI page 投影。 |
-| `selectedTranscriptPage` | host -> child snapshot DTO | 当前 selected run 的 request-scoped transcript page。 |
-| `transcriptRevision` | 单个 run transcript | 单个 run 的内容版本，来自 mirror/index `eventSeq`。不能用于跨 run snapshot 排序。 |
+| transcript mirror | `acpSessionManager.ts` | ACP Chat 活动会话或 cold conversation LRU 的内存读模型，用于 UI page 投影。 |
+| `selectedTranscriptPage` | host -> child snapshot DTO | 当前 selected owner 的 scoped transcript page。 |
+| `transcriptRevision` | 单个 transcript owner | 单个 owner 的内容版本，来自 mirror/index `eventSeq`。不能用于跨 owner snapshot 排序。 |
 | `sidebar.panes["acp-skills"].revision` | Assistant Workspace host/shell | workspace child snapshot 时序版本，用于丢弃同一 shell scope 下的旧 payload。 |
 | renderer `pageKey` | `AssistantTranscriptRenderer` | shared renderer page cache scope。ACP Skills 必须使用 `requestId`。 |
 
@@ -44,6 +48,10 @@ mirror 重建、transcript page 加载与共享 renderer 渲染的实现校对�
    virtualization handler。
 10. shell cache replay 只能 replay 当前 `scopeKey` 下单调不降的 child
     payload。scope 变化必须清空 child payload cache 和 child revision cache。
+11. ACP Chat conversation/backend 切换、ACP Skills run 切换等 selected
+    transcript owner transition 都必须 owner-first：selection API 只切换 owner；
+    host 先发布 loading-first/empty snapshot；indexed page read 与 full mirror
+    hydrate 只能发生在后续 page-first 路径。
 
 ## Snapshot 层级
 
@@ -66,11 +74,103 @@ ACP Skills transcript 经过五层状态：
   `requestId` scope check。
 - Renderer `pageKey` 只能隔离 page cache，不能决定 store selection。
 
+## 通用 selected transcript owner transition
+
+目标：所有 Assistant Workspace transcript owner 切换都先让 child 接受新 owner，
+再读取 selected page，最后后台 warm full mirror。ACP Skills 的 owner key 是
+`requestId`；ACP Chat 的 owner key 是 `backendId + "\n" + conversationId`。
+
+```mermaid
+sequenceDiagram
+  participant User as User
+  participant Child as Assistant Child
+  participant Host as Assistant Workspace Host
+  participant Store as Owner Store
+  participant Disk as transcript.jsonl/index
+  participant Renderer as Shared Transcript Renderer
+
+  User->>Child: choose new owner
+  Child->>Child: set pending owner guard
+  Child->>Host: select owner action
+  Host->>Store: selection-only update
+  Store-->>Host: selection returns without hydrate
+  Host->>Store: prepare snapshot(mode=loading-first)
+  Store-->>Host: new owner + loading/empty transcript state
+  Host-->>Child: loading-first snapshot
+  Child->>Child: accept new owner and clear pending guard
+  Child->>Renderer: render loading or empty page
+  Host->>Host: queue page-first for captured owner key
+  Host->>Store: prepare snapshot(mode=page-first)
+  Store->>Disk: read indexed selected page
+  Disk-->>Store: selected page
+  Store->>Store: schedule background full mirror hydrate
+  Store-->>Host: ready snapshot + selectedTranscriptPage
+  Host-->>Child: page-first snapshot
+  Child->>Renderer: render page by owner pageKey
+```
+
+校对点：
+
+- `loading-first` 不能调用 indexed page reader，也不能 schedule full hydrate。
+- `page-first` 必须先尝试返回 selected page；background hydrate 只能在 selected
+  page 路径之后启动。
+- Child pending guard 必须拒绝旧 owner snapshot。目标 owner snapshot 到达后才
+  清除 pending。
+- 空 conversation / 无 durable transcript 可以发布 empty page 或 idle state，不得
+  被 full hydrate 阻塞。
+
+## 用户从 ACP Chat conversation A 切换到 conversation B
+
+目标：ACP Chat conversation/backend 切换与 ACP Skills run 切换同构。Child 在
+发送 `set-active-conversation` 后进入 pending owner 状态；host 只更新
+`activeBackendId` / `activeConversationId`，随后先发布 B 的 loading-first snapshot，
+再 queue B 的 page-first snapshot。
+
+```mermaid
+sequenceDiagram
+  participant Child as ACP Chat Child
+  participant Host as Assistant Workspace Host
+  participant Store as acpSessionManager
+  participant Disk as transcript.jsonl/index
+  participant Renderer as Shared Transcript Renderer
+
+  Child->>Child: pending owner = backendB + conversationB
+  Child->>Host: set-active-conversation(B)
+  Host->>Store: setActiveAcpConversation(B)
+  Store->>Store: active owner = B only
+  Store-->>Host: selection returns without hydrate
+  Host->>Store: prepareAcpChatPanelSnapshot(mode=loading-first)
+  Store-->>Host: snapshot activeConversationId=B, transcript loading/empty
+  Host-->>Child: ACP Chat loading-first snapshot
+  Child->>Child: accept B, clear pending owner
+  Child->>Renderer: render spinner or empty transcript
+  Host->>Host: queue page-first if active owner key is still B
+  Host->>Store: prepareAcpChatPanelSnapshot(mode=page-first)
+  Store->>Disk: read indexed selected page
+  Disk-->>Store: B selected page
+  Store->>Store: scheduleAcpChatTranscriptHydrateForOwner(B)
+  Store-->>Host: ready snapshot + selectedTranscriptPage(B)
+  Host-->>Child: ACP Chat page-first snapshot
+  Child->>Renderer: renderAssistantTranscript({pageKey: backendB + conversationB, page})
+```
+
+校对点：
+
+- `setActiveAcpConversation()` 与 `setActiveAcpBackend()` 是 selection-only。
+- `prepareAcpChatPanelSnapshot(mode=loading-first)` 不能调用
+  `readAcpConversationTranscriptPage()` 或 schedule full hydrate。
+- `prepareAcpChatPanelSnapshot(mode=page-first)` 读到 selected page 后，才可以调用
+  `scheduleAcpChatTranscriptHydrateForOwner()` 作为后台 LRU warm。
+- `new-conversation` 目标 conversation id 在 child 发 action 时未知，因此 child 至少
+  必须拒绝旧 owner snapshot；host selection 完成后仍按 loading-first -> page-first
+  发布新 owner。
+
 ## 初次打开 ACP Skills tab
 
 目标：初次打开时，如果 store 尚无 selection，则 materialize 最近可见 run 为
-`selectedRequestId`，先发布 loading snapshot，再由 hydrate 完成者发布 ready
-snapshot。
+`selectedRequestId`，先发布 loading-first snapshot，让 child 立即确认新的 owner；
+随后 queued page-first snapshot 读取 indexed page。full mirror hydrate 只能在 page
+路径之后作为后台 warm cache，不能阻塞 first paint。
 
 ```mermaid
 sequenceDiagram
@@ -82,11 +182,9 @@ sequenceDiagram
   participant Renderer as Shared Transcript Renderer
 
   Shell->>Host: child ready / tab switch acp-skills
-  Host->>Store: prepareAcpSkillRunPanelSnapshot()
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=loading-first)
   Store->>Store: materialize default selectedRequestId if empty
-  Store->>Store: selectedTranscriptStateForRun()
   alt mirror not loaded and durable transcript exists
-    Store->>Store: scheduleAcpSkillRunTranscriptHydrate(selectedRequestId)
     Store-->>Host: snapshot selectedTranscript={state:"loading"}
   else mirror loaded or no durable transcript
     Store-->>Host: snapshot selectedTranscript={state:"ready"} + selectedTranscriptPage
@@ -95,11 +193,11 @@ sequenceDiagram
   Shell->>Child: acp-skill-run:init/snapshot
   Child->>Child: accept snapshot by scope/revision/selection
   Child->>Renderer: render loading or page
-  Store->>Disk: read/rebuild transcript.index.json
-  Disk-->>Store: page/event stream
-  Store->>Store: rebuild transcript mirror
-  Store->>Host: emit transcript change
-  Host->>Store: prepareAcpSkillRunPanelSnapshot()
+  Host->>Host: queue page-first follow-up for current selectedRequestId
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=page-first)
+  Store->>Disk: read indexed selected page
+  Disk-->>Store: selected page
+  Store->>Store: schedule background full mirror hydrate after page path
   Store-->>Host: snapshot ready + selectedTranscriptPage(requestId)
   Host->>Shell: child snapshot with newer pane revision
   Shell->>Child: forward current payload
@@ -111,15 +209,18 @@ sequenceDiagram
 - 第一次默认 selection materialize 是允许的运行路径，但它与当前
   `assistant-workspace-ui-refresh-governance` 中“selection 只由显式 action
   改变”的表述存在疑似漂移。
-- `prepareAcpSkillRunPanelSnapshot()` 可以触发 hydrate，但 hydrate 完成通知必须由
-  `hydrateAcpSkillRunTranscriptMirror()` 负责。
+- `prepareAcpSkillRunPanelSnapshot(mode=loading-first)` 不能触发 indexed page read
+  或 full hydrate。
+- `prepareAcpSkillRunPanelSnapshot(mode=page-first)` 必须先尝试返回 selected page；
+  full hydrate 只能在 page path 之后作为后台 cache warm。
 - loading snapshot 没有 `selectedTranscriptPage` 时，child 可以显示 loading；但
   不能用旧 run 的 page 填充当前 transcript。
 
 ## 用户从 run A 切换到 run B
 
-目标：点击 run B 后，child 先进入 pending selection 状态；只有 selected run 为
-B 的 snapshot 可以解除 pending 并渲染 transcript。
+目标：点击 run B 后，child 先进入 pending selection 状态；host 必须先发布 run B
+的 loading-first snapshot 解除 pending，然后再 queued page-first 读取 B 的 selected
+page。full hydrate 不能在 selection 前启动，也不能阻塞 first selected snapshot。
 
 ```mermaid
 sequenceDiagram
@@ -128,6 +229,7 @@ sequenceDiagram
   participant Shell as Assistant Workspace Shell
   participant Host as Assistant Workspace Host
   participant Store as acpSkillRunStore
+  participant Disk as transcript.jsonl/index
   participant Renderer as Shared Transcript Renderer
 
   User->>Child: click run B in drawer
@@ -135,16 +237,24 @@ sequenceDiagram
   Child->>Shell: sendAction("select-run", {requestId:B})
   Shell->>Host: assistant-workspace:child-action
   Host->>Store: selectAcpSkillRun(B)
-  Store->>Store: selectedRequestId = B
-  Store->>Store: schedule hydrate for B if needed
-  Store->>Host: emit selection change
-  Host->>Store: prepareAcpSkillRunPanelSnapshot()
-  Store-->>Host: snapshot selectedRequestId=B
+  Store->>Store: selectedRequestId = B only
+  Store-->>Host: selection returns
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=loading-first)
+  Store-->>Host: snapshot selectedRequestId=B, selectedTranscript=loading
   Host->>Shell: child snapshot pane revision N
   Shell->>Child: forward payload
   Child->>Child: selectedRequestId == pendingSelectedRequestId, clear pending
-  Child->>Renderer: renderAssistantTranscript({pageKey:B, page:B page})
+  Child->>Renderer: render loading for pageKey B
   Renderer->>Renderer: reset virtual page state if previous pageKey was A
+  Host->>Host: queue page-first follow-up guarded by selectedRequestId=B
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=page-first)
+  Store->>Disk: read indexed selected page for B
+  Disk-->>Store: page B
+  Store->>Store: schedule background full mirror hydrate after page path
+  Store-->>Host: snapshot selectedRequestId=B + selectedTranscriptPage(B)
+  Host->>Shell: child snapshot pane revision N+1
+  Shell->>Child: forward payload
+  Child->>Renderer: renderAssistantTranscript({pageKey:B, page:B page})
 ```
 
 非法乱序必须被丢弃：
@@ -170,12 +280,15 @@ sequenceDiagram
   仍必须按 pending selected run 拒绝旧 selected run。
 - 切换 run 时，renderer 必须看到新的 `pageKey`。如果没有新 page，不能继续使用 A 的
   virtual cache 作为 B 的内容。
+- `selectAcpSkillRun()` 只负责 selection，不得 schedule full hydrate。
+- page-first follow-up 完成前，UI 应显示 B 的 loading 状态，而不是继续显示 A 或退回
+  workspace 占位框架。
 
 ## 历史 run mirror 已释放后的 hydrate
 
-目标：历史 run 的完整 transcript 不常驻内存。重新选中时，从
-`transcript.jsonl` 和 `transcript.index.json` 重建 mirror，再从 mirror 输出
-request-scoped page。
+目标：历史 run 的完整 transcript 不常驻内存。重新选中时，foreground path 先从
+`transcript.jsonl` 和 `transcript.index.json` 读取 request-scoped page；完整 mirror
+只作为后台 LRU warm cache。
 
 ```mermaid
 sequenceDiagram
@@ -184,28 +297,29 @@ sequenceDiagram
   participant Host
   participant Child
 
-  Store->>Store: selectedTranscriptStateForRun(run)
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=loading-first)
   alt mirror released and durable transcript exists
     Store-->>Host: selectedTranscript={state:"loading"}
-    Store->>Disk: flush pending write batch
-    Store->>Disk: readAcpSkillRunTranscriptPageFromStore(cursor=0..end)
-    Disk-->>Store: items + eventSeq
-    Store->>Store: loadTranscriptMirrorFromItems()
-    Store->>Store: hydrateState = ready, mirrorLoaded = true
-    Store->>Host: emit transcript change
-    Host->>Store: prepare snapshot
-    Store-->>Host: selectedTranscriptPage from mirror
-    Host-->>Child: ready page
   else no durable transcript
     Store-->>Host: selectedTranscript={state:"ready"} with empty/undefined page
   end
+  Host-->>Child: loading-first snapshot
+  Host->>Store: prepareAcpSkillRunPanelSnapshot(mode=page-first)
+  Store->>Disk: readAcpSkillRunTranscriptPageFromStore(selected cursor)
+  Disk-->>Store: selected page + eventSeq
+  Store-->>Host: selectedTranscript={state:"ready"} + selectedTranscriptPage
+  Host-->>Child: ready page
+  Store->>Disk: background full mirror hydrate
+  Disk-->>Store: full transcript pages
+  Store->>Store: loadTranscriptMirrorFromItems(), retain in cold LRU
 ```
 
 校对点：
 
 - `transcript.jsonl` 是真源；`transcript.index.json` 可以重建。
-- hydrate 当前会重建完整 mirror。面板 payload 仍必须只发送
-  `selectedTranscriptPage`，不能恢复 `selectedRun.transcriptItems`。
+- page-first read 是 cold foreground 的正确性路径；full hydrate 是性能缓存路径。
+- 面板 payload 仍必须只发送 `selectedTranscriptPage`，不能恢复
+  `selectedRun.transcriptItems`。
 - hydrate 失败应落到 `selectedTranscript={state:"failed"}`，不能无限
   `loading`。
 

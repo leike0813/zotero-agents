@@ -19,10 +19,12 @@ import {
 } from "./dashboardToolbarButton";
 import { buildAcpHostContext } from "./acpContextBuilder";
 import {
+  acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
   prepareAcpChatPanelSnapshot,
   resolveActiveAcpChatTranscriptPageRequest,
   shouldRefreshAcpChatSnapshotForChange,
+  type AcpChatTranscriptReadMode,
   type AcpChatTranscriptPageRequest,
 } from "./acpChatPanelReadModel";
 import {
@@ -32,6 +34,7 @@ import {
   cancelAcpConversationPrompt,
   connectAcpConversation,
   disconnectAcpConversation,
+  getAcpFrontendSnapshot,
   refreshAcpConversationBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -188,10 +191,12 @@ type AssistantWorkspaceBridge = {
   ) => Promise<AssistantWorkspaceBridgeResult>;
 };
 type AcpChatSnapshotPostOptions = {
+  transcriptReadMode?: AcpChatTranscriptReadMode;
   transcriptPage?: AcpChatTranscriptPageRequest;
 };
 type AcpSkillRunSnapshotPostOptions = {
   force?: boolean;
+  transcriptReadMode?: "loading-first" | "page-first";
   transcriptPage?: {
     requestId?: string;
     cursor?: number;
@@ -1324,11 +1329,13 @@ async function postAcpChatPanelSnapshot(
       target,
       phase,
       buildSeq,
+      transcriptReadMode: options?.transcriptReadMode || "page-first",
       transcriptPage: options?.transcriptPage || null,
     },
   );
   const snapshot = await prepareAcpChatPanelSnapshot({
     target,
+    transcriptReadMode: options?.transcriptReadMode,
     transcriptPage: options?.transcriptPage,
   });
   if (host.acpChatSnapshotBuildSeq !== buildSeq) {
@@ -1360,6 +1367,61 @@ async function postAcpChatPanelSnapshot(
   postChildSnapshot(host, "acp-chat", phase, snapshot);
 }
 
+function getActiveAcpChatOwnerKey() {
+  const frontendSnapshot = getAcpFrontendSnapshot({
+    itemMode: "structural",
+  });
+  const backendId = String(frontendSnapshot.activeBackendId || "").trim();
+  const conversationId = String(
+    frontendSnapshot.activeConversationId || "",
+  ).trim();
+  if (!backendId) {
+    return "";
+  }
+  return conversationId
+    ? acpChatTranscriptPageKey(backendId, conversationId)
+    : `${backendId}\n`;
+}
+
+function queueAcpChatPageFirstSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  const ownerKey = getActiveAcpChatOwnerKey();
+  if (!ownerKey) {
+    return;
+  }
+  setTimeout(() => {
+    if (hosts.get(host.win) !== host || host.activeTarget !== target) {
+      return;
+    }
+    if (getActiveAcpChatOwnerKey() !== ownerKey) {
+      logAssistantWorkspaceDebug(
+        host,
+        "acp-chat-page-first-skip-owner-changed",
+        "ACP Chat page-first follow-up skipped because active owner changed.",
+        { target, ownerKey },
+      );
+      return;
+    }
+    void postAcpChatPanelSnapshot(host, target, phase, {
+      transcriptReadMode: "page-first",
+    });
+  }, 0);
+}
+
+async function postAcpChatLoadingFirstSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  await postAcpChatPanelSnapshot(host, target, phase, {
+    transcriptReadMode: "loading-first",
+  });
+  queueAcpChatPageFirstSnapshot(host, target, "snapshot");
+}
+
 function canonicalizeAcpSkillRunSummaryForSignature(
   run: unknown,
   selectedRequestId: string,
@@ -1387,7 +1449,8 @@ function canonicalizeAcpSkillRunSnapshotForSignature(
   const signatureSource = { ...snapshot };
   delete signatureSource.generatedAt;
   const selectedRun =
-    signatureSource.selectedRun && typeof signatureSource.selectedRun === "object"
+    signatureSource.selectedRun &&
+    typeof signatureSource.selectedRun === "object"
       ? (signatureSource.selectedRun as Record<string, unknown>)
       : null;
   const selectedTranscript =
@@ -1454,6 +1517,7 @@ async function postAcpSkillRunSnapshot(
   );
   const snapshot = await prepareAcpSkillRunPanelSnapshot({
     transcriptPage: options?.transcriptPage,
+    transcriptReadMode: options?.transcriptReadMode,
   });
   if (host.acpSkillRunSnapshotBuildSeq !== buildSeq) {
     logAssistantWorkspaceDebug(
@@ -1526,6 +1590,42 @@ async function postAcpSkillRunSnapshot(
     },
   );
   postChildSnapshot(host, "acp-skills", phase, payload);
+}
+
+function queueAcpSkillRunPageFirstSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  const selectedRequestId = getSelectedAcpSkillRunRequestId();
+  if (!selectedRequestId) {
+    return;
+  }
+  setTimeout(() => {
+    if (getSelectedAcpSkillRunRequestId() !== selectedRequestId) {
+      logAssistantWorkspaceDebug(
+        host,
+        "acp-skills-page-first-skip-selection-changed",
+        "ACP Skills page-first follow-up skipped because selection changed.",
+        { selectedRequestId },
+      );
+      return;
+    }
+    void postAcpSkillRunSnapshot(host, phase, {
+      force: true,
+      transcriptReadMode: "page-first",
+    });
+  }, 0);
+}
+
+async function postAcpSkillRunLoadingFirstSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  phase: "init" | "snapshot" = "snapshot",
+) {
+  await postAcpSkillRunSnapshot(host, phase, {
+    force: true,
+    transcriptReadMode: "loading-first",
+  });
+  queueAcpSkillRunPageFirstSnapshot(host, "snapshot");
 }
 
 async function runAcpChatBackendRefreshBoundary(
@@ -1694,13 +1794,19 @@ function postSnapshotForTab(
   options?: { force?: boolean },
 ) {
   if (tab === "acp-chat") {
+    if (options?.force === true || phase === "init") {
+      void postAcpChatLoadingFirstSnapshot(host, target, phase);
+      return;
+    }
     void postAcpChatPanelSnapshot(host, target, phase);
     return;
   }
   if (tab === "acp-skills") {
-    void postAcpSkillRunSnapshot(host, phase, {
-      force: options?.force === true || phase === "init",
-    });
+    if (options?.force === true || phase === "init") {
+      void postAcpSkillRunLoadingFirstSnapshot(host, phase);
+      return;
+    }
+    void postAcpSkillRunSnapshot(host, phase);
     return;
   }
   postSkillRunnerSnapshot(host, phase, options);
@@ -2274,6 +2380,11 @@ async function handleChildAction(
       });
       return;
     }
+    if (action === "select-run") {
+      await selectAcpSkillRun(String(childPayload.requestId || "").trim());
+      await postAcpSkillRunLoadingFirstSnapshot(host, "snapshot");
+      return;
+    }
     await handleAcpSkillRunAction(host, action, childPayload);
     await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
     return;
@@ -2294,6 +2405,15 @@ async function handleChildAction(
       await postAcpChatPanelSnapshot(host, target, "snapshot", {
         transcriptPage,
       });
+      return;
+    }
+    if (
+      action === "set-active-conversation" ||
+      action === "set-active-backend" ||
+      action === "new-conversation"
+    ) {
+      await handleAcpChatAction(host, target, action, childPayload);
+      await postAcpChatLoadingFirstSnapshot(host, target, "snapshot");
       return;
     }
   }

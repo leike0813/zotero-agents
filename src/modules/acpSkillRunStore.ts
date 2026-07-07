@@ -1035,8 +1035,75 @@ function isAcpSkillRunLifecycleOpen(record: AcpSkillRunRecord) {
 
 function shouldRetainAcpSkillRunTranscriptMirror(record: AcpSkillRunRecord) {
   return (
-    record.requestId === selectedRequestId || isAcpSkillRunLifecycleOpen(record)
+    record.requestId === selectedRequestId ||
+    isAcpSkillRunLifecycleOpen(record) ||
+    coldAcpSkillRunTranscriptMirrorLru.has(record.requestId)
   );
+}
+
+const ACP_SKILL_RUN_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10;
+const coldAcpSkillRunTranscriptMirrorLru = new Map<string, true>();
+
+function isColdAcpSkillRunTranscriptMirror(record: AcpSkillRunRecord) {
+  return !isAcpSkillRunLifecycleOpen(record);
+}
+
+function forgetColdAcpSkillRunTranscriptMirror(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  if (requestId) {
+    coldAcpSkillRunTranscriptMirrorLru.delete(requestId);
+  }
+}
+
+function forceReleaseAcpSkillRunTranscriptMirror(requestIdRaw: string) {
+  const requestId = normalizeString(requestIdRaw);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  const state = requestId ? transcriptLiveStates.get(requestId) : undefined;
+  if (!record || !state || isAcpSkillRunLifecycleOpen(record)) {
+    return false;
+  }
+  coldAcpSkillRunTranscriptMirrorLru.delete(requestId);
+  releaseAcpSkillRunTranscriptMirror(record, state);
+  return true;
+}
+
+function pruneColdAcpSkillRunTranscriptMirrorLru() {
+  for (const requestId of Array.from(
+    coldAcpSkillRunTranscriptMirrorLru.keys(),
+  )) {
+    const record = runRecords.get(requestId);
+    if (!record) {
+      coldAcpSkillRunTranscriptMirrorLru.delete(requestId);
+      continue;
+    }
+    if (!isColdAcpSkillRunTranscriptMirror(record)) {
+      coldAcpSkillRunTranscriptMirrorLru.delete(requestId);
+    }
+  }
+  while (
+    coldAcpSkillRunTranscriptMirrorLru.size >
+    ACP_SKILL_RUN_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT
+  ) {
+    const requestId = coldAcpSkillRunTranscriptMirrorLru.keys().next().value;
+    if (!requestId) {
+      break;
+    }
+    forceReleaseAcpSkillRunTranscriptMirror(requestId);
+  }
+}
+
+function touchColdAcpSkillRunTranscriptMirror(record: AcpSkillRunRecord) {
+  if (!isColdAcpSkillRunTranscriptMirror(record)) {
+    coldAcpSkillRunTranscriptMirrorLru.delete(record.requestId);
+    return;
+  }
+  const state = transcriptLiveStates.get(record.requestId);
+  if (!state?.mirrorLoaded) {
+    return;
+  }
+  coldAcpSkillRunTranscriptMirrorLru.delete(record.requestId);
+  coldAcpSkillRunTranscriptMirrorLru.set(record.requestId, true);
+  pruneColdAcpSkillRunTranscriptMirrorLru();
 }
 
 function releaseAcpSkillRunTranscriptMirror(
@@ -1046,6 +1113,7 @@ function releaseAcpSkillRunTranscriptMirror(
   const hasDurableTranscript = hasDurableAcpSkillRunTranscript(record, state);
   resetTranscriptItemMirror(state);
   resetTranscriptContinuityState(state);
+  coldAcpSkillRunTranscriptMirrorLru.delete(record.requestId);
   state.needsHydrate = hasDurableTranscript;
   state.hydrateState = undefined;
   state.hydrateError = undefined;
@@ -1110,6 +1178,7 @@ export async function hydrateAcpSkillRunTranscriptMirror(requestIdRaw: string) {
       eventSeq,
     });
     setAcpSkillRunRecord(record);
+    touchColdAcpSkillRunTranscriptMirror(record);
     return readTranscriptMirrorPage({
       requestId,
       state,
@@ -1177,6 +1246,34 @@ function selectedTranscriptStateForRun(record: AcpSkillRunRecord | undefined) {
   return {
     requestId: record.requestId,
     state: "loading" as const,
+  };
+}
+
+async function readSelectedTranscriptPageFromStore(
+  record: AcpSkillRunRecord,
+  request?: AcpSkillRunTranscriptPageRequest,
+) {
+  const requestedPageRunId = normalizeString(request?.requestId);
+  if (requestedPageRunId && requestedPageRunId !== record.requestId) {
+    return undefined;
+  }
+  if (!hasDurableAcpSkillRunTranscript(record)) {
+    return undefined;
+  }
+  const page = await readAcpSkillRunTranscriptPageFromStore({
+    runtimeDir: record.runtimeDir,
+    cursor: request?.cursor,
+    limit: request?.limit,
+  });
+  return {
+    ...page,
+    requestId: record.requestId,
+    transcriptRevision: Math.max(
+      Number(page.eventSeq) || 0,
+      Number(record.transcriptRevision) || 0,
+      Number(record.transcriptEventSeq) || 0,
+    ),
+    limit: normalizeTranscriptPageLimit(request?.limit),
   };
 }
 
@@ -1695,6 +1792,7 @@ function materializeAcpSkillRunPanelSelectedRequestId(
 function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
   transcriptLiveStates.delete(requestId);
+  forgetColdAcpSkillRunTranscriptMirror(requestId);
   activeRunRequestIds.delete(requestId);
   removeRecentVisibleRunRequestId(requestId);
   clearWaitingUserDetachTimer(requestId);
@@ -1704,6 +1802,7 @@ function deleteAcpSkillRunRecord(requestId: string) {
 function clearAcpSkillRunRecords() {
   runRecords.clear();
   transcriptLiveStates.clear();
+  coldAcpSkillRunTranscriptMirrorLru.clear();
   activeRunRequestIds.clear();
   recentVisibleRunRequestIds.length = 0;
   recentVisibleRunSortKeys.clear();
@@ -3853,11 +3952,7 @@ export function recordAcpSkillRunSessionUpdate(
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
-  if (
-    kind === "tool_call" ||
-    kind === "tool_call_update" ||
-    kind === "plan"
-  ) {
+  if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
     persistRun(next);
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
@@ -5099,9 +5194,6 @@ export function markAcpSkillRunApplyResult(args: {
 export async function selectAcpSkillRun(requestIdRaw: string) {
   ensureHydrated();
   selectedRequestId = normalizeString(requestIdRaw);
-  if (selectedRequestId) {
-    scheduleAcpSkillRunTranscriptHydrate(selectedRequestId);
-  }
   pruneInactiveAcpSkillRunTranscriptMirrors();
   emitChanged(
     selectedRequestId
@@ -5261,6 +5353,8 @@ export function getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
       eventSeq: 0,
       needsHydrate: false,
       hydrateState: undefined,
+      coldMirrorCached: coldAcpSkillRunTranscriptMirrorLru.has(requestId),
+      coldMirrorCacheSize: coldAcpSkillRunTranscriptMirrorLru.size,
     };
   }
   return {
@@ -5269,6 +5363,8 @@ export function getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
     eventSeq: state.eventSeq,
     needsHydrate: state.needsHydrate === true,
     hydrateState: state.hydrateState,
+    coldMirrorCached: coldAcpSkillRunTranscriptMirrorLru.has(requestId),
+    coldMirrorCacheSize: coldAcpSkillRunTranscriptMirrorLru.size,
   };
 }
 
@@ -5406,6 +5502,7 @@ type AcpSkillRunTranscriptPageRequest = {
   cursor?: number;
   limit?: number;
 };
+type AcpSkillRunTranscriptReadMode = "loading-first" | "page-first";
 
 function selectedTranscriptPageForRun(
   record: AcpSkillRunRecord | undefined,
@@ -5422,12 +5519,14 @@ function selectedTranscriptPageForRun(
   if (requestedPageRunId && requestedPageRunId !== record.requestId) {
     return undefined;
   }
-  return readUiVisibleTranscriptMirrorPage({
+  const page = readUiVisibleTranscriptMirrorPage({
     requestId: record.requestId,
     state: getAcpSkillRunTranscriptLiveState(record),
     cursor: request?.cursor,
     limit: request?.limit,
   });
+  touchColdAcpSkillRunTranscriptMirror(record);
+  return page;
 }
 
 function buildAcpSkillRunPanelSnapshotFromRuns(
@@ -5435,6 +5534,12 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
   args?: {
     selectedRequestId?: string;
     transcriptPage?: AcpSkillRunTranscriptPageRequest;
+    selectedTranscriptOverride?: ReturnType<
+      typeof selectedTranscriptStateForRun
+    >;
+    selectedTranscriptPageOverride?: ReturnType<
+      typeof selectedTranscriptPageForRun
+    >;
   },
 ): AcpSkillRunPanelSnapshot {
   const truncated = listedRuns.length > ACP_SKILL_RUN_PANEL_RUN_LIMIT;
@@ -5457,7 +5562,8 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
     ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   }
   const snapshotSelectedRequestId = selected?.requestId || "";
-  const selectedTranscript = selectedTranscriptStateForRun(selected);
+  const selectedTranscript =
+    args?.selectedTranscriptOverride || selectedTranscriptStateForRun(selected);
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
     ? listRuntimeLogs({
@@ -5505,10 +5611,9 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
     labels,
     selectedRequestId: snapshotSelectedRequestId,
     selectedTranscript,
-    selectedTranscriptPage: selectedTranscriptPageForRun(
-      selected,
-      args?.transcriptPage,
-    ),
+    selectedTranscriptPage:
+      args?.selectedTranscriptPageOverride ||
+      selectedTranscriptPageForRun(selected, args?.transcriptPage),
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),
@@ -5558,6 +5663,7 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
 export async function prepareAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
+  transcriptReadMode?: AcpSkillRunTranscriptReadMode;
 }): Promise<AcpSkillRunPanelSnapshot> {
   ensureHydrated();
   const listedRuns = listAcpSkillRunPanelRecentSummaries({
@@ -5573,12 +5679,64 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
     requested: selectedRequestIdForSnapshot,
     runs: listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT),
   });
+  let selectedTranscriptOverride:
+    | ReturnType<typeof selectedTranscriptStateForRun>
+    | undefined;
+  let selectedTranscriptPageOverride:
+    | ReturnType<typeof selectedTranscriptPageForRun>
+    | undefined;
   if (selected) {
-    scheduleAcpSkillRunTranscriptHydrate(selected.requestId);
+    const state = getAcpSkillRunTranscriptLiveState(selected);
+    if (
+      !state.mirrorLoaded &&
+      hasDurableAcpSkillRunTranscript(selected, state)
+    ) {
+      if (args?.transcriptReadMode === "loading-first") {
+        selectedTranscriptOverride = {
+          requestId: selected.requestId,
+          state: "loading" as const,
+        };
+      } else {
+        try {
+          selectedTranscriptPageOverride =
+            await readSelectedTranscriptPageFromStore(
+              selected,
+              args?.transcriptPage,
+            );
+          if (selectedTranscriptPageOverride) {
+            selectedTranscriptOverride = {
+              requestId: selected.requestId,
+              state: "ready" as const,
+            };
+            scheduleAcpSkillRunTranscriptHydrate(selected.requestId);
+          }
+        } catch (error) {
+          state.hydrateState = "failed";
+          state.hydrateError = errorText(error);
+          selectedTranscriptOverride = {
+            requestId: selected.requestId,
+            state: "failed" as const,
+            error: state.hydrateError,
+          };
+          appendRuntimeLog({
+            level: "warn",
+            scope: "system",
+            component: "acp-skill-run-store",
+            operation: "prepare-panel-snapshot",
+            stage: "transcript-page",
+            requestId: selected.requestId,
+            message: "ACP Skills selected transcript page could not be read.",
+            error,
+          });
+        }
+      }
+    }
   }
   return buildAcpSkillRunPanelSnapshotFromRuns(listedRuns, {
     ...args,
     selectedRequestId: selectedRequestIdForSnapshot,
+    selectedTranscriptOverride,
+    selectedTranscriptPageOverride,
   });
 }
 

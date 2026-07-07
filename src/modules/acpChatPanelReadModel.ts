@@ -4,7 +4,9 @@ import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistan
 import {
   getAcpConversationUiSnapshot,
   getAcpFrontendSnapshot,
+  readAcpConversationTranscriptPage,
   readAcpConversationTranscriptMirrorPage,
+  scheduleAcpChatTranscriptHydrateForOwner,
   type AcpChatPanelSnapshotChange,
   type AcpChatPanelSnapshotChangeKind,
   type AcpConversationTranscriptPage,
@@ -27,8 +29,11 @@ export type AcpChatPanelSnapshotReadTranscriptPage = (
   | undefined
   | Promise<AcpConversationTranscriptPage | undefined>;
 
+export type AcpChatTranscriptReadMode = "loading-first" | "page-first";
+
 export type AcpChatPanelSnapshotArgs = {
   target: AcpSidebarTarget;
+  transcriptReadMode?: AcpChatTranscriptReadMode;
   transcriptPage?: AcpChatTranscriptPageRequest;
   readTranscriptPage?: AcpChatPanelSnapshotReadTranscriptPage;
 };
@@ -107,7 +112,7 @@ async function readSelectedAcpChatTranscriptPage(args: {
   activeBackendId: string;
   activeConversationId: string;
   request?: AcpChatTranscriptPageRequest;
-  readTranscriptPage: AcpChatPanelSnapshotReadTranscriptPage;
+  readTranscriptPage?: AcpChatPanelSnapshotReadTranscriptPage;
   streamingRenderEnabled: boolean;
 }) {
   const backendId = String(
@@ -124,13 +129,20 @@ async function readSelectedAcpChatTranscriptPage(args: {
   if (requestId && requestId !== expectedRequestId) {
     return undefined;
   }
-  return args.readTranscriptPage({
+  const requestArgs = {
     backendId,
     conversationId,
     cursor: finitePageNumber(args.request?.cursor),
     limit: finitePageNumber(args.request?.limit),
     streamingRenderEnabled: args.streamingRenderEnabled,
-  });
+  };
+  if (args.readTranscriptPage) {
+    return args.readTranscriptPage(requestArgs);
+  }
+  return (
+    readAcpConversationTranscriptMirrorPage(requestArgs) ||
+    readAcpConversationTranscriptPage(requestArgs)
+  );
 }
 
 function normalizeBackendOptionId(entry: unknown) {
@@ -216,7 +228,7 @@ function applyAcpChatPanelAvailabilityState(payload: Record<string, unknown>) {
   };
 }
 
-function selectedAcpChatTranscriptReady(
+function selectedAcpChatTranscriptPageReadable(
   payload: Record<string, unknown>,
   availability: ReturnType<typeof applyAcpChatPanelAvailabilityState>,
 ) {
@@ -226,13 +238,53 @@ function selectedAcpChatTranscriptReady(
     !Array.isArray(payload.transcriptState)
       ? (payload.transcriptState as Record<string, unknown>)
       : null;
-  return (
-    !!state &&
-    state.state === "ready" &&
-    String(state.backendId || "").trim() === availability.activeBackendId &&
-    String(state.conversationId || "").trim() ===
+  if (
+    !state ||
+    String(state.backendId || "").trim() !== availability.activeBackendId ||
+    String(state.conversationId || "").trim() !==
       availability.activeConversationId
+  ) {
+    return false;
+  }
+  if (state.state === "ready") {
+    return true;
+  }
+  const durableTranscript = Math.max(
+    0,
+    Number(payload.transcriptRevision) || 0,
+    Number(payload.transcriptEventSeq) || 0,
+    Number(payload.transcriptItemCount) || 0,
   );
+  return state.state === "loading" && durableTranscript > 0;
+}
+
+function durableAcpChatTranscriptCount(payload: Record<string, unknown>) {
+  return Math.max(
+    0,
+    Number(payload.transcriptRevision) || 0,
+    Number(payload.transcriptEventSeq) || 0,
+    Number(payload.transcriptItemCount) || 0,
+  );
+}
+
+function emptyAcpChatTranscriptPage(
+  availability: ReturnType<typeof applyAcpChatPanelAvailabilityState>,
+  limit?: number,
+): AcpConversationTranscriptPage {
+  return {
+    backendId: availability.activeBackendId,
+    conversationId: availability.activeConversationId,
+    requestId: acpChatTranscriptPageKey(
+      availability.activeBackendId,
+      availability.activeConversationId,
+    ),
+    items: [],
+    cursor: 0,
+    total: 0,
+    eventSeq: 0,
+    transcriptRevision: 0,
+    limit: Math.max(1, Math.floor(Number(limit || 80) || 80)),
+  };
 }
 
 export async function prepareAcpChatPanelSnapshot(
@@ -270,7 +322,28 @@ export async function prepareAcpChatPanelSnapshot(
   ) {
     return payload;
   }
-  if (!selectedAcpChatTranscriptReady(payload, availability)) {
+  if (!selectedAcpChatTranscriptPageReadable(payload, availability)) {
+    if (durableAcpChatTranscriptCount(payload) <= 0) {
+      const emptyPage = emptyAcpChatTranscriptPage(
+        availability,
+        args.transcriptPage?.limit,
+      );
+      payload.selectedTranscriptPage = emptyPage;
+      payload.transcriptState = {
+        backendId: emptyPage.backendId,
+        conversationId: emptyPage.conversationId,
+        state: "ready",
+      };
+    }
+    return payload;
+  }
+  if (args.transcriptReadMode === "loading-first") {
+    payload.selectedTranscriptPage = undefined;
+    payload.transcriptState = {
+      backendId: availability.activeBackendId,
+      conversationId: availability.activeConversationId,
+      state: "loading",
+    };
     return payload;
   }
   try {
@@ -278,12 +351,32 @@ export async function prepareAcpChatPanelSnapshot(
       activeBackendId: availability.activeBackendId,
       activeConversationId: availability.activeConversationId,
       request: args.transcriptPage,
-      readTranscriptPage:
-        args.readTranscriptPage || readAcpConversationTranscriptMirrorPage,
+      readTranscriptPage: args.readTranscriptPage,
       streamingRenderEnabled,
     });
-    if (selectedAcpChatTranscriptPageMatchesSnapshot(payload, page)) {
+    if (page && selectedAcpChatTranscriptPageMatchesSnapshot(payload, page)) {
       payload.selectedTranscriptPage = page;
+      payload.transcriptState = {
+        backendId: page.backendId,
+        conversationId: page.conversationId,
+        state: "ready",
+      };
+      payload.transcriptRevision = Math.max(
+        Number(payload.transcriptRevision) || 0,
+        Number(page.transcriptRevision) || 0,
+      );
+      payload.transcriptEventSeq = Math.max(
+        Number(payload.transcriptEventSeq) || 0,
+        Number(page.eventSeq) || 0,
+      );
+      payload.transcriptItemCount = Math.max(
+        Number(payload.transcriptItemCount) || 0,
+        Number(page.total) || 0,
+      );
+      scheduleAcpChatTranscriptHydrateForOwner({
+        backendId: page.backendId,
+        conversationId: page.conversationId,
+      });
     }
   } catch (error) {
     appendRuntimeLog({

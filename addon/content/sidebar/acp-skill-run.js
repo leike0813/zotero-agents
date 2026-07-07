@@ -827,7 +827,11 @@
     const signature = transcriptLoadingSignature(requestId, stateName);
     const existing =
       transcript && transcript.querySelector(".acp-skill-transcript-loading");
-    if (signature && state.transcriptLoadingSignature === signature && existing) {
+    if (
+      signature &&
+      state.transcriptLoadingSignature === signature &&
+      existing
+    ) {
       renderChatDisplayMode();
       return;
     }
