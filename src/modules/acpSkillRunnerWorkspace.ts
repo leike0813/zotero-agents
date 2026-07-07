@@ -34,7 +34,6 @@ export type AcpSkillRunnerWorkspace = {
   runtimeDir: string;
   resultDir: string;
   resultJsonPath: string;
-  auditDir: string;
   inputManifestPath: string;
 };
 
@@ -88,7 +87,6 @@ async function scanRunnerFileNamespaces(args: { workspaceDir: string }) {
   const namespaceCountsBySkillId = new Map<string, number>();
   for (const parent of [
     joinPath(args.workspaceDir, "result"),
-    joinPath(args.workspaceDir, ".audit"),
     joinPath(args.workspaceDir, ".acp"),
   ]) {
     const parentStat = await statRuntimePath(parent);
@@ -115,14 +113,12 @@ function resolveWorkspacePaths(args: {
 }) {
   const runtimeDir = joinPath(args.workspaceDir, ".acp", args.fileNamespace);
   const resultDir = joinPath(args.workspaceDir, "result", args.fileNamespace);
-  const auditDir = joinPath(args.workspaceDir, ".audit", args.fileNamespace);
   return {
     workspaceDir: args.workspaceDir,
     runtimeDir,
     resultDir,
     resultJsonPath: joinPath(resultDir, "result.json"),
-    auditDir,
-    inputManifestPath: joinPath(auditDir, "input_manifest.json"),
+    inputManifestPath: joinPath(runtimeDir, "input_manifest.json"),
   };
 }
 
@@ -202,7 +198,6 @@ export async function createAcpSkillRunnerWorkspace(args: {
       fileNamespace,
     });
     await ensureRuntimeDirectory(paths.resultDir);
-    await ensureRuntimeDirectory(paths.auditDir);
     await ensureRuntimeDirectory(paths.runtimeDir);
     return {
       requestId,
@@ -217,7 +212,6 @@ export async function createAcpSkillRunnerWorkspace(args: {
   });
   const paths = resolveWorkspacePaths({ workspaceDir, fileNamespace });
   await ensureRuntimeDirectory(paths.resultDir);
-  await ensureRuntimeDirectory(paths.auditDir);
   await ensureRuntimeDirectory(paths.runtimeDir);
   if (args.workflowWorkspace?.mode === "new" && workflowRunId) {
     workflowWorkspacesByRunId.set(workflowRunId, {

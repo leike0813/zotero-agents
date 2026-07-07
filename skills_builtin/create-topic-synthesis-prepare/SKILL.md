@@ -28,8 +28,8 @@ Topic Synthesis 是 Zotero 中的信息密集型 topic 知识窗口，也是 Int
 
 ## 必需运行输入
 
-- .audit/<skill-namespace>/input_manifest.json
-- runtime/input.json（兼容旧执行器，可选）
+- .acp/<skill-namespace>/input_manifest.json 或 .audit/<skill-namespace>/input_manifest.json
+- runtime/input.json（可选）
 
 ## 执行合同
 
@@ -50,7 +50,7 @@ Host Bridge CLI 的完整命令映射由内置 `zotero-bridge-cli` wrapper skill
 <!-- host-bridge-surface:topic-synthesis-fragment:start -->
 
 Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护。
-当前 topic synthesis 相关命令族摘要：`library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
+当前 topic synthesis 相关命令族摘要：`library annotation export`, `library annotation list`, `library item attachments`, `library item get`, `library item notes`, `library item search`, `library items list`, `library note get`, `library note payload`, `library note payloads`, `library readiness audit`, `library readiness missing-analysis`, `library readiness missing-markdown`, `library readiness missing-pdf`, `library snapshot`, `synthesis artifact export-filtered`, `synthesis artifact manifest`, `synthesis artifact read`, `synthesis artifact resolve-topic-digest`, `synthesis concept query`, `synthesis graph get-layout`, `synthesis graph get-metrics`, `synthesis graph get-slice`, `synthesis graph overview`, `synthesis graph query-cluster`, `synthesis graph rank-external-references`, `synthesis graph rank-library-papers`, `synthesis graph refresh-metrics`, `synthesis index library get`, `synthesis index reference get`, `synthesis insight attention-queue`, `synthesis resolver resolve`, `synthesis schema get`, `synthesis topic find-by-paper-ref`, `synthesis topic get-context`, `synthesis topic get-report`, `synthesis topic get-review-input`, `synthesis topic list`。
 使用 Host Bridge 能力前，先读取该 wrapper skill 及其 `references/host-bridge-cli.md` 生成映射参考。
 不要绕过 Host Bridge 直接读取 Zotero DB/storage；除非用户明确要求 MCP 诊断，否则不要切换到 MCP。
 

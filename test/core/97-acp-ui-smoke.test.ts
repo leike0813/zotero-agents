@@ -287,7 +287,11 @@ async function loadAssistantPanelRendererForSmoke(document: any) {
 
 async function loadAcpSkillRunSidebarForSmoke(
   document: any,
-  options: { useActualTranscriptRenderer?: boolean } = {},
+  options: {
+    panelModel?: any;
+    panelRenderer?: any;
+    useActualTranscriptRenderer?: boolean;
+  } = {},
 ) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile("addon/content/sidebar/acp-skill-run.js");
@@ -314,7 +318,7 @@ async function loadAcpSkillRunSidebarForSmoke(
       entries.push(handler);
       listeners.set(type, entries);
     },
-    AssistantPanelModel: {
+    AssistantPanelModel: options.panelModel || {
       projectAcpSkillRunPanelSnapshot(snapshot: any = {}) {
         return {
           kind: "acp-skill",
@@ -326,7 +330,7 @@ async function loadAcpSkillRunSidebarForSmoke(
         };
       },
     },
-    AssistantPanelRenderer: {
+    AssistantPanelRenderer: options.panelRenderer || {
       renderAssistantPanelSnapshot() {
         return undefined;
       },
@@ -717,6 +721,36 @@ function createFakeDocumentForAssistantPanel() {
   }
 
   return documentRef;
+}
+
+function createAcpSkillRunSidebarHarnessDocument() {
+  const fakeDocument = createFakeDocumentForAssistantPanel();
+  const elements = new Map<string, any>();
+  const shell = fakeDocument.createElement("div");
+  shell.className = "acp-skill-run-shell";
+  for (const id of [
+    "acp-skill-run-transcript",
+    "acp-skill-chat-mode-plain",
+    "acp-skill-chat-mode-bubble",
+    "acp-skill-run-drawer",
+    "acp-skill-run-details",
+    "acp-skill-run-empty",
+    "acp-skill-run-main",
+    "acp-skill-run-toolbar",
+    "acp-skill-run-banner",
+    "acp-skill-conversation-window",
+    "acp-skill-run-plan-panel",
+    "acp-skill-run-interaction",
+    "acp-skill-run-reply-form",
+  ]) {
+    const node = fakeDocument.createElement("div");
+    elements.set(id, node);
+    shell.appendChild(node);
+  }
+  fakeDocument.getElementById = (id: string) => elements.get(id) || null;
+  fakeDocument.querySelector = (selector: string) =>
+    selector === ".acp-skill-run-shell" ? shell : null;
+  return { document: fakeDocument, elements, shell };
 }
 
 function createAcpChatSidebarHarnessDocument() {
@@ -2782,12 +2816,8 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "runtimeOptions.currentDisplayModel.id");
     assert.include(acpSkillRunJs, "runtimeOptions.currentModel.id");
     assert.include(acpSkillRunJs, "runtimeOptions.currentReasoningEffort.id");
-    assert.include(acpSkillRunJs, "function compactEventsKey(run)");
-    assert.include(acpSkillRunJs, "function compactLogsKey(logs)");
     assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
-    assert.include(acpSkillRunJs, "selectedEvents:");
     assert.include(acpSkillRunJs, "streamingRenderEnabled:");
-    assert.include(acpSkillRunJs, "logs:");
     assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
     assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
     assert.include(
@@ -6033,6 +6063,60 @@ describe("acp ui smoke", function () {
     assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
   });
 
+  it("keeps ACP Chat loading spinner stable for repeated same-conversation snapshots", async function () {
+    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+
+    const loadingSnapshot = {
+      activeBackendId: "backend-loading",
+      backendId: "backend-loading",
+      activeConversationId: "conversation-loading",
+      conversationId: "conversation-loading",
+      transcriptPaginationVirtualizationEnabled: true,
+      transcriptRevision: 1,
+      transcriptState: {
+        backendId: "backend-loading",
+        conversationId: "conversation-loading",
+        state: "loading",
+      },
+      items: [],
+      labels: {},
+    };
+
+    sidebar.postSnapshot(loadingSnapshot);
+    const firstSpinner = transcript.querySelector(
+      ".acp-chat-transcript-loading",
+    );
+    assert.ok(firstSpinner);
+
+    sidebar.postSnapshot({
+      ...loadingSnapshot,
+      transcriptRevision: 2,
+      transcriptItemCount: 42,
+      transcriptPreview: "streaming chunk that must not rebuild loading",
+    });
+    assert.strictEqual(
+      transcript.querySelector(".acp-chat-transcript-loading"),
+      firstSpinner,
+    );
+
+    sidebar.postSnapshot({
+      ...loadingSnapshot,
+      activeConversationId: "conversation-other",
+      conversationId: "conversation-other",
+      transcriptRevision: 1,
+      transcriptState: {
+        backendId: "backend-loading",
+        conversationId: "conversation-other",
+        state: "loading",
+      },
+    });
+    assert.notStrictEqual(
+      transcript.querySelector(".acp-chat-transcript-loading"),
+      firstSpinner,
+    );
+  });
+
   it("renders ACP Chat empty conversation scope without transcript page loading", async function () {
     const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
     const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
@@ -6751,6 +6835,87 @@ describe("acp ui smoke", function () {
     assert.equal(transcript.scrollTop, 12000);
   });
 
+  it("keeps ACP Skills loading spinner stable for repeated same-run snapshots", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document);
+    const transcript = harness.elements.get("acp-skill-run-transcript");
+
+    const loadingSnapshot = {
+      selectedRequestId: "run-loading-stable",
+      selectedRun: {
+        requestId: "run-loading-stable",
+        status: "running",
+        transcriptRevision: 1,
+      },
+      runs: [
+        {
+          requestId: "run-loading-stable",
+          status: "running",
+          transcriptRevision: 1,
+        },
+      ],
+      selectedTranscript: {
+        requestId: "run-loading-stable",
+        state: "loading",
+      },
+    };
+
+    sidebar.postSnapshot(loadingSnapshot);
+    const firstSpinner = transcript.querySelector(
+      ".acp-skill-transcript-loading",
+    );
+    assert.ok(firstSpinner);
+
+    sidebar.postSnapshot({
+      ...loadingSnapshot,
+      selectedRun: {
+        ...loadingSnapshot.selectedRun,
+        transcriptRevision: 2,
+        transcriptEventSeq: 2,
+        transcriptItemCount: 5,
+        transcriptPreview: "chunk",
+      },
+      runs: [
+        {
+          requestId: "run-loading-stable",
+          status: "running",
+          transcriptRevision: 2,
+          transcriptEventSeq: 2,
+          transcriptItemCount: 5,
+          transcriptPreview: "chunk",
+        },
+      ],
+    });
+    assert.strictEqual(
+      transcript.querySelector(".acp-skill-transcript-loading"),
+      firstSpinner,
+    );
+
+    sidebar.postSnapshot({
+      selectedRequestId: "run-loading-other",
+      selectedRun: {
+        requestId: "run-loading-other",
+        status: "running",
+        transcriptRevision: 1,
+      },
+      runs: [
+        {
+          requestId: "run-loading-other",
+          status: "running",
+          transcriptRevision: 1,
+        },
+      ],
+      selectedTranscript: {
+        requestId: "run-loading-other",
+        state: "loading",
+      },
+    });
+    assert.notStrictEqual(
+      transcript.querySelector(".acp-skill-transcript-loading"),
+      firstSpinner,
+    );
+  });
+
   it("keeps a rendered ACP Skills transcript when a stale loading snapshot arrives", async function () {
     const fakeDocument = createFakeDocumentForAssistantPanel();
     const elements = new Map<string, any>();
@@ -6842,6 +7007,128 @@ describe("acp ui smoke", function () {
       },
     });
     assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
+  });
+
+  it("preserves ACP Skills details drawer DOM across transcript-only snapshots", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const fakeDocument = harness.document;
+    const conversationView = await loadAssistantConversationViewForSmoke();
+    const panelModel = await loadAssistantPanelModelForSmoke({
+      conversationView,
+    });
+    const panelRenderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument, {
+      panelModel,
+      panelRenderer,
+    });
+    const transcript = harness.elements.get("acp-skill-run-transcript");
+    const details = harness.elements.get("acp-skill-run-details");
+    const baseRun = {
+      requestId: "run-dom-stability",
+      status: "running",
+      activePrompt: true,
+      transcriptRevision: 1,
+      backendLabel: "ACP Backend",
+      agentFamily: "codex",
+      acpModeId: "mode-a",
+      acpModelId: "model-a",
+      acpRawModelId: "raw-a",
+      acpReasoningEffort: "medium",
+      skillId: "literature-analysis",
+      sessionId: "session-a",
+      events: [
+        {
+          ts: "2026-07-07T00:00:00.000Z",
+          stage: "prompt",
+          level: "info",
+          message: "first chunk",
+        },
+      ],
+    };
+
+    sidebar.postSnapshot({
+      selectedRequestId: "run-dom-stability",
+      selectedRun: baseRun,
+      runs: [baseRun],
+      logs: [{ id: "log-1", message: "first log" }],
+      selectedTranscript: {
+        requestId: "run-dom-stability",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-dom-stability",
+        cursor: 0,
+        total: 1,
+        eventSeq: 1,
+        transcriptRevision: 1,
+        limit: 80,
+        items: [
+          {
+            id: "message-1",
+            kind: "message",
+            role: "assistant",
+            text: "first transcript chunk",
+          },
+        ],
+      },
+    });
+
+    const firstMount = details.querySelector(".assistant-panel-managed-details");
+    const firstRunnerSection = details
+      .querySelectorAll(".assistant-panel-details-section")
+      .find((section: any) => collectFakeText(section).includes("Runner"));
+    assert.ok(firstMount);
+    assert.ok(firstRunnerSection);
+    assert.include(collectFakeText(transcript), "first transcript chunk");
+
+    sidebar.postSnapshot({
+      selectedRequestId: "run-dom-stability",
+      selectedRun: {
+        ...baseRun,
+        transcriptRevision: 2,
+        events: [
+          ...baseRun.events,
+          {
+            ts: "2026-07-07T00:00:01.000Z",
+            stage: "prompt",
+            level: "info",
+            message: "second chunk",
+          },
+        ],
+      },
+      runs: [{ ...baseRun, transcriptRevision: 2 }],
+      logs: [{ id: "log-2", message: "transcript pulse log" }],
+      selectedTranscript: {
+        requestId: "run-dom-stability",
+        state: "ready",
+      },
+      selectedTranscriptPage: {
+        requestId: "run-dom-stability",
+        cursor: 0,
+        total: 1,
+        eventSeq: 2,
+        transcriptRevision: 2,
+        limit: 80,
+        items: [
+          {
+            id: "message-1",
+            kind: "message",
+            role: "assistant",
+            text: "second transcript chunk",
+          },
+        ],
+      },
+    });
+
+    const nextRunnerSection = details
+      .querySelectorAll(".assistant-panel-details-section")
+      .find((section: any) => collectFakeText(section).includes("Runner"));
+    assert.strictEqual(
+      details.querySelector(".assistant-panel-managed-details"),
+      firstMount,
+    );
+    assert.strictEqual(nextRunnerSection, firstRunnerSection);
+    assert.include(collectFakeText(transcript), "second transcript chunk");
   });
 
   it("ignores lower-revision ACP Skills snapshots for a previous selected run", async function () {
@@ -7007,6 +7294,343 @@ describe("acp ui smoke", function () {
     assert.equal(nextInput.selectionStart, 2);
     assert.equal(nextInput.selectionEnd, 7);
     assert.strictEqual(fakeDocument.activeElement, input);
+  });
+
+  it("preserves all managed non-transcript regions across transcript-only snapshots", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const root = fakeDocument.createElement("div");
+    const regions: Record<string, any> = {};
+    for (const name of [
+      "toolbar",
+      "banner",
+      "plan",
+      "hint",
+      "reply",
+      "drawer",
+      "details",
+    ]) {
+      regions[name] = fakeDocument.createElement("div");
+      root.appendChild(regions[name]);
+    }
+    const panel = {
+      kind: "acp-skill",
+      context: { id: "run-managed-stable", title: "Run", status: "running" },
+      lifecycle: { executionState: "running", replyState: "waiting" },
+      plan: {
+        active: true,
+        entries: [{ id: "plan-1", title: "Plan", status: "active" }],
+      },
+      interaction: { kind: "waiting_user", message: "Need input" },
+      reply: {
+        enabled: true,
+        inputEnabled: true,
+        action: "reply-run",
+        placeholder: "Reply",
+        hint: "Waiting",
+        submitLabel: "Send",
+        value: "",
+      },
+      drawers: {
+        layout: "workspace-task-drawer",
+        contextTitle: "Runs",
+        detailsTitle: "Details",
+        labels: {},
+        selectedTaskKey: "task-a",
+        sections: [
+          {
+            id: "running",
+            title: "Running",
+            groups: [
+              {
+                backendId: "backend-a",
+                activeTasks: [
+                  {
+                    key: "task-a",
+                    title: "Task A",
+                    status: "running",
+                    selectable: true,
+                  },
+                ],
+                finishedTasks: [],
+              },
+            ],
+          },
+        ],
+        details: [
+          {
+            title: "Runner",
+            kind: "runner",
+            entries: [{ label: "Backend", value: "Backend A" }],
+          },
+        ],
+        permissionRequestOpen: true,
+        permissionRequest: {
+          permissionRequestId: "permission-stable",
+          requestId: "permission-stable",
+          toolTitle: "Tool",
+          summary: "Approve tool",
+          commandPreview: "run tool",
+          actions: [{ action: "resolve-permission", label: "Approve" }],
+        },
+      },
+      actions: {
+        toolbar: [{ action: "openDetails", label: "Details" }],
+        details: [{ action: "copy-diagnostics", label: "Copy" }],
+      },
+      conversation: { items: [{ id: "message-1", text: "first" }] },
+      raw: { transcriptRevision: 1 },
+    };
+
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      managedRegions: {
+        toolbar: true,
+        banner: true,
+        plan: true,
+        hint: true,
+        reply: true,
+        drawer: true,
+        details: true,
+        permission: true,
+      },
+      root,
+      regions,
+    });
+
+    const firstNodes = {
+      toolbar: regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
+      banner: regions.banner.querySelector(".assistant-panel-managed-banner"),
+      plan: regions.plan.querySelector(".assistant-panel-managed-plan"),
+      hint: regions.hint.querySelector(".assistant-panel-managed-hint"),
+      reply: regions.reply.querySelector(".assistant-panel-managed-reply"),
+      replyHint: regions.reply.querySelector(".assistant-panel-reply-hint"),
+      drawer: regions.drawer.querySelector(".assistant-panel-managed-drawer"),
+      drawerTask: regions.drawer.querySelector(".assistant-workspace-drawer-task"),
+      details: regions.details.querySelector(".assistant-panel-managed-details"),
+      permission: root.querySelector(".assistant-panel-permission-drawer-panel"),
+    };
+    Object.values(firstNodes).forEach((node) => assert.ok(node));
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...panel,
+        conversation: { items: [{ id: "message-1", text: "second" }] },
+        raw: {
+          transcriptRevision: 2,
+          selectedTranscriptPage: {
+            requestId: "run-managed-stable",
+            cursor: 80,
+            transcriptRevision: 2,
+            items: [{ id: "message-1", text: "second" }],
+          },
+        },
+      },
+      {
+        managed: true,
+        managedRegions: {
+          toolbar: true,
+          banner: true,
+          plan: true,
+          hint: true,
+          reply: true,
+          drawer: true,
+          details: true,
+          permission: true,
+        },
+        root,
+        regions,
+      },
+    );
+
+    assert.strictEqual(
+      regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
+      firstNodes.toolbar,
+    );
+    assert.strictEqual(
+      regions.banner.querySelector(".assistant-panel-managed-banner"),
+      firstNodes.banner,
+    );
+    assert.strictEqual(
+      regions.plan.querySelector(".assistant-panel-managed-plan"),
+      firstNodes.plan,
+    );
+    assert.strictEqual(
+      regions.hint.querySelector(".assistant-panel-managed-hint"),
+      firstNodes.hint,
+    );
+    assert.strictEqual(
+      regions.reply.querySelector(".assistant-panel-managed-reply"),
+      firstNodes.reply,
+    );
+    assert.strictEqual(
+      regions.reply.querySelector(".assistant-panel-reply-hint"),
+      firstNodes.replyHint,
+    );
+    assert.strictEqual(
+      regions.drawer.querySelector(".assistant-panel-managed-drawer"),
+      firstNodes.drawer,
+    );
+    assert.strictEqual(
+      regions.drawer.querySelector(".assistant-workspace-drawer-task"),
+      firstNodes.drawerTask,
+    );
+    assert.strictEqual(
+      regions.details.querySelector(".assistant-panel-managed-details"),
+      firstNodes.details,
+    );
+    assert.strictEqual(
+      root.querySelector(".assistant-panel-permission-drawer-panel"),
+      firstNodes.permission,
+    );
+  });
+
+  it("updates managed reply live fields only when reply signature changes", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const replyRegion = fakeDocument.createElement("div");
+    const panel = {
+      kind: "acp-skill",
+      context: { id: "run-reply-signature" },
+      lifecycle: { replyState: "waiting" },
+      reply: {
+        enabled: true,
+        inputEnabled: true,
+        action: "reply-run",
+        placeholder: "Reply",
+        hint: "Waiting",
+        submitLabel: "Send",
+      },
+    };
+
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      managedRegions: { reply: true },
+      regions: { reply: replyRegion },
+    });
+    const firstHint = replyRegion.querySelector(".assistant-panel-reply-hint");
+    assert.ok(firstHint);
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...panel,
+        raw: { transcriptRevision: 2 },
+        conversation: { items: [{ id: "message", text: "new chunk" }] },
+      },
+      {
+        managed: true,
+        managedRegions: { reply: true },
+        regions: { reply: replyRegion },
+      },
+    );
+    assert.strictEqual(
+      replyRegion.querySelector(".assistant-panel-reply-hint"),
+      firstHint,
+    );
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...panel,
+        reply: {
+          ...panel.reply,
+          hint: "Still waiting",
+          submitLabel: "Continue",
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { reply: true },
+        regions: { reply: replyRegion },
+      },
+    );
+    assert.include(collectFakeText(replyRegion), "Still waiting");
+    assert.include(collectFakeText(replyRegion), "Continue");
+  });
+
+  it("keeps managed details drawer DOM stable when its signature is unchanged", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const detailsRegion = fakeDocument.createElement("div");
+    const basePanel = {
+      kind: "acp-skill",
+      context: { title: "Run A" },
+      drawers: {
+        detailsTitle: "Details",
+        details: [
+          {
+            title: "Runner",
+            kind: "runner",
+            entries: [{ label: "Backend", value: "ACP Backend" }],
+          },
+        ],
+      },
+      actions: {
+        details: [{ action: "open-backend-manager", label: "Backend" }],
+      },
+    };
+
+    renderer.renderAssistantPanelSnapshot(basePanel, {
+      managed: true,
+      managedRegions: { details: true },
+      regions: { details: detailsRegion },
+    });
+    const firstMount = detailsRegion.querySelector(
+      ".assistant-panel-managed-details",
+    );
+    const firstSection = detailsRegion.querySelector(
+      ".assistant-panel-details-section",
+    );
+    assert.ok(firstMount);
+    assert.ok(firstSection);
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...basePanel,
+        context: { title: "Run A updated outside details" },
+        usage: { used: 10, size: 100 },
+      },
+      {
+        managed: true,
+        managedRegions: { details: true },
+        regions: { details: detailsRegion },
+      },
+    );
+
+    assert.strictEqual(
+      detailsRegion.querySelector(".assistant-panel-managed-details"),
+      firstMount,
+    );
+    assert.strictEqual(
+      detailsRegion.querySelector(".assistant-panel-details-section"),
+      firstSection,
+    );
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...basePanel,
+        drawers: {
+          ...basePanel.drawers,
+          details: [
+            {
+              title: "Runner",
+              kind: "runner",
+              entries: [{ label: "Backend", value: "Other Backend" }],
+            },
+          ],
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { details: true },
+        regions: { details: detailsRegion },
+      },
+    );
+
+    const changedSection = detailsRegion.querySelector(
+      ".assistant-panel-details-section",
+    );
+    assert.notStrictEqual(changedSection, firstSection);
+    assert.include(collectFakeText(detailsRegion), "Other Backend");
   });
 
   it("renders toolbar switch actions and emits the toggled payload", async function () {
@@ -7234,6 +7858,72 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
     assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");
     assert.include(runDialogJs, "syncTranscriptContext();");
+  });
+
+  it("keeps ACP Skills panel chrome render key free of transcript-only signals", async function () {
+    const acpSkillRunJs = await readProjectFile(
+      "addon/content/sidebar/acp-skill-run.js",
+    );
+    const renderKeyStart = acpSkillRunJs.indexOf(
+      "function buildPanelRenderKey(snapshot)",
+    );
+    const renderKeyEnd = acpSkillRunJs.indexOf(
+      "function formatTime(value)",
+      renderKeyStart,
+    );
+    assert.isAtLeast(renderKeyStart, 0);
+    assert.isAbove(renderKeyEnd, renderKeyStart);
+    const renderKeySource = acpSkillRunJs.slice(renderKeyStart, renderKeyEnd);
+
+    for (const forbidden of [
+      "compactEventsKey",
+      "compactLogsKey",
+      "selectedEvents",
+      "selectedTranscript",
+      "selectedTranscriptPage",
+      "transcriptRevision",
+      "transcriptPageSignature",
+      "events.length",
+      "logs:",
+    ]) {
+      assert.notInclude(renderKeySource, forbidden);
+    }
+  });
+
+  it("canonicalizes ACP Skills host snapshot signatures for selected loading isolation", async function () {
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    assert.include(
+      assistantSidebar,
+      "function canonicalizeAcpSkillRunSnapshotForSignature",
+    );
+    assert.include(assistantSidebar, "buildAcpSkillRunSnapshotSignature");
+    const canonicalStart = assistantSidebar.indexOf(
+      "function canonicalizeAcpSkillRunSummaryForSignature",
+    );
+    const canonicalEnd = assistantSidebar.indexOf(
+      "function buildAcpSkillRunSnapshotSignature",
+      canonicalStart,
+    );
+    assert.isAtLeast(canonicalStart, 0);
+    assert.isAbove(canonicalEnd, canonicalStart);
+    const canonicalSource = assistantSidebar.slice(
+      canonicalStart,
+      canonicalEnd,
+    );
+    for (const field of [
+      "transcriptRevision",
+      "transcriptEventSeq",
+      "transcriptItemCount",
+      "transcriptPreview",
+    ]) {
+      assert.include(canonicalSource, field);
+    }
+    assert.include(canonicalSource, "selectedTranscript");
+    assert.include(canonicalSource, "selectedTranscriptPage");
+    assert.include(canonicalSource, "selectedTranscriptLoading");
+    assert.match(canonicalSource, /requestId\s*===\s*selectedRequestId/);
   });
 
   it("renders waiting_user choice options as clickable reply buttons", async function () {

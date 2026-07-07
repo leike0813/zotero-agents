@@ -185,13 +185,13 @@ def request_parameter_from_manifest(value: Any) -> dict[str, Any]:
     return request_parameter if isinstance(request_parameter, dict) else {}
 
 
-def audit_input_manifest_candidates(input_path: Path, skill_id: str) -> list[Path]:
+def provider_input_manifest_candidates(input_path: Path, skill_id: str) -> list[Path]:
     run_root = Path.cwd()
     candidates: list[Path] = []
-    audit_root = run_root / ".audit"
-    if skill_id:
-        candidates.extend(sorted(audit_root.glob(f"{skill_id}*/input_manifest.json")))
-    candidates.extend(sorted(audit_root.glob("*/input_manifest.json")))
+    for manifest_root in [run_root / ".acp", run_root / ".audit"]:
+        if skill_id:
+            candidates.extend(sorted(manifest_root.glob(f"{skill_id}*/input_manifest.json")))
+        candidates.extend(sorted(manifest_root.glob("*/input_manifest.json")))
     seen: set[Path] = set()
     unique: list[Path] = []
     for candidate in candidates:
@@ -206,12 +206,12 @@ def audit_input_manifest_candidates(input_path: Path, skill_id: str) -> list[Pat
     return unique
 
 
-def hydrate_input_from_audit_manifest(input_payload: dict[str, Any], input_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def hydrate_input_from_provider_manifest(input_payload: dict[str, Any], input_path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     hydrated = dict(input_payload)
     parameter = hydrated.get("parameter") if isinstance(hydrated.get("parameter"), dict) else {}
     hydrated_parameter = dict(parameter)
     diagnostics: list[dict[str, Any]] = []
-    for candidate in audit_input_manifest_candidates(input_path, "literature-deep-reading"):
+    for candidate in provider_input_manifest_candidates(input_path, "literature-deep-reading"):
         if not candidate.exists() or not candidate.is_file():
             continue
         try:
@@ -240,7 +240,7 @@ def hydrate_input_from_audit_manifest(input_payload: dict[str, Any], input_path:
             changed.append(f"parameter.{key}")
         if changed:
             hydrated["parameter"] = hydrated_parameter
-            diagnostics.append({"severity": "info", "code": "input_hydrated_from_audit_manifest", "path": normalize_posix(candidate), "fields": changed})
+            diagnostics.append({"severity": "info", "code": "input_hydrated_from_provider_manifest", "path": normalize_posix(candidate), "fields": changed})
             try:
                 write_json(input_path, hydrated)
             except Exception as exc:
@@ -2496,7 +2496,7 @@ def bootstrap(input_path: Path) -> dict[str, Any]:
     input_payload = read_json(input_path, {})
     if not isinstance(input_payload, dict):
         raise ValueError("runtime input must be a JSON object")
-    input_payload, input_hydration_diagnostics = hydrate_input_from_audit_manifest(input_payload, input_path)
+    input_payload, input_hydration_diagnostics = hydrate_input_from_provider_manifest(input_payload, input_path)
     bundle_raw = str(input_payload.get("source_bundle_path") or "").strip()
     if not bundle_raw:
         raise ValueError("runtime input requires source_bundle_path")

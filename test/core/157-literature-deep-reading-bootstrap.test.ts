@@ -1959,7 +1959,7 @@ describe("Literature deep reading bootstrap skill", function () {
     assert.equal(reviewPacket.summary.translated_count, 2);
   });
 
-  it("hydrates translator alignment input from ACP audit manifest", async function () {
+  it("hydrates translator alignment input from provider input manifest", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "deep-reading-audit-alignment-"),
     );

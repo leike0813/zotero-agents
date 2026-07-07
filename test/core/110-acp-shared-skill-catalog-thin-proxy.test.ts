@@ -257,7 +257,7 @@ describe("ACP shared skill catalog thin proxy overlay", function () {
         resultJsonPath,
         inputManifestPath: path.join(
           workspaceDir,
-          ".audit",
+          ".acp",
           "demo.1",
           "input_manifest.json",
         ),

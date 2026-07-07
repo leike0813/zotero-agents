@@ -39,7 +39,7 @@ description: Dynamic HTML generator for literature deep-reading. Use when the us
 - `translator_output_path`：已有 `literature-translator` 译文 Markdown 的本地路径。
 - `translator_status`：当 translator 因源目标语言相同而 `cancelled` 时，runtime 会在 bootstrap 生成 source-only alignment。
 
-Host 提供的输入以 `runtime/input.json` 和 `.audit/*/input_manifest.json` 为准。agent 不要手工猜测、替换或省略 translator 相关路径；如果 `runtime/input.json` 缺少 host 已提供的字段，`bootstrap` 会从审计输入中自动补齐。
+Host 提供的输入以 `runtime/input.json` 和 provider input manifest（`.acp/*/input_manifest.json` 或 `.audit/*/input_manifest.json`）为准。agent 不要手工猜测、替换或省略 translator 相关路径；如果 `runtime/input.json` 缺少 host 已提供的字段，`bootstrap` 会从 provider input manifest 中自动补齐。
 
 ## 任务目标
 

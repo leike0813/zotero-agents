@@ -195,8 +195,7 @@ describe("ACP skill run request adapter", function () {
           runtimeDir: "D:/runtime/run-1/.acp",
           resultDir: "D:/runtime/run-1/result",
           resultJsonPath: "D:/runtime/run-1/result/result.json",
-          auditDir: "D:/runtime/run-1/.audit",
-          inputManifestPath: "D:/runtime/run-1/.audit/input_manifest.json",
+          inputManifestPath: "D:/runtime/run-1/.acp/input_manifest.json",
         },
         backend: {
           id: "acp-local",
@@ -235,8 +234,7 @@ describe("ACP skill run request adapter", function () {
           runtimeDir: "D:/runtime/run-1/.acp",
           resultDir: "D:/runtime/run-1/result",
           resultJsonPath: "D:/runtime/run-1/result/result.json",
-          auditDir: "D:/runtime/run-1/.audit",
-          inputManifestPath: "D:/runtime/run-1/.audit/input_manifest.json",
+          inputManifestPath: "D:/runtime/run-1/.acp/input_manifest.json",
         },
         backend: {
           id: "acp-opencode",
@@ -272,8 +270,7 @@ describe("ACP skill run request adapter", function () {
           runtimeDir: "D:/runtime/run-1/.acp",
           resultDir: "D:/runtime/run-1/result",
           resultJsonPath: "D:/runtime/run-1/result/result.json",
-          auditDir: "D:/runtime/run-1/.audit",
-          inputManifestPath: "D:/runtime/run-1/.audit/input_manifest.json",
+          inputManifestPath: "D:/runtime/run-1/.acp/input_manifest.json",
         },
         backend: {
           id: "acp-local",

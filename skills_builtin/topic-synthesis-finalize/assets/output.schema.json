@@ -19,15 +19,10 @@
       "properties": {
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "create" },
-        "language": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Target output language code (e.g., zh-CN, en-US)."
-        },
+        "language": { "type": "string", "minLength": 1 },
         "topic_definition": {
           "type": "object",
           "required": ["id", "title"],
-          "description": "Topic identity object with id and title fields.",
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "title": { "type": "string", "minLength": 1 }
@@ -36,7 +31,6 @@
         "artifact_manifest_path": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to the artifact manifest file.",
           "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         }
@@ -56,15 +50,10 @@
       "properties": {
         "kind": { "const": "topic_synthesis" },
         "operation": { "const": "update_full" },
-        "language": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Target output language code (e.g., zh-CN, en-US)."
-        },
+        "language": { "type": "string", "minLength": 1 },
         "topic_definition": {
           "type": "object",
           "required": ["id", "title"],
-          "description": "Topic identity object with id and title fields.",
           "properties": {
             "id": { "type": "string", "minLength": 1 },
             "title": { "type": "string", "minLength": 1 }
@@ -73,7 +62,6 @@
         "base_hashes": {
           "type": "object",
           "required": ["artifact", "manifest", "metadata"],
-          "description": "Content hashes of the previous artifact version for conflict detection.",
           "properties": {
             "artifact": { "type": "string", "minLength": 1 },
             "manifest": { "type": "string", "minLength": 1 },
@@ -83,7 +71,6 @@
         "artifact_manifest_path": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to the artifact manifest file.",
           "x-type": "artifact-manifest",
           "x-role": "artifact-manifest"
         }
@@ -96,16 +83,8 @@
       "properties": {
         "kind": { "const": "topic_synthesis_canceled" },
         "status": { "const": "canceled" },
-        "reason": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Machine-readable reason code explaining the cancellation or failure."
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Human-readable explanation message."
-        },
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 },
         "duplicate_topic_id": { "type": "string" },
         "topic_seed": { "type": "string" },
         "topic_id": { "type": "string" }

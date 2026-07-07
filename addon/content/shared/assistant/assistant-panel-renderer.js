@@ -2276,6 +2276,92 @@
     render();
   }
 
+  function isWorkspaceTaskDrawer(panel) {
+    const layout = safeText(panel && panel.drawers && panel.drawers.layout);
+    return (
+      layout === "skillrunner-workspace" || layout === "workspace-task-drawer"
+    );
+  }
+
+  function contextDrawerSignature(panel) {
+    const drawers = panel && panel.drawers ? panel.drawers : {};
+    return {
+      layout: safeText(drawers.layout),
+      contextTitle: safeText(drawers.contextTitle),
+      contexts: Array.isArray(drawers.contexts) ? drawers.contexts : [],
+      labels: drawers.labels || null,
+    };
+  }
+
+  function detailsDrawerSignature(panel) {
+    const drawers = panel && panel.drawers ? panel.drawers : {};
+    const actions = panel && panel.actions ? panel.actions : {};
+    return {
+      title: safeText(drawers.detailsTitle),
+      details: Array.isArray(drawers.details) ? drawers.details : [],
+      actions: Array.isArray(actions.details) ? actions.details : [],
+      labels: {
+        close: labelOf(panel, "actions.close", "Close"),
+        empty: labelOf(panel, "details.empty", "No details."),
+        noEntries: labelOf(panel, "details.noEntries", "No entries."),
+        title: labelOf(panel, "details.title", "Details"),
+      },
+    };
+  }
+
+  function workspaceTaskDrawerSignature(panel) {
+    const drawers = panel && panel.drawers ? panel.drawers : {};
+    const sections = Array.isArray(drawers.sections)
+      ? drawers.sections
+      : Array.isArray(drawers.skillrunnerSections)
+        ? drawers.skillrunnerSections
+        : [];
+    return {
+      layout: safeText(drawers.layout),
+      contextTitle: safeText(drawers.contextTitle),
+      selectedTaskKey: safeText(drawers.selectedTaskKey),
+      structure: workspaceDrawerStableSignature(sections, drawers.notice),
+      labels: drawers.labels || null,
+    };
+  }
+
+  function replyRegionSignature(panel) {
+    const reply =
+      panel && panel.reply && typeof panel.reply === "object"
+        ? panel.reply
+        : {};
+    return {
+      structure: replyStructuralSignature(panel),
+      live: {
+        placeholder: safeText(reply.placeholder),
+        hint: safeText(reply.hint),
+        submitLabel: safeText(reply.submitLabel),
+        sending: reply.sending === true,
+        value: Object.prototype.hasOwnProperty.call(reply, "value")
+          ? String(reply.value == null ? "" : reply.value)
+          : null,
+        usage: reply.showUsageGauge === true ? panel && panel.usage : null,
+      },
+    };
+  }
+
+  function permissionDrawerSignature(panel) {
+    const drawers = panel && panel.drawers ? panel.drawers : {};
+    const request =
+      drawers.permissionRequest && typeof drawers.permissionRequest === "object"
+        ? drawers.permissionRequest
+        : null;
+    const open = drawers.permissionRequestOpen === true && !!request;
+    return {
+      open,
+      request: open ? request : null,
+      labels: {
+        close: labelOf(panel, "actions.close", "Close"),
+        title: labelOf(panel, "permission.title", "Permission request"),
+      },
+    };
+  }
+
   function renderAssistantPanelSnapshot(snapshot, options) {
     const panel = normalize(snapshot);
     const opts = options || {};
@@ -2346,28 +2432,58 @@
       );
     }
     if (shouldManageRegion(opts, "reply")) {
-      renderAssistantReply(
+      renderManagedRegionIfChanged(
         opts.regions && opts.regions.reply,
-        managedSnapshot,
-        opts,
+        "reply",
+        replyRegionSignature(panel),
+        function () {
+          renderAssistantReply(
+            opts.regions && opts.regions.reply,
+            managedSnapshot,
+            opts,
+          );
+        },
       );
     }
     if (shouldManageRegion(opts, "drawer")) {
-      renderAssistantContextDrawer(
+      renderManagedRegionIfChanged(
         opts.regions && opts.regions.drawer,
-        managedSnapshot,
-        opts,
+        "drawer",
+        isWorkspaceTaskDrawer(panel)
+          ? workspaceTaskDrawerSignature(panel)
+          : contextDrawerSignature(panel),
+        function () {
+          renderAssistantContextDrawer(
+            opts.regions && opts.regions.drawer,
+            managedSnapshot,
+            opts,
+          );
+        },
       );
     }
     if (shouldManageRegion(opts, "details")) {
-      renderDetailsDrawer(
+      renderManagedRegionIfChanged(
         opts.regions && opts.regions.details,
-        managedSnapshot,
-        opts,
+        "details",
+        detailsDrawerSignature(panel),
+        function () {
+          renderDetailsDrawer(
+            opts.regions && opts.regions.details,
+            managedSnapshot,
+            opts,
+          );
+        },
       );
     }
     if (shouldManageRegion(opts, "permission")) {
-      renderPermissionRequestDrawer(opts.root, managedSnapshot, opts);
+      renderManagedRegionIfChanged(
+        opts.root,
+        "permission",
+        permissionDrawerSignature(panel),
+        function () {
+          renderPermissionRequestDrawer(opts.root, managedSnapshot, opts);
+        },
+      );
     }
     if (opts.managed === true) {
       return panel;

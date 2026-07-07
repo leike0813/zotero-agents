@@ -1360,10 +1360,78 @@ async function postAcpChatPanelSnapshot(
   postChildSnapshot(host, "acp-chat", phase, snapshot);
 }
 
-function buildAcpSkillRunSnapshotSignature(snapshot: Record<string, unknown>) {
+function canonicalizeAcpSkillRunSummaryForSignature(
+  run: unknown,
+  selectedRequestId: string,
+  selectedTranscriptLoading: boolean,
+) {
+  if (!run || typeof run !== "object" || Array.isArray(run)) {
+    return run;
+  }
+  const source = run as Record<string, unknown>;
+  const requestId = String(source.requestId || "").trim();
+  if (!selectedTranscriptLoading || requestId === selectedRequestId) {
+    return source;
+  }
+  const canonical = { ...source };
+  delete canonical.transcriptRevision;
+  delete canonical.transcriptEventSeq;
+  delete canonical.transcriptItemCount;
+  delete canonical.transcriptPreview;
+  return canonical;
+}
+
+function canonicalizeAcpSkillRunSnapshotForSignature(
+  snapshot: Record<string, unknown>,
+) {
   const signatureSource = { ...snapshot };
   delete signatureSource.generatedAt;
-  return JSON.stringify(signatureSource);
+  const selectedRun =
+    signatureSource.selectedRun && typeof signatureSource.selectedRun === "object"
+      ? (signatureSource.selectedRun as Record<string, unknown>)
+      : null;
+  const selectedTranscript =
+    signatureSource.selectedTranscript &&
+    typeof signatureSource.selectedTranscript === "object"
+      ? (signatureSource.selectedTranscript as Record<string, unknown>)
+      : null;
+  const selectedTranscriptPage =
+    signatureSource.selectedTranscriptPage &&
+    typeof signatureSource.selectedTranscriptPage === "object"
+      ? (signatureSource.selectedTranscriptPage as Record<string, unknown>)
+      : null;
+  const selectedRequestId = String(
+    signatureSource.selectedRequestId ||
+      selectedRun?.requestId ||
+      selectedTranscript?.requestId ||
+      "",
+  ).trim();
+  const selectedPageRequestId = String(
+    selectedTranscriptPage?.requestId || "",
+  ).trim();
+  const selectedPageItems = Array.isArray(selectedTranscriptPage?.items)
+    ? selectedTranscriptPage.items
+    : [];
+  const selectedTranscriptLoading =
+    !!selectedRequestId &&
+    selectedTranscript?.state === "loading" &&
+    (!selectedPageRequestId ||
+      selectedPageRequestId !== selectedRequestId ||
+      selectedPageItems.length === 0);
+  if (Array.isArray(signatureSource.runs)) {
+    signatureSource.runs = signatureSource.runs.map((run) =>
+      canonicalizeAcpSkillRunSummaryForSignature(
+        run,
+        selectedRequestId,
+        selectedTranscriptLoading,
+      ),
+    );
+  }
+  return signatureSource;
+}
+
+function buildAcpSkillRunSnapshotSignature(snapshot: Record<string, unknown>) {
+  return JSON.stringify(canonicalizeAcpSkillRunSnapshotForSignature(snapshot));
 }
 
 async function postAcpSkillRunSnapshot(

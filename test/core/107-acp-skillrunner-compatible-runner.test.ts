@@ -1106,7 +1106,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.include(
         formatPortablePathForTest(prepare.inputManifestPath),
-        "/.audit/prepare-skill.1/input_manifest.json",
+        "/.acp/prepare-skill.1/input_manifest.json",
       );
       assert.include(
         formatPortablePathForTest(prepare.runtimeDir),
@@ -1128,6 +1128,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       await fs.stat(path.join(prepare.workspaceDir, ".acp", "prepare-skill.1"));
       await fs.stat(path.join(prepare.workspaceDir, ".acp", "core-skill.1"));
+      assert.isFalse(
+        await fileExists(path.join(prepare.workspaceDir, ".audit")),
+      );
       await fs.stat(path.join(prepare.workspaceDir, ".acp", "core-skill.2"));
     } finally {
       await fs.rm(root, { recursive: true, force: true });

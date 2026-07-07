@@ -3411,18 +3411,33 @@ th {
 .registry-artifact-badges {
   display: inline-grid;
   grid-template-columns: repeat(3, max-content);
-  gap: 3px;
+  gap: 4px;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
 }
 
-.registry-artifact-badges .badge {
+.registry-artifact-icon-shell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
-  min-width: 0;
-  padding-inline: 3px;
-  font-size: 10.5px;
-  line-height: 1.25;
+  height: 18px;
+  line-height: 0;
+}
+
+.registry-artifact-icon-shell.missing {
+  opacity: 0.28;
+  filter: grayscale(1);
+}
+
+.registry-artifact-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  object-fit: contain;
 }
 
 .registry-reference-count {

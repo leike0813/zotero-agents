@@ -12,6 +12,7 @@
     transcriptRevision: null,
     transcriptRenderedMode: "",
     transcriptPageSignature: "",
+    transcriptLoadingSignature: "",
     transcriptBackendId: "",
     transcriptConversationId: "",
     markdownParser: undefined,
@@ -205,6 +206,7 @@
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
     state.transcriptPageSignature = "";
+    state.transcriptLoadingSignature = "";
     state.toolActivityExpandedSignature = "";
     state.toolActivityExpandedIds.clear();
   }
@@ -311,6 +313,22 @@
     ) {
       renderer.resetAssistantTranscriptVirtualState(transcriptEl, pageKey);
     }
+  }
+
+  function transcriptLoadingSignature(kind, backendId, conversationId) {
+    const owner = transcriptPageKey(backendId, conversationId);
+    return owner ? [owner, safeText(kind) || "loading"].join("|") : "";
+  }
+
+  function renderTranscriptLoading(kind, backendId, conversationId) {
+    const signature = transcriptLoadingSignature(kind, backendId, conversationId);
+    const existing = transcriptEl.querySelector(".acp-chat-transcript-loading");
+    if (signature && state.transcriptLoadingSignature === signature && existing) {
+      return;
+    }
+    clear(transcriptEl);
+    transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
+    state.transcriptLoadingSignature = signature;
   }
 
   function assistantConversationView() {
@@ -862,8 +880,7 @@
       safeText(transcriptState.conversationId) === conversationId &&
       transcriptState.state === "loading"
     ) {
-      clear(transcriptEl);
-      transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
+      renderTranscriptLoading("transcript-state", backendId, conversationId);
       return;
     }
     if (
@@ -873,6 +890,7 @@
       safeText(transcriptState.conversationId) === conversationId &&
       transcriptState.state === "failed"
     ) {
+      state.transcriptLoadingSignature = "";
       clear(transcriptEl);
       transcriptEl.appendChild(
         el(
@@ -884,10 +902,10 @@
       return;
     }
     if (virtualized && pageKey && !page) {
-      clear(transcriptEl);
-      transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"));
+      renderTranscriptLoading("page-missing", backendId, conversationId);
       return;
     }
+    state.transcriptLoadingSignature = "";
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     const revision = page

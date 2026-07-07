@@ -435,10 +435,10 @@ def load_initial_input(
         candidates.append(resolve_run_path(run_root, input_path))
     candidates.append(run_root / "runtime/input.json")
 
-    audit_root = run_root / ".audit"
-    if skill_id:
-        candidates.extend(sorted(audit_root.glob(f"{skill_id}*/input_manifest.json")))
-    candidates.extend(sorted(audit_root.glob("*/input_manifest.json")))
+    for manifest_root in [run_root / ".acp", run_root / ".audit"]:
+        if skill_id:
+            candidates.extend(sorted(manifest_root.glob(f"{skill_id}*/input_manifest.json")))
+        candidates.extend(sorted(manifest_root.glob("*/input_manifest.json")))
 
     seen: set[Path] = set()
     for candidate in candidates:

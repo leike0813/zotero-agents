@@ -814,7 +814,7 @@ describe("topic synthesis split skill runtime", function () {
     await fs.access(path.join(runRoot, "runtime", "topic-synthesis.sqlite"));
   });
 
-  it("reads the update topic id from the ACP input manifest when runtime input is absent", async function () {
+  it("reads the update topic id from the provider input manifest when runtime input is absent", async function () {
     const tempRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "topic-synthesis-split-runtime-"),
     );

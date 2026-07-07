@@ -101,3 +101,13 @@
 - 开发过程注重文档化
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
+
+# Assistant Workspace UI硬约束
+
+- transcript/prompting 是 Assistant Workspace 中最高频的更新路径，transcript 渲染必须与 toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer 等非 transcript DOM 渲染解耦。
+- 任何 Assistant Workspace / ACP Skills / ACP Chat / SkillRunner 面板改动，都不得把 transcript revision、transcript page signature、streaming chunk、transcript item/event count、prompting event tail 或 log tail 放入整面板 chrome render key。
+- transcript-only 更新只能触发 transcript region 渲染；不得重建 Runner pane、details drawer、context drawer 或其它非 transcript managed region。
+- transcript loading/spinner 也是 transcript region 的一部分，必须按 panel owner scope（例如 backend/conversation、requestId、taskKey）隔离；同一 owner 的同一 loading 语义状态不得反复清空 transcript window 或重建 spinner。
+- 如果需要刷新非 transcript region，必须使用该 region 自身的稳定 signature，signature 只能包含该 region 用户可见内容和打开/折叠状态。
+- 所有 Assistant Workspace shared managed regions（toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer）都必须经由区域级 signature guard；不得让 transcript-only/loading/streaming snapshot 直接触发这些区域的 clear/rebuild。
+- 涉及 transcript 渲染、prompting、snapshot、drawer/details 的改动必须补充或更新能锁定上述 DOM identity 不变量的测试。

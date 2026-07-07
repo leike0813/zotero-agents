@@ -2591,7 +2591,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
     assert.match(
       first.inputManifestPath.replace(/\\/g, "/"),
-      /\/\.audit\/prepare-skill\.1\/input_manifest\.json$/,
+      /\/\.acp\/prepare-skill\.1\/input_manifest\.json$/,
     );
     assert.match(
       second.resultJsonPath.replace(/\\/g, "/"),
@@ -2622,6 +2622,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
       "second",
     );
     assert.include(await fs.readFile(third.inputManifestPath, "utf8"), "third");
+    assert.isFalse(
+      await fs
+        .stat(path.join(first.workspaceDir, ".audit"))
+        .then(() => true)
+        .catch(() => false),
+    );
 
     try {
       await createAcpSkillRunnerWorkspace({
@@ -2653,10 +2659,6 @@ describe("skillrunner.sequence.v1 runtime", function () {
     await fs.mkdir(path.join(first.workspaceDir, "result", "core-skill.2"), {
       recursive: true,
     });
-    await fs.mkdir(path.join(first.workspaceDir, ".audit", "prepare-skill.1"), {
-      recursive: true,
-    });
-
     resetAcpWorkflowWorkspaceRegistryForTests();
     await registerAcpWorkflowWorkspaceForReuse({
       workflowRunId: "workflow-run-restore",
@@ -2690,7 +2692,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
     assert.match(
       nextPrepare.inputManifestPath.replace(/\\/g, "/"),
-      /\/\.audit\/prepare-skill\.2\/input_manifest\.json$/,
+      /\/\.acp\/prepare-skill\.2\/input_manifest\.json$/,
     );
   });
 

@@ -79,10 +79,10 @@ Primary information SHOULD include the title and main status. Secondary
   directory only. ACP Chat private conversation storage and backend runtime
   state are plugin-private persistence directories and SHALL NOT be displayed
   as Workspace. ACP Skills `workspaceDir` remains a run-local agent workspace;
-  its `.acp`, `result`, and `.audit` children are runtime/result/audit
+  its `.acp` and `result` children are runtime/input-manifest/result
   artifacts, not separate workspaces. Runner-owned result and audit files may
   be nested under per-run child directories such as `result/<skillId>.n/` and
-  `.audit/<skillId>.n/` when multiple ACP skill runs share one workspace.
+  `.acp/<skillId>.n/` when multiple ACP skill runs share one workspace.
 
 The banner SHALL be flexible but height-bounded. Overflow or low-priority
 metadata belongs in a details drawer, not in the main conversation layout.

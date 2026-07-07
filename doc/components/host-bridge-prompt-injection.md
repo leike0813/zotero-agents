@@ -156,7 +156,7 @@ directory structure in the run workspace:
 This Host Bridge subtree is independent from ACP runner-owned result and audit
 files. When multiple ACP skill runs share one workspace, those runner files are
 stored under provider-managed namespaces such as `result/<skillId>.n/` and
-`.audit/<skillId>.n/`; the Host Bridge profile layout does not change.
+`.acp/<skillId>.n/`; the Host Bridge profile layout does not change.
 
 ### Profile JSON
 

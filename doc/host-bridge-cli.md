@@ -480,8 +480,8 @@ ACP skill run 准备阶段会生成 `.zotero-bridge` 目录：
 - `.zotero-bridge/README.md`：写给 agent 的运行时使用提示。
 
 该目录属于共享 run workspace 的 Host Bridge 注入面。ACP runner-owned
-result/audit 文件由 provider 另行放在 `result/<skillId>.n/` 与
-`.audit/<skillId>.n/` 子空间；这不改变 Host Bridge CLI 的 profile、token
+result/input manifest 文件由 provider 另行放在 `result/<skillId>.n/` 与
+`.acp/<skillId>.n/` 子空间；这不改变 Host Bridge CLI 的 profile、token
 或命令解析行为。
 
 同时，插件会向 backend runtime 注入环境变量：

@@ -14,6 +14,7 @@
     transcriptRenderedMode: "",
     transcriptRunId: "",
     transcriptPageSignature: "",
+    transcriptLoadingSignature: "",
     transcriptPaginationVirtualizationEnabled: true,
     sidebarScopeKey: "",
     sidebarRevision: 0,
@@ -376,31 +377,6 @@
     ].join(":");
   }
 
-  function compactEventsKey(run) {
-    const events = run && Array.isArray(run.events) ? run.events : [];
-    const latest = events.length ? events[events.length - 1] : null;
-    return [
-      String(events.length),
-      safeText(latest && latest.ts),
-      safeText(latest && latest.stage),
-      safeText(latest && latest.level),
-      safeText(latest && latest.message),
-    ].join(":");
-  }
-
-  function compactLogsKey(logs) {
-    const entries = Array.isArray(logs) ? logs : [];
-    const latest = entries.length ? entries[entries.length - 1] : null;
-    return [
-      String(entries.length),
-      safeText(latest && latest.id),
-      safeText(latest && latest.ts),
-      safeText(latest && latest.level),
-      safeText(latest && latest.stage),
-      safeText(latest && latest.message),
-    ].join(":");
-  }
-
   function buildPanelRenderKey(snapshot) {
     const raw = snapshot && typeof snapshot === "object" ? snapshot : {};
     const runs = Array.isArray(raw.runs) ? raw.runs : [];
@@ -410,9 +386,7 @@
       selectedRuntimeOptions: compactRuntimeOptionsKey(
         raw.selectedRuntimeOptions,
       ),
-      selectedEvents: compactEventsKey(raw.selectedRun),
       streamingRenderEnabled: raw.streamingRenderEnabled !== false,
-      logs: compactLogsKey(raw.logs),
       runs: runs.map(compactRunKey),
       runDrawerOpen: state.runDrawerOpen,
       detailsOpen: state.detailsOpen,
@@ -569,6 +543,7 @@
     state.transcriptRevision = null;
     state.transcriptRenderedMode = "";
     state.transcriptPageSignature = "";
+    state.transcriptLoadingSignature = "";
     state.toolActivityExpandedIds.clear();
     state.toolActivityExpandedSignature = "";
   }
@@ -843,6 +818,26 @@
     return requestId;
   }
 
+  function transcriptLoadingSignature(requestId, stateName) {
+    const owner = safeText(requestId);
+    return owner ? [owner, safeText(stateName) || "loading"].join("|") : "";
+  }
+
+  function renderTranscriptLoading(transcript, requestId, stateName) {
+    const signature = transcriptLoadingSignature(requestId, stateName);
+    const existing =
+      transcript && transcript.querySelector(".acp-skill-transcript-loading");
+    if (signature && state.transcriptLoadingSignature === signature && existing) {
+      renderChatDisplayMode();
+      return;
+    }
+    resetTranscriptVirtualState(transcript, requestId);
+    clear(transcript);
+    transcript.appendChild(el("div", "acp-skill-transcript-loading"));
+    state.transcriptLoadingSignature = signature;
+    renderChatDisplayMode();
+  }
+
   function renderTranscript(run) {
     const transcript = $("acp-skill-run-transcript");
     const requestId = syncTranscriptRun(run, transcript);
@@ -860,10 +855,7 @@
         renderChatDisplayMode();
         return;
       }
-      resetTranscriptVirtualState(transcript, requestId);
-      clear(transcript);
-      transcript.appendChild(el("div", "acp-skill-transcript-loading"));
-      renderChatDisplayMode();
+      renderTranscriptLoading(transcript, requestId, transcriptState.state);
       return;
     }
     if (
@@ -871,6 +863,7 @@
       transcriptState.requestId === requestId &&
       transcriptState.state === "failed"
     ) {
+      state.transcriptLoadingSignature = "";
       clear(transcript);
       transcript.appendChild(
         el(
@@ -886,6 +879,7 @@
       renderChatDisplayMode();
       return;
     }
+    state.transcriptLoadingSignature = "";
     const renderer = assistantTranscriptRenderer();
     if (!renderer || typeof renderer.renderAssistantTranscript !== "function") {
       clear(transcript);

@@ -8,8 +8,8 @@ skills:
     handoff: prepare_analysis_context
     next_skill_id: topic-synthesis-core-enrichment
     required_runtime_inputs:
-      - .audit/<skill-namespace>/input_manifest.json
-      - runtime/input.json（兼容旧执行器，可选）
+      - .acp/<skill-namespace>/input_manifest.json 或 .audit/<skill-namespace>/input_manifest.json
+      - runtime/input.json（可选）
     stages:
       - id: stage_00_runtime_setup
         kind: command
@@ -45,8 +45,8 @@ skills:
     handoff: prepare_analysis_context
     next_skill_id: topic-synthesis-core-enrichment
     required_runtime_inputs:
-      - .audit/<skill-namespace>/input_manifest.json
-      - runtime/input.json（兼容旧执行器，可选）
+      - .acp/<skill-namespace>/input_manifest.json 或 .audit/<skill-namespace>/input_manifest.json
+      - runtime/input.json（可选）
     stages:
       - id: stage_00_runtime_setup
         kind: command

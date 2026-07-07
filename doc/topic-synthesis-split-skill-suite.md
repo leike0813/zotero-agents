@@ -615,7 +615,7 @@ UI 不展示 runtime 内部 artifact/provenance 区块。缺少可选 section �
 2. `topic-synthesis-core-enrichment`
 3. `topic-synthesis-finalize`
 
-Prepare step 创建 run workspace。Core 与 finalize 使用 `workspace: "reuse-workflow"` 共享同一个 workspace，但 ACP provider 会为每个 step 分配独立的 runner-owned `result/<skillId>.n/result.json` 与 `.audit/<skillId>.n/input_manifest.json`，避免后续 step 覆盖前序 step 的 result/audit 文件。Sequence result 使用 `final_step_id: "finalize"`，最终 Host apply 读取 finalize step record 中的 `resultJsonPath` / final candidate。
+Prepare step 创建 run workspace。Core 与 finalize 使用 `workspace: "reuse-workflow"` 共享同一个 workspace，但 ACP provider 会为每个 step 分配独立的 runner-owned `result/<skillId>.n/result.json` 与 `.acp/<skillId>.n/input_manifest.json`，避免后续 step 覆盖前序 step 的 result/input manifest 文件。Sequence result 使用 `final_step_id: "finalize"`，最终 Host apply 读取 finalize step record 中的 `resultJsonPath` / final candidate。
 
 ## Renderer 合同
 

@@ -135,7 +135,7 @@ The result includes `primarySkillDir`, `runnerJson`, `sharedSkillCatalogPath`,
 by the ACP runner for the current skill run. They must not be treated as fixed
 workspace-relative locations. When a workflow reuses one ACP workspace, these
 paths are isolated under provider-owned namespaces such as
-`result/<skillId>.n/result.json` and `.audit/<skillId>.n/input_manifest.json`.
+`result/<skillId>.n/result.json` and `.acp/<skillId>.n/input_manifest.json`.
 
 ### Thin Proxy Materializer
 
@@ -345,7 +345,7 @@ Flow:
 1. Read `runnerJson.entrypoint.result_json_filename` to determine the expected
    result file name pattern.
 2. Search the workspace directory for matching files, excluding runner-owned
-   `result/` and `.audit/` subtrees.
+   `result/` and `.acp/` subtrees.
 3. Validate each candidate against the output schema using the provided
    validator function.
 4. Return the best candidate's payload with warning codes.

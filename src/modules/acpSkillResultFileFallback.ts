@@ -59,7 +59,7 @@ async function collectCandidatePaths(args: {
       /\\/g,
       "/",
     );
-    if (relpath.startsWith("result/") || relpath.startsWith(".audit/")) {
+    if (relpath.startsWith("result/") || relpath.startsWith(".acp/")) {
       continue;
     }
     const stat = await statRuntimePath(path);
