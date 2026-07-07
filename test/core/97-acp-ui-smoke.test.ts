@@ -4423,8 +4423,15 @@ describe("acp ui smoke", function () {
     const backendManagerCss = await readProjectFile(
       "addon/content/dashboard/backend-manager.css",
     );
+    const taskManagerDialogTs = await readProjectFile(
+      "src/modules/taskManagerDialog.ts",
+    );
     const assistantCss = await readProjectFile(
       "addon/content/shared/assistant/assistant-panel-shared.css",
+    );
+    const renderLogLevelBadgeBlock = dashboardApp.slice(
+      dashboardApp.indexOf("function renderLogLevelBadge"),
+      dashboardApp.indexOf("function renderTaskTable"),
     );
     const sharedStatusColorSnippets = [
       "background: #eef8fb;",
@@ -4437,6 +4444,17 @@ describe("acp ui smoke", function () {
     assert.include(dashboardApp, "function dashboardStatusTone(stateValue)");
     assert.include(dashboardApp, '"is-" + dashboardStatusTone(stateValue)');
     assert.include(dashboardApp, "DASHBOARD_BUSY_STATUS_TOKENS.has(token)");
+    assert.notInclude(renderLogLevelBadgeBlock, "renderStatusBadge(");
+    assert.include(renderLogLevelBadgeBlock, "log-level-badge--");
+    assert.include(
+      taskManagerDialogTs,
+      'const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];',
+    );
+    assert.include(
+      taskManagerDialogTs,
+      "runtimeLogFilters: createDefaultRuntimeLogFilters()",
+    );
+    assert.include(taskManagerDialogTs, "filters: runtimeLogFilters");
     assert.include(
       assistantCss,
       ".assistant-workspace-drawer-task-main-status.is-accent",

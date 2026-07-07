@@ -21,7 +21,7 @@ import {
 import { canWorkflowRunWithoutSelection } from "./workflowSelectionPolicy";
 import {
   getHostBridgeApprovalRequirement,
-  requestHostBridgePermission,
+  requestHostBridgePermissionForRequirement,
   type HostBridgePermissionDecision,
   type HostBridgePermissionScope,
 } from "./hostBridgePermissionManager";
@@ -1257,7 +1257,7 @@ async function requestAgentRunApplyPermission(args: {
   resultCount: number;
   scope?: HostBridgePermissionScope | null;
 }) {
-  return requestHostBridgePermission({
+  return requestHostBridgePermissionForRequirement({
     action: "workflow.submit",
     title: "Apply workflow agent-run results",
     summary: `Apply ${args.resultCount} agent-run result bundle(s) for workflow ${localizeWorkflowLabel(args.workflow)}.`,
@@ -1685,16 +1685,7 @@ async function resolveWorkflowSubmitPermission(args: {
   scope?: HostBridgePermissionScope | null;
   timeoutMs?: number;
 }): Promise<HostBridgePermissionDecision> {
-  if (
-    getHostBridgeApprovalRequirement(args.approvalRequest.action) === "none"
-  ) {
-    return {
-      outcome: "approved",
-      requestId: "host-bridge-workflow-submit-approval-disabled",
-      channel: "global",
-    };
-  }
-  return requestHostBridgePermission({
+  return requestHostBridgePermissionForRequirement({
     ...args.approvalRequest,
     source: "host-bridge-cli",
     scope: args.scope,
@@ -2946,7 +2937,7 @@ async function resolveWorkflowCancelPermission(args: {
   if (scoped) {
     return scoped;
   }
-  return requestHostBridgePermission({
+  return requestHostBridgePermissionForRequirement({
     action: "workflow.cancel",
     title: "Cancel workflow run?",
     summary: `Cancel workflow run ${args.workflowRunId}.`,

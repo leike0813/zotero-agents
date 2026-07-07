@@ -198,6 +198,31 @@ function skillRunnerRunRequestId(scope?: HostBridgePermissionScope | null) {
   return normalizeString(scope?.requestId) || normalizeString(scope?.runId);
 }
 
+function permissionChannelFromScope(
+  scope?: HostBridgePermissionScope | null,
+): HostBridgePermissionDecision["channel"] {
+  const kind = normalizeString(scope?.kind);
+  if (kind === "acp-chat") {
+    return "acp-chat";
+  }
+  if (kind === "acp-skill-run" || kind === "acp-run") {
+    return "acp-skill-run";
+  }
+  if (kind === "skillrunner-run") {
+    return "skillrunner-run";
+  }
+  return "global";
+}
+
+function approvalDisabledRequestId(action: string) {
+  const suffix =
+    normalizeString(action)
+      .replace(/[^A-Za-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "operation";
+  return `host-bridge-${suffix}-approval-disabled`;
+}
+
 function relatedWorkflowRunId(scope?: HostBridgePermissionScope | null) {
   const kind = normalizeString(scope?.kind);
   if (kind === "skillrunner-run") {
@@ -623,6 +648,19 @@ export async function requestHostBridgePermission(
     throw new HostBridgePermissionError(decision);
   }
   return decision;
+}
+
+export async function requestHostBridgePermissionForRequirement(
+  request: HostBridgePermissionRequest,
+): Promise<HostBridgePermissionDecision> {
+  if (getHostBridgeApprovalRequirement(request.action) === "none") {
+    return {
+      outcome: "approved",
+      requestId: approvalDisabledRequestId(request.action),
+      channel: permissionChannelFromScope(request.scope),
+    };
+  }
+  return requestHostBridgePermission(request);
 }
 
 export function configureHostBridgeGlobalApprovalHandlerForTests(

@@ -176,6 +176,38 @@ async function bridgeRequest(args: {
   );
 }
 
+function createAgentRunApplyBody(request: {
+  agentRequestId: string;
+  namespace: string;
+}) {
+  const bundleRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), "zotero-agent-run-apply-"),
+  );
+  const resultDir = path.join(bundleRoot, "result", request.namespace);
+  const manifestDir = path.join(bundleRoot, "bundle", request.namespace);
+  fs.mkdirSync(resultDir, { recursive: true });
+  fs.mkdirSync(manifestDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(resultDir, "result.json"),
+    JSON.stringify({ status: "ok" }),
+  );
+  fs.writeFileSync(
+    path.join(manifestDir, "manifest.json"),
+    JSON.stringify({ namespace: request.namespace }),
+  );
+  return {
+    results: [
+      {
+        agentRequestId: request.agentRequestId,
+        bundle: {
+          kind: "local_path",
+          path: bundleRoot,
+        },
+      },
+    ],
+  };
+}
+
 describe("host bridge workflow control", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
@@ -547,37 +579,13 @@ describe("host bridge workflow control", function () {
     });
     assert.strictEqual(handoff.status, 200);
     const request = handoff.json.result.requests[0];
-    const bundleRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zotero-agent-run-apply-"),
-    );
-    const resultDir = path.join(bundleRoot, "result", request.namespace);
-    const manifestDir = path.join(bundleRoot, "bundle", request.namespace);
-    fs.mkdirSync(resultDir, { recursive: true });
-    fs.mkdirSync(manifestDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(resultDir, "result.json"),
-      JSON.stringify({ status: "ok" }),
-    );
-    fs.writeFileSync(
-      path.join(manifestDir, "manifest.json"),
-      JSON.stringify({ namespace: request.namespace }),
-    );
+    const applyBody = createAgentRunApplyBody(request);
 
     const applied = await bridgeRequest({
       token,
       method: "POST",
       path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
-      body: {
-        results: [
-          {
-            agentRequestId: request.agentRequestId,
-            bundle: {
-              kind: "local_path",
-              path: bundleRoot,
-            },
-          },
-        ],
-      },
+      body: applyBody,
     });
 
     assert.strictEqual(applied.status, 200);
@@ -589,20 +597,63 @@ describe("host bridge workflow control", function () {
       token,
       method: "POST",
       path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
-      body: {
-        results: [
-          {
-            agentRequestId: request.agentRequestId,
-            bundle: {
-              kind: "local_path",
-              path: bundleRoot,
-            },
-          },
-        ],
-      },
+      body: applyBody,
     });
     assert.strictEqual(second.status, 409);
     assert.strictEqual(second.json.error.code, "agent_run_already_consumed");
+  });
+
+  it("can disable workflow agent-run apply approval from the Host Bridge preference switch", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+    };
+    installWorkflowRegistryForTests([entry]);
+    setPref("hostBridgeDisableWriteApproval", true);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-agent-apply-no-approval-token",
+    });
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalRequest = request;
+      return {
+        outcome: "denied",
+        requestId: request.requestId,
+        channel: "global",
+        reason: "approval should not be requested",
+      };
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Bridge Agent Apply Without Approval");
+    await parent.saveTx();
+
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: {
+          items: [{ id: parent.id }],
+        },
+      },
+    });
+    assert.strictEqual(handoff.status, 200);
+    const request = handoff.json.result.requests[0];
+
+    const applied = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: createAgentRunApplyBody(request),
+    });
+
+    assert.strictEqual(applied.status, 200);
+    assert.strictEqual(applied.json.result.permission.outcome, "approved");
+    assert.strictEqual(applied.json.result.permission.channel, "global");
+    assert.strictEqual(applyCalls, 1);
+    assert.isNull(approvalRequest);
   });
 
   it("returns stable workflow agent-run apply errors before consuming the agent run", async function () {
@@ -2157,6 +2208,53 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(cancelCalls, 1);
   });
 
+  it("can disable unscoped workflow cancel approval from the Host Bridge preference switch", async function () {
+    setPref("hostBridgeDisableWriteApproval", true);
+    const token = configureHostBridgeServerForTests({
+      token: "task-cancel-no-approval-token",
+    });
+    let cancelCalls = 0;
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalRequest = request;
+      return {
+        outcome: "denied",
+        requestId: request.requestId,
+        channel: "global",
+        reason: "approval should not be requested",
+      };
+    });
+    upsertAcpSkillRun({
+      requestId: "acp-cancel-no-approval",
+      status: "running",
+      runId: "run-cancel-no-approval",
+      workflowId: "bridge-workflow",
+      taskName: "Cancelable ACP Task",
+      backendId: "backend-acp",
+    });
+    registerAcpSkillRunController("acp-cancel-no-approval", {
+      cancel: async () => {
+        cancelCalls += 1;
+      },
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/runs/run-cancel-no-approval/cancel",
+      body: {
+        reason: "test",
+      },
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.accepted, true);
+    assert.strictEqual(parsed.json.result.permission.outcome, "approved");
+    assert.strictEqual(parsed.json.result.permission.channel, "global");
+    assert.strictEqual(cancelCalls, 1);
+    assert.isNull(approvalRequest);
+  });
+
   it("exposes permission projections for approved cache invalidation", async function () {
     const token = configureHostBridgeServerForTests({ token: "task-token" });
     let permissionRequestId = "";
@@ -2248,6 +2346,42 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 422);
     assert.strictEqual(parsed.json.error.code, "unsupported_cache_scope");
     assert.strictEqual(requested, false);
+  });
+
+  it("can disable synthesis cache invalidation approval from the Host Bridge preference switch", async function () {
+    setPref("hostBridgeDisableWriteApproval", true);
+    const token = configureHostBridgeServerForTests({
+      token: "cache-invalidate-no-approval-token",
+    });
+    let approvalRequest: any = null;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalRequest = request;
+      return {
+        outcome: "denied",
+        requestId: request.requestId,
+        channel: "global",
+        reason: "approval should not be requested",
+      };
+    });
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/synthesis/cache/invalidate",
+      body: {
+        scope: "graph",
+      },
+    });
+    const pending = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/permissions/pending",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.strictEqual(parsed.json.result.invalidated, true);
+    assert.deepEqual(pending.json.result.permissions, []);
+    assert.isNull(approvalRequest);
   });
 
   it("targets skill-run reply by explicit skillRunId", async function () {

@@ -63,6 +63,11 @@ const TERMINAL_STATES = new Set([
 ]);
 const SKILL_RUN_FEEDBACK_KIND = "skill_run_feedback";
 const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
+const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];
+
+function createDefaultRuntimeLogFilters() {
+  return { levels: [...DEFAULT_RUNTIME_LOG_LEVELS] };
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -617,7 +622,7 @@ export async function createDashboardReadonlyModel(
     selectedFeedbackProductId: "",
     feedbackSkillFilter: "",
     selectedFeedbackProductIds: new Set(),
-    runtimeLogFilters: {},
+    runtimeLogFilters: createDefaultRuntimeLogFilters(),
     runtimeLogSelectedIdSet: new Set(),
   };
 

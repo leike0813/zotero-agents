@@ -600,10 +600,10 @@
   }
 
   function renderLogLevelBadge(level) {
-    return renderStatusBadge(
-      level,
-      String(level || "").toUpperCase(),
+    return el(
+      "span",
       `log-level-badge log-level-badge--${normalizeLogLevelBadgeClass(level)}`,
+      String(level || "").toUpperCase(),
     );
   }
 

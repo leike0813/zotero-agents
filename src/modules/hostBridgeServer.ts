@@ -52,6 +52,7 @@ import {
   listHostBridgePendingPermissions,
   parseHostBridgePermissionScope,
   requestHostBridgePermission,
+  requestHostBridgePermissionForRequirement,
 } from "./hostBridgePermissionManager";
 import type { HostBridgeNotificationFilters } from "./hostBridgeNotificationInbox";
 import {
@@ -2899,7 +2900,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
     );
   }
   try {
-    await requestHostBridgePermission({
+    await requestHostBridgePermissionForRequirement({
       action: "synthesis.cache.invalidate",
       title: "Invalidate Synthesis cache",
       summary: `Invalidate default Synthesis service cache; requested scope: ${scope}`,

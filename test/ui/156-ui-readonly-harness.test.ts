@@ -537,6 +537,11 @@ describe("UI readonly harness", function () {
         tabKey: "runtime-logs",
       });
       assert.ok(Array.isArray((runtimeLogs.runtimeLogsView as any).logs));
+      assert.deepEqual((runtimeLogs.runtimeLogsView as any).filters.levels, [
+        "info",
+        "warn",
+        "error",
+      ]);
       const skillrunnerDashboardRow = (dashboardHome.runningRows as any[]).find(
         (row) => row.backendType === "skillrunner",
       );

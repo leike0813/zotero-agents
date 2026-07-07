@@ -146,6 +146,25 @@ type DashboardState = {
   >;
 };
 
+const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];
+
+function createDefaultRuntimeLogFilters(): DashboardState["runtimeLogFilters"] {
+  return { levels: [...DEFAULT_RUNTIME_LOG_LEVELS] };
+}
+
+function normalizeRuntimeLogFilters(
+  filters: DashboardState["runtimeLogFilters"],
+): DashboardState["runtimeLogFilters"] {
+  const normalized = {
+    ...createDefaultRuntimeLogFilters(),
+    ...filters,
+  };
+  normalized.levels = Array.isArray(filters.levels)
+    ? [...filters.levels]
+    : [...DEFAULT_RUNTIME_LOG_LEVELS];
+  return normalized;
+}
+
 type DashboardRow = {
   id: string;
   workflowId: string;
@@ -1993,8 +2012,12 @@ async function buildDashboardSnapshot(args: {
       await import("./runtimeLogManager");
     const diagnosticMode = getRuntimeLogDiagnosticMode();
     const logSnapshot = snapshotRuntimeLogs();
+    const runtimeLogFilters = normalizeRuntimeLogFilters(
+      args.state.runtimeLogFilters,
+    );
+    args.state.runtimeLogFilters = runtimeLogFilters;
     const rawLogs = listRuntimeLogs({
-      ...(args.state.runtimeLogFilters as any),
+      ...(runtimeLogFilters as any),
       order: "desc",
       limit: 300,
     });
@@ -2032,7 +2055,7 @@ async function buildDashboardSnapshot(args: {
       });
 
     snapshot.runtimeLogsView = {
-      filters: args.state.runtimeLogFilters,
+      filters: runtimeLogFilters,
       diagnosticMode,
       totalEntries: logSnapshot.entries.length,
       budget: {
@@ -2318,7 +2341,7 @@ export async function openTaskManagerDialog(args?: {
     workflowSettingsSaveStateById: new Map(),
     workflowSettingsSaveErrorById: new Map(),
     workflowSettingsSaveTimerById: new Map(),
-    runtimeLogFilters: {},
+    runtimeLogFilters: createDefaultRuntimeLogFilters(),
     runtimeLogSelectedIdSet: new Set(),
     homeWorkflowDocWorkflowId: "",
     selectedProductId: "",
@@ -3322,6 +3345,7 @@ export async function openTaskManagerDialog(args?: {
       if (!selected) {
         state.selectedTabKey = "runtime-logs";
         state.runtimeLogFilters = {
+          ...createDefaultRuntimeLogFilters(),
           backendId: backend.id,
           backendType: backend.type,
         };
@@ -3333,6 +3357,7 @@ export async function openTaskManagerDialog(args?: {
       }
       state.selectedTabKey = "runtime-logs";
       state.runtimeLogFilters = {
+        ...createDefaultRuntimeLogFilters(),
         backendId: backend.id,
         backendType: backend.type,
         workflowId: selected.workflowId,
@@ -3597,7 +3622,9 @@ export async function openTaskManagerDialog(args?: {
       return;
     }
     if (action === "runtime-logs-clear-context") {
-      const levels = state.runtimeLogFilters.levels;
+      const levels = Array.isArray(state.runtimeLogFilters.levels)
+        ? [...state.runtimeLogFilters.levels]
+        : [...DEFAULT_RUNTIME_LOG_LEVELS];
       state.runtimeLogFilters = { levels };
       refresh("user-action");
       return;
