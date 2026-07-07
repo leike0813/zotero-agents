@@ -3,7 +3,7 @@ import {
   buildPageRangePlan,
   readPdfSplitMetadata,
   resolveSourceAttachment,
-} from "../lib/pdfSplitPlan.js";
+} from "../lib/pdfSplitPlan.mjs";
 
 export async function preflight({ selectionContext, runtime }) {
   const source = resolveSourceAttachment(selectionContext);

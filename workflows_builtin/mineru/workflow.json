@@ -101,8 +101,8 @@
     ]
   },
   "hooks": {
-    "preflight": "hooks/preflight.js",
-    "buildRequest": "hooks/buildRequest.js",
-    "applyResult": "hooks/applyResult.js"
+    "preflight": "hooks/preflight.mjs",
+    "buildRequest": "hooks/buildRequest.mjs",
+    "applyResult": "hooks/applyResult.mjs"
   }
 }

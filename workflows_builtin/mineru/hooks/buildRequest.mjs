@@ -1,4 +1,4 @@
-import { resolveSourceAttachment } from "../lib/pdfSplitPlan.js";
+import { resolveSourceAttachment } from "../lib/pdfSplitPlan.mjs";
 
 function sourceStem(fileName) {
   return String(fileName || "").replace(/\.[^.]+$/, "");

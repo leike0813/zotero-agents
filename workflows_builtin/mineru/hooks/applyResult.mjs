@@ -86,8 +86,9 @@ async function hasLinkedAttachmentForPath(parentItem, targetPath) {
   if (!normalizedTargetPath) {
     return false;
   }
+  const zoteroItems = globalThis.Zotero?.Items;
   for (const attachmentId of parentItem.getAttachments?.() || []) {
-    const attachment = Zotero.Items.get(attachmentId);
+    const attachment = zoteroItems?.get?.(attachmentId);
     if (!attachment) {
       continue;
     }
