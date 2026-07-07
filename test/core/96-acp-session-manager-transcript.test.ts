@@ -331,6 +331,66 @@ describe("acp session manager", function () {
     );
   });
 
+  it("coalesces ACP Chat assistant message chunks across tool_call_update side-channels", async function () {
+    await connectAcpConversation();
+
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "I'll read the batch file",
+        },
+      },
+    });
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-side-channel",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+      },
+    });
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-side-channel",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+        output: "done",
+      },
+    });
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: " first.",
+        },
+      },
+    });
+
+    const transcript = await readActiveTranscriptItems();
+    const assistantItems = transcript.filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.lengthOf(assistantItems, 1);
+    assert.equal(assistantItems[0].text, "I'll read the batch file first.");
+    assert.isTrue(
+      transcript.some(
+        (entry) =>
+          entry.kind === "tool_call" &&
+          entry.toolCallId === "tool-side-channel",
+      ),
+    );
+  });
+
   it("keeps streaming text out of snapshots while appending transcript chunks", async function () {
     await connectAcpConversation();
 

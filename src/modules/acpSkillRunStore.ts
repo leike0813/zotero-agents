@@ -22,6 +22,7 @@ import {
   canPublishAssistantWorkspaceLiveUpdates,
 } from "./assistantWorkspaceUiPublishPolicy";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
+import { isAcpTranscriptHardBoundaryUpdate } from "./acpTranscriptBoundary";
 import {
   listWorkflowTasks,
   removeWorkflowTasksByBackendAndRequestIds,
@@ -3818,10 +3819,17 @@ export function recordAcpSkillRunSessionUpdate(
         now,
       });
     }
-  } else if (kind === "tool_call" || kind === "tool_call_update") {
-    completeOpenStreamingTextItems(next, now);
+  } else if (kind === "tool_call") {
+    if (isAcpTranscriptHardBoundaryUpdate(kind)) {
+      completeOpenStreamingTextItems(next, now);
+    }
+    upsertTranscriptToolCall(next, update as AcpToolCall, now);
+  } else if (kind === "tool_call_update") {
     upsertTranscriptToolCall(next, update as AcpToolCall, now);
   } else if (kind === "plan") {
+    if (isAcpTranscriptHardBoundaryUpdate(kind)) {
+      completeOpenStreamingTextItems(next, now);
+    }
     next.planEntries = parsePlanEntries(
       (update as { entries?: unknown }).entries,
     );
@@ -3845,7 +3853,11 @@ export function recordAcpSkillRunSessionUpdate(
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
-  if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
+  if (
+    kind === "tool_call" ||
+    kind === "tool_call_update" ||
+    kind === "plan"
+  ) {
     persistRun(next);
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;

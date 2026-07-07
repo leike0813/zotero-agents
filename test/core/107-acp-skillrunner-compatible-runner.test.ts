@@ -5695,6 +5695,74 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("coalesces ACP Skills assistant message chunks across tool_call_update side-channels", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-stream-tool-update-side-channel",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp"),
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-stream-tool-update-side-channel", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "I'll read the batch file" },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-stream-tool-update-side-channel", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-1",
+          title: "Read",
+          status: "completed",
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-stream-tool-update-side-channel", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "tool-1",
+          title: "Read",
+          status: "completed",
+          output: "done",
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-stream-tool-update-side-channel", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " first." },
+        },
+      } as any);
+
+      const transcript = await readRunTranscriptItems(
+        "run-stream-tool-update-side-channel",
+      );
+      const assistantMessages = transcript.filter(
+        (item) => item.kind === "message" && item.role === "assistant",
+      );
+      assert.lengthOf(assistantMessages, 1);
+      assert.equal(
+        assistantMessages[0].text,
+        "I'll read the batch file first.",
+      );
+      assert.isTrue(
+        transcript.some(
+          (item) => item.kind === "tool_call" && item.toolCallId === "tool-1",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps tool calls as assistant streaming message boundaries around workspace activity", async function () {
     const root = await mkTempRoot();
     resetAcpSkillRunsForTests();
@@ -5768,6 +5836,54 @@ describe("ACP SkillRunner-compatible runner", function () {
           (item) =>
             item.kind === "status" && item.label === "workspace-activity",
         ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("does not coalesce ACP Skills assistant chunks across a user turn", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-stream-user-boundary",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp"),
+        activePrompt: true,
+      });
+      recordAcpSkillRunSessionUpdate("run-stream-user-boundary", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "First assistant region." },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-stream-user-boundary", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "user_message_chunk",
+          content: { type: "text", text: "User turn." },
+        },
+      } as any);
+      recordAcpSkillRunSessionUpdate("run-stream-user-boundary", {
+        sessionId: "session-1",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Second assistant region." },
+        },
+      } as any);
+
+      const assistantMessages = (
+        await readRunTranscriptItems("run-stream-user-boundary")
+      ).filter((item) => item.kind === "message" && item.role === "assistant");
+      assert.lengthOf(assistantMessages, 2);
+      assert.deepEqual(
+        assistantMessages.map((item) => item.text),
+        ["First assistant region.", "Second assistant region."],
       );
     } finally {
       await fs.rm(root, { recursive: true, force: true });

@@ -9,6 +9,10 @@ import {
 } from "./assistantWorkspaceUiPublishPolicy";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import {
+  classifyAcpTranscriptSessionUpdate,
+  isAcpTranscriptHardBoundaryUpdate,
+} from "./acpTranscriptBoundary";
+import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
@@ -2483,6 +2487,9 @@ function handleSessionUpdate(
     return;
   }
   const update = event.update;
+  const transcriptBoundary = classifyAcpTranscriptSessionUpdate(
+    update.sessionUpdate,
+  );
   if (sessionRuntime.suppressSessionLoadReplay) {
     switch (String(update.sessionUpdate || "").trim()) {
       case "agent_message_chunk":
@@ -2552,7 +2559,9 @@ function handleSessionUpdate(
     }
     case "tool_call": {
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call";
-      completeActiveStreamingTextItems(sessionRuntime);
+      if (isAcpTranscriptHardBoundaryUpdate(update.sessionUpdate)) {
+        completeActiveStreamingTextItems(sessionRuntime);
+      }
       upsertToolCallItem(sessionRuntime, update);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
@@ -2562,10 +2571,10 @@ function handleSessionUpdate(
     }
     case "tool_call_update": {
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
-      completeActiveStreamingTextItems(sessionRuntime);
       upsertToolCallItem(sessionRuntime, update);
       emitSessionRuntimeSnapshot(sessionRuntime, {
-        uiReason: "boundary",
+        uiReason:
+          transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
         publishMode: "structural",
       });
       return;

@@ -111,3 +111,10 @@
 - 如果需要刷新非 transcript region，必须使用该 region 自身的稳定 signature，signature 只能包含该 region 用户可见内容和打开/折叠状态。
 - 所有 Assistant Workspace shared managed regions（toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer）都必须经由区域级 signature guard；不得让 transcript-only/loading/streaming snapshot 直接触发这些区域的 clear/rebuild。
 - 涉及 transcript 渲染、prompting、snapshot、drawer/details 的改动必须补充或更新能锁定上述 DOM identity 不变量的测试。
+
+# ACP Transcript Projection硬约束
+
+- ACP Chat / ACP Skills 的 transcript projection 不得假设后端已经正确整流 assistant message chunks；插件侧必须按协议语义维护稳定的 assistant text segment。
+- `tool_call_update`、usage、status、workspace activity 等 side-channel update 不得作为 assistant message 的硬切分边界；新 `tool_call`、用户消息、plan/permission/user interaction、显式 turn boundary、request terminal 才能结束当前 assistant text segment。
+- ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
+- ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。

@@ -7860,6 +7860,51 @@ describe("acp ui smoke", function () {
     assert.include(runDialogJs, "syncTranscriptContext();");
   });
 
+  it("keeps ACP transcript message coalescing backend-agnostic", async function () {
+    const boundary = await readProjectFile(
+      "src/modules/acpTranscriptBoundary.ts",
+    );
+    const acpChatSessionManager = await readProjectFile(
+      "src/modules/acpSessionManager.ts",
+    );
+    const acpSkillRunStore = await readProjectFile(
+      "src/modules/acpSkillRunStore.ts",
+    );
+
+    assert.include(boundary, "classifyAcpTranscriptSessionUpdate");
+    assert.include(boundary, 'case "tool_call_update":');
+    assert.include(boundary, 'return "soft-side-channel";');
+    for (const forbidden of [
+      "CodeBuddy",
+      "codebuddy",
+      "opencode",
+      "kilo",
+      "hermes",
+      "backendId",
+      "providerId",
+    ]) {
+      assert.notInclude(boundary, forbidden);
+    }
+
+    const chatToolUpdateBlock = acpChatSessionManager.slice(
+      acpChatSessionManager.indexOf('case "tool_call_update":'),
+      acpChatSessionManager.indexOf('case "plan":'),
+    );
+    assert.notInclude(
+      chatToolUpdateBlock,
+      "completeActiveStreamingTextItems(sessionRuntime)",
+    );
+
+    const skillToolUpdateBlock = acpSkillRunStore.slice(
+      acpSkillRunStore.indexOf('} else if (kind === "tool_call_update")'),
+      acpSkillRunStore.indexOf('} else if (kind === "plan")'),
+    );
+    assert.notInclude(
+      skillToolUpdateBlock,
+      "completeOpenStreamingTextItems(next, now)",
+    );
+  });
+
   it("keeps ACP Skills panel chrome render key free of transcript-only signals", async function () {
     const acpSkillRunJs = await readProjectFile(
       "addon/content/sidebar/acp-skill-run.js",

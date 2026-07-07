@@ -1226,3 +1226,41 @@ backends are launched for SkillRunner-compatible runs.
   snapshot state
 - **AND** it SHALL NOT write PID, ready, probe, or diagnostic content to the
   child stdout stream consumed by the ACP protocol reader.
+
+### Requirement: ACP Skills assistant text SHALL coalesce across soft side-channel updates
+
+ACP Skills transcript normalization SHALL keep an active assistant text segment
+open across ACP update kinds that do not represent a user-visible assistant turn
+boundary. `tool_call_update`, usage updates, status updates, and workspace
+activity SHALL NOT complete or replace the active assistant message.
+
+When an ACP backend provides explicit message or content identity, ACP Skills
+SHALL prefer that identity for grouping assistant text. When no reliable
+identity is available, ACP Skills SHALL group by the current request/session
+scoped active assistant segment.
+
+The coalescing rule SHALL be protocol- and semantics-based. It SHALL NOT branch
+on backend id, provider id, agent family, command name, or product-specific
+backend strings.
+
+#### Scenario: Tool update side-channel does not split assistant text
+
+- **GIVEN** an ACP Skills run receives an assistant text chunk
+- **AND** it then receives one or more `tool_call_update` events
+- **WHEN** another assistant text chunk arrives for the same active segment
+- **THEN** the transcript contains one assistant message with the combined text
+- **AND** the tool item remains visible as a separate transcript item.
+
+#### Scenario: New tool call remains a hard assistant boundary
+
+- **GIVEN** an ACP Skills run has an active assistant text segment
+- **WHEN** a new `tool_call` event arrives
+- **THEN** the active assistant text segment is completed
+- **AND** later assistant text starts a new assistant message.
+
+#### Scenario: User turn prevents cross-turn assistant coalescing
+
+- **GIVEN** an ACP Skills run has a completed assistant message
+- **WHEN** a user text chunk or explicit turn boundary arrives
+- **THEN** later assistant text SHALL NOT append to the previous assistant
+  message.
