@@ -17,6 +17,7 @@ import type { WorkflowExecutionOptions } from "../workflowSettingsDomain";
 import type {
   PreparationSeamResult,
   WorkflowExecutionContext,
+  WorkflowPreflightExecutionState,
 } from "./contracts";
 import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
@@ -398,6 +399,7 @@ export async function runWorkflowPreparationSeam(
   });
 
   let requests: unknown[] = [];
+  let preflight: WorkflowPreflightExecutionState | undefined;
   let skippedByFilter = 0;
   try {
     resolved.appendRuntimeLog({
@@ -455,6 +457,11 @@ export async function runWorkflowPreparationSeam(
       },
     });
     requests = builtRequests;
+    preflight = (
+      builtRequests as unknown as {
+        __preflight?: WorkflowPreflightExecutionState;
+      }
+    ).__preflight;
     skippedByFilter = Math.max(
       0,
       Number(
@@ -472,7 +479,8 @@ export async function runWorkflowPreparationSeam(
       stage: "build-requests-finished",
       message: "build requests finished",
       details: {
-        requestCount: requests.length,
+        requestCount:
+          requests.length + (preflight?.shortCircuitApplies.length || 0),
         skippedUnits: skippedByFilter,
         allowWriteApprovalBypass:
           args.workflow.manifest.execution?.zoteroHostAccess
@@ -558,7 +566,10 @@ export async function runWorkflowPreparationSeam(
     };
   }
 
-  if (requests.length === 0) {
+  if (
+    requests.length === 0 &&
+    (preflight?.shortCircuitApplies.length || 0) === 0
+  ) {
     resolved.appendRuntimeLog({
       level: "warn",
       scope: "workflow-trigger",
@@ -756,6 +767,7 @@ export async function runWorkflowPreparationSeam(
     prepared: {
       workflow: args.workflow,
       requests: adaptedRequests,
+      preflight,
       skillDisplayById,
       skippedByFilter,
       executionContext,

@@ -183,6 +183,76 @@ describeHandlersSuite("handlers", function () {
     );
   });
 
+  it("ParentHandler.updateMetadata updates fields and creators in one save", async function () {
+    const parent = await createParentItem("Handler Metadata Parent");
+    const originalSaveTx = parent.saveTx.bind(parent);
+    let saveCount = 0;
+    (parent as unknown as { saveTx: typeof parent.saveTx }).saveTx =
+      async function saveTxOnce() {
+        saveCount += 1;
+        return originalSaveTx();
+      };
+    try {
+      await handlers.parent.updateMetadata(parent, {
+        fields: {
+          title: "Curated Metadata Title",
+          DOI: "10.1000/example",
+        },
+        creators: [
+          {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            creatorType: "author",
+          },
+        ],
+      });
+      assert.equal(parent.getField("title"), "Curated Metadata Title");
+      assert.equal(parent.getField("DOI"), "10.1000/example");
+      assert.deepEqual(
+        (parent as unknown as { getCreators: () => unknown[] }).getCreators(),
+        [
+          {
+            firstName: "Ada",
+            lastName: "Lovelace",
+            creatorType: "author",
+          },
+        ],
+      );
+      assert.equal(saveCount, 1);
+    } finally {
+      await cleanupObject(parent);
+    }
+  });
+
+  it("ParentHandler.updateMetadata skips invalid fields without changing updateFields behavior", async function () {
+    const parent = await createParentItem("Handler Metadata Invalid Parent");
+    try {
+      await handlers.parent.updateMetadata(parent, {
+        fields: {
+          title: "Valid Metadata Title",
+          numPages: 77,
+        },
+        creators: [{ name: "Metadata Consortium", creatorType: "author" }],
+      });
+      assert.equal(parent.getField("title"), "Valid Metadata Title");
+      assert.equal(String(parent.getField("numPages") || ""), "");
+      assert.deepEqual(
+        (parent as unknown as { getCreators: () => unknown[] }).getCreators(),
+        [{ name: "Metadata Consortium", creatorType: "author" }],
+      );
+
+      await expectError(
+        () =>
+          handlers.parent.updateFields(parent, {
+            numPages: 10,
+          }),
+        /Invalid field/,
+      );
+    } finally {
+      await cleanupObject(parent);
+    }
+  });
+
   it("NoteHandler.create creates a standalone note", async function () {
     let note: Zotero.Item | null = null;
     try {

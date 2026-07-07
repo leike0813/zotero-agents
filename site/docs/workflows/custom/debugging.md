@@ -63,9 +63,9 @@ export function applyResult({ parent, bundleReader, runtime }) {
 4. Confirm that the `applyResult` script path is correct
 5. Check the plugin error log (Zotero → Help → Troubleshooting → View Log File)
 
-### filterInputs Returns null
+### Selection Validation Skips Every Unit
 
-If `filterInputs` returns `null`, it means no qualifying selection was found, and the workflow will not execute. Check whether the filtering logic is correct.
+If declarative `validateSelection` or `preflight` skips every input unit, the workflow will not submit any provider request. Check the selection policy, exclusion rules, and any `preflight` outcome that returns `kind: "skip"`.
 
 ### Conflict Between buildRequest and Declarative Request
 
@@ -74,7 +74,7 @@ The `buildRequest` hook and the `request` field in `workflow.json` are **mutuall
 ### Hook Script Execution Failure
 
 - Confirm that the Hook script is in `.mjs` (ES Module) format
-- Confirm that the correct function names are exported: `filterInputs`, `buildRequest`, `applyResult`
+- Confirm that the correct function names are exported: `preflight`, `buildRequest`, `normalizeSettings`, or `applyResult`
 - Confirm that the function signature correctly receives parameters like `{ parent, bundleReader, runtime }`
 - Check whether relative import paths are correct
 
@@ -91,14 +91,14 @@ If `applyResult` uses `hostApi.mutations.execute()` but it does not take effect,
 ### Start Simple
 
 1. First use the `pass-through` provider with a minimal `applyResult` to verify that the workflow loads successfully
-2. Gradually add `filterInputs` and `buildRequest`
+2. Add `validateSelection` first, then add `preflight` or `buildRequest` only when needed
 3. Finally connect to the actual backend
 
 ### Use notifications.toast for Quick Feedback
 
 ```js
 hostApi.notifications.toast({
-  text: `filterInputs received ${selectionContext.items.parents.length} parent items`,
+  text: `buildRequest received ${selectionContext.items.parents.length} parent items`,
   type: "default",
 });
 ```

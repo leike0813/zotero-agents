@@ -34,6 +34,13 @@ Hook-driven sequence workflows SHALL be able to declare candidate steps in
 - **AND** Host Bridge SHALL NOT evaluate `include_if` or decide the executable
   sequence for the agent.
 
+#### Scenario: Preflight does not replace buildRequest as request source
+
+- **WHEN** a workflow declares `hooks.preflight`
+- **AND** preflight returns continue or replacement units
+- **THEN** provider requests SHALL still be produced by `buildRequest` or declarative request compilation
+- **AND** preflight SHALL NOT be treated as a provider request source.
+
 ### Requirement: Declared hook-driven sequence candidates SHALL be semantically checked
 
 The workflow loader SHALL validate declared candidate sequence steps for
@@ -58,3 +65,51 @@ materialization hooks for context while remaining non-executing.
 - **AND** the resulting payload SHALL be used only for handoff context and later
   apply-back request reconstruction
 - **AND** Host Bridge SHALL NOT submit that payload to any backend during handoff.
+
+### Requirement: Workflow runtime SHALL support preflight execution planning
+
+The workflow runtime SHALL run optional `hooks.preflight` after selection
+resolution and before request construction.
+
+#### Scenario: Continue keeps the current input unit
+
+- **WHEN** preflight returns `kind: "continue"`
+- **THEN** the runtime SHALL build and execute the request for the current input unit
+- **AND** any preflight context SHALL be available to `buildRequest`.
+
+#### Scenario: Skip omits one input unit
+
+- **WHEN** preflight returns `kind: "skip"` for one input unit
+- **THEN** the runtime SHALL omit that unit from provider dispatch
+- **AND** the skip SHALL NOT be counted as a provider failure.
+
+#### Scenario: Short-circuit applies without provider dispatch
+
+- **WHEN** preflight returns `kind: "short-circuit-apply"`
+- **THEN** the runtime SHALL NOT call `buildRequest`
+- **AND** the runtime SHALL NOT dispatch a provider request for that unit
+- **AND** the runtime SHALL call the workflow `applyResult` through the standard apply seam.
+
+#### Scenario: Replacement units expand request construction
+
+- **WHEN** preflight returns `kind: "replace-units"`
+- **THEN** the runtime SHALL build one provider request per replacement unit
+- **AND** each replacement unit SHALL receive its own preflight unit context.
+
+### Requirement: Workflow runtime SHALL support aggregate single-apply plans
+
+The workflow runtime SHALL support a preflight aggregate plan that applies one
+result after all child requests succeed.
+
+#### Scenario: Aggregate children apply once after all succeed
+
+- **WHEN** preflight replacement units declare an aggregate plan with `mode: "single-apply"`
+- **AND** all child provider requests succeed
+- **THEN** the runtime SHALL call the workflow `applyResult` once for the aggregate
+- **AND** the runtime SHALL expose ordered child results in the aggregate result context.
+
+#### Scenario: Aggregate failure prevents partial apply
+
+- **WHEN** any child provider request in an aggregate plan fails or is canceled
+- **THEN** the runtime SHALL NOT call aggregate `applyResult`
+- **AND** the workflow summary SHALL report the aggregate failure.

@@ -367,6 +367,66 @@ describe("workflow loader validation", function () {
     assert.equal(loaded.workflows[0].buildStrategy, "declarative");
   });
 
+  it("accepts workflow with optional preflight hook", async function () {
+    const tmpRoot = await mkTempDir("zotero-skills-wf");
+    await makeWorkflow(
+      tmpRoot,
+      "preflight-ok",
+      {
+        id: "preflight-ok",
+        label: "Preflight",
+        provider: "pass-through",
+        hooks: {
+          preflight: "hooks/preflight.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      {
+        "preflight.js":
+          "export async function preflight(){ return { kind: 'continue' }; }",
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      },
+    );
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.lengthOf(
+      loaded.workflows,
+      1,
+      `warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
+    );
+    assert.isFunction(loaded.workflows[0].hooks.preflight);
+  });
+
+  it("rejects workflow when preflight hook export is missing", async function () {
+    const tmpRoot = await mkTempDir("zotero-skills-wf");
+    await makeWorkflow(
+      tmpRoot,
+      "preflight-missing-export",
+      {
+        id: "preflight-missing-export",
+        label: "Preflight Missing Export",
+        provider: "pass-through",
+        hooks: {
+          preflight: "hooks/preflight.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      {
+        "preflight.js": "export const notPreflight = true;",
+        "applyResult.js":
+          "export async function applyResult(){ return { ok: true }; }",
+      },
+    );
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.lengthOf(loaded.workflows, 0);
+    assert.isTrue(
+      loaded.warnings.some((warning) =>
+        warning.includes("Hook export preflight() not found"),
+      ),
+      `warnings=${JSON.stringify(loaded.warnings)}`,
+    );
+  });
+
   it("loads multiple workflows from one workflow package and supports shared helper imports", async function () {
     const tmpRoot = await mkTempDir("zotero-skills-wf");
     await makeWorkflowPackage({

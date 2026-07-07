@@ -91,6 +91,7 @@ export type WorkflowDisplaySpec = {
 };
 
 export type WorkflowHooksSpec = {
+  preflight?: string;
   buildRequest?: string;
   normalizeSettings?: string;
   applyResult: string;
@@ -515,7 +516,7 @@ export type WorkflowRuntimeContext = {
   workflowRootDir?: string;
   packageRootDir?: string;
   workflowSourceKind?: "official" | "dev-local" | "user" | "";
-  hookName?: "buildRequest" | "applyResult" | "";
+  hookName?: "preflight" | "buildRequest" | "applyResult" | "";
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;
@@ -526,8 +527,83 @@ export type WorkflowRuntimeContext = {
   navigator?: typeof globalThis.navigator | null;
 };
 
+export type WorkflowPreflightDiagnostic = {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+};
+
+export type WorkflowPreflightAggregatePlan = {
+  id: string;
+  mode: "single-apply";
+  applyWhen: "all-succeeded";
+  orderBy: "unit.order";
+};
+
+export type WorkflowPreflightUnit = {
+  id: string;
+  order?: number;
+  label?: string;
+  selectionContext?: unknown;
+  context?: Record<string, unknown>;
+};
+
+export type WorkflowPreflightContext = {
+  planId: string;
+  unitId: string;
+  unitOrder?: number;
+  context?: Record<string, unknown>;
+  aggregate?: {
+    id: string;
+    mode: "single-apply";
+  };
+};
+
+export type WorkflowPreflightApplyInput = {
+  resultJson: unknown;
+  request?: unknown;
+  runResult?: unknown;
+  parent?: Zotero.Item | number | string | null;
+};
+
+export type WorkflowPreflightOutcome =
+  | {
+      kind: "continue";
+      context?: Record<string, unknown>;
+      diagnostics?: WorkflowPreflightDiagnostic[];
+    }
+  | {
+      kind: "replace-units";
+      units: WorkflowPreflightUnit[];
+      aggregate?: WorkflowPreflightAggregatePlan;
+      context?: Record<string, unknown>;
+      diagnostics?: WorkflowPreflightDiagnostic[];
+    }
+  | {
+      kind: "short-circuit-apply";
+      apply: WorkflowPreflightApplyInput;
+      context?: Record<string, unknown>;
+      diagnostics?: WorkflowPreflightDiagnostic[];
+    }
+  | {
+      kind: "skip";
+      reason?: string;
+      diagnostics?: WorkflowPreflightDiagnostic[];
+    };
+
+export type PreflightHook = (args: {
+  selectionContext: unknown;
+  manifest: WorkflowManifest;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+  };
+  runtime: WorkflowRuntimeContext;
+}) => WorkflowPreflightOutcome | Promise<WorkflowPreflightOutcome>;
+
 export type BuildRequestHook = (args: {
   selectionContext: unknown;
+  preflight?: WorkflowPreflightContext;
   manifest: WorkflowManifest;
   executionOptions?: {
     workflowParams?: Record<string, unknown>;
@@ -590,6 +666,7 @@ export type NormalizeWorkflowSettingsHook = (
 ) => unknown;
 
 export type WorkflowHooksModule = {
+  preflight?: PreflightHook;
   buildRequest?: BuildRequestHook;
   normalizeSettings?: NormalizeWorkflowSettingsHook;
   applyResult: ApplyResultHook;

@@ -29,6 +29,9 @@ import {
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
 import type {
   LoadedWorkflow,
+  WorkflowPreflightContext,
+  WorkflowPreflightOutcome,
+  WorkflowPreflightUnit,
   WorkflowResultContext,
   WorkflowRuntimeContext,
 } from "./types";
@@ -99,6 +102,32 @@ type BuildRequestStats = {
 
 type BuildRequestsResult = unknown[] & {
   __stats?: BuildRequestStats;
+  __preflight?: {
+    requestUnits: Array<WorkflowPreflightContext | undefined>;
+    shortCircuitApplies: Array<{
+      index: number;
+      taskLabel: string;
+      parent: Zotero.Item | number | string | null;
+      request: unknown;
+      runResult: {
+        status: "succeeded";
+        requestId: string;
+        fetchType: "result";
+        resultJson: unknown;
+        responseJson: unknown;
+        [key: string]: unknown;
+      };
+      preflight: WorkflowPreflightContext;
+    }>;
+    aggregates: Array<{
+      id: string;
+      mode: "single-apply";
+      applyWhen: "all-succeeded";
+      orderBy: "unit.order";
+      requestIndexes: number[];
+    }>;
+    skippedUnits: number;
+  };
 };
 
 type NoValidInputUnitsError = Error & {
@@ -323,6 +352,106 @@ function enrichRequestWithSelectionMeta(
   return normalized;
 }
 
+function normalizePreflightContext(args: {
+  planId: string;
+  unitId: string;
+  unitOrder?: number;
+  context?: Record<string, unknown>;
+  aggregate?: { id: string; mode: "single-apply" };
+}): WorkflowPreflightContext {
+  return {
+    planId: args.planId,
+    unitId: args.unitId,
+    ...(typeof args.unitOrder === "number"
+      ? { unitOrder: args.unitOrder }
+      : {}),
+    ...(args.context ? { context: args.context } : {}),
+    ...(args.aggregate ? { aggregate: args.aggregate } : {}),
+  };
+}
+
+function assertPreflightOutcome(value: unknown): WorkflowPreflightOutcome {
+  if (!isObjectRecord(value)) {
+    throw new Error("preflight must return an object outcome");
+  }
+  const kind = String(value.kind || "").trim();
+  if (
+    kind !== "continue" &&
+    kind !== "replace-units" &&
+    kind !== "short-circuit-apply" &&
+    kind !== "skip"
+  ) {
+    throw new Error(`Unsupported preflight outcome kind: ${kind || "<empty>"}`);
+  }
+  if (kind === "replace-units") {
+    const units = value.units;
+    if (!Array.isArray(units) || units.length === 0) {
+      throw new Error("preflight replace-units outcome requires units[]");
+    }
+    for (let index = 0; index < units.length; index++) {
+      const unit = units[index];
+      if (!isObjectRecord(unit) || !String(unit.id || "").trim()) {
+        throw new Error(
+          `preflight replace-units units[${index}].id must be non-empty`,
+        );
+      }
+    }
+    const aggregate = isObjectRecord(value.aggregate) ? value.aggregate : null;
+    if (aggregate) {
+      if (String(aggregate.id || "").trim() === "") {
+        throw new Error("preflight aggregate.id must be non-empty");
+      }
+      if (aggregate.mode !== "single-apply") {
+        throw new Error("preflight aggregate.mode must be single-apply");
+      }
+      if (aggregate.applyWhen !== "all-succeeded") {
+        throw new Error("preflight aggregate.applyWhen must be all-succeeded");
+      }
+      if (aggregate.orderBy !== "unit.order") {
+        throw new Error("preflight aggregate.orderBy must be unit.order");
+      }
+    }
+  }
+  if (kind === "short-circuit-apply" && !isObjectRecord(value.apply)) {
+    throw new Error("preflight short-circuit-apply outcome requires apply");
+  }
+  return value as WorkflowPreflightOutcome;
+}
+
+function mergePreflightContext(
+  base?: Record<string, unknown>,
+  unit?: Record<string, unknown>,
+) {
+  return {
+    ...(base || {}),
+    ...(unit || {}),
+  };
+}
+
+function nonEmptyContext(value: Record<string, unknown>) {
+  return Object.keys(value).length > 0 ? value : undefined;
+}
+
+function resolvePreflightUnitSelection(args: {
+  fallback: SelectionLike;
+  unit?: WorkflowPreflightUnit;
+}) {
+  return isObjectRecord(args.unit?.selectionContext)
+    ? (args.unit?.selectionContext as SelectionLike)
+    : args.fallback;
+}
+
+function buildPreflightRequestId(args: {
+  workflowId: string;
+  planId: string;
+  unitId: string;
+}) {
+  return `preflight-${args.workflowId}-${args.planId}-${args.unitId}`.replace(
+    /[^A-Za-z0-9._:-]+/g,
+    "-",
+  );
+}
+
 function createRuntimeContext(
   override?: Partial<WorkflowRuntimeContext>,
 ): WorkflowRuntimeContext {
@@ -369,6 +498,7 @@ function createRuntimeContext(
         ? override.workflowSourceKind
         : "",
     hookName:
+      override?.hookName === "preflight" ||
       override?.hookName === "buildRequest" ||
       override?.hookName === "applyResult"
         ? override.hookName
@@ -458,7 +588,7 @@ async function withWorkflowExecutionRuntimeScope<T>(
 function createHookRuntimeContext(args: {
   runtime: WorkflowRuntimeContext;
   workflow: LoadedWorkflow;
-  hookName: "buildRequest" | "applyResult";
+  hookName: "preflight" | "buildRequest" | "applyResult";
 }) {
   const isPackageHostApiWorkflow =
     args.workflow.hookExecutionMode === "precompiled-host-hook";
@@ -491,7 +621,7 @@ function resolveHookCapabilitySource(workflow: LoadedWorkflow) {
 async function runWorkflowHookWithDiagnostics<T>(args: {
   workflow: LoadedWorkflow;
   runtime: WorkflowRuntimeContext;
-  hookName: "buildRequest" | "applyResult";
+  hookName: "preflight" | "buildRequest" | "applyResult";
   component: string;
   operation: string;
   work: (hookRuntime: WorkflowRuntimeContext) => Promise<T> | T;
@@ -945,7 +1075,16 @@ export async function executeBuildRequests(args: {
       }
 
       const requests: BuildRequestsResult = [];
-      for (const selectionContext of resolvedSelections) {
+      const preflightState: NonNullable<BuildRequestsResult["__preflight"]> = {
+        requestUnits: [],
+        shortCircuitApplies: [],
+        aggregates: [],
+        skippedUnits: 0,
+      };
+      const buildProviderRequest = async (buildArgs: {
+        selectionContext: SelectionLike;
+        preflight?: WorkflowPreflightContext;
+      }) => {
         const passThroughFallbackKind =
           String(args.workflow.manifest.provider || "").trim() ===
           PASS_THROUGH_BACKEND_TYPE
@@ -965,13 +1104,14 @@ export async function executeBuildRequests(args: {
               operation: "build-request",
               work: (hookRuntime) =>
                 args.workflow.hooks.buildRequest!({
-                  selectionContext,
+                  selectionContext: buildArgs.selectionContext,
+                  preflight: buildArgs.preflight,
                   manifest: args.workflow.manifest,
                   executionOptions: args.executionOptions,
                   runtime: hookRuntime,
                 }),
             }),
-            selectionContext,
+            buildArgs.selectionContext,
             args.workflow.manifest.label,
           );
           const finalBuiltRequest = withNormalizedSkillRunnerRuntimeOptions({
@@ -986,8 +1126,7 @@ export async function executeBuildRequests(args: {
               request: finalBuiltRequest,
             });
           }
-          requests.push(finalBuiltRequest);
-          continue;
+          return finalBuiltRequest;
         }
 
         const request = args.workflow.manifest.request;
@@ -1003,11 +1142,11 @@ export async function executeBuildRequests(args: {
         const compiledRequest = enrichRequestWithSelectionMeta(
           compileDeclarativeRequest({
             kind: requestKindFromManifest,
-            selectionContext,
+            selectionContext: buildArgs.selectionContext,
             manifest: args.workflow.manifest,
             executionOptions: args.executionOptions,
           }),
-          selectionContext,
+          buildArgs.selectionContext,
           args.workflow.manifest.label,
         );
         const finalCompiledRequest = withNormalizedSkillRunnerRuntimeOptions({
@@ -1020,19 +1159,184 @@ export async function executeBuildRequests(args: {
           requestKind: requestKindFromManifest,
           request: finalCompiledRequest,
         });
-        requests.push(finalCompiledRequest);
+        return finalCompiledRequest;
+      };
+
+      for (let selectionIndex = 0; selectionIndex < resolvedSelections.length; selectionIndex++) {
+        const selectionContext = resolvedSelections[selectionIndex];
+        if (!args.workflow.hooks.preflight) {
+          const request = await buildProviderRequest({ selectionContext });
+          requests.push(request);
+          preflightState.requestUnits.push(undefined);
+          continue;
+        }
+
+        const planId = `unit-${selectionIndex + 1}`;
+        const outcome = assertPreflightOutcome(
+          await runWorkflowHookWithDiagnostics({
+            workflow: args.workflow,
+            runtime,
+            hookName: "preflight",
+            component: "workflow-runtime",
+            operation: "preflight",
+            work: (hookRuntime) =>
+              args.workflow.hooks.preflight!({
+                selectionContext,
+                manifest: args.workflow.manifest,
+                executionOptions: args.executionOptions,
+                runtime: hookRuntime,
+              }),
+          }),
+        );
+
+        if (outcome.kind === "skip") {
+          preflightState.skippedUnits += 1;
+          continue;
+        }
+
+        if (outcome.kind === "short-circuit-apply") {
+          const unitId = "short-circuit";
+          const preflight = normalizePreflightContext({
+            planId,
+            unitId,
+            unitOrder: 0,
+            context: outcome.context,
+          });
+          const apply = outcome.apply;
+          const request =
+            apply.request ||
+            ({
+              kind: "workflow.preflight.short-circuit.v1",
+              taskName: resolveTaskNameFromSelection({
+                selectionContext,
+                targetParentID: resolveTargetParentIDFromSelection(selectionContext),
+                sourceAttachmentPaths:
+                  resolveSourceAttachmentPathsFromSelection(selectionContext),
+                workflowLabel: args.workflow.manifest.label,
+              }),
+            } satisfies Record<string, unknown>);
+          const requestId = buildPreflightRequestId({
+            workflowId: args.workflow.manifest.id,
+            planId,
+            unitId,
+          });
+          const runResult = {
+            ...(isObjectRecord(apply.runResult) ? apply.runResult : {}),
+            status: "succeeded" as const,
+            requestId,
+            fetchType: "result" as const,
+            resultJson: apply.resultJson,
+            responseJson: apply.resultJson,
+          };
+          preflightState.shortCircuitApplies.push({
+            index: requests.length + preflightState.shortCircuitApplies.length,
+            taskLabel: resolveTaskNameFromSelection({
+              selectionContext,
+              targetParentID: resolveTargetParentIDFromSelection(selectionContext),
+              sourceAttachmentPaths:
+                resolveSourceAttachmentPathsFromSelection(selectionContext),
+              workflowLabel: args.workflow.manifest.label,
+            }),
+            parent:
+              typeof apply.parent !== "undefined"
+                ? apply.parent
+                : resolveTargetParentIDFromSelection(selectionContext) || null,
+            request,
+            runResult,
+            preflight,
+          });
+          continue;
+        }
+
+        if (outcome.kind === "continue") {
+          const preflight = normalizePreflightContext({
+            planId,
+            unitId: "main",
+            unitOrder: 0,
+            context: outcome.context,
+          });
+          const request = await buildProviderRequest({
+            selectionContext,
+            preflight,
+          });
+          requests.push(request);
+          preflightState.requestUnits.push(preflight);
+          continue;
+        }
+
+        const aggregateRequestIndexes: number[] = [];
+        const aggregate = outcome.aggregate;
+        for (let unitIndex = 0; unitIndex < outcome.units.length; unitIndex++) {
+          const unit = outcome.units[unitIndex];
+          const unitOrder =
+            typeof unit.order === "number" ? unit.order : unitIndex;
+          const unitContext = nonEmptyContext(
+            mergePreflightContext(outcome.context, unit.context),
+          );
+          const preflight = normalizePreflightContext({
+            planId,
+            unitId: String(unit.id || "").trim(),
+            unitOrder,
+            context: unitContext,
+            aggregate: aggregate
+              ? {
+                  id: aggregate.id,
+                  mode: "single-apply",
+                }
+              : undefined,
+          });
+          const request = await buildProviderRequest({
+            selectionContext: resolvePreflightUnitSelection({
+              fallback: selectionContext,
+              unit,
+            }),
+            preflight,
+          });
+          const requestIndex = requests.length;
+          requests.push(request);
+          preflightState.requestUnits.push(preflight);
+          aggregateRequestIndexes.push(requestIndex);
+        }
+        if (aggregate) {
+          preflightState.aggregates.push({
+            id: aggregate.id,
+            mode: "single-apply",
+            applyWhen: "all-succeeded",
+            orderBy: "unit.order",
+            requestIndexes: aggregateRequestIndexes,
+          });
+        }
       }
-      const skippedUnits = Math.max(0, resolved.totalUnits - requests.length);
+      const skippedUnits = Math.max(
+        0,
+        resolved.totalUnits -
+          requests.length -
+          preflightState.shortCircuitApplies.length,
+      ) + preflightState.skippedUnits;
       Object.defineProperty(requests, "__stats", {
         value: {
           totalUnits: resolved.totalUnits,
-          requestCount: requests.length,
+          requestCount:
+            requests.length + preflightState.shortCircuitApplies.length,
           skippedUnits,
         } satisfies BuildRequestStats,
         enumerable: false,
         configurable: true,
         writable: false,
       });
+      if (
+        preflightState.requestUnits.some(Boolean) ||
+        preflightState.shortCircuitApplies.length > 0 ||
+        preflightState.aggregates.length > 0 ||
+        preflightState.skippedUnits > 0
+      ) {
+        Object.defineProperty(requests, "__preflight", {
+          value: preflightState,
+          enumerable: false,
+          configurable: true,
+          writable: false,
+        });
+      }
 
       return requests;
     },

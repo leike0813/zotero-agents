@@ -239,6 +239,16 @@ function summarizeSequenceStepApplyResults(result: RunResultLike) {
     .filter((entry) => entry.step_id);
 }
 
+function buildAggregateRequestIndexSet(runState: WorkflowRunState) {
+  const indexes = new Set<number>();
+  for (const aggregate of runState.preflight?.aggregates || []) {
+    for (const index of aggregate.requestIndexes) {
+      indexes.add(index);
+    }
+  }
+  return indexes;
+}
+
 async function createSequenceApplyContext(args: {
   result: RunResultLike;
   manifest: WorkflowRunState["workflow"]["manifest"];
@@ -309,6 +319,7 @@ export async function runWorkflowApplySeam(
   let pending = 0;
   const failureReasons: string[] = [];
   const jobOutcomes: WorkflowApplySummary["jobOutcomes"] = [];
+  const aggregateRequestIndexes = buildAggregateRequestIndexSet(args.runState);
 
   for (let i = 0; i < args.runState.jobIds.length; i++) {
     const taskLabel = resolveTaskNameFromRequest(args.runState.requests[i], i);
@@ -579,6 +590,24 @@ export async function runWorkflowApplySeam(
           taskLabel,
           status: result.status,
           responseStatus: String(getResponseJson(result).status || "").trim(),
+          targetParentID: applyParent || undefined,
+        },
+      });
+      continue;
+    }
+
+    if (aggregateRequestIndexes.has(i)) {
+      resolved.appendRuntimeLog({
+        level: "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: job.id,
+        requestId: result.requestId,
+        stage: "apply-deferred-aggregate-child",
+        message: "per-job apply deferred for aggregate preflight child",
+        details: {
+          index: i,
+          taskLabel,
           targetParentID: applyParent || undefined,
         },
       });
@@ -856,6 +885,231 @@ export async function runWorkflowApplySeam(
         await resolved.removeFileIfExists(bundlePath);
       }
       for (const path of sequenceBundlePaths) {
+        await resolved.removeFileIfExists(path);
+      }
+    }
+  }
+
+  for (const entry of args.runState.preflight?.shortCircuitApplies || []) {
+    const requestId = entry.runResult.requestId;
+    const bundleReader = resolved.createUnavailableBundleReader(requestId);
+    try {
+      const resultContext = await resolved.createWorkflowResultContext({
+        runResult: entry.runResult,
+        bundleReader,
+        manifest: args.runState.workflow.manifest,
+        preflight: entry.preflight,
+      });
+      await resolved.executeApplyResult({
+        workflow: args.runState.workflow,
+        parent: entry.parent,
+        bundleReader,
+        resultContext,
+        request: entry.request,
+        runResult: entry.runResult,
+      });
+      succeeded += 1;
+      jobOutcomes.push({
+        index: entry.index,
+        taskLabel: entry.taskLabel,
+        succeeded: true,
+        terminalState: "succeeded",
+        jobId: requestId,
+        requestId,
+      });
+      resolved.appendRuntimeLog({
+        level: "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: requestId,
+        requestId,
+        stage: "apply-succeeded-preflight-short-circuit",
+        message: "preflight short-circuit applyResult succeeded",
+        details: {
+          index: entry.index,
+          taskLabel: entry.taskLabel,
+        },
+      });
+    } catch (error) {
+      failed += 1;
+      const reason = resolved.normalizeErrorMessage(
+        error,
+        args.messageFormatter,
+      );
+      failureReasons.push(`preflight-${entry.index}: ${reason}`);
+      jobOutcomes.push({
+        index: entry.index,
+        taskLabel: entry.taskLabel,
+        succeeded: false,
+        terminalState: "failed",
+        reason,
+        jobId: requestId,
+        requestId,
+      });
+      resolved.appendRuntimeLog({
+        level: "error",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: requestId,
+        requestId,
+        stage: "apply-failed-preflight-short-circuit",
+        message: "preflight short-circuit applyResult failed",
+        details: {
+          index: entry.index,
+          taskLabel: entry.taskLabel,
+          reason,
+        },
+        error,
+      });
+    }
+  }
+
+  for (const aggregate of args.runState.preflight?.aggregates || []) {
+    const children: NonNullable<
+      NonNullable<
+        Awaited<ReturnType<typeof resolved.createWorkflowResultContext>>
+      >["aggregate"]
+    >["children"] = [];
+    const cleanupPaths: string[] = [];
+    const failedChild = aggregate.requestIndexes.find((requestIndex) => {
+      const jobId = args.runState.jobIds[requestIndex];
+      const job = jobId ? args.runState.queue.getJob(jobId) : null;
+      const result = job?.result as RunResultLike | undefined;
+      return (
+        !job ||
+        job.state !== "succeeded" ||
+        String(result?.status || "succeeded").trim() !== "succeeded" ||
+        !result?.requestId
+      );
+    });
+    if (typeof failedChild === "number") {
+      failed += 1;
+      const reason = `aggregate child failed: index=${failedChild}`;
+      failureReasons.push(`aggregate-${aggregate.id}: ${reason}`);
+      jobOutcomes.push({
+        index: failedChild,
+        taskLabel: `Aggregate: ${aggregate.id}`,
+        succeeded: false,
+        terminalState: "failed",
+        reason,
+        jobId: `aggregate-${aggregate.id}`,
+      });
+      continue;
+    }
+    try {
+      for (const requestIndex of aggregate.requestIndexes) {
+        const jobId = args.runState.jobIds[requestIndex];
+        const job = args.runState.queue.getJob(jobId);
+        const result = job!.result as RunResultLike;
+        const preflight = args.runState.preflight?.requestUnits[requestIndex];
+        const bundleResource = await createBundleReaderForRunResult({
+          result,
+          requestId: result.requestId || `aggregate-${aggregate.id}`,
+          deps: resolved,
+        });
+        if (bundleResource.bundlePath) {
+          cleanupPaths.push(bundleResource.bundlePath);
+        }
+        const childResultContext = await resolved.createWorkflowResultContext({
+          runResult: result,
+          bundleReader: bundleResource.bundleReader,
+          manifest: args.runState.workflow.manifest,
+          preflight,
+        });
+        children.push({
+          unitId: preflight?.unitId || `unit-${requestIndex}`,
+          order:
+            typeof preflight?.unitOrder === "number"
+              ? preflight.unitOrder
+              : requestIndex,
+          context: preflight?.context,
+          request: args.runState.requests[requestIndex],
+          runResult: result,
+          resultContext: childResultContext,
+          bundleReader: bundleResource.bundleReader,
+        });
+      }
+      children.sort((left, right) => left.order - right.order);
+      const aggregateRequestId = `aggregate-${aggregate.id}`;
+      const aggregateRunResult = {
+        status: "succeeded" as const,
+        requestId: aggregateRequestId,
+        fetchType: "result" as const,
+        resultJson: {
+          kind: "workflow.preflight.aggregate.v1",
+          aggregateId: aggregate.id,
+        },
+        responseJson: {
+          kind: "workflow.preflight.aggregate.v1",
+          aggregateId: aggregate.id,
+        },
+      };
+      const bundleReader =
+        resolved.createUnavailableBundleReader(aggregateRequestId);
+      const resultContext = await resolved.createWorkflowResultContext({
+        runResult: aggregateRunResult,
+        bundleReader,
+        manifest: args.runState.workflow.manifest,
+        aggregate: {
+          id: aggregate.id,
+          mode: "single-apply",
+          children,
+        },
+      });
+      const firstRequestIndex = aggregate.requestIndexes[0] ?? 0;
+      const targetParentID = resolveTargetParentIDFromRequest(
+        args.runState.requests[firstRequestIndex],
+      );
+      await resolved.executeApplyResult({
+        workflow: args.runState.workflow,
+        parent:
+          typeof targetParentID === "number" && targetParentID > 0
+            ? targetParentID
+            : null,
+        bundleReader,
+        resultContext,
+        request: {
+          kind: "workflow.preflight.aggregate.v1",
+          aggregateId: aggregate.id,
+        },
+        runResult: aggregateRunResult,
+      });
+      succeeded += 1;
+      jobOutcomes.push({
+        index: firstRequestIndex,
+        taskLabel: `Aggregate: ${aggregate.id}`,
+        succeeded: true,
+        terminalState: "succeeded",
+        jobId: aggregateRequestId,
+        requestId: aggregateRequestId,
+      });
+    } catch (error) {
+      failed += 1;
+      const reason = resolved.normalizeErrorMessage(
+        error,
+        args.messageFormatter,
+      );
+      failureReasons.push(`aggregate-${aggregate.id}: ${reason}`);
+      jobOutcomes.push({
+        index: aggregate.requestIndexes[0] ?? 0,
+        taskLabel: `Aggregate: ${aggregate.id}`,
+        succeeded: false,
+        terminalState: "failed",
+        reason,
+        jobId: `aggregate-${aggregate.id}`,
+      });
+      resolved.appendRuntimeLog({
+        level: "error",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: `aggregate-${aggregate.id}`,
+        stage: "apply-failed-preflight-aggregate",
+        message: "preflight aggregate applyResult failed",
+        details: { aggregateId: aggregate.id, reason },
+        error,
+      });
+    } finally {
+      for (const path of cleanupPaths) {
         await resolved.removeFileIfExists(path);
       }
     }

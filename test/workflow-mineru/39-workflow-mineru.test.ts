@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
+import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import {
   executeApplyResult,
@@ -62,6 +63,27 @@ async function buildMineruRequest(attachment: Zotero.Item, pdfPath: string) {
   };
 }
 
+function runtimeWithPdfMetadata(metadata: {
+  pageCount?: number;
+  numPages?: number;
+  outline?: Array<{ title?: string; page?: number; level?: number }>;
+}) {
+  const helpers = createHookHelpers(Zotero) as ReturnType<
+    typeof createHookHelpers
+  > & {
+    mineruReadPdfMetadata?: () => Promise<typeof metadata>;
+  };
+  helpers.mineruReadPdfMetadata = async () => metadata;
+  return { helpers };
+}
+
+function bundleReaderForDir(bundleDir: string) {
+  return {
+    readText: async () => "",
+    getExtractedDir: async () => bundleDir,
+  };
+}
+
 async function listAttachmentPaths(parent: Zotero.Item) {
   const paths: string[] = [];
   for (const id of parent.getAttachments()) {
@@ -110,6 +132,8 @@ describe("workflow: mineru", function () {
       workflow.manifest.validateSelection?.select?.policy,
       "pdf-attachment",
     );
+    assert.isFunction(workflow.hooks.preflight);
+    assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
   });
 
@@ -155,6 +179,91 @@ describe("workflow: mineru", function () {
       .map((entry) => String(entry.context?.source_attachment_name || ""))
       .sort();
     assert.deepEqual(names, ["a.pdf", "b.pdf"]);
+  });
+
+  it("keeps PDFs at or below 200 pages on the single-request path", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-short-pdf");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Short Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "short.pdf",
+    });
+    const selection = await buildSelectionContext([source.attachment]);
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: selection,
+      runtime: runtimeWithPdfMetadata({ pageCount: 200 }),
+    })) as Array<{
+      steps?: Array<{ request?: { json?: any } }>;
+      context?: Record<string, unknown>;
+    }>;
+
+    assert.lengthOf(requests, 1);
+    assert.isUndefined(
+      requests[0].steps?.[0]?.request?.json?.files?.[0]?.page_ranges,
+    );
+    assert.deepInclude(requests[0].context?.mineruSplit as any, {
+      enabled: false,
+      reason: "within-page-limit",
+    });
+  });
+
+  it("splits PDFs above 200 pages with outline-aware page ranges", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-long-pdf");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Long Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "long.pdf",
+    });
+    const selection = await buildSelectionContext([source.attachment]);
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: selection,
+      runtime: runtimeWithPdfMetadata({
+        pageCount: 450,
+        outline: [
+          { title: "Chapter 2", page: 151, level: 1 },
+          { title: "Chapter 3", page: 301, level: 1 },
+        ],
+      }),
+    })) as Array<{
+      steps?: Array<{ request?: { json?: any; binary_from?: string } }>;
+      context?: Record<string, unknown>;
+    }> & {
+      __preflight?: {
+        aggregates?: Array<{ requestIndexes: number[] }>;
+      };
+    };
+
+    assert.lengthOf(requests, 3);
+    assert.deepEqual(
+      requests.map(
+        (entry) => entry.steps?.[0]?.request?.json?.files?.[0]?.page_ranges,
+      ),
+      ["1-150", "151-300", "301-450"],
+    );
+    assert.deepEqual(
+      requests.map((entry) => entry.steps?.[1]?.request?.binary_from),
+      [source.pdfPath, source.pdfPath, source.pdfPath],
+    );
+    assert.deepEqual(
+      requests.map((entry) => entry.context?.partIndex),
+      [1, 2, 3],
+    );
+    assert.deepEqual(
+      requests.__preflight?.aggregates?.[0]?.requestIndexes,
+      [0, 1, 2],
+    );
   });
 
   itNodeOnly(
@@ -529,6 +638,150 @@ describe("workflow: mineru", function () {
       `expected linked markdown attachment=${targetMdPath}, got=${attachmentPaths.join(",")}`,
     );
   });
+
+  it("merges aggregate child bundles in order with one blank line", async function () {
+    const workflow = await getMineruWorkflow();
+    const tempDir = await mkTempDir("zotero-skills-mineru-aggregate");
+    const bundleA = await mkTempDir("zotero-skills-mineru-aggregate-a");
+    const bundleB = await mkTempDir("zotero-skills-mineru-aggregate-b");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "MinerU Aggregate Parent" },
+    });
+    const source = await createPdfAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "book.pdf",
+    });
+    await writeUtf8(
+      joinPath(bundleA, "full.md"),
+      "![a](images/hash-a.png)\nPart A\n",
+    );
+    await ensureDir(joinPath(bundleA, "images"));
+    await writeUtf8(joinPath(bundleA, "images", "hash-a.png"), "a");
+    await writeUtf8(
+      joinPath(bundleB, "full.md"),
+      "![b](images/hash-b.png)\nPart B\n",
+    );
+    await ensureDir(joinPath(bundleB, "images"));
+    await writeUtf8(joinPath(bundleB, "images", "hash-b.png"), "b");
+    const request = await buildMineruRequest(source.attachment, source.pdfPath);
+
+    await executeApplyResult({
+      workflow,
+      parent,
+      bundleReader: bundleReaderForDir(bundleA),
+      request: { kind: "workflow.preflight.aggregate.v1" },
+      runResult: {},
+      resultContext: {
+        aggregate: {
+          id: "mineru-book",
+          mode: "single-apply",
+          children: [
+            {
+              unitId: "part-2",
+              order: 2,
+              request,
+              runResult: {},
+              resultContext: {} as any,
+              bundleReader: bundleReaderForDir(bundleB),
+            },
+            {
+              unitId: "part-1",
+              order: 1,
+              request,
+              runResult: {},
+              resultContext: {} as any,
+              bundleReader: bundleReaderForDir(bundleA),
+            },
+          ],
+        },
+      } as any,
+    });
+
+    const targetMdPath = joinPath(tempDir, "book.md");
+    const targetImages = joinPath(tempDir, `Images_${source.attachment.key}`);
+    const markdown = await readUtf8(targetMdPath);
+    assert.include(markdown, "Part A\n\n![b]");
+    assert.include(markdown, `Images_${source.attachment.key}/hash-a.png`);
+    assert.include(markdown, `Images_${source.attachment.key}/hash-b.png`);
+    assert.isTrue(await pathExists(joinPath(targetImages, "hash-a.png")));
+    assert.isTrue(await pathExists(joinPath(targetImages, "hash-b.png")));
+  });
+
+  itFullOnly(
+    "preserves existing outputs when aggregate child full.md is missing",
+    async function () {
+      const workflow = await getMineruWorkflow();
+      const tempDir = await mkTempDir("zotero-skills-mineru-aggregate-fail");
+      const bundleA = await mkTempDir("zotero-skills-mineru-aggregate-fail-a");
+      const bundleB = await mkTempDir("zotero-skills-mineru-aggregate-fail-b");
+      const parent = await handlers.item.create({
+        itemType: "journalArticle",
+        fields: { title: "MinerU Aggregate Fail Parent" },
+      });
+      const source = await createPdfAttachment({
+        parent,
+        dirPath: tempDir,
+        name: "preserve.pdf",
+      });
+      const targetMdPath = joinPath(tempDir, "preserve.md");
+      const targetImages = joinPath(tempDir, `Images_${source.attachment.key}`);
+      await writeUtf8(targetMdPath, "old markdown");
+      await ensureDir(targetImages);
+      await writeUtf8(joinPath(targetImages, "old.png"), "old");
+      await writeUtf8(joinPath(bundleA, "full.md"), "new markdown");
+      await ensureDir(joinPath(bundleB, "images"));
+      await writeUtf8(joinPath(bundleB, "images", "new.png"), "new");
+      const request = await buildMineruRequest(
+        source.attachment,
+        source.pdfPath,
+      );
+
+      let thrown: unknown = null;
+      try {
+        await executeApplyResult({
+          workflow,
+          parent,
+          bundleReader: bundleReaderForDir(bundleA),
+          request: { kind: "workflow.preflight.aggregate.v1" },
+          runResult: {},
+          resultContext: {
+            aggregate: {
+              id: "mineru-preserve",
+              mode: "single-apply",
+              children: [
+                {
+                  unitId: "part-1",
+                  order: 1,
+                  request,
+                  runResult: {},
+                  resultContext: {} as any,
+                  bundleReader: bundleReaderForDir(bundleA),
+                },
+                {
+                  unitId: "part-2",
+                  order: 2,
+                  request,
+                  runResult: {},
+                  resultContext: {} as any,
+                  bundleReader: bundleReaderForDir(bundleB),
+                },
+              ],
+            },
+          } as any,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      assert.isOk(thrown);
+      assert.match(String(thrown), /full\.md/i);
+      assert.equal(await readUtf8(targetMdPath), "old markdown");
+      assert.isTrue(await pathExists(joinPath(targetImages, "old.png")));
+      assert.isFalse(await pathExists(joinPath(targetImages, "new.png")));
+    },
+  );
 
   itFullOnly(
     "replaces existing orphan images directory before moving new images",

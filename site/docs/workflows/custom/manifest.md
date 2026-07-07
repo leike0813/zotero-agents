@@ -19,6 +19,7 @@
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "applyResult": "hooks/applyResult.mjs"
   }
 }
@@ -286,6 +287,7 @@ For detailed information on each `kind`, see [Request Kinds](request-kinds).
 ```json
 {
   "hooks": {
+    "preflight": "hooks/preflight.mjs",
     "buildRequest": "hooks/buildRequest.mjs",
     "normalizeSettings": "hooks/normalizeSettings.mjs",
     "applyResult": "hooks/applyResult.mjs"
@@ -296,10 +298,13 @@ For detailed information on each `kind`, see [Request Kinds](request-kinds).
 | Field | Required | Description |
 |-------|----------|-------------|
 | `applyResult` | ✅ | **Required**. Script path for post-execution result handling |
+| `preflight` | | Optional. Runs after selection resolution and before request construction. It can continue, skip, short-circuit to `applyResult`, or replace one input unit with virtual request units |
 | `buildRequest` | | Optional. Build the request to be sent to the backend. Mutually exclusive with the `request` field |
 | `normalizeSettings` | | Optional. Normalize user-set parameters |
 
 > **Input filtering** has been replaced by the declarative `validateSelection` mechanism — see [Selection Validation](#selection-validation) below.
+
+`preflight` does not participate in menu enablement, debug-probe selection classification, or Host Bridge readiness checks. Keep selection constraints in `validateSelection`, keep provider request construction in `buildRequest` or `request`, and keep Zotero writes in `applyResult`.
 
 Paths are relative to the directory containing `workflow.json`.
 

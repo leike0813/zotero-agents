@@ -10,6 +10,7 @@ export type WorkflowExecutionContext = Awaited<
 export type PreparedWorkflowExecution = {
   workflow: LoadedWorkflow;
   requests: unknown[];
+  preflight?: WorkflowPreflightExecutionState;
   skillDisplayById?: Record<
     string,
     {
@@ -19,6 +20,48 @@ export type PreparedWorkflowExecution = {
   >;
   skippedByFilter: number;
   executionContext: WorkflowExecutionContext;
+};
+
+export type WorkflowPreflightUnitMeta = {
+  planId: string;
+  unitId: string;
+  unitOrder?: number;
+  context?: Record<string, unknown>;
+  aggregate?: {
+    id: string;
+    mode: "single-apply";
+  };
+};
+
+export type WorkflowPreflightShortCircuitApply = {
+  index: number;
+  taskLabel: string;
+  parent: Zotero.Item | number | string | null;
+  request: unknown;
+  runResult: {
+    status: "succeeded";
+    requestId: string;
+    fetchType: "result";
+    resultJson: unknown;
+    responseJson: unknown;
+    [key: string]: unknown;
+  };
+  preflight: WorkflowPreflightUnitMeta;
+};
+
+export type WorkflowPreflightAggregatePlan = {
+  id: string;
+  mode: "single-apply";
+  applyWhen: "all-succeeded";
+  orderBy: "unit.order";
+  requestIndexes: number[];
+};
+
+export type WorkflowPreflightExecutionState = {
+  requestUnits: Array<WorkflowPreflightUnitMeta | undefined>;
+  shortCircuitApplies: WorkflowPreflightShortCircuitApply[];
+  aggregates: WorkflowPreflightAggregatePlan[];
+  skippedUnits: number;
 };
 
 export type PreparationSeamResult =
@@ -33,6 +76,7 @@ export type PreparationSeamResult =
 export type WorkflowRunState = {
   workflow: LoadedWorkflow;
   requests: unknown[];
+  preflight?: WorkflowPreflightExecutionState;
   queue: JobQueueManager;
   jobIds: string[];
   runId: string;

@@ -571,6 +571,11 @@ describe("acp session manager", function () {
         skillId: "literature-search-ingest",
         body: "# User Literature Search Ingest\n\nUSER LSI OVERRIDE",
       });
+      await writeRegistrySkill({
+        root: userSkillRoot,
+        skillId: "literature-metadata-search",
+        body: "# User Literature Metadata Search\n\nUSER LMS OVERRIDE",
+      });
       const chatWorkspaceDir = resolveAcpChatRuntimePaths(
         ACP_OPENCODE_BACKEND_ID,
       ).agentWorkspaceDir;
@@ -716,6 +721,11 @@ describe("acp session manager", function () {
           "utf8",
         );
         assert.include(literatureSearchIngestSkill, "USER LSI OVERRIDE");
+        const literatureMetadataSearchSkill = await fs.readFile(
+          joinPath(root, "literature-metadata-search", "SKILL.md"),
+          "utf8",
+        );
+        assert.include(literatureMetadataSearchSkill, "USER LMS OVERRIDE");
       }
       assert.isOk(
         snapshot.diagnostics.find(

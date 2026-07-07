@@ -15,7 +15,7 @@ workflows/
   <workflow-id>/
     workflow.json
     hooks/
-      filterInputs.js   # 可选
+      preflight.js      # 可选（执行前读侧规划、短路或拆分输入单元）
       buildRequest.js   # 可选（声明式 request 无法覆盖时使用）
       normalizeSettings.js # 可选（workflow 专属设置归一化）
       applyResult.js    # 必需
@@ -215,6 +215,50 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 
 - `src/schemas/workflow.schema.json`
 - 该文件同时用于”作者编写参考”和”loader 运行时结构校验”
+
+### hooks.preflight
+
+`hooks.preflight` 是执行阶段的可选规划钩子，运行位置在 SelectionContext
+按 workflow 输入规则拆分之后、`buildRequest` 或声明式 request 编译之前。
+
+职责边界：
+
+- 只做读侧判断、计划生成、输入单元替换或短路 apply 输入生成。
+- 不直接写 Zotero；所有写入仍必须走 `applyResult + handlers`。
+- 不生成 provider request；provider request 的唯一事实源仍是 `buildRequest` 或声明式 `request`。
+- 不参与菜单启用、debug 分类或 Host Bridge readiness。可见性仍由 manifest selection policy 和 validation metadata 决定。
+- 不修改 `selectionContext`；preflight 产出的执行计划通过 `preflight` 参数传给 `buildRequest`，并通过 `resultContext.preflight` 传给 `applyResult`。
+
+支持的 outcome：
+
+```ts
+type PreflightOutcome =
+  | { kind: "continue"; context?: Record<string, unknown> }
+  | { kind: "replace-units"; units: PreflightUnit[]; aggregate?: PreflightAggregatePlan; context?: Record<string, unknown> }
+  | { kind: "short-circuit-apply"; apply: PreflightApplyInput; context?: Record<string, unknown> }
+  | { kind: "skip"; reason?: string };
+```
+
+`replace-units` 可把一个输入单元展开成多个虚拟单元；每个虚拟单元仍然走普通
+`buildRequest`。当同时声明 aggregate v1：
+
+```json
+{
+  "id": "source-item-or-file",
+  "mode": "single-apply",
+  "applyWhen": "all-succeeded",
+  "orderBy": "unit.order"
+}
+```
+
+runtime 会等待所有 child request 成功后，只调用一次原 workflow 的
+`applyResult`。`resultContext.aggregate.children` 按 `unit.order` 排序，包含每个
+child 的 request、runResult、resultContext、bundleReader 和 preflight context。
+
+典型用法：
+
+- metadata curator：preflight 先用 Zotero 本地 API 查询确定标识符；命中高价值 metadata 时返回 `short-circuit-apply`，否则 `continue` 到轻量 SkillRunner 搜索。
+- MinerU 长 PDF：preflight 根据页数与 outline 生成多个带 `page_ranges` 的 replacement units，并用 aggregate single-apply 合并多个结果包。
 
 ### workflow-package.json（Workflow Package 索引）
 

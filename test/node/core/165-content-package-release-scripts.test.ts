@@ -576,6 +576,9 @@ describe("content package release scripts", function () {
     const trackedFiles = new Set([
       "skills_builtin/literature-analysis/SKILL.md",
       "skills_builtin/literature-analysis/assets/runner.json",
+      "skills_builtin/literature-metadata-search/assets/input.schema.json",
+      "skills_builtin/literature-metadata-search/assets/output.schema.json",
+      "skills_builtin/literature-metadata-search/assets/runner.json",
     ]);
 
     assert.isTrue(
@@ -596,6 +599,42 @@ describe("content package release scripts", function () {
           "skills_builtin",
           "literature-analysis",
           ".git",
+        ),
+        trackedFiles,
+      }),
+    );
+    assert.isTrue(
+      isTrackedContentSourceFile({
+        filePath: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-metadata-search",
+          "assets",
+          "input.schema.json",
+        ),
+        trackedFiles,
+      }),
+    );
+    assert.isTrue(
+      isTrackedContentSourceFile({
+        filePath: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-metadata-search",
+          "assets",
+          "output.schema.json",
+        ),
+        trackedFiles,
+      }),
+    );
+    assert.isTrue(
+      isTrackedContentSourceFile({
+        filePath: path.join(
+          process.cwd(),
+          "skills_builtin",
+          "literature-metadata-search",
+          "assets",
+          "runner.json",
         ),
         trackedFiles,
       }),

@@ -198,6 +198,7 @@ const STREAMING_PERSIST_THROTTLE_MS = 1500;
 const ACP_CHAT_INJECTED_SKILL_IDS = [
   "zotero-bridge-cli",
   "literature-search-ingest",
+  "literature-metadata-search",
 ] as const;
 
 function nowIso() {

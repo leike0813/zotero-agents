@@ -32,6 +32,7 @@ import {
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { executeBuildRequests } from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
 async function createWorkflowRoot(args: {
@@ -102,6 +103,208 @@ describe("workflow execution seams", function () {
   beforeEach(function () {
     clearRuntimeLogs();
     resetWorkflowToastStateForTests();
+  });
+
+  it("passes preflight continue context to buildRequest without mutating selection", async function () {
+    const captured: any[] = [];
+    const workflow = {
+      manifest: {
+        id: "preflight-continue",
+        label: "Preflight Continue",
+        provider: "pass-through",
+        inputs: { unit: "parent" },
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => ({
+          kind: "continue",
+          context: { source: "local-probe" },
+        }),
+        buildRequest: async (args: any) => {
+          captured.push(args);
+          return {
+            kind: "pass-through.run.v1",
+            taskName: "Preflight Continue",
+            selectionContext: args.selectionContext,
+          };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const selectionContext = {
+      items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+      summary: { parentCount: 1 },
+    };
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext,
+    });
+
+    assert.lengthOf(requests, 1);
+    assert.deepEqual(captured[0].preflight.context, {
+      source: "local-probe",
+    });
+    assert.equal(captured[0].selectionContext.items.parents[0].item.id, 101);
+    assert.notProperty(captured[0].selectionContext, "preflight");
+    assert.deepEqual((requests as any).__preflight.requestUnits[0].context, {
+      source: "local-probe",
+    });
+  });
+
+  it("expands preflight replacement units and records aggregate metadata", async function () {
+    const buildPreflights: any[] = [];
+    const workflow = {
+      manifest: {
+        id: "preflight-replace",
+        label: "Preflight Replace",
+        provider: "pass-through",
+        inputs: { unit: "parent" },
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => ({
+          kind: "replace-units",
+          context: { file: "paper.pdf" },
+          aggregate: {
+            id: "paper",
+            mode: "single-apply",
+            applyWhen: "all-succeeded",
+            orderBy: "unit.order",
+          },
+          units: [
+            { id: "part-2", order: 2, context: { page_ranges: "201-300" } },
+            { id: "part-1", order: 1, context: { page_ranges: "1-200" } },
+          ],
+        }),
+        buildRequest: async (args: any) => {
+          buildPreflights.push(args.preflight);
+          return {
+            kind: "pass-through.run.v1",
+            taskName: args.preflight.unitId,
+            selectionContext: args.selectionContext,
+          };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+        summary: { parentCount: 1 },
+      },
+    });
+
+    assert.lengthOf(requests, 2);
+    assert.deepEqual(
+      buildPreflights.map((entry) => entry.unitId),
+      ["part-2", "part-1"],
+    );
+    assert.deepEqual(buildPreflights[0].context, {
+      file: "paper.pdf",
+      page_ranges: "201-300",
+    });
+    assert.deepEqual((requests as any).__preflight.aggregates[0], {
+      id: "paper",
+      mode: "single-apply",
+      applyWhen: "all-succeeded",
+      orderBy: "unit.order",
+      requestIndexes: [0, 1],
+    });
+  });
+
+  it("records preflight short-circuit apply without calling buildRequest", async function () {
+    let buildCalled = false;
+    const workflow = {
+      manifest: {
+        id: "preflight-short-circuit",
+        label: "Preflight Short Circuit",
+        provider: "pass-through",
+        inputs: { unit: "parent" },
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => ({
+          kind: "short-circuit-apply",
+          context: { source: "zotero-translate-search" },
+          apply: {
+            resultJson: { kind: "metadata", title: "Resolved" },
+          },
+        }),
+        buildRequest: async () => {
+          buildCalled = true;
+          return { kind: "pass-through.run.v1" };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+        summary: { parentCount: 1 },
+      },
+    });
+
+    assert.lengthOf(requests, 0);
+    assert.isFalse(buildCalled);
+    assert.lengthOf((requests as any).__preflight.shortCircuitApplies, 1);
+    assert.deepEqual(
+      (requests as any).__preflight.shortCircuitApplies[0].runResult.resultJson,
+      { kind: "metadata", title: "Resolved" },
+    );
+  });
+
+  it("records preflight skip without building provider requests", async function () {
+    let buildCalled = false;
+    const workflow = {
+      manifest: {
+        id: "preflight-skip",
+        label: "Preflight Skip",
+        provider: "pass-through",
+        inputs: { unit: "parent" },
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => ({ kind: "skip", reason: "not applicable" }),
+        buildRequest: async () => {
+          buildCalled = true;
+          return { kind: "pass-through.run.v1" };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const requests = await executeBuildRequests({
+      workflow,
+      selectionContext: {
+        items: { parents: [{ item: { id: 101, title: "Parent" } }] },
+        summary: { parentCount: 1 },
+      },
+    });
+
+    assert.lengthOf(requests, 0);
+    assert.isFalse(buildCalled);
+    assert.equal((requests as any).__preflight.skippedUnits, 1);
   });
 
   it("supports deterministic preparation testing via injected seam dependencies", async function () {
@@ -1844,6 +2047,176 @@ describe("workflow execution seams", function () {
     });
     assert.deepEqual(capturedSequence.steps[1].resultContext.resultJson, {
       add_tags: ["topic:sequence"],
+    });
+  });
+
+  it("applies preflight short-circuit records through the apply seam", async function () {
+    let captured: any;
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "preflight-short-apply",
+              label: "Preflight Short Apply",
+              provider: "pass-through",
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [],
+          preflight: {
+            requestUnits: [],
+            aggregates: [],
+            skippedUnits: 0,
+            shortCircuitApplies: [
+              {
+                index: 0,
+                taskLabel: "Metadata",
+                parent: 123,
+                request: { kind: "workflow.preflight.short-circuit.v1" },
+                runResult: {
+                  status: "succeeded",
+                  requestId: "preflight-request",
+                  fetchType: "result",
+                  resultJson: { kind: "metadata", title: "Resolved" },
+                  responseJson: { kind: "metadata", title: "Resolved" },
+                },
+                preflight: {
+                  planId: "unit-1",
+                  unitId: "short-circuit",
+                  unitOrder: 0,
+                  context: { source: "local" },
+                },
+              },
+            ],
+          },
+          queue: { getJob: () => undefined } as any,
+          jobIds: [],
+          runId: "run-1",
+          totalJobs: 1,
+          idlePromise: Promise.resolve(),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined as any,
+        executeApplyResult: async (args) => {
+          captured = args;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 1);
+    assert.equal(captured.parent, 123);
+    assert.deepEqual(captured.resultContext.resultJson, {
+      kind: "metadata",
+      title: "Resolved",
+    });
+    assert.deepEqual(captured.resultContext.preflight.context, {
+      source: "local",
+    });
+  });
+
+  it("applies preflight aggregate children once in unit order", async function () {
+    let applyCalls = 0;
+    let capturedAggregate: any;
+    const jobs: Record<string, any> = {
+      "job-1": {
+        id: "job-1",
+        state: "succeeded",
+        meta: { targetParentID: 123 },
+        result: {
+          status: "succeeded",
+          requestId: "request-1",
+          fetchType: "result",
+          resultJson: { part: 2 },
+          responseJson: {},
+        },
+      },
+      "job-2": {
+        id: "job-2",
+        state: "succeeded",
+        meta: { targetParentID: 123 },
+        result: {
+          status: "succeeded",
+          requestId: "request-2",
+          fetchType: "result",
+          resultJson: { part: 1 },
+          responseJson: {},
+        },
+      },
+    };
+
+    const summary = await runWorkflowApplySeam(
+      {
+        runState: {
+          workflow: {
+            manifest: {
+              id: "preflight-aggregate-apply",
+              label: "Preflight Aggregate Apply",
+              provider: "pass-through",
+              hooks: { applyResult: "hooks/applyResult.js" },
+            },
+          } as any,
+          requests: [{ targetParentID: 123 }, { targetParentID: 123 }],
+          preflight: {
+            requestUnits: [
+              {
+                planId: "unit-1",
+                unitId: "part-2",
+                unitOrder: 2,
+                context: { page_ranges: "201-300" },
+                aggregate: { id: "paper", mode: "single-apply" },
+              },
+              {
+                planId: "unit-1",
+                unitId: "part-1",
+                unitOrder: 1,
+                context: { page_ranges: "1-200" },
+                aggregate: { id: "paper", mode: "single-apply" },
+              },
+            ],
+            shortCircuitApplies: [],
+            skippedUnits: 0,
+            aggregates: [
+              {
+                id: "paper",
+                mode: "single-apply",
+                applyWhen: "all-succeeded",
+                orderBy: "unit.order",
+                requestIndexes: [0, 1],
+              },
+            ],
+          },
+          queue: {
+            getJob: (id: string) => jobs[id],
+          } as any,
+          jobIds: ["job-1", "job-2"],
+          runId: "run-1",
+          totalJobs: 2,
+          idlePromise: Promise.resolve(),
+        },
+        messageFormatter: createLocalizedMessageFormatter(),
+      },
+      {
+        appendRuntimeLog: () => undefined as any,
+        executeApplyResult: async (args) => {
+          applyCalls += 1;
+          capturedAggregate = args.resultContext?.aggregate;
+          return { ok: true };
+        },
+      },
+    );
+
+    assert.equal(summary.succeeded, 1);
+    assert.equal(applyCalls, 1);
+    assert.deepEqual(
+      capturedAggregate.children.map((entry: any) => entry.unitId),
+      ["part-1", "part-2"],
+    );
+    assert.deepEqual(capturedAggregate.children[0].resultContext.resultJson, {
+      part: 1,
     });
   });
 
