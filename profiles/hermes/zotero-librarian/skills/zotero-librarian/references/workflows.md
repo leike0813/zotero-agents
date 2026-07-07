@@ -20,6 +20,7 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 | `literature-analysis` | Literature Analysis | skillrunner | attachment per_parent | language, auto_tag_regulator, auto_tag_infer_tag |
 | `literature-deep-reading` | Literature Deep Reading | skillrunner | attachment per_parent | target_language, mode |
 | `literature-explainer` | Literature Explainer | skillrunner | attachment per_parent | language |
+| `literature-metadata-curator` | Literature Metadata Curator | skillrunner | parent | none |
 | `literature-search-ingest` | Literature Search Ingest | skillrunner | workflow | query, searchMode, targetCollection |
 | `literature-translator` | Literature Translator | skillrunner | attachment per_parent | target_language, mode |
 | `manuscript-literature-framing` | Manuscript Literature Framing | skillrunner | workflow | paperTitle, language, targetVenue, articleType, stylePreference |

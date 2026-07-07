@@ -45,7 +45,7 @@
       "zotero-librarian:workflow-catalog:start"
     ],
     "catalogChecksum": "f3fdd3b24d2a7673e7001800b6e2e955d9780b7cea32392a641f5721bb97966f",
-    "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
+    "workflowCatalogChecksum": "9ca077c52c217d8b7fae048d52b3d53cf456b12d33ea3dede26b5934fe5aad1d",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
       "version": "0.2.1",
