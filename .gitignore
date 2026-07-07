@@ -24,6 +24,7 @@ native/acp-ws-bridge/target/
 build
 logs
 
+.agent/
 .vscode/
 .history/
 .codex/
