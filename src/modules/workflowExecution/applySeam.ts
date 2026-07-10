@@ -14,7 +14,10 @@ import {
   writeBytes,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
-import { markAcpSkillRunApplyResult } from "../acpSkillRunStore";
+import {
+  detachAcpSkillRunControllerAfterApplyResult,
+  markAcpSkillRunApplyResult,
+} from "../acpSkillRunStore";
 import {
   updateSkillRunnerRunApplyState,
   updateSkillRunnerRunResult,
@@ -776,6 +779,10 @@ export async function runWorkflowApplySeam(
           requestId: result.requestId,
           state: "succeeded",
         });
+        await detachAcpSkillRunControllerAfterApplyResult({
+          requestId: result.requestId,
+          state: "succeeded",
+        });
       }
       if (isForegroundSkillRunnerSingleJob) {
         updateSkillRunnerRunApplyState({
@@ -864,6 +871,10 @@ export async function runWorkflowApplySeam(
           requestId: result.requestId,
           state: "failed",
           error: reason,
+        });
+        await detachAcpSkillRunControllerAfterApplyResult({
+          requestId: result.requestId,
+          state: "failed",
         });
       }
       if (isForegroundSkillRunnerSingleJob) {

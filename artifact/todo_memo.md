@@ -28,7 +28,7 @@
 - [x] **重构 workflow 设置逻辑（触发时弹窗，一个批次用同样的设置）**
 - [x] **重构窗口逻辑（围绕Dashboard），简化右键菜单**。
 - [x] skill runner的任务页面选项卡化
-- [x] 修复修改 skill runner 后端后，旧的后端仍然会残留在 Dashboard 中的问题 
+- [x] 修复修改 skill runner 后端后，旧的后端仍然会残留在 Dashboard 中的问题
 - [x] 移除“采样选区上下文”及“校验选区上下文”按钮，或者将这两个按钮移入插件二级菜单，通过插件构建时的硬编码开关决定是否显示
 - [x] 自动部署调试控制台按钮以及写调试控制台的逻辑也通过硬编码开关决定是否启用（和上一条一样的开关）
 - [x] workflow 自包含 README 以及 dashboard 中的 README 查看
@@ -77,10 +77,12 @@
 - [x] Citation graph 在选中某一库内条目时，鼠标 hover 到相关联的库外文献条目时，可以显示Hover对象的title
 - [x] Citation graph 的search功能不再输入任何字符后立刻刷新，而是新增“Search”按钮，点击按钮后显示刷新，并且在搜索输入框右侧添加“Clear”按钮可以一键清空搜索输入内容并直接刷新
 - [x] host bridge cli 执行写入命令时的编码问题
-- [ ] 重新设计被暂时禁用的synthesis layer同步功能
+- [x] 重新设计被暂时禁用的synthesis layer同步功能
 - [x] 做完Topic graph和知识库后，tag-regulator就可以合并到literature-workbench-package中了，进一步减少重复代码
 - [x] 进一步地，为literature-digest添加“自动进行tag-regulator”的选项，让literature-digest成为最关键的文献入库入口
+
 - [p] rebuild graph 的阻塞问题，以及graph是否需要更新的监控和提示
+
 - [x] 升级 host bridge cli 界面，将 synthesis 作为一等子命令
 - [x] 调试完毕后，彻底统一 host bridge cli 相关注入点（根据workflow声明，统一单点注入，不直接写SKILL；裸命令尽量实现，run-local shim做兜底），避免现在写得到处都是
 - [x] **Citation graph增强**，图论算法引入，更多分析维度和数据，最终用于增强synthesis质量
@@ -92,7 +94,9 @@
 - [x] reference artifact变化后，原来hash记录对应的raw应该标为stale，如果对应的canonical被redirect那么也应该级联stale，最后通过某种机制清除，否则references会无限膨胀
 - [x] **单 Workflow 多 Skill 机制、多 Skill run 共享工作区机制**（插件侧和后端都得改，子域架构级别的变更）
 - [x] **文献搜索入库 workflow**
+
 - [p] **文献综述撰写 workflow**
+
 - [x] Dashboard 的正在运行任务列表，点击无法直接打开侧栏并跳转至任务页面
 - [x] Dashboard 的正在运行的任务列表会显示很多会话抽屉中已不存在的任务，疑似是有某些残留
 - [x] 非运行状态应该把 plan 动画停掉（转圈改为代表halt的某个图标）
@@ -109,7 +113,45 @@
 - [x] **兼容 Zotero 9**
 - [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
-- [ ] host bridge 的取消 workflow 能力
+- [x] host bridge 的取消 workflow 能力
+- [ ] MinerU还没完全修好，仍然会有以下报错而不是跳过：
+
+```
+  {
+    "id": "log-243",
+    "ts": "2026-07-09T01:39:20.171Z",
+    "level": "error",
+    "scope": "workflow-trigger",
+    "schemaVersion": 1,
+    "diagnosticMode": false,
+    "workflowId": "mineru",
+    "stage": "build-requests-failed",
+    "message": "build requests failed",
+    "details": {
+      "reason": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
+      "errorMessage": "OperationError: Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)"
+    },
+    "error": {
+      "name": "OperationError",
+      "message": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
+      "stack": "pathExists2@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:79313:17\nfileExists@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103207:37\nfilterMissingSourceFiles@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103221:17\n",
+      "category": "unknown"
+    }
+  }
+```
+
+- [ ] 增加opencode和kilo code ACP后端预设的注入环境变量，将`question`工具禁用
+- [ ] 优化transcript写盘的IO负载
+- [ ] 增加静默执行模式（除了交互消息外，什么都不渲染，连transcript都不写盘，最大程度降低负载），我觉得可以和实时渲染开关做到一起
+- [ ] /usr/local/bin/ 如果作为默认的CLI安装目录，会因为没有权限而安装失败
+- [ ] 文献元数据修复 workflow 有可能会改掉标题，需要收紧一些；相对地，无法改变条目的类型是一个缺陷
+- [ ] 文献搜索入库还需要加强一些，agent容易偷懒（无标识符、无pdf），尤其是对于中文文献，因为直接搜索难以获取标识符，需要特定的策略
+- [ ] citation graph 的文献重要性算法有问题，现在的版本似乎是用入度和出度的比值？有些入度为1的节点居然都会成为重要文献，这明显不对
+- [ ] 新增export-research-bundle workflow
+- [ ] 新增export/import-literature-bundle workflow
+- [ ] 新增collection-collector workflow
+- [ ] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
+- [ ] 观测到ACP Chat在prompting状态下点击Cancel(interrupt)后前端已经乐观变为cancelled，但后端仍在继续执行，需要复核这个interrupt的逻辑。ACP Skills中很有可能存在相同问题
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**
@@ -120,5 +162,7 @@
 - [ ] **更加健壮的基础设施升级**
 
 暂不考虑的：
+
 - [c] 更详细的前后端通讯状态机
 - [c] **MCP 服务公开化，MCP插件调用能力**（非远程调用能力，远程调用比较麻烦，以后再说）
+

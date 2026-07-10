@@ -2,7 +2,6 @@ import type { LoadedWorkflow } from "../../workflows/types";
 import { executeApplyResult } from "../../workflows/runtime";
 import { ZipBundleReader } from "../../workflows/zipBundleReader";
 import type { ProviderExecutionResult } from "../../providers/contracts";
-import { markAcpSkillRunApplyResult } from "../acpSkillRunStore";
 import { appendRuntimeLog } from "../runtimeLogManager";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 import type { BundleReader } from "./bundleIO";
@@ -14,6 +13,7 @@ import {
   writeBytes,
 } from "./bundleIO";
 import { createWorkflowResultContext } from "./resultContext";
+import { settleAcpSequenceStepApply } from "./acpSequenceStepLifecycle";
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -86,8 +86,9 @@ export async function executeSequenceStepApply(args: {
       appendRuntimeLog,
     });
     if (backendType === "acp") {
-      markAcpSkillRunApplyResult({
+      await settleAcpSequenceStepApply({
         requestId,
+        finalStep: args.sequenceStep.finalStep,
         state: "succeeded",
       });
     }
@@ -96,8 +97,9 @@ export async function executeSequenceStepApply(args: {
     const message =
       error instanceof Error ? error.message : String(error || "unknown error");
     if (backendType === "acp") {
-      markAcpSkillRunApplyResult({
+      await settleAcpSequenceStepApply({
         requestId,
+        finalStep: args.sequenceStep.finalStep,
         state: "failed",
         error: message,
       });

@@ -143,6 +143,7 @@ export type AcpTransportLifecycle = {
     | "node-process-group";
   processTreeCleanupDiagnostic?: string;
   processTreeCleanupPid?: number | null;
+  processTreeCleanupValidation?: "validated" | "rejected" | "not-required";
 };
 
 export type AcpTransportCloseOptions = {
@@ -284,18 +285,21 @@ function buildMozillaProcessLaunch(args: {
     const shell = getCachedResolvedCommand("sh");
     if (setsid && shell) {
       const pidFilePath = buildSupervisorPidFilePath(args.cwd);
+      const supervisorToken = randomTransportId();
       return {
         command: setsid,
         args: [
           shell,
           "-c",
-          'printf "%s" "$$" > "$1"; shift; exec "$@"',
+          'printf "%s\\n%s" "$$" "$2" > "$1"; shift 2; exec "$@"',
           "zotero-acp-supervisor",
           pidFilePath,
+          supervisorToken,
           args.launchPlan.command,
           ...args.launchPlan.args,
         ],
         pidFilePath,
+        supervisorToken,
         strategy: "posix-pidfile-supervisor" as const,
         supported: true,
       };
@@ -305,6 +309,7 @@ function buildMozillaProcessLaunch(args: {
     command: args.launchPlan.command,
     args: args.launchPlan.args,
     pidFilePath: "",
+    supervisorToken: "",
     strategy: snapshot.preferredCleanupStrategy,
     supported: !wrapperProne || snapshot.supportsProcessTreeCleanup,
   };
@@ -892,16 +897,17 @@ async function waitForCleanupKillExit(args: {
   return settled;
 }
 
-async function readSupervisorPid(pidFilePath: string) {
+async function readSupervisorIdentity(pidFilePath: string) {
   const path = normalizeString(pidFilePath);
   if (!path) {
     return null;
   }
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const text = normalizeString(await runtimeReadTextFile(path));
-    const pid = toPositiveProcessId(Number.parseInt(text, 10));
-    if (pid !== null) {
-      return pid;
+    const [pidText, token = ""] = text.split(/\r?\n/, 2);
+    const pid = toPositiveProcessId(Number.parseInt(pidText, 10));
+    if (pid !== null && normalizeString(token)) {
+      return { pid, token: normalizeString(token) };
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
@@ -1042,6 +1048,7 @@ async function launchMozillaAcpTransport(
   let stdoutText = "";
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "mozilla-subprocess";
+  lifecycle.childPid = toPositiveProcessId(proc.pid);
   applyProcessControlLifecycle({
     lifecycle,
     backendCommand,
@@ -1114,29 +1121,50 @@ async function launchMozillaAcpTransport(
       lifecycle.cleanupKillRequestedAt ||= nowIso();
       lifecycle.killedByClose = true;
       if (processLaunch.pidFilePath) {
-        const pid = await readSupervisorPid(processLaunch.pidFilePath);
-        lifecycle.processTreeCleanupPid = pid;
-        if (pid !== null) {
+        const identity = await readSupervisorIdentity(
+          processLaunch.pidFilePath,
+        );
+        lifecycle.processTreeCleanupPid = identity?.pid ?? null;
+        const identityValidated =
+          processLaunch.strategy === "posix-pidfile-supervisor" &&
+          lifecycle.childPid !== null &&
+          typeof lifecycle.childPid !== "undefined" &&
+          identity?.pid === lifecycle.childPid &&
+          identity.token === processLaunch.supervisorToken;
+        if (identityValidated && identity) {
+          lifecycle.processTreeCleanupValidation = "validated";
           const terminated = await terminatePosixProcessGroupWithMozilla({
             subprocess,
-            pid,
+            pid: identity.pid,
             signal: "TERM",
           });
           if (terminated && (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS))) {
             await removeSupervisorPidFile(processLaunch.pidFilePath);
             return;
           }
-          await terminatePosixProcessGroupWithMozilla({
-            subprocess,
-            pid,
-            signal: "KILL",
-          });
-          await waitForCleanupKillExit({ waitForExit, lifecycle });
-          await removeSupervisorPidFile(processLaunch.pidFilePath);
-          return;
+          if (terminated) {
+            await terminatePosixProcessGroupWithMozilla({
+              subprocess,
+              pid: identity.pid,
+              signal: "KILL",
+            });
+            await waitForCleanupKillExit({ waitForExit, lifecycle });
+            await removeSupervisorPidFile(processLaunch.pidFilePath);
+            return;
+          }
+          lifecycle.processTreeCleanupDiagnostic =
+            "Validated POSIX process group TERM failed; using direct subprocess cleanup";
+        } else {
+          lifecycle.processTreeCleanupValidation = "rejected";
+          lifecycle.processTreeCleanupDiagnostic = !identity
+            ? "POSIX pidfile supervisor did not publish a valid launch identity before cleanup"
+            : lifecycle.childPid === null ||
+                typeof lifecycle.childPid === "undefined"
+              ? "POSIX process group cleanup rejected because the current subprocess PID is unavailable"
+              : identity.pid !== lifecycle.childPid
+                ? "POSIX process group cleanup rejected because the pidfile PID does not match the current subprocess"
+                : "POSIX process group cleanup rejected because the pidfile token does not match the current transport";
         }
-        lifecycle.processTreeCleanupDiagnostic =
-          "POSIX pidfile supervisor did not publish a valid process id before cleanup";
       }
       try {
         proc.kill?.(0);
@@ -1260,6 +1288,9 @@ async function launchNodeAcpTransport(
       processControl.supportsProcessTreeCleanup,
   });
   lifecycle.processTreeCleanupPid = lifecycle.childPid;
+  lifecycle.processTreeCleanupValidation = useNodeProcessGroup
+    ? "validated"
+    : "not-required";
   child.stderr.on("data", (chunk: Buffer | string) => {
     stderrText = appendTail(stderrText, chunk);
     lifecycle.stderrChars += String(chunk || "").length;

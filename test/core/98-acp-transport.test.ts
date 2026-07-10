@@ -752,14 +752,18 @@ describe("acp transport", function () {
     }
   });
 
-  it("uses POSIX pidfile supervisor for wrapper-prone Mozilla ACP transports", async function () {
-    this.timeout(5000);
+  it("validates POSIX pidfile supervisor identity before process-group cleanup", async function () {
+    this.timeout(15000);
 
     const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "acp-supervisor-"));
     const calls: Array<{
       command: string;
       arguments: string[];
     }> = [];
+    let publishedPid = 4321;
+    let publishedTokenOverride = "";
+    let failTermSignal = false;
+    let directKillCount = 0;
     seedRuntimeCommandRegistryForTests({
       initialized: true,
       initializedAt: "2026-07-07T00:00:00.000Z",
@@ -814,8 +818,14 @@ describe("acp transport", function () {
             });
             if (invocation.command === "/usr/bin/setsid") {
               const pidFile = invocation.arguments?.[4] || "";
-              await fs.writeFile(pidFile, "4321", "utf8");
+              const supervisorToken = invocation.arguments?.[5] || "";
+              await fs.writeFile(
+                pidFile,
+                `${publishedPid}\n${publishedTokenOverride || supervisorToken}`,
+                "utf8",
+              );
               return {
+                pid: 4321,
                 stdin: {
                   write: async () => undefined,
                   close: async () => undefined,
@@ -827,8 +837,13 @@ describe("acp transport", function () {
                   readString: async () => "",
                 },
                 wait: async () => new Promise(() => undefined),
-                kill: () => undefined,
+                kill: () => {
+                  directKillCount += 1;
+                },
               };
+            }
+            if (failTermSignal && invocation.arguments?.[0] === "-TERM") {
+              throw new Error("TERM rejected");
             }
             return {
               stdout: {
@@ -867,12 +882,13 @@ describe("acp transport", function () {
       assert.deepEqual(launch.arguments.slice(0, 5), [
         "/bin/sh",
         "-c",
-        'printf "%s" "$$" > "$1"; shift; exec "$@"',
+        'printf "%s\\n%s" "$$" "$2" > "$1"; shift 2; exec "$@"',
         "zotero-acp-supervisor",
         launch.arguments[4],
       ]);
-      assert.equal(launch.arguments[5], "/usr/bin/uv");
-      assert.deepEqual(launch.arguments.slice(6), [
+      assert.isNotEmpty(launch.arguments[5]);
+      assert.equal(launch.arguments[6], "/usr/bin/uv");
+      assert.deepEqual(launch.arguments.slice(7), [
         "run",
         "--",
         "agent",
@@ -888,8 +904,94 @@ describe("acp transport", function () {
         processTreeCleanupSupported: true,
         processTreeCleanupStrategy: "posix-pidfile-supervisor",
         processTreeCleanupPid: 4321,
+        processTreeCleanupValidation: "validated",
       });
       assert.equal(transport.getStdoutText(), "");
+
+      calls.length = 0;
+      publishedPid = 9876;
+      const mismatchedTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-mismatch",
+          displayName: "ACP uv mismatch",
+          type: "acp",
+          baseUrl: "local://acp-uv-mismatch",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+
+      await mismatchedTransport.close({ graceMs: 0 });
+
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(directKillCount, 1);
+      assert.include(mismatchedTransport.getLifecycle(), {
+        childPid: 4321,
+        processTreeCleanupPid: 9876,
+        processTreeCleanupValidation: "rejected",
+      });
+      assert.include(
+        mismatchedTransport.getLifecycle().processTreeCleanupDiagnostic || "",
+        "pidfile PID does not match",
+      );
+
+      calls.length = 0;
+      publishedPid = 4321;
+      publishedTokenOverride = "wrong-transport-token";
+      const wrongTokenTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-token-mismatch",
+          displayName: "ACP uv token mismatch",
+          type: "acp",
+          baseUrl: "local://acp-uv-token-mismatch",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+
+      await wrongTokenTransport.close({ graceMs: 0 });
+
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(directKillCount, 2);
+      assert.include(
+        wrongTokenTransport.getLifecycle().processTreeCleanupDiagnostic || "",
+        "pidfile token does not match",
+      );
+
+      calls.length = 0;
+      publishedTokenOverride = "";
+      failTermSignal = true;
+      const failedTermTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-term-failure",
+          displayName: "ACP uv TERM failure",
+          type: "acp",
+          baseUrl: "local://acp-uv-term-failure",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+
+      await failedTermTransport.close({ graceMs: 0 });
+
+      const groupSignals = calls
+        .filter((entry) => entry.command === "/bin/kill")
+        .map((entry) => entry.arguments[0]);
+      assert.deepEqual(groupSignals, ["-TERM"]);
+      assert.equal(directKillCount, 3);
+      assert.include(
+        failedTermTransport.getLifecycle().processTreeCleanupDiagnostic || "",
+        "TERM failed",
+      );
     } finally {
       restoreGlobalProperty("Zotero", previousZotero);
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);

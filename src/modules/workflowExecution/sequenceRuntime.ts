@@ -50,6 +50,8 @@ export type SequenceStepSucceededObserver = (args: {
   output: unknown;
 }) => void | Promise<void>;
 
+export type SequenceStepFinishedObserver = SequenceStepSucceededObserver;
+
 export type StepOutput = {
   stepId: string;
   requestId: string;
@@ -1098,6 +1100,7 @@ async function applyPendingSucceededStepsBeforeStart(args: {
   backend: BackendInstance;
   appendRuntimeLog: typeof appendRuntimeLog;
   applySequenceStepResult?: ApplySequenceStepResult;
+  onSequenceStepFinished?: SequenceStepFinishedObserver;
 }) {
   for (let index = 0; index < args.startIndex; index++) {
     const stepState = args.state.steps[index];
@@ -1107,8 +1110,7 @@ async function applyPendingSucceededStepsBeforeStart(args: {
       !stepState ||
       stepState.status !== "succeeded" ||
       stepState.result?.status !== "succeeded" ||
-      typeof stepState.output === "undefined" ||
-      stepState.applyResult?.status === "succeeded"
+      typeof stepState.output === "undefined"
     ) {
       continue;
     }
@@ -1131,18 +1133,30 @@ async function applyPendingSucceededStepsBeforeStart(args: {
         outputsByStep: args.outputsByStep,
       }),
     });
-    await applySequenceStepIfNeeded({
-      state: args.state,
-      step,
-      stepIndex: index,
-      stepRequest,
-      stepResult: stepState.result,
-      output: stepState.output,
-      outputsByStep: args.outputsByStep,
-      backend: args.backend,
-      appendRuntimeLog: args.appendRuntimeLog,
-      applySequenceStepResult: args.applySequenceStepResult,
-    });
+    if (stepState.applyResult?.status !== "succeeded") {
+      await applySequenceStepIfNeeded({
+        state: args.state,
+        step,
+        stepIndex: index,
+        stepRequest,
+        stepResult: stepState.result,
+        output: stepState.output,
+        outputsByStep: args.outputsByStep,
+        backend: args.backend,
+        appendRuntimeLog: args.appendRuntimeLog,
+        applySequenceStepResult: args.applySequenceStepResult,
+      });
+    }
+    if (index === args.startIndex - 1) {
+      await args.onSequenceStepFinished?.({
+        state: args.state,
+        step,
+        stepIndex: index,
+        requestId: stepState.result.requestId,
+        stepResult: stepState.result,
+        output: stepState.output,
+      });
+    }
   }
 }
 
@@ -1193,6 +1207,7 @@ async function executeSequenceFromState(args: {
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
+  onSequenceStepFinished?: SequenceStepFinishedObserver;
 }) {
   const backendType = normalizeString(args.backend.type);
   if (
@@ -1214,6 +1229,7 @@ async function executeSequenceFromState(args: {
       backend: args.backend,
       appendRuntimeLog: args.appendRuntimeLog,
       applySequenceStepResult: args.applySequenceStepResult,
+      onSequenceStepFinished: args.onSequenceStepFinished,
     });
   }
   const recoveredShortCircuit = findRecoveredShortCircuit({
@@ -1501,6 +1517,14 @@ async function executeSequenceFromState(args: {
         finalStep: step.id === args.state.request.final_step_id,
       },
     });
+    await args.onSequenceStepFinished?.({
+      state: args.state,
+      step,
+      stepIndex: index,
+      requestId: stepResult.requestId,
+      stepResult,
+      output,
+    });
     if (matchesShortCircuitRule({ step, output })) {
       markSequenceRunTerminal({
         sequenceRunId: args.state.sequenceRunId,
@@ -1573,6 +1597,7 @@ export async function executeSkillRunnerSequence(args: {
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
+  onSequenceStepFinished?: SequenceStepFinishedObserver;
 }) {
   const state = initializeSequenceRunState({
     request: args.request,
@@ -1594,6 +1619,7 @@ export async function executeSkillRunnerSequence(args: {
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
+    onSequenceStepFinished: args.onSequenceStepFinished,
   });
 }
 
@@ -1607,6 +1633,7 @@ export async function continueSkillRunnerSequence(args: {
   appendRuntimeLog: typeof appendRuntimeLog;
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
+  onSequenceStepFinished?: SequenceStepFinishedObserver;
 }) {
   markSequenceRunContinuing(args.sequenceRunId);
   const state = getSequenceRunState(args.sequenceRunId);
@@ -1623,5 +1650,6 @@ export async function continueSkillRunnerSequence(args: {
     appendRuntimeLog: args.appendRuntimeLog,
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
+    onSequenceStepFinished: args.onSequenceStepFinished,
   });
 }

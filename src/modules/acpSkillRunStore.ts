@@ -528,6 +528,7 @@ type AcpSkillRunTranscriptLiveState = {
 const runRecords = new Map<string, AcpSkillRunRecord>();
 const transcriptLiveStates = new Map<string, AcpSkillRunTranscriptLiveState>();
 const controllers = new Map<string, AcpSkillRunController>();
+const applyResultControllerDetachPromises = new Map<string, Promise<void>>();
 const waitingUserDetachTimers = new Map<
   string,
   ReturnType<typeof setTimeout>
@@ -5082,44 +5083,78 @@ function finalizeAcpSkillRunApplyResultControllerDetach(args: {
   });
 }
 
-function detachAcpSkillRunControllerAfterApplyResult(args: {
+async function performAcpSkillRunControllerDetachAfterApplyResult(args: {
   requestId: string;
-  state: "pending" | "succeeded" | "failed";
+  state: "succeeded" | "failed";
 }) {
-  if (args.state === "pending") {
+  const requestId = normalizeString(args.requestId);
+  if (!requestId || !getAcpSkillRunRecord(requestId)) {
     return;
   }
-  const terminalState: "succeeded" | "failed" = args.state;
-  const controller = controllers.get(args.requestId);
-  registerAcpSkillRunController(args.requestId, null);
+  const controller = controllers.get(requestId);
+  upsertAcpSkillRun({
+    requestId,
+    event: {
+      stage: "apply-result-detach-started",
+      message: "ACP skill run controller detach after workflow apply started.",
+      level: "info",
+      details: { controllerPresent: Boolean(controller) },
+    },
+  });
+  registerAcpSkillRunController(requestId, null);
   if (!controller?.disconnect) {
     finalizeAcpSkillRunApplyResultControllerDetach({
-      requestId: args.requestId,
-      state: terminalState,
+      requestId,
+      state: args.state,
       stage: "apply-result-detached",
       level: "info",
     });
     return;
   }
-  void controller.disconnect().then(
-    () => {
-      finalizeAcpSkillRunApplyResultControllerDetach({
-        requestId: args.requestId,
-        state: terminalState,
-        stage: "apply-result-detached",
-        level: "info",
-      });
-    },
-    (error) => {
-      finalizeAcpSkillRunApplyResultControllerDetach({
-        requestId: args.requestId,
-        state: terminalState,
-        stage: "apply-result-detach-error",
-        level: "warn",
-        error,
-      });
-    },
-  );
+  try {
+    await controller.disconnect();
+    finalizeAcpSkillRunApplyResultControllerDetach({
+      requestId,
+      state: args.state,
+      stage: "apply-result-detached",
+      level: "info",
+    });
+  } catch (error) {
+    finalizeAcpSkillRunApplyResultControllerDetach({
+      requestId,
+      state: args.state,
+      stage: "apply-result-detach-error",
+      level: "warn",
+      error,
+    });
+  }
+}
+
+export async function detachAcpSkillRunControllerAfterApplyResult(args: {
+  requestId: string;
+  state: "succeeded" | "failed";
+}) {
+  const requestId = normalizeString(args.requestId);
+  if (!requestId) {
+    return;
+  }
+  const existing = applyResultControllerDetachPromises.get(requestId);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const task = performAcpSkillRunControllerDetachAfterApplyResult({
+    requestId,
+    state: args.state,
+  });
+  applyResultControllerDetachPromises.set(requestId, task);
+  try {
+    await task;
+  } finally {
+    if (applyResultControllerDetachPromises.get(requestId) === task) {
+      applyResultControllerDetachPromises.delete(requestId);
+    }
+  }
 }
 
 export function markAcpSkillRunApplyResult(args: {
@@ -5162,13 +5197,6 @@ export function markAcpSkillRunApplyResult(args: {
     applyResultState: args.state,
     appliedAt: args.state === "succeeded" ? nowIso() : undefined,
     error: args.state === "failed" ? normalizeString(args.error) : undefined,
-    activePrompt: args.state === "pending" ? undefined : false,
-    conversationState: args.state === "pending" ? undefined : "closed",
-    conversationRecoveryState:
-      args.state === "pending"
-        ? undefined
-        : applyResultTerminalRecoveryState(args.state),
-    connectionActionState: args.state === "pending" ? undefined : "idle",
     event: {
       stage:
         args.state === "succeeded"
@@ -5184,10 +5212,6 @@ export function markAcpSkillRunApplyResult(args: {
             : "Workflow applyResult pending.",
       level: args.state === "failed" ? "error" : "info",
     },
-  });
-  detachAcpSkillRunControllerAfterApplyResult({
-    requestId,
-    state: args.state,
   });
 }
 
@@ -5809,6 +5833,7 @@ export function resetAcpSkillRunsForTests() {
   }
   clearAcpSkillRunRecords();
   controllers.clear();
+  applyResultControllerDetachPromises.clear();
   runtimeOptionsByRequestId.clear();
   permissionResolvers.clear();
   listeners.clear();

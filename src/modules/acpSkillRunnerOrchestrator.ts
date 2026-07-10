@@ -91,6 +91,7 @@ import {
   appendAcpSkillRunUserReply,
   appendAcpSkillRunHardTimeoutTranscriptNotice,
   completeAcpSkillRunTranscriptTurnBoundary,
+  detachAcpSkillRunControllerAfterApplyResult,
   flushAcpSkillRunRuntimeFileWrites,
   getAcpSkillRunRecord,
   hydrateAcpSkillRunTranscriptMirror,
@@ -107,6 +108,7 @@ import {
   type AcpSkillRunStatus,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import { finishAcpSequenceStep } from "./workflowExecution/acpSequenceStepLifecycle";
 import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
 import {
   requestAcpSkillRunForeground,
@@ -1560,6 +1562,10 @@ async function applyRecoveredAcpSkillResult(args: {
       requestId: args.record.requestId,
       state: "succeeded",
     });
+    await detachAcpSkillRunControllerAfterApplyResult({
+      requestId: args.record.requestId,
+      state: "succeeded",
+    });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
       backendType: args.record.backendType,
@@ -1589,6 +1595,10 @@ async function applyRecoveredAcpSkillResult(args: {
       requestId: args.record.requestId,
       state: "failed",
       error: message,
+    });
+    await detachAcpSkillRunControllerAfterApplyResult({
+      requestId: args.record.requestId,
+      state: "failed",
     });
     updateWorkflowTaskStateByRequest({
       backendId: args.record.backendId,
@@ -1733,10 +1743,6 @@ async function continueRecoveredSequenceStep(args: {
     output: args.resultJson,
     result: recoveredResult,
   });
-  markAcpSkillRunApplyResult({
-    requestId: args.record.requestId,
-    state: "succeeded",
-  });
   try {
     await registerAcpWorkflowWorkspaceForReuse({
       workflowRunId: sequenceState.workflowRunId,
@@ -1773,16 +1779,12 @@ async function continueRecoveredSequenceStep(args: {
           dependencies: args.dependencies,
         });
       },
-      onSequenceStepSucceeded: (event) => {
-        if (
-          event.step.id === event.state.request.final_step_id ||
-          event.step.apply_result
-        ) {
-          return;
-        }
-        markAcpSkillRunApplyResult({
+      onSequenceStepFinished: async (event) => {
+        await finishAcpSequenceStep({
           requestId: event.requestId,
-          state: "succeeded",
+          finalStep: event.step.id === event.state.request.final_step_id,
+          applyResultStatus:
+            event.state.steps[event.stepIndex]?.applyResult?.status,
         });
       },
       applySequenceStepResult: async (stepApply) => {

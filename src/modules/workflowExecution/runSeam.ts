@@ -11,10 +11,7 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import {
-  markAcpSkillRunApplyResult,
-  selectAcpSkillRun,
-} from "../acpSkillRunStore";
+import { selectAcpSkillRun } from "../acpSkillRunStore";
 import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
 import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
 import {
@@ -27,7 +24,7 @@ import { resolveWorkflowDispatchConcurrency } from "./runConcurrency";
 import {
   executeSkillRunnerSequence,
   type ApplySequenceStepResult,
-  type SequenceStepSucceededObserver,
+  type SequenceStepFinishedObserver,
 } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
 import type { ProviderProgressEvent } from "../../providers/types";
@@ -35,6 +32,7 @@ import { localizeWorkflowLabel } from "../../workflows/localization";
 import type { LoadedWorkflow } from "../../workflows/types";
 import { getLoadedWorkflowEntries } from "../workflowRuntime";
 import { executeSequenceStepApply } from "./sequenceStepApply";
+import { finishAcpSequenceStep } from "./acpSequenceStepLifecycle";
 import { resolveSkillRunnerExecutionModeFromRequest } from "../skillRunnerExecutionMode";
 import {
   mapSkillRunnerProgressLifecycle,
@@ -319,20 +317,15 @@ export function runWorkflowExecutionSeam(
                 });
               }
             : undefined;
-        const onSequenceStepSucceeded:
-          | SequenceStepSucceededObserver
-          | undefined =
+        const onSequenceStepFinished: SequenceStepFinishedObserver | undefined =
           backendType === ACP_BACKEND_TYPE
-            ? (event) => {
-                if (
-                  event.step.id === event.state.request.final_step_id ||
-                  event.step.apply_result
-                ) {
-                  return;
-                }
-                markAcpSkillRunApplyResult({
+            ? async (event) => {
+                await finishAcpSequenceStep({
                   requestId: event.requestId,
-                  state: "succeeded",
+                  finalStep:
+                    event.step.id === event.state.request.final_step_id,
+                  applyResultStatus:
+                    event.state.steps[event.stepIndex]?.applyResult?.status,
                 });
               }
             : undefined;
@@ -348,7 +341,7 @@ export function runWorkflowExecutionSeam(
           executeWithProvider: resolved.executeWithProvider,
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
-          onSequenceStepSucceeded,
+          onSequenceStepFinished,
           onProgress: (event) => {
             runtime.reportProgress(event);
           },

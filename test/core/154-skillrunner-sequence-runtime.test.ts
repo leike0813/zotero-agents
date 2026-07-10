@@ -1590,6 +1590,123 @@ describe("skillrunner.sequence.v1 runtime", function () {
     );
   });
 
+  it("awaits step completion after apply and before downstream dispatch", async function () {
+    const events: string[] = [];
+    await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+            apply_result: { workflow_id: "prepare-workflow" },
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-step-finished-barrier",
+      jobId: "job-step-finished-barrier",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async ({ request }) => {
+        const skillId = String((request as { skill_id?: unknown }).skill_id);
+        events.push(`run:${skillId}`);
+        return {
+          status: "succeeded",
+          requestId: `${skillId}-request`,
+          fetchType: "result",
+          resultJson: { skillId },
+          responseJson: {},
+        };
+      },
+      applySequenceStepResult: async ({ step }) => {
+        events.push(`apply:${step.id}`);
+        return { applied: true };
+      },
+      onSequenceStepFinished: async ({ step }) => {
+        events.push(`finish:start:${step.id}`);
+        await Promise.resolve();
+        events.push(`finish:end:${step.id}`);
+      },
+    });
+
+    assert.deepEqual(events, [
+      "run:prepare-skill",
+      "apply:prepare",
+      "finish:start:prepare",
+      "finish:end:prepare",
+      "run:finalize-skill",
+      "finish:start:finalize",
+      "finish:end:finalize",
+    ]);
+  });
+
+  it("settles a short-circuit step before returning its result", async function () {
+    const events: string[] = [];
+    const result = await executeSkillRunnerSequence({
+      request: {
+        kind: "skillrunner.sequence.v1",
+        steps: [
+          {
+            id: "prepare",
+            skill_id: "prepare-skill",
+            mode: "auto",
+            workspace: "new",
+            short_circuit: {
+              when: { path: "status", equals: "canceled" },
+              result: "step_output",
+            },
+          },
+          {
+            id: "finalize",
+            skill_id: "finalize-skill",
+            mode: "auto",
+            workspace: "reuse-workflow",
+          },
+        ],
+        final_step_id: "finalize",
+      },
+      backend: {
+        id: "acp-backend",
+        type: "acp",
+        baseUrl: "local://acp",
+        auth: { kind: "none" },
+      },
+      workflowId: "sequence-workflow",
+      workflowRunId: "workflow-run-short-circuit-barrier",
+      jobId: "job-short-circuit-barrier",
+      appendRuntimeLog: () => {},
+      executeWithProvider: async () => ({
+        status: "succeeded",
+        requestId: "prepare-request",
+        fetchType: "result",
+        resultJson: { status: "canceled" },
+        responseJson: {},
+      }),
+      onSequenceStepFinished: async ({ step }) => {
+        events.push(`finish:${step.id}`);
+      },
+    });
+
+    events.push("returned");
+    assert.deepEqual(events, ["finish:prepare", "returned"]);
+    assert.equal(result.requestId, "prepare-request");
+  });
+
   it("records non-blocking step apply failures and continues downstream", async function () {
     const events: string[] = [];
     const result = await executeSkillRunnerSequence({
@@ -2202,6 +2319,7 @@ describe("skillrunner.sequence.v1 runtime", function () {
   });
 
   it("short-circuits recovered non-final steps before launching downstream continuation", async function () {
+    const lifecycleEvents: string[] = [];
     const canceledOutput = {
       kind: "topic_synthesis_canceled",
       status: "canceled",
@@ -2277,8 +2395,12 @@ describe("skillrunner.sequence.v1 runtime", function () {
       executeWithProvider: async () => {
         assert.fail("downstream continuation should not launch");
       },
+      onSequenceStepFinished: async ({ step }) => {
+        lifecycleEvents.push(`finish:${step.id}`);
+      },
     });
 
+    assert.deepEqual(lifecycleEvents, ["finish:prepare"]);
     assert.equal(result.status, "succeeded");
     assert.equal(result.requestId, "prepare-request");
     assert.deepEqual(result.resultJson, canceledOutput);
