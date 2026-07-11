@@ -687,6 +687,69 @@ describe("backend manager risk regression", function () {
     );
   });
 
+  it("injects inline deny-question configuration into OpenCode and Kilo presets", function () {
+    const inlinePermissionConfig = '{"permission":{"question":"deny"}}';
+    const opencodeIsolatedPath = getAcpBackendIsolatedEnvironmentPath(
+      "acp-opencode-isolated",
+    );
+    const kiloIsolatedPath =
+      getAcpBackendIsolatedEnvironmentPath("acp-kilo-isolated");
+    const cases = [
+      {
+        backend: createAcpBackendFromPreset("opencode"),
+        expectedEnv: {
+          OPENCODE_CONFIG_CONTENT: inlinePermissionConfig,
+        },
+      },
+      {
+        backend: createAcpBackendFromPresetOptions("opencode", {
+          useNpx: true,
+        }),
+        expectedEnv: {
+          OPENCODE_CONFIG_CONTENT: inlinePermissionConfig,
+        },
+      },
+      {
+        backend: createAcpBackendFromPresetOptions("opencode", {
+          isolated: true,
+        }),
+        expectedEnv: {
+          OPENCODE_CONFIG_CONTENT: inlinePermissionConfig,
+          OPENCODE_CONFIG_DIR: opencodeIsolatedPath,
+        },
+      },
+      {
+        backend: createAcpBackendFromPreset("kilo"),
+        expectedEnv: {
+          KILO_CONFIG_CONTENT: inlinePermissionConfig,
+        },
+      },
+      {
+        backend: createAcpBackendFromPresetOptions("kilo", {
+          useNpx: true,
+        }),
+        expectedEnv: {
+          KILO_CONFIG_CONTENT: inlinePermissionConfig,
+        },
+      },
+      {
+        backend: createAcpBackendFromPresetOptions("kilo", {
+          isolated: true,
+        }),
+        expectedEnv: {
+          KILO_CONFIG_CONTENT: inlinePermissionConfig,
+          XDG_CONFIG_HOME: joinPath(kiloIsolatedPath, "config"),
+          XDG_DATA_HOME: joinPath(kiloIsolatedPath, "data"),
+          XDG_CACHE_HOME: joinPath(kiloIsolatedPath, "cache"),
+        },
+      },
+    ];
+
+    for (const entry of cases) {
+      assert.deepEqual(entry.backend.env, entry.expectedEnv);
+    }
+  });
+
   it("builds isolated ACP preset backend profiles with managed env roots", function () {
     const expectedRoot = getRuntimePersistencePaths().dataDir;
     const cases = [
@@ -748,6 +811,11 @@ describe("backend manager risk regression", function () {
       assert.equal(backend.auth?.kind, "none");
       assert.equal(backend.acp?.agentFamily, entry.agentFamily);
       assert.deepEqual(backend.env, {
+        ...(entry.presetId === "opencode"
+          ? {
+              OPENCODE_CONFIG_CONTENT: '{"permission":{"question":"deny"}}',
+            }
+          : {}),
         [entry.envKey]: expectedPath,
       });
       assert.include(expectedPath, expectedRoot);
@@ -768,6 +836,7 @@ describe("backend manager risk regression", function () {
     assert.equal(backend.command, "kilo");
     assert.deepEqual(backend.args, ["acp"]);
     assert.deepEqual(backend.env, {
+      KILO_CONFIG_CONTENT: '{"permission":{"question":"deny"}}',
       XDG_CONFIG_HOME: joinPath(expectedPath, "config"),
       XDG_DATA_HOME: joinPath(expectedPath, "data"),
       XDG_CACHE_HOME: joinPath(expectedPath, "cache"),

@@ -1013,10 +1013,12 @@ ACP run 使用插件内置 CLI，并通过临时 `PATH` 注入让 agent 可以�
 `zotero-bridge`。这不依赖用户把 CLI 安装到普通终端 PATH。
 
 插件设置页的一键安装用于人类终端，并复用发布 bundle 的安装约定：
-Windows 默认安装到 `%LOCALAPPDATA%\zotero-agents\bin` 并可写入用户 PATH；
-Linux 优先使用 PATH 中可写的 `~/.local/bin`、`~/bin`、`/usr/local/bin`；
-macOS 优先使用 PATH 中可写的 `~/bin`、`~/.local/bin`、`/usr/local/bin`、
-`/opt/homebrew/bin`。Windows 上如果自动写入用户 PATH 成功，需要重启终端后
+Windows 默认安装到 `%LOCALAPPDATA%\zotero-agents\bin` 并可写入用户 PATH。
+Linux 只会选择 PATH 中的 `~/.local/bin` 或 `~/bin`；macOS 只会选择 PATH 中的
+`~/bin` 或 `~/.local/bin`。两个平台都不会自动安装到系统级目录；如果没有用户
+目录在 PATH 中，插件会创建并安装到 `~/.local/bin`。设置页会显示把
+`$HOME/.local/bin` 加入 shell profile 的 sh/bash/zsh 与 fish 命令，但不会自动
+修改用户的 shell 配置。Windows 上如果自动写入用户 PATH 成功，需要重启终端后
 裸 `zotero-bridge` 才会生效。安装状态中的 `cli.supported` 不表示当前 shell
 PATH 已经可用。
 

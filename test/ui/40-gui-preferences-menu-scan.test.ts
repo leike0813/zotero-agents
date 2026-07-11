@@ -1852,6 +1852,12 @@ describe("gui: preference scripts", function () {
 
   it("renders Host Bridge operations in a separate notice area", async function () {
     const prefs = createPrefsWindow({ includeHostAccessControls: true });
+    let installResponse: Record<string, unknown> = {
+      ok: false,
+      message:
+        "Failed to install zotero-bridge CLI binary at C:\\Users\\me\\secret\\zotero-bridge.exe with Bearer abc.def",
+      details: {},
+    };
     (
       globalThis as {
         addon: {
@@ -1886,12 +1892,7 @@ describe("gui: preference scripts", function () {
         };
       }
       if (type === "installHostBridgeCli") {
-        return {
-          ok: false,
-          message:
-            "Failed to install zotero-bridge CLI binary at C:\\Users\\me\\secret\\zotero-bridge.exe with Bearer abc.def",
-          details: {},
-        };
+        return installResponse;
       }
       if (type === "rotateHostBridgeMasterToken") {
         return {
@@ -1938,6 +1939,25 @@ describe("gui: preference scripts", function () {
     assert.notInclude(
       prefs.hostBridgeStatusText?.textContent || "",
       "Failed to install",
+    );
+
+    installResponse = {
+      ok: true,
+      message: "zotero-bridge CLI installed.",
+      manualPathSetupRequired: true,
+    };
+    prefs.hostBridgeInstallCliButton?.dispatch("command");
+    await flushTasks();
+    assert.isFalse(
+      prefs.hostBridgeOperationNotice?.classList.contains("is-error") || false,
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      'export PATH="$HOME/.local/bin:$PATH"',
+    );
+    assert.include(
+      prefs.hostBridgeOperationNoticeText?.textContent || "",
+      "fish_add_path $HOME/.local/bin",
     );
 
     prefs.hostBridgeRotateMasterTokenButton?.dispatch("command");

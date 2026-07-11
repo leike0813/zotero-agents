@@ -56,6 +56,7 @@ export type AcpBackendPreset = {
   bareArgs: string[];
   npxPackage?: string;
   npxArgs?: string[];
+  defaultEnv?: Record<string, string>;
   defaultUseNpx: boolean;
   supportsNpx: boolean;
   agentFamily: AcpBackendPresetAgentFamily;
@@ -63,6 +64,8 @@ export type AcpBackendPreset = {
 };
 
 const ACP_ISOLATED_ENV_ROOT = "acp-backend-environments";
+const ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT =
+  '{"permission":{"question":"deny"}}';
 
 export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
   {
@@ -72,6 +75,9 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     bareArgs: [...ACP_OPENCODE_ARGS],
     npxPackage: "opencode-ai@latest",
     npxArgs: ["acp"],
+    defaultEnv: {
+      OPENCODE_CONFIG_CONTENT: ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT,
+    },
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "opencode",
@@ -212,6 +218,9 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     bareArgs: ["acp"],
     npxPackage: "@kilocode/cli@latest",
     npxArgs: ["acp"],
+    defaultEnv: {
+      KILO_CONFIG_CONTENT: ACP_PRESET_DENY_QUESTION_CONFIG_CONTENT,
+    },
     defaultUseNpx: false,
     supportsNpx: true,
     agentFamily: "kilo",
@@ -362,6 +371,17 @@ function buildAcpBackendPresetIsolationEnv(
   return env;
 }
 
+function buildAcpBackendPresetEnv(
+  preset: AcpBackendPreset,
+  backendId: string,
+  isolated: boolean,
+) {
+  return {
+    ...(preset.defaultEnv || {}),
+    ...buildAcpBackendPresetIsolationEnv(preset, backendId, isolated),
+  };
+}
+
 function buildAcpBackendPresetIsolationArgs(
   preset: AcpBackendPreset,
   backendId: string,
@@ -408,11 +428,7 @@ export function createAcpBackendFromPresetOptions(
   }
   const normalized = normalizePresetOptions(preset, options);
   const id = buildAcpBackendPresetProfileId(preset, normalized);
-  const env = buildAcpBackendPresetIsolationEnv(
-    preset,
-    id,
-    normalized.isolated,
-  );
+  const env = buildAcpBackendPresetEnv(preset, id, normalized.isolated);
   const isolationArgs = buildAcpBackendPresetIsolationArgs(
     preset,
     id,

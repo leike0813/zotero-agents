@@ -151,6 +151,7 @@ type BackendManagerSnapshot = {
     bareArgs: string[];
     npxPackage?: string;
     npxArgs?: string[];
+    defaultEnv?: Record<string, string>;
     defaultUseNpx: boolean;
     supportsNpx: boolean;
     agentFamily: string;
@@ -2529,6 +2530,7 @@ function buildBackendManagerSnapshot(
       bareArgs: [...preset.bareArgs],
       npxPackage: preset.npxPackage,
       npxArgs: preset.npxArgs ? [...preset.npxArgs] : undefined,
+      defaultEnv: preset.defaultEnv ? { ...preset.defaultEnv } : undefined,
       defaultUseNpx: preset.defaultUseNpx,
       supportsNpx: preset.supportsNpx,
       agentFamily: preset.agentFamily,

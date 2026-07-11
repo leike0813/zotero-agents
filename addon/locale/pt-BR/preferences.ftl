@@ -120,6 +120,7 @@ pref-host-bridge-copy-remote-profile =
 pref-host-bridge-install-cli =
     .label = Instalar CLI
 pref-host-bridge-operation-notice = Aviso de operação:
+pref-host-bridge-cli-path-setup = A CLI foi instalada em um diretório de usuário que não está no PATH. Adicione os comandos abaixo ao perfil do shell e reinicie o terminal.
 pref-host-bridge-status-idle = O Host Bridge não foi iniciado.
 pref-host-bridge-endpoint-empty = Endpoint ainda não está disponível.
 pref-host-bridge-security-title = Ações de segurança

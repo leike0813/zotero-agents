@@ -40,6 +40,7 @@ export type HostBridgeCliInstallResult =
       targetDir: string;
       pathAlreadyConfigured: boolean;
       pathUpdated: boolean;
+      manualPathSetupRequired: boolean;
       terminalRestartRequired: boolean;
       changed: boolean;
       sourceSha256: string;
@@ -224,7 +225,8 @@ export function resolveHostBridgeCliInstallTarget(
       platform,
       home,
       pathEnv: deps.pathEnv ? deps.pathEnv() : resolvePathEnv(),
-      candidates: ["bin", ".local/bin", "/usr/local/bin", "/opt/homebrew/bin"],
+      candidates: ["bin", ".local/bin"],
+      fallbackCandidate: ".local/bin",
     });
     return {
       platform,
@@ -236,7 +238,8 @@ export function resolveHostBridgeCliInstallTarget(
     platform,
     home,
     pathEnv: deps.pathEnv ? deps.pathEnv() : resolvePathEnv(),
-    candidates: [".local/bin", "bin", "/usr/local/bin"],
+    candidates: [".local/bin", "bin"],
+    fallbackCandidate: ".local/bin",
   });
   return {
     platform,
@@ -250,6 +253,7 @@ function resolvePreferredPosixInstallDir(args: {
   home: string;
   pathEnv: string;
   candidates: string[];
+  fallbackCandidate: string;
 }) {
   const resolvedCandidates = args.candidates.map((candidate) =>
     candidate.startsWith("/")
@@ -261,10 +265,13 @@ function resolvePreferredPosixInstallDir(args: {
       .map((entry) => formatPortablePath(entry).replace(/\/+$/, ""))
       .filter(Boolean),
   );
+  const fallbackCandidate = args.fallbackCandidate.startsWith("/")
+    ? joinForInstallPlatform(args.platform, args.fallbackCandidate)
+    : joinForInstallPlatform(args.platform, args.home, args.fallbackCandidate);
   return (
     resolvedCandidates.find((candidate) =>
       pathEntries.has(formatPortablePath(candidate).replace(/\/+$/, "")),
-    ) || resolvedCandidates[0]
+    ) || fallbackCandidate
   );
 }
 
@@ -747,6 +754,9 @@ export async function installHostBridgeCli(
     }
   }
 
+  const manualPathSetupRequired =
+    target.platform !== "win32" && !pathAlreadyConfigured;
+
   return {
     ok: true,
     stage: "host-bridge-cli-install",
@@ -754,12 +764,13 @@ export async function installHostBridgeCli(
       ? "zotero-bridge CLI installed and PATH is already configured."
       : pathUpdated
         ? "zotero-bridge CLI installed and user PATH updated. Restart terminals before using bare zotero-bridge."
-        : "zotero-bridge CLI installed. Add the install directory to PATH if needed.",
+        : "zotero-bridge CLI installed. Shell profile PATH setup is required before using bare zotero-bridge.",
     sourcePath,
     targetPath: target.targetPath,
     targetDir: target.targetDir,
     pathAlreadyConfigured,
     pathUpdated,
+    manualPathSetupRequired,
     terminalRestartRequired: pathUpdated,
     changed,
     sourceSha256,

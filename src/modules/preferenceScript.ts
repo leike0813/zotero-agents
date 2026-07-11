@@ -1050,8 +1050,26 @@ function bindPrefEvents() {
     const result = (response || {}) as {
       ok?: unknown;
       message?: unknown;
+      manualPathSetupRequired?: unknown;
     };
-    const message = sanitizeHostAccessNoticeText(String(result.message || ""));
+    const manualPathSetup = result.manualPathSetupRequired === true;
+    const message = sanitizeHostAccessNoticeText(
+      [
+        String(result.message || ""),
+        ...(manualPathSetup
+          ? [
+              getPrefText(
+                "pref-host-bridge-cli-path-setup",
+                "The CLI was installed to a user directory that is not in PATH. Add the commands below to your shell profile, then restart your terminal.",
+              ),
+              'sh/bash/zsh: export PATH="$HOME/.local/bin:$PATH"',
+              "fish: fish_add_path $HOME/.local/bin",
+            ]
+          : []),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
     if (!message) {
       hostBridgeOperationNotice.classList.remove("is-visible", "is-error");
       hostBridgeOperationNoticeText.textContent = "";

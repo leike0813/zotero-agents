@@ -120,6 +120,7 @@ pref-host-bridge-copy-remote-profile =
 pref-host-bridge-install-cli =
     .label = 安裝 CLI
 pref-host-bridge-operation-notice = 操作通知：
+pref-host-bridge-cli-path-setup = CLI 已安裝到尚未加入 PATH 的使用者目錄。請將下列命令加入 shell profile，然後重新啟動終端機。
 pref-host-bridge-status-idle = Host Bridge 尚未啟動。
 pref-host-bridge-endpoint-empty = 端點尚不可用。
 pref-host-bridge-security-title = 安全操作

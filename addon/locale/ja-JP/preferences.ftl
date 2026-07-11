@@ -120,6 +120,7 @@ pref-host-bridge-copy-remote-profile =
 pref-host-bridge-install-cli =
     .label = CLI をインストール
 pref-host-bridge-operation-notice = 操作メッセージ:
+pref-host-bridge-cli-path-setup = CLI は PATH に含まれないユーザー用ディレクトリへインストールされました。次のコマンドを shell profile に追加してから、ターミナルを再起動してください。
 pref-host-bridge-status-idle = Host Bridge はまだ起動していません。
 pref-host-bridge-endpoint-empty = Endpoint はまだ利用できません。
 pref-host-bridge-security-title = セキュリティ操作

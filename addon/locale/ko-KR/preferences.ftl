@@ -120,6 +120,7 @@ pref-host-bridge-copy-remote-profile =
 pref-host-bridge-install-cli =
     .label = CLI 설치
 pref-host-bridge-operation-notice = 작업 안내:
+pref-host-bridge-cli-path-setup = CLI가 PATH에 없는 사용자 디렉터리에 설치되었습니다. 아래 명령을 shell profile에 추가한 뒤 터미널을 다시 시작하세요.
 pref-host-bridge-status-idle = Host Bridge가 시작되지 않았습니다.
 pref-host-bridge-endpoint-empty = 엔드포인트를 아직 사용할 수 없습니다.
 pref-host-bridge-security-title = 보안 작업

@@ -67,7 +67,7 @@ Action buttons:
 - **Create/Rotate Master Token**: Generate a persistent token
 - **Copy Master Token**: Copy to clipboard
 - **Copy Remote CLI Profile**: Get the remote connection configuration
-- **Install CLI**: One-click install `zotero-bridge`
+- **Install CLI**: One-click install `zotero-bridge`. On Linux and macOS, only user directories are selected automatically; if neither user directory is in `PATH`, the CLI is installed to `~/.local/bin` and the page shows shell-profile commands to enable the bare command.
 
 ![Host Bridge Dangerous Actions Area Expanded](/img/docs/preferences_host-bridge_expand.png)
 

@@ -398,6 +398,19 @@
     return entries;
   }
 
+  function buildAcpPresetDefaultEnv(preset) {
+    const env = (preset && preset.defaultEnv) || {};
+    return Object.keys(env).reduce(function (entries, key) {
+      const normalizedKey = String(key || "").trim();
+      if (!normalizedKey) return entries;
+      entries.push({
+        key: normalizedKey,
+        value: String(env[key] ?? ""),
+      });
+      return entries;
+    }, []);
+  }
+
   function buildAcpPresetIsolationArgs(preset, isolatedPath) {
     if (!preset || !preset.isolation || !Array.isArray(preset.isolation.args)) {
       return [];
@@ -441,9 +454,9 @@
           internalId,
         )
       : "";
-    const env = isolated
-      ? buildAcpPresetIsolationEnv(preset, isolatedPath)
-      : [];
+    const env = buildAcpPresetDefaultEnv(preset).concat(
+      isolated ? buildAcpPresetIsolationEnv(preset, isolatedPath) : [],
+    );
     const isolationArgs = isolated
       ? buildAcpPresetIsolationArgs(preset, isolatedPath)
       : [];

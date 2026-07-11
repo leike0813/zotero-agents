@@ -67,7 +67,7 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 - **创建/轮换 Master Token**：生成持久化 Token
 - **复制 Master Token**：复制到剪贴板
 - **复制远程 CLI Profile**：获取远程连接配置
-- **安装 CLI**：一键安装 `zotero-bridge`
+- **安装 CLI**：一键安装 `zotero-bridge`。Linux 与 macOS 只会自动选择用户目录；若用户目录均未在 `PATH` 中，则安装到 `~/.local/bin`，并在页面显示将裸命令加入 shell profile 的指引。
 
 ![Host Bridge 危险操作区展开状态](/img/docs/preferences_host-bridge_expand.png)
 
