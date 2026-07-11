@@ -53,6 +53,10 @@ import {
 } from "./acpSkillMaterializer";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
+  isAssistantSilentExecutionMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "./assistantExecutionDisplayPolicy";
+import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
 } from "./acpSkillRunPromptBuilder";
@@ -3750,6 +3754,8 @@ export async function executeAcpSkillRunnerJob(args: {
   let workspaceActivityTimer: ReturnType<typeof setInterval> | null = null;
   let workspaceActivitySignature = "";
   let workspaceActivityScanRunning = false;
+  let workspaceActivityPromptActive = false;
+  let unsubscribeExecutionDisplayMode: () => void = () => undefined;
   let pendingReplyResolver: ((message: string) => void) | null = null;
   let pendingReplyRejecter: ((error: Error) => void) | null = null;
   let unsubscribePermission: () => void = () => undefined;
@@ -3776,6 +3782,7 @@ export async function executeAcpSkillRunnerJob(args: {
     unsubscribeUpdate();
     unsubscribeDiagnostics();
     unsubscribeClose();
+    unsubscribeExecutionDisplayMode();
     hardTimeoutMonitor?.clear();
     if (workspaceActivityTimer) {
       clearInterval(workspaceActivityTimer);
@@ -3887,6 +3894,9 @@ export async function executeAcpSkillRunnerJob(args: {
       const snapshot = await findWorkspaceActivitySnapshot(
         workspace.workspaceDir,
       );
+      if (!workspaceActivityPromptActive || isAssistantSilentExecutionMode()) {
+        return;
+      }
       if (!snapshot) {
         return;
       }
@@ -3918,7 +3928,11 @@ export async function executeAcpSkillRunnerJob(args: {
     }
   };
   const startWorkspaceActivityHeartbeat = () => {
-    if (workspaceActivityTimer) {
+    if (
+      workspaceActivityTimer ||
+      !workspaceActivityPromptActive ||
+      isAssistantSilentExecutionMode()
+    ) {
       return;
     }
     void scanWorkspaceActivity();
@@ -3943,6 +3957,15 @@ export async function executeAcpSkillRunnerJob(args: {
     clearInterval(workspaceActivityTimer);
     workspaceActivityTimer = null;
   };
+  unsubscribeExecutionDisplayMode = subscribeAssistantExecutionDisplayMode(
+    (mode) => {
+      if (mode === "silent") {
+        stopWorkspaceActivityHeartbeat();
+      } else if (workspaceActivityPromptActive) {
+        startWorkspaceActivityHeartbeat();
+      }
+    },
+  );
   const failCurrentAcpPrompt = async (
     diagnostic: AcpPromptFailureDiagnostic,
   ): Promise<never> => {
@@ -4021,6 +4044,7 @@ export async function executeAcpSkillRunnerJob(args: {
     await assistantTurnAccumulator.reset();
     currentTurnObservedAcpActivity = false;
     captureAssistantText = true;
+    workspaceActivityPromptActive = true;
     startWorkspaceActivityHeartbeat();
     try {
       const timerAlreadyActive =
@@ -4102,6 +4126,7 @@ export async function executeAcpSkillRunnerJob(args: {
       throw error;
     } finally {
       captureAssistantText = false;
+      workspaceActivityPromptActive = false;
       activePromptTimeoutDrain = null;
       if (
         executionMode === "interactive" &&

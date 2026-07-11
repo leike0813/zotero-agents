@@ -73,9 +73,68 @@ import {
   enqueueAcpChatTranscriptEvent,
   readAcpChatTranscriptPage,
 } from "../../src/modules/acpConversationTranscriptStore";
+import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("persists only user and final assistant content for a silent prompt", async function () {
+    setAssistantExecutionDisplayMode("silent");
+    await sendAcpConversationPrompt({ message: "silent result" });
+
+    const items = await readActiveTranscriptItems();
+    assert.deepEqual(
+      items.map((entry) => entry.kind),
+      ["message", "message"],
+    );
+    assert.equal((items[1] as { text?: string }).text, "Echo: silent result");
+    const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
+    assert.equal(panel.executionDisplayMode, "silent");
+    assert.deepEqual((panel.messageCounts as any)?.current, {
+      assistant: 1,
+      thought: 1,
+      tool: 1,
+    });
+    assert.isFalse((panel.messageCounts as any)?.active);
+  });
+
+  it("seals visible history and never backfills content across silent transitions", async function () {
+    await connectAcpConversation();
+    const sessionId = getAcpConversationSnapshot().sessionId;
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible before" },
+      },
+    });
+
+    setAssistantExecutionDisplayMode("silent");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "omitted" },
+      },
+    });
+    setAssistantExecutionDisplayMode("live");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible after" },
+      },
+    });
+
+    const messages = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      messages.map((entry) => (entry as { text?: string }).text),
+      ["visible before", "visible after"],
+    );
+    assert.equal((messages[0] as { state?: string }).state, "complete");
+  });
 
   it("flushes only the requested conversation transcript owner", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-chat-owner-"));
@@ -1250,7 +1309,7 @@ describe("acp session manager", function () {
     const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
 
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
-    assert.equal(panel.streamingRenderEnabled, true);
+    assert.equal(panel.executionDisplayMode, "live");
     assert.equal(panel.backendAvailability, "selected");
     assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.activeBackendId, active.backendId);
@@ -1683,7 +1742,7 @@ describe("acp session manager", function () {
       activeTab: "acp-chat" as const,
       hasActiveTarget: true,
       transcriptPaginationVirtualizationEnabled: true,
-      streamingRenderEnabled: true,
+      executionDisplayMode: "live" as const,
     };
 
     assert.isTrue(
@@ -1708,7 +1767,7 @@ describe("acp session manager", function () {
       shouldRefreshAcpChatSnapshotForChange(
         {
           ...base,
-          streamingRenderEnabled: false,
+          executionDisplayMode: "boundary" as const,
         },
         {
           active: true,

@@ -586,24 +586,36 @@
     return safeText(cursor) || fallback;
   }
 
-  function buildStreamingRenderToggleAction(source) {
-    const enabled =
-      !source ||
-      !Object.prototype.hasOwnProperty.call(source, "streamingRenderEnabled") ||
-      source.streamingRenderEnabled !== false;
-    const baseLabel = labelFrom(source, "actions.streamingRender", "Streaming");
-    const stateLabel = enabled
-      ? labelFrom(source, "actions.streamingRenderOn", "Streaming on")
-      : labelFrom(source, "actions.streamingRenderOff", "Streaming off");
+  function buildExecutionDisplayModeAction(source) {
+    const mode = ["live", "boundary", "silent"].includes(
+      safeText(source && source.executionDisplayMode),
+    )
+      ? safeText(source.executionDisplayMode)
+      : "live";
     return {
-      kind: "switch",
+      kind: "display-mode",
       align: "end",
-      action: "set-streaming-render-enabled",
-      label: stateLabel,
-      baseLabel,
-      stateLabel,
-      checked: enabled,
-      payload: { enabled: !enabled },
+      action: "set-execution-display-mode",
+      label: labelFrom(source, "actions.executionDisplayMode", "Display mode"),
+      value: mode,
+      options: [
+        {
+          value: "live",
+          label: labelFrom(source, "actions.executionDisplayLive", "Live"),
+        },
+        {
+          value: "boundary",
+          label: labelFrom(
+            source,
+            "actions.executionDisplayBoundary",
+            "By message",
+          ),
+        },
+        {
+          value: "silent",
+          label: labelFrom(source, "actions.executionDisplaySilent", "Silent"),
+        },
+      ],
     };
   }
 
@@ -2946,7 +2958,7 @@
               labelFrom(snap, "actions.manageBackends", "Manage"),
             enabled: true,
           },
-          Object.assign(buildStreamingRenderToggleAction(snap), {
+          Object.assign(buildExecutionDisplayModeAction(snap), {
             enabled: true,
           }),
         ],
@@ -3611,7 +3623,7 @@
               "Manage Backends",
             ),
           },
-          buildStreamingRenderToggleAction(panel),
+          buildExecutionDisplayModeAction(panel),
         ],
         context: [],
         details: [
@@ -3889,7 +3901,7 @@
               "Manage Backends",
             ),
           },
-          buildStreamingRenderToggleAction(envelope),
+          buildExecutionDisplayModeAction(envelope),
         ],
         context: [],
         details: [

@@ -512,7 +512,68 @@
     container.appendChild(button);
   }
 
+  function renderExecutionDisplayMode(container, action, options) {
+    const values = (Array.isArray(action.options) ? action.options : []).filter(
+      function (entry) {
+        return entry && ["live", "boundary", "silent"].includes(entry.value);
+      },
+    );
+    const selected = safeText(action.value) || "live";
+    const group = el(
+      "div",
+      "assistant-panel-display-mode assistant-panel-action",
+    );
+    group.setAttribute("role", "radiogroup");
+    group.setAttribute("aria-label", safeText(action.label) || "Display mode");
+    if (safeText(action.align) === "end") {
+      group.setAttribute("data-assistant-action-align", "end");
+    }
+    const select = function (value) {
+      if (value && value !== selected)
+        emit(options, action.action, { mode: value });
+    };
+    values.forEach(function (entry, index) {
+      const button = el(
+        "button",
+        "assistant-panel-display-mode-option",
+        safeText(entry.label) || entry.value,
+      );
+      button.type = "button";
+      button.setAttribute("role", "radio");
+      button.setAttribute("data-execution-display-mode", entry.value);
+      button.setAttribute(
+        "aria-checked",
+        entry.value === selected ? "true" : "false",
+      );
+      button.setAttribute("aria-label", safeText(entry.label) || entry.value);
+      button.setAttribute("title", safeText(entry.label) || entry.value);
+      button.tabIndex = entry.value === selected ? 0 : -1;
+      button.addEventListener("click", function () {
+        select(entry.value);
+      });
+      button.addEventListener("keydown", function (event) {
+        const key = safeText(event && event.key);
+        let nextIndex = index;
+        if (["ArrowRight", "ArrowDown"].includes(key))
+          nextIndex = (index + 1) % values.length;
+        else if (["ArrowLeft", "ArrowUp"].includes(key))
+          nextIndex = (index + values.length - 1) % values.length;
+        else if (key === "Home") nextIndex = 0;
+        else if (key === "End") nextIndex = values.length - 1;
+        else return;
+        event.preventDefault();
+        select(values[nextIndex] && values[nextIndex].value);
+      });
+      group.appendChild(button);
+    });
+    container.appendChild(group);
+  }
+
   function renderActionButton(container, action, options) {
+    if (safeText(action.kind) === "display-mode") {
+      renderExecutionDisplayMode(container, action, options || {});
+      return;
+    }
     if (safeText(action.kind) === "switch") {
       renderActionSwitch(container, action, options || {});
       return;
@@ -738,6 +799,11 @@
     markRegion(regions.toolbar, "assistant-panel-toolbar", "toolbar");
     markRegion(regions.banner, "assistant-panel-banner", "banner");
     markRegion(
+      regions.messageCounter,
+      "assistant-panel-message-counter",
+      "message-counter",
+    );
+    markRegion(
       regions.conversation,
       "assistant-panel-conversation",
       "conversation",
@@ -761,6 +827,53 @@
         : [];
     selectors.forEach(function (selector) {
       renderSelectControl(container, selector, options || {});
+    });
+  }
+
+  function renderAssistantMessageCounter(container, snapshot) {
+    if (!container) return;
+    const panel = normalize(snapshot);
+    const counts =
+      panel.raw && typeof panel.raw.messageCounts === "object"
+        ? panel.raw.messageCounts
+        : null;
+    clear(container);
+    if (!counts || !counts.current) {
+      container.classList.add("hidden");
+      return;
+    }
+    container.classList.remove("hidden");
+    container.setAttribute(
+      "data-message-counter-owner",
+      safeText(counts.scopeKey),
+    );
+    const complete = safeText(counts.completeness) === "complete";
+    const categories = [
+      {
+        key: "assistant",
+        label: labelOf(panel, "transcript.assistant", "Assistant"),
+      },
+      {
+        key: "thought",
+        label: labelOf(panel, "transcript.thinking", "Thought"),
+      },
+      { key: "tool", label: labelOf(panel, "transcript.tool", "Tool") },
+    ];
+    categories.forEach(function (category) {
+      const current = Math.max(0, Number(counts.current[category.key]) || 0);
+      const cumulative = Math.max(
+        current,
+        Number(counts.cumulative && counts.cumulative[category.key]) || 0,
+      );
+      const value = complete ? current + "/" + cumulative : String(current);
+      const item = el("div", "assistant-message-counter-item");
+      item.setAttribute("data-message-counter-kind", category.key);
+      item.setAttribute("aria-label", category.label + " " + value);
+      item.appendChild(
+        el("span", "assistant-message-counter-label", category.label),
+      );
+      item.appendChild(el("span", "assistant-message-counter-value", value));
+      container.appendChild(item);
     });
   }
 
@@ -2400,6 +2513,31 @@
         },
       );
     }
+    if (shouldManageRegion(opts, "messageCounter")) {
+      const counts = panel.raw && panel.raw.messageCounts;
+      renderManagedRegionIfChanged(
+        opts.regions && opts.regions.messageCounter,
+        "message-counter",
+        counts
+          ? {
+              scopeKey: counts.scopeKey,
+              executionKey: counts.executionKey,
+              active: counts.active,
+              current: counts.current,
+              cumulative: counts.cumulative,
+              completeness: counts.completeness,
+              revision: counts.revision,
+              labels: panel.labels && panel.labels.transcript,
+            }
+          : null,
+        function () {
+          renderAssistantMessageCounter(
+            opts.regions && opts.regions.messageCounter,
+            managedSnapshot,
+          );
+        },
+      );
+    }
     if (shouldManageRegion(opts, "plan")) {
       renderManagedRegionIfChanged(
         opts.regions && opts.regions.plan,
@@ -2510,6 +2648,7 @@
     renderContextSelectors,
     renderContextActions,
     renderAssistantBanner,
+    renderAssistantMessageCounter,
     isAssistantPlanWorking,
     renderAssistantPlan,
     renderAssistantHint,

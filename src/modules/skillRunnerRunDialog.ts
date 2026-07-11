@@ -56,6 +56,7 @@ import {
   getSkillRunnerRunProjection,
   listSkillRunnerRunProjections,
   subscribeSkillRunnerRunStore,
+  updateSkillRunnerRunMessageCounts,
   type SkillRunnerRunApplyState,
 } from "./skillRunnerRunStore";
 import {
@@ -80,9 +81,16 @@ import {
 import { ASSISTANT_SIDEBAR_STREAM_FLUSH_MS } from "./assistantSidebarViewModel";
 import {
   canPublishAssistantWorkspaceLiveUpdates,
+  getAssistantExecutionDisplayMode,
+  isAssistantSilentExecutionMode,
   type AssistantWorkspacePublishReason,
-} from "./assistantWorkspaceUiPublishPolicy";
+} from "./assistantExecutionDisplayPolicy";
 import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
+import {
+  createAssistantMessageCounts,
+  type AssistantMessageCountTriplet,
+  type AssistantMessageCountsSnapshot,
+} from "./assistantMessageCounts";
 import type { AcpPendingPermissionRequest } from "./acpTypes";
 import {
   getSkillRunnerHostBridgePermissionRequest,
@@ -330,6 +338,7 @@ type RunDialogEntry = {
   streamLastFocusedAt?: number;
   observerStarting?: boolean;
   historyHydrating?: boolean;
+  messageCounts: AssistantMessageCountsSnapshot;
   session: RunSessionState;
 };
 
@@ -400,6 +409,8 @@ export type RunWorkspaceSnapshot = {
   hostMode?: "dialog" | "sidebar";
   transcriptRevision?: number;
   transcriptPaginationVirtualizationEnabled?: boolean;
+  executionDisplayMode?: ReturnType<typeof getAssistantExecutionDisplayMode>;
+  messageCounts?: AssistantMessageCountsSnapshot;
   labels: {
     assistantPanel?: ReturnType<typeof buildAssistantPanelLabels>;
     title: string;
@@ -1024,6 +1035,12 @@ function entryMessageId(entry: SkillRunnerConversationEntry) {
   );
 }
 
+function entryMessageFamilyId(entry: SkillRunnerConversationEntry) {
+  return normalizeDisplayText(
+    entry.messageFamilyId || entryCorrelation(entry).message_family_id,
+  );
+}
+
 function entryReplacesMessageId(entry: SkillRunnerConversationEntry) {
   return normalizeDisplayText(
     entry.replacesMessageId || entryCorrelation(entry).replaces_message_id,
@@ -1084,6 +1101,7 @@ function removePromotedIntermediateEntry(
 ) {
   const finalAttempt = entryAttempt(finalEntry);
   const finalMessageId = entryMessageId(finalEntry);
+  const finalMessageFamilyId = entryMessageFamilyId(finalEntry);
   const replacesMessageId = entryReplacesMessageId(finalEntry);
   const finalText = entryVisibleText(finalEntry);
   let fallbackMatchIndex = -1;
@@ -1099,7 +1117,15 @@ function removePromotedIntermediateEntry(
       continue;
     }
     const candidateMessageId = entryMessageId(candidate);
+    const candidateMessageFamilyId = entryMessageFamilyId(candidate);
     if (replacesMessageId && candidateMessageId === replacesMessageId) {
+      output.splice(index, 1);
+      return;
+    }
+    if (
+      finalMessageFamilyId &&
+      candidateMessageFamilyId === finalMessageFamilyId
+    ) {
       output.splice(index, 1);
       return;
     }
@@ -1140,6 +1166,120 @@ export function buildRunDialogDisplayMessages(
     output.push(entry);
   }
   return output;
+}
+
+export function projectSkillRunnerSilentConversation(
+  messages: SkillRunnerConversationEntry[],
+) {
+  const promoted = buildRunDialogDisplayMessages(messages);
+  return {
+    messages: promoted.filter(
+      (entry) =>
+        !isAssistantProcessEntry(entry) && !isAssistantIntermediateEntry(entry),
+    ),
+  };
+}
+
+function skillRunnerSemanticIdentity(
+  entry: SkillRunnerConversationEntry,
+  fallbackIndex: number,
+) {
+  const correlation = entryCorrelation(entry);
+  const raw = isObject(entry.raw) ? entry.raw : {};
+  const candidates = [
+    correlation.tool_call_id,
+    correlation.tool_id,
+    correlation.message_family_id,
+    correlation.message_id,
+    entry.messageFamilyId,
+    entry.messageId,
+    raw.tool_call_id,
+    raw.tool_id,
+    raw.message_id,
+    raw.seq,
+  ];
+  for (const candidate of candidates) {
+    const value = normalizeDisplayText(candidate);
+    if (value) return value;
+  }
+  return [
+    entryAttempt(entry),
+    normalizeDisplayText(entry.processType || entry.kind),
+    entryVisibleText(entry),
+    fallbackIndex,
+  ].join(":");
+}
+
+function countSkillRunnerSemanticEntries(
+  entries: SkillRunnerConversationEntry[],
+): AssistantMessageCountTriplet {
+  const counts: AssistantMessageCountTriplet = {
+    assistant: 0,
+    thought: 0,
+    tool: 0,
+  };
+  const seenAssistant = new Set<string>();
+  const seenTools = new Set<string>();
+  let thoughtOpen = false;
+  entries.forEach((entry, index) => {
+    if (entry.role !== "assistant") {
+      thoughtOpen = false;
+      return;
+    }
+    if (isAssistantIntermediateEntry(entry) || isAssistantFinalEntry(entry)) {
+      const identity = skillRunnerSemanticIdentity(entry, index);
+      if (!seenAssistant.has(identity)) {
+        seenAssistant.add(identity);
+        counts.assistant += 1;
+      }
+      thoughtOpen = false;
+      return;
+    }
+    if (!isAssistantProcessEntry(entry)) {
+      thoughtOpen = false;
+      return;
+    }
+    if (
+      isSkillRunnerToolProcessType(
+        entry.processType || entryCorrelation(entry).process_type,
+      )
+    ) {
+      const identity = skillRunnerSemanticIdentity(entry, index);
+      if (!seenTools.has(identity)) {
+        seenTools.add(identity);
+        counts.tool += 1;
+      }
+      thoughtOpen = false;
+      return;
+    }
+    if (!thoughtOpen) {
+      counts.thought += 1;
+      thoughtOpen = true;
+    }
+  });
+  return counts;
+}
+
+export function projectSkillRunnerMessageCounts(
+  scopeKey: string,
+  messages: SkillRunnerConversationEntry[],
+  completeness: AssistantMessageCountsSnapshot["completeness"] = "complete",
+) {
+  const promoted = buildRunDialogDisplayMessages(messages);
+  let currentStart = 0;
+  for (let index = promoted.length - 1; index >= 0; index -= 1) {
+    if (promoted[index]?.role === "user") {
+      currentStart = index + 1;
+      break;
+    }
+  }
+  const snapshot = createAssistantMessageCounts(scopeKey, completeness);
+  snapshot.active = true;
+  snapshot.current = countSkillRunnerSemanticEntries(
+    promoted.slice(currentStart),
+  );
+  snapshot.cumulative = countSkillRunnerSemanticEntries(promoted);
+  return snapshot;
 }
 
 export function normalizeRunDialogPendingState(
@@ -2600,11 +2740,47 @@ function resolveRunWorkspaceTranscriptMessages(args: {
 }) {
   const entryKey = String(args.entry.key || "").trim();
   const canonicalMessages = args.entry.session.messages;
-  const signature = skillRunnerTranscriptSignature(canonicalMessages);
+  const silentProjection = isAssistantSilentExecutionMode()
+    ? projectSkillRunnerSilentConversation(canonicalMessages)
+    : undefined;
+  const projectedMessages = silentProjection?.messages || canonicalMessages;
+  const nextCounts = projectSkillRunnerMessageCounts(
+    entryKey,
+    canonicalMessages,
+    runWorkspaceState.historyTruncated ? "unavailable" : "complete",
+  );
+  nextCounts.active = !isTerminalStatus(args.entry.session.status);
+  const previousCounts = args.entry.messageCounts;
+  if (
+    JSON.stringify({
+      active: previousCounts.active,
+      current: previousCounts.current,
+      cumulative: previousCounts.cumulative,
+      completeness: previousCounts.completeness,
+    }) !==
+    JSON.stringify({
+      active: nextCounts.active,
+      current: nextCounts.current,
+      cumulative: nextCounts.cumulative,
+      completeness: nextCounts.completeness,
+    })
+  ) {
+    nextCounts.revision = previousCounts.revision + 1;
+    args.entry.messageCounts = nextCounts;
+    updateSkillRunnerRunMessageCounts({
+      runKey: args.entry.key,
+      messageCounts: nextCounts,
+    });
+  } else {
+    nextCounts.revision = previousCounts.revision;
+    args.entry.messageCounts = nextCounts;
+  }
+  const visibleMessages = projectedMessages;
+  const signature = skillRunnerTranscriptSignature(visibleMessages);
   if (entryKey !== runWorkspaceState.publishedTranscriptEntryKey) {
     runWorkspaceState.publishedTranscriptEntryKey = entryKey;
     runWorkspaceState.publishedTranscriptMessages =
-      cloneRunDialogTranscriptMessages(canonicalMessages);
+      cloneRunDialogTranscriptMessages(visibleMessages);
     runWorkspaceState.lastPublishedTranscriptSignature = signature;
     runWorkspaceState.lastTranscriptPublishedAt = Date.now();
     runWorkspaceState.transcriptRevision += 1;
@@ -2619,12 +2795,14 @@ function resolveRunWorkspaceTranscriptMessages(args: {
   }
   const now = Date.now();
   const shouldPublish =
-    args.reason === "boundary" ||
+    (isAssistantSilentExecutionMode()
+      ? args.reason === "critical"
+      : args.reason === "boundary") ||
     isSkillRunnerTranscriptBoundary(args.entry) ||
     (args.reason === "live" && canPublishAssistantWorkspaceLiveUpdates());
   if (shouldPublish) {
     runWorkspaceState.publishedTranscriptMessages =
-      cloneRunDialogTranscriptMessages(canonicalMessages);
+      cloneRunDialogTranscriptMessages(visibleMessages);
     runWorkspaceState.transcriptRevision += 1;
     runWorkspaceState.lastPublishedTranscriptSignature = signature;
     runWorkspaceState.lastTranscriptPublishedAt = now;
@@ -2652,6 +2830,8 @@ function buildRunWorkspaceSnapshot(
       finishedTasks: group.finishedTasks,
     }))
     .filter((group) => group.finishedTasks.length > 0);
+  const executionDisplayMode = getAssistantExecutionDisplayMode();
+  const currentEntry = runWorkspaceState.currentEntry;
   return {
     title:
       String(selectedTask?.title || "").trim() ||
@@ -2660,6 +2840,8 @@ function buildRunWorkspaceSnapshot(
     transcriptRevision: runWorkspaceState.transcriptRevision,
     transcriptPaginationVirtualizationEnabled:
       isAssistantTranscriptPaginationVirtualizationEnabled(),
+    executionDisplayMode,
+    messageCounts: currentEntry?.messageCounts,
     labels: {
       assistantPanel: buildAssistantPanelLabels(),
       title: localize(
@@ -3498,6 +3680,16 @@ async function startRunObserver(entry: RunDialogEntry) {
     if (entry.session.messages.length > 500) {
       entry.session.messages = entry.session.messages.slice(-500);
     }
+    if (isAssistantSilentExecutionMode()) {
+      if (conversationEntry.kind === "assistant_process") {
+        return;
+      }
+      scheduleSnapshotFlushForRunDialogEntry(entry, {
+        immediate: true,
+        reason: "critical",
+      });
+      return;
+    }
     const disabledLiveBoundary =
       !canPublishAssistantWorkspaceLiveUpdates() &&
       isSkillRunnerDisabledLivePublishBoundary(conversationEntry);
@@ -4181,6 +4373,9 @@ function buildRunDialogEntry(args: {
     backend: args.backend,
     requestId: args.requestId,
     alertWindow: runWorkspaceState.alertWindow,
+    messageCounts:
+      getSkillRunnerRunRecord(args.key)?.messageCounts ||
+      createAssistantMessageCounts(args.key, "unavailable"),
     session: {
       requestId: args.requestId,
       status:

@@ -20,7 +20,24 @@ import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
-} from "./assistantWorkspaceUiPublishPolicy";
+  getAssistantExecutionDisplayMode,
+  isAssistantSilentExecutionMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "./assistantExecutionDisplayPolicy";
+import {
+  discardAcpExecutionProgressCandidate,
+  finishAcpExecutionProgress,
+  releaseAcpExecutionProgress,
+  resetAcpExecutionProgress,
+  restoreAcpExecutionProgress,
+  snapshotAcpMessageCounts,
+  snapshotAcpExecutionProgress,
+  updateAcpExecutionProgress,
+} from "./acpExecutionProgress";
+import {
+  normalizeAssistantMessageCounts,
+  type AssistantMessageCountsSnapshot,
+} from "./assistantMessageCounts";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import { isAcpTranscriptHardBoundaryUpdate } from "./acpTranscriptBoundary";
 import {
@@ -325,6 +342,7 @@ export type AcpSkillRunRecord = {
   transcriptEventSeq?: number;
   transcriptItemCount?: number;
   transcriptPreview?: string;
+  messageCounts?: AssistantMessageCountsSnapshot;
   runContextPath?: string;
   createdAt: string;
   updatedAt: string;
@@ -395,6 +413,8 @@ export type AcpSkillRunSummaryListOptions = {
 
 export type AcpSkillRunPanelSnapshot = {
   generatedAt: string;
+  executionDisplayMode: ReturnType<typeof getAssistantExecutionDisplayMode>;
+  messageCounts?: AssistantMessageCountsSnapshot;
   selectedRequestId: string;
   selectedTranscript?: {
     requestId: string;
@@ -456,6 +476,7 @@ export type AcpSkillRunRuntimeOptionsSnapshot = {
 export type AcpSkillRunSnapshotChangeKind =
   | "run"
   | "transcript"
+  | "progress"
   | "runtime-options"
   | "selection"
   | "archive"
@@ -572,6 +593,8 @@ async function waitForAcpSkillRunShutdownTask(
 }
 const listeners = new Set<AcpSkillRunListener>();
 let hydrated = false;
+let unsubscribeExecutionDisplayMode: (() => void) | undefined;
+let lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -868,7 +891,7 @@ function readUiVisibleTranscriptMirrorPage(args: {
     itemIds: args.state.itemIds,
     getItem: (itemId) => args.state.itemsById.get(itemId),
     cloneItem: cloneAcpSkillRunTranscriptItem,
-    streamingRenderEnabled: canPublishAssistantWorkspaceLiveUpdates(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
     cursor: args.cursor,
     limit: args.limit,
     defaultLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
@@ -1734,6 +1757,7 @@ function materializeAcpSkillRunPanelSelectedRequestId(
 function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
   transcriptLiveStates.delete(requestId);
+  releaseAcpExecutionProgress(requestId);
   forgetColdAcpSkillRunTranscriptMirror(requestId);
   activeRunRequestIds.delete(requestId);
   removeRecentVisibleRunRequestId(requestId);
@@ -1742,6 +1766,9 @@ function deleteAcpSkillRunRecord(requestId: string) {
 }
 
 function clearAcpSkillRunRecords() {
+  for (const requestId of runRecords.keys()) {
+    releaseAcpExecutionProgress(requestId);
+  }
   runRecords.clear();
   transcriptLiveStates.clear();
   coldAcpSkillRunTranscriptMirrorLru.clear();
@@ -2007,30 +2034,55 @@ function toolEventTime(item: { updatedAt?: string; createdAt?: string }) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const ACP_SKILL_RUN_TRANSCRIPT_EVENT_STAGES = new Set([
+  "output-validation-failed",
+  "repair-started",
+  "repair-validation-failed",
+  "acp-prompt-no-output",
+  "acp-prompt-stopped",
+  "acp-prompt-failed",
+  "permission-requested",
+  "permission-resolved",
+  "conversation-ended",
+  "conversation-closed",
+  "conversation-error",
+  "reply-unavailable",
+  "workspace-activity",
+  "apply-pending",
+  "apply-succeeded",
+  "apply-failed",
+  "succeeded",
+  "failed",
+  "canceled",
+  "cancel-requested",
+  "interrupt-completed",
+]);
+
+const ACP_SKILL_RUN_SILENT_CRITICAL_STAGES = new Set([
+  "permission-requested",
+  "permission-resolved",
+  "conversation-ended",
+  "conversation-closed",
+  "conversation-error",
+  "reply-unavailable",
+  "waiting-user",
+  "waiting-auth",
+  "auth-required",
+  "apply-succeeded",
+  "apply-failed",
+  "succeeded",
+  "failed",
+  "canceled",
+  "cancel-requested",
+]);
+
 function shouldShowEventInTranscript(stage: string) {
-  return new Set([
-    "output-validation-failed",
-    "repair-started",
-    "repair-validation-failed",
-    "acp-prompt-no-output",
-    "acp-prompt-stopped",
-    "acp-prompt-failed",
-    "permission-requested",
-    "permission-resolved",
-    "conversation-ended",
-    "conversation-closed",
-    "conversation-error",
-    "reply-unavailable",
-    "workspace-activity",
-    "apply-pending",
-    "apply-succeeded",
-    "apply-failed",
-    "succeeded",
-    "failed",
-    "canceled",
-    "cancel-requested",
-    "interrupt-completed",
-  ]).has(normalizeString(stage));
+  const normalized = normalizeString(stage);
+  return (
+    ACP_SKILL_RUN_TRANSCRIPT_EVENT_STAGES.has(normalized) &&
+    (!isAssistantSilentExecutionMode() ||
+      ACP_SKILL_RUN_SILENT_CRITICAL_STAGES.has(normalized))
+  );
 }
 
 function permissionStatusFromResolution(details: Record<string, unknown>) {
@@ -2419,6 +2471,10 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
       Math.floor(Number(raw.transcriptItemCount || 0) || 0),
     ),
     transcriptPreview: normalizeString(raw.transcriptPreview) || undefined,
+    messageCounts: normalizeAssistantMessageCounts(
+      raw.messageCounts,
+      requestId,
+    ),
     runContextPath: normalizeString(raw.runContextPath) || undefined,
     createdAt,
     updatedAt,
@@ -2441,6 +2497,28 @@ function ensureHydrated() {
     return;
   }
   hydrated = true;
+  lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
+  unsubscribeExecutionDisplayMode = subscribeAssistantExecutionDisplayMode(
+    (mode) => {
+      if (mode === lastExecutionDisplayMode) {
+        return;
+      }
+      for (const record of runRecords.values()) {
+        if (mode === "silent") {
+          const now = nowIso();
+          if (completeOpenStreamingTextItems(record, now)) {
+            persistRun(record);
+            emitChanged(
+              acpSkillRunSnapshotChange(record.requestId, ["transcript"]),
+            );
+          }
+        } else if (lastExecutionDisplayMode === "silent") {
+          discardAcpExecutionProgressCandidate(record.requestId);
+        }
+      }
+      lastExecutionDisplayMode = mode;
+    },
+  );
   for (const row of listPluginRunStoreEntries("acp")) {
     try {
       const raw = JSON.parse(row.payload || "{}") as Record<string, unknown>;
@@ -2450,6 +2528,7 @@ function ensureHydrated() {
         continue;
       }
       setAcpSkillRunRecord(parsed);
+      restoreAcpExecutionProgress(parsed.requestId, parsed.messageCounts);
       if (legacyLargePayload) {
         persistRun(parsed);
       }
@@ -3087,6 +3166,10 @@ export function upsertAcpSkillRun(update: {
     }),
     updatedAt: now,
   };
+  if (!existing) {
+    resetAcpExecutionProgress(requestId);
+    next.messageCounts = snapshotAcpMessageCounts(requestId);
+  }
   const assignString = <K extends keyof AcpSkillRunRecord>(
     key: K,
     value: unknown,
@@ -3257,6 +3340,10 @@ export function upsertAcpSkillRun(update: {
   if (update.applyResultState) next.applyResultState = update.applyResultState;
   if (typeof update.activePrompt === "boolean")
     next.activePrompt = update.activePrompt;
+  if (update.status && isTerminalAcpSkillRunStatus(next.status)) {
+    finishAcpExecutionProgress(requestId);
+    next.messageCounts = snapshotAcpMessageCounts(requestId);
+  }
   if (Object.prototype.hasOwnProperty.call(update, "pendingPermission")) {
     next.pendingPermission = update.pendingPermission || null;
   }
@@ -3282,7 +3369,18 @@ export function upsertAcpSkillRun(update: {
   setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
   pruneInactiveAcpSkillRunTranscriptMirrors();
-  if (update.persistMode === "trailing") {
+  const suppressedSilentTrailingEvent =
+    isAssistantSilentExecutionMode() &&
+    update.persistMode === "trailing" &&
+    !!update.event &&
+    !ACP_SKILL_RUN_SILENT_CRITICAL_STAGES.has(
+      normalizeString(update.event.stage),
+    );
+  if (suppressedSilentTrailingEvent) {
+    // Canonical memory may retain low-signal runtime state until the next
+    // lifecycle write, but silent mode does not create a soft persistence edge.
+    return next;
+  } else if (update.persistMode === "trailing") {
     scheduleSoftRunPersist(next);
   } else {
     persistRun(next, {
@@ -3580,6 +3678,11 @@ export function recordAcpSkillRunOutputRevision(args: {
     replacementReason: args.replacementReason,
     now,
   });
+  if (isAssistantSilentExecutionMode()) {
+    setAcpSkillRunRecord(next);
+    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    return;
+  }
   removeLatestAssistantCandidateMessage(next, args.candidateText);
   setAcpSkillRunRecord(next);
   persistRun(next);
@@ -3635,6 +3738,11 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
     errors: args.errors,
     now,
   });
+  if (isAssistantSilentExecutionMode() && args.kind === "pending") {
+    setAcpSkillRunRecord(next);
+    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    return;
+  }
   replaceLatestAssistantMessage({
     record: next,
     text: canonicalText,
@@ -3869,12 +3977,41 @@ export function recordAcpSkillRunSessionUpdate(
   }
   const update = event.update || { sessionUpdate: "" };
   const kind = normalizeString(update.sessionUpdate);
+  const progressChange = updateAcpExecutionProgress(requestId, update);
+  const messageCounts = snapshotAcpMessageCounts(requestId);
+  if (isAssistantSilentExecutionMode() && kind !== "user_message_chunk") {
+    if (kind === "usage_update") {
+      const used = Number((update as { used?: unknown }).used || 0);
+      const size = Number((update as { size?: unknown }).size || 0);
+      if (Number.isFinite(used) && Number.isFinite(size)) {
+        setAcpSkillRunRecord({
+          ...existing,
+          messageCounts,
+          usage: {
+            used: Math.max(0, Math.floor(used)),
+            size: Math.max(0, Math.floor(size)),
+          },
+        });
+      }
+    }
+    if (progressChange.countChanged) {
+      const next = {
+        ...(runRecords.get(requestId) || existing),
+        messageCounts,
+      };
+      setAcpSkillRunRecord(next);
+      scheduleSoftRunPersist(next);
+      emitChanged(acpSkillRunSnapshotChange(requestId, ["progress"]));
+    }
+    return;
+  }
   const isTextChunkUpdate =
     kind === "agent_message_chunk" ||
     kind === "user_message_chunk" ||
     kind === "agent_thought_chunk";
   const next: AcpSkillRunRecord = {
     ...existing,
+    messageCounts,
     updatedAt: isTextChunkUpdate ? existing.updatedAt : now,
     planEntries: existing.planEntries ? [...existing.planEntries] : undefined,
     usage: existing.usage ? { ...existing.usage } : undefined,
@@ -3978,6 +4115,10 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
   }
   const existing = runRecords.get(requestId);
   if (!existing) {
+    return;
+  }
+  if (isAssistantSilentExecutionMode()) {
+    discardAcpExecutionProgressCandidate(requestId);
     return;
   }
   const now = nowIso();
@@ -5630,6 +5771,10 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
   };
   return {
     generatedAt: nowIso(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+    messageCounts: selected
+      ? snapshotAcpMessageCounts(selected.requestId) || selected.messageCounts
+      : undefined,
     labels,
     selectedRequestId: snapshotSelectedRequestId,
     selectedTranscript,
@@ -5825,6 +5970,8 @@ export async function shutdownAcpSkillRunConversations() {
 }
 
 export function resetAcpSkillRunsForTests() {
+  unsubscribeExecutionDisplayMode?.();
+  unsubscribeExecutionDisplayMode = undefined;
   if (changedEmitTimer) {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;

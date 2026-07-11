@@ -100,7 +100,11 @@ import {
   removeAssistantWorkspaceSidebarShell,
   toggleAssistantWorkspaceSidebar,
 } from "./modules/assistantWorkspaceSidebar";
-import { setAssistantStreamingRenderEnabled } from "./modules/assistantStreamingRenderPreference";
+import {
+  getAssistantExecutionDisplayMode,
+  isAssistantExecutionDisplayMode,
+  setAssistantExecutionDisplayMode,
+} from "./modules/assistantExecutionDisplayPolicy";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
 import { flushAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
@@ -1574,12 +1578,14 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         },
       };
     }
-    case "setAssistantStreamingRenderEnabled": {
-      const enabled = setAssistantStreamingRenderEnabled(data.enabled === true);
+    case "setAssistantExecutionDisplayMode": {
+      const mode = isAssistantExecutionDisplayMode(data.mode)
+        ? setAssistantExecutionDisplayMode(data.mode)
+        : getAssistantExecutionDisplayMode();
       return {
         ok: true,
-        stage: "assistant-streaming-render-setting",
-        enabled,
+        stage: "assistant-execution-display-setting",
+        mode,
       };
     }
     case "showHostBridgeEndpoint": {

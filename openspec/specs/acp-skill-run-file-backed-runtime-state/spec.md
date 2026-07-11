@@ -280,3 +280,44 @@ ACP Skill transcript-only, usage, workspace activity, and non-terminal tool-call
 - **WHEN** a user message, permission or interaction, plan, new tool call, terminal request, apply, disconnect, end, or archive boundary occurs
 - **THEN** pending metadata for the target owner SHALL be persisted before the boundary returns
 - **AND** a duplicate lifecycle event with the same stable identity SHALL NOT replace the same event row again.
+
+### Requirement: ACP Skills silent transcript persists only critical outcomes
+
+In silent mode, ACP Skills SHALL NOT create transcript events or soft run persistence for assistant chunks, thoughts, tools, plans, workspace activity, ordinary statuses, or pending/invalid output projections. User replies, permission/auth/waiting state, final validated output, terminal run state, and final apply outcome SHALL remain eligible for transcript persistence.
+
+Separate output-revision evidence SHALL retain its existing business durability and SHALL NOT cause a pending or invalid candidate to appear in the silent transcript.
+
+#### Scenario: chunks do not reach transcript writer
+
+- **WHEN** a silent ACP Skills run receives assistant, thought, tool, plan, and usage updates
+- **THEN** transcript metadata and writer diagnostics remain unchanged
+- **AND** only semantic agent-message progress may change.
+
+#### Scenario: final envelope is written once
+
+- **GIVEN** silent output validation has produced invalid and pending revisions
+- **WHEN** a final validated envelope is accepted
+- **THEN** only the final envelope is projected as a complete assistant transcript item
+- **AND** revision evidence remains available outside the transcript.
+
+### Requirement: ACP Skills persists run message-count metadata
+
+ACP Skills SHALL persist Assistant, Thought, and Tool current/cumulative count metadata in the selected run record independently of transcript persistence. One user-originated run or explicit user retry SHALL define the current execution; automatic validation repair, recovery, or backend retry SHALL NOT reset current counts.
+
+#### Scenario: terminal run retains counts
+
+- **WHEN** an ACP Skills run reaches a terminal state
+- **THEN** its last current and cumulative category values remain in the run record
+- **AND** reopening the run restores those values without transcript hydration.
+
+#### Scenario: automatic repair remains in current execution
+
+- **WHEN** output validation automatically requests a repair attempt
+- **THEN** new semantic activity continues the existing current count
+- **AND** current counts are not reset.
+
+#### Scenario: legacy run exposes current values only
+
+- **WHEN** a persisted run lacks complete count metadata
+- **THEN** new current activity may be counted
+- **AND** no cumulative denominator is synthesized from transcript item totals.

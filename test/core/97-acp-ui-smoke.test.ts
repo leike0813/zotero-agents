@@ -396,6 +396,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     [];
   const transcriptRenderCalls: any[] = [];
   const panelRenderCalls: any[] = [];
+  const counterRenderCalls: any[] = [];
   const panelActionHooks: Array<(action: string, payload: any) => void> = [];
   const resetCalls: string[] = [];
   if (typeof document.addEventListener !== "function") {
@@ -443,7 +444,12 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     },
     AssistantPanelRenderer: {
       renderAssistantPanelSnapshot(panelSnapshot: any, options: any = {}) {
-        panelRenderCalls.push(panelSnapshot);
+        const managedRegions = options.managedRegions || {};
+        const counterOnly =
+          managedRegions.messageCounter === true &&
+          Object.keys(managedRegions).length === 1;
+        if (counterOnly) counterRenderCalls.push(panelSnapshot);
+        else panelRenderCalls.push(panelSnapshot);
         if (typeof options.onAction === "function") {
           panelActionHooks.push(options.onAction);
         }
@@ -491,6 +497,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     actions,
     panelActionHooks,
     panelRenderCalls,
+    counterRenderCalls,
     resetCalls,
     transcriptRenderCalls,
     postSnapshot(snapshot: Record<string, unknown>) {
@@ -662,12 +669,13 @@ function createFakeDocumentForAssistantPanel() {
       this.listeners.set(type, entries);
     }
 
-    dispatchEventType(type: string) {
+    dispatchEventType(type: string, init: Record<string, unknown> = {}) {
       const event = {
         preventDefault: () => undefined,
         stopPropagation: () => undefined,
         target: this,
         currentTarget: this,
+        ...init,
       };
       for (const handler of this.listeners.get(type) || []) {
         handler(event);
@@ -752,6 +760,7 @@ function createAcpSkillRunSidebarHarnessDocument() {
     "acp-skill-run-main",
     "acp-skill-run-toolbar",
     "acp-skill-run-banner",
+    "acp-skill-run-message-counter",
     "acp-skill-conversation-window",
     "acp-skill-run-plan-panel",
     "acp-skill-run-interaction",
@@ -775,6 +784,7 @@ function createAcpChatSidebarHarnessDocument() {
   for (const id of [
     "acp-chat-toolbar",
     "acp-chat-banner",
+    "acp-chat-message-counter",
     "acp-chat-drawer",
     "acp-chat-main",
     "acp-chat-conversation-window",
@@ -2096,7 +2106,7 @@ describe("acp ui smoke", function () {
     assert.include(sharedPanelCss, ".asst-panel-main");
     assert.include(
       sharedPanelCss,
-      "grid-template-rows: auto auto minmax(0, 1fr);",
+      "grid-template-rows: auto auto auto minmax(0, 1fr);",
     );
     assert.include(
       sharedPanelCss,
@@ -2834,7 +2844,7 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "runtimeOptions.currentModel.id");
     assert.include(acpSkillRunJs, "runtimeOptions.currentReasoningEffort.id");
     assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
-    assert.include(acpSkillRunJs, "streamingRenderEnabled:");
+    assert.include(acpSkillRunJs, "executionDisplayMode:");
     assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
     assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
     assert.include(
@@ -3817,7 +3827,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       assistantSidebar,
-      "function setAssistantWorkspaceStreamingRenderEnabled",
+      "function setAssistantWorkspaceExecutionDisplayMode",
     );
     assert.include(
       assistantSidebar,
@@ -3859,7 +3869,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       skillrunnerActionBranch,
-      "setAssistantWorkspaceStreamingRenderEnabled",
+      "setAssistantWorkspaceExecutionDisplayMode",
     );
     assert.include(
       skillrunnerActionBranch,
@@ -3880,13 +3890,13 @@ describe("acp ui smoke", function () {
     );
     const acpSkillsStreamingBranch = acpSkillsActionBody.slice(
       acpSkillsActionBody.indexOf(
-        'if (action === "set-streaming-render-enabled")',
+        'if (action === "set-execution-display-mode")',
       ),
       acpSkillsActionBody.indexOf('if (action === "select-run")'),
     );
     assert.include(
       acpSkillsStreamingBranch,
-      "setAssistantWorkspaceStreamingRenderEnabled",
+      "setAssistantWorkspaceExecutionDisplayMode",
     );
     assert.notInclude(acpSkillsStreamingBranch, "schedulePostSnapshot(host)");
 
@@ -3903,7 +3913,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       acpChatStreamingBranch,
-      "setAssistantWorkspaceStreamingRenderEnabled",
+      "setAssistantWorkspaceExecutionDisplayMode",
     );
     assert.notInclude(acpChatStreamingBranch, "schedulePostSnapshot(host)");
 
@@ -4309,6 +4319,7 @@ describe("acp ui smoke", function () {
       "assistant-panel-interaction-backend-unavailable",
       "assistant-panel-permission-view-full-request",
       "assistant-panel-transcript-empty",
+      "assistant-panel-transcript-assistant",
       "assistant-panel-transcript-thinking",
       "assistant-panel-transcript-tool",
       "assistant-panel-usage-unavailable",
@@ -5027,10 +5038,7 @@ describe("acp ui smoke", function () {
     assert.equal(noBackendToolbar["open-context-drawer"].enabled, true);
     assert.equal(noBackendToolbar.openDetails.enabled, true);
     assert.equal(noBackendToolbar["open-backend-manager"].enabled, true);
-    assert.equal(
-      noBackendToolbar["set-streaming-render-enabled"].enabled,
-      true,
-    );
+    assert.equal(noBackendToolbar["set-execution-display-mode"].enabled, true);
     assert.equal(noBackendPanel.reply.enabled, false);
     assert.equal(noBackendPanel.reply.inputEnabled, false);
     assert.isTrue(
@@ -6450,7 +6458,7 @@ describe("acp ui smoke", function () {
       conversationId: "",
       chatSessions: [],
       transcriptPaginationVirtualizationEnabled: true,
-      streamingRenderEnabled: false,
+      executionDisplayMode: "boundary",
       status: "idle",
       items: [],
       labels: {},
@@ -6472,7 +6480,7 @@ describe("acp ui smoke", function () {
       conversationId: "",
       chatSessions: [],
       transcriptPaginationVirtualizationEnabled: true,
-      streamingRenderEnabled: true,
+      executionDisplayMode: "live",
       status: "idle",
       items: [],
       labels: {},
@@ -6489,8 +6497,8 @@ describe("acp ui smoke", function () {
       "backend-a",
     );
     assert.equal(
-      sidebar.panelRenderCalls[1]?.raw?.streamingRenderEnabled,
-      true,
+      sidebar.panelRenderCalls[1]?.raw?.executionDisplayMode,
+      "live",
     );
   });
 
@@ -8215,10 +8223,19 @@ describe("acp ui smoke", function () {
     ]);
   });
 
-  it("projects the global streaming render switch on SkillRunner panels", async function () {
+  it("projects the global execution display control on SkillRunner panels", async function () {
     const model = await loadAssistantPanelModelForSmoke();
+    const messageCounts = {
+      scopeKey: "skillrunner-task-a",
+      active: true,
+      current: { assistant: 1, thought: 2, tool: 3 },
+      cumulative: { assistant: 4, thought: 5, tool: 6 },
+      completeness: "complete",
+      revision: 1,
+    };
     const panel = model.projectSkillRunnerPanelSnapshot({
-      streamingRenderEnabled: false,
+      executionDisplayMode: "boundary",
+      messageCounts,
       session: {
         requestId: "req-skillrunner-switch",
         status: "running",
@@ -8233,17 +8250,19 @@ describe("acp ui smoke", function () {
     });
 
     const action = panel.actions.toolbar.find(
-      (entry: any) => entry.action === "set-streaming-render-enabled",
+      (entry: any) => entry.action === "set-execution-display-mode",
     );
-    assert.equal(action?.kind, "switch");
+    assert.equal(action?.kind, "display-mode");
     assert.equal(action?.align, "end");
-    assert.equal(action?.label, "Streaming off");
-    assert.equal(action?.baseLabel, "Streaming");
-    assert.equal(action?.checked, false);
-    assert.deepEqual(action?.payload, { enabled: true });
+    assert.equal(action?.value, "boundary");
+    assert.deepEqual(
+      action?.options.map((entry: any) => entry.value),
+      ["live", "boundary", "silent"],
+    );
+    assert.deepEqual(panel.raw.messageCounts, messageCounts);
 
     const enabledPanel = model.projectSkillRunnerPanelSnapshot({
-      streamingRenderEnabled: true,
+      executionDisplayMode: "live",
       session: {
         requestId: "req-skillrunner-switch-enabled",
         status: "running",
@@ -8257,11 +8276,270 @@ describe("acp ui smoke", function () {
       },
     });
     const enabledAction = enabledPanel.actions.toolbar.find(
-      (entry: any) => entry.action === "set-streaming-render-enabled",
+      (entry: any) => entry.action === "set-execution-display-mode",
     );
-    assert.equal(enabledAction?.label, "Streaming on");
-    assert.equal(enabledAction?.checked, true);
-    assert.deepEqual(enabledAction?.payload, { enabled: false });
+    assert.equal(enabledAction?.value, "live");
+  });
+
+  it("renders an accessible execution display radiogroup with keyboard selection", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const toolbar = fakeDocument.createElement("div");
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        kind: "skillrunner",
+        actions: {
+          toolbar: [
+            {
+              kind: "display-mode",
+              action: "set-execution-display-mode",
+              label: "Display mode",
+              value: "boundary",
+              options: [
+                { value: "live", label: "Live" },
+                { value: "boundary", label: "By message" },
+                { value: "silent", label: "Silent" },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        managed: true,
+        managedRegions: { toolbar: true },
+        regions: { toolbar },
+        onAction: (action: string, data: Record<string, unknown>) => {
+          actions.push({ action, data });
+        },
+      },
+    );
+
+    const group = toolbar.querySelector(".assistant-panel-display-mode");
+    const radios = toolbar.querySelectorAll(
+      ".assistant-panel-display-mode-option",
+    );
+    assert.equal(group?.getAttribute("role"), "radiogroup");
+    assert.lengthOf(radios, 3);
+    assert.equal(radios[1]?.getAttribute("aria-checked"), "true");
+    radios[1]?.dispatchEventType("keydown", { key: "End" });
+    assert.deepEqual(actions, [
+      {
+        action: "set-execution-display-mode",
+        data: { mode: "silent" },
+      },
+    ]);
+  });
+
+  it("renders localized owner-scoped message counts in an independent managed region", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const counter = fakeDocument.createElement("section");
+    const toolbar = fakeDocument.createElement("header");
+    const render = (assistant: number) =>
+      renderer.renderAssistantPanelSnapshot(
+        {
+          kind: "acp-chat",
+          labels: {
+            transcript: {
+              assistant: "助手",
+              thinking: "思考",
+              tool: "工具",
+            },
+          },
+          actions: { toolbar: [] },
+          raw: {
+            messageCounts: {
+              scopeKey: "owner-a",
+              executionKey: "prompt-a",
+              active: true,
+              current: { assistant, thought: 2, tool: 3 },
+              cumulative: { assistant: 4, thought: 5, tool: 6 },
+              completeness: "complete",
+              revision: assistant,
+            },
+          },
+        },
+        {
+          managed: true,
+          managedRegions: { toolbar: true, messageCounter: true },
+          regions: { toolbar, messageCounter: counter },
+        },
+      );
+
+    render(1);
+    const toolbarNode = toolbar.firstChild;
+    const labels = counter.querySelectorAll(".assistant-message-counter-label");
+    const values = counter.querySelectorAll(".assistant-message-counter-value");
+    assert.deepEqual(
+      labels.map((entry: any) => entry.textContent),
+      ["助手", "思考", "工具"],
+    );
+    assert.deepEqual(
+      values.map((entry: any) => entry.textContent),
+      ["1/4", "2/5", "3/6"],
+    );
+    render(2);
+    assert.strictEqual(toolbar.firstChild, toolbarNode);
+    assert.equal(counter.getAttribute("data-message-counter-owner"), "owner-a");
+  });
+
+  it("reserves a natural counter row and one flexible content slot in every panel", async function () {
+    const [sharedCss, acpChatHtml, acpSkillRunHtml, runDialogHtml] =
+      await Promise.all([
+        readProjectFile(
+          "addon/content/shared/assistant/assistant-panel-shared.css",
+        ),
+        readProjectFile("addon/content/sidebar/acp-chat.html"),
+        readProjectFile("addon/content/sidebar/acp-skill-run.html"),
+        readProjectFile("addon/content/sidebar/run-dialog.html"),
+      ]);
+
+    assert.match(
+      sharedCss,
+      /grid-template-areas:\s*"toolbar"\s*"banner"\s*"counter"\s*"content"/,
+    );
+    assert.include(sharedCss, "grid-area: counter");
+    assert.include(sharedCss, "grid-area: content");
+    for (const [html, bannerId, counterId, contentId] of [
+      [
+        acpChatHtml,
+        "acp-chat-banner",
+        "acp-chat-message-counter",
+        "acp-chat-main",
+      ],
+      [
+        acpSkillRunHtml,
+        "acp-skill-run-banner",
+        "acp-skill-run-message-counter",
+        "acp-skill-run-main",
+      ],
+      [
+        runDialogHtml,
+        "skillrunner-banner",
+        "skillrunner-message-counter",
+        "skillrunner-main",
+      ],
+    ]) {
+      assert.isBelow(html.indexOf(bannerId), html.indexOf(counterId));
+      assert.isBelow(html.indexOf(counterId), html.indexOf(contentId));
+    }
+  });
+
+  it("delivers ACP Chat count-only snapshots to the shared region guards", async function () {
+    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+    const snapshot = {
+      activeBackendId: "backend-a",
+      backendId: "backend-a",
+      activeConversationId: "conversation-a",
+      conversationId: "conversation-a",
+      status: "prompting",
+      busy: true,
+      items: [],
+      labels: {},
+      messageCounts: {
+        scopeKey: "backend-a\nconversation-a",
+        active: true,
+        current: { assistant: 0, thought: 0, tool: 0 },
+        cumulative: { assistant: 0, thought: 0, tool: 0 },
+        completeness: "complete",
+        revision: 1,
+      },
+    };
+    sidebar.postSnapshot(snapshot);
+    const initialRenderCount = sidebar.counterRenderCalls.length;
+    sidebar.postSnapshot({
+      ...snapshot,
+      messageCounts: {
+        ...snapshot.messageCounts,
+        current: { assistant: 1, thought: 0, tool: 0 },
+        cumulative: { assistant: 1, thought: 0, tool: 0 },
+        revision: 2,
+      },
+    });
+
+    assert.isAbove(sidebar.counterRenderCalls.length, initialRenderCount);
+  });
+
+  it("delivers ACP Skills count-only snapshots to the shared region guards", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const panelRenderCalls: any[] = [];
+    const counterRenderCalls: any[] = [];
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
+      panelRenderer: {
+        renderAssistantPanelSnapshot(snapshot: any, options: any = {}) {
+          const managedRegions = options.managedRegions || {};
+          if (
+            managedRegions.messageCounter === true &&
+            Object.keys(managedRegions).length === 1
+          ) {
+            counterRenderCalls.push(snapshot);
+          } else {
+            panelRenderCalls.push(snapshot);
+          }
+        },
+      },
+    });
+    const snapshot = {
+      selectedRequestId: "run-a",
+      selectedRun: {
+        requestId: "run-a",
+        status: "running",
+        activePrompt: true,
+      },
+      runs: [],
+      labels: {},
+      messageCounts: {
+        scopeKey: "run-a",
+        active: true,
+        current: { assistant: 0, thought: 0, tool: 0 },
+        cumulative: { assistant: 0, thought: 0, tool: 0 },
+        completeness: "complete",
+        revision: 1,
+      },
+    };
+    sidebar.postSnapshot(snapshot);
+    const initialRenderCount = counterRenderCalls.length;
+    sidebar.postSnapshot({
+      ...snapshot,
+      messageCounts: {
+        ...snapshot.messageCounts,
+        current: { assistant: 0, thought: 1, tool: 0 },
+        cumulative: { assistant: 0, thought: 1, tool: 0 },
+        revision: 2,
+      },
+    });
+
+    assert.isAbove(counterRenderCalls.length, initialRenderCount);
+  });
+
+  it("renders the Assistant transcript role through shared localization", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("section");
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      items: [
+        {
+          id: "assistant-1",
+          kind: "message",
+          role: "assistant",
+          text: "answer",
+          state: "complete",
+        },
+      ],
+      labels: { transcript: { assistant: "助手" } },
+      renderMarkdown: (value: string) => value,
+      formatTime: () => "",
+    });
+
+    assert.equal(
+      transcript.querySelector(".assistant-transcript-role")?.textContent,
+      "助手",
+    );
   });
 
   it("gates transcript rendering with revisions in all Assistant Workspace child panels", async function () {

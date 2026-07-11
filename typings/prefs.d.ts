@@ -23,6 +23,7 @@ declare namespace _ZoteroTypes {
       "collectSkillRunFeedbackEnabled": boolean;
       "markdownReaderEnabled": boolean;
       "assistantStreamingRenderEnabled": boolean;
+      "assistantExecutionDisplayMode": string;
       "assistantTranscriptPaginationVirtualizationEnabled": boolean;
       "workflowDir": string;
       "skillDir": string;

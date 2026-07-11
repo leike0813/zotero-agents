@@ -1,10 +1,11 @@
 import { config } from "../../package.json";
 import { getPref, setPref } from "../utils/prefs";
 import {
-  isAssistantStreamingRenderEnabled,
-  setAssistantStreamingRenderEnabled,
-  subscribeAssistantStreamingRenderPreference,
-} from "./assistantStreamingRenderPreference";
+  getAssistantExecutionDisplayMode,
+  isAssistantExecutionDisplayMode,
+  setAssistantExecutionDisplayMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "./assistantExecutionDisplayPolicy";
 import {
   isAssistantTranscriptPaginationVirtualizationEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
@@ -122,9 +123,9 @@ function bindPrefEvents() {
   const markdownReaderEnabledCheckbox = doc.querySelector(
     `#zotero-prefpane-${config.addonRef}-markdown-reader-enabled`,
   ) as HTMLInputElement | null;
-  const assistantStreamingRenderEnabledCheckbox = doc.querySelector(
-    `#zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`,
-  ) as HTMLInputElement | null;
+  const assistantExecutionDisplayModeControl = doc.querySelector(
+    `#zotero-prefpane-${config.addonRef}-assistant-execution-display-mode`,
+  ) as HTMLElement | null;
   const assistantTranscriptPaginationVirtualizationEnabledCheckbox =
     doc.querySelector(
       `#zotero-prefpane-${config.addonRef}-assistant-transcript-pagination-virtualization-enabled`,
@@ -2286,49 +2287,61 @@ function bindPrefEvents() {
     });
   }
 
-  if (assistantStreamingRenderEnabledCheckbox) {
-    let submittedAssistantStreamingRenderEnabled =
-      isAssistantStreamingRenderEnabled();
-    assistantStreamingRenderEnabledCheckbox.checked =
-      submittedAssistantStreamingRenderEnabled;
-    const syncAssistantStreamingRenderCheckbox = (enabled: boolean) => {
-      submittedAssistantStreamingRenderEnabled = enabled;
-      assistantStreamingRenderEnabledCheckbox.checked = enabled;
+  if (assistantExecutionDisplayModeControl) {
+    const modeButtons = Array.from(
+      assistantExecutionDisplayModeControl.querySelectorAll<HTMLElement>(
+        '[role="radio"][data-mode]',
+      ),
+    ) as HTMLElement[];
+    let submittedMode = getAssistantExecutionDisplayMode();
+    const syncModeControl = (
+      mode: ReturnType<typeof getAssistantExecutionDisplayMode>,
+    ) => {
+      submittedMode = mode;
+      for (const button of modeButtons) {
+        const selected = button.getAttribute("data-mode") === mode;
+        button.setAttribute("aria-checked", selected ? "true" : "false");
+        button.tabIndex = selected ? 0 : -1;
+      }
     };
-    const unsubscribe = subscribeAssistantStreamingRenderPreference(
-      (enabled) => {
-        syncAssistantStreamingRenderCheckbox(enabled);
-      },
-    );
+    syncModeControl(submittedMode);
+    const unsubscribe = subscribeAssistantExecutionDisplayMode(syncModeControl);
     prefPaneWindow.addEventListener("unload", unsubscribe, { once: true });
-    const persistAssistantStreamingRenderEnabled = () => {
-      const enabled = assistantStreamingRenderEnabledCheckbox.checked === true;
-      if (enabled === submittedAssistantStreamingRenderEnabled) {
+    const persistMode = (event: Event) => {
+      const mode = (event.currentTarget as HTMLElement | null)?.getAttribute(
+        "data-mode",
+      );
+      if (!isAssistantExecutionDisplayMode(mode) || mode === submittedMode) {
         return;
       }
-      const next = setAssistantStreamingRenderEnabled(enabled);
-      syncAssistantStreamingRenderCheckbox(next);
+      const next = setAssistantExecutionDisplayMode(mode);
+      syncModeControl(next);
       void addon.hooks
-        .onPrefsEvent("setAssistantStreamingRenderEnabled", {
-          enabled: next,
+        .onPrefsEvent("setAssistantExecutionDisplayMode", {
+          mode: next,
           window: prefPaneWindow,
         })
         .then((response: unknown) => {
-          const normalized =
+          const responseMode =
             response &&
             typeof response === "object" &&
-            typeof (response as { enabled?: unknown }).enabled === "boolean"
-              ? ((response as { enabled: boolean }).enabled as boolean)
+            isAssistantExecutionDisplayMode(
+              (response as { mode?: unknown }).mode,
+            )
+              ? (
+                  response as {
+                    mode: ReturnType<typeof getAssistantExecutionDisplayMode>;
+                  }
+                ).mode
               : next;
-          syncAssistantStreamingRenderCheckbox(normalized);
+          syncModeControl(responseMode);
         })
         .catch(() => undefined);
     };
-    for (const eventType of ["input", "change", "click", "command"]) {
-      assistantStreamingRenderEnabledCheckbox.addEventListener(
-        eventType,
-        persistAssistantStreamingRenderEnabled,
-      );
+    for (const button of modeButtons) {
+      for (const eventType of ["input", "change", "click", "command"]) {
+        button.addEventListener(eventType, persistMode);
+      }
     }
   }
 

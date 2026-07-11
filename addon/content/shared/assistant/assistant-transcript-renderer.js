@@ -1633,7 +1633,11 @@
         el(
           "span",
           "assistant-transcript-role",
-          String(item.role || "assistant"),
+          transcriptLabel(
+            options,
+            String(item.role || "assistant"),
+            String(item.role || "assistant"),
+          ),
         ),
       );
       renderRevisionBadge(meta, item.revision, undefined, options);

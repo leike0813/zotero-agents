@@ -77,7 +77,10 @@ import type {
   SessionNotification,
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
-import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
+import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+
+const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
+  setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import { setAssistantTranscriptPaginationVirtualizationEnabled } from "../../src/modules/assistantTranscriptRenderingPreference";
 import {
   acpChatTranscriptPageKey,

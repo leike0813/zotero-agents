@@ -552,42 +552,38 @@ across normal and narrow sidebars.
 
 ### Requirement: ACP Panels Expose Streaming Render Toggle
 
-ACP Chat, ACP Skills, and SkillRunner SHALL show a toolbar switch for the global
-streaming render preference. The switch SHALL be right-aligned in the managed
-toolbar, use a green visual state when enabled, and use a red visual state when
-disabled.
+ACP Chat, ACP Skills, and SkillRunner SHALL show a right-aligned three-segment control for the global Assistant execution display mode. The available values SHALL be `live`, `boundary`, and `silent`, presented as Live, By message, and Silent. The control SHALL expose radiogroup/radio semantics, the selected state, localized labels, and keyboard navigation. Its live, boundary, and silent states SHALL be visually distinct and SHALL remain usable in narrow sidebars.
 
-The Preferences checkbox and all three toolbar switches SHALL read and write
-the same global preference. Changing the state from any of these surfaces SHALL
-update the other open surfaces. The persisted Zotero preference SHALL be the
-single source of truth; Assistant Workspace SHALL observe preference changes
-instead of treating its toolbar switch state as authoritative.
+Preferences and all three toolbar controls SHALL read and write the same persisted Zotero preference. Changing the mode from any surface SHALL update the other open surfaces. The persisted preference SHALL be the single source of truth; child panels SHALL NOT treat their rendered selection as authoritative.
 
-The preference label and help text SHALL describe Assistant Workspace streaming
-render behavior rather than ACP-only behavior.
+The preference label and help text SHALL explain that silent mode intentionally omits process content from ACP transcripts and does not backfill it later.
 
-#### Scenario: any panel switch updates all panels
+#### Scenario: any panel control updates all panels
 
 - **GIVEN** ACP Chat, ACP Skills, and SkillRunner surfaces are open
-- **WHEN** the user changes the streaming render switch in any one panel
-- **THEN** the other panels receive the same preference state on their next
-  snapshot
-- **AND** the Preferences checkbox reflects the same state.
+- **WHEN** the user selects a display mode in any one panel
+- **THEN** the other panels receive the same mode on their next snapshot
+- **AND** Preferences reflects the same selected mode.
 
-#### Scenario: Preferences checkbox updates all panels
+#### Scenario: Preferences updates all panels
 
-- **WHEN** the user changes the Preferences checkbox
+- **WHEN** the user selects a display mode in Preferences
 - **THEN** the persisted preference is updated from that user activation
-- **AND** ACP Chat, ACP Skills, and SkillRunner toolbar switches reflect the
-  same state.
+- **AND** all Assistant Workspace toolbar controls reflect the same mode.
 
 #### Scenario: Preferences remains authoritative after reopening
 
 - **GIVEN** Assistant Workspace and Preferences are open
-- **WHEN** the user changes the streaming render checkbox in Preferences
-- **AND** closes and reopens Preferences
-- **THEN** the reopened checkbox reflects the persisted preference value
-- **AND** Assistant Workspace does not overwrite it with a stale toolbar state.
+- **WHEN** the user changes the display mode in Preferences and reopens it
+- **THEN** the reopened control reflects the persisted mode
+- **AND** Assistant Workspace does not overwrite it with stale rendered state.
+
+#### Scenario: segmented control is keyboard accessible
+
+- **WHEN** focus is on the execution display radiogroup
+- **THEN** arrow, Home, and End keys select the corresponding mode
+- **AND** the selected radio exposes `aria-checked=true`.
+
 
 ### Requirement: Assistant Workspace SHALL use one live shell across pane docks
 
@@ -785,4 +781,34 @@ Reader handling, and Assistant live rendering.
 - **THEN** ACP Skills SHALL render the current page without virtualizing it
 - **AND** it SHALL NOT request more pages from scroll events
 - **AND** it SHALL NOT restore `selectedRun.transcriptItems`.
+
+### Requirement: Assistant panels show a shared semantic message counter
+
+ACP Chat, ACP Skills, and SkillRunner SHALL render one localized message-counter managed region between the banner and main transcript area in `live`, `boundary`, and `silent` display modes. The region SHALL show separate Assistant, Thought, and Tool values for the current user execution and selected-owner cumulative totals.
+
+The counter SHALL remain after terminal state and SHALL NOT be represented as a transcript item, pagination item, or transcript loading node. When a legacy owner has no complete cumulative metadata, the region SHALL show current values without a cumulative denominator.
+
+#### Scenario: complete owner shows three current and cumulative values
+
+- **WHEN** a selected owner has complete message-count metadata
+- **THEN** the counter shows localized Assistant, Thought, and Tool categories
+- **AND** each category is displayed as current execution / owner cumulative.
+
+#### Scenario: terminal count remains visible
+
+- **WHEN** the selected execution becomes terminal
+- **THEN** its final current and cumulative values remain visible
+- **AND** a later user-originated execution resets only the current values.
+
+#### Scenario: legacy owner avoids false totals
+
+- **WHEN** the selected owner lacks complete cumulative metadata
+- **THEN** the counter shows current values only
+- **AND** it does not display zero or a reconstructed page total as the owner cumulative value.
+
+#### Scenario: counter keeps one natural-height shell row
+
+- **WHEN** an Assistant panel renders toolbar, banner, counter, and content
+- **THEN** the counter occupies its own natural-height row
+- **AND** the main or empty content slot retains the remaining flexible height.
 

@@ -156,11 +156,28 @@ class FakeXULElement {
     const event = {
       type,
       target: this,
+      currentTarget: this,
       ...init,
     };
     for (const listener of listeners) {
       listener(event);
     }
+  }
+
+  querySelectorAll(selector: string) {
+    const matches: FakeXULElement[] = [];
+    const visit = (node: FakeXULElement) => {
+      if (
+        selector === '[role="radio"][data-mode]' &&
+        node.getAttribute("role") === "radio" &&
+        node.getAttribute("data-mode")
+      ) {
+        matches.push(node);
+      }
+      for (const child of node.children) visit(child);
+    };
+    visit(this);
+    return matches;
   }
 }
 
@@ -510,12 +527,23 @@ function createPrefsWindow(args?: {
 
   const backendManageButton = document.createXULElement("button");
   backendManageButton.id = `zotero-prefpane-${config.addonRef}-backend-manage`;
-  const assistantStreamingRenderEnabledCheckbox =
+  const assistantExecutionDisplayModeControl =
     args?.includeAssistantStreamingRenderControl
-      ? document.createXULElement("input")
+      ? document.createXULElement("div")
       : null;
-  if (assistantStreamingRenderEnabledCheckbox) {
-    assistantStreamingRenderEnabledCheckbox.id = `zotero-prefpane-${config.addonRef}-assistant-streaming-render-enabled`;
+  const assistantExecutionDisplayModeButtons = [
+    "live",
+    "boundary",
+    "silent",
+  ].map((mode) => {
+    const button = document.createXULElement("button");
+    button.setAttribute("role", "radio");
+    button.setAttribute("data-mode", mode);
+    assistantExecutionDisplayModeControl?.appendChild(button);
+    return button;
+  });
+  if (assistantExecutionDisplayModeControl) {
+    assistantExecutionDisplayModeControl.id = `zotero-prefpane-${config.addonRef}-assistant-execution-display-mode`;
   }
   const assistantTranscriptPaginationVirtualizationEnabledCheckbox =
     args?.includeAssistantTranscriptRenderingControl
@@ -872,7 +900,8 @@ function createPrefsWindow(args?: {
     contentPackageProgressmeter,
     contentPackageProgressText,
     backendManageButton,
-    assistantStreamingRenderEnabledCheckbox,
+    assistantExecutionDisplayModeControl,
+    assistantExecutionDisplayModeButtons,
     assistantTranscriptPaginationVirtualizationEnabledCheckbox,
     hostBridgeDisableWriteApprovalCheckbox,
     hostBridgeLanCheckbox,
@@ -1240,8 +1269,8 @@ describe("gui: preference scripts", function () {
     });
   });
 
-  it("persists assistant streaming render checkbox from click activation and deduplicates follow-up events", async function () {
-    const prefKey = `${config.prefsPrefix}.assistantStreamingRenderEnabled`;
+  it("persists the assistant execution display mode and deduplicates follow-up events", async function () {
+    const prefKey = `${config.prefsPrefix}.assistantExecutionDisplayMode`;
     const transcriptRenderingPrefKey = `${config.prefsPrefix}.assistantTranscriptPaginationVirtualizationEnabled`;
     const calls: Array<{ type: string; data: any }> = [];
     (
@@ -1254,67 +1283,62 @@ describe("gui: preference scripts", function () {
       }
     ).addon.hooks.onPrefsEvent = async (type, data) => {
       calls.push({ type, data });
-      if (type === "setAssistantStreamingRenderEnabled") {
-        return { ok: true, enabled: data.enabled === true };
+      if (type === "setAssistantExecutionDisplayMode") {
+        return { ok: true, mode: data.mode };
       }
       return { ok: true };
     };
 
-    Zotero.Prefs.set(prefKey, true, true);
+    Zotero.Prefs.set(prefKey, "live", true);
     Zotero.Prefs.set(transcriptRenderingPrefKey, true, true);
     const {
       window,
       dispatchWindowEvent,
-      assistantStreamingRenderEnabledCheckbox,
+      assistantExecutionDisplayModeControl,
+      assistantExecutionDisplayModeButtons,
       assistantTranscriptPaginationVirtualizationEnabledCheckbox,
     } = createPrefsWindow({
       includeAssistantStreamingRenderControl: true,
       includeAssistantTranscriptRenderingControl: true,
     });
-    assert.isNotNull(assistantStreamingRenderEnabledCheckbox);
+    assert.isNotNull(assistantExecutionDisplayModeControl);
     assert.isNotNull(
       assistantTranscriptPaginationVirtualizationEnabledCheckbox,
     );
-    const checkbox = assistantStreamingRenderEnabledCheckbox!;
+    const boundaryButton = assistantExecutionDisplayModeButtons[1]!;
     const transcriptRenderingCheckbox =
       assistantTranscriptPaginationVirtualizationEnabledCheckbox!;
 
     await registerPrefsScripts(window);
-    assert.isTrue(checkbox.checked);
+    assert.equal(
+      assistantExecutionDisplayModeButtons[0]?.getAttribute("aria-checked"),
+      "true",
+    );
     assert.isTrue(transcriptRenderingCheckbox.checked);
 
-    checkbox.checked = false;
-    checkbox.dispatch("click", {
-      target: checkbox,
-    });
+    boundaryButton.dispatch("click");
     await flushTasks();
 
-    assert.isFalse(Zotero.Prefs.get(prefKey, true));
+    assert.equal(Zotero.Prefs.get(prefKey, true), "boundary");
     assert.deepInclude(
       calls.map((call) => ({
         type: call.type,
-        enabled: call.data?.enabled,
+        mode: call.data?.mode,
       })),
-      { type: "setAssistantStreamingRenderEnabled", enabled: false },
+      { type: "setAssistantExecutionDisplayMode", mode: "boundary" },
     );
 
     const submittedCount = calls.filter(
-      (call) => call.type === "setAssistantStreamingRenderEnabled",
+      (call) => call.type === "setAssistantExecutionDisplayMode",
     ).length;
-    checkbox.dispatch("input", {
-      target: checkbox,
-    });
-    checkbox.dispatch("change", {
-      target: checkbox,
-    });
+    boundaryButton.dispatch("input");
+    boundaryButton.dispatch("change");
     await flushTasks();
 
     assert.lengthOf(
-      calls.filter(
-        (call) => call.type === "setAssistantStreamingRenderEnabled",
-      ),
+      calls.filter((call) => call.type === "setAssistantExecutionDisplayMode"),
       submittedCount,
-      "same-value follow-up checkbox events should not submit again",
+      "same-value follow-up events should not submit again",
     );
 
     transcriptRenderingCheckbox.checked = false;
@@ -2587,7 +2611,7 @@ describe("gui: preference scripts", function () {
       "assistant-transcript-pagination-virtualization-enabled",
     );
     assert.include(xhtml, "markdown-reader-enabled");
-    assert.include(xhtml, "assistant-streaming-render-enabled");
+    assert.include(xhtml, "assistant-execution-display-mode");
     assert.isBelow(
       xhtml.indexOf("pref-section-backends"),
       xhtml.indexOf("pref-section-user-interface"),

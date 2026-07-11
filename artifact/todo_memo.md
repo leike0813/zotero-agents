@@ -114,7 +114,7 @@
 - [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
 - [x] host bridge 的取消 workflow 能力
-- [ ] MinerU还没完全修好，仍然会有以下报错而不是跳过：
+- [x] MinerU还没完全修好，仍然会有以下报错而不是跳过：
 
 ```
   {
@@ -143,14 +143,15 @@
 - [ ] 增加opencode和kilo code ACP后端预设的注入环境变量，将`question`工具禁用
 - [ ] kilo ACP 有一个小BUG: kilo会提供“none"这个推理强度，而这个推理强度对于某些模型不可用，会导致任务提交失败。不知道有没有办法进行自动fallback
 - [x] 优化transcript写盘的IO负载
-- [ ] 增加静默执行模式（除了交互消息外，什么都不渲染，连transcript都不写盘，最大程度降低负载），我觉得可以和实时渲染开关做到一起
+- [x] 增加静默执行模式（除了交互消息外，什么都不渲染，连transcript都不写盘，最大程度降低负载），我觉得可以和实时渲染开关做到一起
 - [ ] /usr/local/bin/ 如果作为默认的CLI安装目录，会因为没有权限而安装失败
 - [ ] 文献元数据修复 workflow 有可能会改掉标题，需要收紧一些；相对地，无法改变条目的类型是一个缺陷
 - [ ] 文献搜索入库还需要加强一些，agent容易偷懒（无标识符、无pdf），尤其是对于中文文献，因为直接搜索难以获取标识符，需要特定的策略
 - [ ] citation graph 的文献重要性算法有问题，现在的版本似乎是用入度和出度的比值？有些入度为1的节点居然都会成为重要文献，这明显不对
-- [ ] 新增export-research-bundle workflow
-- [ ] 新增export/import-literature-bundle workflow
-- [ ] 新增collection-collector workflow
+- [ ] SkillRunner面板处理waiting_auth的行为和后端项目的e2e client没有对齐
+- [x] 新增export-research-bundle workflow
+- [x] 新增export/import-literature-bundle workflow
+- [x] 新增collection-collector workflow
 - [ ] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
 - [ ] 观测到ACP Chat在prompting状态下点击Cancel(interrupt)后前端已经乐观变为cancelled，但后端仍在继续执行，需要复核这个interrupt的逻辑。ACP Skills中很有可能存在相同问题
 - [ ] **初次启动时的使用指导demo**

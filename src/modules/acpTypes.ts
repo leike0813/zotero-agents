@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
+import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
 
 export type AcpConnectionStatus =
   | "idle"
@@ -315,6 +316,7 @@ export type AcpConversationSnapshot = {
   transcriptEventSeq: number;
   transcriptItemCount: number;
   transcriptPreview?: string;
+  messageCounts?: AssistantMessageCountsSnapshot;
   transcriptState?: {
     backendId: string;
     conversationId: string;
@@ -474,6 +476,7 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     transcriptEventSeq: 0,
     transcriptItemCount: 0,
     transcriptPreview: undefined,
+    messageCounts: undefined,
     items: [],
     lastHostContext: null,
     agentWorkspaceDir: "",

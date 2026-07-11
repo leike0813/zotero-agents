@@ -32,6 +32,7 @@ import {
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   prepareAcpSkillRunPanelSnapshot,
+  projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
   registerAcpSkillRunController,
@@ -105,7 +106,10 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
-import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
+import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+
+const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
+  setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import {
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
@@ -6881,6 +6885,82 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
     } finally {
       unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps silent ACP Skills process updates memory-only and projects one final envelope", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    setAssistantExecutionDisplayMode("silent");
+    upsertAcpSkillRun({
+      requestId: "run-silent",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: root,
+      runtimeDir: path.join(root, ".acp"),
+      activePrompt: true,
+    });
+    let notifications = 0;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      notifications += 1;
+    });
+    try {
+      for (const update of [
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "hidden" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " continuation" },
+        },
+        { sessionUpdate: "tool_call", toolCallId: "tool-1" },
+        { sessionUpdate: "plan", entries: [] },
+        { sessionUpdate: "usage_update", used: 1, size: 10 },
+      ]) {
+        recordAcpSkillRunSessionUpdate("run-silent", {
+          sessionId: "session-1",
+          update,
+        } as any);
+      }
+      upsertAcpSkillRun({
+        requestId: "run-silent",
+        persistMode: "trailing",
+        event: {
+          stage: "workspace-activity",
+          message: "hidden activity",
+          level: "info",
+        },
+      });
+      assert.equal(notifications, 2);
+      assert.deepEqual(await readRunTranscriptItems("run-silent"), []);
+      const active = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-silent",
+      });
+      assert.deepEqual(active.messageCounts?.current, {
+        assistant: 1,
+        thought: 0,
+        tool: 1,
+      });
+      assert.equal(active.selectedTranscriptPage?.total, 0);
+
+      projectAcpSkillRunOutputEnvelopeToTranscript({
+        requestId: "run-silent",
+        kind: "final",
+        resultJson: { ok: true },
+      });
+      const finalItems = await readRunTranscriptItems("run-silent");
+      assert.equal(
+        finalItems.filter(
+          (item) => item.kind === "message" && item.role === "assistant",
+        ).length,
+        1,
+      );
+    } finally {
+      unsubscribe();
+      setAssistantExecutionDisplayMode("live");
       await fs.rm(root, { recursive: true, force: true });
     }
   });

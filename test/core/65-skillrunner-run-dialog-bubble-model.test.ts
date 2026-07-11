@@ -1,6 +1,8 @@
 import { assert } from "chai";
 import {
   buildRunDialogDisplayMessages,
+  projectSkillRunnerSilentConversation,
+  projectSkillRunnerMessageCounts,
   normalizeRunDialogPendingState,
   normalizeRunDialogMessageKind,
   normalizeRunDialogMessageRole,
@@ -15,6 +17,118 @@ import {
 } from "../../src/modules/skillRunnerRunDialog";
 
 describe("skillrunner run dialog bubble message model", function () {
+  it("projects silent conversations as semantic counts plus final and user content", function () {
+    const base = {
+      ts: "2026-07-11T00:00:00Z",
+      role: "assistant" as const,
+      displayText: "",
+      raw: {},
+    };
+    const projection = projectSkillRunnerSilentConversation([
+      {
+        ...base,
+        seq: 1,
+        kind: "assistant_process",
+        text: "hidden reasoning",
+      },
+      {
+        ...base,
+        seq: 2,
+        kind: "assistant_message",
+        text: "draft",
+        messageId: "message-1",
+      },
+      {
+        ...base,
+        seq: 3,
+        kind: "assistant_final",
+        text: "final",
+        replacesMessageId: "message-1",
+      },
+      {
+        ...base,
+        seq: 4,
+        kind: "assistant_final",
+        text: "standalone final",
+        messageId: "message-2",
+      },
+      {
+        ...base,
+        seq: 5,
+        role: "user",
+        kind: "user_message",
+        text: "visible reply",
+      },
+    ]);
+
+    assert.deepEqual(
+      projection.messages.map((entry) => entry.kind),
+      ["assistant_final", "assistant_final", "user_message"],
+    );
+  });
+
+  it("counts promoted Assistant, Thought, and Tool semantics by owner", function () {
+    const base = {
+      ts: "2026-07-11T00:00:00Z",
+      role: "assistant" as const,
+      displayText: "",
+      raw: {},
+    };
+    const counts = projectSkillRunnerMessageCounts("task-a", [
+      {
+        ...base,
+        seq: 1,
+        kind: "assistant_process",
+        processType: "reasoning",
+        text: "one",
+      },
+      {
+        ...base,
+        seq: 2,
+        kind: "assistant_process",
+        processType: "reasoning",
+        text: "two",
+      },
+      {
+        ...base,
+        seq: 3,
+        kind: "assistant_process",
+        processType: "tool_call",
+        text: "tool",
+        raw: { correlation: { tool_call_id: "tool-1" } },
+      },
+      {
+        ...base,
+        seq: 4,
+        kind: "assistant_process",
+        processType: "tool_call",
+        text: "tool update",
+        raw: { correlation: { tool_call_id: "tool-1" } },
+      },
+      {
+        ...base,
+        seq: 5,
+        kind: "assistant_message",
+        text: "draft",
+        messageId: "message-1",
+      },
+      {
+        ...base,
+        seq: 6,
+        kind: "assistant_final",
+        text: "final",
+        replacesMessageId: "message-1",
+      },
+    ]);
+
+    assert.deepEqual(counts.current, {
+      assistant: 1,
+      thought: 1,
+      tool: 1,
+    });
+    assert.deepEqual(counts.cumulative, counts.current);
+  });
+
   it("normalizes unknown or empty role to system", function () {
     assert.equal(normalizeRunDialogMessageRole("assistant"), "assistant");
     assert.equal(normalizeRunDialogMessageRole("user"), "user");

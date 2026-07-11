@@ -41,7 +41,7 @@ export function readUiVisibleTranscriptPage<
   itemIds: string[];
   getItem: (itemId: string) => T | undefined;
   cloneItem: (item: T) => T;
-  streamingRenderEnabled: boolean;
+  executionDisplayMode: AssistantExecutionDisplayMode;
   cursor?: number;
   limit?: number;
   defaultLimit: number;
@@ -59,7 +59,8 @@ export function readUiVisibleTranscriptPage<
         return false;
       }
       return (
-        args.streamingRenderEnabled || !isUiHiddenStreamingTranscriptItem(item)
+        args.executionDisplayMode === "live" ||
+        !isUiHiddenStreamingTranscriptItem(item)
       );
     });
   const total = visibleItems.length;
@@ -83,3 +84,4 @@ export function readUiVisibleTranscriptPage<
     limit,
   };
 }
+import type { AssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
