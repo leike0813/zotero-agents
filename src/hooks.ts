@@ -102,6 +102,7 @@ import {
 } from "./modules/assistantWorkspaceSidebar";
 import { setAssistantStreamingRenderEnabled } from "./modules/assistantStreamingRenderPreference";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
+import { flushAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -1093,6 +1094,10 @@ async function onShutdown(): Promise<void> {
   await runShutdownStepWithTimeout(
     "acp-chat-detach",
     shutdownAcpSessionManager,
+  );
+  await runShutdownStepWithTimeout(
+    "acp-audit-drain",
+    flushAcpSkillRunAuditTrailWrites,
   );
   await runShutdownStepWithTimeout(
     "acp-websocket-bridge-shutdown",

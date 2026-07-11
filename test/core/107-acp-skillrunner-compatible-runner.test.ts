@@ -91,7 +91,12 @@ import {
   createAcpSkillRunnerWorkspace,
   resetAcpWorkflowWorkspaceRegistryForTests,
 } from "../../src/modules/acpSkillRunnerWorkspace";
-import { flushAcpSkillRunAuditTrailWritesForTests } from "../../src/modules/acpSkillRunAuditTrail";
+import {
+  appendAcpSkillRunAuditUpdate,
+  flushAcpSkillRunAuditTrailWrites,
+  flushAcpSkillRunAuditTrailWritesForTests,
+} from "../../src/modules/acpSkillRunAuditTrail";
+import { getBufferedWriteDiagnosticsForTests } from "../../src/modules/bufferedWriteCoordinator";
 import {
   resetRuntimeCommandRegistryForTests,
   seedRuntimeCommandRegistryForTests,
@@ -811,6 +816,43 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
     resetRuntimeCommandRegistryForTests();
+  });
+
+  it("batches plugin-owned audit updates into one physical append", async function () {
+    setDebugModeOverrideForTests(true);
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp", "audit-burst.1");
+    try {
+      await Promise.all(
+        Array.from({ length: 100 }, (_, index) =>
+          appendAcpSkillRunAuditUpdate({
+            requestId: "audit-burst",
+            runtimeDir,
+            event: {
+              sessionId: "session-audit",
+              update: {
+                sessionUpdate: "usage_update",
+                used: index,
+                size: 100,
+              },
+            } as never,
+          }),
+        ),
+      );
+
+      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
+
+      const auditPath = path.join(runtimeDir, "acp-updates.ndjson");
+      const lines = (await fs.readFile(auditPath, "utf8")).trim().split("\n");
+      assert.lengthOf(lines, 100);
+      const diagnostics = getBufferedWriteDiagnosticsForTests().find((entry) =>
+        entry.key.endsWith("acp-updates.ndjson"),
+      );
+      assert.equal(diagnostics?.logicalEntries, 100);
+      assert.equal(diagnostics?.physicalWriteCycles, 1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("writes developer audit files under .acp for ACP skill runs", async function () {
@@ -6021,6 +6063,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         await fs.writeFile(targetPath, content, "utf8");
       },
     });
+    let blockedFlush: Promise<void> | null = null;
     resetAcpSkillRunsForTests();
     try {
       upsertAcpSkillRun({
@@ -6039,6 +6082,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           content: { type: "text", text: "Mirror text" },
         },
       } as any);
+      blockedFlush = flushAcpSkillRunRuntimeFileWritesForTests();
       await blockedWriteStarted.promise;
 
       const snapshot = await Promise.race([
@@ -6066,7 +6110,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isTrue(diagnostics.mirrorLoaded);
     } finally {
       releaseBlockedWrite.resolve();
-      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await blockedFlush;
       restoreGlobalProperty("IOUtils", previousIOUtils);
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });

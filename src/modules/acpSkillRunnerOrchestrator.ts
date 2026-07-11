@@ -3900,6 +3900,7 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceActivitySignature = snapshot.signature;
       upsertAcpSkillRun({
         requestId: workspace.requestId,
+        persistMode: "trailing",
         event: {
           stage: "workspace-activity",
           message: snapshot.relativePath,

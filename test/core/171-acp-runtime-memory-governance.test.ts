@@ -40,9 +40,18 @@ import {
 import { createEmptyAcpConversationSnapshot } from "../../src/modules/acpTypes";
 import {
   appendAcpSkillRunTranscriptEvent,
+  enqueueAcpSkillRunTranscriptEvents,
+  flushAcpSkillRunTranscriptWrites,
   readAcpSkillRunTranscriptPage as readTranscriptRuntimePage,
   rebuildAcpSkillRunTranscriptIndex,
+  resetAcpTranscriptWritesForTests,
 } from "../../src/modules/acpSkillRunTranscriptStore";
+import {
+  discardBufferedWriteKey,
+  enqueueBufferedWrite,
+  flushBufferedWriteKey,
+  getBufferedWriteDiagnosticsForTests,
+} from "../../src/modules/bufferedWriteCoordinator";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -68,6 +77,68 @@ describe("ACP runtime memory governance", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
     resetAcpSkillRunsForTests();
+  });
+
+  it("serializes entries arriving during a drain and retains failed batches for retry", async function () {
+    const key = `coordinator-test:${Date.now()}`;
+    const written: number[] = [];
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const sink = async (entries: number[]) => {
+      if (written.length === 0) {
+        markStarted();
+        await firstRelease;
+      }
+      written.push(...entries);
+    };
+    try {
+      enqueueBufferedWrite({ key, owner: "owner", entry: 1, bytes: 1, sink });
+      const firstFlush = flushBufferedWriteKey(key);
+      await firstStarted;
+      enqueueBufferedWrite({ key, owner: "owner", entry: 2, bytes: 1, sink });
+      releaseFirst();
+      await firstFlush;
+      assert.deepEqual(written, [1, 2]);
+
+      let fail = true;
+      enqueueBufferedWrite({
+        key,
+        owner: "owner",
+        entry: 3,
+        bytes: 1,
+        sink: async (entries) => {
+          if (fail) {
+            fail = false;
+            throw new Error("retry once");
+          }
+          written.push(...entries);
+        },
+      });
+      let rejected = false;
+      try {
+        await flushBufferedWriteKey(key);
+      } catch {
+        rejected = true;
+      }
+      assert.isTrue(rejected);
+      await flushBufferedWriteKey(key);
+      assert.deepEqual(written, [1, 2, 3]);
+      const diagnostics = getBufferedWriteDiagnosticsForTests().find(
+        (entry) => entry.key === key,
+      );
+      assert.equal(diagnostics?.failures, 1);
+      assert.equal(diagnostics?.retries, 1);
+      assert.equal(diagnostics?.pendingEntries, 0);
+    } finally {
+      releaseFirst?.();
+      discardBufferedWriteKey(key);
+    }
   });
 
   afterEach(async function () {
@@ -244,6 +315,7 @@ describe("ACP runtime memory governance", function () {
         message: "Need input",
         candidateText: hugeText,
       });
+      await flushAcpSkillRunRuntimeFileWritesForTests();
 
       const transcript = await waitForTextFile(
         path.join(runtimeDir, "transcript.jsonl"),
@@ -712,6 +784,142 @@ describe("ACP runtime memory governance", function () {
         ["item-200", "item-201", "item-202", "item-203", "item-204"],
       );
     } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("batches synchronous transcript chunks into one append and one v2 index checkpoint", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    try {
+      enqueueAcpSkillRunTranscriptEvents({
+        runtimeDir,
+        events: [
+          {
+            seq: 1,
+            op: "upsert_item",
+            itemId: "message-1",
+            item: {
+              id: "message-1",
+              kind: "message",
+              role: "assistant",
+              text: "0",
+              state: "streaming",
+              createdAt: new Date(0).toISOString(),
+            },
+          },
+          ...Array.from({ length: 99 }, (_, index) => ({
+            seq: index + 2,
+            op: "append_text" as const,
+            itemId: "message-1",
+            text: String(index + 1),
+            createdAt: new Date(index + 1).toISOString(),
+          })),
+        ],
+      });
+
+      await flushAcpSkillRunTranscriptWrites(runtimeDir);
+
+      const transcript = await fs.readFile(
+        path.join(runtimeDir, "transcript.jsonl"),
+        "utf8",
+      );
+      assert.lengthOf(transcript.trim().split("\n"), 2);
+      const page = await readTranscriptRuntimePage({ runtimeDir });
+      assert.equal(
+        (page.items[0] as { text?: string }).text,
+        Array.from({ length: 100 }, (_, index) => String(index)).join(""),
+      );
+      assert.equal(page.eventSeq, 100);
+
+      const index = JSON.parse(
+        await fs.readFile(
+          path.join(runtimeDir, "transcript.index.json"),
+          "utf8",
+        ),
+      );
+      assert.equal(
+        index.schema,
+        "zotero-skills.acp.skill-run.transcript-index.v2",
+      );
+      assert.equal(index.sourceByteLength, Buffer.byteLength(transcript));
+      const diagnostics = getBufferedWriteDiagnosticsForTests().find((entry) =>
+        entry.key.endsWith("transcript.jsonl"),
+      );
+      assert.equal(diagnostics?.logicalEntries, 100);
+      assert.equal(diagnostics?.physicalWriteCycles, 1);
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rebuilds v1 indexes and incrementally recovers a stale v2 tail", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    const transcriptPath = path.join(runtimeDir, "transcript.jsonl");
+    const indexPath = path.join(runtimeDir, "transcript.index.json");
+    try {
+      await appendAcpSkillRunTranscriptEvent({
+        runtimeDir,
+        seq: 1,
+        op: "upsert_item",
+        itemId: "message-1",
+        item: {
+          id: "message-1",
+          kind: "message",
+          role: "assistant",
+          text: "first",
+          state: "streaming",
+          createdAt: new Date(0).toISOString(),
+        },
+      });
+      await fs.writeFile(
+        indexPath,
+        JSON.stringify({
+          schema: "zotero-skills.acp.skill-run.transcript-index.v1",
+          transcriptPath,
+          items: [],
+          itemIds: [],
+          itemCount: 0,
+          eventSeq: 0,
+          updatedAt: new Date(0).toISOString(),
+        }),
+      );
+      resetAcpTranscriptWritesForTests();
+
+      const rebuilt = await readTranscriptRuntimePage({ runtimeDir });
+      assert.equal((rebuilt.items[0] as { text?: string }).text, "first");
+      const v2 = JSON.parse(await fs.readFile(indexPath, "utf8"));
+      assert.equal(
+        v2.schema,
+        "zotero-skills.acp.skill-run.transcript-index.v2",
+      );
+
+      const tailEvent = {
+        schema: "zotero-skills.acp.skill-run.transcript.v1",
+        seq: 2,
+        op: "append_text",
+        itemId: "message-1",
+        text: " tail",
+        createdAt: new Date(1).toISOString(),
+      };
+      await fs.appendFile(transcriptPath, `${JSON.stringify(tailEvent)}\n`);
+      resetAcpTranscriptWritesForTests();
+
+      const recovered = await readTranscriptRuntimePage({ runtimeDir });
+      assert.equal(
+        (recovered.items[0] as { text?: string }).text,
+        "first tail",
+      );
+      assert.equal(recovered.eventSeq, 2);
+      const recoveredIndex = JSON.parse(await fs.readFile(indexPath, "utf8"));
+      assert.equal(
+        recoveredIndex.sourceByteLength,
+        Buffer.byteLength(await fs.readFile(transcriptPath, "utf8")),
+      );
+    } finally {
+      resetAcpTranscriptWritesForTests();
       await fs.rm(root, { recursive: true, force: true });
     }
   });

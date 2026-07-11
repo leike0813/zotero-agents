@@ -54,7 +54,10 @@ import {
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import {
-  appendAcpSkillRunTranscriptEvents,
+  enqueueAcpSkillRunTranscriptEvents,
+  flushAllAcpTranscriptWrites,
+  flushAcpSkillRunTranscriptWrites,
+  resetAcpTranscriptWritesForTests,
   readAcpSkillRunTranscriptPage as readAcpSkillRunTranscriptPageFromStore,
   resolveAcpSkillRunTranscriptPaths,
   type AcpSkillRunTranscriptEventInput,
@@ -534,14 +537,10 @@ const waitingUserDetachTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 const runtimeFileWrites = new Set<Promise<unknown>>();
-const transcriptWriteBatches = new Map<
-  string,
-  {
-    events: AcpSkillRunTranscriptEventInput[];
-    timer: ReturnType<typeof setTimeout> | null;
-    flushing: Promise<void> | null;
-  }
->();
+const SOFT_RUN_PERSIST_DELAY_MS = 2000;
+const softRunPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const softRunPersistRecords = new Map<string, AcpSkillRunRecord>();
+const lastPersistedEventIds = new Map<string, string>();
 const runtimeOptionsByRequestId = new Map<
   string,
   AcpSkillRunRuntimeOptionsSnapshot
@@ -1408,73 +1407,15 @@ function queueAcpSkillRunTranscriptPersistence(
   if (!runtimeDir) {
     return;
   }
-  let batch = transcriptWriteBatches.get(runtimeDir);
-  if (!batch) {
-    batch = {
-      events: [],
-      timer: null,
-      flushing: null,
-    };
-    transcriptWriteBatches.set(runtimeDir, batch);
-  }
-  batch.events.push(event);
-  if (batch.timer || batch.flushing) {
-    return;
-  }
-  batch.timer = setTimeout(() => {
-    const current = transcriptWriteBatches.get(runtimeDir);
-    if (current) {
-      current.timer = null;
-    }
-    const write = flushAcpSkillRunTranscriptWriteBatch(runtimeDir).catch(
-      () => undefined,
-    );
-    runtimeFileWrites.add(write);
-    void write.finally(() => {
-      runtimeFileWrites.delete(write);
-    });
-  }, 50);
+  enqueueAcpSkillRunTranscriptEvents({ runtimeDir, events: [event] });
 }
 
 async function flushAcpSkillRunTranscriptWriteBatch(runtimeDir: string) {
-  const batch = transcriptWriteBatches.get(runtimeDir);
-  if (!batch) {
-    return;
-  }
-  if (batch.flushing) {
-    await batch.flushing;
-    return;
-  }
-  if (batch.timer) {
-    clearTimeout(batch.timer);
-    batch.timer = null;
-  }
-  batch.flushing = (async () => {
-    while (batch.events.length > 0) {
-      const events = batch.events.splice(0, batch.events.length);
-      await appendAcpSkillRunTranscriptEvents({
-        runtimeDir,
-        events,
-      }).catch(() => undefined);
-    }
-  })();
-  try {
-    await batch.flushing;
-  } finally {
-    batch.flushing = null;
-    if (batch.events.length === 0 && !batch.timer) {
-      transcriptWriteBatches.delete(runtimeDir);
-    }
-  }
+  await flushAcpSkillRunTranscriptWrites(runtimeDir);
 }
 
 async function flushAcpSkillRunTranscriptWriteBatches() {
-  const flushes = Array.from(transcriptWriteBatches.keys()).map((runtimeDir) =>
-    flushAcpSkillRunTranscriptWriteBatch(runtimeDir),
-  );
-  if (flushes.length > 0) {
-    await Promise.all(flushes);
-  }
+  await flushAllAcpTranscriptWrites().catch(() => undefined);
 }
 
 function hasLargeAcpSkillRunPayload(raw: Record<string, unknown>) {
@@ -2571,6 +2512,7 @@ function persistAcpSkillRunRuntimeFiles(
 }
 
 export async function flushAcpSkillRunRuntimeFileWrites() {
+  flushSoftRunPersists();
   await flushAcpSkillRunTranscriptWriteBatches();
   while (runtimeFileWrites.size > 0) {
     await Promise.all(Array.from(runtimeFileWrites)).catch(() => undefined);
@@ -2658,6 +2600,12 @@ function persistRun(
   if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
     return;
   }
+  const pendingTimer = softRunPersistTimers.get(record.requestId);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    softRunPersistTimers.delete(record.requestId);
+  }
+  softRunPersistRecords.delete(record.requestId);
   persistAcpSkillRunRuntimeFiles(record, options);
   upsertPluginRunStoreEntry("acp", {
     runKey: record.requestId,
@@ -2672,8 +2620,13 @@ function persistRun(
     const persistedEvent = sanitizeAcpSkillRunPersistedValue(
       latestEvent,
     ) as AcpSkillRunEvent;
+    const eventId = `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`;
+    if (lastPersistedEventIds.get(record.requestId) === eventId) {
+      return;
+    }
+    lastPersistedEventIds.set(record.requestId, eventId);
     appendPluginRunEventStoreEntry("acp", {
-      eventId: `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`,
+      eventId,
       runKey: record.requestId,
       requestId: record.requestId,
       backendId: record.backendId,
@@ -2681,6 +2634,30 @@ function persistRun(
       createdAt: latestEvent.ts || record.updatedAt,
       payload: JSON.stringify(persistedEvent),
     });
+  }
+}
+
+function scheduleSoftRunPersist(record: AcpSkillRunRecord) {
+  softRunPersistRecords.set(record.requestId, record);
+  if (softRunPersistTimers.has(record.requestId)) {
+    return;
+  }
+  softRunPersistTimers.set(
+    record.requestId,
+    setTimeout(() => {
+      softRunPersistTimers.delete(record.requestId);
+      const pending = softRunPersistRecords.get(record.requestId);
+      if (pending) {
+        softRunPersistRecords.delete(record.requestId);
+        persistRun(pending);
+      }
+    }, SOFT_RUN_PERSIST_DELAY_MS),
+  );
+}
+
+function flushSoftRunPersists() {
+  for (const record of Array.from(softRunPersistRecords.values())) {
+    persistRun(record);
   }
 }
 
@@ -3009,6 +2986,7 @@ function resolveAcpSkillRunStatusTransition(args: {
 
 export function upsertAcpSkillRun(update: {
   requestId: string;
+  persistMode?: "immediate" | "trailing";
   status?: AcpSkillRunStatus;
   statusReason?: AcpSkillRunStatusTransitionReason;
   backendStatus?: AcpSkillRunStatus;
@@ -3304,12 +3282,19 @@ export function upsertAcpSkillRun(update: {
   setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
   pruneInactiveAcpSkillRunTranscriptMirrors();
-  persistRun(next, {
-    writeRunContext: updateTouchesAcpSkillRunContext(
-      update as Record<string, unknown>,
-    ),
-    writeResultJson: Object.prototype.hasOwnProperty.call(update, "resultJson"),
-  });
+  if (update.persistMode === "trailing") {
+    scheduleSoftRunPersist(next);
+  } else {
+    persistRun(next, {
+      writeRunContext: updateTouchesAcpSkillRunContext(
+        update as Record<string, unknown>,
+      ),
+      writeResultJson: Object.prototype.hasOwnProperty.call(
+        update,
+        "resultJson",
+      ),
+    });
+  }
   emitChanged(
     acpSkillRunSnapshotChange(requestId, [
       "run",
@@ -3944,21 +3929,34 @@ export function recordAcpSkillRunSessionUpdate(
     }
   }
   setAcpSkillRunRecord(next);
+  const softToolUpdate =
+    kind === "tool_call_update" &&
+    inferToolCallState(update as AcpToolCall) === "pending";
+  const softPersist =
+    isTextChunkUpdate || kind === "usage_update" || softToolUpdate;
   if (isTextChunkUpdate) {
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
-      persistRun(next);
+      scheduleSoftRunPersist(next);
       return;
     }
-    persistRun(next);
+    scheduleSoftRunPersist(next);
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
   if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
-    persistRun(next);
+    if (softPersist) {
+      scheduleSoftRunPersist(next);
+    } else {
+      persistRun(next);
+    }
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
-  persistRun(next);
+  if (softPersist) {
+    scheduleSoftRunPersist(next);
+  } else {
+    persistRun(next);
+  }
   if (kind === "usage_update") {
     if (canPublishAssistantWorkspaceLiveUpdates()) {
       scheduleChangedEmit(
@@ -5832,6 +5830,13 @@ export function resetAcpSkillRunsForTests() {
     changedEmitTimer = null;
   }
   clearAcpSkillRunRecords();
+  for (const timer of softRunPersistTimers.values()) {
+    clearTimeout(timer);
+  }
+  softRunPersistTimers.clear();
+  softRunPersistRecords.clear();
+  lastPersistedEventIds.clear();
+  resetAcpTranscriptWritesForTests();
   controllers.clear();
   applyResultControllerDetachPromises.clear();
   runtimeOptionsByRequestId.clear();

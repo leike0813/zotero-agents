@@ -34,7 +34,8 @@ import {
   saveAcpFrontendState,
 } from "./acpConversationStore";
 import {
-  appendAcpChatTranscriptEvent,
+  enqueueAcpChatTranscriptEvent,
+  flushAcpChatTranscriptWrites,
   readAcpChatTranscriptPage,
   readFullAcpChatTranscript,
   resolveAcpChatTranscriptPaths,
@@ -194,7 +195,7 @@ const acpChatPanelListeners = new Set<AcpChatPanelSnapshotListener>();
 const chatTranscriptWrites = new Set<Promise<unknown>>();
 const MAX_DIAGNOSTICS = 40;
 const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
-const STREAMING_PERSIST_THROTTLE_MS = 1500;
+const STREAMING_PERSIST_THROTTLE_MS = 2000;
 const ACP_CHAT_INJECTED_SKILL_IDS = [
   "zotero-bridge-cli",
   "literature-search-ingest",
@@ -1529,7 +1530,7 @@ function queueChatTranscriptEvent(
     text: args.text,
     newItem: args.newItem,
   });
-  const write = appendAcpChatTranscriptEvent({
+  enqueueAcpChatTranscriptEvent({
     conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
     op: args.op,
     itemId: args.itemId,
@@ -1537,24 +1538,6 @@ function queueChatTranscriptEvent(
     text: args.text,
     patch: args.patch,
     createdAt: args.createdAt,
-  }).catch((error) => {
-    const message = compactError(error);
-    sessionRuntime.transcriptHydrateState = "failed";
-    sessionRuntime.transcriptHydrateError = message;
-    appendDiagnostic(sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
-      kind: "transcript_persist_failed",
-      level: "warn",
-      message: "ACP Chat transcript persistence failed.",
-      detail: message,
-    });
-  });
-  chatTranscriptWrites.add(write);
-  sessionRuntime.transcriptWrites.add(write);
-  void write.finally(() => {
-    chatTranscriptWrites.delete(write);
-    sessionRuntime.transcriptWrites.delete(write);
   });
 }
 
@@ -2659,6 +2642,7 @@ function handleSessionUpdate(
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
       upsertToolCallItem(sessionRuntime, update);
       emitSessionRuntimeSnapshot(sessionRuntime, {
+        throttlePersist: transcriptBoundary === "soft-side-channel",
         uiReason:
           transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
         publishMode: "structural",
@@ -2713,6 +2697,7 @@ function handleSessionUpdate(
             .filter((entry) => entry.name)
         : [];
       emitSessionRuntimeSnapshot(sessionRuntime, {
+        throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
       });
@@ -2724,6 +2709,7 @@ function handleSessionUpdate(
         currentModeId: String(update.currentModeId || "").trim(),
       });
       emitSessionRuntimeSnapshot(sessionRuntime, {
+        throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
       });
@@ -2759,6 +2745,7 @@ function handleSessionUpdate(
         update.updatedAt || "",
       ).trim();
       emitSessionRuntimeSnapshot(sessionRuntime, {
+        throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
       });
@@ -2775,6 +2762,7 @@ function handleSessionUpdate(
         };
       }
       emitSessionRuntimeSnapshot(sessionRuntime, {
+        throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
       });
@@ -3533,12 +3521,17 @@ export function getAcpConversationUiSnapshot(
 async function flushPendingChatTranscriptWrites(
   sessionRuntime?: AcpChatSessionRuntime,
 ) {
-  const pending = sessionRuntime
-    ? Array.from(sessionRuntime.transcriptWrites)
-    : Array.from(chatTranscriptWrites);
-  if (pending.length > 0) {
-    await Promise.allSettled(pending);
+  if (sessionRuntime) {
+    await flushAcpChatTranscriptWrites(
+      sessionRuntime.snapshot.conversationStorageDir,
+    );
+    return;
   }
+  await Promise.all(
+    Array.from(sessionRuntimes.values()).map((runtime) =>
+      flushAcpChatTranscriptWrites(runtime.snapshot.conversationStorageDir),
+    ),
+  );
 }
 
 async function readFullAcpChatTranscriptFromStore(
@@ -4179,6 +4172,7 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSessionRuntimeSnapshot(sessionRuntime);
   try {
+    await flushPendingChatTranscriptWrites(sessionRuntime);
     const response = await adapter.prompt({
       sessionId: sessionRuntime.snapshot.sessionId,
       message: promptMessage,
@@ -4193,7 +4187,7 @@ export async function sendAcpConversationPrompt(args: {
       uiReason: "boundary",
       publishMode: "full",
     });
-    await flushPendingChatTranscriptWrites();
+    await flushPendingChatTranscriptWrites(sessionRuntime);
   } catch (error) {
     sessionRuntime.snapshot.busy = false;
     finalizeStreamingItems(sessionRuntime, "error", "cancelled");
@@ -4913,6 +4907,7 @@ export async function shutdownAcpSessionManager() {
     );
   }
   await Promise.allSettled(pending);
+  await flushPendingChatTranscriptWrites();
   await shutdownZoteroMcpServer();
   resetAcpConversationHostBridgePermissionHandlersForTests();
   sessionRuntimes.clear();

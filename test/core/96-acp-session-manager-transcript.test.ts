@@ -69,9 +69,64 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import {
+  enqueueAcpChatTranscriptEvent,
+  readAcpChatTranscriptPage,
+} from "../../src/modules/acpConversationTranscriptStore";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("flushes only the requested conversation transcript owner", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-chat-owner-"));
+    const first = path.join(root, "first");
+    const second = path.join(root, "second");
+    try {
+      for (const [storageDir, itemId] of [
+        [first, "first-item"],
+        [second, "second-item"],
+      ] as const) {
+        enqueueAcpChatTranscriptEvent({
+          conversationStorageDir: storageDir,
+          op: "upsert_item",
+          itemId,
+          item: {
+            id: itemId,
+            kind: "message",
+            role: "assistant",
+            text: itemId,
+            state: "complete",
+            createdAt: new Date(0).toISOString(),
+          },
+        });
+      }
+
+      const firstPage = await readAcpChatTranscriptPage({
+        conversationStorageDir: first,
+      });
+      assert.deepEqual(
+        firstPage.items.map((item) => item.id),
+        ["first-item"],
+      );
+      let secondExists = true;
+      try {
+        await fs.access(path.join(second, "transcript.jsonl"));
+      } catch {
+        secondExists = false;
+      }
+      assert.isFalse(secondExists);
+
+      const secondPage = await readAcpChatTranscriptPage({
+        conversationStorageDir: second,
+      });
+      assert.deepEqual(
+        secondPage.items.map((item) => item.id),
+        ["second-item"],
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("upserts tool calls by id and does not roll completed back to pending", async function () {
     await connectAcpConversation();
