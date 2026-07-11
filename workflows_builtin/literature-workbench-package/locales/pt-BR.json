@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "Idioma das notas de etiquetas",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Regulação de etiquetas",
   "workflows.tag-regulator.taskNameTemplate": "Regular etiquetas da literatura",
-  "workflows.export-research-bundle.label": "Exportar pacote de pesquisa"
+  "workflows.export-research-bundle.label": "Exportar pacote de pesquisa",
+  "workflows.collection-collector.label": "Coletor de coleção",
+  "workflows.collection-collector.parameters.collection.title": "Coleção de destino",
+  "workflows.collection-collector.parameters.collection.description": "Coleção Zotero existente que receberá a literatura correspondente.",
+  "workflows.collection-collector.parameters.collectionScope.title": "Escopo da coleção",
+  "workflows.collection-collector.parameters.collectionScope.description": "Significado, tema de pesquisa ou limite bibliográfico da coleção.",
+  "workflows.collection-collector.taskNameTemplate": "Coletar literatura: {collectionScope}"
 }

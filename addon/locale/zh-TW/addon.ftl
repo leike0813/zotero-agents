@@ -1572,3 +1572,4 @@ markdown-reader-load-failed = Markdown 載入失敗。
 markdown-reader-bridge-missing = Markdown 閱讀器橋接無法使用。
 markdown-reader-bridge-invalid = Markdown 閱讀器橋接不支援文件載入。
 markdown-reader-bridge-timeout = Markdown 閱讀器橋接無法使用。主機將嘗試開啟獨立備援。
+workflow-settings-parameter-required = 此欄位為必填。

@@ -27,6 +27,7 @@ export type FormSchemaEntry = {
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
+  required?: boolean;
   disabled?: boolean;
 };
 
@@ -80,6 +81,7 @@ function fromWorkflowParameterSchema(
     enumValues: schema.type === "string" ? normalizeEnum(schema.enum) : [],
     allowCustom: schema.type === "string" && schema.allowCustom === true,
     defaultValue: schema.default,
+    required: schema.required === true,
   }));
 }
 

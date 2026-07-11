@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "標籤筆記語言",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 標籤調節",
   "workflows.tag-regulator.taskNameTemplate": "調節文獻標籤",
-  "workflows.export-research-bundle.label": "匯出研究資料包"
+  "workflows.export-research-bundle.label": "匯出研究資料包",
+  "workflows.collection-collector.label": "Collection 文獻收集器",
+  "workflows.collection-collector.parameters.collection.title": "目標 Collection",
+  "workflows.collection-collector.parameters.collection.description": "用於收錄符合條件文獻的現有 Zotero collection。",
+  "workflows.collection-collector.parameters.collectionScope.title": "Collection 範圍",
+  "workflows.collection-collector.parameters.collectionScope.description": "描述此 collection 的意義、研究主題或文獻邊界。",
+  "workflows.collection-collector.taskNameTemplate": "收集文獻：{collectionScope}"
 }

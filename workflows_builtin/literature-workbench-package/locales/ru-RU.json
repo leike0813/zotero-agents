@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "Язык заметок тегов",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Регуляция тегов",
   "workflows.tag-regulator.taskNameTemplate": "Регуляция тегов литературы",
-  "workflows.export-research-bundle.label": "Экспортировать исследовательский пакет"
+  "workflows.export-research-bundle.label": "Экспортировать исследовательский пакет",
+  "workflows.collection-collector.label": "Сборщик коллекции",
+  "workflows.collection-collector.parameters.collection.title": "Целевая коллекция",
+  "workflows.collection-collector.parameters.collection.description": "Существующая коллекция Zotero для подходящей литературы.",
+  "workflows.collection-collector.parameters.collectionScope.title": "Область коллекции",
+  "workflows.collection-collector.parameters.collectionScope.description": "Смысл, тема исследования или границы литературы коллекции.",
+  "workflows.collection-collector.taskNameTemplate": "Собрать литературу: {collectionScope}"
 }

@@ -4,6 +4,8 @@ import {
   buildWorkflowSettingsDialogInitialState,
   createWorkflowSettingsDocument,
   mergeExecutionOptions,
+  assertRequiredWorkflowParameters,
+  listMissingRequiredWorkflowParameters,
   normalizeSavedWorkflowSettings,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
@@ -148,6 +150,45 @@ describe("workflow settings domain", function () {
       language: "fr-FR",
     });
     assert.equal(normalized.language, "zh-CN");
+  });
+
+  it("validates required workflow parameters without rejecting false or zero", function () {
+    const manifest = {
+      id: "required-contract",
+      label: "Required Contract",
+      hooks: { applyResult: "hooks/applyResult.js" },
+      parameters: {
+        scope: { type: "string", required: true },
+        enabled: { type: "boolean", required: true },
+        count: { type: "number", required: true },
+        optional: { type: "string" },
+      },
+    } as WorkflowManifest;
+
+    assert.deepEqual(
+      listMissingRequiredWorkflowParameters(manifest, {
+        scope: "   ",
+        enabled: false,
+        count: 0,
+      }),
+      ["scope"],
+    );
+    assert.throws(
+      () =>
+        assertRequiredWorkflowParameters(manifest, {
+          scope: "",
+          enabled: false,
+          count: 0,
+        }),
+      /scope/,
+    );
+    assert.doesNotThrow(() =>
+      assertRequiredWorkflowParameters(manifest, {
+        scope: "research scope",
+        enabled: false,
+        count: 0,
+      }),
+    );
   });
 
   it("builds dialog initial state with run-once defaults cloned from persisted values", function () {

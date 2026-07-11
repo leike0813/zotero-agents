@@ -976,6 +976,48 @@ describe("host bridge workflow control", function () {
     assert.notInclude(JSON.stringify(validate.json.result), "requestId");
   });
 
+  it("describes required workflow parameters and rejects missing values before submit", async function () {
+    const entry = workflow("required-workflow");
+    entry.manifest.parameters = {
+      scope: {
+        type: "string",
+        required: true,
+      },
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const requirements = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/requirements",
+      body: { workflowId: "required-workflow" },
+    });
+    assert.strictEqual(requirements.status, 200);
+    assert.isTrue(requirements.json.result.workflowOptions.schema[0].required);
+
+    const validate = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/validate",
+      body: {
+        workflowId: "required-workflow",
+        selection: {
+          items: [{ key: "ABCD1234", libraryId: 1 }],
+        },
+        workflowOptions: { scope: "   " },
+      },
+    });
+    assert.strictEqual(validate.status, 400);
+    assert.strictEqual(
+      validate.json.error.code,
+      "missing_required_workflow_parameter",
+    );
+    assert.deepEqual(validate.json.error.details.requiredFields, ["scope"]);
+  });
+
   it("rejects unsafe provider profile fields before workflow describe", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({

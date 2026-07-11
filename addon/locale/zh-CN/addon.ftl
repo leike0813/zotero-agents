@@ -1572,3 +1572,4 @@ markdown-reader-load-failed = Markdown 加载失败。
 markdown-reader-bridge-missing = Markdown 阅读器桥接不可用。
 markdown-reader-bridge-invalid = Markdown 阅读器桥接不支持文档加载。
 markdown-reader-bridge-timeout = Markdown 阅读器桥接不可用。宿主将尝试打开独立降级页面。
+workflow-settings-parameter-required = 此字段为必填项。

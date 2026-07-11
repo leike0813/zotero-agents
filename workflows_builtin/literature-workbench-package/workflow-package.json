@@ -18,6 +18,7 @@
   },
   "workflows": [
     "add-digest-representative-image/workflow.json",
+    "collection-collector/workflow.json",
     "debug-digest-apply-fixture/workflow.json",
     "debug-migrate-note-payloads/workflow.json",
     "debug-note-artifact-inspector/workflow.json",

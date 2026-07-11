@@ -39,6 +39,8 @@ import {
   type WorkflowSettingsDialogInitialState,
   type WorkflowSettingsRecord,
   buildWorkflowSettingsDialogInitialState,
+  assertRequiredWorkflowParameters,
+  listMissingRequiredWorkflowParameters,
   mergeExecutionOptions,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
@@ -84,6 +86,7 @@ type WorkflowSettingsSchemaEntry = {
   options?: WorkflowParameterOption[];
   allowCustom?: boolean;
   defaultValue?: unknown;
+  required?: boolean;
   disabled?: boolean;
   visibleIfProviderOption?: {
     key: string;
@@ -119,6 +122,7 @@ export type WorkflowSettingsUiDescriptor = {
   runSchemaEntries: WorkflowSettingsSchemaEntry[];
   hasConfigurableSettings: boolean;
   blockedReason?: string;
+  missingRequiredWorkflowParams: string[];
 };
 
 type WorkflowSettingsCacheEntry = {
@@ -671,6 +675,7 @@ async function toWorkflowSchemaEntries(
         options: dynamic.options.length > 0 ? dynamic.options : undefined,
         allowCustom: entry.type === "string" && entry.allowCustom === true,
         defaultValue: entry.default,
+        required: entry.required === true,
         disabled: strictDynamicOptionsMissing,
         diagnostics:
           dynamicDiagnostics.length > 0 ? dynamicDiagnostics : undefined,
@@ -943,6 +948,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     .flatMap((entry) => entry.diagnostics || [])
     .map((entry) => String(entry.message || entry.code || "").trim())
     .find(Boolean);
+  const missingRequiredWorkflowParams = listMissingRequiredWorkflowParameters(
+    args.workflow.manifest,
+    workflowParams,
+  );
   const profileEditable = requiresBackendProfile && profiles.length > 1;
   const profileMissing = requiresBackendProfile && profiles.length === 0;
   const hasProfileConfigDimension =
@@ -970,6 +979,7 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     runSchemaEntries,
     hasConfigurableSettings,
     blockedReason,
+    missingRequiredWorkflowParams,
   };
 }
 
@@ -1095,6 +1105,7 @@ export async function resolveWorkflowExecutionContext(args: {
       (merged.workflowParams as Record<string, unknown> | undefined) || {},
     normalizedWorkflowParams: schemaNormalizedWorkflowParams,
   });
+  assertRequiredWorkflowParameters(args.workflow.manifest, workflowParams);
   const providerOptions = normalizeProviderRuntimeOptions({
     providerId,
     options: merged.providerOptions,

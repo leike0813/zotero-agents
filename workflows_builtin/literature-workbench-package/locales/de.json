@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "Sprache der Tag-Notizen",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Tag-Regulierung",
   "workflows.tag-regulator.taskNameTemplate": "Literatur-Tags regulieren",
-  "workflows.export-research-bundle.label": "Forschungspaket exportieren"
+  "workflows.export-research-bundle.label": "Forschungspaket exportieren",
+  "workflows.collection-collector.label": "Sammlungs-Kurator",
+  "workflows.collection-collector.parameters.collection.title": "Zielsammlung",
+  "workflows.collection-collector.parameters.collection.description": "Vorhandene Zotero-Sammlung für passende Literatur.",
+  "workflows.collection-collector.parameters.collectionScope.title": "Sammlungsumfang",
+  "workflows.collection-collector.parameters.collectionScope.description": "Bedeutung, Forschungsthema oder Literaturgrenze der Sammlung.",
+  "workflows.collection-collector.taskNameTemplate": "Literatur sammeln: {collectionScope}"
 }

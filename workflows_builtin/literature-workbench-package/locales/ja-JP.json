@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "タグ注釈言語",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 タグ正規化",
   "workflows.tag-regulator.taskNameTemplate": "文献タグを正規化",
-  "workflows.export-research-bundle.label": "研究バンドルをエクスポート"
+  "workflows.export-research-bundle.label": "研究バンドルをエクスポート",
+  "workflows.collection-collector.label": "コレクション収集",
+  "workflows.collection-collector.parameters.collection.title": "対象コレクション",
+  "workflows.collection-collector.parameters.collection.description": "一致する文献を追加する既存の Zotero コレクション。",
+  "workflows.collection-collector.parameters.collectionScope.title": "コレクション範囲",
+  "workflows.collection-collector.parameters.collectionScope.description": "コレクションの意味、研究テーマ、または文献範囲。",
+  "workflows.collection-collector.taskNameTemplate": "文献を収集: {collectionScope}"
 }

@@ -219,6 +219,7 @@
           type: toText(entry && entry.type),
           placeholder: toText(entry && entry.placeholder),
           allowCustom: entry && entry.allowCustom === true,
+          required: entry && entry.required === true,
           disabled: entry && entry.disabled === true,
           visibleIfProviderOption:
             entry && entry.visibleIfProviderOption
@@ -453,7 +454,9 @@
     if (isWarningProviderOptionKey(args.entry.key)) {
       label.className += " field-label-warning";
     }
-    label.textContent = args.entry.title || args.entry.key;
+    label.textContent =
+      (args.entry.title || args.entry.key) +
+      (args.entry.required === true ? " *" : "");
     wrap.appendChild(label);
     const controlWrap = document.createElement("div");
     controlWrap.className = "field-input-col";
@@ -472,6 +475,9 @@
       checkbox.setAttribute("data-workflow-settings-control-key", controlKey);
       checkbox.checked = currentValue === true;
       checkbox.disabled = args.entry.disabled === true;
+      if (args.entry.required === true) {
+        checkbox.setAttribute("aria-required", "true");
+      }
       checkbox.addEventListener("change", function () {
         setDraftFieldValue(args, checkbox.checked);
         args.onChange({
@@ -528,6 +534,9 @@
         "data-workflow-settings-control-key",
         controlKey,
       );
+      if (args.entry.required === true) {
+        customSelect.element.setAttribute("aria-required", "true");
+      }
       if (args.entry.disabled === true) {
         markCustomSelectDisabled(customSelect.element);
       }
@@ -600,6 +609,7 @@
     }
     control.className = "field-control";
     control.disabled = args.entry.disabled === true;
+    control.required = args.entry.required === true;
     if (args.entry.type === "number") {
       control.classList.add("numeric");
     }
@@ -623,6 +633,13 @@
     const commitControlValue = function (emitChange) {
       const rawValue = toText(control.value);
       let changed = false;
+      if (args.entry.required === true && rawValue.trim().length === 0) {
+        setFieldError(
+          toText(args.labels.workflowSettingsParameterRequired) ||
+            "This field is required.",
+        );
+        return false;
+      }
       if (args.entry.type === "number") {
         const validation = validateNumberFieldValue({
           entry: args.entry,

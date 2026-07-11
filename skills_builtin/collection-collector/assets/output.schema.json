@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "definitions": {
+    "selectedItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paper_ref", "title", "semantic_relevance", "evidence_basis", "matched_topic_ids", "reason", "caveats"],
+      "properties": {
+        "paper_ref": { "type": "string", "pattern": "^[1-9][0-9]*:[A-Za-z0-9]+$" },
+        "title": { "type": "string", "minLength": 1 },
+        "semantic_relevance": { "type": "number", "minimum": 0.65, "maximum": 1 },
+        "evidence_basis": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["metadata", "tags", "topic"] } },
+        "matched_topic_ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "reason": { "type": "string", "minLength": 1 },
+        "caveats": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "collection",
+        "collection_scope",
+        "inventory_count",
+        "existing_count",
+        "eligible_count",
+        "assessed_count",
+        "selected_count",
+        "selected_items",
+        "diagnostics"
+      ],
+      "properties": {
+        "kind": { "const": "collection_membership_selection" },
+        "collection": { "type": "string", "pattern": "^[1-9][0-9]*:[A-Za-z0-9]+$" },
+        "collection_scope": { "type": "string", "minLength": 1 },
+        "inventory_count": { "type": "integer", "minimum": 0 },
+        "existing_count": { "type": "integer", "minimum": 0 },
+        "eligible_count": { "type": "integer", "minimum": 0 },
+        "assessed_count": { "type": "integer", "minimum": 0 },
+        "selected_count": { "type": "integer", "minimum": 0 },
+        "selected_items": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/selectedItem" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["code"],
+            "properties": { "code": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "reason", "message"],
+      "properties": {
+        "kind": { "const": "collection_collector_canceled" },
+        "status": { "const": "canceled" },
+        "reason": {
+          "type": "string",
+          "enum": ["invalid_input", "host_unavailable", "target_collection_not_found"]
+        },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  ]
+}

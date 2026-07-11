@@ -1,0 +1,42 @@
+{
+  "id": "collection-collector",
+  "label": "Collection Collector",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": { "core": true, "emoji": "🗂️" },
+  "taskNameTemplate": "Collect literature: {collectionScope}",
+  "trigger": { "requiresSelection": false },
+  "inputs": { "unit": "workflow" },
+  "parameters": {
+    "collection": {
+      "type": "string",
+      "required": true,
+      "title": "Collection",
+      "description": "Existing Zotero collection that will receive matching literature.",
+      "allowCustom": false,
+      "optionsSource": {
+        "kind": "zotero.collections",
+        "library": "current",
+        "includeEmpty": false,
+        "valueFormat": "collectionRef",
+        "labelFormat": "path"
+      }
+    },
+    "collectionScope": {
+      "type": "string",
+      "required": true,
+      "title": "Collection Scope",
+      "description": "Meaning, research topic, or literature boundary represented by the collection."
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": { "skill_id": "collection-collector", "mode": "auto" }
+  },
+  "execution": { "zoteroHostAccess": { "required": true } },
+  "result": {
+    "fetch": { "type": "result" },
+    "expects": { "result_json": "result/result.json" }
+  },
+  "hooks": { "applyResult": "hooks/applyResult.mjs" }
+}

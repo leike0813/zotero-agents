@@ -1570,7 +1570,8 @@
       isWarningProviderOptionKey(args.entry.key)
         ? "workflow-settings-field-label workflow-settings-field-label-warning"
         : "workflow-settings-field-label",
-      args.entry.title || args.entry.key,
+      (args.entry.title || args.entry.key) +
+        (args.entry.required === true ? " *" : ""),
     );
     row.appendChild(label);
     if (args.entry.disabled === true) {
@@ -1631,6 +1632,9 @@
       const line = el("label", "workflow-settings-field-checkbox");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      if (args.entry.required === true) {
+        checkbox.setAttribute("aria-required", "true");
+      }
       checkbox.checked = currentValue === true;
       checkbox.addEventListener("change", function () {
         args.values[args.entry.key] = checkbox.checked;
@@ -1666,6 +1670,9 @@
         },
       );
       control = customSelect.element;
+      if (args.entry.required === true) {
+        control.setAttribute("aria-required", "true");
+      }
       control.classList.add("workflow-settings-field-control");
     } else if (optionEntries.length > 0 && args.entry.allowCustom === true) {
       const combo = document.createElement("div");
@@ -1693,6 +1700,7 @@
       control.value = currentValueStr;
       control.placeholder = String(args.entry.placeholder || "");
       control.className = "workflow-settings-field-control";
+      control.required = args.entry.required === true;
       control.style.flex = "1 1 45%";
       combo.appendChild(control);
       controlNode = combo;
@@ -1731,6 +1739,13 @@
     const commitControlValue = function (emitChange) {
       const rawValue = String(control.value == null ? "" : control.value);
       let changed = false;
+      if (args.entry.required === true && rawValue.trim().length === 0) {
+        setFieldError(
+          String(args.labels.workflowSettingsParameterRequired || "") ||
+            "This field is required.",
+        );
+        return false;
+      }
       if (args.entry.type === "number") {
         const validation = validateNumberFieldValue({
           entry: args.entry,

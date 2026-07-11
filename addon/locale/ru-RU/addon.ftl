@@ -1572,3 +1572,4 @@ markdown-reader-load-failed = Не удалось загрузить Markdown.
 markdown-reader-bridge-missing = Мост читалки Markdown недоступен.
 markdown-reader-bridge-invalid = Мост читалки Markdown не поддерживает загрузку документов.
 markdown-reader-bridge-timeout = Мост читалки Markdown недоступен. Хост попробует открыть автономную резервную версию.
+workflow-settings-parameter-required = Это поле обязательно.

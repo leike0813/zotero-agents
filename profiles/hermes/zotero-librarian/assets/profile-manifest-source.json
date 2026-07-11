@@ -45,14 +45,14 @@
       "zotero-librarian:workflow-catalog:start"
     ],
     "catalogChecksum": "f3fdd3b24d2a7673e7001800b6e2e955d9780b7cea32392a641f5721bb97966f",
-    "workflowCatalogChecksum": "11fab7aec104eeca66310d69b523f71fa7cfa6f51d1e3509eb6a4163b2819821",
+    "workflowCatalogChecksum": "d7096235cfd137aa89991d1f7406aa648eff150ee09020e905bbf571c7765745",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
       "version": "0.2.1",
       "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
       "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
     },
-    "semanticSourceChecksum": "214a20c0eb78dd31d52a0701b97c4e55e0683efd40c229418ca7602cc74b8627",
+    "semanticSourceChecksum": "bd88a1735a6242fbb3db6ea8329ecf498315a3eaa4f83c85cfd9472126025917",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
   }
 }

@@ -35,6 +35,7 @@ const sidebars: SidebarsConfig = {
             "workflows/literature-explainer",
             "workflows/literature-deep-reading",
             "workflows/literature-search-ingest",
+            "workflows/collection-collector",
             "workflows/tag-bootstrapper",
             "workflows/tag-regulator",
             "workflows/export-import-notes",

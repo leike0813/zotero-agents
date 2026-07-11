@@ -347,7 +347,7 @@ function renderSchemaFields(args: {
 
     const label = createHtmlElement(doc, "label");
     const labelText = entry.title || entry.key;
-    label.textContent = labelText;
+    label.textContent = entry.required === true ? `${labelText} *` : labelText;
     const controlId = `${idPrefix}-${entry.key}`;
     label.setAttribute("for", controlId);
     label.style.display = "block";
@@ -372,6 +372,9 @@ function renderSchemaFields(args: {
       checkbox.id = controlId;
       checkbox.checked = coerceBoolean(rawValue, coerceBoolean(defaultValue));
       checkbox.disabled = entry.disabled === true;
+      if (entry.required === true) {
+        checkbox.setAttribute("aria-required", "true");
+      }
       checkbox.setAttribute("data-zs-option-key", entry.key);
       checkbox.setAttribute("data-zs-option-type", entry.type);
       checkboxWrap.appendChild(checkbox);
@@ -429,6 +432,7 @@ function renderSchemaFields(args: {
         customInput.placeholder = String(entry.placeholder || "");
         customInput.value = selectedValue;
         customInput.disabled = entry.disabled === true;
+        customInput.required = entry.required === true;
         customInput.setAttribute("data-zs-option-key", entry.key);
         customInput.setAttribute("data-zs-option-type", entry.type);
         recommendationControl.addEventListener("change", () => {
@@ -452,6 +456,9 @@ function renderSchemaFields(args: {
         control.setAttribute("id", controlId);
         control.setAttribute("data-zs-option-key", entry.key);
         control.setAttribute("data-zs-option-type", entry.type);
+        if (entry.required === true) {
+          control.setAttribute("aria-required", "true");
+        }
         if (entry.disabled === true) {
           const disabledControl = control as HTMLElement;
           disabledControl.setAttribute("aria-disabled", "true");
@@ -477,6 +484,7 @@ function renderSchemaFields(args: {
         input.value = coerceString(rawValue, defaultValue);
       }
       input.disabled = entry.disabled === true;
+      input.required = entry.required === true;
       row.appendChild(input);
     }
 

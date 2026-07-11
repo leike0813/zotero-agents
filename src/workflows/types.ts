@@ -54,6 +54,7 @@ export type WorkflowParameterOption = {
 
 export type WorkflowParameterSchema = {
   type: WorkflowParameterType;
+  required?: boolean;
   visible_if?: {
     parameter: string;
     equals: boolean;

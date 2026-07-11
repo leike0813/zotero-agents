@@ -372,3 +372,13 @@ The literature workbench package SHALL own research selection validation, Markdo
 - **THEN** the workflow, hooks, shared module, locale labels, and documentation SHALL be included
 - **AND** core workflow modules SHALL NOT contain research-bundle identities or literature payload recognition rules.
 
+### Requirement: Collection collector semantics remain package-owned
+
+The literature workbench package SHALL own collection selection apply validation and mutation semantics.
+
+#### Scenario: Workflow is packaged
+
+- **WHEN** built-in content manifests are checked or rendered
+- **THEN** the collection collector workflow, apply hook, documentation, and locales SHALL be included
+- **AND** core workflow runtime modules SHALL NOT contain collection-collector identities or threshold rules.
+

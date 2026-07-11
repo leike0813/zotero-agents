@@ -66,6 +66,7 @@ The plugin includes a series of official workflows, grouped by function:
 | **Interactive Literature Explainer** | Multi-turn dialogue with AI for deep literature understanding, with verified answers to prevent hallucination | Attachment | Skill-Runner | [Details](literature-explainer) |
 | **Deep Reading** | Generate structured deep reading HTML view with translation support | Attachment | ACP | [Details](literature-deep-reading) |
 | **Literature Search & Ingest** | Let the Agent search academic literature and ingest directly into Zotero | workflow | ACP | [Details](literature-search-ingest) |
+| **Collection Collector** | Select existing library literature for an existing collection from a declared scope | workflow | ACP | [Details](collection-collector) |
 | **Tag Bootstrapper** | Interactively create a controlled tag vocabulary for a research domain | workflow | Skill-Runner | [Details](tag-bootstrapper) |
 | **Tag Regulator** | Normalize tags based on a controlled vocabulary and infer new tags | Parent item | Skill-Runner | [Details](tag-regulator) |
 | **Export/Import Notes** | Export or import analysis notes with support for editing and re-importing | Parent item | No backend required | [Details](export-import-notes) |

@@ -59,5 +59,11 @@
   "workflows.tag-regulator.parameters.tag_note_language.title": "태그 노트 언어",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 태그 정리",
   "workflows.tag-regulator.taskNameTemplate": "문헌 태그 정리",
-  "workflows.export-research-bundle.label": "연구 번들 내보내기"
+  "workflows.export-research-bundle.label": "연구 번들 내보내기",
+  "workflows.collection-collector.label": "컬렉션 수집기",
+  "workflows.collection-collector.parameters.collection.title": "대상 컬렉션",
+  "workflows.collection-collector.parameters.collection.description": "일치하는 문헌을 받을 기존 Zotero 컬렉션입니다.",
+  "workflows.collection-collector.parameters.collectionScope.title": "컬렉션 범위",
+  "workflows.collection-collector.parameters.collectionScope.description": "컬렉션의 의미, 연구 주제 또는 문헌 범위를 설명합니다.",
+  "workflows.collection-collector.taskNameTemplate": "문헌 수집: {collectionScope}"
 }

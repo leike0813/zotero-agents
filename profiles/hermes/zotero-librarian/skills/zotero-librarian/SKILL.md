@@ -27,6 +27,7 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 - For the active Zotero pane, current selection, or UI navigation to known Zotero handles, use `context`.
 - For topic, graph, index, resolver, artifact, or insight context, use `synthesis`.
 - For reusable multi-step behavior, inspect the workflow with `workflow describe`.
+- For scope-driven curation of an existing collection from literature already in the same library, submit the Host-owned `collection-collector` workflow with explicit workflow options rather than issuing inferred item-by-item collection mutations or using an optionless agent-run handoff.
 - For draft workflow inputs, use `workflow requirements` or `workflow validate` before execution when readiness is uncertain.
 - For Host-owned execution, submit the workflow and monitor the returned `workflowRunId` with `run`.
 - For agent-owned handoffs, use `$zotero-workflow-agent-runner`; treat `agentRunId` as the apply-back session handle, complete the returned requests, and apply them with `workflow agent-apply`.

@@ -1574,3 +1574,4 @@ markdown-reader-load-failed = Markdown の読み込みに失敗しました。
 markdown-reader-bridge-missing = Markdown リーダーのブリッジを利用できません。
 markdown-reader-bridge-invalid = Markdown リーダーのブリッジは文書の読み込みに対応していません。
 markdown-reader-bridge-timeout = Markdown リーダーのブリッジを利用できません。ホストはスタンドアロンのフォールバックページを開こうとします。
+workflow-settings-parameter-required = この項目は必須です。

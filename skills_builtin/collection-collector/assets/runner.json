@@ -1,0 +1,20 @@
+{
+  "id": "collection-collector",
+  "name": "🗂️ Collection Collector",
+  "description": "Select existing Zotero literature for an existing collection from a declared research scope.",
+  "version": "0.1.0",
+  "execution_modes": ["auto"],
+  "max_attempt": 12,
+  "runtime": { "default_options": { "hard_timeout_seconds": 3600 } },
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "collection-collector.result.json",
+    "prompts": {
+      "common": "Run collection-collector for collection={{ parameter.collection }} and collectionScope={{ parameter.collectionScope }}. Treat SKILL.md as the complete authoritative execution contract. Start from the runner workspace with scripts/gate_runtime.py, follow only the gate instructions, and return the final __SKILL_DONE__ JSON envelope defined in SKILL.md."
+    }
+  }
+}

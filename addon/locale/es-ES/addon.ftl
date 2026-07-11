@@ -1572,3 +1572,4 @@ markdown-reader-load-failed = Error al cargar Markdown.
 markdown-reader-bridge-missing = El puente del lector de Markdown no está disponible.
 markdown-reader-bridge-invalid = El puente del lector de Markdown no admite la carga de documentos.
 markdown-reader-bridge-timeout = El puente del lector de Markdown no está disponible. El host intentará abrir una alternativa independiente.
+workflow-settings-parameter-required = Este campo es obligatorio.

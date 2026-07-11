@@ -66,6 +66,7 @@ Workflow 可以通过三种后端类型执行：
 | **交互式文献解读** | 与 AI 多轮对话深入理解文献，答案经验证门禁防幻觉 | 附件 | Skill-Runner | [详情](#doc/workflows%2Fliterature-explainer) |
 | **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](#doc/workflows%2Fliterature-deep-reading) |
 | **文献搜索与入库** | 让 Agent 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](#doc/workflows%2Fliterature-search-ingest) |
+| **Collection 文献收集器** | 根据指定范围从现有文献库中筛选文献并加入 collection | workflow | ACP | [详情](#doc/workflows%2Fcollection-collector) |
 | **标签词表初始化** | 与 AI 交互创建研究领域的受控标签词表 | workflow | Skill-Runner | [详情](#doc/workflows%2Ftag-bootstrapper) |
 | **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](#doc/workflows%2Ftag-regulator) |
 | **导出/导入笔记** | 导出或导入分析笔记，支持编辑后重新导入 | 父条目 | 无需后端 | [详情](#doc/workflows%2Fexport-import-notes) |

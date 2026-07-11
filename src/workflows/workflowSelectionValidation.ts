@@ -849,15 +849,15 @@ function resolveArtifactTargetPath(
 }
 
 async function fileExists(path: string, runtime: RuntimeLike) {
-  const targetPath = toNativePath(path);
-  if (!targetPath) {
-    return false;
-  }
-  const hostFile = runtime.hostApi?.file;
-  if (typeof hostFile?.exists === "function") {
-    return Boolean(await hostFile.exists(targetPath));
-  }
   try {
+    const targetPath = toNativePath(path);
+    if (!targetPath) {
+      return false;
+    }
+    const hostFile = runtime.hostApi?.file;
+    if (typeof hostFile?.exists === "function") {
+      return Boolean(await hostFile.exists(targetPath));
+    }
     return Boolean(runtime.zotero.File.pathToFile(targetPath)?.exists?.());
   } catch {
     return false;

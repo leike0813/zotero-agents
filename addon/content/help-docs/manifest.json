@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-07-07T08:51:59.815Z",
+  "generated_at": "2026-07-11T14:14:01.224Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -465,6 +465,12 @@
       "locale": "en",
       "title": "WebDAV Sync",
       "path": "docs/en/synthesis/webdav-sync.md"
+    },
+    {
+      "id": "workflows/collection-collector",
+      "locale": "en",
+      "title": "Collection Collector",
+      "path": "docs/en/workflows/collection-collector.md"
     },
     {
       "id": "workflows/custom/debugging",
@@ -2567,6 +2573,12 @@
       "path": "docs/zh-CN/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "zh-CN",
+      "title": "Collection 文献收集器",
+      "path": "docs/zh-CN/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "zh-CN",
       "title": "调试与测试",
@@ -2808,6 +2820,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -4852,6 +4869,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "文献搜索与入库"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection 文献收集器"
               },
               {
                 "type": "doc",

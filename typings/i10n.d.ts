@@ -1742,6 +1742,7 @@ export type FluentMessageId =
   | 'workflow-settings-no-workflows'
   | 'workflow-settings-number-invalid'
   | 'workflow-settings-open'
+  | 'workflow-settings-parameter-required'
   | 'workflow-settings-persisted-provider-options-title'
   | 'workflow-settings-persisted-workflow-params-title'
   | 'workflow-settings-picker-title'
