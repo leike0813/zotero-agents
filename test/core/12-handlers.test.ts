@@ -256,6 +256,37 @@ describeHandlersSuite("handlers", function () {
     }
   });
 
+  it("ParentHandler.updateMetadata changes type before applying target fields in one save", async function () {
+    const parent = await createParentItem("Handler Type Change Parent");
+    const originalSaveTx = parent.saveTx.bind(parent);
+    let saveCount = 0;
+    (parent as unknown as { saveTx: typeof parent.saveTx }).saveTx =
+      async function saveTxOnce() {
+        saveCount += 1;
+        return originalSaveTx();
+      };
+    try {
+      await handlers.parent.updateMetadata(parent, {
+        itemType: "thesis",
+        fields: {
+          title: "Converted thesis",
+          university: "Example University",
+          thesisType: "PhD dissertation",
+          publicationTitle: "Not valid for a thesis",
+        },
+        creators: [],
+      });
+      assert.equal(parent.itemType, "thesis");
+      assert.equal(parent.getField("title"), "Converted thesis");
+      assert.equal(parent.getField("university"), "Example University");
+      assert.equal(parent.getField("thesisType"), "PhD dissertation");
+      assert.equal(String(parent.getField("publicationTitle") || ""), "");
+      assert.equal(saveCount, 1);
+    } finally {
+      await cleanupObject(parent);
+    }
+  });
+
   it("ParentHandler.updateMetadata skips invalid fields without changing updateFields behavior", async function () {
     const parent = await createParentItem("Handler Metadata Invalid Parent");
     try {

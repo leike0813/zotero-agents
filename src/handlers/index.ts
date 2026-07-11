@@ -11,6 +11,7 @@ type CreatorPatch = Array<{
   creatorType?: string;
 }>;
 type ParentMetadataPatch = {
+  itemType?: string | null;
   fields?: FieldPatch | null;
   creators?: CreatorPatch | null;
 };
@@ -217,6 +218,31 @@ function applyValidFieldPatch(
     applied += 1;
   }
   return applied;
+}
+
+const NON_BIBLIOGRAPHIC_ITEM_TYPES = new Set([
+  "attachment",
+  "note",
+  "annotation",
+]);
+
+function applyValidItemTypePatch(item: Zotero.Item, itemType: unknown) {
+  const targetType = String(itemType || "").trim();
+  if (
+    !targetType ||
+    targetType === item.itemType ||
+    NON_BIBLIOGRAPHIC_ITEM_TYPES.has(targetType) ||
+    !item.isRegularItem?.()
+  ) {
+    return false;
+  }
+  try {
+    const targetTypeID = Zotero.ItemTypes.getID(targetType);
+    item.setField("itemTypeID" as any, targetTypeID as any);
+    return item.itemType === targetType;
+  } catch {
+    return false;
+  }
 }
 
 function resolveItem(ref: ItemRef): Zotero.Item {
@@ -555,6 +581,10 @@ export const handlers = {
       metadata: ParentMetadataPatch,
     ) => {
       const parent = resolveItem(parentRef);
+      const itemTypeChanged = applyValidItemTypePatch(
+        parent,
+        metadata?.itemType,
+      );
       const fieldCount = applyValidFieldPatch(parent, metadata?.fields);
       const creators = normalizeCreatorPatch(metadata?.creators);
       if (creators.length > 0) {
@@ -564,8 +594,9 @@ export const handlers = {
           }
         ).setCreators?.(creators);
       }
-      if (fieldCount > 0 || creators.length > 0) {
+      if (itemTypeChanged || fieldCount > 0 || creators.length > 0) {
         await saveItemTx(parent, "handlers:parent.updateMetadata:saveTx", {
+          itemTypeChanged,
           fieldCount,
           creatorCount: creators.length,
         });

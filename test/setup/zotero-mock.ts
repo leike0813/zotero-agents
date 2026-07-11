@@ -394,6 +394,24 @@ class MockItem {
   }
 
   setField(field: string, value: string | number | boolean | null) {
+    if (field === "itemTypeID") {
+      const itemTypeID = Number(value);
+      const itemType = Array.from(itemTypeIdByName.entries()).find(
+        ([, id]) => id === itemTypeID,
+      )?.[0];
+      if (!itemType) {
+        throw new Error(`Unknown item type ID: ${value}`);
+      }
+      this.itemTypeID = itemTypeID;
+      this.itemType = itemType;
+      for (const fieldName of Object.keys(this.fields)) {
+        const fieldID = fieldIdByName.get(fieldName);
+        if (fieldID && !validFieldsByType.get(itemTypeID)?.has(fieldID)) {
+          delete this.fields[fieldName];
+        }
+      }
+      return;
+    }
     this.fields[field] = value;
   }
 
