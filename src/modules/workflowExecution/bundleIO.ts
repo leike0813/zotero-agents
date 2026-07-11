@@ -1,5 +1,9 @@
 import { joinPath } from "../../utils/path";
-import { readRuntimeTextFile, runtimePathExists } from "../runtimePersistence";
+import {
+  readRuntimeBytes,
+  readRuntimeTextFile,
+  runtimePathExists,
+} from "../runtimePersistence";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 const dynamicImport: DynamicImport = new Function(
@@ -9,6 +13,7 @@ const dynamicImport: DynamicImport = new Function(
 
 export type BundleReader = {
   readText: (entryPath: string) => Promise<string>;
+  readBytes?: (entryPath: string) => Promise<Uint8Array>;
   getExtractedDir?: () => Promise<string>;
 };
 
@@ -75,18 +80,23 @@ function normalizeEntryPath(entryPath: string) {
 }
 
 export function createDirectoryBundleReader(rootDir: string): BundleReader {
+  const resolveEntry = async (entryPath: string) => {
+    const normalized = normalizeEntryPath(entryPath);
+    if (!normalized) {
+      throw new Error("bundle entry path is required");
+    }
+    const filePath = joinPath(rootDir, normalized);
+    if (!(await runtimePathExists(filePath))) {
+      throw new Error(`bundle entry not found: ${normalized}`);
+    }
+    return filePath;
+  };
   return {
     readText: async (entryPath: string) => {
-      const normalized = normalizeEntryPath(entryPath);
-      if (!normalized) {
-        throw new Error("bundle entry path is required");
-      }
-      const filePath = joinPath(rootDir, normalized);
-      if (!(await runtimePathExists(filePath))) {
-        throw new Error(`bundle entry not found: ${normalized}`);
-      }
-      return readRuntimeTextFile(filePath);
+      return readRuntimeTextFile(await resolveEntry(entryPath));
     },
+    readBytes: async (entryPath: string) =>
+      readRuntimeBytes(await resolveEntry(entryPath)),
     getExtractedDir: async () => rootDir,
   };
 }

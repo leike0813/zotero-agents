@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "用於標籤描述及標準化結果的語言。",
   "workflows.tag-regulator.parameters.tag_note_language.title": "標籤筆記語言",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 標籤調節",
-  "workflows.tag-regulator.taskNameTemplate": "調節文獻標籤"
+  "workflows.tag-regulator.taskNameTemplate": "調節文獻標籤",
+  "workflows.export-research-bundle.label": "匯出研究資料包"
 }

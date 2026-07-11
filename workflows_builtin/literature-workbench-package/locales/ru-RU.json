@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "Язык, используемый для описаний тегов и результатов нормализации.",
   "workflows.tag-regulator.parameters.tag_note_language.title": "Язык заметок тегов",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Регуляция тегов",
-  "workflows.tag-regulator.taskNameTemplate": "Регуляция тегов литературы"
+  "workflows.tag-regulator.taskNameTemplate": "Регуляция тегов литературы",
+  "workflows.export-research-bundle.label": "Экспортировать исследовательский пакет"
 }

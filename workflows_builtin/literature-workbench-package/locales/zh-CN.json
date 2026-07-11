@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "标签说明和规范化结果使用的输出语言。",
   "workflows.tag-regulator.parameters.tag_note_language.title": "标签说明语言",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 标签规范",
-  "workflows.tag-regulator.taskNameTemplate": "规范文献标签"
+  "workflows.tag-regulator.taskNameTemplate": "规范文献标签",
+  "workflows.export-research-bundle.label": "导出研究材料包"
 }

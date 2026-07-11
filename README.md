@@ -441,6 +441,7 @@ The reader is powered by `markdown-it` for rendering, with a built-in HTML sanit
 |----------|---------|-------------|
 | **Topic Synthesis** | `acp` | 3-step Sequence: Prepare → Core Enhancement → Finalize. Fully automated by Agent |
 | **Manuscript Literature Framing** | `acp` | Interactively generate LaTeX drafts for Introduction + Related Work |
+| **Export Research Bundle** | `skillrunner` | Select related topics and papers from manuscript intent, then register reports, metadata, core sources, and analysis payloads in Dashboard Products |
 | **Tag Vocabulary Initialization** | `skillrunner` | Interactively create a controlled tag vocabulary for your research domain with AI. Recommended to run first |
 | **Tag Normalization** | `skillrunner` | LLM-powered tag inference + controlled vocabulary organization |
 

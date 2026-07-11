@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "タグの説明と正規化結果に使用する出力言語。",
   "workflows.tag-regulator.parameters.tag_note_language.title": "タグ注釈言語",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 タグ正規化",
-  "workflows.tag-regulator.taskNameTemplate": "文献タグを正規化"
+  "workflows.tag-regulator.taskNameTemplate": "文献タグを正規化",
+  "workflows.export-research-bundle.label": "研究バンドルをエクスポート"
 }

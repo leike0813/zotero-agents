@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "Sprache, die für Tag-Beschreibungen und Normalisierungsergebnisse verwendet wird.",
   "workflows.tag-regulator.parameters.tag_note_language.title": "Sprache der Tag-Notizen",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Tag-Regulierung",
-  "workflows.tag-regulator.taskNameTemplate": "Literatur-Tags regulieren"
+  "workflows.tag-regulator.taskNameTemplate": "Literatur-Tags regulieren",
+  "workflows.export-research-bundle.label": "Forschungspaket exportieren"
 }

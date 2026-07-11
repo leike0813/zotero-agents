@@ -165,6 +165,137 @@ describe("workflow product storage", function () {
     }
   });
 
+  it("preserves binary local and bundle assets with integrity metadata", async function () {
+    const requestId = `req-product-binary-${Date.now()}`;
+    const sourceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-product-binary-"),
+    );
+    const pdfPath = path.join(sourceDir, "paper.pdf");
+    const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x10]);
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xfe]);
+    await fs.writeFile(pdfPath, pdfBytes);
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, fetchType: "bundle" },
+      bundleReader: {
+        async readText() {
+          throw new Error("binary entry must not be decoded as text");
+        },
+        async readBytes(entryPath: string) {
+          assert.equal(entryPath, "result/image.png");
+          return pngBytes;
+        },
+      },
+      manifest: {},
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-binary", label: "Binary" },
+      resultContext,
+      runResult: { requestId },
+    });
+    const record = await api.registerProduct({
+      productKey: "binary",
+      kind: "binary.test",
+      title: "Binary Product",
+      failurePolicy: "atomic",
+      assets: [
+        {
+          assetId: "pdf",
+          productAssetPath: "papers/paper.pdf",
+          contentType: "application/pdf",
+          source: { kind: "local-file", path: pdfPath },
+        },
+        {
+          assetId: "png",
+          productAssetPath: "images/image.png",
+          contentType: "image/png",
+          source: { kind: "result-artifact", rawPath: "result/image.png" },
+        },
+      ],
+    });
+    try {
+      assert.deepEqual(
+        await fs.readFile(record.assets[0].localPath || ""),
+        pdfBytes,
+      );
+      assert.deepEqual(
+        await fs.readFile(record.assets[1].localPath || ""),
+        Buffer.from(pngBytes),
+      );
+      assert.match(record.assets[0].sha256 || "", /^sha256:[a-f0-9]{64}$/);
+      assert.equal(record.assets[0].size, pdfBytes.length);
+      const preview = await readProductAssetPreview(record.productId, "pdf");
+      assert.equal(preview.kind, "binary");
+      assert.isFalse(preview.previewable);
+    } finally {
+      removeWorkflowProduct(record.productId);
+      await fs.rm(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back atomic product registration on duplicate targets", async function () {
+    const requestId = `req-product-atomic-${Date.now()}`;
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, fetchType: "result" },
+      bundleReader: {
+        async readText() {
+          throw new Error("unused");
+        },
+      },
+      manifest: {},
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-atomic", label: "Atomic" },
+      resultContext,
+      runResult: { requestId },
+    });
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "duplicate",
+        kind: "atomic.test",
+        title: "Atomic",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "one",
+            productAssetPath: "same.txt",
+            source: { kind: "inline-text", text: "one" },
+          },
+          {
+            assetId: "two",
+            productAssetPath: "same.txt",
+            source: { kind: "inline-text", text: "two" },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(String(error), /duplicate product asset path/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:duplicate`));
+
+    error = undefined;
+    try {
+      await api.registerProduct({
+        productKey: "unsafe",
+        kind: "atomic.test",
+        title: "Unsafe",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "unsafe",
+            productAssetPath: "../escape.txt",
+            source: { kind: "inline-text", text: "escape" },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(String(error), /unsafe product asset path/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:unsafe`));
+  });
+
   it("collects skill run feedback sidecar as a dedicated product", async function () {
     const requestId = `req-feedback-${Date.now()}`;
     const workspaceDir = await fs.mkdtemp(

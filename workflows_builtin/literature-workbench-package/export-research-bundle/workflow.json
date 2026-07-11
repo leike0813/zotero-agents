@@ -1,0 +1,25 @@
+{
+  "id": "export-research-bundle",
+  "label": "Export Research Bundle",
+  "provider": "skillrunner",
+  "version": "0.1.0",
+  "display": { "core": true, "emoji": "🧰" },
+  "taskNameTemplate": "Export research bundle: {paperTitle}",
+  "trigger": { "requiresSelection": false },
+  "inputs": { "unit": "workflow" },
+  "parameters": {
+    "paperTitle": { "type": "string", "title": "Paper Title", "description": "Working manuscript title used to find research materials." },
+    "articleType": { "type": "string", "title": "Article Type", "description": "Manuscript type. v1 is optimized for original research.", "default": "original research" },
+    "researchContent": { "type": "string", "title": "Research Content", "description": "Research problem, methods, scope, and intended contribution." },
+    "maxTopics": { "type": "number", "title": "Maximum Topics", "default": 5 },
+    "maxCorePapers": { "type": "number", "title": "Maximum Core Papers", "default": 20 },
+    "maxRelatedPapers": { "type": "number", "title": "Maximum Related Papers", "default": 80 }
+  },
+  "request": { "kind": "skillrunner.job.v1", "create": { "skill_id": "export-research-bundle", "mode": "auto" } },
+  "execution": { "zoteroHostAccess": { "required": true } },
+  "result": {
+    "fetch": { "type": "bundle" },
+    "expects": { "result_json": "result/result.json", "artifacts": ["result/export-research-bundle-artifacts.json"] }
+  },
+  "hooks": { "applyResult": "hooks/applyResult.mjs" }
+}

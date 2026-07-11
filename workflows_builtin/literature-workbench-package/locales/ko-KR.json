@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "태그 설명 및 정규화 결과에 사용되는 언어입니다.",
   "workflows.tag-regulator.parameters.tag_note_language.title": "태그 노트 언어",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 태그 정리",
-  "workflows.tag-regulator.taskNameTemplate": "문헌 태그 정리"
+  "workflows.tag-regulator.taskNameTemplate": "문헌 태그 정리",
+  "workflows.export-research-bundle.label": "연구 번들 내보내기"
 }

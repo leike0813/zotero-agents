@@ -1,11 +1,17 @@
 import { joinPath } from "../utils/path";
 import {
+  copyRuntimeDirectory,
+  copyRuntimeFile,
   getRuntimePersistencePaths,
+  readRuntimeBytes,
   readRuntimeTextFile,
+  removeRuntimePath,
   runtimePathExists,
   statRuntimePath,
+  writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
+import { sha256Bytes } from "./hostBridgeFileRegistry";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   deletePluginTaskRowEntry,
@@ -32,6 +38,7 @@ export type WorkflowProductAsset = {
   localPath?: string;
   entryPath?: string;
   size?: number;
+  sha256?: string;
   diagnostics?: string[];
 };
 
@@ -80,6 +87,11 @@ export type WorkflowProductPreview = {
   error?: string;
 };
 
+export type ProductStorageAssetSource =
+  | { kind: "result-artifact"; rawPath?: unknown; fallbackPath?: string }
+  | { kind: "local-file"; path: string }
+  | { kind: "inline-text"; text: string };
+
 export type ProductStorageAssetInput = {
   assetId?: string;
   label?: string;
@@ -87,6 +99,7 @@ export type ProductStorageAssetInput = {
   fallbackPath?: string;
   productAssetPath?: string;
   contentType?: string;
+  source?: ProductStorageAssetSource;
 };
 
 export type RegisterProductInput = {
@@ -95,6 +108,7 @@ export type RegisterProductInput = {
   title: string;
   assets: ProductStorageAssetInput[];
   metadata?: Record<string, unknown>;
+  failurePolicy?: "record-missing" | "atomic";
 };
 
 export type ProductStorageApi = {
@@ -147,6 +161,18 @@ function safeSegment(value: unknown, fallback = "asset") {
     .filter((part) => part && part !== "." && part !== "..")
     .join("/");
   return normalized || fallback;
+}
+
+function assertSafeProductAssetPath(value: unknown) {
+  const normalized = cleanString(value).replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    normalized.split("/").some((segment) => segment === "..")
+  ) {
+    throw new Error(`unsafe product asset path: ${normalized || "<empty>"}`);
+  }
 }
 
 function safeId(value: unknown, fallback = "product") {
@@ -282,6 +308,7 @@ function normalizeAsset(raw: unknown, index = 0): WorkflowProductAsset {
     size: Number.isFinite(Number(source.size))
       ? Math.max(0, Number(source.size))
       : undefined,
+    sha256: cleanString(source.sha256) || undefined,
     diagnostics: Array.isArray(source.diagnostics)
       ? source.diagnostics.map(cleanString).filter(Boolean)
       : undefined,
@@ -552,20 +579,49 @@ export function createProductStorageApi(args: {
     return { productId, productKey, cacheDir };
   };
 
+  const normalizeSource = (input: ProductStorageAssetInput) =>
+    input.source || {
+      kind: "result-artifact" as const,
+      rawPath: input.rawPath,
+      fallbackPath: input.fallbackPath,
+    };
+
   const resolveInput = async (input: ProductStorageAssetInput) => {
     if (!args.resultContext) {
       throw new Error("workflow resultContext is unavailable");
     }
-    return args.resultContext.resolveArtifact({
+    const source = normalizeSource(input);
+    if (source.kind === "inline-text") {
+      return {
+        bytes: new TextEncoder().encode(source.text),
+        entryPath: input.productAssetPath || input.assetId || "asset",
+      };
+    }
+    if (source.kind === "local-file") {
+      if (!(await runtimePathExists(source.path))) {
+        throw new Error(`local product asset does not exist: ${source.path}`);
+      }
+      return {
+        entryPath: source.path,
+        sourcePath: source.path,
+      };
+    }
+    return args.resultContext.resolveArtifactBytes({
       fieldName: input.assetId || input.label || "product asset",
-      rawPath: input.rawPath,
-      fallbackPath: input.fallbackPath,
+      rawPath: source.rawPath,
+      fallbackPath: source.fallbackPath,
     });
   };
 
   const makeAsset = async (
     input: ProductStorageAssetInput,
-    resolved: WorkflowResolvedArtifact | null,
+    resolved:
+      | (Partial<WorkflowResolvedArtifact> & {
+          bytes?: Uint8Array;
+          entryPath: string;
+          sourcePath?: string;
+        })
+      | null,
     cacheDir: string,
   ): Promise<WorkflowProductAsset> => {
     const assetId = safeId(
@@ -591,7 +647,19 @@ export function createProductStorageApi(args: {
       };
     }
     const targetPath = joinPath(cacheDir, relativePath);
-    await writeRuntimeTextFile(targetPath, resolved.text);
+    if (resolved.sourcePath) {
+      await copyRuntimeFile({
+        sourcePath: resolved.sourcePath,
+        targetPath,
+      });
+    } else if (resolved.bytes) {
+      await writeRuntimeBytes(targetPath, resolved.bytes, { overwrite: true });
+    } else {
+      throw new Error(
+        `product asset has no readable content: ${resolved.entryPath}`,
+      );
+    }
+    const managedBytes = await readRuntimeBytes(targetPath);
     return {
       assetId,
       label,
@@ -602,6 +670,7 @@ export function createProductStorageApi(args: {
       localPath: targetPath,
       entryPath: resolved.entryPath,
       size: await statAsset(targetPath),
+      sha256: await sha256Bytes(managedBytes),
     };
   };
 
@@ -618,54 +687,92 @@ export function createProductStorageApi(args: {
       const { productId, productKey, cacheDir } = productBase(
         input.productKey || input.kind,
       );
+      const atomic = input.failurePolicy === "atomic";
+      const stagingDir = atomic
+        ? `${cacheDir}.staging-${Date.now()}`
+        : cacheDir;
+      if (atomic) {
+        await removeRuntimePath(stagingDir);
+      }
       const existing = getWorkflowProduct(productId);
       const createdAt = existing?.createdAt || nowIso();
       const assets: WorkflowProductAsset[] = [];
-      for (const assetInput of input.assets || []) {
-        try {
-          const resolved = await resolveInput(assetInput);
-          assets.push(await makeAsset(assetInput, resolved, cacheDir));
-        } catch (error) {
-          assets.push({
-            assetId: safeId(assetInput.assetId || assetInput.label),
-            label: cleanString(assetInput.label) || safeId(assetInput.assetId),
-            path: safeSegment(
-              assetInput.productAssetPath || assetInput.fallbackPath,
-            ),
-            relativePath: safeSegment(
-              assetInput.productAssetPath || assetInput.fallbackPath,
-            ),
-            contentType: cleanString(assetInput.contentType) || undefined,
-            sourceKind: "missing",
-            diagnostics: [
-              error instanceof Error ? error.message : String(error),
-            ],
-          });
+      const seenPaths = new Set<string>();
+      try {
+        for (const assetInput of input.assets || []) {
+          if (assetInput.productAssetPath) {
+            assertSafeProductAssetPath(assetInput.productAssetPath);
+          }
+          const relativePath = safeSegment(
+            assetInput.productAssetPath ||
+              assetInput.fallbackPath ||
+              assetInput.assetId,
+          );
+          if (seenPaths.has(relativePath)) {
+            throw new Error(`duplicate product asset path: ${relativePath}`);
+          }
+          seenPaths.add(relativePath);
+          try {
+            const resolved = await resolveInput(assetInput);
+            assets.push(await makeAsset(assetInput, resolved, stagingDir));
+          } catch (error) {
+            if (atomic) throw error;
+            assets.push({
+              assetId: safeId(assetInput.assetId || assetInput.label),
+              label:
+                cleanString(assetInput.label) || safeId(assetInput.assetId),
+              path: safeSegment(
+                assetInput.productAssetPath || assetInput.fallbackPath,
+              ),
+              relativePath: safeSegment(
+                assetInput.productAssetPath || assetInput.fallbackPath,
+              ),
+              contentType: cleanString(assetInput.contentType) || undefined,
+              sourceKind: "missing",
+              diagnostics: [
+                error instanceof Error ? error.message : String(error),
+              ],
+            });
+          }
         }
+        if (atomic) {
+          await removeRuntimePath(cacheDir);
+          await copyRuntimeDirectory({
+            sourceDir: stagingDir,
+            targetDir: cacheDir,
+          });
+          await removeRuntimePath(stagingDir);
+          for (const asset of assets) {
+            asset.localPath = joinPath(cacheDir, asset.relativePath);
+          }
+        }
+        const record: WorkflowProductRecord = {
+          productId,
+          productKey,
+          kind: cleanString(input.kind) || "workflow.product",
+          title: cleanString(input.title) || productId,
+          workflowId,
+          workflowLabel,
+          backendId: backendId || undefined,
+          backendType,
+          runKey,
+          requestId,
+          runId,
+          storageMode: "persistent-cache",
+          workspaceDir: workspaceDir || undefined,
+          cacheDir,
+          resultJsonPath: resultJsonPath || undefined,
+          assets,
+          metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
+          createdAt,
+          updatedAt: nowIso(),
+        };
+        persistProduct(record);
+        return cloneRecord(record);
+      } catch (error) {
+        if (atomic) await removeRuntimePath(stagingDir);
+        throw error;
       }
-      const record: WorkflowProductRecord = {
-        productId,
-        productKey,
-        kind: cleanString(input.kind) || "workflow.product",
-        title: cleanString(input.title) || productId,
-        workflowId,
-        workflowLabel,
-        backendId: backendId || undefined,
-        backendType,
-        runKey,
-        requestId,
-        runId,
-        storageMode: "persistent-cache",
-        workspaceDir: workspaceDir || undefined,
-        cacheDir,
-        resultJsonPath: resultJsonPath || undefined,
-        assets,
-        metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
-        createdAt,
-        updatedAt: nowIso(),
-      };
-      persistProduct(record);
-      return cloneRecord(record);
     },
     listProducts: listWorkflowProducts,
     getProduct: getWorkflowProduct,

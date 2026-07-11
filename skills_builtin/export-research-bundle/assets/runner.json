@@ -1,0 +1,20 @@
+{
+  "id": "export-research-bundle",
+  "name": "🧰 Export Research Bundle",
+  "description": "Select topics and Zotero research materials for a Dashboard Research Bundle.",
+  "version": "0.1.0",
+  "execution_modes": ["auto"],
+  "max_attempt": 12,
+  "runtime": { "default_options": { "hard_timeout_seconds": 3600 } },
+  "schemas": {
+    "input": "assets/input.schema.json",
+    "parameter": "assets/parameter.schema.json",
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "export-research-bundle.result.json",
+    "prompts": {
+      "common": "Run export-research-bundle for paperTitle={{ parameter.paperTitle }}, articleType={{ parameter.articleType }}, researchContent={{ parameter.researchContent }}, maxTopics={{ parameter.maxTopics }}, maxCorePapers={{ parameter.maxCorePapers }}, and maxRelatedPapers={{ parameter.maxRelatedPapers }}. Treat SKILL.md as the complete authoritative execution contract. Start from the runner workspace with the package-local scripts/gate_runtime.py entry, follow only its gate instructions, and return the final __SKILL_DONE__ JSON envelope defined in SKILL.md."
+    }
+  }
+}

@@ -22,6 +22,7 @@
     "debug-migrate-note-payloads/workflow.json",
     "debug-note-artifact-inspector/workflow.json",
     "export-literature-bundle/workflow.json",
+    "export-research-bundle/workflow.json",
     "export-notes/workflow.json",
     "import-literature-bundle/workflow.json",
     "import-notes/workflow.json",

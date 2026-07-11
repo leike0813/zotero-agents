@@ -441,6 +441,7 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 |----------|------|------|
 | **Topic 综合** | `acp` | 3 步 Sequence：准备 → 核心增强 → 定稿。Agent 全自动处理 |
 | **文稿文献框架** | `acp` | 交互式生成 Introduction + Related Work 的 LaTeX 草稿 |
+| **导出研究材料包** | `skillrunner` | 根据文章意图筛选相关主题与文献，并在 Dashboard 产物区登记报告、元数据、核心原文和分析 payload |
 | **标签词表初始化** | `skillrunner` | 与 AI 交互创建研究领域的受控标签词表。建议首先运行 |
 | **标签规范化** | `skillrunner` | LLM 驱动的标签推断 + 受控词表规整 |
 

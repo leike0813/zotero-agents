@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["batch_id", "assessments"],
+  "properties": {
+    "batch_id": { "type": "string", "minLength": 1 },
+    "assessments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "paper_ref",
+          "semantic_relevance",
+          "matched_topic_ids",
+          "reason",
+          "evidence_basis",
+          "caveats"
+        ],
+        "properties": {
+          "paper_ref": { "type": "string", "pattern": "^[0-9]+:.+$" },
+          "semantic_relevance": { "type": "number", "minimum": 0, "maximum": 1 },
+          "matched_topic_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "reason": { "type": "string", "minLength": 1 },
+          "evidence_basis": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": ["metadata", "abstract", "digest", "topic_context"]
+            }
+          },
+          "caveats": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

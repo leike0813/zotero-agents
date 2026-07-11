@@ -58,5 +58,6 @@
   "workflows.tag-regulator.parameters.tag_note_language.description": "Idioma utilizado para as descrições de etiquetas e resultados de normalização.",
   "workflows.tag-regulator.parameters.tag_note_language.title": "Idioma das notas de etiquetas",
   "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Regulação de etiquetas",
-  "workflows.tag-regulator.taskNameTemplate": "Regular etiquetas da literatura"
+  "workflows.tag-regulator.taskNameTemplate": "Regular etiquetas da literatura",
+  "workflows.export-research-bundle.label": "Exportar pacote de pesquisa"
 }
