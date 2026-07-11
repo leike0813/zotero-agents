@@ -76,6 +76,38 @@ describeHandlersSuite("handlers", function () {
     }
   });
 
+  it("ItemHandler round-trips portable JSON without source identity", async function () {
+    const source = await createParentItem("Portable Source");
+    source.setField("DOI", "10.1000/portable");
+    source.setCreators([
+      { firstName: "Ada", lastName: "Lovelace", creatorType: "author" },
+    ]);
+    source.addTag("portable:test");
+    await source.saveTx();
+    let imported: Zotero.Item | null = null;
+    try {
+      const portable = handlers.item.exportPortableJson(source);
+      assert.notProperty(portable, "key");
+      assert.notProperty(portable, "version");
+      assert.notProperty(portable, "collections");
+      assert.notProperty(portable, "relations");
+
+      imported = await handlers.item.createFromJson({
+        itemJson: portable,
+        libraryID: source.libraryID,
+      });
+      assert.notEqual(imported.id, source.id);
+      assert.notEqual(imported.key, source.key);
+      assert.equal(imported.getField("title"), "Portable Source");
+      assert.equal(imported.getField("DOI"), "10.1000/portable");
+      assert.deepEqual(imported.getCreators(), source.getCreators());
+      assert.deepEqual(imported.getTags(), source.getTags());
+    } finally {
+      await cleanupObject(imported ?? undefined);
+      await cleanupObject(source);
+    }
+  });
+
   it("ParentHandler.addAttachment attaches a file to parent", async function () {
     const parent = await createParentItem("Handler Attachment Parent");
     let attachment: Zotero.Item | null = null;
@@ -382,6 +414,50 @@ describeHandlersSuite("handlers", function () {
     } finally {
       Zotero.Attachments.linkFromFile = originalLinkFromFile;
       await cleanupObject(attachment ?? undefined);
+      await cleanupObject(parent);
+    }
+  });
+
+  it("AttachmentHandler.importStoredFromPath copies content into Zotero storage", async function () {
+    const parent = await createParentItem("Handler Stored Import Parent");
+    const file = await createTempFile("handler-stored.txt", "stored content");
+    let attachment: Zotero.Item | null = null;
+    try {
+      attachment = await handlers.attachment.importStoredFromPath({
+        parent,
+        path: file.path,
+        title: "Stored Attachment",
+        mimeType: "text/plain",
+      });
+      const storedPath = await attachment.getFilePathAsync();
+      assert.notEqual(storedPath, file.path);
+      assert.equal(attachment.getField("title"), "Stored Attachment");
+      assert.equal(attachment.getAttachmentLinkMode(), 0);
+    } finally {
+      await cleanupObject(attachment ?? undefined);
+      await cleanupObject(parent);
+    }
+  });
+
+  it("AttachmentHandler.createFromUrl can bypass same-parent deduplication", async function () {
+    const parent = await createParentItem("Handler URL Duplicate Parent");
+    let first: Zotero.Item | null = null;
+    let second: Zotero.Item | null = null;
+    try {
+      first = await handlers.attachment.createFromUrl({
+        parent,
+        url: "https://example.test/paper",
+        deduplicate: false,
+      });
+      second = await handlers.attachment.createFromUrl({
+        parent,
+        url: "https://example.test/paper",
+        deduplicate: false,
+      });
+      assert.notEqual(first.id, second.id);
+    } finally {
+      await cleanupObject(second ?? undefined);
+      await cleanupObject(first ?? undefined);
       await cleanupObject(parent);
     }
   });

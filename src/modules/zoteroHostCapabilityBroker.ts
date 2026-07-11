@@ -122,6 +122,7 @@ export type ZoteroHostCurrentViewDto = AcpHostContext & {
   currentItem?: AcpHostContext["currentItem"] &
     Partial<ZoteroHostItemSummaryDto>;
   selectedItems: ZoteroHostItemSummaryDto[];
+  currentCollection?: ZoteroHostCollectionDto;
 };
 
 export type ZoteroHostNavigationTargetDto =
@@ -3205,6 +3206,21 @@ function getSelectedItems() {
     .map(serializeZoteroItemSummary);
 }
 
+function getCurrentCollection() {
+  const win =
+    (globalThis as any).Zotero?.getMainWindow?.() || (globalThis as any).window;
+  const ref = win?.ZoteroPane?.collectionsView?.selectedTreeRow?.ref;
+  const id = parsePositiveInteger(ref?.id ?? ref?.collectionID);
+  if (!id) {
+    return undefined;
+  }
+  const collection = resolveZotero().Collections?.get?.(id);
+  if (!collection || !trimText((collection as any).key)) {
+    return undefined;
+  }
+  return serializeCollection(collection);
+}
+
 function getCurrentView() {
   const context = buildCurrentAcpHostContext();
   const currentItem = context.currentItem
@@ -3214,6 +3230,7 @@ function getCurrentView() {
         libraryId: context.libraryId,
       })
     : null;
+  const currentCollection = getCurrentCollection();
   return {
     ...context,
     currentItem: currentItem
@@ -3223,6 +3240,7 @@ function getCurrentView() {
         }
       : context.currentItem,
     selectedItems: getSelectedItems(),
+    ...(currentCollection ? { currentCollection } : {}),
   };
 }
 

@@ -21,6 +21,10 @@ type CreateItemOptions = {
   fields?: FieldPatch;
   libraryID?: number;
 };
+type CreateItemFromJsonOptions = {
+  itemJson: Record<string, unknown>;
+  libraryID?: number;
+};
 type CreateCollectionOptions = {
   name: string;
   libraryID?: number;
@@ -33,6 +37,8 @@ type AttachmentPathOptions = {
   libraryID?: number;
   title?: string | null;
   mimeType?: string | null;
+  charset?: string | null;
+  url?: string | null;
   allowMissing?: boolean;
 };
 type AttachmentUrlOptions = {
@@ -40,7 +46,36 @@ type AttachmentUrlOptions = {
   url: string;
   title?: string | null;
   mimeType?: string | null;
+  deduplicate?: boolean;
 };
+
+const PORTABLE_ITEM_IDENTITY_FIELDS = new Set([
+  "id",
+  "key",
+  "version",
+  "dateAdded",
+  "dateModified",
+  "collections",
+  "relations",
+  "parentItem",
+  "parentItemID",
+]);
+
+function sanitizePortableItemJson(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Portable item JSON must be an object");
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!PORTABLE_ITEM_IDENTITY_FIELDS.has(key) && entry !== undefined) {
+      output[key] = JSON.parse(JSON.stringify(entry));
+    }
+  }
+  if (!String(output.itemType || "").trim()) {
+    throw new Error("Portable item JSON itemType is required");
+  }
+  return output;
+}
 
 function assertNonEmptyTags(tags: string[]) {
   for (const tag of tags) {
@@ -394,6 +429,23 @@ async function ensureFileFromPath(options: AttachmentPathOptions) {
 
 export const handlers = {
   item: {
+    exportPortableJson: (itemRef: ItemRef) => {
+      const item = resolveItem(itemRef);
+      return sanitizePortableItemJson(item.toJSON());
+    },
+    createFromJson: async (options: CreateItemFromJsonOptions) => {
+      const itemJson = sanitizePortableItemJson(options?.itemJson);
+      const item = new Zotero.Item(String(itemJson.itemType) as any);
+      if (options?.libraryID) {
+        (item as any).libraryID = options.libraryID;
+      }
+      item.fromJSON(itemJson, { strict: false });
+      await saveItemTx(item, "handlers:item.createFromJson:saveTx", {
+        hasCreators: Array.isArray(itemJson.creators),
+        hasTags: Array.isArray(itemJson.tags),
+      });
+      return item;
+    },
     create: async (options: CreateItemOptions) => {
       const item = new Zotero.Item(options.itemType as any);
       if (options.libraryID) {
@@ -569,13 +621,45 @@ export const handlers = {
       );
       return attachment;
     },
+    importStoredFromPath: async (options: AttachmentPathOptions) => {
+      const file = await ensureFileFromPath(options);
+      const parent = options.parent ? resolveItem(options.parent) : null;
+      if (typeof Zotero.Attachments?.importFromFile !== "function") {
+        throw new Error("Zotero.Attachments.importFromFile is unavailable");
+      }
+      const attachment = await measureAsyncTestPerformanceSpan(
+        "handlers:attachment.importStoredFromPath:importFromFile",
+        {
+          hasParent: !!parent,
+          hasPath: !!String(options.path || "").trim(),
+        },
+        () =>
+          Zotero.Attachments.importFromFile({
+            file,
+            ...(parent ? { parentItemID: parent.id } : {}),
+            ...(options.title ? { title: options.title } : {}),
+            ...(options.mimeType ? { contentType: options.mimeType } : {}),
+            ...(options.charset ? { charset: options.charset } : {}),
+          }),
+      );
+      if (options.url) {
+        attachment.setField("url", options.url);
+        await saveItemTx(
+          attachment,
+          "handlers:attachment.importStoredFromPath:updateUrl:saveTx",
+        );
+      }
+      return attachment;
+    },
     createFromUrl: async (options: AttachmentUrlOptions) => {
       const url = String(options.url || "").trim();
       assertHttpUrl(url);
       const parent = resolveItem(options.parent);
-      const existing = findChildAttachmentByUrl(parent, url);
-      if (existing) {
-        return existing;
+      if (options.deduplicate !== false) {
+        const existing = findChildAttachmentByUrl(parent, url);
+        if (existing) {
+          return existing;
+        }
       }
       if (typeof Zotero.Attachments?.linkFromURL !== "function") {
         throw new Error("Zotero.Attachments.linkFromURL is unavailable");

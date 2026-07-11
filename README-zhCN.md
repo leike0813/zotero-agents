@@ -148,6 +148,7 @@ Zotero Agents 是 Zotero 文献库的**一站式 Agentic 工作台**——它不
 | 🔎 **文献搜索与入库** | 让 Agent 帮你快速扩充文献库：搜索、筛选、确认后直接入库 | Dashboard → `文献搜索与入库` |
 | 📋 **PDF 解析** | 将 PDF 转为 Markdown（调用 MinerU 服务） | 右键 PDF → `MinerU` |
 | 📤 **笔记导出/导入** | 批量导出摘要和笔记为 Markdown，或导入外部笔记 | 右键选中条目 → 导出/导入 |
+| 📦 **文献 Bundle 导出/导入** | 在 Zotero 实例之间迁移文献条目、附件、笔记、分析 payload 与 Markdown 图片 | 选择父条目导出；从 Workflow 菜单导入 |
 
 > **💡 关于产物笔记**：文献分析的产物（摘要、参考文献、引文分析）会以 Note 附件的形式添加到父条目。笔记中显示的内容是从后台数据**渲染**出来的，直接修改笔记内容不会改变后台数据。如需编辑，请使用「导出笔记」导出 → 修改 → 再通过「导入笔记」重新导入。
 
@@ -449,6 +450,8 @@ Host Bridge CLI (`zotero-bridge`) 提供 20+ 子命令，支持 Windows / macOS 
 |----------|------|------|
 | **笔记导出** | `pass-through` | 批量导出摘要/笔记为 Markdown（修改后可重新导入） |
 | **笔记导入** | `pass-through` | 导入外部 Markdown 为 Zotero 笔记 |
+| **文献 Bundle 导出** | `pass-through` | 将选中的父条目及其完整可迁移子图导出为单个 ZIP |
+| **文献 Bundle 导入** | `pass-through` | 校验 Bundle ZIP，并在当前库/集合中将每个父条目作为新条目导入 |
 | **Debug Probe** | 多种 | 13 个调试探针，验证序列执行、apply 合约、Host Bridge 连通性等 |
 
 </details>

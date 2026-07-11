@@ -52,6 +52,12 @@ type ZoteroMock = {
       title?: string;
       contentType?: string;
     }) => Promise<MockItem>;
+    importFromFile?: (opts: {
+      file: MockFile;
+      parentItemID?: number | null;
+      title?: string;
+      contentType?: string;
+    }) => Promise<MockItem>;
     importEmbeddedImage?: (opts: {
       blob: Blob;
       parentItemID?: number | null;
@@ -548,6 +554,38 @@ class MockItem {
       attachments[0] ||
       false
     );
+  }
+
+  fromJSON(json: Record<string, unknown>) {
+    const reserved = new Set([
+      "id",
+      "key",
+      "version",
+      "itemType",
+      "collections",
+      "relations",
+      "parentItem",
+      "parentItemID",
+      "creators",
+      "tags",
+    ]);
+    if (Array.isArray(json.creators)) {
+      this.setCreators(json.creators as Parameters<MockItem["setCreators"]>[0]);
+    }
+    if (Array.isArray(json.tags)) {
+      this.tags = json.tags
+        .map((entry) =>
+          typeof entry === "string"
+            ? { tag: entry }
+            : { ...(entry as TagEntry) },
+        )
+        .filter((entry) => String(entry.tag || "").trim());
+    }
+    for (const [field, value] of Object.entries(json)) {
+      if (!reserved.has(field) && value !== undefined && value !== null) {
+        this.setField(field, value as string | number | boolean);
+      }
+    }
   }
 
   toJSON() {
@@ -2625,6 +2663,40 @@ function createZoteroMock(): ZoteroMock {
           (attachment as any).attachmentContentType = contentType;
         }
         attachment.setFilePath(file.path);
+        await attachment.saveTx();
+        return attachment;
+      },
+      importFromFile: async ({
+        file,
+        parentItemID,
+        title,
+        contentType,
+      }: {
+        file: MockFile;
+        parentItemID?: number | null;
+        title?: string;
+        contentType?: string;
+      }) => {
+        const attachment = new MockItem("attachment");
+        attachment.parentItemID = parentItemID ?? null;
+        attachment.setField("title", title || path.basename(file.path));
+        attachment.setField(
+          "contentType",
+          contentType || "application/octet-stream",
+        );
+        const storageDir = path.join(
+          os.tmpdir(),
+          "zotero-stored-attachments",
+          `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        );
+        await fs.mkdir(storageDir, { recursive: true });
+        const storedPath = path.join(storageDir, path.basename(file.path));
+        await fs.copyFile(file.path, storedPath);
+        attachment.setFilePath(storedPath);
+        (attachment as any).attachmentLinkMode = 0;
+        (attachment as any).attachmentContentType =
+          contentType || "application/octet-stream";
+        (attachment as any).getAttachmentLinkMode = () => 0;
         await attachment.saveTx();
         return attachment;
       },

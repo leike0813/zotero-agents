@@ -104,12 +104,12 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v6 broker domains without removing legacy APIs", async function () {
+  it("exposes v7 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 6);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 7);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
@@ -120,12 +120,57 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.file.writeBytes);
     assert.isFunction(hostApi.file.copy);
     assert.isFunction(hostApi.file.materializeWorkflowInputFile);
+    assert.isFunction(hostApi.file.pickSaveFile);
+    assert.isFunction(hostApi.archive.writeZipAtomic);
+    assert.isFunction(hostApi.archive.withExtractedZip);
+    assert.isFunction(hostApi.items.exportPortableJson);
+    assert.isFunction(hostApi.items.createFromJson);
+    assert.isFunction(hostApi.items.remove);
+    assert.isFunction(hostApi.attachments.importStoredFromPath);
     assert.strictEqual(hostApi.items.get(item.id), item);
 
     await handlers.parent.updateFields(item, {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("projects only a real selected collection into current view", async function () {
+    const collection = await createCollection("Portable Import Target");
+    const previousGetMainWindow = (Zotero as any).getMainWindow;
+    try {
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryID: () => collection.libraryID,
+          collectionsView: { selectedTreeRow: { ref: collection } },
+        },
+      });
+      resetWorkflowHostApiForTests();
+      const currentCollection =
+        createWorkflowHostApi().context.getCurrentView().currentCollection;
+      assert.equal(currentCollection?.id, collection.id);
+      assert.equal(currentCollection?.key, collection.key);
+      assert.equal(currentCollection?.name, collection.name);
+      assert.equal(currentCollection?.libraryId, collection.libraryID);
+
+      (Zotero as any).getMainWindow = () => ({
+        ZoteroPane: {
+          getSelectedItems: () => [],
+          getSelectedLibraryID: () => collection.libraryID,
+          collectionsView: {
+            selectedTreeRow: { ref: { id: 999999, name: "Library Root" } },
+          },
+        },
+      });
+      resetWorkflowHostApiForTests();
+      assert.notProperty(
+        createWorkflowHostApi().context.getCurrentView(),
+        "currentCollection",
+      );
+    } finally {
+      (Zotero as any).getMainWindow = previousGetMainWindow;
+    }
   });
 
   it("materializes workflow input files under managed runtime tmp", async function () {

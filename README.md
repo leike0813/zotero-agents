@@ -148,6 +148,7 @@ The features you'll use every day — triggered by right-clicking a paper.
 | 🔎 **Literature Search & Ingest** | Let the Agent help you quickly expand your library: search, filter, confirm, and ingest directly | Dashboard → `Literature Search & Ingest` |
 | 📋 **PDF Parsing** | Convert PDF to Markdown (calls the MinerU service) | Right-click PDF → `MinerU` |
 | 📤 **Note Export/Import** | Batch export abstracts and notes as Markdown, or import external notes | Right-click selected items → Export/Import |
+| 📦 **Literature Bundle Export/Import** | Move literature items, attachments, notes, analysis payloads, and Markdown images between Zotero instances | Export from selected parent items; import from the workflow menu |
 
 > **💡 About artifact notes**: The outputs of Literature Analysis (abstract, references, citation analysis) are added as Note attachments to the parent item. The content displayed in notes is **rendered** from backend data — directly editing the note content won't change the backend data. To edit, use "Export Notes" to export → modify → then "Import Notes" to re-import.
 
@@ -449,6 +450,8 @@ The reader is powered by `markdown-it` for rendering, with a built-in HTML sanit
 |----------|---------|-------------|
 | **Note Export** | `pass-through` | Batch export abstracts/notes as Markdown (can be re-imported after editing) |
 | **Note Import** | `pass-through` | Import external Markdown as Zotero notes |
+| **Literature Bundle Export** | `pass-through` | Export selected parent items and their complete portable child graph to one ZIP |
+| **Literature Bundle Import** | `pass-through` | Validate a bundle ZIP and import every parent as a new item in the current library/collection |
 | **Debug Probe** | Multiple | 13 debug probes to verify sequence execution, apply contracts, Host Bridge connectivity, etc. |
 
 </details>
