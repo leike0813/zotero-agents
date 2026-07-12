@@ -121,6 +121,8 @@ For each exported Markdown parent attachment, export SHALL resolve local Markdow
 
 Import SHALL open one selected ZIP and SHALL validate archive safety, root manifest identity and schema version, unique bundle-local ids, reference closure, declared file presence, and declared-entry ownership before creating Zotero objects.
 
+Parent item ids are bundle-global because relations reference them directly. Attachment and note ids are unique only within their owning parent; Markdown asset ids are unique within their attachment; embedded-image ids are unique within their note. Local ids MAY repeat under different owners.
+
 #### Scenario: Valid schema version one bundle is selected
 - **WHEN** the selected ZIP has a safe, complete `zotero-agents-literature-bundle` version 1 manifest
 - **THEN** import SHALL proceed to materialization.
@@ -133,6 +135,11 @@ Import SHALL open one selected ZIP and SHALL validate archive safety, root manif
 #### Scenario: Declared file integrity does not match
 - **WHEN** a declared bundle file has a byte length or SHA-256 digest different from its manifest record
 - **THEN** import SHALL reject the bundle before mutation.
+
+#### Scenario: Validation and import failures remain distinct
+- **WHEN** archive opening, manifest validation, or integrity measurement fails
+- **THEN** import SHALL return `validation_failed` with a stable validation stage
+- **AND** target resolution or non-isolated materialization failures SHALL be reported as `import_failed` rather than validation failures.
 
 #### Scenario: User cancels import
 - **WHEN** the open-file picker is canceled

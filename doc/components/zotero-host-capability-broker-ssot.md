@@ -239,9 +239,9 @@ Write tools (11):
 
 Each write tool must use broker preview semantics and ACP permission confirmation before execute. If the permission hook is unavailable or the user denies the request, the MCP tool must return a structured non-executed result.
 
-## Workflow Host API v7 Portable Archive Boundary
+## Workflow Host API v8 Portable Archive Boundary
 
-Workflow Host API v7 provides generic local migration primitives without
+Workflow Host API v8 provides generic local migration primitives without
 embedding concrete workflow semantics in core modules:
 
 - `file.pickSaveFile` uses Zotero's native save picker, including suggested
@@ -251,6 +251,9 @@ embedding concrete workflow semantics in core modules:
   text/bytes/file-backed entries, expose integrity metadata, preserve an
   existing target on write failure, and scope extracted temporary files to a
   callback.
+- An extracted archive exposes `measureEntries(entryNames)` so package code
+  can verify enumerated files entirely in the Host without receiving host
+  paths or transferring file bytes across the package boundary.
 - `items.exportPortableJson`, `items.createFromJson`, and `items.remove`
   transfer complete item JSON without reusing source identity fields.
 - `attachments.importStoredFile` imports content into Zotero storage and can

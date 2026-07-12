@@ -1,5 +1,6 @@
 import { rewriteMarkdownLocalImages } from "./literatureBundle.mjs";
 import { listWorkbenchEmbeddedPayloadBlocksForNote } from "./embeddedPayloadAttachments.mjs";
+import { renderResearchBundleReadme } from "./researchBundleReadme.mjs";
 
 export const RESEARCH_SELECTION_SCHEMA = "research_bundle.selection";
 export const RESEARCH_PRODUCT_SCHEMA = "research_bundle.product";
@@ -25,10 +26,6 @@ function boundedInteger(value, fallback, minimum, maximum) {
   if (!Number.isInteger(parsed)) return fallback;
   return Math.min(maximum, Math.max(minimum, parsed));
 }
-function safeName(value, fallback) {
-  return text(value).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || fallback;
-}
-
 export function computeResearchPaperScore(args = {}) {
   const semantic = number(args.semantic);
   const topic = number(args.topic);
@@ -124,7 +121,26 @@ function payloadText(block) {
 }
 
 function topicReportBody(report) {
-  return text(report?.synthesis_report?.body || report?.report?.body || report?.body);
+  return text(
+    report?.markdown || report?.synthesis_report?.body || report?.report?.body || report?.body,
+  );
+}
+
+function payloadArtifactName(payloadType) {
+  return payloadType === "digest-markdown"
+    ? "digest"
+    : payloadType === "references-json"
+      ? "references"
+      : payloadType === "citation-analysis-json"
+        ? "citation-analysis"
+        : "conversation";
+}
+
+export function researchPayloadArtifactPath(args = {}) {
+  const logicalId = text(args.logicalId);
+  const ordinal = Math.max(1, Number.parseInt(args.ordinal, 10) || 1);
+  const extension = args.format === "json" ? "json" : "md";
+  return `papers/${logicalId}/${payloadArtifactName(args.payloadType)}-${String(ordinal).padStart(3, "0")}.${extension}`;
 }
 
 export async function materializeResearchProduct(args) {
@@ -143,16 +159,23 @@ export async function materializeResearchProduct(args) {
     entries.push({ name: path, sourcePath });
   };
 
+  const topicManifest = [];
   for (let index = 0; index < selection.topics.length; index += 1) {
     const topic = selection.topics[index];
+    const logicalId = `topic-${String(index + 1).padStart(3, "0")}`;
+    let reportPath = null;
     try {
       const report = await host.synthesis?.getTopicReport?.({ topicId: topic.topic_id });
       const body = topicReportBody(report);
-      if (body) addText(`topic-${index + 1}-report`, `topics/topic-${String(index + 1).padStart(3, "0")}/report.md`, body, "text/markdown");
+      if (body) {
+        reportPath = `topics/${logicalId}/report.md`;
+        addText(`${logicalId}-report`, reportPath, body, "text/markdown");
+      }
       else warnings.push({ code: "topic_report_missing", topic_id: topic.topic_id });
     } catch (error) {
       warnings.push({ code: "topic_report_unavailable", topic_id: topic.topic_id, message: String(error) });
     }
+    topicManifest.push({ ...topic, logical_id: logicalId, report_path: reportPath });
   }
 
   const paperManifest = [];
@@ -165,7 +188,9 @@ export async function materializeResearchProduct(args) {
       warnings.push({ code: "paper_missing", paper_ref: selected.paper_ref });
       continue;
     }
-    addText(`${logicalId}-metadata`, `papers/${logicalId}/metadata.json`, `${JSON.stringify(host.items.exportPortableJson(item), null, 2)}\n`, "application/json");
+    const paperDir = `papers/${logicalId}`;
+    const metadataPath = `${paperDir}/metadata.json`;
+    addText(`${logicalId}-metadata`, metadataPath, `${JSON.stringify(host.items.exportPortableJson(item), null, 2)}\n`, "application/json");
     const payloads = [];
     for (const noteRef of item.getNotes?.() || []) {
       const note = host.items.get(noteRef);
@@ -173,9 +198,9 @@ export async function materializeResearchProduct(args) {
       const blocks = await listWorkbenchEmbeddedPayloadBlocksForNote({ noteItem: note, runtime: args.runtime });
       for (const block of blocks.filter((entry) => isResearchPayloadType(entry.payloadType))) {
         const ordinal = payloads.filter((entry) => entry.payload_type === block.payloadType).length + 1;
-        const group = block.payloadType === "digest-markdown" ? "digest" : block.payloadType === "references-json" ? "references" : block.payloadType === "citation-analysis-json" ? "citation-analysis" : "conversations";
         const extension = block.format === "json" ? "json" : "md";
-        const path = `papers/${logicalId}/analysis/${group}/${String(ordinal).padStart(3, "0")}.${extension}`;
+        const group = payloadArtifactName(block.payloadType);
+        const path = researchPayloadArtifactPath({ logicalId, payloadType: block.payloadType, ordinal, format: block.format });
         addText(`${logicalId}-${group}-${ordinal}`, path, payloadText(block), extension === "json" ? "application/json" : "text/markdown");
         payloads.push({ path, payload_type: block.payloadType, note_key: text(note.key), attachment_key: block.attachmentKey, payload_hash: block.payloadHash || "", format: block.format });
       }
@@ -189,30 +214,42 @@ export async function materializeResearchProduct(args) {
         const rewritten = await rewriteMarkdownLocalImages({
           markdown: await host.file.readText(markdown.path),
           sourcePath: markdown.path,
+          assetPolicy: { kind: "preserve-source-tree" },
           resolveLocalPath: async (path) => await host.file.exists(path) ? path : null,
         });
-        const sourcePath = `papers/${logicalId}/source/${safeName(markdown.filename, "article.md")}`;
+        const sourcePath = `${paperDir}/source.md`;
+        const sourceAssets = [];
+        for (const image of rewritten.assets) {
+          const imagePath = `${paperDir}/${image.relativePath}`;
+          addFile(`${logicalId}-image-${image.id}`, imagePath, image.sourcePath, "image/*");
+          sourceAssets.push({ path: imagePath, source_relative_path: image.relativePath });
+        }
         addText(`${logicalId}-source`, sourcePath, rewritten.markdown, "text/markdown");
-        for (const image of rewritten.assets) addFile(`${logicalId}-image-${image.id}`, `papers/${logicalId}/source/${image.relativePath}`, image.sourcePath, "image/*");
         warnings.push(...rewritten.warnings.map((warning) => ({ ...warning, paper_ref: selected.paper_ref })));
-        source = { kind: "markdown", path: sourcePath };
+        source = { kind: "markdown", path: sourcePath, assets: sourceAssets };
       } else if (pdf?.path && await host.file.exists(pdf.path)) {
-        const sourcePath = `papers/${logicalId}/source/${safeName(pdf.filename, "article.pdf")}`;
+        const sourcePath = `${paperDir}/source.pdf`;
         addFile(`${logicalId}-source`, sourcePath, pdf.path, "application/pdf");
-        source = { kind: "pdf", path: sourcePath };
+        source = { kind: "pdf", path: sourcePath, assets: [] };
       } else warnings.push({ code: "core_source_missing", paper_ref: selected.paper_ref });
     }
-    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, role: selected.role, score: selected.score, reason: text(selected.reason), source, payloads });
+    paperManifest.push({ logical_id: logicalId, paper_ref: selected.paper_ref, item_key: ref.key, library_id: ref.libraryID, role: selected.role, score: selected.score, reason: text(selected.reason), metadata_path: metadataPath, source, payloads });
   }
 
-  const readme = `# Research Bundle\n\n- Title: ${selection.intent.paper_title}\n- Article type: ${selection.intent.article_type}\n- Topics: ${selection.topics.length}\n- Core papers: ${paperManifest.filter((paper) => paper.role === "core").length}\n- Related papers: ${paperManifest.length}\n\n## Research content\n\n${selection.intent.research_content}\n`;
+  const readme = renderResearchBundleReadme({
+    locale: args.runtime?.locale,
+    intent: selection.intent,
+    topics: topicManifest,
+    papers: paperManifest,
+    warningCount: warnings.length,
+  });
   addText("readme", "README.md", readme, "text/markdown");
   const measured = await host.archive.measureEntries(entries);
   const manifest = {
     schema_id: RESEARCH_PRODUCT_SCHEMA,
-    schema_version: "1.0.0",
+    schema_version: "2.0.0",
     intent: selection.intent,
-    topics: selection.topics,
+    topics: topicManifest,
     papers: paperManifest,
     files: measured.files,
     warnings,

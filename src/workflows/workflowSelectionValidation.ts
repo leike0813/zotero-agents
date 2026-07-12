@@ -4,6 +4,7 @@ import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { resolveRuntimeAddon, resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import { handlers } from "../handlers";
+import { resolveWorkflowDisplayLocale } from "./localization";
 import type {
   LoadedWorkflow,
   WorkflowManifest,
@@ -127,6 +128,7 @@ function createSelectionRuntime(
     packageRootDir: override?.packageRootDir,
     workflowSourceKind: override?.workflowSourceKind || "",
     hookName: override?.hookName || "",
+    locale: resolveWorkflowDisplayLocale(override?.locale),
     fetch: override?.fetch ?? null,
     Buffer: override?.Buffer ?? null,
     btoa: override?.btoa ?? null,

@@ -162,7 +162,7 @@ describe("collection collector workflow", function () {
       },
       resultContext: { resultJson: result },
       runtime: {
-        hostApiVersion: 7,
+        hostApiVersion: 8,
         hostApi: {
           library: {
             async listItems() {
@@ -216,7 +216,7 @@ describe("collection collector workflow", function () {
           resultJson: successResult([selectedItem("2:ITEM1234")]),
         },
         runtime: {
-          hostApiVersion: 7,
+          hostApiVersion: 8,
           hostApi: {
             library: {
               async listItems() {

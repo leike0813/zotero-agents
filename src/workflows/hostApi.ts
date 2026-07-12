@@ -37,7 +37,7 @@ import type {
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
 
-export const WORKFLOW_HOST_API_VERSION = 7;
+export const WORKFLOW_HOST_API_VERSION = 8;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 

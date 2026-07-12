@@ -8,6 +8,10 @@
 
 无需选中条目。已有 Topic 综合或已整理的文献库会帮助 AI 在方案阶段排除重复和不必要的检索。
 
+## 怎么输入？
+
+无需选中条目。从 Dashboard 直接运行，填写搜索参数即可。`auto` 或 `guided` 模式下留空查询会触发引导对话，由 AI 帮你形成搜索方案。
+
 ## 执行方式
 
 交互式执行，包含三个确认边界：
@@ -24,14 +28,28 @@
 | `searchMode` | string | `auto` | `auto`、`guided`（引导形成搜索方案）、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`。 |
 | `targetCollection` | string | 空 | 目标 Zotero Collection（可选）。 |
 
+## 需要多长时间？
+
+交互式执行，总耗时取决于引导对话轮数、搜索结果数量和你的决策时间。单次搜索和入库通常在一到数分钟内完成。
+
 ## 产出
 
 - 候选在展示前核验 identifier、权威元数据和合法公开 PDF 线索。
 - 成功条目直接入库；缺少 PDF 时保留可访问的 landing page 线索。
 - 最终输出简洁的入库结果汇总；引导模式结果标记为 `search_mode: "guided"`。
 
+## 模型建议
+
+必须具有网络搜索能力。推理能力和工具调用能力中等即可——搜索和入库本质上是检索和工具调用任务。
+
 ## 依赖
 
 - **后端**：Skill-Runner
 - **Skill**：`literature-search-ingest`
 - **Host Bridge**：入库操作需要写权限
+
+## 相关 Workflow
+
+- [Literature Analysis](../literature-analysis/README.md) — 分析入库文献，生成摘要和引文分析
+- [Collection 文献收集器](../collection-collector/README.md) — 将入库文献整理到指定 collection
+- [Tag Regulator](../tag-regulator/README.md) — 规范化入库文献的标签

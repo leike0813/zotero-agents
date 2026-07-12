@@ -29,7 +29,7 @@ describe("tag compliance evaluation", function () {
       entries: Array<{ itemKey: string; compliant: boolean }>;
     }> = [];
     const runtime = {
-      hostApiVersion: 7,
+      hostApiVersion: 8,
       hostApi: {
         items: {
           async getAll() {

@@ -38,6 +38,7 @@
     "literature-workbench-package/lib/literatureDeepReadingBundle.mjs",
     "literature-workbench-package/lib/literatureBundle.mjs",
     "literature-workbench-package/lib/researchBundle.mjs",
+    "literature-workbench-package/lib/researchBundleReadme.mjs",
     "literature-workbench-package/lib/deepReadingResultTarget.mjs",
     "literature-workbench-package/lib/translatorArtifacts.mjs",
     "literature-workbench-package/lib/bindings.mjs",

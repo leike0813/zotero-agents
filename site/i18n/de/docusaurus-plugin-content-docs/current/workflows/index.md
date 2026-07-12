@@ -62,9 +62,15 @@ Das Plugin enthält eine Reihe offizieller Workflows, nach Funktion gruppiert:
 | Workflow | Zweck | Eingabe | Backend | Docs |
 |---------|------|------|------|------|
 | **Literature Analysis** ⭐ | Zusammenfassung, Referenzen und Zitationsanalyse aus PDF/MD erstellen. Kann in Tag-Regulierung kaskadieren | Anhang | Skill-Runner | [Details](literature-analysis) |
+| **Literature Metadata Curator** | Bibliografische Metadaten für einen Zotero-Eintrag abfragen, korrigieren und vervollständigen | Übergeordneter Eintrag | Skill-Runner | [Details](literature-metadata-curator) |
+| **Literature Translator** | Akademische Literatur mit Glossarverwaltung und Qualitätsprüfung übersetzen | Anhang | Skill-Runner | [Details](literature-translator) |
 | **Interactive Literature Explainer** | Multi-Turn-Dialog mit KI für tiefes Literaturverständnis, mit überprüften Antworten zur Vermeidung von Halluzinationen | Anhang | Skill-Runner | [Details](literature-explainer) |
 | **Deep Reading** | Strukturierte Deep-Reading-HTML-Ansicht mit Übersetzungsunterstützung erstellen | Anhang | ACP | [Details](literature-deep-reading) |
 | **Literature Search & Ingest** | Die KI akademische Literatur suchen und direkt in Zotero importieren lassen | Workflow | ACP | [Details](literature-search-ingest) |
+| **Collection Collector** | Vorhandene Literatur aus der Bibliothek für eine bestehende Collection nach angegebenem Umfang auswählen | Workflow | ACP | [Details](collection-collector) |
+| **Export/Import Literature Bundle** | Portable ZIP-Bundles von Zotero-Einträgen mit Metadaten, Anhängen und Notizen exportieren/importieren | Übergeordneter Eintrag / Workflow | Kein Backend erforderlich | [Details](export-import-literature-bundle) |
+| **Export Research Bundle** | Automatisches Zusammenstellen eines schreibgeschützten Research Bundles für ein Papierprojekt aus Bibliothek und Synthesis-Kontext | Workflow | Skill-Runner | [Details](export-research-bundle) |
+| **Tag Auditor** | Alle Bibliothekseinträge gegen das kontrollierte Tag-Vokabular scannen und Konformität melden | Workflow | Kein Backend erforderlich | [Details](tag-auditor) |
 | **Tag Bootstrapper** | Interaktiv ein kontrolliertes Tag-Vokabular für ein Forschungsgebiet erstellen | Workflow | Skill-Runner | [Details](tag-bootstrapper) |
 | **Tag Regulator** | Tags basierend auf einem kontrollierten Vokabular normalisieren und neue Tags inferieren | Übergeordneter Eintrag | Skill-Runner | [Details](tag-regulator) |
 | **Export/Import Notes** | Analyse-Notizen exportieren oder importieren, mit Unterstützung für Bearbeitung und Reimport | Übergeordneter Eintrag | Kein Backend erforderlich | [Details](export-import-notes) |

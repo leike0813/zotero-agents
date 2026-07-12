@@ -84,9 +84,41 @@ function localDestinationPath(destination, sourcePath) {
   return { path: joinLocalPath(dirnamePath(sourcePath), decoded), suffix };
 }
 
+function normalizedLocalPath(value) {
+  return joinLocalPath(String(value || "").replace(/\\/g, "/"), "").replace(
+    /\\/g,
+    "/",
+  );
+}
+
+function sourceTreeRelativePath(sourcePath, candidatePath) {
+  const root = normalizedLocalPath(dirnamePath(sourcePath));
+  const candidate = normalizedLocalPath(candidatePath);
+  const comparisonRoot = /^[A-Za-z]:\//.test(root) ? root.toLowerCase() : root;
+  const comparisonCandidate = /^[A-Za-z]:\//.test(candidate)
+    ? candidate.toLowerCase()
+    : candidate;
+  if (!comparisonRoot || comparisonCandidate === comparisonRoot) {
+    return null;
+  }
+  if (!comparisonCandidate.startsWith(`${comparisonRoot}/`)) {
+    return null;
+  }
+  return candidate.slice(root.length + 1);
+}
+
+function encodeMarkdownRelativePath(value) {
+  return String(value || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+}
+
 export async function rewriteMarkdownLocalImages(args) {
   const source = String(args?.markdown || "");
   const resolveLocalPath = args?.resolveLocalPath;
+  const preserveSourceTree =
+    args?.assetPolicy?.kind === "preserve-source-tree";
   const assets = [];
   const warnings = [];
   const bySource = new Map();
@@ -99,6 +131,13 @@ export async function rewriteMarkdownLocalImages(args) {
   for (const match of matches.reverse()) {
     const local = localDestinationPath(match.destination, args?.sourcePath);
     if (!local) continue;
+    const sourceRelativePath = preserveSourceTree
+      ? sourceTreeRelativePath(args?.sourcePath, local.path)
+      : "";
+    if (preserveSourceTree && !sourceRelativePath) {
+      warnings.push({ code: "markdown_image_outside_source_tree", path: local.path });
+      continue;
+    }
     const resolved = await resolveLocalPath?.(local.path);
     if (!resolved) {
       warnings.push({ code: "markdown_image_missing", path: local.path });
@@ -108,11 +147,17 @@ export async function rewriteMarkdownLocalImages(args) {
     if (!asset) {
       const id = `m${assets.length + 1}`;
       const name = sanitizeFileNameSegment(getBaseName(resolved)).replace(/\s+/g, "-");
-      asset = { id, sourcePath: resolved, relativePath: `assets/${id}/${name}` };
+      const relativePath = preserveSourceTree
+        ? normalizeEntryPath(sourceRelativePath)
+        : `assets/${id}/${name}`;
+      asset = { id, sourcePath: resolved, relativePath };
       bySource.set(resolved, asset);
       assets.push(asset);
     }
-    const replacement = `![${match.alt}](${asset.relativePath}${local.suffix})`;
+    const markdownPath = preserveSourceTree
+      ? encodeMarkdownRelativePath(asset.relativePath)
+      : asset.relativePath;
+    const replacement = `![${match.alt}](${markdownPath}${local.suffix})`;
     markdown = `${markdown.slice(0, match.index)}${replacement}${markdown.slice(match.index + match.full.length)}`;
   }
   return { markdown, assets, warnings };
@@ -152,17 +197,32 @@ export function restorePortableNoteHtml(html, attachmentKeys) {
 }
 
 function ensureUniqueIds(manifest) {
+  if (!manifest.items.length) {
+    throw new Error("literature bundle must contain at least one item");
+  }
   const itemIds = new Set();
-  const childIds = new Set();
+  const ensureLocalIds = (records, kind) => {
+    const ids = new Set();
+    for (const record of records || []) {
+      const id = normalizeText(record?.id);
+      if (!id || ids.has(id)) {
+        throw new Error(`duplicate or missing bundle ${kind} id`);
+      }
+      ids.add(id);
+    }
+  };
   for (const item of manifest.items) {
     const itemId = normalizeText(item?.id);
     if (!itemId || itemIds.has(itemId)) throw new Error("duplicate or missing bundle item id");
     itemIds.add(itemId);
     if (!normalizeText(item?.itemJson?.itemType)) throw new Error(`item ${itemId} itemType is missing`);
-    for (const child of [...(item.attachments || []), ...(item.notes || [])]) {
-      const childId = normalizeText(child?.id);
-      if (!childId || childIds.has(childId)) throw new Error("duplicate or missing bundle child id");
-      childIds.add(childId);
+    ensureLocalIds(item.attachments, "attachment");
+    ensureLocalIds(item.notes, "note");
+    for (const attachment of item.attachments || []) {
+      ensureLocalIds(attachment.assets, "asset");
+    }
+    for (const note of item.notes || []) {
+      ensureLocalIds(note.images, "image");
     }
   }
   for (const item of manifest.items) {
@@ -213,15 +273,14 @@ export function validateLiteratureBundleManifest(value, archiveEntries) {
   return value;
 }
 
-async function sha256(bytes) {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 export async function verifyLiteratureBundleFiles(manifest, archive) {
+  if (typeof archive?.measureEntries !== "function") {
+    throw new Error("extracted archive integrity measurement is unavailable");
+  }
+  const measured = await archive.measureEntries(Object.keys(manifest.files || {}));
   for (const [path, expected] of Object.entries(manifest.files || {})) {
-    const bytes = await archive.readBytes(path);
-    if (bytes.length !== expected.size || (await sha256(bytes)) !== expected.sha256) {
+    const actual = measured?.files?.[path];
+    if (actual?.size !== expected.size || actual?.sha256 !== expected.sha256) {
       throw new Error(`bundle file integrity mismatch: ${path}`);
     }
   }
@@ -411,9 +470,8 @@ export async function exportLiteratureBundle(args) {
 
 export async function importLiteratureBundleArchive(args) {
   const { host, archive, manifest } = args;
-  const view = host.context.getCurrentView();
-  const libraryID = Number(view?.libraryId || globalThis.Zotero?.Libraries?.userLibraryID || 0);
-  if (!libraryID) throw new Error("current Zotero library is unavailable");
+  const target = args.target || resolveLiteratureBundleImportTarget(host);
+  const { view, libraryID } = target;
   const importedItems = [];
   const failedItems = [];
   const warnings = [...(manifest.warnings || [])];
@@ -483,6 +541,12 @@ export async function importLiteratureBundleArchive(args) {
       importedByBundleId.set(itemRecord.id, parent);
       importedItems.push({ bundleItemId: itemRecord.id, itemId: parent.id, itemKey: parent.key });
     } catch (error) {
+      appendLiteratureBundleImportLog(host, {
+        stage: "literature-bundle-parent-import-failed",
+        operation: "materialize-parent",
+        details: { bundleItemId: itemRecord.id },
+        error,
+      });
       for (const child of createdChildren.reverse()) {
         try {
           await host.items.remove(child);
@@ -525,6 +589,67 @@ export async function importLiteratureBundleArchive(args) {
   };
 }
 
+function appendLiteratureBundleImportLog(host, args) {
+  try {
+    host.logging?.appendRuntimeLog?.({
+      level: "error",
+      scope: "workflow",
+      workflowId: "import-literature-bundle",
+      component: "literature-bundle",
+      operation: args.operation,
+      stage: args.stage,
+      message: args.message || "literature bundle import failed",
+      details: args.details,
+      error: args.error,
+    });
+  } catch {
+    // Diagnostics must not replace the workflow's structured result.
+  }
+}
+
+function resolveLiteratureBundleImportTarget(host) {
+  const view = host.context.getCurrentView();
+  const libraryID = Number(view?.libraryId || 0);
+  if (!libraryID) throw new Error("current Zotero library is unavailable");
+  return { view, libraryID };
+}
+
+function literatureBundleValidationFailure(host, stage, error) {
+  appendLiteratureBundleImportLog(host, {
+    stage: "literature-bundle-validation-failed",
+    operation: "validate-import",
+    details: { validationStage: stage },
+    error,
+  });
+  return {
+    kind: "literature_bundle_import",
+    status: "validation_failed",
+    importedItems: [],
+    failedItems: [],
+    warnings: [{ code: "bundle_validation_failed", stage }],
+  };
+}
+
+function throwLiteratureBundleImportFailure(host, stage, error) {
+  appendLiteratureBundleImportLog(host, {
+    stage: "literature-bundle-import-failed",
+    operation: "import",
+    details: { importStage: stage },
+    error,
+  });
+  const reason = normalizeText(error?.message || error) || "unknown error";
+  const failure = new Error(`Literature bundle import failed during ${stage}: ${reason}`);
+  failure.code = "import_failed";
+  failure.structuredResult = {
+    kind: "literature_bundle_import",
+    status: "import_failed",
+    importedItems: [],
+    failedItems: [],
+    warnings: [{ code: "bundle_import_failed", stage }],
+  };
+  throw failure;
+}
+
 export async function importLiteratureBundle(args) {
   const sourcePath = await args.host.file.pickFile({
     title: "Import Literature Bundle",
@@ -533,22 +658,76 @@ export async function importLiteratureBundle(args) {
   if (!sourcePath) {
     return { kind: "literature_bundle_import", status: "canceled", importedItems: [], failedItems: [], warnings: [] };
   }
+  let callbackStarted = false;
   try {
     return await args.host.archive.withExtractedZip(sourcePath, async (archive) => {
-      const manifest = validateLiteratureBundleManifest(
-        JSON.parse(await archive.readText("manifest.json")),
-        archive.entries,
-      );
-      await verifyLiteratureBundleFiles(manifest, archive);
-      return importLiteratureBundleArchive({ host: args.host, archive, manifest });
+      callbackStarted = true;
+      let manifest;
+      try {
+        manifest = validateLiteratureBundleManifest(
+          JSON.parse(await archive.readText("manifest.json")),
+          archive.entries,
+        );
+      } catch (error) {
+        return literatureBundleValidationFailure(args.host, "manifest", error);
+      }
+      try {
+        await verifyLiteratureBundleFiles(manifest, archive);
+      } catch (error) {
+        return literatureBundleValidationFailure(args.host, "integrity", error);
+      }
+      let target;
+      try {
+        target = resolveLiteratureBundleImportTarget(args.host);
+      } catch (error) {
+        return throwLiteratureBundleImportFailure(args.host, "target", error);
+      }
+      try {
+        return await importLiteratureBundleArchive({
+          host: args.host,
+          archive,
+          manifest,
+          target,
+        });
+      } catch (error) {
+        return throwLiteratureBundleImportFailure(
+          args.host,
+          "materialization",
+          error,
+        );
+      }
     });
   } catch (error) {
-    return {
-      kind: "literature_bundle_import",
-      status: "validation_failed",
-      importedItems: [],
-      failedItems: [],
-      warnings: [{ code: "bundle_validation_failed" }],
-    };
+    if (error?.structuredResult) {
+      throw error;
+    }
+    if (!callbackStarted) {
+      return literatureBundleValidationFailure(args.host, "archive_open", error);
+    }
+    return throwLiteratureBundleImportFailure(args.host, "cleanup", error);
   }
+}
+
+export function assertLiteratureBundleImportSucceeded(result) {
+  const status = normalizeText(result?.status);
+  const importedItems = Array.isArray(result?.importedItems)
+    ? result.importedItems
+    : [];
+  const noItemsImported = importedItems.length === 0;
+  const failed =
+    status === "validation_failed" ||
+    status === "partial" && noItemsImported ||
+    status === "completed" && noItemsImported;
+  if (!failed) {
+    return result;
+  }
+
+  const message =
+    status === "validation_failed"
+      ? "Literature bundle validation failed"
+      : "Literature bundle import did not create any items";
+  const error = new Error(message);
+  error.code = status || "import_failed";
+  error.structuredResult = result;
+  throw error;
 }

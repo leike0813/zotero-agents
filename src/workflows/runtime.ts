@@ -48,6 +48,7 @@ import {
 } from "../modules/skillRunFeedback";
 import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
 import type { WorkflowSelectionValidationMode } from "./workflowSelectionValidation";
+import { resolveWorkflowDisplayLocale } from "./localization";
 
 type AttachmentLike = {
   item?: {
@@ -503,6 +504,7 @@ function createRuntimeContext(
       override?.hookName === "applyResult"
         ? override.hookName
         : "",
+    locale: resolveWorkflowDisplayLocale(override?.locale),
     fetch:
       typeof override?.fetch !== "undefined"
         ? (override.fetch ?? null)
@@ -564,6 +566,7 @@ async function withWorkflowExecutionRuntimeScope<T>(
     packageId: runtime.packageId || "",
     workflowSourceKind: runtime.workflowSourceKind || "",
     hookName: runtime.hookName || "",
+    locale: runtime.locale || "en-US",
     fetch: runtime.fetch ?? null,
     Buffer: runtime.Buffer ?? null,
     btoa: runtime.btoa ?? null,

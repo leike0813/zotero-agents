@@ -50,6 +50,9 @@ export type WorkflowExtractedArchive = {
   resolvePath: (entryName: string) => string;
   readText: (entryName: string) => Promise<string>;
   readBytes: (entryName: string) => Promise<Uint8Array>;
+  measureEntries: (
+    entryNames: string[],
+  ) => Promise<{ files: Record<string, WorkflowArchiveFileIntegrity> }>;
 };
 
 export type WorkflowArchiveApi = {
@@ -464,6 +467,29 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
           : await extractStoredZip(sourcePath, rootPath);
         const resolvePath = (entryName: string) =>
           joinPath(rootPath, ...normalizeWorkflowArchiveEntryName(entryName).split("/"));
+        const entrySet = new Set(entries);
+        const measureEntries = async (entryNamesInput: string[]) => {
+          const entryNames = (entryNamesInput || []).map(
+            normalizeWorkflowArchiveEntryName,
+          );
+          if (new Set(entryNames).size !== entryNames.length) {
+            throw new Error("Duplicate extracted archive measurement entry");
+          }
+          const files: Record<string, WorkflowArchiveFileIntegrity> = {};
+          for (const entryName of entryNames) {
+            if (!entrySet.has(entryName)) {
+              throw new Error(
+                `Extracted archive measurement entry is unavailable: ${entryName}`,
+              );
+            }
+            const bytes = await readLocalBytes(resolvePath(entryName));
+            files[entryName] = {
+              size: bytes.length,
+              sha256: await hashBytes(bytes),
+            };
+          }
+          return { files };
+        };
         return await callback({
           rootPath,
           entries,
@@ -471,6 +497,7 @@ export function createWorkflowArchiveApi(): WorkflowArchiveApi {
           readText: async (entryName) =>
             new TextDecoder("utf-8").decode(await readLocalBytes(resolvePath(entryName))),
           readBytes: async (entryName) => readLocalBytes(resolvePath(entryName)),
+          measureEntries,
         });
       } finally {
         await removePath(rootPath);

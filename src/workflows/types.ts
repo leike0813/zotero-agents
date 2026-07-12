@@ -554,6 +554,7 @@ export type WorkflowRuntimeContext = {
   packageRootDir?: string;
   workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hookName?: "preflight" | "buildRequest" | "applyResult" | "";
+  locale?: string;
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;

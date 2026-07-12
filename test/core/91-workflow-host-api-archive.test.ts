@@ -86,6 +86,14 @@ describe("workflow host api archive facade", function () {
         archive.resolvePath("files/bytes.bin").replace(/\\/g, "/"),
         `${archive.rootPath.replace(/\\/g, "/")}/files/bytes.bin`,
       );
+      const remeasured = await archive.measureEntries([
+        "files/source.bin",
+        "files/bytes.bin",
+      ]);
+      assert.deepEqual(remeasured.files, {
+        "files/source.bin": written.files["files/source.bin"],
+        "files/bytes.bin": written.files["files/bytes.bin"],
+      });
     });
     let cleanupError: unknown;
     try {
@@ -244,6 +252,30 @@ describe("workflow host api archive facade", function () {
       }
       assert.instanceOf(error, Error);
     }
+  });
+
+  it("rejects unsafe, duplicate, and unknown extracted measurement names", async function () {
+    const archive = createWorkflowHostApi().archive;
+    const targetPath = path.join(root, "measure.zip");
+    await archive.writeZipAtomic({
+      targetPath,
+      entries: [{ name: "known.bin", bytes: new Uint8Array([1]) }],
+    });
+    await archive.withExtractedZip(targetPath, async (extracted) => {
+      for (const names of [
+        ["../escape.bin"],
+        ["known.bin", "known.bin"],
+        ["unknown.bin"],
+      ]) {
+        let error: unknown;
+        try {
+          await extracted.measureEntries(names);
+        } catch (caught) {
+          error = caught;
+        }
+        assert.instanceOf(error, Error);
+      }
+    });
   });
 
   it("preserves an existing target when archive creation fails", async function () {

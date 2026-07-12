@@ -44,6 +44,22 @@ Workflow에서는 실행 전 사용자가 입력할 수 있는 설정 대화상�
 | `number` | 숫자 | 숫자 입력 (min/max 제약 지원) |
 | `boolean` | 불리언 | 토글 / 체크박스 |
 
+## 필수 파라미터
+
+파라미터 없이 workflow를 실행할 수 없는 경우 `required: true`를 설정합니다:
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+필수 문자열은 비어 있지 않아야 하며, 필수 숫자는 유한해야 하며, 필수 부울의 `true`와 `false` 모두 유효합니다. 필수 값이 누락되면 provider dispatch 전에 거부됩니다. `required`가 `false`이거나 생략된 경우 파라미터는 선택 사항으로 남습니다.
+
 ## Enum 값과 사용자 정의 값
 
 ```json

@@ -9,7 +9,12 @@ import {
   isResearchPayloadType,
   materializeResearchProduct,
   normalizeResearchSelection,
+  researchPayloadArtifactPath,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundle.mjs";
+import {
+  renderResearchBundleReadme,
+  resolveResearchBundleReadmeLocale,
+} from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
 
 describe("export research bundle workflow", function () {
@@ -148,6 +153,85 @@ describe("export research bundle workflow", function () {
       assert.isTrue(isResearchPayloadType(payloadType));
     }
     assert.isFalse(isResearchPayloadType("unrelated-payload"));
+    assert.equal(
+      researchPayloadArtifactPath({
+        logicalId: "paper-001",
+        payloadType: "digest-markdown",
+        ordinal: 1,
+        format: "markdown",
+      }),
+      "papers/paper-001/digest-001.md",
+    );
+    assert.equal(
+      researchPayloadArtifactPath({
+        logicalId: "paper-001",
+        payloadType: "citation-analysis-json",
+        ordinal: 2,
+        format: "json",
+      }),
+      "papers/paper-001/citation-analysis-002.json",
+    );
+  });
+
+  it("renders a localized agent-readable README with English fallback", function () {
+    for (const locale of [
+      "en-US",
+      "zh-CN",
+      "zh-TW",
+      "fr-FR",
+      "ja-JP",
+      "de",
+      "es-ES",
+      "pt-BR",
+      "ko-KR",
+      "it-IT",
+      "ru-RU",
+    ]) {
+      assert.equal(resolveResearchBundleReadmeLocale(locale), locale);
+    }
+    assert.equal(resolveResearchBundleReadmeLocale("zh_cn"), "zh-CN");
+    assert.equal(resolveResearchBundleReadmeLocale("nl-NL"), "en-US");
+    const shared = {
+      intent: {
+        paper_title: "Research",
+        article_type: "original research",
+        research_content: "Graph evidence",
+      },
+      topics: [
+        {
+          logical_id: "topic-001",
+          topic_id: "topic-a",
+          relevance: 1,
+          report_path: "topics/topic-001/report.md",
+        },
+      ],
+      papers: [
+        {
+          logical_id: "paper-001",
+          paper_ref: "1:AAAA1111",
+          role: "core",
+          score: 0.9,
+          metadata_path: "papers/paper-001/metadata.json",
+          source: { kind: "markdown", path: "papers/paper-001/source.md" },
+          payloads: [
+            {
+              path: "papers/paper-001/digest-001.md",
+              payload_type: "digest-markdown",
+            },
+          ],
+        },
+      ],
+      warningCount: 1,
+    };
+    const english = renderResearchBundleReadme({ ...shared, locale: "en-US" });
+    const chinese = renderResearchBundleReadme({ ...shared, locale: "zh-CN" });
+    assert.include(english, "## How to use this bundle");
+    assert.include(chinese, "## 使用顺序");
+    for (const readme of [english, chinese]) {
+      assert.include(readme, "`manifest.json`");
+      assert.include(readme, "topics/topic-001/report.md");
+      assert.include(readme, "papers/paper-001/source.md");
+    }
   });
 
   it("registers topic reports, all metadata, and core Markdown sidecars as one atomic product", async function () {
@@ -156,13 +240,21 @@ describe("export research bundle workflow", function () {
     );
     const markdownPath = path.join(root, "paper.md");
     const imagePath = path.join(root, "figure.png");
+    const figureDir = path.join(root, "figures");
+    const nestedImagePath = path.join(figureDir, "a b.png");
+    const outsideFileName = `${path.basename(root)}-shared.png`;
+    const outsideRelativePath = `../${outsideFileName}`;
+    const outsideImagePath = path.join(path.dirname(root), outsideFileName);
     const pdfPath = path.join(root, "second.pdf");
     await fs.writeFile(
       markdownPath,
-      "# Paper\n\n![figure](figure.png)",
+      `# Paper\n\n![figure](figure.png?size=full#view)\n![nested](figures/a%20b.png#detail)\n![outside](${outsideRelativePath})\n![missing](missing.png)\n![remote](https://example.test/a.png)\n![data](data:image/png;base64,AAAA)`,
       "utf8",
     );
+    await fs.mkdir(figureDir);
     await fs.writeFile(imagePath, new Uint8Array([1, 2, 3]));
+    await fs.writeFile(nestedImagePath, new Uint8Array([4, 5, 6]));
+    await fs.writeFile(outsideImagePath, new Uint8Array([7, 8, 9]));
     await fs.writeFile(pdfPath, new Uint8Array([0x25, 0x50, 0x44, 0x46]));
     const items = new Map([
       ["AAAA1111", { id: 1, key: "AAAA1111", getNotes: () => [] }],
@@ -203,7 +295,7 @@ describe("export research bundle workflow", function () {
           },
           synthesis: {
             async getTopicReport() {
-              return { synthesis_report: { body: "# Topic report" } };
+              return { markdown: "# Topic report" };
             },
           },
           library: {
@@ -253,30 +345,62 @@ describe("export research bundle workflow", function () {
     });
     try {
       assert.equal(registration.failurePolicy, "atomic");
-      assert.include(
-        registration.assets.map((entry: any) => entry.productAssetPath),
+      const productPaths = registration.assets.map(
+        (entry: any) => entry.productAssetPath,
+      );
+      assert.include(productPaths, "topics/topic-001/report.md");
+      assert.equal(
+        registration.assets.find(
+          (entry: any) => entry.productAssetPath === "topics/topic-001/report.md",
+        ).source.text,
+        "# Topic report",
+      );
+      assert.include(productPaths, "papers/paper-001/metadata.json");
+      assert.include(productPaths, "papers/paper-001/source.md");
+      assert.include(productPaths, "papers/paper-001/figure.png");
+      assert.include(productPaths, "papers/paper-001/figures/a b.png");
+      assert.include(productPaths, "papers/paper-002/metadata.json");
+      assert.include(productPaths, "papers/paper-002/source.pdf");
+      assert.include(productPaths, "papers/paper-003/metadata.json");
+      assert.notInclude(productPaths, "papers/paper-001.image-m1-figure.png");
+      assert.notInclude(productPaths, `papers/paper-001/${outsideFileName}`);
+      const markdownSource = registration.assets.find(
+        (entry: any) => entry.productAssetPath === "papers/paper-001/source.md",
+      );
+      assert.include(markdownSource.source.text, "figure.png?size=full#view");
+      assert.include(markdownSource.source.text, "figures/a%20b.png#detail");
+      assert.include(markdownSource.source.text, outsideRelativePath);
+      assert.include(markdownSource.source.text, "missing.png");
+      assert.include(markdownSource.source.text, "https://example.test/a.png");
+      assert.include(markdownSource.source.text, "data:image/png;base64,AAAA");
+      assert.equal(result.manifest.schema_version, "2.0.0");
+      assert.equal(
+        result.manifest.topics[0].report_path,
         "topics/topic-001/report.md",
       );
-      assert.include(
-        registration.assets.map((entry: any) => entry.productAssetPath),
-        "papers/paper-001/source/assets/m1/figure.png",
+      assert.equal(
+        result.manifest.papers[0].metadata_path,
+        "papers/paper-001/metadata.json",
       );
-      assert.include(
-        registration.assets.map((entry: any) => entry.productAssetPath),
-        "papers/paper-002/metadata.json",
-      );
-      assert.include(
-        registration.assets.map((entry: any) => entry.productAssetPath),
-        "papers/paper-002/source/second.pdf",
-      );
-      assert.include(
-        registration.assets.map((entry: any) => entry.productAssetPath),
-        "papers/paper-003/metadata.json",
+      assert.deepEqual(result.manifest.papers[0].source.assets, [
+        {
+          path: "papers/paper-001/figures/a b.png",
+          source_relative_path: "figures/a b.png",
+        },
+        {
+          path: "papers/paper-001/figure.png",
+          source_relative_path: "figure.png",
+        },
+      ]);
+      assert.includeMembers(
+        result.manifest.warnings.map((warning) => warning.code),
+        ["markdown_image_outside_source_tree", "markdown_image_missing"],
       );
       assert.notProperty(result.manifest.files, "manifest.json");
       assert.equal(result.manifest.papers[0].role, "core");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
+      await fs.rm(outsideImagePath, { force: true });
     }
   });
 });

@@ -17,6 +17,7 @@ import {
   validateLiteratureBundleManifest,
   verifyLiteratureBundleFiles,
 } from "../../workflows_builtin/literature-workbench-package/lib/literatureBundle.mjs";
+import { applyResult as applyLiteratureBundleImport } from "../../workflows_builtin/literature-workbench-package/import-literature-bundle/hooks/applyResult.mjs";
 import {
   attachWorkbenchPayloadToNote,
   parseWorkbenchEmbeddedPayloadBytes,
@@ -74,6 +75,75 @@ describe("literature portable bundle workflows", function () {
     ]);
   });
 
+  it("preserves source-tree image paths only when the opt-in policy is selected", async function () {
+    const resolvedPaths: string[] = [];
+    const result = await rewriteMarkdownLocalImages({
+      markdown: [
+        "![same](figure.png?size=full#view)",
+        "![nested](figures/a%20b.png#detail)",
+        "![file](file:///papers/figures/a%20b.png#file)",
+        "![outside](../shared.png)",
+        "![absolute](/shared/absolute.png)",
+        "![missing](missing.png)",
+        "![remote](https://example.test/a.png)",
+        "![data](data:image/png;base64,AAAA)",
+      ].join("\n"),
+      sourcePath: "/papers/paper.md",
+      assetPolicy: { kind: "preserve-source-tree" },
+      resolveLocalPath: async (candidate) => {
+        resolvedPaths.push(candidate);
+        return ["/papers/figure.png", "/papers/figures/a b.png"].includes(
+          candidate,
+        )
+          ? candidate
+          : null;
+      },
+    });
+
+    assert.deepEqual(result.assets, [
+      {
+        id: "m1",
+        sourcePath: "/papers/figures/a b.png",
+        relativePath: "figures/a b.png",
+      },
+      {
+        id: "m2",
+        sourcePath: "/papers/figure.png",
+        relativePath: "figure.png",
+      },
+    ]);
+    assert.include(result.markdown, "figure.png?size=full#view");
+    assert.include(result.markdown, "figures/a%20b.png#detail");
+    assert.include(result.markdown, "figures/a%20b.png#file");
+    assert.include(result.markdown, "../shared.png");
+    assert.include(result.markdown, "/shared/absolute.png");
+    assert.include(result.markdown, "missing.png");
+    assert.include(result.markdown, "https://example.test/a.png");
+    assert.include(result.markdown, "data:image/png;base64,AAAA");
+    assert.notInclude(resolvedPaths, "/shared/shared.png");
+    assert.notInclude(resolvedPaths, "/shared/absolute.png");
+    assert.sameMembers(
+      result.warnings.map((warning) => warning.code),
+      [
+        "markdown_image_outside_source_tree",
+        "markdown_image_outside_source_tree",
+        "markdown_image_missing",
+      ],
+    );
+  });
+
+  it("keeps default image rewriting permissive when no policy is selected", async function () {
+    const result = await rewriteMarkdownLocalImages({
+      markdown: "![outside](../shared.png)",
+      sourcePath: "/papers/paper.md",
+      resolveLocalPath: async (candidate) =>
+        candidate === "/shared.png" ? candidate : null,
+    });
+
+    assert.include(result.markdown, "assets/m1/shared.png");
+    assert.equal(result.assets[0]?.relativePath, "assets/m1/shared.png");
+  });
+
   it("rejects manifests whose declared file closure does not match the archive", function () {
     const manifest = {
       kind: "zotero-agents-literature-bundle",
@@ -116,6 +186,7 @@ describe("literature portable bundle workflows", function () {
     };
     const cases = [
       { ...base, schemaVersion: 2 },
+      { ...base, items: [] },
       { ...base, items: [...base.items, { ...base.items[0] }] },
       {
         ...base,
@@ -125,6 +196,69 @@ describe("literature portable bundle workflows", function () {
     for (const manifest of cases) {
       assert.throws(() =>
         validateLiteratureBundleManifest(manifest, ["manifest.json"]),
+      );
+    }
+  });
+
+  it("scopes child ids to their owning parent, attachment, or note", function () {
+    const valid = {
+      kind: "zotero-agents-literature-bundle",
+      schemaVersion: 1,
+      items: ["i1", "i2"].map((id) => ({
+        id,
+        itemJson: { itemType: "journalArticle" },
+        relatedItemIds: [],
+        attachments: [
+          {
+            id: "a1",
+            kind: "markdown",
+            assets: [{ id: "m1" }],
+          },
+        ],
+        notes: [
+          { id: "n1", images: [{ id: "e1" }] },
+          { id: "n2", images: [{ id: "e1" }] },
+        ],
+      })),
+      warnings: [],
+      files: {},
+    };
+    assert.doesNotThrow(() =>
+      validateLiteratureBundleManifest(valid, ["manifest.json"]),
+    );
+
+    const invalidCases = [
+      {
+        label: "attachment",
+        mutate(item: any) {
+          item.attachments.push({ ...item.attachments[0] });
+        },
+      },
+      {
+        label: "note",
+        mutate(item: any) {
+          item.notes.push({ ...item.notes[0] });
+        },
+      },
+      {
+        label: "asset",
+        mutate(item: any) {
+          item.attachments[0].assets.push({ ...item.attachments[0].assets[0] });
+        },
+      },
+      {
+        label: "image",
+        mutate(item: any) {
+          item.notes[0].images.push({ ...item.notes[0].images[0] });
+        },
+      },
+    ];
+    for (const entry of invalidCases) {
+      const invalid = JSON.parse(JSON.stringify(valid));
+      entry.mutate(invalid.items[0]);
+      assert.throws(
+        () => validateLiteratureBundleManifest(invalid, ["manifest.json"]),
+        new RegExp(`duplicate or missing bundle ${entry.label} id`, "i"),
       );
     }
   });
@@ -153,12 +287,219 @@ describe("literature portable bundle workflows", function () {
     let error: unknown;
     try {
       await verifyLiteratureBundleFiles(manifest, {
-        readBytes: async () => new Uint8Array([1, 2, 3]),
+        measureEntries: async (entryNames: string[]) => ({
+          files: {
+            "payload.bin": { size: 3, sha256: "b".repeat(64) },
+          },
+        }),
       });
     } catch (caught) {
       error = caught;
     }
     assert.instanceOf(error, Error);
+  });
+
+  it("verifies bundle files through the extracted host archive", async function () {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const manifest = validateLiteratureBundleManifest(
+      {
+        kind: "zotero-agents-literature-bundle",
+        schemaVersion: 1,
+        items: [
+          {
+            id: "i1",
+            itemJson: { itemType: "journalArticle" },
+            attachments: [],
+            notes: [],
+            relatedItemIds: [],
+          },
+        ],
+        warnings: [],
+        files: {
+          "payload.bin": {
+            size: bytes.length,
+            sha256:
+              "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+          },
+        },
+      },
+      ["manifest.json", "payload.bin"],
+    );
+    await verifyLiteratureBundleFiles(manifest, {
+      measureEntries: async (entryNames: string[]) => {
+        assert.deepEqual(entryNames, ["payload.bin"]);
+        return {
+          files: {
+            "payload.bin": {
+              size: bytes.length,
+              sha256:
+                "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+            },
+          },
+        };
+      },
+    });
+  });
+
+  it("does not report a validation failure as a successful import", async function () {
+    const logs: Array<Record<string, unknown>> = [];
+    let error: unknown;
+    try {
+      await applyLiteratureBundleImport({
+        runtime: {
+          hostApiVersion: 8,
+          hostApi: {
+            file: {
+              pickFile: async () => "/tmp/invalid-literature-bundle.zip",
+            },
+            archive: {
+              withExtractedZip: async () => {
+                throw new Error("invalid zip");
+              },
+            },
+            logging: {
+              appendRuntimeLog: (entry: Record<string, unknown>) =>
+                logs.push(entry),
+            },
+          },
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.instanceOf(error, Error);
+    assert.equal((error as any).code, "validation_failed");
+    assert.equal((error as any).structuredResult?.status, "validation_failed");
+    assert.deepInclude((error as any).structuredResult?.warnings?.[0], {
+      code: "bundle_validation_failed",
+      stage: "archive_open",
+    });
+    assert.isTrue(
+      logs.some(
+        (entry) =>
+          entry.stage === "literature-bundle-validation-failed" &&
+          entry.workflowId === "import-literature-bundle",
+      ),
+    );
+  });
+
+  it("reports target resolution failures as import failures", async function () {
+    const manifest = {
+      kind: "zotero-agents-literature-bundle",
+      schemaVersion: 1,
+      items: [
+        {
+          id: "i1",
+          itemJson: { itemType: "journalArticle" },
+          relatedItemIds: [],
+          attachments: [],
+          notes: [],
+        },
+      ],
+      warnings: [],
+      files: {},
+    };
+    const logs: Array<Record<string, any>> = [];
+    let error: unknown;
+    try {
+      await applyLiteratureBundleImport({
+        runtime: {
+          hostApiVersion: 8,
+          hostApi: {
+            file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
+            archive: {
+              withExtractedZip: async (_path: string, callback: any) =>
+                callback({
+                  entries: ["manifest.json"],
+                  readText: async () => JSON.stringify(manifest),
+                  measureEntries: async () => ({ files: {} }),
+                }),
+            },
+            context: { getCurrentView: () => ({ libraryId: "" }) },
+            logging: {
+              appendRuntimeLog: (entry: Record<string, unknown>) =>
+                logs.push(entry),
+            },
+          },
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.instanceOf(error, Error);
+    assert.equal((error as any).code, "import_failed");
+    assert.deepInclude((error as any).structuredResult?.warnings?.[0], {
+      code: "bundle_import_failed",
+      stage: "target",
+    });
+    assert.isTrue(
+      logs.some(
+        (entry) =>
+          entry.stage === "literature-bundle-import-failed" &&
+          entry.details?.importStage === "target",
+      ),
+    );
+  });
+
+  it("does not report an import with no created parents as successful", async function () {
+    const manifest = {
+      kind: "zotero-agents-literature-bundle",
+      schemaVersion: 1,
+      items: [
+        {
+          id: "i1",
+          itemJson: { itemType: "journalArticle", title: "Cannot Import" },
+          relatedItemIds: [],
+          attachments: [],
+          notes: [],
+        },
+      ],
+      warnings: [],
+      files: {},
+    };
+    let error: unknown;
+    try {
+      await applyLiteratureBundleImport({
+        runtime: {
+          hostApiVersion: 8,
+          hostApi: {
+            file: { pickFile: async () => "/tmp/valid-literature-bundle.zip" },
+            archive: {
+              withExtractedZip: async (_path: string, callback: any) =>
+                callback({
+                  entries: ["manifest.json"],
+                  readText: async () => JSON.stringify(manifest),
+                  readBytes: async () => new Uint8Array(),
+                  resolvePath: (path: string) => path,
+                  measureEntries: async () => ({ files: {} }),
+                }),
+            },
+            context: {
+              getCurrentView: () => ({
+                libraryId: Zotero.Libraries.userLibraryID,
+              }),
+            },
+            items: {
+              createFromJson: async () => {
+                throw new Error("injected parent creation failure");
+              },
+              remove: async () => undefined,
+            },
+          },
+        },
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.instanceOf(error, Error);
+    assert.equal((error as any).code, "partial");
+    assert.equal((error as any).structuredResult?.importedItems.length, 0);
+    assert.deepEqual((error as any).structuredResult?.failedItems, [
+      { bundleItemId: "i1", code: "parent_import_failed" },
+    ]);
   });
 
   it("round-trips metadata, stored content, note images, and repeated imports", async function () {
@@ -203,7 +544,7 @@ describe("literature portable bundle workflows", function () {
     await attachWorkbenchPayloadToNote({
       runtime: {
         hostApi: host,
-        hostApiVersion: 7,
+        hostApiVersion: 8,
         TextEncoder,
         TextDecoder,
         Buffer,
@@ -241,7 +582,7 @@ describe("literature portable bundle workflows", function () {
       await attachWorkbenchPayloadToNote({
         runtime: {
           hostApi: host,
-          hostApiVersion: 7,
+          hostApiVersion: 8,
           TextEncoder,
           TextDecoder,
           Buffer,
@@ -280,11 +621,19 @@ describe("literature portable bundle workflows", function () {
         host,
         archive,
         manifest,
+        target: {
+          view: { libraryId: Zotero.Libraries.userLibraryID },
+          libraryID: Zotero.Libraries.userLibraryID,
+        },
       });
       const second = await importLiteratureBundleArchive({
         host,
         archive,
         manifest,
+        target: {
+          view: { libraryId: Zotero.Libraries.userLibraryID },
+          libraryID: Zotero.Libraries.userLibraryID,
+        },
       });
       assert.equal(first.status, "completed", JSON.stringify(first));
       assert.equal(second.status, "completed", JSON.stringify(second));
@@ -376,6 +725,10 @@ describe("literature portable bundle workflows", function () {
     const result = await importLiteratureBundleArchive({
       host,
       archive: { resolvePath: (path: string) => path },
+      target: {
+        view: { libraryId: Zotero.Libraries.userLibraryID },
+        libraryID: Zotero.Libraries.userLibraryID,
+      },
       manifest: {
         warnings: [],
         items: [

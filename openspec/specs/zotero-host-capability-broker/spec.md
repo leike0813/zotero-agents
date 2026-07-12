@@ -149,7 +149,7 @@ that need to round-trip sidecar artifacts without embedding bytes in JSON.
 - **THEN** `hostApi.file.readBytes`, `hostApi.file.writeBytes`, and `hostApi.file.copy` SHALL be available
 - **AND** those operations SHALL support local workflow sidecar files such as representative note images.
 
-### Requirement: Workflow Host API v7 SHALL expose a save-file picker
+### Requirement: Workflow Host API v8 SHALL expose a save-file picker
 
 `WorkflowHostApi.file` SHALL expose a save-file operation accepting a title, filters, initial directory, and suggested filename, backed by Zotero's file picker save mode.
 
@@ -158,7 +158,7 @@ that need to round-trip sidecar artifacts without embedding bytes in JSON.
 - **THEN** the Host SHALL return the confirmed target path, including replacement confirmation handled by the native picker
 - **AND** cancellation SHALL return `null`.
 
-### Requirement: Workflow Host API v7 SHALL expose safe streaming ZIP operations
+### Requirement: Workflow Host API v8 SHALL expose safe streaming ZIP operations
 
 The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operations implemented with Zotero/Gecko facilities and SHALL NOT require Node.js archive or filesystem modules in the plugin environment.
 
@@ -172,7 +172,12 @@ The Host SHALL expose workflow-agnostic ZIP writing and scoped extraction operat
 - **THEN** the Host SHALL reject absolute, parent-traversing, empty, duplicate, and otherwise unsafe entry names before exposing extracted files
 - **AND** the Host SHALL remove the temporary extraction directory after the scoped callback settles.
 
-### Requirement: Workflow Host API v7 SHALL expose portable item materialization primitives
+#### Scenario: Workflow measures extracted archive entries
+- **WHEN** a workflow requests integrity metadata for enumerated entry names inside an extraction scope
+- **THEN** the Host SHALL read and hash those files without exposing host paths or transferring file bytes through the package boundary
+- **AND** it SHALL reject unsafe, duplicate, or non-enumerated entry names.
+
+### Requirement: Workflow Host API v8 SHALL expose portable item materialization primitives
 
 The Host SHALL expose generic operations to export complete Zotero item JSON, create a new item from sanitized Zotero JSON in an explicit library, remove a created item, import a local path and sidecars as a stored-file attachment under a parent, and create a URL attachment with caller-controlled deduplication.
 
@@ -200,7 +205,7 @@ The Host SHALL expose generic operations to export complete Zotero item JSON, cr
 - **WHEN** a workflow asks the Host to remove a parent created during the current operation
 - **THEN** the Host SHALL erase that parent and its newly created children through Zotero's transactional item APIs.
 
-### Requirement: Workflow Host API v7 current view SHALL identify a real selected collection
+### Requirement: Workflow Host API v8 current view SHALL identify a real selected collection
 
 The current-view DTO SHALL include an optional normalized collection ref only when the selected library tree row represents a real Zotero collection.
 
@@ -213,12 +218,11 @@ The current-view DTO SHALL include an optional normalized collection ref only wh
 - **THEN** the current-view DTO SHALL omit the current collection
 - **AND** it SHALL still report the current library id when available.
 
-### Requirement: Workflow Host API version consumers SHALL recognize v7
+### Requirement: Workflow Host API version consumers SHALL recognize v8
 
-All package runtime guards, loader globals, capability summaries, debug probes, tests, and SSOT documentation that declare the supported Workflow Host API version SHALL be synchronized to version 7.
+All package runtime guards, loader globals, capability summaries, debug probes, tests, and SSOT documentation that declare the supported Workflow Host API version SHALL be synchronized to version 8.
 
-#### Scenario: Built-in package consumes Host API v7
+#### Scenario: Built-in package consumes Host API v8
 - **WHEN** a precompiled built-in workflow hook resolves its runtime Host API
-- **THEN** version 7 SHALL pass the package runtime compatibility guard
+- **THEN** version 8 SHALL pass the package runtime compatibility guard
 - **AND** versions outside the declared supported range SHALL continue to fail deterministically.
-

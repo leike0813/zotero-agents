@@ -54,6 +54,11 @@ describe("workflow archive Zotero runtime", function () {
           Array.from(await extracted.readBytes("payload.bin")),
           [7, 8, 9],
         );
+        const remeasured = await extracted.measureEntries(["payload.bin"]);
+        assert.deepEqual(
+          remeasured.files["payload.bin"],
+          written.files["payload.bin"],
+        );
       });
     } finally {
       await remove(targetPath, {

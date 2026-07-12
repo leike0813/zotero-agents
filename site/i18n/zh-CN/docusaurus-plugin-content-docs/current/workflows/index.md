@@ -63,9 +63,14 @@ Workflow 可以通过三种后端类型执行：
 | Workflow | 用途 | 输入 | 后端 | 文档 |
 |---------|------|------|------|------|
 | **文献分析** ⭐ | 从 PDF/MD 生成摘要、参考文献、引文分析。可级联标签规范化 | 附件 | Skill-Runner | [详情](literature-analysis) |
+| **文献元数据整理** | 查询、修正并补全 Zotero 条目的书目元数据 | 父条目 | Skill-Runner | [详情](literature-metadata-curator) |
+| **文献翻译** | 带术语管理和质量门禁的学术文献翻译 | 附件 | Skill-Runner | [详情](literature-translator) |
 | **交互式文献解读** | 与 AI 多轮对话深入理解文献，答案经验证门禁防幻觉 | 附件 | Skill-Runner | [详情](literature-explainer) |
 | **深度阅读** | 生成结构化精读 HTML 视图，支持翻译 | 附件 | ACP | [详情](literature-deep-reading) |
 | **文献搜索与入库** | 让 Agent 搜索学术文献并直接入库到 Zotero | workflow | ACP | [详情](literature-search-ingest) |
+| **导出/导入文献包** | 导出/导入含元数据、附件和笔记的 Zotero 条目便携式 ZIP 包 | 父条目 / workflow | 无需后端 | [详情](export-import-literature-bundle) |
+| **导出研究包** | 从现有库和 Synthesis 上下文自动组装论文项目的只读研究包 | workflow | Skill-Runner | [详情](export-research-bundle) |
+| **标签审计** | 扫描库中所有条目的受控标签词表合规性并报告 | workflow | 无需后端 | [详情](tag-auditor) |
 | **Collection 文献收集器** | 根据指定范围从现有文献库中筛选文献并加入 collection | workflow | ACP | [详情](collection-collector) |
 | **标签词表初始化** | 与 AI 交互创建研究领域的受控标签词表 | workflow | Skill-Runner | [详情](tag-bootstrapper) |
 | **标签规范化** | 基于受控词表规范化标签，推断新标签 | 父条目 | Skill-Runner | [详情](tag-regulator) |

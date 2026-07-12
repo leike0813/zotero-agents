@@ -39,11 +39,16 @@ Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读
 
 成功后，Dashboard Products 会新增一个只读 Research Bundle。其内容包括：
 
-- 研究意图、选择依据和警告的清单与说明文件
+- 根目录 `README.md`：面向 agent 和人类的入口说明，给出建议读取顺序、浅层文件命名、Topic/文献索引，以及 `manifest.json` 与警告的使用语义；固定说明会按当前插件 locale 输出，不支持的 locale 使用英文
+- 根目录 `manifest.json`：机器可读的权威清单，记录 v2 产物路径、溯源、文件完整性与详细诊断
 - 已选 Topic 的报告（可用时）
 - 每篇核心文献和相关文献的可移植书目信息
 - 可用的 v2 Literature Analysis 或对话产物，例如摘要、参考文献、引文分析和对话内容
 - 对核心文献，优先附带 Markdown 原文及其本地图片；没有可用 Markdown 时尝试附带 PDF；两者均不可用时记录警告
+
+除根目录文件外，产物只使用 `topics/` 和 `papers/` 两个语义目录。每个 Topic 和每篇文献都有稳定逻辑 ID 的独立目录，例如 `topics/topic-001/report.md`、`papers/paper-001/metadata.json`、`papers/paper-001/source.md` 或 `papers/paper-001/digest-001.md`；同类 payload 不再额外建立分类目录。
+
+Markdown 图片只在解析后的本地路径位于该 Markdown 所在目录或其子目录时才会打包，且在文献目录中保留相同相对路径，例如 `papers/paper-001/figures/example.png`。目录树外、缺失的本地图片保留原 Markdown 链接但不登记为 Product 文件，并在 `manifest.json` 的 warnings 中说明原因；远程和 data 图片链接保持不变。
 
 并非每个 Topic 都有报告，也并非每篇文献都具备原文或分析产物；缺失材料不会阻止其他可用材料被登记。
 
