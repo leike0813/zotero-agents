@@ -29,6 +29,10 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 | Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
+| `workflow_products.export` | workflow_products | `none` | `object required` | `product download` | response:file-output, mcp-mirror |
+| `workflow_products.get` | workflow_products | `none` | `object required` | `product get` | response:selector-bounded, mcp-mirror |
+| `workflow_products.list` | workflow_products | `none` | `object` | `product list` | response:paged, mcp-mirror |
+| `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
 | `context.get_current_view` | context | `none` | `none` | `context current` | mcp-mirror |
 | `context.get_selected_items` | context | `none` | `none` | `context selection get` | mcp-mirror |
 | `library.export_annotations` | library | `none` | `object required` | `library annotation export` | response:selector-bounded, mcp-mirror |
@@ -68,6 +72,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `insights.get_attention_queue` | insights | `none` | `object` | `synthesis insight attention-queue` | response:limit-bounded, mcp-mirror |
 | `mutation.execute` | mutation | `zotero-ui-required` | `mutation-preview required` | `mutation apply`, `mutation collection add-items`, `mutation collection create`, `mutation collection remove-items`, `mutation item attach-file`, `mutation item update`, `mutation literature-ingest`, `mutation note create`, `mutation note update`, `mutation note upsert-payload`, `mutation tag add`, `mutation tag remove` | mcp-mirror |
 | `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
+| `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 
 #### CLI mappings
@@ -172,14 +177,20 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
 | `context selection get` | `context.get_selected_items` | capability | - |
 | `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
+| `product download` | `workflow_products.export` | capability | - |
+| `product get` | `workflow_products.get` | capability | - |
+| `product list` | `workflow_products.list` | capability | - |
+| `product remove` | `workflow_products.remove` | capability | - |
 
 #### Library guidance
 
-- Use `zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'` for bounded library pages.
-- Use `zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'` for local metadata indexes.
-- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
-- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
-- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.
+- Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.
+- Use `zotero-bridge library item search --query '{"text":"graph","limit":10}'` for finite candidate discovery.
+- Use `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` for bounded library inventory pages.
+- Use `zotero-bridge library snapshot --query '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
+- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
+- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
 - `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
 - Use `nextCursor` with `hasMore` to page library and snapshot results.
 
@@ -192,20 +203,20 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 
 #### Resolver payloads
 
-- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- `synthesis resolver resolve` accepts direct resolver fields in `--query`; do not wrap them in a top-level `resolver` object.
 - Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
 - `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
-- Examples: `zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Examples: `zotero-bridge synthesis resolver resolve --query '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --query '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 #### Workflow payloads
 
-- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
-- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use `--input`.
+- Use `workflow describe --workflow <id>` or `workflow requirements --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` and `workflow validate` use `--selection <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows.
 - Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
-- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- Use `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
 - `workflow agent-run` does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task; the host only prepares request context for the handoff.
 - `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and is recalculated when apply-back is submitted.
 - Use `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing a SkillRunner-compatible output bundle from the handoff output contract.
@@ -505,24 +516,24 @@ prompt、产物或脚本。run workspace profile 不保存 token 明文；token 
 zotero-bridge bridge status
 zotero-bridge bridge manifest
 zotero-bridge call <capability> [--input <JSON_OR_FILE>]
-zotero-bridge library items list --input '{"limit":50,"collectionKey":"COLL"}'
-zotero-bridge library snapshot --input '{"limit":200,"cursor":"0"}'
-zotero-bridge library item search --query <text> [--limit <n>] [--library-id <id>]
+zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'
+zotero-bridge library snapshot --query '{"limit":200,"cursor":"0"}'
+zotero-bridge library item search --query '{"text":"...","limit":10,"libraryId":1}'
 zotero-bridge library item get (--key <key> | --id <id>) [--library-id <id>]
 zotero-bridge library item notes (--key <key> | --id <id>) [--limit <n>] [--cursor <n>] [--max-excerpt-chars <n>]
 zotero-bridge library item attachments (--key <key> | --id <id>) [--library-id <id>]
 zotero-bridge library note get (--key <key> | --id <id>) [--format text|html] [--offset <n>] [--max-chars <n>]
 zotero-bridge library note payloads (--key <key> | --id <id>)
 zotero-bridge library note payload (--key <key> | --id <id>) [--payload-type <type>] [--offset <n>] [--max-chars <n>]
-zotero-bridge synthesis topic <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis graph <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis artifact <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis insight <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis topic <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis graph <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis insight <subcommand> [--query <JSON_OR_FILE>]
 zotero-bridge mutation literature-ingest --input <JSON_OR_FILE>
 zotero-bridge workflow list
 zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
-zotero-bridge workflow submit --workflow <id> (--items <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
-zotero-bridge workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) [--output-dir <DIR>]
+zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 zotero-bridge run get <workflowRunId>
 zotero-bridge run cancel <workflowRunId> [--reason <reason>] [--message <message>]
 zotero-bridge run list [--workflow <id>] [--backend <id>] [--backend-type <type>] [--request <id>] [--run <runId>] [--state <state>] [--active-only]
@@ -1093,14 +1104,14 @@ PATH 已经可用。
 
 以下参数类型使用 `JSON_OR_FILE`：
 
-- domain semantic commands with `--input`, such as `synthesis topic get-context`,
+- domain semantic reads with `--query`, such as `synthesis topic get-context`,
   `synthesis graph get-metrics`, `synthesis artifact read`, `synthesis schema get`,
   `synthesis concept query`, and `synthesis insight attention-queue`
 - `mutation literature-ingest --input`
 - `call --input`
 - `workflow describe --workflow-options`
 - `workflow describe --provider-profile`
-- `workflow submit --items`
+- `workflow submit --selection`
 - `workflow submit --workflow-options`
 - `workflow submit --provider-profile`
 
@@ -1108,7 +1119,7 @@ PATH 已经可用。
 
 | 输入 | 行为 |
 | --- | --- |
-| 参数省略 | semantic command `--input` 与 `call --input` 可省略，解析为 `{}` |
+| 参数省略 | semantic read `--query` 与 `call --input` 可省略，解析为 `{}` |
 | `-` | 从 stdin 读取完整 JSON 文本 |
 | `@file` | 去掉 `@` 后按文件路径读取 |
 | 已存在的路径 | 读取该文件 |
@@ -1416,20 +1427,20 @@ Host Bridge capability 失败时，CLI 会把 bridge error 放入
 调用格式：
 
 ```text
-zotero-bridge synthesis topic <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis schema get [--input <JSON_OR_FILE>]
-zotero-bridge synthesis concept query [--input <JSON_OR_FILE>]
-zotero-bridge synthesis graph <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis index library get [--input <JSON_OR_FILE>]
-zotero-bridge synthesis resolver resolve [--input <JSON_OR_FILE>]
-zotero-bridge synthesis index reference get [--input <JSON_OR_FILE>]
-zotero-bridge synthesis artifact <subcommand> [--input <JSON_OR_FILE>]
-zotero-bridge synthesis insight <subcommand> [--input <JSON_OR_FILE>]
+zotero-bridge synthesis topic <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis schema get [--query <JSON_OR_FILE>]
+zotero-bridge synthesis concept query [--query <JSON_OR_FILE>]
+zotero-bridge synthesis graph <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis index library get [--query <JSON_OR_FILE>]
+zotero-bridge synthesis resolver resolve [--query <JSON_OR_FILE>]
+zotero-bridge synthesis index reference get [--query <JSON_OR_FILE>]
+zotero-bridge synthesis artifact <subcommand> [--query <JSON_OR_FILE>]
+zotero-bridge synthesis insight <subcommand> [--query <JSON_OR_FILE>]
 ```
 
 这些领域语义命令都通过 `POST <endpoint>/call` 调用对应 Host Bridge
 capability，但 agent-facing CLI 不需要写 raw capability name。
-`--input` 复用通用 `JSON_OR_FILE` 规则；省略时 input 为 `{}`。
+`--query` 复用通用 `JSON_OR_FILE` 规则；省略时 query 为 `{}`。
 
 完整子命令映射以 1.1 的 generated surface 为准。该区块由 capability
 registry 和 Rust CLI source 渲染，新增、删除或重命名 Host Bridge surface
@@ -1438,18 +1449,18 @@ registry 和 Rust CLI source 渲染，新增、删除或重命名 Host Bridge su
 典型调用：
 
 ```text
-zotero-bridge synthesis topic list --input '{}'
-zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id"}'
-zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"digest"}'
-zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'
-zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"audit","outputPath":"runtime/topic-context.audit.json","overwrite":true}'
-zotero-bridge synthesis topic get-report --input '{"topicId":"topic-id"}'
-zotero-bridge synthesis index library get --input '{"cursor":0,"limit":50}'
-zotero-bridge synthesis resolver resolve --input @runtime/payloads/resolver-input.json
-zotero-bridge synthesis graph get-metrics --input @runtime/payloads/metrics-input.json
-zotero-bridge synthesis graph rank-external-references --input '{"limit":10}'
-zotero-bridge synthesis insight attention-queue --input '{}'
-zotero-bridge synthesis artifact export-filtered --input @runtime/payloads/export-input.json
+zotero-bridge synthesis topic list --query '{}'
+zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id"}'
+zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"digest"}'
+zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'
+zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"audit","outputPath":"runtime/topic-context.audit.json","overwrite":true}'
+zotero-bridge synthesis topic get-report --query '{"topicId":"topic-id"}'
+zotero-bridge synthesis index library get --query '{"cursor":0,"limit":50}'
+zotero-bridge synthesis resolver resolve --query @runtime/payloads/resolver-input.json
+zotero-bridge synthesis graph get-metrics --query @runtime/payloads/metrics-input.json
+zotero-bridge synthesis graph rank-external-references --query '{"limit":10}'
+zotero-bridge synthesis insight attention-queue --query '{}'
+zotero-bridge synthesis artifact export-filtered --query @runtime/payloads/export-input.json
 ```
 
 `synthesis topic get-context` 未传 `view` 时保持 legacy flat 输出，供旧 workflow
@@ -1994,8 +2005,8 @@ GET <endpoint>/workflows
 
 ```text
 zotero-bridge workflow describe --workflow <id> [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
-zotero-bridge workflow submit --workflow <id> (--items <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
-zotero-bridge workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) [--output-dir <DIR>]
+zotero-bridge workflow submit --workflow <id> (--selection <JSON_OR_FILE> | --none) [--workflow-options <JSON_OR_FILE>] [--provider-profile <JSON_OR_FILE>]
+zotero-bridge workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) [--output-dir <DIR>]
 ```
 
 HTTP 映射：

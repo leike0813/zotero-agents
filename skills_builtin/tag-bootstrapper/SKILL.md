@@ -58,7 +58,7 @@ Before using Zotero host data:
 Read the current library index with:
 
 ```bash
-<zotero-bridge> synthesis index library get --input '{"cursor":0,"limit":200}'
+<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":200}'
 ```
 
 If the response has `has_more: true` and a non-empty `next_cursor`, continue with the same input shape and the returned cursor until enough context has been collected or the pages are exhausted. For large libraries, collect a representative view rather than trying to summarize every paper.

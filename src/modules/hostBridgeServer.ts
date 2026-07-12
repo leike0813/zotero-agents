@@ -9,6 +9,7 @@ import {
 } from "./hostBridgeAuth";
 import {
   getHostBridgeCapability,
+  HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisMcpService } from "./synthesis/mcpService";
@@ -1006,6 +1007,19 @@ function buildCapabilityApprovalPrompt(
   if (capability.name === "debug.zotero.eval") {
     return buildDebugZoteroEvalApprovalPrompt(input);
   }
+  if (capability.name === "workflow_products.remove") {
+    const productId = String(
+      (input as Record<string, unknown>)?.productId || "",
+    ).trim();
+    return {
+      title: "Remove Dashboard Product record?",
+      summary: productId
+        ? `Remove Dashboard Product record "${productId}".`
+        : "Remove a Dashboard Product record.",
+      detail:
+        "Managed asset files are retained for persistence cleanup and are not deleted immediately.",
+    };
+  }
   return {
     title: "Approve Host Bridge action?",
     summary: `Run "${capability.name}" from zotero-bridge.`,
@@ -1337,6 +1351,14 @@ async function callCapability(request: HttpRequest) {
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
+    }
+    if (error instanceof HostBridgeWorkflowProductError) {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(error.code, error.message, "not_found"),
+        error.code,
+      );
     }
     return response(
       500,

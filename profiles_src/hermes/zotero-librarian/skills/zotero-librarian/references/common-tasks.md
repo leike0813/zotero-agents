@@ -4,9 +4,9 @@ Use this reference to map common Zotero librarian requests to command paths.
 
 ## Missing Inputs And Artifacts
 
-- Missing PDF: `zotero-bridge library readiness missing-pdf --input <JSON_OR_FILE>`.
-- Missing source Markdown: `zotero-bridge library readiness missing-markdown --input <JSON_OR_FILE>`.
-- Missing literature-analysis 三件套: `zotero-bridge library readiness missing-analysis --input <JSON_OR_FILE>`.
+- Missing PDF: `zotero-bridge library readiness missing-pdf --query <JSON_OR_FILE>`.
+- Missing source Markdown: `zotero-bridge library readiness missing-markdown --query <JSON_OR_FILE>`.
+- Missing literature-analysis 三件套: `zotero-bridge library readiness missing-analysis --query <JSON_OR_FILE>`.
 
 Use readiness results for planning. They do not fetch PDFs, convert Markdown, or run analysis.
 

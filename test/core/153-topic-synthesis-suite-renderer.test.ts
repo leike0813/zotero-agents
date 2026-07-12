@@ -825,7 +825,7 @@ describe("Topic synthesis suite renderer", function () {
     assert.include(coreSkill, "KG enrichment");
     assert.include(coreSkill, "existing_topic_relation_proposals");
     assert.include(coreSkill, "prospective_topic_relation_proposals");
-    assert.include(coreSkill, "synthesis topic list --input '{}'");
+    assert.include(coreSkill, "synthesis topic list --query '{}'");
     assert.include(coreSkill, "target_is_broader_topic_candidate");
     assert.include(coreSkill, "target_is_narrower_topic_candidate");
     assert.include(
@@ -905,16 +905,16 @@ describe("Topic synthesis suite renderer", function () {
     assert.notInclude(updateSkill, "Host 文库索引");
     assert.include(
       createSkill,
-      "<zotero-bridge> synthesis topic list --input '{}'",
+      "<zotero-bridge> synthesis topic list --query '{}'",
     );
     assert.include(
       createSkill,
-      '<zotero-bridge> synthesis index library get --input \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
     );
     assert.include(updateSkill, "runtime/payloads/update-audit-report.json");
     assert.include(
       updateSkill,
-      '<zotero-bridge> synthesis index library get --input \'{"cursor":0,"limit":200}\'',
+      '<zotero-bridge> synthesis index library get --query \'{"cursor":0,"limit":200}\'',
     );
   });
 

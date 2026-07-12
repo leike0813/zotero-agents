@@ -16,11 +16,20 @@ Compare the observed version with the expected version in `SKILL.md` or `host-br
 - Use `context` to read the active Zotero view, inspect the current selection, or navigate Zotero to known items, notes, collections, or selected item sets.
 - Use `library` for direct Zotero object reads: items, notes, annotations, attachments, and snapshots.
 - Use `synthesis` for research context: topics, concept queries, graph slices, indexes, resolvers, artifacts, insights, and schemas.
+- Use `product` for normal Dashboard workflow outputs. Start with `product list` or `product get`; use `product download` for their assets. These Products are not Synthesis `paper_artifacts` and exclude Skill Run Feedback.
 - Use `workflow` to inspect workflow definitions, submit Host-owned workflows, create agent-owned handoffs, and apply completed agent-owned results.
 - Use `run` to inspect, cancel, follow notifications for, reply to, or reconnect Host-owned workflow and skill runs.
 - Use `mutation` for previewable and approvable writes, including tags, collection membership, item fields, notes, and file attachment writeback.
 - Use `file` to download Host Bridge file handles or upload local artifacts into short-lived Host Bridge handles.
 - Use `debug` and `call` only when the task is diagnostic or the needed capability has no semantic command.
+
+## JSON Argument Intent
+
+Use inline JSON by default. Semantic reads use `--query`; workflow submission, mutations, and other request payloads use `--input`. Use stdin, `@file`, or a bare JSON file path only when that input source is intentional.
+
+Use `library item search --query '{"text":"...","limit":10}'` for finite candidate discovery. Use `library items list --query '{"query":"...","cursor":0,"collectionKey":"..."}'` for paged inventory reads; do not substitute one command for the other.
+
+Do not bypass a semantic command's argument validation with `call`. Raw `call` is limited to a raw-only capability or a diagnostic investigation.
 
 ## Diagnostics and Readiness
 
@@ -31,8 +40,8 @@ zotero-bridge bridge profile inspect
 zotero-bridge bridge profile diagnose
 zotero-bridge bridge backend list
 zotero-bridge bridge backend status <backendId>
-zotero-bridge workflow requirements <workflowId>
-zotero-bridge workflow validate --workflow <workflowId> --items .\items.json
+zotero-bridge workflow requirements --workflow <workflowId>
+zotero-bridge workflow validate --workflow <workflowId> --selection .\items.json
 ```
 
 Diagnostics are lightweight projections for agent decision-making. They should not contain tokens, private backend payloads, full local paths, transcripts, or complete backend error text. If diagnostics point to a permission wait, use the read-only permission commands to inspect state:
@@ -49,9 +58,9 @@ The permission commands do not approve or reject requests. They only explain wha
 Use readiness commands before planning remediation batches for missing source files or generated literature artifacts:
 
 ```powershell
-zotero-bridge library readiness missing-pdf --input '{"limit":100}'
-zotero-bridge library readiness missing-markdown --input '{"collectionKey":"COLL","limit":100}'
-zotero-bridge library readiness missing-analysis --input '{"tag":"to-review","limit":100}'
+zotero-bridge library readiness missing-pdf --query '{"limit":100}'
+zotero-bridge library readiness missing-markdown --query '{"collectionKey":"COLL","limit":100}'
+zotero-bridge library readiness missing-analysis --query '{"tag":"to-review","limit":100}'
 ```
 
 Readiness commands are read-only. They do not fetch PDFs, convert Markdown, run `literature-analysis`, or write notes. `missing-markdown` follows the Zotero Artifacts column source Markdown rule: a `.md` or `.markdown` attachment must share the best PDF's filename stem. `missing-analysis` follows the same column's generated artifact rule: `digest`, `references`, and `citation-analysis` markers must all be present.
@@ -126,6 +135,12 @@ zotero-bridge mutation item attach-file --item <itemRef> --file <fileId>
 ```
 
 The returned `fileId` is opaque, short-lived, and may be consumed by attachment. Keep the uploaded file's checksum in task notes when the exact artifact matters.
+
+## Dashboard Products
+
+Use `product list --limit <n>` and returned cursor metadata for bounded product inventory reads. Filter by workflow, backend, or request id when the originating run is known. `product download <productId> --output-dir <dir>` downloads every asset; add `--asset <assetId>` for one asset and `--force` only when replacing an existing output is intended. Remote profiles receive a broker ZIP delivery rather than a host filesystem path.
+
+`product remove <productId>` removes the Dashboard Product record through Zotero approval. It does not delete managed asset files immediately; do not retry an approval denial with a raw call.
 
 ## Workflow Execution Choices
 

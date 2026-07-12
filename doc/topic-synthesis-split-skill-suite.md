@@ -181,9 +181,9 @@ zotero-bridge bridge manifest
 本 suite 涉及的 Host read commands：
 
 ```bash
-zotero-bridge synthesis topic list --input '{}'
-zotero-bridge synthesis index library get --input '{"cursor":0,"limit":200}'
-zotero-bridge synthesis topic get-context --input '{"topicId":"<topic_id>"}'
+zotero-bridge synthesis topic list --query '{}'
+zotero-bridge synthesis index library get --query '{"cursor":0,"limit":200}'
+zotero-bridge synthesis topic get-context --query '{"topicId":"<topic_id>"}'
 ```
 
 Resolver cascade 由 runtime 在 Stage 20 submit 后执行，包含 resolver、citation graph metrics 和 filtered paper artifact export。

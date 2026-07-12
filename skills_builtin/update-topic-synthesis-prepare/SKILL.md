@@ -187,7 +187,7 @@ Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护�
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis index library get --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。
+- Host read：`<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于判断是否向当前 resolver proposal 增加文献条件。
   说明：如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。
 - Gate required read：`runtime/payloads/update-audit-report.json`。按 gate 返回路径读取。
 

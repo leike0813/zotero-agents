@@ -8,6 +8,10 @@ When a request uses shorthand such as 图谱, 三件套, digest, references, cit
 
 Use `library readiness` for missing PDF, source Markdown, and literature-analysis artifact discovery. Treat those results as read-only findings for planning follow-up work; do not infer readiness by manually combining raw attachment and note queries.
 
+Use inline JSON with `--query` for semantic reads and `--input` for submission or mutation payloads. Use `library item search` only for finite candidate discovery and `library items list` only for paged inventory reads. Do not bypass semantic argument validation with raw `call`.
+
+Use `product` for normal Dashboard workflow outputs, not `synthesis artifact`. List and inspect products before downloading selected assets. Product removal is approval-gated record removal and retains managed files for persistence cleanup.
+
 Use `common-tasks.md` when the request matches common library management work such as missing PDF, missing Markdown, missing literature-analysis artifacts, tag regulation, annotation export, synthesis graph, topic synthesis, or writeback.
 
 For broad library, topic, index, or graph reads, use paged commands with explicit limits and follow returned cursor metadata. Do not assume `synthesis graph overview`, `synthesis topic list`, `synthesis index library get`, graph metrics, or graph ranking commands return complete collections in one call.

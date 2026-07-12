@@ -70,7 +70,9 @@ export type HostBridgeErrorCode =
   | "skill_run_not_recoverable"
   | "unsupported_interaction_backend"
   | "workflow_submit_failed"
-  | "workflow_submit_requires_approval";
+  | "workflow_submit_requires_approval"
+  | "workflow_product_not_found"
+  | "workflow_product_asset_not_found";
 
 export type HostBridgeError = {
   code: HostBridgeErrorCode;
@@ -165,7 +167,8 @@ export type HostBridgeCapabilityCategory =
   | "reference_index"
   | "resolvers"
   | "schemas"
-  | "topics";
+  | "topics"
+  | "workflow_products";
 
 export type HostBridgeCapabilityManifestEntry = {
   name: string;

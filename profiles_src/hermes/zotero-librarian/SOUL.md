@@ -28,7 +28,7 @@ When the loaded profile path, command help, or CLI error suggests a surface mism
 
 Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend list` when backend readiness or Host Bridge profile compatibility may affect the task.
 
-Use `zotero-bridge workflow list` only when workflow selection is part of the task. Use `zotero-bridge workflow describe <workflowId>` or `zotero-bridge workflow requirements <workflowId>` before submitting or accepting an agent-owned handoff whose contract is unclear. Use `zotero-bridge workflow validate` to check a draft selection, workflow options, and provider profile without starting execution.
+Use `zotero-bridge workflow list` only when workflow selection is part of the task. Use `zotero-bridge workflow describe --workflow <workflowId>` or `zotero-bridge workflow requirements --workflow <workflowId>` before submitting or accepting an agent-owned handoff whose contract is unclear. Use `zotero-bridge workflow validate` to check a draft selection, workflow options, and provider profile without starting execution.
 
 When the CLI is not installed for the profile, run `scripts/install_zotero_bridge_cli.py` from the profile package. Keep `ZOTERO_BRIDGE_HOST_PROFILE` and `ZOTERO_BRIDGE_HOST_HOME` as the bridge profile selectors, and do not change `HOME` to reach the Host Bridge profile.
 

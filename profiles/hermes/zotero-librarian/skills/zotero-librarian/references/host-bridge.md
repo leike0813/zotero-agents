@@ -118,11 +118,11 @@ Confirm with `zotero-bridge --version` when the loaded profile or skill path is 
 
 ## Snapshot Payload
 
-`zotero-bridge library snapshot --input <JSON_OR_FILE>` maps to `library.sync_snapshot`.
+`zotero-bridge library snapshot --query <JSON_OR_FILE>` maps to `library.sync_snapshot`.
 
-`zotero-bridge library items list --input <JSON_OR_FILE>` maps to `library.list_items`.
+`zotero-bridge library items list --query <JSON_OR_FILE>` maps to `library.list_items`.
 
-`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --input <JSON_OR_FILE>` maps to `library.readiness_audit`.
+`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --query <JSON_OR_FILE>` maps to `library.readiness_audit`.
 
 Input fields: `libraryId`, `cursor`, `limit`, `collectionId`, `collectionKey`, `tag`, `itemType`, and `query`.
 
