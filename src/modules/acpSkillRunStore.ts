@@ -62,7 +62,9 @@ import type {
 import type {
   AcpMcpHealthSnapshot,
   AcpPendingPermissionRequest,
+  AcpPromptInterruptState,
 } from "./acpTypes";
+import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import {
   parseAcpEffortFromModelText,
   resolveAcpRawModelIdForSelection,
@@ -322,6 +324,7 @@ export type AcpSkillRunRecord = {
   applyResultState?: "pending" | "succeeded" | "failed";
   sessionId?: string;
   activePrompt?: boolean;
+  promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
   transcriptItems?: AcpSkillRunTranscriptItem[];
@@ -390,6 +393,7 @@ export type AcpSkillRunSummary = Pick<
   | "pendingInteraction"
   | "pendingPermission"
   | "activePrompt"
+  | "promptInterruptState"
   | "transcriptRevision"
   | "transcriptEventSeq"
   | "transcriptItemCount"
@@ -2055,7 +2059,10 @@ const ACP_SKILL_RUN_TRANSCRIPT_EVENT_STAGES = new Set([
   "failed",
   "canceled",
   "cancel-requested",
-  "interrupt-completed",
+  "interrupt-requested",
+  "interrupt-confirmed",
+  "interrupt-forced",
+  "interrupt-unconfirmed",
 ]);
 
 const ACP_SKILL_RUN_SILENT_CRITICAL_STAGES = new Set([
@@ -2074,6 +2081,10 @@ const ACP_SKILL_RUN_SILENT_CRITICAL_STAGES = new Set([
   "failed",
   "canceled",
   "cancel-requested",
+  "interrupt-requested",
+  "interrupt-confirmed",
+  "interrupt-forced",
+  "interrupt-unconfirmed",
 ]);
 
 function shouldShowEventInTranscript(stage: string) {
@@ -2413,6 +2424,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           : undefined,
     sessionId: normalizeString(raw.sessionId) || undefined,
     activePrompt: raw.activePrompt === true,
+    promptInterruptState: normalizeAcpPromptInterruptState(
+      raw.promptInterruptState,
+    ),
     pendingPermission: isRecord(raw.pendingPermission)
       ? ({
           requestId: normalizeString(raw.pendingPermission.requestId),
@@ -3127,6 +3141,7 @@ export function upsertAcpSkillRun(update: {
   applyResultState?: AcpSkillRunRecord["applyResultState"];
   sessionId?: string;
   activePrompt?: boolean;
+  promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
   error?: string;
@@ -3347,6 +3362,11 @@ export function upsertAcpSkillRun(update: {
   if (update.applyResultState) next.applyResultState = update.applyResultState;
   if (typeof update.activePrompt === "boolean")
     next.activePrompt = update.activePrompt;
+  if (Object.prototype.hasOwnProperty.call(update, "promptInterruptState")) {
+    next.promptInterruptState = normalizeAcpPromptInterruptState(
+      update.promptInterruptState,
+    );
+  }
   if (update.status && isTerminalAcpSkillRunStatus(next.status)) {
     finishAcpExecutionProgress(requestId);
     next.messageCounts = snapshotAcpMessageCounts(requestId);
@@ -4660,18 +4680,6 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   } else {
     await controller.cancel();
   }
-  upsertAcpSkillRun({
-    requestId,
-    status: "waiting_user",
-    statusReason: "interrupt_turn",
-    activePrompt: false,
-    replyState: "idle",
-    event: {
-      stage: "interrupt-requested",
-      message: "ACP skill run current turn interruption requested.",
-      level: "warn",
-    },
-  });
 }
 
 export function archiveAcpSkillRun(requestIdRaw: string) {
@@ -5655,6 +5663,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
       ? { ...run.pendingPermission }
       : null,
     activePrompt: run.activePrompt,
+    promptInterruptState: run.promptInterruptState,
     transcriptRevision: run.transcriptRevision,
     transcriptEventSeq: run.transcriptEventSeq,
     transcriptItemCount: run.transcriptItemCount,

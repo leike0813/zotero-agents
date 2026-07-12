@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = 后端{ $backend }已在 6 小时未�
 # Assistant panel shared UI
 assistant-panel-action-send = 发送
 assistant-panel-action-cancel = 取消
+assistant-panel-action-cancelling = 正在取消…
 assistant-panel-action-cancel-run = 取消任务
 assistant-panel-action-archive = 归档
 assistant-panel-action-close = 关闭

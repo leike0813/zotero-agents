@@ -10,6 +10,7 @@ export function buildAssistantPanelLabels() {
     actions: {
       send: l("assistant-panel-action-send", "Send"),
       cancel: l("assistant-panel-action-cancel", "Cancel"),
+      cancelling: l("assistant-panel-action-cancelling", "Cancelling..."),
       cancelRun: l("assistant-panel-action-cancel-run", "Cancel Task"),
       archive: l("assistant-panel-action-archive", "Archive"),
       close: l("assistant-panel-action-close", "Close"),

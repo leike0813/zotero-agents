@@ -2288,6 +2288,12 @@ describe("ACP SkillRunner-compatible runner", function () {
           requestId: "run-new",
           conversationState: "closed",
           conversationRecoveryState: "available",
+          promptInterruptState: "requested",
+          event: {
+            stage: "interrupt-requested",
+            message: "Interrupt requested.",
+            level: "warn",
+          },
         });
       },
     });
@@ -2295,7 +2301,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     const interruptedRun = getAcpSkillRunRecord("run-new");
     assert.isFalse(canceled);
     assert.isTrue(interrupted);
-    assert.equal(interruptedRun?.status, "waiting_user");
+    assert.equal(interruptedRun?.status, "running");
+    assert.equal(interruptedRun?.activePrompt, true);
+    assert.equal(interruptedRun?.promptInterruptState, "requested");
     assert.equal(interruptedRun?.conversationState, "closed");
     assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
@@ -2358,7 +2366,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     let resolvePromptStarted: () => void = () => undefined;
-    let rejectPrompt: ((error: Error) => void) | null = null;
+    let resolvePrompt: (() => void) | null = null;
     const promptStarted = new Promise<void>((resolve) => {
       resolvePromptStarted = resolve;
     });
@@ -2398,14 +2406,15 @@ describe("ACP SkillRunner-compatible runner", function () {
             },
           },
         });
-        return await new Promise<never>((_resolve, reject) => {
-          rejectPrompt = reject;
+        await new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
           resolvePromptStarted();
         });
+        return { stopReason: "cancelled" };
       },
       cancel: async () => {
         cancelCalls += 1;
-        rejectPrompt?.(new Error("prompt interrupted"));
+        resolvePrompt?.();
       },
       setMode: async () => undefined,
       setModel: async () => undefined,
@@ -2462,7 +2471,107 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.replyState, "idle");
     assert.equal(record?.conversationState, "active");
     assert.equal(record?.conversationRecoveryState, "connected");
+    assert.equal(record?.promptInterruptState, "confirmed");
     assert.isUndefined(record?.removedAt);
+  });
+
+  it("force-stops an unresponsive skill prompt and terminates an unrecoverable run", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      getSessionRecoveryCapabilities: () => ({
+        canLoadSession: false,
+        canResumeSession: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-force-interrupt" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+
+    const runPromise = executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "result",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        promptInterruptGraceMs: 5,
+      },
+    });
+    await promptStarted;
+    const requestId = listAcpSkillRuns()[0]?.requestId || "";
+    await interruptAcpSkillRunCurrentTurn(requestId);
+    assert.equal(getAcpSkillRunRecord(requestId)?.activePrompt, true);
+    assert.equal(
+      getAcpSkillRunRecord(requestId)?.promptInterruptState,
+      "requested",
+    );
+
+    for (let index = 0; index < 40; index += 1) {
+      if (getAcpSkillRunRecord(requestId)?.promptInterruptState === "forced") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const forced = getAcpSkillRunRecord(requestId);
+    assert.equal(forced?.promptInterruptState, "forced");
+    assert.equal(forced?.status, "canceled");
+    assert.equal(forced?.conversationState, "closed");
+    assert.equal(forced?.conversationRecoveryState, "unsupported");
+    assert.equal(closeCalls, 1);
+
+    releasePrompt?.();
+    const result = await runPromise;
+    assert.equal(result.status, "canceled");
+    assert.equal(
+      getAcpSkillRunRecord(requestId)?.promptInterruptState,
+      "forced",
+    );
   });
 
   it("cancels an active ACP skill prompt as a terminal task cancel", async function () {
@@ -8212,7 +8321,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("treats recovered end_turn as interrupted when adapter reports cancelRequested", async function () {
+  it("does not treat a local cancelRequested flag as backend cancellation", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -8227,6 +8336,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     const { adapter, getPromptCount } = createPromptStopAdapter({
       stopReason: "end_turn",
       cancelRequested: true,
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
     });
     try {
       resetAcpSkillRunsForTests();
@@ -8275,7 +8386,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(recovered?.activePrompt, false);
       assert.equal(recovered?.replyState, "idle");
       assert.equal(recovered?.repairRounds, 0);
-      assert.include(stages, "interrupt-completed");
+      assert.equal(recovered?.promptInterruptState, "idle");
+      assert.notInclude(stages, "interrupt-confirmed");
       assert.notInclude(stages, "acp-prompt-no-output");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
@@ -9098,10 +9210,126 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(record?.activePrompt, false);
       assert.equal(record?.status, "waiting_user");
       assert.notEqual(record?.status, "canceled");
-      assert.include(stages, "interrupt-turn-requested");
-      assert.include(stages, "interrupt-completed");
+      assert.include(stages, "interrupt-requested");
+      assert.include(stages, "interrupt-confirmed");
+      assert.equal(record?.promptInterruptState, "confirmed");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("force-stops an unresponsive recovered prompt as recoverable", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-recovered-force-interrupt",
+    });
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-force-interrupt",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+          promptInterruptGraceMs: 5,
+        },
+      });
+      const replyPromise = replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue recovered prompt",
+      });
+      await promptStarted;
+      await interruptAcpSkillRunCurrentTurn(workspace.requestId);
+      await replyPromise;
+
+      for (let index = 0; index < 40; index += 1) {
+        if (
+          getAcpSkillRunRecord(workspace.requestId)?.conversationState ===
+          "closed"
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(record?.promptInterruptState, "forced");
+      assert.equal(record?.status, "waiting_user");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(closeCalls, 1);
+      assert.include(
+        (record?.events || []).map((event) => event.stage),
+        "interrupt-forced",
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

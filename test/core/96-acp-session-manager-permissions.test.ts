@@ -297,6 +297,34 @@ describe("acp session manager", function () {
     });
   });
 
+  it("resolves a pending permission as cancelled before interrupting the prompt", async function () {
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+
+    await startNewAcpConversation();
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Cancel during permission",
+    });
+    await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+
+    await cancelAcpConversationPrompt();
+    await promptPromise;
+
+    assert.deepEqual(harness.lastAdapter?.lastPermissionOutcome, {
+      outcome: "cancelled",
+    });
+    assert.isNull(getAcpConversationSnapshot().pendingPermissionRequest);
+    assert.equal(
+      getAcpConversationSnapshot().promptInterruptState,
+      "unconfirmed",
+    );
+  });
+
   it("does not auto-approve non ACP-tool permission channels and keeps the setting conversation-scoped", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();

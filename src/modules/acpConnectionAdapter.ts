@@ -132,7 +132,6 @@ export type AcpConnectionError = Error & {
 
 export type AcpPromptResult = {
   stopReason: string;
-  cancelRequested?: boolean;
   observedAcpActivity?: boolean;
   standardAssistantTextSeen?: boolean;
   backendError?: AcpPromptBackendError;
@@ -167,6 +166,10 @@ export type AcpConnectionAdapter = {
   setModel: (args: { sessionId: string; modelId: string }) => Promise<void>;
   authenticate: (args: { methodId: string }) => Promise<void>;
   waitForTransportExit?: (timeoutMs: number) => Promise<boolean>;
+  getSessionRecoveryCapabilities?: () => {
+    canLoadSession: boolean;
+    canResumeSession: boolean;
+  };
   getTransportSnapshot?: () => AcpConnectionTransportSnapshot | null;
   close: () => Promise<void>;
 };
@@ -376,7 +379,6 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private readonly promptCapturesBySession = new Map<
     string,
     {
-      cancelRequested: boolean;
       observedAcpActivity: boolean;
       standardAssistantTextSeen: boolean;
       backendError?: AcpPromptBackendError;
@@ -734,29 +736,16 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   private beginPromptCapture(sessionId: string): {
-    cancelRequested: boolean;
     observedAcpActivity: boolean;
     standardAssistantTextSeen: boolean;
     backendError?: AcpPromptBackendError;
   } {
     const capture = {
-      cancelRequested: false,
       observedAcpActivity: false,
       standardAssistantTextSeen: false,
     };
     this.promptCapturesBySession.set(sessionId, capture);
     return capture;
-  }
-
-  private markPromptCancelled(sessionIdRaw: string) {
-    const sessionId = normalizeString(sessionIdRaw);
-    if (!sessionId) {
-      return;
-    }
-    const capture = this.promptCapturesBySession.get(sessionId);
-    if (capture) {
-      capture.cancelRequested = true;
-    }
   }
 
   private async resolveMcpServers(stage: string) {
@@ -923,6 +912,13 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   async waitForTransportExit(timeoutMs: number) {
     return (await this.transport?.waitForExit(timeoutMs)) === true;
+  }
+
+  getSessionRecoveryCapabilities() {
+    return {
+      canLoadSession: this.canLoadSession,
+      canResumeSession: this.canResumeSession,
+    };
   }
 
   private buildClient(): AcpClientHandler {
@@ -1488,7 +1484,6 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       });
       return {
         stopReason: String(response.stopReason || "").trim(),
-        cancelRequested: capture.cancelRequested,
         observedAcpActivity: capture.observedAcpActivity,
         standardAssistantTextSeen: capture.standardAssistantTextSeen,
         backendError: capture.backendError,
@@ -1521,10 +1516,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   async cancel(args: { sessionId: string }) {
     if (!this.connection) {
-      return;
+      throw new Error("ACP prompt cancellation requires a live connection.");
     }
-    this.markPromptCancelled(args.sessionId);
-    await this.connection.cancel({
+    await this.connection.notifySessionCancel({
       sessionId: args.sessionId,
     });
     this.emitDiagnostic({

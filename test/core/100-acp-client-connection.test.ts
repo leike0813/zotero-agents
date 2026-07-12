@@ -213,6 +213,25 @@ function createClaudeBackend(
 }
 
 describe("acp client connection", function () {
+  it("sends session/cancel as a notification without a request id", async function () {
+    const harness = createMessageHarness();
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      harness.stream,
+    );
+
+    await connection.notifySessionCancel({ sessionId: "session-active" });
+    const outbound = await harness.nextOutbound();
+    assert.deepEqual(outbound, {
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: "session-active" },
+    });
+  });
+
   it("sends initialize request and resolves the matching response", async function () {
     const harness = createMessageHarness();
     const traces: unknown[] = [];

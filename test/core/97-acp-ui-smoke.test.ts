@@ -5526,7 +5526,40 @@ describe("acp ui smoke", function () {
     assert.deepEqual(
       busyPanel.reply.controls.map((entry: any) => [entry.id, entry.disabled]),
       [
-        ["mode", false],
+        ["mode", true],
+        ["model", true],
+        ["reasoning", true],
+      ],
+    );
+
+    const cancellingPanel = model.projectAcpChatPanelSnapshot({
+      status: "prompting",
+      busy: true,
+      promptInterruptState: "requested",
+      sessionId: "session-1",
+      activeBackendId: "backend-a",
+      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
+      modeOptions: [{ id: "plan", label: "Plan" }],
+      currentMode: { id: "plan", label: "Plan" },
+      displayModelOptions: [{ id: "opus", label: "Opus" }],
+      currentDisplayModel: { id: "opus", label: "Opus" },
+      reasoningEffortOptions: [{ id: "high", label: "High" }],
+      currentReasoningEffort: { id: "high", label: "High" },
+      items: [],
+      labels: { actions: { cancelling: "Stopping..." } },
+    });
+    assert.equal(cancellingPanel.lifecycle.replyState, "cancelling");
+    assert.equal(cancellingPanel.reply.enabled, false);
+    assert.equal(cancellingPanel.reply.inputEnabled, false);
+    assert.equal(cancellingPanel.reply.action, "cancel");
+    assert.equal(cancellingPanel.reply.submitLabel, "Stopping...");
+    assert.deepEqual(
+      cancellingPanel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.disabled,
+      ]),
+      [
+        ["mode", true],
         ["model", true],
         ["reasoning", true],
       ],
@@ -5746,6 +5779,7 @@ describe("acp ui smoke", function () {
           conversationState: "active",
           conversationRecoveryState: "connected",
           activePrompt: false,
+          promptInterruptState: "confirmed",
           replyState: "idle",
           sessionId: "session-connected-idle",
         },
@@ -5759,7 +5793,7 @@ describe("acp ui smoke", function () {
           items: [
             {
               kind: "status",
-              label: "interrupt-completed",
+              label: "interrupt-confirmed",
             },
           ],
         },
@@ -8242,6 +8276,58 @@ describe("acp ui smoke", function () {
     assert.strictEqual(
       root.querySelector(".assistant-panel-permission-drawer-panel"),
       firstNodes.permission,
+    );
+
+    renderer.renderAssistantPanelSnapshot(
+      {
+        ...panel,
+        lifecycle: { ...panel.lifecycle, replyState: "cancelling" },
+        reply: {
+          ...panel.reply,
+          enabled: false,
+          inputEnabled: false,
+          action: "interrupt-run-turn",
+          submitLabel: "Cancelling...",
+        },
+      },
+      {
+        managed: true,
+        managedRegions: {
+          toolbar: true,
+          banner: true,
+          plan: true,
+          hint: true,
+          reply: true,
+          drawer: true,
+          details: true,
+          permission: true,
+        },
+        root,
+        regions,
+      },
+    );
+    assert.strictEqual(
+      regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
+      firstNodes.toolbar,
+    );
+    assert.strictEqual(
+      regions.plan.querySelector(".assistant-panel-managed-plan"),
+      firstNodes.plan,
+    );
+    assert.strictEqual(
+      regions.drawer.querySelector(".assistant-panel-managed-drawer"),
+      firstNodes.drawer,
+    );
+    assert.strictEqual(
+      regions.details.querySelector(".assistant-panel-managed-details"),
+      firstNodes.details,
+    );
+    assert.strictEqual(
+      root.querySelector(".assistant-panel-permission-drawer-panel"),
+      firstNodes.permission,
+    );
+    assert.isTrue(
+      regions.reply.querySelector(".assistant-panel-reply-submit").disabled,
     );
   });
 

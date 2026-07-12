@@ -10,7 +10,6 @@ import {
   authenticateAcpConversation,
   buildAcpDiagnosticsBundle,
   buildAcpPromptTextForTests,
-  cancelAcpConversationPrompt,
   config,
   configureNoAcpBackendForTests,
   configureZoteroMcpServerForTests,
@@ -532,8 +531,6 @@ describe("acp session manager", function () {
     await setAcpConversationModel({
       modelId: "gpt-5.4-mini",
     });
-    await cancelAcpConversationPrompt();
-
     const snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.currentMode?.id, "plan");
     assert.equal(snapshot.currentModel?.id, "gpt-5.4-mini");
@@ -541,8 +538,6 @@ describe("acp session manager", function () {
     assert.deepEqual(harness.lastAdapter?.modelSelections, [
       "session-1:gpt-5.4-mini",
     ]);
-    assert.deepEqual(harness.lastAdapter?.cancelSessionIds, ["session-1"]);
-    assert.equal(harness.lastAdapter?.closeCalls, 0);
   });
 
   it("allows mode changes but rejects model and reasoning changes while a prompt is active", async function () {

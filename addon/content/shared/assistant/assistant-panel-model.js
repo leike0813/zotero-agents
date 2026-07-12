@@ -2737,6 +2737,8 @@
         },
       ];
     }
+    const promptInterruptRequested =
+      safeText(snap.promptInterruptState) === "requested";
     return normalizeAssistantPanelSnapshot({
       kind: "acp-chat",
       labels: snap.labels || {},
@@ -2893,7 +2895,11 @@
       lifecycle: {
         connectionState,
         executionState: effectiveStatus,
-        replyState: snap.busy === true ? "sending" : "idle",
+        replyState: promptInterruptRequested
+          ? "cancelling"
+          : snap.busy === true
+            ? "sending"
+            : "idle",
         terminal: false,
       },
       conversation,
@@ -2901,7 +2907,11 @@
       interaction,
       usage: conversation.usage || snap.usage || null,
       reply: {
-        enabled: hasConversation && !isConnecting && !isDisconnecting,
+        enabled:
+          hasConversation &&
+          !isConnecting &&
+          !isDisconnecting &&
+          !promptInterruptRequested,
         inputEnabled:
           hasConversation &&
           !isConnecting &&
@@ -2914,8 +2924,9 @@
             "reply.placeholderAcpChat",
             "Ask the active ACP backend about the current library or item...",
           ),
-        submitLabel:
-          snap.busy === true
+        submitLabel: promptInterruptRequested
+          ? labelFrom(snap, "actions.cancelling", "Cancelling...")
+          : snap.busy === true
             ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
             : labelFrom(snap, "actions.send", labels.send || "Send"),
         sending: snap.busy === true,
@@ -2929,7 +2940,7 @@
             snap.currentMode,
             modeOptions,
             "set-mode",
-            !runtimeControlsAvailable || modeOptions.length === 0,
+            !runtimeControlsAvailable || promptBusy || modeOptions.length === 0,
           ),
           buildReplySelectControl(
             "model",
@@ -3309,26 +3320,14 @@
           }
         : conversation.interaction;
     const activePrompt = Boolean(run && run.activePrompt === true);
+    const promptInterruptState = safeText(run && run.promptInterruptState);
+    const promptInterruptRequested = promptInterruptState === "requested";
     const replyState = safeText(run && run.replyState);
     const hasPendingInteraction = Boolean(run && run.pendingInteraction);
     const activeContinuation =
       ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
-    const interruptedTurn = Boolean(
-      run &&
-      ((Array.isArray(run.events) &&
-        run.events.some(function (event) {
-          const stage = safeText(event && event.stage);
-          return (
-            stage === "interrupt-requested" || stage === "interrupt-completed"
-          );
-        })) ||
-        transcriptItems.some(function (item) {
-          const label = safeText(item && (item.label || item.stage));
-          return (
-            label === "interrupt-requested" || label === "interrupt-completed"
-          );
-        })),
-    );
+    const interruptedTurn =
+      promptInterruptState === "confirmed" || promptInterruptState === "forced";
     const connectedIdleRun = Boolean(
       run &&
       connected &&
@@ -3561,16 +3560,18 @@
       interaction,
       usage: conversation.usage || (run && run.usage) || null,
       reply: {
-        enabled: busyRun || canReply,
+        enabled: (busyRun || canReply) && !promptInterruptRequested,
         inputEnabled: canReply && !busyRun,
         placeholder: labelFrom(
           panel,
           "reply.placeholderAcpSkill",
           "Reply to this ACP skill conversation...",
         ),
-        submitLabel: busyRun
-          ? labelFrom(panel, "actions.cancel", "Cancel")
-          : labelFrom(panel, "actions.send", "Send"),
+        submitLabel: promptInterruptRequested
+          ? labelFrom(panel, "actions.cancelling", "Cancelling...")
+          : busyRun
+            ? labelFrom(panel, "actions.cancel", "Cancel")
+            : labelFrom(panel, "actions.send", "Send"),
         sending: safeText(run && run.replyState) === "sending",
         action: busyRun ? "interrupt-run-turn" : "reply-run",
         tone: busyRun ? "danger" : "primary",

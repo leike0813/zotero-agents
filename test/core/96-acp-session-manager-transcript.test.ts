@@ -2073,6 +2073,43 @@ describe("acp session manager", function () {
     assert.isBelow(snapshotCount, 20);
   });
 
+  it("keeps trailing transcript updates in the active turn while cancellation is requested", async function () {
+    await connectAcpConversation();
+    const releasePrompt = harness.lastAdapter!.holdPrompt();
+    harness.lastAdapter!.promptStopReason = "cancelled";
+    const prompt = sendAcpConversationPrompt({ message: "Trailing update" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+
+    await harness.lastAdapter!.emitUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "final trailing text" },
+      },
+    });
+    const requested = await waitForAcpConversationSnapshot((snapshot) =>
+      snapshot.items.some(
+        (item) =>
+          item.kind === "message" && item.text === "final trailing text",
+      ),
+    );
+    assert.equal(requested.promptInterruptState, "requested");
+    assert.equal(requested.busy, true);
+
+    releasePrompt();
+    await prompt;
+    const settled = getAcpConversationSnapshot();
+    assert.equal(settled.promptInterruptState, "confirmed");
+    const canonical = await readActiveTranscriptItems();
+    assert.isTrue(
+      canonical.some(
+        (item) =>
+          item.kind === "message" && item.text.includes("final trailing text"),
+      ),
+    );
+  });
+
   it("persists ACP chat display mode and compact status expansion state", async function () {
     await startNewAcpConversation();
     setAcpConversationChatDisplayMode({

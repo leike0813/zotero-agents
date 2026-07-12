@@ -144,6 +144,10 @@ import {
 } from "./acpSkillRunAuditTrail";
 import { continueSkillRunnerSequence } from "./workflowExecution/sequenceRuntime";
 import {
+  watchPromiseSettlement,
+  type PromiseSettlementWatchdog,
+} from "../utils/wait";
+import {
   getSequenceRunStateByStepRequest,
   getSequenceStepIndexByRequestId,
   markSequenceRunTerminal,
@@ -190,6 +194,7 @@ export type AcpSkillRunnerDependencies = {
   acpSkillRunForeground?: Partial<AcpSkillRunForegroundDeps>;
   maxRepairRounds?: number;
   sharedSkillCatalogRootDir?: string;
+  promptInterruptGraceMs?: number;
 };
 
 export type AcpRequiredMcpPreflightProbe = (args: {
@@ -210,12 +215,12 @@ type AcpPromptOutcome = {
   stopReason: string;
   assistantText: string;
   observedAcpActivity: boolean;
-  cancelRequested?: boolean;
   standardAssistantTextSeen?: boolean;
   backendError?: AcpPromptBackendError;
 };
 
 const DEFAULT_ACP_SKILL_HARD_TIMEOUT_SECONDS = 1200;
+const DEFAULT_ACP_PROMPT_INTERRUPT_GRACE_MS = 10_000;
 const ACP_HARD_TIMEOUT_TRANSCRIPT_DRAIN_MS = 250;
 const ACP_SKILL_OUTPUT_DIAGNOSTIC_TEXT_TAIL_CHARS = 2000;
 
@@ -1282,7 +1287,6 @@ async function runPrompt(args: {
   sessionId: string;
   stopReason: string;
   assistantText?: string;
-  cancelRequested?: boolean;
   observedAcpActivity?: boolean;
   standardAssistantTextSeen?: boolean;
   backendError?: AcpPromptBackendError;
@@ -1296,6 +1300,7 @@ async function runPrompt(args: {
       sessionId,
       conversationState: "active",
       activePrompt: true,
+      promptInterruptState: "idle",
       event: {
         stage: "acp-session-created",
         message: "ACP task session created.",
@@ -1356,6 +1361,7 @@ async function runPrompt(args: {
       sessionId,
       conversationState: "active",
       activePrompt: true,
+      promptInterruptState: "idle",
     });
   }
   if (args.prepareSession) {
@@ -1365,6 +1371,7 @@ async function runPrompt(args: {
       sessionId,
       conversationState: "active",
       activePrompt: true,
+      promptInterruptState: "idle",
     });
   }
   await args.onPromptReady?.(sessionId);
@@ -1391,7 +1398,6 @@ async function runPrompt(args: {
   return {
     sessionId,
     stopReason,
-    cancelRequested: response.cancelRequested,
     observedAcpActivity: response.observedAcpActivity,
     standardAssistantTextSeen: response.standardAssistantTextSeen,
     backendError: response.backendError,
@@ -2401,8 +2407,10 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredPromptActive = false;
   let recoveredCancellationRequested = false;
   let recoveredInterruptionRequested = false;
+  let recoveredInterruptionForced = false;
   let recoveredDisconnectRequested = false;
   let recoveredPromptTimeoutDrain: Promise<unknown> | null = null;
+  let recoveredInterruptWatchdog: PromiseSettlementWatchdog | null = null;
   let unsubscribePermission: () => void = () => undefined;
   let unsubscribeUpdate: () => void = () => undefined;
   let unsubscribeDiagnostics: () => void = () => undefined;
@@ -2425,6 +2433,8 @@ export async function recoverAcpSkillRunConversation(args: {
     unsubscribeDiagnostics();
     unsubscribeClose();
     recoveredHardTimeoutMonitor?.clear();
+    recoveredInterruptWatchdog?.clear();
+    recoveredInterruptWatchdog = null;
     registerAcpSkillRunController(requestId, null);
     upsertAcpSkillRun({
       requestId,
@@ -2620,7 +2630,6 @@ export async function recoverAcpSkillRunConversation(args: {
           stopReason: "cancelled",
           assistantText: await assistantTurnAccumulator.read(),
           observedAcpActivity: currentTurnObservedAcpActivity,
-          cancelRequested: true,
         };
       }
       const result = guarded.value;
@@ -2693,19 +2702,29 @@ export async function recoverAcpSkillRunConversation(args: {
           }),
         );
       } catch (error) {
-        if (
-          recoveredCancellationRequested ||
-          recoveredInterruptionRequested ||
-          recoveredDisconnectRequested
-        ) {
+        if (recoveredCancellationRequested || recoveredDisconnectRequested) {
           return {
             sessionId: liveSessionId,
             stopReason: "cancelled",
             assistantText: "",
             observedAcpActivity: currentTurnObservedAcpActivity,
-            cancelRequested:
-              recoveredCancellationRequested || recoveredInterruptionRequested,
           };
+        }
+        if (recoveredInterruptionRequested) {
+          recoveredInterruptWatchdog?.clear();
+          recoveredInterruptWatchdog = null;
+          recoveredInterruptionRequested = false;
+          upsertAcpSkillRun({
+            requestId,
+            promptInterruptState: "unconfirmed",
+            event: {
+              stage: "interrupt-unconfirmed",
+              message:
+                "ACP skill run interruption ended with an unconfirmed prompt error.",
+              level: "warn",
+              details: { recovered: true, reason: errorMessage(error) },
+            },
+          });
         }
         await failRecoveredAcpPrompt(classifyAcpPromptError(error));
         throw error;
@@ -2715,6 +2734,9 @@ export async function recoverAcpSkillRunConversation(args: {
     promptOutcome = shouldContinueWorkflow
       ? await promptRecoveredWorkflowContinuation(message)
       : await promptRecoveredSession(message);
+    if (recoveredInterruptionForced) {
+      return;
+    }
     if (recoveredDisconnectRequested) {
       return;
     }
@@ -2738,7 +2760,12 @@ export async function recoverAcpSkillRunConversation(args: {
       });
       return;
     }
-    if (recoveredInterruptionRequested || promptOutcome.cancelRequested) {
+    if (
+      recoveredInterruptionRequested &&
+      promptOutcome.stopReason === "cancelled"
+    ) {
+      recoveredInterruptWatchdog?.clear();
+      recoveredInterruptWatchdog = null;
       upsertAcpSkillRun({
         requestId,
         status: "waiting_user",
@@ -2747,17 +2774,31 @@ export async function recoverAcpSkillRunConversation(args: {
         replyState: "idle",
         conversationState: "active",
         conversationRecoveryState: "connected",
+        promptInterruptState: "confirmed",
         event: {
-          stage: "interrupt-completed",
+          stage: "interrupt-confirmed",
           message: "ACP skill run current turn interrupted.",
           level: "warn",
-          details: {
-            recovered: true,
-            cancelRequested: promptOutcome.cancelRequested === true,
-          },
+          details: { recovered: true },
         },
       });
       return;
+    }
+    if (recoveredInterruptionRequested) {
+      recoveredInterruptWatchdog?.clear();
+      recoveredInterruptWatchdog = null;
+      recoveredInterruptionRequested = false;
+      upsertAcpSkillRun({
+        requestId,
+        promptInterruptState: "unconfirmed",
+        event: {
+          stage: "interrupt-unconfirmed",
+          message:
+            "ACP skill run interruption was not confirmed by the backend.",
+          level: "warn",
+          details: { recovered: true, stopReason: promptOutcome.stopReason },
+        },
+      });
     }
     if (!shouldContinueWorkflow) {
       return;
@@ -3153,15 +3194,23 @@ export async function recoverAcpSkillRunConversation(args: {
           return;
         }
         recoveredInterruptionRequested = true;
+        const current = getAcpSkillRunRecord(requestId);
+        if (current?.pendingPermission) {
+          resolveAcpSkillRunPermissionRequest({
+            runRequestId: requestId,
+            outcome: "cancelled",
+          });
+        }
         await adapter.cancel({ sessionId: liveSessionId });
         upsertAcpSkillRun({
           requestId,
-          activePrompt: false,
+          activePrompt: true,
           replyState: "idle",
           conversationState: "active",
           conversationRecoveryState: "connected",
+          promptInterruptState: "requested",
           event: {
-            stage: "interrupt-turn-requested",
+            stage: "interrupt-requested",
             message: "ACP skill run current turn interruption requested.",
             level: "warn",
             details: {
@@ -3169,6 +3218,59 @@ export async function recoverAcpSkillRunConversation(args: {
             },
           },
         });
+        if (recoveredPromptTimeoutDrain) {
+          recoveredInterruptWatchdog?.clear();
+          recoveredInterruptWatchdog = watchPromiseSettlement(
+            recoveredPromptTimeoutDrain,
+            args.dependencies?.promptInterruptGraceMs ??
+              DEFAULT_ACP_PROMPT_INTERRUPT_GRACE_MS,
+            async () => {
+              if (cleanupDone || !recoveredInterruptionRequested) {
+                return;
+              }
+              recoveredInterruptionForced = true;
+              try {
+                await detach("closed");
+              } catch (error) {
+                recoveredInterruptionForced = false;
+                recoveredInterruptionRequested = false;
+                upsertAcpSkillRun({
+                  requestId,
+                  status: "failed_retriable",
+                  statusReason: "prompt_failed_retriable",
+                  activePrompt: false,
+                  promptInterruptState: "unconfirmed",
+                  conversationState: "error",
+                  conversationRecoveryState: "available",
+                  conversationError: errorMessage(error),
+                  event: {
+                    stage: "interrupt-force-close-failed",
+                    message: errorMessage(error),
+                    level: "error",
+                    details: { recovered: true },
+                  },
+                });
+                return;
+              }
+              upsertAcpSkillRun({
+                requestId,
+                status: "waiting_user",
+                statusReason: "interrupt_turn",
+                activePrompt: false,
+                promptInterruptState: "forced",
+                conversationState: "closed",
+                conversationRecoveryState: "available",
+                event: {
+                  stage: "interrupt-forced",
+                  message:
+                    "ACP skill run prompt did not confirm cancellation and was force-stopped.",
+                  level: "warn",
+                  details: { recovered: true },
+                },
+              });
+            },
+          );
+        }
       },
       reply: async (message) => {
         const nextPrompt = promptChain
@@ -3788,6 +3890,7 @@ export async function executeAcpSkillRunnerJob(args: {
   let cleanupDone = false;
   let cancellationRequested = false;
   let interruptionRequested = false;
+  let interruptionForced = false;
   let disconnectRequested = false;
   let promptChain = Promise.resolve();
   let captureAssistantText = false;
@@ -3809,6 +3912,11 @@ export async function executeAcpSkillRunnerJob(args: {
   const pendingPermissionPauseIds = new Set<string>();
   let autoHardTimeoutStarted = false;
   let activePromptTimeoutDrain: Promise<unknown> | null = null;
+  let interruptWatchdog: PromiseSettlementWatchdog | null = null;
+  const clearInterruptWatchdog = () => {
+    interruptWatchdog?.clear();
+    interruptWatchdog = null;
+  };
   const assistantTurnAccumulator = createAssistantTurnAccumulator();
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
@@ -3825,6 +3933,7 @@ export async function executeAcpSkillRunnerJob(args: {
     unsubscribeClose();
     unsubscribeExecutionDisplayMode();
     hardTimeoutMonitor?.clear();
+    clearInterruptWatchdog();
     if (workspaceActivityTimer) {
       clearInterval(workspaceActivityTimer);
       workspaceActivityTimer = null;
@@ -4144,7 +4253,6 @@ export async function executeAcpSkillRunnerJob(args: {
           stopReason: "cancelled",
           assistantText: await assistantTurnAccumulator.read(),
           observedAcpActivity: currentTurnObservedAcpActivity,
-          cancelRequested: true,
         };
       }
       const result = guarded.value;
@@ -4236,7 +4344,9 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       });
       if (current.sessionId) {
-        await adapter.cancel({ sessionId: current.sessionId });
+        await adapter.cancel({
+          sessionId: current.sessionId,
+        });
       }
       await cleanupLiveSession({
         conversationState: "ended",
@@ -4254,22 +4364,91 @@ export async function executeAcpSkillRunnerJob(args: {
       }
       const current = upsertAcpSkillRun({
         requestId: workspace.requestId,
+        activePrompt: true,
+        promptInterruptState: "requested",
         event: {
-          stage: "interrupt-turn-requested",
+          stage: "interrupt-requested",
           message: "ACP skill run current turn interruption requested.",
           level: "warn",
         },
       });
-      if (current.sessionId) {
-        await adapter.cancel({ sessionId: current.sessionId });
+      if (current.pendingPermission) {
+        resolveAcpSkillRunPermissionRequest({
+          runRequestId: workspace.requestId,
+          outcome: "cancelled",
+        });
       }
-      upsertAcpSkillRun({
-        requestId: workspace.requestId,
-        activePrompt: false,
-        replyState: "idle",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-      });
+      if (current.sessionId) {
+        try {
+          await adapter.cancel({ sessionId: current.sessionId });
+        } catch {
+          interruptionForced = true;
+        }
+      }
+      if (activePromptTimeoutDrain) {
+        clearInterruptWatchdog();
+        interruptWatchdog = watchPromiseSettlement(
+          activePromptTimeoutDrain,
+          interruptionForced
+            ? 0
+            : (args.dependencies?.promptInterruptGraceMs ??
+                DEFAULT_ACP_PROMPT_INTERRUPT_GRACE_MS),
+          async () => {
+            if (cleanupDone || !interruptionRequested) {
+              return;
+            }
+            interruptionForced = true;
+            const recovery = adapter.getSessionRecoveryCapabilities?.() || null;
+            const recoverable =
+              recovery?.canResumeSession === true ||
+              recovery?.canLoadSession === true;
+            try {
+              await cleanupLiveSession({
+                conversationState: "closed",
+                closeAdapter: true,
+              });
+            } catch (error) {
+              interruptionForced = false;
+              interruptionRequested = false;
+              upsertAcpSkillRun({
+                requestId: workspace.requestId,
+                status: "failed_retriable",
+                statusReason: "prompt_failed_retriable",
+                activePrompt: false,
+                promptInterruptState: "unconfirmed",
+                conversationState: "error",
+                conversationRecoveryState: "available",
+                conversationError: errorMessage(error),
+                event: {
+                  stage: "interrupt-force-close-failed",
+                  message: errorMessage(error),
+                  level: "error",
+                },
+              });
+              return;
+            }
+            upsertAcpSkillRun({
+              requestId: workspace.requestId,
+              status: recoverable ? "waiting_user" : "canceled",
+              statusReason: recoverable ? "interrupt_turn" : "cancel_task",
+              activePrompt: false,
+              replyState: "idle",
+              promptInterruptState: "forced",
+              conversationState: "closed",
+              conversationRecoveryState: recoverable
+                ? "available"
+                : "unsupported",
+              event: {
+                stage: "interrupt-forced",
+                message:
+                  "ACP skill run prompt did not confirm cancellation and was force-stopped.",
+                level: "warn",
+                details: { recoverable },
+              },
+            });
+          },
+        );
+      }
     },
     reply: async (message) => {
       const text = String(message || "").trim();
@@ -4660,6 +4839,9 @@ export async function executeAcpSkillRunnerJob(args: {
     continueDetachedInteractiveReply = async (
       initialPromptOutcome: AcpPromptOutcome,
     ) => {
+      if (interruptionForced) {
+        return;
+      }
       let promptOutcome = initialPromptOutcome;
       let detachedRepairRound = Math.max(
         0,
@@ -4704,13 +4886,13 @@ export async function executeAcpSkillRunnerJob(args: {
               level: "warn",
               details: {
                 detachedReply: true,
-                cancelRequested: promptOutcome.cancelRequested === true,
               },
             },
           });
           return;
         }
-        if (interruptionRequested || promptOutcome.cancelRequested) {
+        if (interruptionRequested && promptOutcome.stopReason === "cancelled") {
+          clearInterruptWatchdog();
           upsertAcpSkillRun({
             requestId: workspace.requestId,
             status: "waiting_user",
@@ -4720,17 +4902,33 @@ export async function executeAcpSkillRunnerJob(args: {
             error: "",
             conversationState: "active",
             conversationRecoveryState: "connected",
+            promptInterruptState: "confirmed",
             event: {
-              stage: "interrupt-completed",
+              stage: "interrupt-confirmed",
               message: "ACP skill run current turn interrupted.",
               level: "warn",
-              details: {
-                detachedReply: true,
-                cancelRequested: promptOutcome.cancelRequested === true,
-              },
+              details: { detachedReply: true },
             },
           });
           return;
+        }
+        if (interruptionRequested) {
+          clearInterruptWatchdog();
+          interruptionRequested = false;
+          upsertAcpSkillRun({
+            requestId: workspace.requestId,
+            promptInterruptState: "unconfirmed",
+            event: {
+              stage: "interrupt-unconfirmed",
+              message:
+                "ACP skill run interruption was not confirmed by the backend.",
+              level: "warn",
+              details: {
+                detachedReply: true,
+                stopReason: promptOutcome.stopReason,
+              },
+            },
+          });
         }
         const promptFailure = classifyAcpPromptFailure(promptOutcome);
         let detachedConvergence: AcpSkillOutputConvergenceResult;
@@ -5019,6 +5217,34 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         };
       }
+      if (interruptionForced) {
+        keepConversationAlive = true;
+        hardTimeoutMonitor?.clear();
+        const forcedRecord = getAcpSkillRunRecord(workspace.requestId);
+        if (forcedRecord?.status === "canceled") {
+          return {
+            status: "canceled",
+            requestId: workspace.requestId,
+            fetchType: "result",
+            responseJson: {
+              provider: "acp",
+              requestId: workspace.requestId,
+              status: "interrupt_forced",
+            },
+          };
+        }
+        return {
+          status: "deferred",
+          requestId: workspace.requestId,
+          fetchType: "result",
+          backendStatus: "waiting_user",
+          responseJson: {
+            provider: "acp",
+            requestId: workspace.requestId,
+            status: "interrupt_forced",
+          },
+        };
+      }
       if (cancellationRequested) {
         keepConversationAlive = true;
         hardTimeoutMonitor?.clear();
@@ -5037,7 +5263,6 @@ export async function executeAcpSkillRunnerJob(args: {
             level: "warn",
             details: {
               reason: "task canceled after prompt returned",
-              cancelRequested: promptResult.cancelRequested === true,
             },
           },
         });
@@ -5051,7 +5276,6 @@ export async function executeAcpSkillRunnerJob(args: {
             level: "warn",
             details: {
               reason: "task canceled after prompt returned",
-              cancelRequested: promptResult.cancelRequested === true,
             },
           },
         });
@@ -5076,7 +5300,8 @@ export async function executeAcpSkillRunnerJob(args: {
           },
         };
       }
-      if (interruptionRequested || promptResult.cancelRequested) {
+      if (interruptionRequested && promptResult.stopReason === "cancelled") {
+        clearInterruptWatchdog();
         keepConversationAlive = true;
         hardTimeoutMonitor?.clear();
         upsertAcpSkillRun({
@@ -5088,13 +5313,13 @@ export async function executeAcpSkillRunnerJob(args: {
           error: "",
           conversationState: "active",
           conversationRecoveryState: "connected",
+          promptInterruptState: "confirmed",
           event: {
-            stage: "interrupt-completed",
+            stage: "interrupt-confirmed",
             message: "ACP skill run current turn interrupted.",
             level: "warn",
             details: {
               reason: "current turn canceled after prompt returned",
-              cancelRequested: promptResult.cancelRequested === true,
             },
           },
         });
@@ -5103,12 +5328,11 @@ export async function executeAcpSkillRunnerJob(args: {
           runtimeDir: workspace.runtimeDir,
           event: {
             ts: new Date().toISOString(),
-            stage: "interrupt-completed",
+            stage: "interrupt-confirmed",
             message: "ACP skill run current turn interrupted.",
             level: "warn",
             details: {
               reason: "current turn canceled after prompt returned",
-              cancelRequested: promptResult.cancelRequested === true,
             },
           },
         });
@@ -5133,6 +5357,21 @@ export async function executeAcpSkillRunnerJob(args: {
             status: "interrupted",
           },
         };
+      }
+      if (interruptionRequested) {
+        clearInterruptWatchdog();
+        interruptionRequested = false;
+        upsertAcpSkillRun({
+          requestId: workspace.requestId,
+          promptInterruptState: "unconfirmed",
+          event: {
+            stage: "interrupt-unconfirmed",
+            message:
+              "ACP skill run interruption was not confirmed by the backend.",
+            level: "warn",
+            details: { stopReason: promptResult.stopReason },
+          },
+        });
       }
       const promptFailure = classifyAcpPromptFailure(promptResult);
       if (promptFailure?.stage === "acp-prompt-no-output") {
@@ -5495,50 +5734,23 @@ export async function executeAcpSkillRunnerJob(args: {
         },
       };
     }
-    if (interruptionRequested) {
+    if (interruptionForced) {
       keepConversationAlive = true;
       hardTimeoutMonitor?.clear();
-      upsertAcpSkillRun({
-        requestId: workspace.requestId,
-        status: "waiting_user",
-        statusReason: "interrupt_turn",
-        activePrompt: false,
-        replyState: "idle",
-        error: "",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        event: {
-          stage: "interrupt-completed",
-          message: "ACP skill run current turn interrupted.",
-          level: "warn",
-          details: {
-            reason: message,
+      const forcedRecord = getAcpSkillRunRecord(workspace.requestId);
+      const terminal = forcedRecord?.status === "canceled";
+      if (terminal) {
+        return {
+          status: "canceled",
+          requestId: workspace.requestId,
+          fetchType: "result",
+          responseJson: {
+            provider: "acp",
+            requestId: workspace.requestId,
+            status: "interrupt_forced",
           },
-        },
-      });
-      await appendAcpSkillRunAuditEvent({
-        requestId: workspace.requestId,
-        runtimeDir: workspace.runtimeDir,
-        event: {
-          ts: new Date().toISOString(),
-          stage: "interrupt-completed",
-          message: "ACP skill run current turn interrupted.",
-          level: "warn",
-          details: {
-            reason: message,
-          },
-        },
-      });
-      await writeAcpSkillRunAuditRuntimeLogs({
-        requestId: workspace.requestId,
-        runtimeDir: workspace.runtimeDir,
-      });
-      await writeAcpSkillRunAuditFinalState({
-        requestId: workspace.requestId,
-        runtimeDir: workspace.runtimeDir,
-        record: getAcpSkillRunRecord(workspace.requestId),
-        status: "waiting_user",
-      });
+        };
+      }
       return {
         status: "deferred",
         requestId: workspace.requestId,
@@ -5547,9 +5759,24 @@ export async function executeAcpSkillRunnerJob(args: {
         responseJson: {
           provider: "acp",
           requestId: workspace.requestId,
-          status: "interrupted",
+          status: "interrupt_forced",
         },
       };
+    }
+    if (interruptionRequested) {
+      clearInterruptWatchdog();
+      interruptionRequested = false;
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        promptInterruptState: "unconfirmed",
+        event: {
+          stage: "interrupt-unconfirmed",
+          message:
+            "ACP skill run interruption ended with an unconfirmed prompt error.",
+          level: "warn",
+          details: { reason: message },
+        },
+      });
     }
     upsertAcpSkillRun({
       requestId: workspace.requestId,

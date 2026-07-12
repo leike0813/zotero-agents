@@ -337,7 +337,7 @@ export class AcpClientConnection {
     );
   }
 
-  async cancel(params: { sessionId: string }) {
+  async notifySessionCancel(params: { sessionId: string }) {
     await this.sendNotification(ACP_AGENT_METHODS.session_cancel, params);
   }
 

@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = Backend { $backend } was disabled afte
 # Assistant panel shared UI
 assistant-panel-action-send = Send
 assistant-panel-action-cancel = Cancel
+assistant-panel-action-cancelling = Cancelling...
 assistant-panel-action-cancel-run = Cancel Task
 assistant-panel-action-archive = Archive
 assistant-panel-action-close = Close
