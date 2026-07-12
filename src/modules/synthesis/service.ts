@@ -97,6 +97,7 @@ import {
   type SynthesisWorkbenchSurfaceName,
 } from "./uiModel";
 import { createSynthesisTagVocabularyService } from "./tagVocabulary";
+import { evaluateTagCompliance } from "./tagCompliance";
 import { createSynthesisConceptKbService } from "./conceptKb";
 import {
   createSynthesisTopicGraphService,
@@ -139,6 +140,7 @@ import {
   type SynthesisReferenceMatchProposalRecord,
   type SynthesisRelatedItemsSyncEffectRecord,
   type SynthesisRepository,
+  type SynthesisTagAuditRecord,
   type SynthesisTopicDiscoveryHintRecord,
   type SynthesisTopicInterestMetadataRecord,
   type SynthesisReviewItemRecord,
@@ -3534,8 +3536,17 @@ function emptyCitationGraphLayoutResult(args: {
   };
 }
 
-function registryRowsToUi(rows: ReferenceSidecarIndexRow[]) {
+function tagAuditRecordKey(libraryId: number, itemKey: string) {
+  return `${libraryId}:${itemKey}`;
+}
+
+function registryRowsToUi(
+  rows: ReferenceSidecarIndexRow[],
+  tagAuditByItem: ReadonlyMap<string, boolean> = new Map(),
+) {
   return rows.map((row) => ({
+    libraryId: row.library_id,
+    itemKey: row.item_key,
     paper_ref: row.paper_ref,
     title: row.title,
     year: row.year,
@@ -3544,6 +3555,9 @@ function registryRowsToUi(rows: ReferenceSidecarIndexRow[]) {
       .filter((artifact) => artifact.status !== "available")
       .map((artifact) => artifact.type),
     index_scope: "library" as const,
+    needsTagRegulation:
+      tagAuditByItem.get(tagAuditRecordKey(row.library_id, row.item_key)) ===
+      true,
   }));
 }
 
@@ -10915,6 +10929,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       includeReferences?: boolean;
       rawReferenceIds?: string[];
       referenceSourceRefs?: string[];
+      tagAuditByItem?: ReadonlyMap<string, boolean>;
     } = {},
   ) {
     const sourceLiteratureItemIds = registryRows.map((row) => row.paper_ref);
@@ -10967,7 +10982,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       rows.push(reference);
       referenceFactsBySource.set(key, rows);
     });
-    return registryRowsToUi(registryRows).map((row) => {
+    return registryRowsToUi(registryRows, options.tagAuditByItem).map((row) => {
       const references = referenceFactsBySource.get(row.paper_ref) || [];
       const summary = referenceSummaryBySource.get(row.paper_ref);
       const referencesLoaded =
@@ -15530,6 +15545,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ): Promise<SynthesisUiSnapshotInput> {
     if (surface === "index") {
       const referencedScope = state.registry.scope === "referenced";
+      const tagAuditByItem = await ensureIndexTagAudits(
+        await registryInputsForWorkbenchPage(SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX),
+      );
       const registryPage = referencedScope
         ? await registryRowsForReferencedScope(
             SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
@@ -15569,6 +15587,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             referenceSourceRefs: referencedScope
               ? []
               : state.registry.expandedSourceRefs,
+            tagAuditByItem,
           }),
           cleanupProposals: indexReviewProposals,
           matchProposals: referenceMatchProposals,
@@ -18280,6 +18299,98 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.exportTagVocabularyForRegulator();
   }
 
+  function tagAuditMap(records: SynthesisTagAuditRecord[]) {
+    return new Map(
+      records.map(
+        (record) =>
+          [
+            tagAuditRecordKey(record.libraryId, record.itemKey),
+            record.needsTagRegulation,
+          ] as const,
+      ),
+    );
+  }
+
+  async function replaceTagAuditRecords(args: {
+    libraryId: number;
+    entries: Array<{
+      itemKey: string;
+      compliant: boolean;
+      nonCompliantTags: string[];
+    }>;
+  }) {
+    const auditLibraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    if (!auditLibraryId) {
+      throw new Error("tag audit requires libraryId");
+    }
+    const records = (args.entries || [])
+      .map((entry): SynthesisTagAuditRecord | null => {
+        const itemKey = cleanString(entry.itemKey);
+        if (!itemKey) {
+          return null;
+        }
+        return {
+          libraryId: auditLibraryId,
+          itemKey,
+          needsTagRegulation: !entry.compliant,
+          nonCompliantTagsJson: JSON.stringify(entry.nonCompliantTags || []),
+        };
+      })
+      .filter((entry): entry is SynthesisTagAuditRecord => Boolean(entry));
+    synthesisRepository.replaceTagAuditRecords({
+      libraryId: auditLibraryId,
+      records,
+    });
+    return { libraryId: auditLibraryId, audited: records.length };
+  }
+
+  async function clearTagAuditRecord(args: {
+    libraryId: number;
+    itemKey: string;
+  }) {
+    const auditLibraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    const itemKey = cleanString(args.itemKey);
+    if (!auditLibraryId || !itemKey) {
+      throw new Error("tag audit requires libraryId and itemKey");
+    }
+    synthesisRepository.upsertTagAuditRecord({
+      libraryId: auditLibraryId,
+      itemKey,
+      needsTagRegulation: false,
+      nonCompliantTagsJson: "[]",
+    });
+  }
+
+  async function ensureIndexTagAudits(inputs: ReferenceSidecarInput[]) {
+    const existing = synthesisRepository.listTagAuditRecords({ libraryId });
+    const existingKeys = new Set(
+      existing.map((record) =>
+        tagAuditRecordKey(record.libraryId, record.itemKey),
+      ),
+    );
+    const controlledTags = await exportTagVocabularyForRegulator();
+    for (const input of inputs) {
+      if (input.libraryId !== libraryId || !cleanString(input.itemKey)) {
+        continue;
+      }
+      const key = tagAuditRecordKey(input.libraryId, input.itemKey);
+      if (existingKeys.has(key)) {
+        continue;
+      }
+      const evaluation = evaluateTagCompliance({
+        tags: input.tags || [],
+        controlledTags,
+      });
+      synthesisRepository.upsertTagAuditRecord({
+        libraryId: input.libraryId,
+        itemKey: input.itemKey,
+        needsTagRegulation: !evaluation.compliant,
+        nonCompliantTagsJson: JSON.stringify(evaluation.nonCompliantTags),
+      });
+    }
+    return tagAuditMap(synthesisRepository.listTagAuditRecords({ libraryId }));
+  }
+
   async function loadConceptKb() {
     return conceptKb.loadConceptKb();
   }
@@ -20899,6 +21010,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     applyTagVocabularyImport,
     rebuildTagVocabularyIndex,
     exportTagVocabularyForRegulator,
+    replaceTagAuditRecords,
+    clearTagAuditRecord,
     loadConceptKb,
     updateConceptDisplayText,
     applyConceptReviewAction,

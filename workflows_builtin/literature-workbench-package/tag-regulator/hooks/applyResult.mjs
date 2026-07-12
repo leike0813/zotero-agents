@@ -2568,6 +2568,14 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       : [],
   );
 
+  const libraryId = Math.max(0, Math.floor(Number(parentItem?.libraryID) || 0));
+  const itemKey = asString(parentItem?.key);
+  const clearTagAuditRecord = requireHostApi(runtime)?.synthesis
+    ?.clearTagAuditRecord;
+  if (libraryId && itemKey && typeof clearTagAuditRecord === "function") {
+    await clearTagAuditRecord({ libraryId, itemKey });
+  }
+
   return appendSkillDiagnosticsToResult(
     {
       applied:

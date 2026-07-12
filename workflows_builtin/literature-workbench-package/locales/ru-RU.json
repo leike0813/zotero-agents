@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "Существующая коллекция Zotero для подходящей литературы.",
   "workflows.collection-collector.parameters.collectionScope.title": "Область коллекции",
   "workflows.collection-collector.parameters.collectionScope.description": "Смысл, тема исследования или границы литературы коллекции.",
-  "workflows.collection-collector.taskNameTemplate": "Собрать литературу: {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "Собрать литературу: {collectionScope}",
+  "workflows.tag-auditor.label": "Аудит тегов"
 }

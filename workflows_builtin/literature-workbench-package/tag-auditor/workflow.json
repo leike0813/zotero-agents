@@ -1,0 +1,10 @@
+{
+  "id": "tag-auditor",
+  "label": "Tag Auditor",
+  "provider": "pass-through",
+  "version": "0.1.0",
+  "display": { "core": false, "emoji": "🔎" },
+  "trigger": { "requiresSelection": false },
+  "inputs": { "unit": "workflow" },
+  "hooks": { "applyResult": "hooks/applyResult.mjs" }
+}

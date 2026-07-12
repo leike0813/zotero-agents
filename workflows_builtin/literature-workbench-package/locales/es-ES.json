@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "Colección existente de Zotero que recibirá la literatura coincidente.",
   "workflows.collection-collector.parameters.collectionScope.title": "Alcance de la colección",
   "workflows.collection-collector.parameters.collectionScope.description": "Significado, tema de investigación o límite bibliográfico de la colección.",
-  "workflows.collection-collector.taskNameTemplate": "Recopilar literatura: {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "Recopilar literatura: {collectionScope}",
+  "workflows.tag-auditor.label": "Auditor de etiquetas"
 }

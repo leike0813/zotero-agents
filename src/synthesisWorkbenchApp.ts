@@ -7703,6 +7703,7 @@ function renderRegistryReferenceRow(reference: Record<string, unknown>) {
     [renderRegistryReferenceStatus(reference), "registry-center-cell"],
     ["", "registry-references-cell"],
     [registryReferenceDisplayId(reference)],
+    ["-", "registry-actions-cell"],
   ];
   cells.forEach(([cell, className]) =>
     appendRegistryCell(rowNode, cell, className),
@@ -7741,6 +7742,7 @@ function renderReferencedOnlyTable(snapshot: Snapshot) {
     "binding",
     "target",
     "id",
+    "actions",
   ]);
   const thead = el("thead");
   const header = el("tr");
@@ -7751,6 +7753,9 @@ function renderReferencedOnlyTable(snapshot: Snapshot) {
     renderRegistryHeader("Binding"),
     renderRegistryHeader("Target"),
     renderRegistryHeader("ID"),
+    renderRegistryHeader(t("synthesis-column-actions"), {
+      className: "registry-actions-header",
+    }),
   ].forEach((node) => header.appendChild(node));
   thead.appendChild(header);
   table.appendChild(thead);
@@ -7770,6 +7775,7 @@ function renderReferencedOnlyTable(snapshot: Snapshot) {
         "registry-reference-target-cell",
       ],
       [registryReferenceDisplayId(reference)],
+      ["-", "registry-actions-cell"],
     ];
     cells.forEach(([cell, className]) =>
       appendRegistryCell(rowNode, cell, className),
@@ -7779,6 +7785,40 @@ function renderReferencedOnlyTable(snapshot: Snapshot) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   return wrap;
+}
+
+function renderRegistryRowActions(row: Record<string, unknown>) {
+  const libraryId = Math.max(0, Math.floor(Number(row.libraryId) || 0));
+  const itemKey = textValue(row.itemKey);
+  if (!libraryId || !itemKey) {
+    return "-";
+  }
+  const actions = el("div", "registry-row-actions");
+  actions.appendChild(
+    makeButton(
+      t("synthesis-action-analyze"),
+      "hostCommand",
+      {
+        command: "runRegistryItemWorkflow",
+        args: { libraryId, itemKey, workflowId: "literature-analysis" },
+      },
+      false,
+      row.artifactCoverage === "complete",
+    ),
+  );
+  actions.appendChild(
+    makeButton(
+      t("synthesis-action-regulate-tags"),
+      "hostCommand",
+      {
+        command: "runRegistryItemWorkflow",
+        args: { libraryId, itemKey, workflowId: "tag-regulator" },
+      },
+      false,
+      row.needsTagRegulation !== true,
+    ),
+  );
+  return actions;
 }
 
 function renderRegistryParentRow(row: Record<string, unknown>) {
@@ -7797,6 +7837,7 @@ function renderRegistryParentRow(row: Record<string, unknown>) {
     ],
     [renderRegistryReferenceSummary(row), "registry-references-cell"],
     [registryRowDisplayId(row)],
+    [renderRegistryRowActions(row), "registry-actions-cell"],
   ];
   cells.forEach(([cell, className]) =>
     appendRegistryCell(rowNode, cell, className),
@@ -7836,6 +7877,7 @@ function renderRegistryTable(snapshot: Snapshot) {
     "status",
     "references",
     "id",
+    "actions",
   ]);
   const thead = el("thead");
   const header = el("tr");
@@ -7852,6 +7894,9 @@ function renderRegistryTable(snapshot: Snapshot) {
       className: "registry-references-header",
     }),
     renderRegistryHeader("ID"),
+    renderRegistryHeader(t("synthesis-column-actions"), {
+      className: "registry-actions-header",
+    }),
   ].forEach((node) => header.appendChild(node));
   thead.appendChild(header);
   table.appendChild(thead);

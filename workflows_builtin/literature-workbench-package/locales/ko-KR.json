@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "일치하는 문헌을 받을 기존 Zotero 컬렉션입니다.",
   "workflows.collection-collector.parameters.collectionScope.title": "컬렉션 범위",
   "workflows.collection-collector.parameters.collectionScope.description": "컬렉션의 의미, 연구 주제 또는 문헌 범위를 설명합니다.",
-  "workflows.collection-collector.taskNameTemplate": "문헌 수집: {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "문헌 수집: {collectionScope}",
+  "workflows.tag-auditor.label": "태그 감사"
 }

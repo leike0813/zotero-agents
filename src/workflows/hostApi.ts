@@ -83,7 +83,13 @@ const RESERVED_FILE_SEGMENTS = new Set([
 function createWorkflowSynthesisHostApi(): SynthesisService {
   const service = getDefaultSynthesisService();
   const applyLiteratureDigestSidecar = service.applyLiteratureDigestSidecar;
-  if (typeof applyLiteratureDigestSidecar !== "function") {
+  const replaceTagAuditRecords = service.replaceTagAuditRecords;
+  const clearTagAuditRecord = service.clearTagAuditRecord;
+  if (
+    typeof applyLiteratureDigestSidecar !== "function" &&
+    typeof replaceTagAuditRecords !== "function" &&
+    typeof clearTagAuditRecord !== "function"
+  ) {
     return service;
   }
   return {
@@ -101,6 +107,26 @@ function createWorkflowSynthesisHostApi(): SynthesisService {
         sourceRefs: sourceRef ? [sourceRef] : [],
         reason: "literature_digest_apply",
         graphMayHaveChanged: true,
+      });
+      return result;
+    },
+    async replaceTagAuditRecords(
+      args: Parameters<SynthesisService["replaceTagAuditRecords"]>[0],
+    ) {
+      const result = await replaceTagAuditRecords.call(service, args);
+      notifySynthesisWorkbenchSidecarChanged({
+        reason: "tag_audit_apply",
+        graphMayHaveChanged: false,
+      });
+      return result;
+    },
+    async clearTagAuditRecord(
+      args: Parameters<SynthesisService["clearTagAuditRecord"]>[0],
+    ) {
+      const result = await clearTagAuditRecord.call(service, args);
+      notifySynthesisWorkbenchSidecarChanged({
+        reason: "tag_regulation_apply",
+        graphMayHaveChanged: false,
       });
       return result;
     },

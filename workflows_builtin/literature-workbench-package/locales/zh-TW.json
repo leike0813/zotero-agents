@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "用於收錄符合條件文獻的現有 Zotero collection。",
   "workflows.collection-collector.parameters.collectionScope.title": "Collection 範圍",
   "workflows.collection-collector.parameters.collectionScope.description": "描述此 collection 的意義、研究主題或文獻邊界。",
-  "workflows.collection-collector.taskNameTemplate": "收集文獻：{collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "收集文獻：{collectionScope}",
+  "workflows.tag-auditor.label": "標籤稽核器"
 }

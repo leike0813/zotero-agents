@@ -1082,6 +1082,57 @@ export async function writeRuntimeBytes(
   throw new Error("No binary file write API is available");
 }
 
+export async function moveRuntimePath(args: {
+  sourcePath: string;
+  targetPath: string;
+  overwrite?: boolean;
+}) {
+  const sourcePath = normalizeString(args.sourcePath);
+  const targetPath = normalizeString(args.targetPath);
+  if (!sourcePath || !targetPath) {
+    throw new Error("runtime move source and target paths are required");
+  }
+  assertNativeRuntimeFsPath(sourcePath, "move runtime source path");
+  assertNativeRuntimeFsPath(targetPath, "move runtime target path");
+  await ensureRuntimeDirectory(parentPath(targetPath));
+  const runtime = globalThis as {
+    IOUtils?: {
+      move?: (
+        sourcePath: string,
+        targetPath: string,
+        options?: { noOverwrite?: boolean },
+      ) => Promise<void>;
+    };
+    OS?: {
+      File?: {
+        move?: (
+          sourcePath: string,
+          targetPath: string,
+          options?: { noOverwrite?: boolean },
+        ) => Promise<void>;
+      };
+    };
+  };
+  const options = { noOverwrite: args.overwrite !== true };
+  if (typeof runtime.IOUtils?.move === "function") {
+    await runtime.IOUtils.move(sourcePath, targetPath, options);
+    return;
+  }
+  if (typeof runtime.OS?.File?.move === "function") {
+    await runtime.OS.File.move(sourcePath, targetPath, options);
+    return;
+  }
+  const fs = await tryNodeFs();
+  if (typeof fs?.rename === "function") {
+    if (!args.overwrite && (await runtimePathExists(targetPath))) {
+      throw new Error("runtime move target already exists");
+    }
+    await fs.rename(sourcePath, targetPath);
+    return;
+  }
+  throw new Error("No runtime file move API is available");
+}
+
 export async function setRuntimeExecutablePermissions(
   pathRaw: string,
   mode = 0o755,

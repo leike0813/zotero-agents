@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "Collezione Zotero esistente che riceverà la letteratura corrispondente.",
   "workflows.collection-collector.parameters.collectionScope.title": "Ambito della collezione",
   "workflows.collection-collector.parameters.collectionScope.description": "Significato, tema di ricerca o confine bibliografico della collezione.",
-  "workflows.collection-collector.taskNameTemplate": "Raccogliere letteratura: {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "Raccogliere letteratura: {collectionScope}",
+  "workflows.tag-auditor.label": "Verifica dei tag"
 }

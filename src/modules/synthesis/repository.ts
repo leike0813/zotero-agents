@@ -613,6 +613,15 @@ export type SynthesisTagStagedSuggestionRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisTagAuditRecord = {
+  libraryId: number;
+  itemKey: string;
+  needsTagRegulation: boolean;
+  nonCompliantTagsJson?: string;
+  auditedAt?: string;
+  updatedAt?: string;
+};
+
 export type SynthesisDiscoveryMetadataStateReplacement = {
   literatureMatchingMetadata?: SynthesisLiteratureMatchingMetadataRecord[];
   topicInterestMetadata?: SynthesisTopicInterestMetadataRecord[];
@@ -669,6 +678,7 @@ export type SynthesisRepositoryTableName =
   | "synt_tag_protocol"
   | "synt_tag_validation_warning"
   | "synt_tag_staged_suggestion"
+  | "synt_tag_audit"
   | "synt_review_item"
   | "synt_operation";
 
@@ -703,6 +713,7 @@ const SYNTHESIS_RESET_TABLES: SynthesisRepositoryTableName[] = [
   "synt_tag_alias",
   "synt_tag_vocabulary_entry",
   "synt_tag_staged_suggestion",
+  "synt_tag_audit",
   "synt_citation_layout_state",
   "synt_citation_metrics_complex",
   "synt_citation_metrics_light",
@@ -756,6 +767,7 @@ export const SYNTHESIS_REPOSITORY_TABLES: SynthesisRepositoryTableName[] = [
   "synt_tag_protocol",
   "synt_tag_validation_warning",
   "synt_tag_staged_suggestion",
+  "synt_tag_audit",
   "synt_review_item",
   "synt_operation",
 ];
@@ -1357,6 +1369,7 @@ type MemoryState = {
   tagProtocols: Map<string, Record<string, SqlPrimitive>>;
   tagValidationWarnings: Map<string, Record<string, SqlPrimitive>>;
   tagStagedSuggestions: Map<string, Record<string, SqlPrimitive>>;
+  tagAuditRecords: Map<string, Record<string, SqlPrimitive>>;
   reviewItems: Map<string, Record<string, SqlPrimitive>>;
   operations: Map<string, Record<string, SqlPrimitive>>;
   tables: Set<string>;
@@ -1404,6 +1417,7 @@ function cloneMemoryState(state: MemoryState): MemoryState {
     tagProtocols: cloneMemoryRows(state.tagProtocols),
     tagValidationWarnings: cloneMemoryRows(state.tagValidationWarnings),
     tagStagedSuggestions: cloneMemoryRows(state.tagStagedSuggestions),
+    tagAuditRecords: cloneMemoryRows(state.tagAuditRecords),
     reviewItems: cloneMemoryRows(state.reviewItems),
     operations: cloneMemoryRows(state.operations),
     tables: new Set(state.tables),
@@ -1454,6 +1468,7 @@ function createMemoryAdapter(): SqlAdapter {
     tagProtocols: new Map(),
     tagValidationWarnings: new Map(),
     tagStagedSuggestions: new Map(),
+    tagAuditRecords: new Map(),
     reviewItems: new Map(),
     operations: new Map(),
     tables: new Set(),
@@ -1708,6 +1723,22 @@ function createMemoryAdapter(): SqlAdapter {
           state.tagStagedSuggestions.delete(cleanString(params.tag));
         } else {
           state.tagStagedSuggestions.clear();
+        }
+        return;
+      }
+      if (normalized.startsWith("delete from synt_tag_audit")) {
+        const libraryId = Math.max(
+          0,
+          Math.floor(Number(params.library_id) || 0),
+        );
+        if (!libraryId) {
+          state.tagAuditRecords.clear();
+          return;
+        }
+        for (const [key, row] of state.tagAuditRecords) {
+          if (Number(row.library_id) === libraryId) {
+            state.tagAuditRecords.delete(key);
+          }
         }
         return;
       }
@@ -2032,6 +2063,15 @@ function createMemoryAdapter(): SqlAdapter {
         );
         return;
       }
+      if (normalized.startsWith("insert or replace into synt_tag_audit")) {
+        const libraryId = Math.max(
+          0,
+          Math.floor(Number(params.library_id) || 0),
+        );
+        const itemKey = cleanString(params.item_key);
+        state.tagAuditRecords.set(`${libraryId}:${itemKey}`, memoryRow(params));
+        return;
+      }
       if (normalized.startsWith("insert or replace into synt_review_item")) {
         state.reviewItems.set(
           cleanString(params.review_item_id),
@@ -2268,6 +2308,15 @@ function createMemoryAdapter(): SqlAdapter {
           ...row,
         }));
       }
+      if (normalized.includes("from synt_tag_audit")) {
+        const libraryId = Math.max(
+          0,
+          Math.floor(Number(params.library_id) || 0),
+        );
+        return Array.from(state.tagAuditRecords.values())
+          .filter((row) => !libraryId || Number(row.library_id) === libraryId)
+          .map((row) => ({ ...row }));
+      }
       if (normalized.includes("from synt_concept")) {
         return Array.from(state.concepts.values()).map((row) => ({
           ...row,
@@ -2398,6 +2447,8 @@ function memoryTable(
       return state.tagValidationWarnings;
     case "synt_tag_staged_suggestion":
       return state.tagStagedSuggestions;
+    case "synt_tag_audit":
+      return state.tagAuditRecords;
     case "synt_review_item":
       return state.reviewItems;
     case "synt_operation":
@@ -3081,6 +3132,17 @@ function ensureSchema(db: SqlAdapter) {
       parent_bindings_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_tag_audit (
+      library_id INTEGER NOT NULL,
+      item_key TEXT NOT NULL,
+      needs_tag_regulation INTEGER NOT NULL DEFAULT 0,
+      non_compliant_tags_json TEXT NOT NULL DEFAULT '[]',
+      audited_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (library_id, item_key)
     );
   `);
   db.run(`
@@ -4087,6 +4149,17 @@ function rowToTagStagedSuggestion(
     sourceFlow: cleanString(row.source_flow) || undefined,
     parentBindingsJson: cleanString(row.parent_bindings_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+function rowToTagAudit(row: SqlRow): SynthesisTagAuditRecord {
+  return {
+    libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
+    itemKey: cleanString(row.item_key),
+    needsTagRegulation: Boolean(Number(row.needs_tag_regulation) || 0),
+    nonCompliantTagsJson: cleanString(row.non_compliant_tags_json) || "[]",
+    auditedAt: cleanString(row.audited_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -8867,6 +8940,80 @@ export class SynthesisRepository {
       });
     }
     return existing;
+  }
+
+  upsertTagAuditRecord(record: SynthesisTagAuditRecord) {
+    this.initialize();
+    const libraryId = Math.max(0, Math.floor(Number(record.libraryId) || 0));
+    const itemKey = cleanString(record.itemKey);
+    if (!libraryId || !itemKey) {
+      throw new Error("tag audit requires libraryId and itemKey");
+    }
+    const timestamp = this.now();
+    this.db.run(
+      `
+        INSERT OR REPLACE INTO synt_tag_audit (
+          library_id,
+          item_key,
+          needs_tag_regulation,
+          non_compliant_tags_json,
+          audited_at,
+          updated_at
+        ) VALUES (
+          @library_id,
+          @item_key,
+          @needs_tag_regulation,
+          @non_compliant_tags_json,
+          @audited_at,
+          @updated_at
+        )
+      `,
+      {
+        library_id: libraryId,
+        item_key: itemKey,
+        needs_tag_regulation: record.needsTagRegulation ? 1 : 0,
+        non_compliant_tags_json:
+          cleanString(record.nonCompliantTagsJson) || "[]",
+        audited_at: cleanString(record.auditedAt) || timestamp,
+        updated_at: cleanString(record.updatedAt) || timestamp,
+      },
+    );
+  }
+
+  replaceTagAuditRecords(args: {
+    libraryId: number;
+    records: SynthesisTagAuditRecord[];
+  }) {
+    const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    if (!libraryId) {
+      throw new Error("tag audit requires libraryId");
+    }
+    this.transaction(() => {
+      this.db.run("DELETE FROM synt_tag_audit WHERE library_id = @library_id", {
+        library_id: libraryId,
+      });
+      for (const record of args.records || []) {
+        this.upsertTagAuditRecord({ ...record, libraryId });
+      }
+    });
+  }
+
+  listTagAuditRecords(args: { libraryId?: number } = {}) {
+    this.initialize();
+    const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+    return this.db
+      .all(
+        libraryId
+          ? "SELECT * FROM synt_tag_audit WHERE library_id = @library_id"
+          : "SELECT * FROM synt_tag_audit",
+        libraryId ? { library_id: libraryId } : {},
+      )
+      .map(rowToTagAudit)
+      .sort(
+        (left, right) =>
+          left.libraryId - right.libraryId ||
+          left.itemKey.localeCompare(right.itemKey),
+      );
   }
 
   clearTagStagedSuggestions() {

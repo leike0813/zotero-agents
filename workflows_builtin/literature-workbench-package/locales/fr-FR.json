@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "Collection Zotero existante qui recevra la littérature correspondante.",
   "workflows.collection-collector.parameters.collectionScope.title": "Portée de la collection",
   "workflows.collection-collector.parameters.collectionScope.description": "Signification, thème de recherche ou périmètre documentaire de la collection.",
-  "workflows.collection-collector.taskNameTemplate": "Collecter la littérature : {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "Collecter la littérature : {collectionScope}",
+  "workflows.tag-auditor.label": "Auditeur d’étiquettes"
 }

@@ -167,6 +167,8 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-column-updated": "Updated",
   "synthesis-column-action": "Action",
   "synthesis-column-actions": "Actions",
+  "synthesis-action-analyze": "Analyze",
+  "synthesis-action-regulate-tags": "Regulate tags",
   "synthesis-column-artifacts": "Artifacts",
   "synthesis-column-label": "Label",
   "synthesis-column-target-candidates": "Target Candidates",

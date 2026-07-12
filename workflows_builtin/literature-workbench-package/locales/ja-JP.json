@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "一致する文献を追加する既存の Zotero コレクション。",
   "workflows.collection-collector.parameters.collectionScope.title": "コレクション範囲",
   "workflows.collection-collector.parameters.collectionScope.description": "コレクションの意味、研究テーマ、または文献範囲。",
-  "workflows.collection-collector.taskNameTemplate": "文献を収集: {collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "文献を収集: {collectionScope}",
+  "workflows.tag-auditor.label": "タグ監査"
 }

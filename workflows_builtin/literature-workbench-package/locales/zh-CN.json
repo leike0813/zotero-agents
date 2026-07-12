@@ -65,5 +65,6 @@
   "workflows.collection-collector.parameters.collection.description": "用于收录匹配文献的现有 Zotero collection。",
   "workflows.collection-collector.parameters.collectionScope.title": "Collection 范围",
   "workflows.collection-collector.parameters.collectionScope.description": "描述该 collection 的含义、研究主题或文献边界。",
-  "workflows.collection-collector.taskNameTemplate": "收集文献：{collectionScope}"
+  "workflows.collection-collector.taskNameTemplate": "收集文献：{collectionScope}",
+  "workflows.tag-auditor.label": "标签审计器"
 }

@@ -4090,6 +4090,44 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("keeps the Index tag-regulation marker and generic row workflow command", function () {
+    const snapshot = buildSynthesisUiSnapshot({
+      libraryId: 1,
+      registry: {
+        rows: [
+          {
+            libraryId: 1,
+            itemKey: "TAGGED",
+            paper_ref: "1:TAGGED",
+            title: "Needs tag regulation",
+            artifactCoverage: "partial" as const,
+            missing_artifacts: ["citation_analysis"],
+            needsTagRegulation: true,
+          },
+        ],
+      },
+    });
+
+    assert.deepInclude(snapshot.registry.visibleRows[0], {
+      libraryId: 1,
+      itemKey: "TAGGED",
+      needsTagRegulation: true,
+    });
+    assert.isTrue(
+      applySynthesisUiAction(createDefaultSynthesisUiState(), {
+        action: "hostCommand",
+        payload: {
+          command: "runRegistryItemWorkflow",
+          args: {
+            libraryId: 1,
+            itemKey: "TAGGED",
+            workflowId: "tag-regulator",
+          },
+        },
+      }).handled,
+    );
+  });
+
   it("keeps Index default rows Zotero-bound and exposes referenced scope", function () {
     const input = {
       libraryId: 1,
