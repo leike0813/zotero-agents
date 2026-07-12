@@ -134,6 +134,8 @@ export type SynthesisUiArtifactRow = {
 };
 
 export type SynthesisUiRegistryRow = {
+  libraryId?: number;
+  itemKey?: string;
   paper_ref: string;
   title: string;
   year?: string;
@@ -145,6 +147,7 @@ export type SynthesisUiRegistryRow = {
   unbound_reference_count?: number;
   referenced_by_count?: number;
   references?: SynthesisUiRegistryReferenceRow[];
+  needsTagRegulation?: boolean;
 };
 
 export type SynthesisUiRegistryReferenceRow = {
@@ -1026,6 +1029,7 @@ export type SynthesisUiHostCommandName =
   | "runSynthesizeTopic"
   | "openZoteroItem"
   | "runMissingArtifactWorkflow"
+  | "runRegistryItemWorkflow"
   | "openPreferences"
   | "manualRecomputeLayout"
   | "runTagBootstrapper"
@@ -1123,6 +1127,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "runSynthesizeTopic",
   "openZoteroItem",
   "runMissingArtifactWorkflow",
+  "runRegistryItemWorkflow",
   "openPreferences",
   "manualRecomputeLayout",
   "runTagBootstrapper",
@@ -1185,6 +1190,7 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   runSynthesizeTopic: "Create topic",
   openZoteroItem: "Open Zotero item",
   runMissingArtifactWorkflow: "Run workflow",
+  runRegistryItemWorkflow: "Run item workflow",
   openPreferences: "Open preferences",
   manualRecomputeLayout: "Rebuild graph layout",
   runTagBootstrapper: "Bootstrap tags",
@@ -2041,6 +2047,9 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
       const indexScope =
         row.index_scope === "referenced" ? "referenced" : "library";
       return {
+        libraryId:
+          Math.max(0, Math.floor(cleanNumber(row.libraryId, 0))) || undefined,
+        itemKey: cleanString(row.itemKey) || undefined,
         paper_ref: cleanString(row.paper_ref),
         title: cleanString(row.title) || cleanString(row.paper_ref),
         year: cleanString(row.year) || undefined,
@@ -2061,6 +2070,7 @@ function normalizeRegistryRows(rows: SynthesisUiRegistryRow[] | undefined) {
           Math.floor(cleanNumber(row.referenced_by_count, 0)),
         ),
         references: normalizeRegistryReferences(row.references),
+        needsTagRegulation: row.needsTagRegulation === true,
       };
     })
     .filter((row) => row.paper_ref)

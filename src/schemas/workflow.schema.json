@@ -212,6 +212,9 @@
           "type": "string",
           "enum": ["string", "number", "boolean"]
         },
+        "required": {
+          "type": "boolean"
+        },
         "visible_if": {
           "$ref": "#/$defs/parameterVisibleIf"
         },

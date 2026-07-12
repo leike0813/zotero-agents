@@ -63,9 +63,15 @@ The plugin includes a series of official workflows, grouped by function:
 | Workflow | Purpose | Input | Backend | Docs |
 |---------|------|------|------|------|
 | **Literature Analysis** ⭐ | Generate digest, references, citation analysis from PDF/MD. Can cascade into tag regulation | Attachment | Skill-Runner | [Details](#doc/workflows%2Fliterature-analysis) |
+| **Literature Metadata Curator** | Query, correct and complete bibliographic metadata for a Zotero item | Parent item | Skill-Runner | [Details](#doc/workflows%2Fliterature-metadata-curator) |
+| **Literature Translator** | Translate academic literature with glossary management and quality gates | Attachment | Skill-Runner | [Details](#doc/workflows%2Fliterature-translator) |
 | **Interactive Literature Explainer** | Multi-turn dialogue with AI for deep literature understanding, with verified answers to prevent hallucination | Attachment | Skill-Runner | [Details](#doc/workflows%2Fliterature-explainer) |
 | **Deep Reading** | Generate structured deep reading HTML view with translation support | Attachment | ACP | [Details](#doc/workflows%2Fliterature-deep-reading) |
 | **Literature Search & Ingest** | Let the Agent search academic literature and ingest directly into Zotero | workflow | ACP | [Details](#doc/workflows%2Fliterature-search-ingest) |
+| **Collection Collector** | Select existing library literature for an existing collection from a declared scope | workflow | ACP | [Details](#doc/workflows%2Fcollection-collector) |
+| **Export/Import Literature Bundle** | Export/import portable ZIP bundles of Zotero items with metadata, attachments, and notes | Parent item / workflow | No backend required | [Details](#doc/workflows%2Fexport-import-literature-bundle) |
+| **Export Research Bundle** | Auto-assemble a read-only Research Bundle for a paper project from existing library and Synthesis context | workflow | Skill-Runner | [Details](#doc/workflows%2Fexport-research-bundle) |
+| **Tag Auditor** | Scan all library items against the controlled tag vocabulary and report compliance | workflow | No backend required | [Details](#doc/workflows%2Ftag-auditor) |
 | **Tag Bootstrapper** | Interactively create a controlled tag vocabulary for a research domain | workflow | Skill-Runner | [Details](#doc/workflows%2Ftag-bootstrapper) |
 | **Tag Regulator** | Normalize tags based on a controlled vocabulary and infer new tags | Parent item | Skill-Runner | [Details](#doc/workflows%2Ftag-regulator) |
 | **Export/Import Notes** | Export or import analysis notes with support for editing and re-importing | Parent item | No backend required | [Details](#doc/workflows%2Fexport-import-notes) |

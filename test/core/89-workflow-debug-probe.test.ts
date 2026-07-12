@@ -333,7 +333,7 @@ describe("workflow debug probe", function () {
       prefs: true,
       editor: true,
     });
-    assert.equal(checks[0].hostApiVersion, 6);
+    assert.equal(checks[0].hostApiVersion, 8);
     assert.equal(checks[0].compiledHookSource, "scan-time-precompile");
   });
 

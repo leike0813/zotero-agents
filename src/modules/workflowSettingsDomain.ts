@@ -197,6 +197,55 @@ export function normalizeWorkflowParamsBySchema(
   return normalized;
 }
 
+function isRequiredWorkflowParameterPresent(type: string, value: unknown) {
+  if (type === "string") {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+  if (type === "number") {
+    return typeof value === "number" && Number.isFinite(value);
+  }
+  if (type === "boolean") {
+    return typeof value === "boolean";
+  }
+  return typeof value !== "undefined" && value !== null;
+}
+
+export function listMissingRequiredWorkflowParameters(
+  manifest: WorkflowManifest,
+  workflowParams: unknown,
+) {
+  const input = isObject(workflowParams) ? workflowParams : {};
+  return Object.entries(manifest.parameters || {})
+    .filter(([, schema]) => schema.required === true)
+    .filter(
+      ([key, schema]) =>
+        !isRequiredWorkflowParameterPresent(schema.type, input[key]),
+    )
+    .map(([key]) => key);
+}
+
+export function assertRequiredWorkflowParameters(
+  manifest: WorkflowManifest,
+  workflowParams: unknown,
+) {
+  const requiredFields = listMissingRequiredWorkflowParameters(
+    manifest,
+    workflowParams,
+  );
+  if (requiredFields.length === 0) {
+    return;
+  }
+  const error = new Error(
+    `Missing required workflow parameter(s): ${requiredFields.join(", ")}`,
+  ) as Error & {
+    code?: string;
+    requiredFields?: string[];
+  };
+  error.code = "missing_required_workflow_parameter";
+  error.requiredFields = requiredFields;
+  throw error;
+}
+
 export function mergeExecutionOptions(
   base: WorkflowExecutionOptions | undefined,
   override: WorkflowExecutionOptions | undefined,

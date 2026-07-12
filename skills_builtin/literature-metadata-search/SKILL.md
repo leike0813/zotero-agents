@@ -22,7 +22,9 @@ skill assets.
 
 - `input.parent`: the source record snapshot. Treat this as a generic
   bibliographic record, not as permission to access Zotero. Useful fields include
-  `title`, `DOI`, `ISBN`, `itemType`, `fields`, and `creators`.
+  `title`, `DOI`, `ISBN`, `itemType`, `fields`, and `creators`. The original title
+  identifies the direct bibliographic work; do not treat a container title as an
+  interchangeable substitute.
 - `input.identifier`: optional pre-selected identifier from the upstream caller.
   Supported `type` values are `DOI`, `ISBN`, `PMID`, and `arXiv`.
 - `input.diagnostics`: optional prior lookup diagnostics. Use these only to avoid
@@ -57,9 +59,11 @@ Accept a candidate when one of these conditions is met:
 
 - A normalized input identifier exactly matches the candidate identifier, and the
   candidate has a title or core bibliographic fields.
-- Without an identifier, the normalized title clearly matches, and at least two
-  independent signals also match, such as creator names, year, venue, publisher,
-  volume/issue/pages, thesis institution, or repository landing page.
+- Without an identifier, the candidate is the same direct bibliographic work,
+  the normalized title clearly matches, at least two independent signals also
+  match, and an authoritative publisher, repository, university, or library
+  landing page supports the match. Signals may include creator names, year,
+  venue, publisher, volume/issue/pages, or thesis institution.
 
 Reject or skip candidates when:
 
@@ -68,13 +72,17 @@ Reject or skip candidates when:
 - The source describes a different edition, preprint/article pair, thesis/article
   pair, or conference/journal version and the input does not clearly identify
   that version.
+- The candidate is a book, proceedings volume, journal issue, or other container
+  for the input chapter, article, or contribution.
 - Only one weak aggregator or search snippet supports the metadata.
 - Candidate fields conflict and cannot be resolved from authoritative evidence.
 
 ## Metadata Rules
 
-Only emit fields supported by evidence. Use Zotero-compatible field names under
-`metadata.fields`:
+Only emit fields supported by evidence. Preserve the original `title` unless the
+candidate is proven to be the same direct bibliographic work. When the candidate
+is a container, preserve the direct-work title and use the applicable container
+field instead. Use Zotero-compatible field names under `metadata.fields`:
 
 - Common: `title`, `shortTitle`, `DOI`, `ISBN`, `ISSN`, `url`, `abstractNote`,
   `date`, `language`, `libraryCatalog`, `rights`, `accessDate`
@@ -86,9 +94,13 @@ Only emit fields supported by evidence. Use Zotero-compatible field names under
 - Thesis/report/archive: `university`, `thesisType`, `reportType`,
   `institution`, `archive`, `archiveLocation`, `callNumber`
 
-Do not emit `itemType`, attachments, notes, tags, collections, related items, or
-local file paths. Do not invent missing creators, identifiers, dates, abstracts,
-or page ranges.
+Emit `metadata.itemType` only when the same high-confidence evidence proves that
+the source record has a different Zotero bibliographic type. It must name a
+regular bibliographic type such as `thesis`, `journalArticle`, or `bookSection`;
+never emit `attachment`, `note`, or `annotation`. Do not put `itemType` in
+`metadata.fields` and do not emit attachments, notes, tags, collections, related
+items, or local file paths. Do not invent missing creators, identifiers, dates,
+abstracts, or page ranges.
 
 Creators belong in `metadata.creators`. Use `creatorType` and either
 `firstName`/`lastName` or `name`. Preserve organization authors with `name`.
@@ -128,7 +140,8 @@ institution proxy URLs, Sci-Hub, LibGen, or other piracy sources.
 - Do not create, update, import, attach, tag, delete, or retype Zotero items.
 - Do not fetch PDFs or search for illegal full-text copies.
 - Do not output Markdown fences, logs, explanations, or multiple JSON objects.
-- Do not modify `itemType` or include unsupported mutation surfaces.
+- Do not modify Zotero directly or include mutation surfaces other than the
+  evidence-backed `metadata.itemType` recommendation.
 
 ## Output Contract
 
@@ -143,6 +156,7 @@ Successful result:
   "status": "succeeded",
   "source": "literature-metadata-search",
   "metadata": {
+    "itemType": "journalArticle",
     "fields": {
       "title": "Example article title",
       "DOI": "10.0000/example",
@@ -219,6 +233,8 @@ Before final stdout, verify:
 - The output is one JSON object with no Markdown wrapper.
 - `kind` is exactly `literature_metadata_curation`.
 - `metadata.fields` contains only evidence-backed supported fields.
+- `metadata.itemType`, when present, is an evidence-backed regular bibliographic
+  type and is never placed in `metadata.fields`.
 - `metadata.creators` is present as an array, even when empty.
 - `warnings` and `evidence` are arrays.
 - `error` is `{}` unless `status` is `failed`.

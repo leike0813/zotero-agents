@@ -29,13 +29,15 @@ import {
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
 import { joinPath } from "../utils/path";
+import { getParentPath } from "../platform/path";
 import type {
   WorkflowHostApi,
   WorkflowImagePreparationOptions,
   WorkflowPreparedNoteImage,
 } from "./types";
+import { createWorkflowArchiveApi } from "./archive";
 
-export const WORKFLOW_HOST_API_VERSION = 6;
+export const WORKFLOW_HOST_API_VERSION = 8;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -81,7 +83,13 @@ const RESERVED_FILE_SEGMENTS = new Set([
 function createWorkflowSynthesisHostApi(): SynthesisService {
   const service = getDefaultSynthesisService();
   const applyLiteratureDigestSidecar = service.applyLiteratureDigestSidecar;
-  if (typeof applyLiteratureDigestSidecar !== "function") {
+  const replaceTagAuditRecords = service.replaceTagAuditRecords;
+  const clearTagAuditRecord = service.clearTagAuditRecord;
+  if (
+    typeof applyLiteratureDigestSidecar !== "function" &&
+    typeof replaceTagAuditRecords !== "function" &&
+    typeof clearTagAuditRecord !== "function"
+  ) {
     return service;
   }
   return {
@@ -99,6 +107,26 @@ function createWorkflowSynthesisHostApi(): SynthesisService {
         sourceRefs: sourceRef ? [sourceRef] : [],
         reason: "literature_digest_apply",
         graphMayHaveChanged: true,
+      });
+      return result;
+    },
+    async replaceTagAuditRecords(
+      args: Parameters<SynthesisService["replaceTagAuditRecords"]>[0],
+    ) {
+      const result = await replaceTagAuditRecords.call(service, args);
+      notifySynthesisWorkbenchSidecarChanged({
+        reason: "tag_audit_apply",
+        graphMayHaveChanged: false,
+      });
+      return result;
+    },
+    async clearTagAuditRecord(
+      args: Parameters<SynthesisService["clearTagAuditRecord"]>[0],
+    ) {
+      const result = await clearTagAuditRecord.call(service, args);
+      notifySynthesisWorkbenchSidecarChanged({
+        reason: "tag_regulation_apply",
+        graphMayHaveChanged: false,
       });
       return result;
     },
@@ -277,6 +305,20 @@ function uniqueManagedFileName(fileName: unknown) {
   const { stem, extension } = splitManagedFileName(fileName);
   const nonce = Math.random().toString(36).slice(2, 10);
   return `${stem}-${Date.now()}-${nonce}${extension}`;
+}
+
+function normalizeSafeCompanionPath(value: unknown) {
+  const normalized = String(value || "").trim().replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error(`Unsafe companion file path: ${String(value || "")}`);
+  }
+  return segments;
 }
 
 async function materializeWorkflowInputFile(args: {
@@ -741,9 +783,10 @@ function resolveFilePickerParentWindow() {
 
 async function openToolkitFilePicker(args: {
   title?: string;
-  mode: "folder" | "file" | "files";
+  mode: "folder" | "open" | "multiple" | "save";
   filters?: [string, string][];
   directory?: string;
+  suggestion?: string;
 }): Promise<string | string[] | null> {
   const FilePicker = resolveToolkitFilePicker();
   if (!FilePicker) {
@@ -753,12 +796,12 @@ async function openToolkitFilePicker(args: {
     String(args.title || "").trim(),
     args.mode,
     Array.isArray(args.filters) ? args.filters : [],
-    "",
+    String(args.suggestion || "").trim(),
     resolveFilePickerParentWindow(),
     undefined,
     String(args.directory || "").trim() || undefined,
   ).open();
-  if (args.mode === "files") {
+  if (args.mode === "multiple") {
     if (Array.isArray(selected)) {
       const normalized = selected
         .map((entry) => String(entry || "").trim())
@@ -903,6 +946,15 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }
         return loaded;
       },
+      exportPortableJson(ref) {
+        return handlers.item.exportPortableJson(ref);
+      },
+      createFromJson(args) {
+        return handlers.item.createFromJson(args);
+      },
+      remove(ref) {
+        return handlers.item.remove(ref);
+      },
     },
     context: zoteroBroker.context,
     library: zoteroBroker.library,
@@ -937,7 +989,21 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     images: {
       prepareForNoteEmbedding,
     },
-    attachments: handlers.attachment,
+    attachments: {
+      ...handlers.attachment,
+      async importStoredFile(args) {
+        const attachment = await handlers.attachment.importStoredFromPath(args);
+        const storedPath = String(await attachment.getFilePathAsync?.() || "").trim();
+        const storageRoot = getParentPath(storedPath);
+        for (const companion of args.companionFiles || []) {
+          const segments = normalizeSafeCompanionPath(companion.relativePath);
+          const targetPath = joinPath(storageRoot, ...segments);
+          await makeDirectory(getParentPath(targetPath));
+          await copyFile(companion.sourcePath, targetPath);
+        }
+        return attachment;
+      },
+    },
     tags: handlers.tag,
     collections: handlers.collection,
     command: handlers.command,
@@ -989,9 +1055,18 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       async pickFile(args) {
         return openToolkitFilePicker({
           title: args?.title,
-          mode: "file",
+          mode: "open",
           filters: args?.filters,
           directory: args?.directory,
+        }) as Promise<string | null>;
+      },
+      async pickSaveFile(args) {
+        return openToolkitFilePicker({
+          title: args?.title,
+          mode: "save",
+          filters: args?.filters,
+          directory: args?.directory,
+          suggestion: args?.suggestedName,
         }) as Promise<string | null>;
       },
       async pickFiles(args) {
@@ -1005,12 +1080,13 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }
         return openToolkitFilePicker({
           title: args?.title,
-          mode: "files",
+          mode: "multiple",
           filters: args?.filters,
           directory: args?.directory,
         }) as Promise<string[] | null>;
       },
     },
+    archive: createWorkflowArchiveApi(),
     synthesis: createWorkflowSynthesisHostApi(),
   };
   return cachedHostApi;
@@ -1031,6 +1107,8 @@ export function summarizeWorkflowHostApiCapabilities(
     notifications: !!hostApi?.notifications,
     logging: !!hostApi?.logging,
     file: !!hostApi?.file,
+    saveFile: typeof hostApi?.file?.pickSaveFile === "function",
+    archive: !!hostApi?.archive,
     images: !!hostApi?.images,
     addon: !!hostApi?.addon,
     context: !!hostApi?.context,

@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "Préférence de style",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "Revue, conférence ou famille stylistique cible.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "Revue ou conférence cible",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 Cadrage documentaire du manuscrit",
   "workflows.manuscript-literature-framing.taskNameTemplate": "Cadrer la littérature du manuscrit : {paperTitle}",
   "workflows.update-topic-synthesis.label": "Mettre à jour la synthèse de sujet",
   "workflows.update-topic-synthesis.parameters.topicId.description": "ID du sujet de synthèse existant. L'hôte dérive la portée, le mode, la raison et la langue à partir du sujet sélectionné.",

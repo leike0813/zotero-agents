@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "Preferência de estilo",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "Periódico, conferência ou família estilística de destino.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "Periódico ou conferência de destino",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 Enquadramento bibliográfico do manuscrito",
   "workflows.manuscript-literature-framing.taskNameTemplate": "Enquadrar literatura do manuscrito: {paperTitle}",
   "workflows.update-topic-synthesis.label": "Atualizar síntese de tópico",
   "workflows.update-topic-synthesis.parameters.topicId.description": "ID do tópico de síntese existente. O host deriva o escopo, modo, razão e idioma a partir do tópico selecionado.",

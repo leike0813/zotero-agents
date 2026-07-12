@@ -54,6 +54,7 @@ export type WorkflowParameterOption = {
 
 export type WorkflowParameterSchema = {
   type: WorkflowParameterType;
+  required?: boolean;
   visible_if?: {
     parameter: string;
     equals: boolean;
@@ -323,6 +324,14 @@ export type WorkflowHostApi = {
     resolve: (ref: Zotero.Item | number | string) => Zotero.Item;
     getByLibraryAndKey: (libraryID: number, key: string) => Zotero.Item | null;
     getAll: () => Promise<Zotero.Item[]>;
+    exportPortableJson: (
+      ref: Zotero.Item | number | string,
+    ) => Record<string, unknown>;
+    createFromJson: (args: {
+      itemJson: Record<string, unknown>;
+      libraryID?: number;
+    }) => Promise<Zotero.Item>;
+    remove: (ref: Zotero.Item | number | string) => Promise<void>;
   };
   context: {
     getCurrentView: () => ZoteroHostCurrentViewDto;
@@ -407,7 +416,20 @@ export type WorkflowHostApi = {
       options?: WorkflowImagePreparationOptions,
     ) => Promise<WorkflowPreparedNoteImage>;
   };
-  attachments: typeof import("../handlers").handlers.attachment;
+  attachments: typeof import("../handlers").handlers.attachment & {
+    importStoredFile: (args: {
+      parent?: Zotero.Item | number | string | null;
+      path: string;
+      title?: string | null;
+      mimeType?: string | null;
+      charset?: string | null;
+      url?: string | null;
+      companionFiles?: Array<{
+        sourcePath: string;
+        relativePath: string;
+      }>;
+    }) => Promise<Zotero.Item>;
+  };
   tags: typeof import("../handlers").handlers.tag;
   collections: typeof import("../handlers").handlers.collection;
   command: typeof import("../handlers").handlers.command;
@@ -480,12 +502,19 @@ export type WorkflowHostApi = {
       directory?: string;
       filters?: [string, string][];
     }) => Promise<string | null>;
+    pickSaveFile: (args?: {
+      title?: string;
+      directory?: string;
+      filters?: [string, string][];
+      suggestedName?: string;
+    }) => Promise<string | null>;
     pickFiles: (args?: {
       title?: string;
       directory?: string;
       filters?: [string, string][];
     }) => Promise<string[] | null>;
   };
+  archive: import("./archive").WorkflowArchiveApi;
   synthesis?: SynthesisService;
 };
 
@@ -525,6 +554,7 @@ export type WorkflowRuntimeContext = {
   packageRootDir?: string;
   workflowSourceKind?: "official" | "dev-local" | "user" | "";
   hookName?: "preflight" | "buildRequest" | "applyResult" | "";
+  locale?: string;
   fetch?: typeof globalThis.fetch | null;
   Buffer?: typeof globalThis.Buffer | null;
   btoa?: typeof globalThis.btoa | null;

@@ -375,6 +375,7 @@ const DASHBOARD_LABELS = {
   workflowSettingsBlockedNoProfile:
     "No backend profile available. Please configure one first.",
   workflowSettingsNumberInvalid: "Please enter a valid number.",
+  workflowSettingsParameterRequired: "This field is required.",
   workflowSettingsPositiveIntegerRequired: "Please enter a positive integer.",
   workflowSettingsSaving: "Saving...",
   workflowSettingsSaved: "Saved",

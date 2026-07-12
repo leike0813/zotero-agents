@@ -3,6 +3,7 @@ import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
 import {
   executeApplyResult,
   executeBuildRequests,
@@ -179,6 +180,48 @@ describe("workflow: mineru", function () {
       .map((entry) => String(entry.context?.source_attachment_name || ""))
       .sort();
     assert.deepEqual(names, ["a.pdf", "b.pdf"]);
+  });
+
+  it("skips a PDF whose source path cannot be parsed by the host file API", async function () {
+    const workflow = await getMineruWorkflow();
+    const malformedPath =
+      "Harnessing Vision Models for Time Series Analysis: A Survey PDF";
+    const result = await evaluateWorkflowSelection({
+      workflow,
+      mode: "execute",
+      selectionContext: {
+        items: {
+          attachments: [
+            {
+              filePath: malformedPath,
+              mimeType: "application/pdf",
+              item: { title: malformedPath },
+            },
+          ],
+        },
+        summary: { attachmentCount: 1 },
+      },
+      runtime: {
+        hostApi: {
+          file: {
+            exists: async () => {
+              throw new Error(
+                "could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
+              );
+            },
+          },
+        } as any,
+      },
+    });
+
+    assert.equal(result.state, "disabled");
+    assert.equal(result.reasonCode, "no-valid-input-units");
+    assert.deepEqual(result.scopedSelectionContexts, []);
+    assert.deepEqual(result.stats, {
+      totalUnits: 1,
+      validUnits: 0,
+      skippedUnits: 1,
+    });
   });
 
   it("keeps PDFs at or below 200 pages on the single-request path", async function () {

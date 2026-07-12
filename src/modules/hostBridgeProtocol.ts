@@ -46,6 +46,7 @@ export type HostBridgeErrorCode =
   | "invalid_workflow_agent_run_request"
   | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
+  | "missing_required_workflow_parameter"
   | "invalid_workflow_submit_request"
   | "item_not_found"
   | "internal_error"

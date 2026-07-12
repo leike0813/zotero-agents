@@ -37,7 +37,10 @@ import {
 } from "./workflowExecution/sequenceStateStore";
 import { createLocalizedMessageFormatter } from "./workflowExecution/messageFormatter";
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
-import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
+import {
+  assertRequiredWorkflowParameters,
+  type WorkflowExecutionOptions,
+} from "./workflowSettingsDomain";
 import { buildSelectionContext } from "./selectionContext";
 import {
   buildHostBridgeWorkflowAgentRunHandoff,
@@ -948,6 +951,10 @@ export async function prepareHostBridgeWorkflowSubmit(
     resolveDynamicOptions: false,
     ignoreSavedSettings: true,
   });
+  assertRequiredWorkflowParameters(
+    workflow.manifest,
+    descriptor.workflowParams,
+  );
   const explicitBackendId = normalizeString(plan.providerProfile.backendId);
   if (explicitBackendId && descriptor.selectedProfile !== explicitBackendId) {
     throw codedWorkflowValidationError(
@@ -974,6 +981,7 @@ export async function prepareHostBridgeWorkflowAgentRun(
     (error as { code?: string }).code = "workflow_not_found";
     throw error;
   }
+  assertRequiredWorkflowParameters(workflow.manifest, {});
   return { plan, workflow };
 }
 

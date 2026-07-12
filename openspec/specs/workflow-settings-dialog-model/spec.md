@@ -59,3 +59,18 @@ Workflow settings descriptors SHALL use the active display locale for workflow-o
 - **WHEN** a workflow parameter has no matching localized title or description
 - **THEN** the descriptor SHALL fall back to the raw manifest title or description.
 
+### Requirement: Workflow settings expose required parameters
+
+Workflow settings descriptors and rendered forms SHALL preserve workflow parameter required metadata.
+
+#### Scenario: Required field is rendered
+
+- **WHEN** a parameter declares `required: true`
+- **THEN** settings surfaces SHALL identify the field as required
+- **AND** missing values SHALL not be submitted for workflow execution.
+
+#### Scenario: Host Bridge describes workflow requirements
+
+- **WHEN** workflow describe or requirements returns the parameter schema
+- **THEN** each required parameter SHALL retain `required: true` in the returned descriptor.
+

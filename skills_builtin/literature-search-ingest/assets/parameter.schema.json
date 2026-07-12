@@ -2,18 +2,26 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "query": { "type": "string", "minLength": 1 },
+    "query": {
+      "type": "string",
+      "default": ""
+    },
     "searchMode": {
       "type": "string",
       "enum": [
         "auto",
+        "guided",
         "topic_expansion",
         "paper_seed_expansion",
         "targeted_ingest"
       ]
     },
-    "targetCollection": { "type": "string" }
+    "targetCollection": {
+      "type": "string"
+    }
   },
-  "required": ["query"],
+  "required": [
+    "query"
+  ],
   "additionalProperties": true
 }

@@ -1,11 +1,18 @@
 import { joinPath } from "../utils/path";
 import {
+  assertManagedRelativePath,
+  copyRuntimeDirectory,
+  copyRuntimeFile,
   getRuntimePersistencePaths,
+  readRuntimeBytes,
   readRuntimeTextFile,
+  removeRuntimePath,
   runtimePathExists,
   statRuntimePath,
+  writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
+import { sha256Bytes } from "./hostBridgeFileRegistry";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   deletePluginTaskRowEntry,
@@ -32,6 +39,7 @@ export type WorkflowProductAsset = {
   localPath?: string;
   entryPath?: string;
   size?: number;
+  sha256?: string;
   diagnostics?: string[];
 };
 
@@ -80,6 +88,11 @@ export type WorkflowProductPreview = {
   error?: string;
 };
 
+export type ProductStorageAssetSource =
+  | { kind: "result-artifact"; rawPath?: unknown; fallbackPath?: string }
+  | { kind: "local-file"; path: string }
+  | { kind: "inline-text"; text: string };
+
 export type ResolvedWorkflowProductAsset = {
   product: WorkflowProductRecord;
   asset: WorkflowProductAsset;
@@ -93,6 +106,7 @@ export type ProductStorageAssetInput = {
   fallbackPath?: string;
   productAssetPath?: string;
   contentType?: string;
+  source?: ProductStorageAssetSource;
 };
 
 export type RegisterProductInput = {
@@ -101,6 +115,7 @@ export type RegisterProductInput = {
   title: string;
   assets: ProductStorageAssetInput[];
   metadata?: Record<string, unknown>;
+  failurePolicy?: "record-missing" | "atomic";
 };
 
 export type ProductStorageApi = {
@@ -160,6 +175,19 @@ function safeId(value: unknown, fallback = "product") {
     .replace(/[^A-Za-z0-9._:-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
+}
+
+function workflowProductCacheDir(productIdRaw: string) {
+  const productId = safeId(productIdRaw);
+  return joinPath(
+    getRuntimePersistencePaths().workflowProductsDir,
+    "assets",
+    safeSegment(productId),
+  );
+}
+
+function normalizedAbsolutePath(pathRaw: unknown) {
+  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/g, "");
 }
 
 function extensionOf(path: string) {
@@ -288,6 +316,7 @@ function normalizeAsset(raw: unknown, index = 0): WorkflowProductAsset {
     size: Number.isFinite(Number(source.size))
       ? Math.max(0, Number(source.size))
       : undefined,
+    sha256: cleanString(source.sha256) || undefined,
     diagnostics: Array.isArray(source.diagnostics)
       ? source.diagnostics.map(cleanString).filter(Boolean)
       : undefined,
@@ -477,20 +506,6 @@ export function removeWorkflowProduct(productIdRaw: string) {
   );
 }
 
-function normalizePathForContainment(pathRaw: string) {
-  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function pathIsInside(rootRaw: string, candidateRaw: string) {
-  const root = normalizePathForContainment(rootRaw);
-  const candidate = normalizePathForContainment(candidateRaw);
-  return Boolean(
-    root &&
-    candidate &&
-    (candidate === root || candidate.startsWith(`${root}/`)),
-  );
-}
-
 /**
  * Resolve an asset only when its persisted path is still inside the owning
  * product's managed cache and is available. Host-facing callers must use this
@@ -501,17 +516,30 @@ export async function resolveManagedWorkflowProductAsset(
   assetIdRaw: string,
 ): Promise<ResolvedWorkflowProductAsset | null> {
   const product = getWorkflowProduct(productIdRaw);
-  if (!product || !product.cacheDir) {
+  if (!product) {
     return null;
   }
   const asset = product.assets.find(
     (entry) => entry.assetId === safeId(assetIdRaw, ""),
   );
-  const localPath = cleanString(asset?.localPath);
-  if (!asset || !localPath || !pathIsInside(product.cacheDir, localPath)) {
+  if (!asset || asset.sourceKind !== "product-cache") {
     return null;
   }
-  if (!(await runtimePathExists(localPath))) {
+  let relativePath: string;
+  try {
+    relativePath = assertManagedRelativePath(asset.relativePath);
+  } catch {
+    return null;
+  }
+  const cacheDir = workflowProductCacheDir(product.productId);
+  const localPath = joinPath(cacheDir, relativePath);
+  if (
+    normalizedAbsolutePath(product.cacheDir) !==
+      normalizedAbsolutePath(cacheDir) ||
+    normalizedAbsolutePath(asset.localPath) !==
+      normalizedAbsolutePath(localPath) ||
+    !(await runtimePathExists(localPath))
+  ) {
     return null;
   }
   return {
@@ -596,129 +624,221 @@ export function createProductStorageApi(args: {
   const productBase = (productKeyRaw?: string) => {
     const productKey = safeId(productKeyRaw || "default");
     const productId = safeId(`${requestId}:${productKey}`);
-    const cacheDir = joinPath(
-      getRuntimePersistencePaths().runtimeRoot,
-      "workflow-products",
-      "assets",
-      safeSegment(productId),
-    );
+    const cacheDir = workflowProductCacheDir(productId);
     return { productId, productKey, cacheDir };
   };
+
+  const normalizeSource = (input: ProductStorageAssetInput) =>
+    input.source || {
+      kind: "result-artifact" as const,
+      rawPath: input.rawPath,
+      fallbackPath: input.fallbackPath,
+    };
 
   const resolveInput = async (input: ProductStorageAssetInput) => {
     if (!args.resultContext) {
       throw new Error("workflow resultContext is unavailable");
     }
-    return args.resultContext.resolveArtifact({
+    const source = normalizeSource(input);
+    if (source.kind === "inline-text") {
+      return {
+        bytes: new TextEncoder().encode(source.text),
+        entryPath: input.productAssetPath || input.assetId || "asset",
+      };
+    }
+    if (source.kind === "local-file") {
+      if (!(await runtimePathExists(source.path))) {
+        throw new Error(`local product asset does not exist: ${source.path}`);
+      }
+      return {
+        entryPath: source.path,
+        sourcePath: source.path,
+      };
+    }
+    return args.resultContext.resolveArtifactBytes({
       fieldName: input.assetId || input.label || "product asset",
-      rawPath: input.rawPath,
-      fallbackPath: input.fallbackPath,
+      rawPath: source.rawPath,
+      fallbackPath: source.fallbackPath,
     });
   };
 
-  const makeAsset = async (
+  type ResolvedAssetInput = Partial<WorkflowResolvedArtifact> & {
+    bytes?: Uint8Array;
+    entryPath: string;
+    sourcePath?: string;
+  };
+
+  type ProductAssetTarget = {
+    assetId: string;
+    label: string;
+    relativePath: string;
+    targetPath: string;
+  };
+
+  const resolveAssetTarget = (
     input: ProductStorageAssetInput,
-    resolved: WorkflowResolvedArtifact | null,
-    cacheDir: string,
-  ): Promise<WorkflowProductAsset> => {
+    resolved: ResolvedAssetInput | null,
+    targetDir: string,
+  ): ProductAssetTarget => {
     const assetId = safeId(
       input.assetId || input.label || input.productAssetPath,
     );
-    const relativePath = safeSegment(
-      input.productAssetPath ||
-        input.fallbackPath ||
-        resolved?.entryPath ||
-        assetId,
+    const explicitPath = cleanString(input.productAssetPath);
+    const inferredPath = safeSegment(
+      input.fallbackPath || resolved?.entryPath || assetId,
       assetId,
     );
-    const label = cleanString(input.label) || assetId;
-    if (!resolved) {
-      return {
-        assetId,
-        label,
-        path: relativePath,
-        relativePath,
-        contentType: cleanString(input.contentType) || undefined,
-        sourceKind: "missing",
-        diagnostics: ["artifact not resolved"],
-      };
-    }
-    const targetPath = joinPath(cacheDir, relativePath);
-    await writeRuntimeTextFile(targetPath, resolved.text);
+    const relativePath = assertManagedRelativePath(
+      explicitPath || inferredPath,
+    );
     return {
       assetId,
-      label,
-      path: relativePath,
+      label: cleanString(input.label) || assetId,
       relativePath,
-      contentType: cleanString(input.contentType) || undefined,
-      sourceKind: "product-cache",
-      localPath: targetPath,
-      entryPath: resolved.entryPath,
-      size: await statAsset(targetPath),
+      targetPath: joinPath(targetDir, relativePath),
     };
   };
 
+  const missingAsset = (
+    input: ProductStorageAssetInput,
+    target: ProductAssetTarget,
+    error: unknown,
+  ): WorkflowProductAsset => ({
+    assetId: target.assetId,
+    label: target.label,
+    path: target.relativePath,
+    relativePath: target.relativePath,
+    contentType: cleanString(input.contentType) || undefined,
+    sourceKind: "missing",
+    diagnostics: [error instanceof Error ? error.message : String(error)],
+  });
+
+  const makeAsset = async (
+    input: ProductStorageAssetInput,
+    resolved: ResolvedAssetInput,
+    target: ProductAssetTarget,
+  ): Promise<WorkflowProductAsset> => {
+    if (resolved.sourcePath) {
+      await copyRuntimeFile({
+        sourcePath: resolved.sourcePath,
+        targetPath: target.targetPath,
+      });
+    } else if (resolved.bytes) {
+      await writeRuntimeBytes(target.targetPath, resolved.bytes, {
+        overwrite: true,
+      });
+    } else {
+      throw new Error(
+        `product asset has no readable content: ${resolved.entryPath}`,
+      );
+    }
+    const managedBytes = await readRuntimeBytes(target.targetPath);
+    return {
+      assetId: target.assetId,
+      label: target.label,
+      path: target.relativePath,
+      relativePath: target.relativePath,
+      contentType: cleanString(input.contentType) || undefined,
+      sourceKind: "product-cache",
+      localPath: target.targetPath,
+      entryPath: resolved.entryPath,
+      size: await statAsset(target.targetPath),
+      sha256: await sha256Bytes(managedBytes),
+    };
+  };
+
+  const cacheSingleAsset = async (input: ProductStorageAssetInput) => {
+    const { cacheDir } = productBase("adhoc");
+    const resolved = await resolveInput(input);
+    const target = resolveAssetTarget(input, resolved, cacheDir);
+    return makeAsset(input, resolved, target);
+  };
+
   const api: ProductStorageApi = {
-    async cacheBundleAsset(input) {
-      const { cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), cacheDir);
-    },
-    async registerLocalAsset(input) {
-      const { cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), cacheDir);
-    },
+    cacheBundleAsset: cacheSingleAsset,
+    registerLocalAsset: cacheSingleAsset,
     async registerProduct(input) {
       const { productId, productKey, cacheDir } = productBase(
         input.productKey || input.kind,
       );
+      const atomic = input.failurePolicy === "atomic";
+      const stagingDir = atomic
+        ? `${cacheDir}.staging-${Date.now()}`
+        : cacheDir;
+      if (atomic) {
+        await removeRuntimePath(stagingDir);
+      }
       const existing = getWorkflowProduct(productId);
       const createdAt = existing?.createdAt || nowIso();
       const assets: WorkflowProductAsset[] = [];
-      for (const assetInput of input.assets || []) {
-        try {
-          const resolved = await resolveInput(assetInput);
-          assets.push(await makeAsset(assetInput, resolved, cacheDir));
-        } catch (error) {
-          assets.push({
-            assetId: safeId(assetInput.assetId || assetInput.label),
-            label: cleanString(assetInput.label) || safeId(assetInput.assetId),
-            path: safeSegment(
-              assetInput.productAssetPath || assetInput.fallbackPath,
-            ),
-            relativePath: safeSegment(
-              assetInput.productAssetPath || assetInput.fallbackPath,
-            ),
-            contentType: cleanString(assetInput.contentType) || undefined,
-            sourceKind: "missing",
-            diagnostics: [
-              error instanceof Error ? error.message : String(error),
-            ],
-          });
+      const seenPaths = new Set<string>();
+      const claimTarget = (target: ProductAssetTarget) => {
+        if (seenPaths.has(target.relativePath)) {
+          throw new Error(
+            `duplicate product asset path: ${target.relativePath}`,
+          );
         }
-      }
-      const record: WorkflowProductRecord = {
-        productId,
-        productKey,
-        kind: cleanString(input.kind) || "workflow.product",
-        title: cleanString(input.title) || productId,
-        workflowId,
-        workflowLabel,
-        backendId: backendId || undefined,
-        backendType,
-        runKey,
-        requestId,
-        runId,
-        storageMode: "persistent-cache",
-        workspaceDir: workspaceDir || undefined,
-        cacheDir,
-        resultJsonPath: resultJsonPath || undefined,
-        assets,
-        metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
-        createdAt,
-        updatedAt: nowIso(),
+        seenPaths.add(target.relativePath);
       };
-      persistProduct(record);
-      return cloneRecord(record);
+      try {
+        for (const assetInput of input.assets || []) {
+          let resolved: ResolvedAssetInput;
+          try {
+            resolved = await resolveInput(assetInput);
+          } catch (error) {
+            if (atomic) throw error;
+            const target = resolveAssetTarget(assetInput, null, stagingDir);
+            claimTarget(target);
+            assets.push(missingAsset(assetInput, target, error));
+            continue;
+          }
+          const target = resolveAssetTarget(assetInput, resolved, stagingDir);
+          claimTarget(target);
+          try {
+            assets.push(await makeAsset(assetInput, resolved, target));
+          } catch (error) {
+            if (atomic) throw error;
+            assets.push(missingAsset(assetInput, target, error));
+          }
+        }
+        if (atomic) {
+          await removeRuntimePath(cacheDir);
+          await copyRuntimeDirectory({
+            sourceDir: stagingDir,
+            targetDir: cacheDir,
+          });
+          await removeRuntimePath(stagingDir);
+          for (const asset of assets) {
+            asset.localPath = joinPath(cacheDir, asset.relativePath);
+          }
+        }
+        const record: WorkflowProductRecord = {
+          productId,
+          productKey,
+          kind: cleanString(input.kind) || "workflow.product",
+          title: cleanString(input.title) || productId,
+          workflowId,
+          workflowLabel,
+          backendId: backendId || undefined,
+          backendType,
+          runKey,
+          requestId,
+          runId,
+          storageMode: "persistent-cache",
+          workspaceDir: workspaceDir || undefined,
+          cacheDir,
+          resultJsonPath: resultJsonPath || undefined,
+          assets,
+          metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
+          createdAt,
+          updatedAt: nowIso(),
+        };
+        persistProduct(record);
+        return cloneRecord(record);
+      } catch (error) {
+        if (atomic) await removeRuntimePath(stagingDir);
+        throw error;
+      }
     },
     listProducts: listWorkflowProducts,
     getProduct: getWorkflowProduct,
@@ -741,9 +861,7 @@ export async function readProductAssetPreview(
   assetIdRaw: string,
   options?: { maxBytes?: number },
 ): Promise<WorkflowProductPreview> {
-  const product = getWorkflowProduct(productIdRaw);
   const assetId = safeId(assetIdRaw, "");
-  const asset = product?.assets.find((entry) => entry.assetId === assetId);
   const fallback = {
     productId: safeId(productIdRaw, ""),
     assetId,
@@ -755,17 +873,14 @@ export async function readProductAssetPreview(
     language: "text",
     text: "",
   };
-  if (!product || !asset) {
+  const resolved = await resolveManagedWorkflowProductAsset(
+    productIdRaw,
+    assetId,
+  );
+  if (!resolved) {
     return { ...fallback, error: "product asset not found" };
   }
-  const path = cleanString(asset.localPath);
-  if (!path || !(await runtimePathExists(path))) {
-    return {
-      ...fallback,
-      path: asset.path,
-      error: "product asset file is missing",
-    };
-  }
+  const { product, asset, localPath: path } = resolved;
   const stat = await statRuntimePath(path);
   const kind = inferPreviewKind(path, asset.contentType);
   const maxBytes = Math.max(

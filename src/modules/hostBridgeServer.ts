@@ -688,9 +688,22 @@ function workflowValidationErrorCode(
   const code = (error as { code?: string })?.code;
   return code === "invalid_workflow_describe_request" ||
     code === "invalid_workflow_agent_run_request" ||
-    code === "invalid_workflow_submit_request"
+    code === "invalid_workflow_submit_request" ||
+    code === "missing_required_workflow_parameter"
     ? code
     : fallback;
+}
+
+function workflowValidationErrorDetails(error: unknown) {
+  const requiredFields = (error as { requiredFields?: unknown })
+    ?.requiredFields;
+  return Array.isArray(requiredFields)
+    ? {
+        requiredFields: requiredFields
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean),
+      }
+    : undefined;
 }
 
 function parsePermissionScopeHeader(request: HttpRequest) {
@@ -1822,7 +1835,12 @@ async function describeWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+        workflowValidationErrorDetails(error),
+      ),
       validationCode,
     );
   }
@@ -1880,7 +1898,12 @@ async function validateWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+        workflowValidationErrorDetails(error),
+      ),
       validationCode,
     );
   }
@@ -1938,7 +1961,12 @@ async function workflowRequirements(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+        workflowValidationErrorDetails(error),
+      ),
       validationCode,
     );
   }
@@ -2009,7 +2037,12 @@ async function submitWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+        workflowValidationErrorDetails(error),
+      ),
       validationCode,
     );
   }
@@ -2062,7 +2095,12 @@ async function agentRunWorkflow(request: HttpRequest) {
     return response(
       400,
       "Bad Request",
-      hostBridgeError(validationCode, errorMessage(error), "validation"),
+      hostBridgeError(
+        validationCode,
+        errorMessage(error),
+        "validation",
+        workflowValidationErrorDetails(error),
+      ),
       validationCode,
     );
   }

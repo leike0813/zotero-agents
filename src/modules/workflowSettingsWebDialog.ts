@@ -43,6 +43,7 @@ type WorkflowSettingsDialogSnapshot = {
     blockedNoProfile: string;
     workflowSettingsNumberInvalid: string;
     workflowSettingsPositiveIntegerRequired: string;
+    workflowSettingsParameterRequired: string;
     refreshAcpRuntimeCache: string;
     refreshAcpRuntimeCacheRunning: string;
     refreshSkillRunnerModelCache: string;
@@ -72,6 +73,7 @@ type WorkflowSettingsDialogSnapshot = {
       }>;
       allowCustom?: boolean;
       defaultValue?: unknown;
+      required?: boolean;
       disabled?: boolean;
       visibleIfProviderOption?: {
         key: string;
@@ -91,6 +93,7 @@ type WorkflowSettingsDialogSnapshot = {
       }>;
       allowCustom?: boolean;
       defaultValue?: unknown;
+      required?: boolean;
       disabled?: boolean;
       visibleIfProviderOption?: {
         key: string;
@@ -110,6 +113,7 @@ type WorkflowSettingsDialogSnapshot = {
       }>;
       allowCustom?: boolean;
       defaultValue?: unknown;
+      required?: boolean;
       disabled?: boolean;
     }>;
     workflowParams: Record<string, unknown>;
@@ -523,6 +527,10 @@ export async function openWorkflowSettingsWebDialog(args: {
         workflowSettingsPositiveIntegerRequired: localize(
           "workflow-settings-positive-integer-required",
           "Please enter a positive integer.",
+        ),
+        workflowSettingsParameterRequired: localize(
+          "workflow-settings-parameter-required",
+          "This field is required.",
         ),
         refreshAcpRuntimeCache: localize(
           "workflow-settings-refresh-acp-runtime-cache",

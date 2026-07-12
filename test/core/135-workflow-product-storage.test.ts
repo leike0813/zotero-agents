@@ -17,7 +17,11 @@ import {
   SKILL_RUN_FEEDBACK_ASSET_ID,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
 } from "../../src/modules/workflowProductStore";
-import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
+  resetPluginStateStoreForTests,
+  upsertPluginTaskRowEntry,
+} from "../../src/modules/pluginStateStore";
 import { collectSkillRunFeedbackSidecar } from "../../src/modules/skillRunFeedback";
 
 describe("workflow product storage", function () {
@@ -166,6 +170,182 @@ describe("workflow product storage", function () {
     }
   });
 
+  it("preserves binary local and bundle assets with integrity metadata", async function () {
+    const requestId = `req-product-binary-${Date.now()}`;
+    const sourceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-product-binary-"),
+    );
+    const pdfPath = path.join(sourceDir, "paper.pdf");
+    const pdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff, 0x10]);
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xfe]);
+    await fs.writeFile(pdfPath, pdfBytes);
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, fetchType: "bundle" },
+      bundleReader: {
+        async readText() {
+          throw new Error("binary entry must not be decoded as text");
+        },
+        async readBytes(entryPath: string) {
+          assert.equal(entryPath, "result/image.png");
+          return pngBytes;
+        },
+      },
+      manifest: {},
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-binary", label: "Binary" },
+      resultContext,
+      runResult: { requestId },
+    });
+    const record = await api.registerProduct({
+      productKey: "binary",
+      kind: "binary.test",
+      title: "Binary Product",
+      failurePolicy: "atomic",
+      assets: [
+        {
+          assetId: "pdf",
+          productAssetPath: "papers/paper.pdf",
+          contentType: "application/pdf",
+          source: { kind: "local-file", path: pdfPath },
+        },
+        {
+          assetId: "png",
+          productAssetPath: "images/image.png",
+          contentType: "image/png",
+          source: { kind: "result-artifact", rawPath: "result/image.png" },
+        },
+      ],
+    });
+    try {
+      assert.deepEqual(
+        await fs.readFile(record.assets[0].localPath || ""),
+        pdfBytes,
+      );
+      assert.deepEqual(
+        await fs.readFile(record.assets[1].localPath || ""),
+        Buffer.from(pngBytes),
+      );
+      assert.match(record.assets[0].sha256 || "", /^sha256:[a-f0-9]{64}$/);
+      assert.equal(record.assets[0].size, pdfBytes.length);
+      const preview = await readProductAssetPreview(record.productId, "pdf");
+      assert.equal(preview.kind, "binary");
+      assert.isFalse(preview.previewable);
+    } finally {
+      removeWorkflowProduct(record.productId);
+      await fs.rm(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back atomic product registration on duplicate targets", async function () {
+    const requestId = `req-product-atomic-${Date.now()}`;
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, fetchType: "result" },
+      bundleReader: {
+        async readText() {
+          throw new Error("unused");
+        },
+      },
+      manifest: {},
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-atomic", label: "Atomic" },
+      resultContext,
+      runResult: { requestId },
+    });
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "duplicate",
+        kind: "atomic.test",
+        title: "Atomic",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "one",
+            productAssetPath: "same.txt",
+            source: { kind: "inline-text", text: "one" },
+          },
+          {
+            assetId: "two",
+            productAssetPath: "same.txt",
+            source: { kind: "inline-text", text: "two" },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.match(String(error), /duplicate product asset path/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:duplicate`));
+
+    for (const [index, productAssetPath] of [
+      "../escape.txt",
+      "/absolute.txt",
+      "C:\\absolute.txt",
+    ].entries()) {
+      const productKey = `unsafe-${index}`;
+      error = undefined;
+      try {
+        await api.registerProduct({
+          productKey,
+          kind: "atomic.test",
+          title: "Unsafe",
+          failurePolicy: "atomic",
+          assets: [
+            {
+              assetId: "unsafe",
+              productAssetPath,
+              source: { kind: "inline-text", text: "escape" },
+            },
+          ],
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.match(
+        String(error),
+        /managed relative path|unsafe product asset/i,
+      );
+      assert.isNull(getWorkflowProduct(`${requestId}:${productKey}`));
+    }
+  });
+
+  it("detects duplicates from the final resolved product target", async function () {
+    const requestId = `req-product-final-target-${Date.now()}`;
+    const api = createProductStorageApi({
+      manifest: { id: "wf-final-target", label: "Final Target" },
+      resultContext: {
+        async resolveArtifactBytes() {
+          return {
+            bytes: new TextEncoder().encode("shared"),
+            entryPath: "result/shared.txt",
+          };
+        },
+      } as any,
+      runResult: { requestId },
+    });
+
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "duplicate-resolved",
+        kind: "atomic.test",
+        title: "Duplicate resolved target",
+        failurePolicy: "atomic",
+        assets: [
+          { assetId: "first", rawPath: "result/first.txt" },
+          { assetId: "second", rawPath: "result/second.txt" },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.match(String(error), /duplicate product asset path/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:duplicate-resolved`));
+  });
+
   it("resolves only a managed asset owned by its product", async function () {
     const requestId = `req-product-resolve-${Date.now()}`;
     const workspaceDir = await fs.mkdtemp(
@@ -206,6 +386,102 @@ describe("workflow product storage", function () {
       assert.equal(resolved?.asset.assetId, "asset");
       assert.isNull(
         await resolveManagedWorkflowProductAsset(record.productId, "missing"),
+      );
+    } finally {
+      removeWorkflowProduct(record.productId);
+    }
+  });
+
+  it("rejects tampered managed asset ownership metadata", async function () {
+    const requestId = `req-product-tampered-${Date.now()}`;
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, fetchType: "result" },
+      bundleReader: {
+        async readText() {
+          throw new Error("unused");
+        },
+      },
+      manifest: {},
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-tampered", label: "Tampered" },
+      resultContext,
+      runResult: { requestId },
+    });
+    const record = await api.registerProduct({
+      productKey: "owned",
+      kind: "ownership.test",
+      title: "Owned product",
+      assets: [
+        {
+          assetId: "asset",
+          productAssetPath: "nested/asset.txt",
+          source: { kind: "inline-text", text: "owned" },
+        },
+      ],
+    });
+    const persist = (next: typeof record) =>
+      upsertPluginTaskRowEntry(
+        PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
+        "products",
+        {
+          taskId: next.productId,
+          requestId: next.requestId,
+          backendId: next.backendType || "workflow-product",
+          state: "available",
+          updatedAt: next.updatedAt,
+          payload: JSON.stringify(next),
+        },
+      );
+
+    try {
+      const parentCacheDir = path.dirname(record.cacheDir || "");
+      const traversedPath = path.join(parentCacheDir, "outside.txt");
+      const traversalLocalPath = `${record.cacheDir}${path.sep}..${path.sep}outside.txt`;
+      const foreignPath = path.join(tempRoot, "foreign", "asset.txt");
+      await fs.writeFile(traversedPath, "outside", "utf8");
+      await fs.mkdir(path.dirname(foreignPath), { recursive: true });
+      await fs.writeFile(foreignPath, "foreign", "utf8");
+      for (const tampered of [
+        { ...record, cacheDir: parentCacheDir },
+        {
+          ...record,
+          assets: [
+            {
+              ...record.assets[0],
+              relativePath: "../outside.txt",
+            },
+          ],
+        },
+        {
+          ...record,
+          assets: [
+            {
+              ...record.assets[0],
+              localPath: traversalLocalPath,
+            },
+          ],
+        },
+        {
+          ...record,
+          assets: [
+            {
+              ...record.assets[0],
+              localPath: foreignPath,
+            },
+          ],
+        },
+      ]) {
+        persist(tampered);
+        assert.isNull(
+          await resolveManagedWorkflowProductAsset(record.productId, "asset"),
+        );
+      }
+
+      persist(record);
+      await fs.rm(record.assets[0].localPath || "");
+      assert.isNull(
+        await resolveManagedWorkflowProductAsset(record.productId, "asset"),
       );
     } finally {
       removeWorkflowProduct(record.productId);

@@ -44,6 +44,23 @@ Les paramètres sont définis dans le champ `parameters` de `workflow.json` :
 | `number` | Nombre | Saisie numérique (prend en charge les contraintes min/max) |
 | `boolean` | Booléen | Bascule / case à cocher |
 
+
+## Paramètres requis
+
+Définissez `required: true` lorsqu'un workflow ne peut pas s'exécuter sans un paramètre :
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+Les chaînes requises doivent être non vides, les nombres requis doivent être finis, et les deux valeurs d'un booléen requis sont valides. Les valeurs requises manquantes sont rejetées avant le dispatch du fournisseur. Les paramètres restent optionnels lorsque `required` est `false` ou omis.
+
 ## Valeurs enum et valeurs personnalisées
 
 ```json

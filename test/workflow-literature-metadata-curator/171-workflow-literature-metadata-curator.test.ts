@@ -312,6 +312,7 @@ describe("workflow: literature-metadata-curator", function () {
       status: "succeeded",
       source: "literature-metadata-search",
       metadata: {
+        itemType: "thesis",
         fields: {
           title: "A Partial Metadata Record",
           DOI: "10.1000/example",
@@ -600,6 +601,11 @@ describe("workflow: literature-metadata-curator", function () {
       (requests as any).__preflight.shortCircuitApplies[0].runResult.resultJson
         .metadata.fields.title,
       "URL DOI package metadata",
+    );
+    assert.equal(
+      (requests as any).__preflight.shortCircuitApplies[0].runResult.resultJson
+        .metadata.itemType,
+      "conferencePaper",
     );
   });
 
@@ -957,5 +963,68 @@ describe("workflow: literature-metadata-curator", function () {
         creatorType: "author",
       },
     ]);
+  });
+
+  it("changes item type before applying target-specific canonical metadata", async function () {
+    const parent = await createParent({
+      title: "Journal record to correct",
+      itemType: "journalArticle",
+    });
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: {
+            itemType: "thesis",
+            fields: {
+              title: "Correct thesis title",
+              university: "Example University",
+              thesisType: "PhD dissertation",
+              publicationTitle: "Not valid for a thesis",
+            },
+            creators: [],
+          },
+        },
+      },
+      runtime: { zotero: Zotero, handlers },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.isTrue(result.itemTypeChanged);
+    assert.equal(parent.itemType, "thesis");
+    assert.equal(parent.getField("university"), "Example University");
+    assert.equal(parent.getField("thesisType"), "PhD dissertation");
+    assert.equal(String(parent.getField("publicationTitle") || ""), "");
+  });
+
+  it("skips unsupported item types without blocking applicable metadata", async function () {
+    const parent = await createParent({
+      title: "Existing journal record",
+      itemType: "journalArticle",
+    });
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: {
+            itemType: "attachment",
+            fields: { title: "Corrected journal title" },
+            creators: [],
+          },
+        },
+      },
+      runtime: { zotero: Zotero, handlers },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.isFalse(result.itemTypeChanged);
+    assert.equal(parent.itemType, "journalArticle");
+    assert.equal(parent.getField("title"), "Corrected journal title");
   });
 });

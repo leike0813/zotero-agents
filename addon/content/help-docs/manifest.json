@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-07-07T08:51:59.815Z",
+  "generated_at": "2026-07-12T14:06:15.293Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -467,6 +467,12 @@
       "path": "docs/en/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "en",
+      "title": "Collection Collector",
+      "path": "docs/en/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "en",
       "title": "Debugging & Testing",
@@ -533,10 +539,22 @@
       "path": "docs/en/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "en",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/en/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "en",
       "title": "Export/Import Notes",
       "path": "docs/en/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "en",
+      "title": "Export Research Bundle",
+      "path": "docs/en/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -569,10 +587,22 @@
       "path": "docs/en/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "en",
+      "title": "Literature Metadata Curator",
+      "path": "docs/en/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "en",
       "title": "Literature Search & Ingest",
       "path": "docs/en/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "en",
+      "title": "Literature Translator",
+      "path": "docs/en/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -585,6 +615,12 @@
       "locale": "en",
       "title": "MinerU PDF Parsing",
       "path": "docs/en/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "en",
+      "title": "Tag Auditor",
+      "path": "docs/en/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -2567,6 +2603,12 @@
       "path": "docs/zh-CN/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "zh-CN",
+      "title": "Collection 文献收集器",
+      "path": "docs/zh-CN/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "zh-CN",
       "title": "调试与测试",
@@ -2808,6 +2850,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -4852,6 +4899,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "文献搜索与入库"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection 文献收集器"
               },
               {
                 "type": "doc",

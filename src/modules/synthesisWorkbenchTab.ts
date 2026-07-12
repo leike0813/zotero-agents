@@ -629,6 +629,21 @@ function findTagBootstrapperWorkflow() {
   );
 }
 
+function findRegistryItemWorkflow(workflowId: string) {
+  if (workflowId !== "literature-analysis" && workflowId !== "tag-regulator") {
+    throw new Error(`Unsupported registry item workflow: ${workflowId}`);
+  }
+  const workflow = getLoadedWorkflowEntries().find(
+    (entry) => entry.manifest.id === workflowId,
+  );
+  if (!workflow) {
+    throw new Error(
+      `Cannot run ${workflowId}: workflow is not loaded. Rescan builtin workflows and try again.`,
+    );
+  }
+  return workflow;
+}
+
 async function runCreateTopicSynthesisFromWorkbench(args: {
   hostWindow?: _ZoteroTypes.MainWindow;
 }) {
@@ -718,6 +733,18 @@ async function runTagBootstrapperFromWorkbench(args: {
   await executeWorkflowFromCurrentSelection({
     win: hostWindow,
     workflow,
+    requireSettingsGate: true,
+  });
+}
+
+async function runRegistryItemWorkflowFromWorkbench(
+  runtime: SynthesisWorkbenchRuntime,
+  args: { libraryId: number; itemKey: string; workflowId: string },
+) {
+  const hostWindow = await selectZoteroItem(runtime, args);
+  await executeWorkflowFromCurrentSelection({
+    win: hostWindow,
+    workflow: findRegistryItemWorkflow(args.workflowId),
     requireSettingsGate: true,
   });
 }
@@ -1834,16 +1861,14 @@ function citationGraphItemKeyFromNodeId(nodeId: string) {
   return nodeId.startsWith(prefix) ? nodeId.slice(prefix.length).trim() : "";
 }
 
-async function openZoteroItemFromCitationGraphNode(
+async function selectZoteroItem(
   runtime: SynthesisWorkbenchRuntime,
-  args: Record<string, unknown>,
+  args: { libraryId: number; itemKey: string },
 ) {
-  const nodeId = String(args.nodeId || "").trim();
-  const itemKey =
-    citationGraphItemKeyFromNodeId(nodeId) || String(args.itemKey || "").trim();
+  const itemKey = String(args.itemKey || "").trim();
   const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
   if (!libraryId || !itemKey) {
-    throw new Error("openZoteroItem requires a library item graph node.");
+    throw new Error("A Zotero library item is required.");
   }
   const zotero = (globalThis as any).Zotero;
   const item = zotero?.Items?.getByLibraryAndKey?.(libraryId, itemKey);
@@ -1855,6 +1880,9 @@ async function openZoteroItemFromCitationGraphNode(
     throw new Error(`Zotero item ${libraryId}:${itemKey} has no item id.`);
   }
   const hostWindow = resolveWorkflowHostWindow(runtime.window);
+  if (!hostWindow) {
+    throw new Error("Zotero main window is unavailable.");
+  }
   const pane = (hostWindow as unknown as { ZoteroPane?: unknown } | undefined)
     ?.ZoteroPane as
     | {
@@ -1870,6 +1898,18 @@ async function openZoteroItemFromCitationGraphNode(
     throw new Error("Zotero pane cannot select items.");
   }
   (hostWindow as unknown as { focus?: () => void } | undefined)?.focus?.();
+  return hostWindow;
+}
+
+async function openZoteroItemFromCitationGraphNode(
+  runtime: SynthesisWorkbenchRuntime,
+  args: Record<string, unknown>,
+) {
+  const nodeId = String(args.nodeId || "").trim();
+  const itemKey =
+    citationGraphItemKeyFromNodeId(nodeId) || String(args.itemKey || "").trim();
+  const libraryId = Math.max(0, Math.floor(Number(args.libraryId) || 0));
+  await selectZoteroItem(runtime, { libraryId, itemKey });
 }
 
 function reportWorkbenchError(error: unknown, win?: _ZoteroTypes.MainWindow) {
@@ -2024,6 +2064,27 @@ function handleAction(
       runTagBootstrapperFromWorkbench({
         hostWindow: runtime.window,
       }),
+    );
+    return;
+  }
+  if (result.hostCommand?.command === "runRegistryItemWorkflow") {
+    const commandArgs = commandArgsFromPayload(envelope.payload);
+    const libraryId = Math.max(
+      0,
+      Math.floor(Number(commandArgs.libraryId) || 0),
+    );
+    const itemKey = String(commandArgs.itemKey || "").trim();
+    const workflowId = String(commandArgs.workflowId || "").trim();
+    runWorkbenchCommandOnce(
+      runtime,
+      "runRegistryItemWorkflow",
+      { libraryId, itemKey, workflowId },
+      () =>
+        runRegistryItemWorkflowFromWorkbench(runtime, {
+          libraryId,
+          itemKey,
+          workflowId,
+        }),
     );
     return;
   }
@@ -2987,6 +3048,9 @@ function handleAction(
 function surfacesInvalidatedByCommand(
   command: SynthesisUiActionOperation["command"],
 ): SynthesisWorkbenchSurfaceName[] {
+  if (command === "runRegistryItemWorkflow") {
+    return ["index"];
+  }
   if (
     command === "refreshReferenceSidecarNow" ||
     command === "retryReferenceSidecarRefresh" ||

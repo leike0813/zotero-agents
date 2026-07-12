@@ -1,5 +1,9 @@
 import { joinPath, normalizeNativeLocalPath } from "../../utils/path";
-import { readRuntimeTextFile, runtimePathExists } from "../runtimePersistence";
+import {
+  readRuntimeBytes,
+  readRuntimeTextFile,
+  runtimePathExists,
+} from "../runtimePersistence";
 import type { BundleReader } from "./bundleIO";
 import { canonicalizeWorkflowResultJson } from "./resultEnvelope";
 
@@ -30,6 +34,11 @@ export type WorkflowResolvedArtifact = {
   sourcePath?: string;
   candidates: string[];
 };
+
+export type WorkflowResolvedArtifactBytes = Omit<
+  WorkflowResolvedArtifact,
+  "text"
+> & { bytes: Uint8Array };
 
 export type WorkflowResultContext = {
   resultJson: unknown;
@@ -72,6 +81,11 @@ export type WorkflowResultContext = {
     rawPath?: unknown;
     fallbackPath?: string;
   }) => Promise<WorkflowResolvedArtifact>;
+  resolveArtifactBytes: (args: {
+    fieldName?: string;
+    rawPath?: unknown;
+    fallbackPath?: string;
+  }) => Promise<WorkflowResolvedArtifactBytes>;
 };
 
 type RunResultLike = {
@@ -503,6 +517,50 @@ export async function createWorkflowResultContext(args: {
     throw new Error(message);
   };
 
+  const resolveArtifactBytes: WorkflowResultContext["resolveArtifactBytes"] =
+    async ({ fieldName, rawPath, fallbackPath }) => {
+      const candidates = buildArtifactCandidates({
+        rawPath,
+        fallbackPath,
+        workspaceDir,
+        resultArtifactBasePath,
+      });
+      for (const candidate of candidates) {
+        if (candidate.kind === "local-path") {
+          if (await runtimePathExists(candidate.path)) {
+            return {
+              bytes: await readRuntimeBytes(candidate.path),
+              entryPath: candidate.label,
+              sourceKind: "local-path",
+              sourcePath: candidate.path,
+              candidates: candidates.map((entry) =>
+                entry.kind === "local-path" ? entry.path : entry.entryPath,
+              ),
+            };
+          }
+          continue;
+        }
+        try {
+          const bytes = args.bundleReader.readBytes
+            ? await args.bundleReader.readBytes(candidate.entryPath)
+            : new TextEncoder().encode(
+                await args.bundleReader.readText(candidate.entryPath),
+              );
+          return {
+            bytes,
+            entryPath: candidate.entryPath,
+            sourceKind: "bundle-entry",
+            candidates: candidates.map((entry) =>
+              entry.kind === "local-path" ? entry.path : entry.entryPath,
+            ),
+          };
+        } catch {
+          // Try the next normalized candidate.
+        }
+      }
+      throw new Error(`[${fieldName || "artifact"}] binary artifact not found`);
+    };
+
   return {
     resultJson: resolvedResultJson.resultJson,
     resultJsonSource: resolvedResultJson.source,
@@ -515,6 +573,7 @@ export async function createWorkflowResultContext(args: {
     errors,
     resolveArtifact,
     readArtifactText: resolveArtifact,
+    resolveArtifactBytes,
   };
 }
 

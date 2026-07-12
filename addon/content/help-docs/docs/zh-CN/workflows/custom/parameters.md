@@ -44,6 +44,22 @@ Workflow 可以定义可配置的参数，在运行前弹出设置对话框让�
 | `number` | 数字 | 数字输入框（支持 min/max 约束） |
 | `boolean` | 布尔值 | 开关 / 复选框 |
 
+## 必填参数
+
+当 workflow 缺少某个参数就无法运行时，设置 `required: true`：
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection 范围"
+  }
+}
+```
+
+必填字符串必须包含非空白内容，必填数字必须是有限数值；必填布尔值的 `true` 和 `false` 都是合法值。缺少必填参数时会在 provider dispatch 前拒绝运行。未设置 `required` 或设置为 `false` 的参数仍为可选。
+
 ## 枚举值与自定义值
 
 ```json

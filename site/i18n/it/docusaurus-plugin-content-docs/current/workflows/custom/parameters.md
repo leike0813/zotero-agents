@@ -44,6 +44,23 @@ I parametri sono definiti nel campo `parameters` di `workflow.json`:
 | `number` | Numero | Input numerico (supporta vincoli min/max) |
 | `boolean` | Booleano | Interruttore / casella di selezione |
 
+
+## Parametri richiesti
+
+Impostare `required: true` quando un workflow non può essere eseguito senza un parametro:
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+Le stringhe richieste devono essere non vuote, i numeri richiesti devono essere finiti ed entrambi i valori di un booleano richiesto sono validi. I valori richiesti mancanti vengono rifiutati prima del dispatch del provider. I parametri rimangono facoltativi quando `required` è `false` o omesso.
+
 ## Valori enum e valori personalizzati
 
 ```json

@@ -1364,6 +1364,94 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
+  it("replaces per-library tag audit records and preserves normalized marker state", function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-07-12T00:00:00.000Z",
+    });
+
+    repository.replaceTagAuditRecords({
+      libraryId: 1,
+      records: [
+        {
+          libraryId: 1,
+          itemKey: "NEEDS-TAGS",
+          needsTagRegulation: true,
+          nonCompliantTagsJson: JSON.stringify(["legacy:tag"]),
+        },
+      ],
+    });
+    repository.upsertTagAuditRecord({
+      libraryId: 1,
+      itemKey: "REGULATED",
+      needsTagRegulation: false,
+      nonCompliantTagsJson: "[]",
+    });
+
+    assert.deepEqual(repository.listTagAuditRecords({ libraryId: 1 }), [
+      {
+        libraryId: 1,
+        itemKey: "NEEDS-TAGS",
+        needsTagRegulation: true,
+        nonCompliantTagsJson: JSON.stringify(["legacy:tag"]),
+        auditedAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+      {
+        libraryId: 1,
+        itemKey: "REGULATED",
+        needsTagRegulation: false,
+        nonCompliantTagsJson: "[]",
+        auditedAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      },
+    ]);
+
+    repository.replaceTagAuditRecords({ libraryId: 1, records: [] });
+    assert.deepEqual(repository.listTagAuditRecords({ libraryId: 1 }), []);
+  });
+
+  it("audits an Index item only on first entry and clears its marker after tag regulation", async function () {
+    const repository = createSynthesisRepository({
+      now: () => "2026-07-12T00:00:00.000Z",
+    });
+    const registryInputs = [
+      {
+        libraryId: 1,
+        itemKey: "FIRST-ENTRY",
+        title: "First Index Entry",
+        tags: ["legacy:tag"],
+      },
+    ];
+    const service = createSynthesisService({
+      root: "C:/synthesis-tag-audit-index",
+      runtimeRoot: "C:/synthesis-tag-audit-index",
+      libraryId: 1,
+      now: () => "2026-07-12T00:00:00.000Z",
+      synthesisRepository: repository,
+      registryInputs,
+    });
+    await service.saveTagVocabulary({
+      entries: [{ tag: "method:review", facet: "method" }],
+    });
+
+    const first = await service.getSynthesisWorkbenchSurfaceInput("index");
+    assert.isTrue(first.registry?.rows?.[0]?.needsTagRegulation);
+
+    registryInputs[0].tags = ["method:review"];
+    const second = await service.getSynthesisWorkbenchSurfaceInput("index");
+    assert.isTrue(
+      second.registry?.rows?.[0]?.needsTagRegulation,
+      "the Index must not re-audit an existing ledger entry on every render",
+    );
+
+    await service.clearTagAuditRecord({
+      libraryId: 1,
+      itemKey: "FIRST-ENTRY",
+    });
+    const regulated = await service.getSynthesisWorkbenchSurfaceInput("index");
+    assert.isFalse(regulated.registry?.rows?.[0]?.needsTagRegulation);
+  });
+
   it("persists citation graph structure ownership and lightweight metrics", function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-26T00:00:00.000Z",

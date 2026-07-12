@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "Stilpräferenz",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "Zielzeitschrift, -konferenz oder stilistische Ausrichtung.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "Zielzeitschrift oder -konferenz",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 Manuskript-Literatur-Rahmung",
   "workflows.manuscript-literature-framing.taskNameTemplate": "Literaturrahmen des Manuskripts: {paperTitle}",
   "workflows.update-topic-synthesis.label": "Themensynthese aktualisieren",
   "workflows.update-topic-synthesis.parameters.topicId.description": "ID des bestehenden Synthesethemas. Der Host leitet Umfang, Modus, Grund und Sprache aus dem ausgewählten Thema ab.",

@@ -18,10 +18,14 @@
   },
   "workflows": [
     "add-digest-representative-image/workflow.json",
+    "collection-collector/workflow.json",
     "debug-digest-apply-fixture/workflow.json",
     "debug-migrate-note-payloads/workflow.json",
     "debug-note-artifact-inspector/workflow.json",
+    "export-literature-bundle/workflow.json",
+    "export-research-bundle/workflow.json",
     "export-notes/workflow.json",
+    "import-literature-bundle/workflow.json",
     "import-notes/workflow.json",
     "literature-explainer/workflow.json",
     "literature-deep-reading/workflow.json",
@@ -30,6 +34,7 @@
     "literature-metadata-curator/workflow.json",
     "literature-search-ingest/workflow.json",
     "tag-bootstrapper/workflow.json",
+    "tag-auditor/workflow.json",
     "tag-regulator/workflow.json"
   ]
 }

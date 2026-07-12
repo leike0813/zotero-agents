@@ -3,6 +3,7 @@ import {
   isObject,
   normalizeCreators,
   normalizeMetadataFields,
+  normalizeString,
   resolveCanonicalResult,
 } from "../../lib/metadataCurator.mjs";
 import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
@@ -34,9 +35,11 @@ function normalizeApplyPayload(output) {
     delete fields[key];
   }
   const creators = normalizeCreators(metadata.creators);
+  const itemType = normalizeString(metadata.itemType);
   return {
-    ok: Object.keys(fields).length > 0 || creators.length > 0,
+    ok: !!itemType || Object.keys(fields).length > 0 || creators.length > 0,
     reason: "metadata curator output contains no applicable metadata",
+    itemType,
     fields,
     creators,
     warnings: Array.isArray(output.warnings) ? output.warnings : [],
@@ -57,7 +60,9 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   if (!runtime?.handlers?.parent?.updateMetadata) {
     throw new Error("handlers.parent.updateMetadata is unavailable");
   }
+  const originalItemType = normalizeString(parent?.itemType);
   const updated = await runtime.handlers.parent.updateMetadata(parent, {
+    itemType: normalized.itemType,
     fields: normalized.fields,
     creators: normalized.creators,
   });
@@ -69,6 +74,10 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       key: updated?.key || "",
       libraryID: updated?.libraryID || null,
     },
+    itemTypeChanged:
+      !!normalized.itemType &&
+      originalItemType !== normalizeString(updated?.itemType) &&
+      normalizeString(updated?.itemType) === normalized.itemType,
     fieldCount: Object.keys(normalized.fields).length,
     creatorCount: normalized.creators.length,
     warnings: normalized.warnings,

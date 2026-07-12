@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Collection Collector Input",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}

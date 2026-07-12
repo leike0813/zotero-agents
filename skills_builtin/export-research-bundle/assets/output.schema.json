@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "title",
+        "article_type",
+        "topic_count",
+        "core_paper_count",
+        "related_paper_count",
+        "selection_manifest_path",
+        "artifact_manifest_path"
+      ],
+      "properties": {
+        "kind": { "const": "research_bundle_selection" },
+        "title": { "type": "string", "minLength": 1 },
+        "article_type": { "type": "string" },
+        "topic_count": { "type": "integer", "minimum": 0 },
+        "core_paper_count": { "type": "integer", "minimum": 0 },
+        "related_paper_count": { "type": "integer", "minimum": 1 },
+        "selection_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact",
+          "x-role": "selection-manifest"
+        },
+        "artifact_manifest_path": {
+          "type": "string",
+          "minLength": 1,
+          "x-type": "artifact-manifest",
+          "x-role": "artifact-manifest"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "reason", "message"],
+      "properties": {
+        "kind": { "const": "research_bundle_canceled" },
+        "status": { "const": "canceled" },
+        "reason": {
+          "type": "string",
+          "enum": ["no_related_literature", "host_unavailable", "invalid_input"]
+        },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  ]
+}

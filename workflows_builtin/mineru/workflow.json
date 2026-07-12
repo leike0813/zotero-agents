@@ -13,11 +13,32 @@
       "zh-CN": {
         "label": "MinerU 文档解析"
       },
+      "zh-TW": {
+        "label": "MinerU 文件解析"
+      },
       "fr-FR": {
         "label": "MinerU - Extraction de documents"
       },
       "ja-JP": {
         "label": "MinerU ドキュメント解析"
+      },
+      "de": {
+        "label": "MinerU - Dokumentanalyse"
+      },
+      "es-ES": {
+        "label": "MinerU - Análisis de documentos"
+      },
+      "it-IT": {
+        "label": "MinerU - Analisi di documenti"
+      },
+      "ko-KR": {
+        "label": "MinerU 문서 분석"
+      },
+      "pt-BR": {
+        "label": "MinerU - Análise de documentos"
+      },
+      "ru-RU": {
+        "label": "MinerU - Анализ документов"
       }
     }
   },

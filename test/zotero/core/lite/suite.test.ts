@@ -7,3 +7,4 @@ import "../../../core/47-workflow-log-instrumentation.test";
 import "../../../core/52-runtime-bridge.test";
 import "../../../core/87-workflow-package-runtime-diagnostics.test";
 import "../../../core/88-workflow-runtime-scope-diagnostics.test";
+import "../../../core/174-workflow-archive-zotero-runtime.test";

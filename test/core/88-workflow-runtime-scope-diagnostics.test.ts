@@ -154,4 +154,41 @@ describe("workflow runtime scope diagnostics", function () {
       "precompiled-host-hook",
     );
   });
+
+  it("passes a normalized locale to package apply hooks", async function () {
+    let locale = "";
+    const workflow: LoadedWorkflow = {
+      manifest: {
+        id: "localized-apply-result",
+        label: "Localized Apply Result",
+        provider: "pass-through",
+        hooks: { applyResult: "hooks/applyResult.js" },
+      } as any,
+      rootDir: "fixtures/localized-apply-result",
+      packageId: "diagnostic-package",
+      packageRootDir: "fixtures/diagnostic-package",
+      workflowSourceKind: "builtin",
+      hookExecutionMode: "precompiled-host-hook",
+      hooks: {
+        async applyResult(args) {
+          locale = args.runtime.locale || "";
+          return { ok: true };
+        },
+      },
+      buildStrategy: "declarative",
+    };
+
+    await executeApplyResult({
+      workflow,
+      parent: 1,
+      bundleReader: {
+        async readText() {
+          return "";
+        },
+      },
+      runtime: { locale: "zh_cn" },
+    });
+
+    assert.equal(locale, "zh-CN");
+  });
 });

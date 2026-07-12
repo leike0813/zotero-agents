@@ -159,7 +159,7 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     assert.deepEqual(calls, [
       {
         title: "Import Digest",
-        mode: "file",
+        mode: "open",
         filters: [["Markdown", "*.md"]],
         directory: "D:/imports",
       },
@@ -206,7 +206,7 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     assert.deepEqual(calls, [
       {
         title: "Import Custom Notes",
-        mode: "files",
+        mode: "multiple",
         filters: [["Markdown", "*.md"]],
         directory: "D:/imports",
       },
@@ -229,6 +229,64 @@ describeFilePickerSuite("workflow host api file pickers", function () {
     });
 
     assert.equal(selected, null);
+  });
+
+  it("picks a save target with suggestion, filter, and initial directory", async function () {
+    const calls: Array<Record<string, unknown>> = [];
+    (globalThis as RuntimeWithToolkit).ztoolkit = {
+      FilePicker: class {
+        constructor(
+          title: string,
+          mode: string,
+          filters: [string, string][],
+          suggestion: string,
+          _window: Window | undefined,
+          _filterMask?: string,
+          directory?: string,
+        ) {
+          calls.push({ title, mode, filters, suggestion, directory });
+        }
+        async open() {
+          return "D:/exports/literature-bundle.zip";
+        }
+      },
+    };
+
+    const selected = await createWorkflowHostApi().file.pickSaveFile({
+      title: "Export Literature Bundle",
+      filters: [["ZIP bundle", "*.zip"]],
+      suggestedName: "literature-bundle.zip",
+      directory: "D:/exports",
+    });
+
+    assert.equal(selected, "D:/exports/literature-bundle.zip");
+    assert.deepEqual(calls, [
+      {
+        title: "Export Literature Bundle",
+        mode: "save",
+        filters: [["ZIP bundle", "*.zip"]],
+        suggestion: "literature-bundle.zip",
+        directory: "D:/exports",
+      },
+    ]);
+  });
+
+  it("returns null when save picker is canceled", async function () {
+    (globalThis as RuntimeWithToolkit).ztoolkit = {
+      FilePicker: class {
+        constructor() {}
+        async open() {
+          return false;
+        }
+      },
+    };
+
+    assert.equal(
+      await createWorkflowHostApi().file.pickSaveFile({
+        suggestedName: "literature-bundle.zip",
+      }),
+      null,
+    );
   });
 
   it("uses native multi-file picker with the active dialog window when available", async function () {

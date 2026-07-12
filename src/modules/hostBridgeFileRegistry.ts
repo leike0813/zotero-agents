@@ -1,4 +1,5 @@
 import { joinPath } from "../utils/path";
+import { sha256Hex } from "../utils/sha256";
 import {
   getRuntimePersistencePaths,
   readRuntimeBytes,
@@ -187,41 +188,8 @@ async function readBytes(path: string) {
 }
 
 export async function sha256Bytes(bytes: Uint8Array) {
-  const runtime = globalThis as {
-    crypto?: {
-      subtle?: {
-        digest?: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer>;
-      };
-    };
-    process?: unknown;
-  };
-  if (typeof runtime.crypto?.subtle?.digest === "function") {
-    const digest = await runtime.crypto.subtle.digest("SHA-256", bytes);
-    return `sha256:${Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("")}`;
-  }
-  const components = (globalThis as any).Components;
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const hashFactory = classes?.["@mozilla.org/security/hash;1"];
-  const nsICryptoHash = interfaces?.nsICryptoHash;
-  if (hashFactory && nsICryptoHash) {
-    const hash = hashFactory.createInstance(nsICryptoHash);
-    hash.init(nsICryptoHash.SHA256);
-    hash.update(Array.from(bytes), bytes.length);
-    const digest = String(hash.finish(false));
-    return `sha256:${Array.from(digest)
-      .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
-      .join("")}`;
-  }
-  if (runtime.process) {
-    const crypto = await dynamicImport("crypto");
-    const hash = crypto.createHash("sha256");
-    hash.update(bytes);
-    return `sha256:${hash.digest("hex")}`;
-  }
-  return undefined;
+  const digest = await sha256Hex(bytes);
+  return digest ? `sha256:${digest}` : undefined;
 }
 
 async function statSize(path: string) {

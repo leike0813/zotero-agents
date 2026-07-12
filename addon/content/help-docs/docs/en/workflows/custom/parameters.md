@@ -44,6 +44,22 @@ Parameters are defined in the `parameters` field of `workflow.json`:
 | `number` | Number | Number input (supports min/max constraints) |
 | `boolean` | Boolean | Toggle / checkbox |
 
+## Required Parameters
+
+Set `required: true` when a workflow cannot run without a parameter:
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+Required strings must be non-blank, required numbers must be finite, and both values of a required boolean are valid. Missing required values are rejected before provider dispatch. Parameters remain optional when `required` is false or omitted.
+
 ## Enum Values and Custom Values
 
 ```json

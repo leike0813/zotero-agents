@@ -62,9 +62,15 @@ Le plugin inclut une série de workflows officiels, regroupés par fonction :
 | Workflow | Objectif | Entrée | Backend | Docs |
 |---------|------|------|------|------|
 | **Literature Analysis** ⭐ | Générer un résumé, des références, une analyse de citation à partir de PDF/MD. Peut s'enchaîner avec la régulation de balises | Pièce jointe | Skill-Runner | [Détails](literature-analysis) |
+| **Literature Metadata Curator** | Interroger, corriger et compléter les métadonnées bibliographiques d'une notice Zotero | Notice parente | Skill-Runner | [Détails](literature-metadata-curator) |
+| **Literature Translator** | Traduire de la littérature académique avec gestion de glossaire et contrôles qualité | Pièce jointe | Skill-Runner | [Détails](literature-translator) |
 | **Interactive Literature Explainer** | Dialogue multi-tours avec l'IA pour une compréhension approfondie de la littérature, avec des réponses vérifiées pour prévenir les hallucinations | Pièce jointe | Skill-Runner | [Détails](literature-explainer) |
 | **Deep Reading** | Générer une vue HTML structurée de lecture approfondie avec prise en charge de la traduction | Pièce jointe | ACP | [Détails](literature-deep-reading) |
 | **Literature Search & Ingest** | Laisser l'Agent rechercher de la littérature académique et l'ingérer directement dans Zotero | workflow | ACP | [Détails](literature-search-ingest) |
+| **Collection Collector** | Sélectionner la littérature existante de la bibliothèque pour une collection selon une portée déclarée | workflow | ACP | [Détails](collection-collector) |
+| **Export/Import Literature Bundle** | Exporter/importer des bundles ZIP portables de notices Zotero avec métadonnées, pièces jointes et notes | Notice parente / workflow | Aucun backend requis | [Détails](export-import-literature-bundle) |
+| **Export Research Bundle** | Assembler automatiquement un bundle de recherche en lecture seule pour un projet à partir de la bibliothèque et du contexte Synthesis | workflow | Skill-Runner | [Détails](export-research-bundle) |
+| **Tag Auditor** | Analyser toutes les notices de la bibliothèque par rapport au vocabulaire de balises contrôlé et signaler la conformité | workflow | Aucun backend requis | [Détails](tag-auditor) |
 | **Tag Bootstrapper** | Créer interactivement un vocabulaire de balises contrôlé pour un domaine de recherche | workflow | Skill-Runner | [Détails](tag-bootstrapper) |
 | **Tag Regulator** | Normaliser les balises en fonction d'un vocabulaire contrôlé et inférer de nouvelles balises | Notice parente | Skill-Runner | [Détails](tag-regulator) |
 | **Export/Import Notes** | Exporter ou importer des notes d'analyse avec prise en charge de l'édition et de la réimportation | Notice parente | Aucun backend requis | [Détails](export-import-notes) |

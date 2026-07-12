@@ -212,34 +212,57 @@ The `literature-digest` workflow apply step SHALL consume optional `representati
 
 ### Requirement: Literature search ingest is ACP interactive and context aware
 
-`literature-search-ingest` SHALL support `auto`, `topic_expansion`,
-`paper_seed_expansion`, and `targeted_ingest` search modes.
+`literature-search-ingest` SHALL support `auto`, `guided`, `topic_expansion`,
+`paper_seed_expansion`, and `targeted_ingest` search modes. It SHALL resolve
+each candidate before interactive confirmation.
 
-#### Scenario: User selects auto mode
+#### Scenario: Blank auto query starts guided planning
 
-- **WHEN** the workflow starts with `searchMode` omitted or set to `auto`
+- **WHEN** the workflow starts with a blank `query` and `searchMode` is omitted
+  or `auto`
+- **THEN** the skill SHALL ask focused questions until it has a minimum research
+  goal
+- **AND** it SHALL inspect Zotero/Synthesis context read-only before presenting
+  a structured search brief
+- **AND** it SHALL NOT perform web search, download, or Zotero writes before
+  the user confirms that brief.
+
+#### Scenario: Guided brief is confirmed
+
+- **WHEN** a user confirms the guided search brief
+- **THEN** the skill SHALL begin candidate search directly from that brief
+- **AND** it SHALL NOT classify or map the work to `topic_expansion`,
+  `paper_seed_expansion`, or `targeted_ingest`
+- **AND** a completed result SHALL use `search_mode: "guided"`.
+
+#### Scenario: Explicit legacy mode has no query
+
+- **WHEN** `query` is blank and the user explicitly selects
+  `topic_expansion`, `paper_seed_expansion`, or `targeted_ingest`
+- **THEN** the skill SHALL ask for the minimum seed required by that selected
+  mode
+- **AND** it SHALL retain the selected mode.
+
+#### Scenario: User selects non-blank auto mode
+
+- **WHEN** the workflow starts with a non-blank `query` and `searchMode` is
+  omitted or `auto`
 - **THEN** the skill SHALL compare the query against library/Synthesis context
   and perform an initial web lookup before selecting the effective mode.
 
-#### Scenario: Exact new paper is found
+#### Scenario: Candidate has no resolved identifier
 
-- **WHEN** the initial lookup finds a highly matching single paper not present
-  in the library
-- **THEN** the skill SHALL use `targeted_ingest`
-- **AND** user confirmation SHALL ingest that paper without an additional
-  candidate expansion search.
-
-#### Scenario: Seed paper expansion uses references artifacts
-
-- **WHEN** the effective mode is `paper_seed_expansion`
-- **THEN** the skill SHALL try to read the seed paper references/citation
-  artifacts through Host Bridge synthesis commands before falling back to web
-  search from seed metadata.
+- **WHEN** a candidate has completed applicable identifier searches without a
+  DOI, ISBN, arXiv, or PMID
+- **THEN** the skill SHALL record `identifier_not_found`, authoritative metadata
+  provenance, landing URL, and PDF attempt outcome before showing it
+- **AND** it SHALL NOT admit a bare title or unverified search snippet.
 
 ### Requirement: Literature search ingest performs legal public PDF best effort
 
-The skill SHALL explicitly guide agents to search legal public PDF sources and
-skip uncertain or restricted PDFs without blocking metadata ingest.
+The skill SHALL explicitly guide agents to resolve identifiers and authoritative
+metadata before searching legal public PDF sources, and SHALL skip uncertain or
+restricted PDFs without blocking eligible metadata ingest.
 
 #### Scenario: Public PDF is uncertain
 
@@ -332,4 +355,75 @@ The `import-notes` workflow SHALL trigger the literature digest sidecar apply pi
 
 - **WHEN** `import-notes` imports custom markdown notes without any standard generated note artifact
 - **THEN** it SHALL NOT call the literature digest sidecar apply host API.
+
+### Requirement: Literature Workbench Package SHALL distribute portable literature bundle workflows
+
+The built-in `literature-workbench-package` SHALL register and distribute `export-literature-bundle` and `import-literature-bundle` alongside its existing note and analysis workflows.
+
+#### Scenario: Package manifest is loaded
+- **WHEN** the built-in literature workbench package is loaded
+- **THEN** both portable bundle workflow manifests SHALL be present
+- **AND** each SHALL declare `provider: "pass-through"`
+- **AND** neither SHALL be classified as a core workflow.
+
+#### Scenario: Workflow labels are localized
+- **WHEN** either workflow is shown under a supported package locale
+- **THEN** its label SHALL resolve through the package locale catalog
+- **AND** the raw English manifest label SHALL remain the fallback.
+
+### Requirement: Portable bundle logic SHALL reuse package-owned note and artifact codecs
+
+The bundle workflows SHALL keep literature-specific traversal, note payload recognition, Markdown dependency collection, manifest normalization, and result shaping in shared modules owned by `literature-workbench-package`.
+
+#### Scenario: Existing package-managed note kinds are exported
+- **WHEN** bundle export encounters digest-family, custom Markdown, or conversation notes
+- **THEN** it SHALL use the package's note and embedded-payload codecs to identify their semantic payloads
+- **AND** core runtime modules SHALL NOT branch on those workflow or note-kind identities.
+
+#### Scenario: Existing note export remains independent
+- **WHEN** `export-notes` or `import-notes` runs after portable bundle workflows are added
+- **THEN** their editable artifact exchange behavior SHALL remain unchanged
+- **AND** portable item migration SHALL use the new workflow ids rather than widening the existing note workflow contract.
+
+### Requirement: Research bundle semantics remain package-owned
+
+The literature workbench package SHALL own research selection validation, Markdown dependency collection, v2 payload export, Product manifest rendering, and warning codes.
+
+#### Scenario: Workflow is packaged
+
+- **WHEN** builtin content manifests are rendered
+- **THEN** the workflow, hooks, shared module, locale labels, and documentation SHALL be included
+- **AND** core workflow modules SHALL NOT contain research-bundle identities or literature payload recognition rules.
+
+### Requirement: Collection collector semantics remain package-owned
+
+The literature workbench package SHALL own collection selection apply validation and mutation semantics.
+
+#### Scenario: Workflow is packaged
+
+- **WHEN** built-in content manifests are checked or rendered
+- **THEN** the collection collector workflow, apply hook, documentation, and locales SHALL be included
+- **AND** core workflow runtime modules SHALL NOT contain collection-collector identities or threshold rules.
+
+### Requirement: Literature search ingest routes Chinese literature to applicable sources
+
+The skill SHALL use additional Chinese metadata sources when the query or
+candidate indicates Chinese literature.
+
+#### Scenario: Chinese journal, thesis, or book candidate
+
+- **WHEN** a Chinese literature candidate is resolved
+- **THEN** the skill SHALL add China DOI, CNKI, Wanfang, official publishers,
+  institutions, or repositories as applicable
+- **AND** it SHALL add PDC and library catalogs for Chinese books or ISBNs
+- **AND** it SHALL use only public metadata, landing pages, and legally public
+  PDFs without login, proxy, or restricted full-text access.
+
+### Requirement: Literature Workbench Package SHALL distribute tag-auditor
+The built-in literature workbench package MUST register and localize the `tag-auditor` workflow together with its hook and shared tag-compliance module.
+
+#### Scenario: Built-in package loads tag-auditor
+- **WHEN** the built-in literature workbench package is loaded
+- **THEN** `tag-auditor` SHALL be available as a non-debug workflow
+- **AND** its workflow label SHALL resolve through the package locale catalog.
 

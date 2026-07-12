@@ -363,11 +363,13 @@ export function hasCoreBibliographicMetadata(candidate) {
 export function canonicalResultFromMetadata(args) {
   const fields = normalizeMetadataFields(args?.metadata || {});
   const creators = normalizeCreators(args?.metadata?.creators);
+  const itemType = normalizeString(args?.metadata?.itemType);
   return {
     kind: METADATA_CURATION_KIND,
     status: "succeeded",
     source: normalizeString(args?.source) || "unknown",
     metadata: {
+      ...(itemType ? { itemType } : {}),
       fields,
       ...(creators.length > 0 ? { creators } : {}),
     },

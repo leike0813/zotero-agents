@@ -62,9 +62,15 @@ Workflow는 세 가지 백엔드 유형을 통해 실행할 수 있습니다.
 | Workflow | 목적 | 입력 | 백엔드 | 문서 |
 |---------|------|------|------|------|
 | **Literature Analysis** ⭐ | PDF/MD에서 다이제스트, 참고문헌, 인용 분석을 생성합니다. 태그 규제로 연속 실행 가능 | 첨부파일 | Skill-Runner | [상세](literature-analysis) |
+| **Literature Metadata Curator** | Zotero 항목의 서지 메타데이터를 쿼리, 수정 및 보완 | 상위 항목 | Skill-Runner | [상세](literature-metadata-curator) |
+| **Literature Translator** | 용어집 관리 및 품질 게이트로 학술 문헌 번역 | 첨부파일 | Skill-Runner | [상세](literature-translator) |
 | **Interactive Literature Explainer** | 문헌 심층 이해를 위한 AI와의 다중 턴 대화, 환각 방지를 위한 검증된 답변 제공 | 첨부파일 | Skill-Runner | [상세](literature-explainer) |
 | **Deep Reading** | 번역 지원 포함 구조화된 심층 독서 HTML 보기를 생성합니다 | 첨부파일 | ACP | [상세](literature-deep-reading) |
 | **Literature Search & Ingest** | AI가 학술 문헌을 검색하여 Zotero로 직접 수집합니다 | workflow | ACP | [상세](literature-search-ingest) |
+| **Collection Collector** | 선언된 범위에 따라 기존 컬렉션을 위해 라이브러리에서 기존 문헌 선택 | workflow | ACP | [상세](collection-collector) |
+| **Export/Import Literature Bundle** | 메타데이터, 첨부파일, 노트가 포함된 Zotero 항목의 휴대 가능한 ZIP 번들 내보내기/가져오기 | 상위 항목 / workflow | 백엔드 불필요 | [상세](export-import-literature-bundle) |
+| **Export Research Bundle** | 라이브러리 및 Synthesis 컨텍스트에서 논문 프로젝트를 위한 읽기 전용 연구 번들 자동 구성 | workflow | Skill-Runner | [상세](export-research-bundle) |
+| **Tag Auditor** | 라이브러리의 모든 항목을 제어된 태그 어휘에 대해 스캔하고 준수 여부 보고 | workflow | 백엔드 불필요 | [상세](tag-auditor) |
 | **Tag Bootstrapper** | 연구 도메인에 대한 제어된 태그 어휘를 대화형으로 생성합니다 | workflow | Skill-Runner | [상세](tag-bootstrapper) |
 | **Tag Regulator** | 제어된 어휘를 기반으로 태그를 정규화하고 새 태그를 추론합니다 | 상위 항목 | Skill-Runner | [상세](tag-regulator) |
 | **Export/Import Notes** | 편집 및 재가져오기를 지원하며 분석 노트를 내보내기 또는 가져오기합니다 | 상위 항목 | 백엔드 불필요 | [상세](export-import-notes) |

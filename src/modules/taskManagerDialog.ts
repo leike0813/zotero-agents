@@ -1305,6 +1305,16 @@ async function resolveHomeWorkflowQuickRun(args: {
       reason: descriptor.blockedReason,
     };
   }
+  if (descriptor.missingRequiredWorkflowParams.length > 0) {
+    return {
+      workflow,
+      enabled: false,
+      reason: localize(
+        "task-dashboard-home-workflow-run-disabled-settings",
+        "Requires settings before running",
+      ),
+    };
+  }
   return {
     workflow,
     enabled: true,
@@ -1597,6 +1607,10 @@ async function buildDashboardSnapshot(args: {
     workflowSettingsPositiveIntegerRequired: localize(
       "workflow-settings-positive-integer-required",
       "Please enter a positive integer.",
+    ),
+    workflowSettingsParameterRequired: localize(
+      "workflow-settings-parameter-required",
+      "This field is required.",
     ),
     workflowSettingsSaving: localize(
       "workflow-settings-dashboard-saving",

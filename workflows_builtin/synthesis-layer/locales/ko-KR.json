@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "스타일 환경 설정",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "대상 저널, 학회 또는 스타일 계열입니다.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "대상 저널 또는 학회",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 원고 문헌 프레이밍",
   "workflows.manuscript-literature-framing.taskNameTemplate": "원고 문헌 프레이밍: {paperTitle}",
   "workflows.update-topic-synthesis.label": "주제 종합 갱신",
   "workflows.update-topic-synthesis.parameters.topicId.description": "기존 종합 주제의 ID입니다. 호스트가 선택된 주제에서 범위, 모드, 사유 및 언어를 파생합니다.",

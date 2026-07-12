@@ -4,6 +4,7 @@ import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import { resolveRuntimeAddon, resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { PASS_THROUGH_BACKEND_TYPE } from "../config/defaults";
 import { handlers } from "../handlers";
+import { resolveWorkflowDisplayLocale } from "./localization";
 import type {
   LoadedWorkflow,
   WorkflowManifest,
@@ -127,6 +128,7 @@ function createSelectionRuntime(
     packageRootDir: override?.packageRootDir,
     workflowSourceKind: override?.workflowSourceKind || "",
     hookName: override?.hookName || "",
+    locale: resolveWorkflowDisplayLocale(override?.locale),
     fetch: override?.fetch ?? null,
     Buffer: override?.Buffer ?? null,
     btoa: override?.btoa ?? null,
@@ -849,15 +851,15 @@ function resolveArtifactTargetPath(
 }
 
 async function fileExists(path: string, runtime: RuntimeLike) {
-  const targetPath = toNativePath(path);
-  if (!targetPath) {
-    return false;
-  }
-  const hostFile = runtime.hostApi?.file;
-  if (typeof hostFile?.exists === "function") {
-    return Boolean(await hostFile.exists(targetPath));
-  }
   try {
+    const targetPath = toNativePath(path);
+    if (!targetPath) {
+      return false;
+    }
+    const hostFile = runtime.hostApi?.file;
+    if (typeof hostFile?.exists === "function") {
+      return Boolean(await hostFile.exists(targetPath));
+    }
     return Boolean(runtime.zotero.File.pathToFile(targetPath)?.exists?.());
   } catch {
     return false;
