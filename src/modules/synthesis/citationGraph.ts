@@ -127,7 +127,7 @@ export type CitationGraphMetrics = {
   schema_id: "synthesis.unified_citation_graph_metrics";
   schema_version: "1.0.0";
   graph_hash: string;
-  metrics_version: 1;
+  metrics_version: 2;
   params: {
     pagerank_damping: number;
     pagerank_iterations: number;
@@ -922,17 +922,21 @@ export function computeCitationGraphMetrics(
       const inDegreeNorm = normalizeMetric(internalInDegree, maxIn);
       const outDegreeNorm = normalizeMetric(internalOutDegree, maxOut);
       const pagerankNorm = normalizeMetric(internalPagerank, maxPagerank);
-      const foundationScore = roundMetric(
-        0.5 * inDegreeNorm + 0.35 * pagerankNorm + 0.15 * ageNorm,
-      );
-      const frontierScore = roundMetric(
-        0.55 * recencyNorm + 0.25 * outDegreeNorm + 0.2 * pagerankNorm,
-      );
       const component = componentByNode.get(node.node_id) || {
         component_id: "component:000",
         component_size: 0,
       };
       const isIsolated = component.component_size <= 1;
+      const foundationScore = roundMetric(
+        isIsolated
+          ? 0.15 * ageNorm
+          : 0.5 * inDegreeNorm + 0.35 * pagerankNorm + 0.15 * ageNorm,
+      );
+      const frontierScore = roundMetric(
+        isIsolated
+          ? 0.55 * recencyNorm
+          : 0.55 * recencyNorm + 0.25 * outDegreeNorm + 0.2 * pagerankNorm,
+      );
       return {
         node_id: node.node_id,
         paper_ref: paperRefFromLibraryNode(node),
@@ -972,14 +976,14 @@ export function computeCitationGraphMetrics(
     schema_id: "synthesis.unified_citation_graph_metrics" as const,
     schema_version: "1.0.0" as const,
     graph_hash: graph.graph_hash,
-    metrics_version: 1 as const,
+    metrics_version: 2 as const,
     params: {
       pagerank_damping: 0.85,
       pagerank_iterations: 50,
       foundation_formula:
-        "0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm",
+        "is_isolated ? 0.15*age_norm : 0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm",
       frontier_formula:
-        "0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm",
+        "is_isolated ? 0.55*recency_norm : 0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm",
     },
     graph_year: graphYear,
     library_node_metrics: libraryNodeMetrics.sort((left, right) =>

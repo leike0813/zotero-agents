@@ -1,17 +1,12 @@
 import {
+  buildCitationGraphNodeImportance,
+  citationGraphNodeSize,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
   CITATION_GRAPH_OUTGOING_EDGE_COLOR,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
-  GRAPH_EXTERNAL_NODE_SIZE_CAP,
-  GRAPH_IMPORTANCE_HALO_MAX,
-  GRAPH_IMPORTANCE_HALO_TOP_RATIO,
-  GRAPH_LIBRARY_BASE_NODE_SIZE,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
-  GRAPH_LIBRARY_NODE_SIZE_CAP,
-  GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE,
-  GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE,
 } from "./citationGraphVisualRules";
 
 export type CitationGraphNodeKind = "library_paper" | "external_reference";
@@ -78,12 +73,6 @@ type RuntimeState = {
   hoverClearTimer?: number;
 };
 
-type GraphNodeImportance = {
-  incomingDegree: number;
-  percentile: number;
-  halo: boolean;
-};
-
 function text(value: unknown, fallback = "") {
   return String(value ?? fallback).trim();
 }
@@ -135,101 +124,6 @@ function graphNodeImportanceColor(
   if (node.kind === "library_paper") return "#2f7df6";
   if (node.display_tier === "single_external") return "#c4ca5d";
   return "#94a51f";
-}
-
-function graphNodeBaseSize(node: CitationGraphNode) {
-  if (node.kind === "library_paper") return GRAPH_LIBRARY_BASE_NODE_SIZE;
-  if (node.display_tier === "shared_external")
-    return GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE;
-  if (node.display_tier === "single_external")
-    return GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE;
-  return 2.5;
-}
-
-function graphNodeSizeCap(node: CitationGraphNode) {
-  return node.kind === "library_paper"
-    ? GRAPH_LIBRARY_NODE_SIZE_CAP
-    : GRAPH_EXTERNAL_NODE_SIZE_CAP;
-}
-
-function fallbackGraphIncomingDegrees(model: CitationGraphRenderModel) {
-  const visibleIds = new Set(model.nodes.map((node) => node.id));
-  const incoming = new Map<string, number>();
-  model.edges.forEach((edge) => {
-    if (visibleIds.has(edge.target)) {
-      incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
-    }
-  });
-  return incoming;
-}
-
-function graphNodeIncomingDegree(
-  node: CitationGraphNode,
-  fallbackIncomingDegrees: Map<string, number>,
-) {
-  const metricDegree = node.metrics?.internal_in_degree;
-  if (typeof metricDegree === "number" && Number.isFinite(metricDegree)) {
-    return Math.max(0, Math.floor(metricDegree));
-  }
-  return fallbackIncomingDegrees.get(node.id) || 0;
-}
-
-function buildGraphNodeImportance(model: CitationGraphRenderModel) {
-  const fallbackIncomingDegrees = fallbackGraphIncomingDegrees(model);
-  const entries = model.nodes
-    .map((node) => ({
-      node,
-      incomingDegree: graphNodeIncomingDegree(node, fallbackIncomingDegrees),
-    }))
-    .filter((entry) => entry.incomingDegree > 0);
-  const degreeRanks = Array.from(
-    new Set(entries.map((entry) => entry.incomingDegree)),
-  ).sort((left, right) => left - right);
-  const rankByDegree = new Map(
-    degreeRanks.map((degree, index) => [
-      degree,
-      degreeRanks.length <= 1 ? 1 : index / (degreeRanks.length - 1),
-    ]),
-  );
-  const haloCount = Math.min(
-    GRAPH_IMPORTANCE_HALO_MAX,
-    Math.max(1, Math.ceil(entries.length * GRAPH_IMPORTANCE_HALO_TOP_RATIO)),
-  );
-  const haloNodeIds = new Set(
-    entries
-      .slice()
-      .sort(
-        (left, right) =>
-          right.incomingDegree - left.incomingDegree ||
-          left.node.id.localeCompare(right.node.id),
-      )
-      .slice(0, haloCount)
-      .map((entry) => entry.node.id),
-  );
-  return new Map(
-    entries.map((entry) => [
-      entry.node.id,
-      {
-        incomingDegree: entry.incomingDegree,
-        percentile: rankByDegree.get(entry.incomingDegree) || 0,
-        halo: haloNodeIds.has(entry.node.id),
-      },
-    ]),
-  );
-}
-
-function graphNodeSize(
-  node: CitationGraphNode,
-  model: CitationGraphRenderModel,
-  importance?: GraphNodeImportance,
-) {
-  const multiplier = isCurrentPaperNode(node, model) ? 1.5 : 1;
-  const base = graphNodeBaseSize(node);
-  if (!importance || importance.incomingDegree <= 0) return base * multiplier;
-  const cap = graphNodeSizeCap(node);
-  return (
-    Math.min(cap, base + (cap - base) * importance.percentile) * multiplier
-  );
 }
 
 function haloColors(node: CitationGraphNode, model: CitationGraphRenderModel) {
@@ -374,7 +268,10 @@ function renderSvgCitationGraph(
   if (!stage) return;
   const graphStage = stage;
 
-  const importanceByNodeId = buildGraphNodeImportance(model);
+  const importanceByNodeId = buildCitationGraphNodeImportance(
+    model.nodes,
+    model.edges,
+  );
   const nodeById = new Map(model.nodes.map((node) => [node.id, node]));
   const adjacency = new Map<string, Set<string>>();
   for (const edge of model.edges) {
@@ -411,7 +308,11 @@ function renderSvgCitationGraph(
         const point = projector.project(node);
         const importance = importanceByNodeId.get(node.id);
         const currentPaper = isCurrentPaperNode(node, model);
-        const baseSize = graphNodeSize(node, model, importance);
+        const baseSize = citationGraphNodeSize(
+          node,
+          importance,
+          isCurrentPaperNode(node, model),
+        );
         const radius = Math.max(4, baseSize * 1.75);
         const neighbor = activeNode
           ? node.id === activeNode ||

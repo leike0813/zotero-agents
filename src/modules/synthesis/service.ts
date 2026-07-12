@@ -1297,7 +1297,7 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
   }
 }
 
-const CITATION_GRAPH_CACHE_POLICY_VERSION = "citation-graph-authors-v2";
+const CITATION_GRAPH_CACHE_POLICY_VERSION = "citation-graph-authors-v3";
 
 function parseStringArray(value: unknown): string[] {
   return parseJsonArray(value).map(cleanString).filter(Boolean);
@@ -2495,11 +2495,18 @@ function mapGraphToUi(
   } = {},
 ) {
   const coordinates = args.layout?.nodes || {};
+  type CitationGraphNodeWithUiMetrics = CitationGraphNode & {
+    metrics?: Pick<
+      CitationGraphLibraryNodeMetrics,
+      "internal_in_degree" | "internal_out_degree"
+    >;
+  };
   const graphWithHover = graph as CitationGraph & {
-    hover_only_nodes?: CitationGraphNode[];
+    nodes: CitationGraphNodeWithUiMetrics[];
+    hover_only_nodes?: CitationGraphNodeWithUiMetrics[];
     hover_only_edges?: CitationGraphEdge[];
   };
-  const mapNode = (node: CitationGraphNode) => {
+  const mapNode = (node: CitationGraphNodeWithUiMetrics) => {
     const kind =
       node.kind === "library_paper"
         ? ("library_paper" as const)
@@ -2530,6 +2537,14 @@ function mapGraphToUi(
           : kind === "library_paper"
             ? ("library" as const)
             : ("shared_external" as const),
+      ...(node.metrics
+        ? {
+            metrics: {
+              internal_in_degree: node.metrics.internal_in_degree,
+              internal_out_degree: node.metrics.internal_out_degree,
+            },
+          }
+        : {}),
     };
   };
   const mapEdge = (edge: CitationGraphEdge) => ({
@@ -2543,7 +2558,7 @@ function mapGraphToUi(
         ? ("hover_only" as const)
         : ("default" as const),
   });
-  const nodes = graph.nodes.map(mapNode);
+  const nodes = graphWithHover.nodes.map(mapNode);
   const hoverOnlyNodes = (graphWithHover.hover_only_nodes || []).map(mapNode);
   const edges = graph.edges.map(mapEdge);
   const hoverOnlyEdges = (graphWithHover.hover_only_edges || []).map(mapEdge);

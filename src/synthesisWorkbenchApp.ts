@@ -2,6 +2,10 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import { drawDiscNodeHover } from "sigma/rendering";
 import {
+  buildCitationGraphNodeImportance,
+  citationGraphFallbackIncomingDegrees,
+  citationGraphIncomingDegree,
+  citationGraphNodeSize,
   CITATION_GRAPH_EDGE_SIZE,
   CITATION_GRAPH_INCOMING_EDGE_COLOR,
   CITATION_GRAPH_OUTGOING_EDGE_COLOR,
@@ -9,20 +13,14 @@ import {
   GRAPH_EXTERNAL_IMPORTANCE_HALO_DARK_SOFT,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT,
   GRAPH_EXTERNAL_IMPORTANCE_HALO_LIGHT_SOFT,
-  GRAPH_EXTERNAL_NODE_SIZE_CAP,
-  GRAPH_IMPORTANCE_HALO_MAX,
-  GRAPH_IMPORTANCE_HALO_TOP_RATIO,
-  GRAPH_LIBRARY_BASE_NODE_SIZE,
   GRAPH_LIBRARY_IMPORTANCE_HALO_DARK,
   GRAPH_LIBRARY_IMPORTANCE_HALO_DARK_SOFT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT,
   GRAPH_LIBRARY_IMPORTANCE_HALO_LIGHT_SOFT,
-  GRAPH_LIBRARY_NODE_SIZE_CAP,
   GRAPH_MAX_ZOOM_RATIO,
   GRAPH_MIN_ZOOM_RATIO,
-  GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE,
-  GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE,
   GRAPH_ZOOM_SLIDER_MAX,
+  type CitationGraphNodeImportance,
 } from "./shared/citationGraphVisualRules";
 import {
   renderTopicTimeline as renderSharedTopicTimeline,
@@ -13957,44 +13955,10 @@ function graphNodeImportanceColor(node: GraphNode) {
   return "#94a51f";
 }
 
-type GraphNodeImportance = {
-  incomingDegree: number;
-  percentile: number;
-  halo: boolean;
-};
-
-function graphNodeBaseSize(node: GraphNode) {
-  if (node.kind === "library_paper") {
-    return GRAPH_LIBRARY_BASE_NODE_SIZE;
-  }
-  if (node.display_tier === "shared_external") {
-    return GRAPH_SHARED_EXTERNAL_BASE_NODE_SIZE;
-  }
-  if (node.display_tier === "single_external") {
-    return GRAPH_SINGLE_EXTERNAL_BASE_NODE_SIZE;
-  }
-  return 2.5;
-}
-
-function graphNodeSizeCap(node: GraphNode) {
-  return node.kind === "library_paper"
-    ? GRAPH_LIBRARY_NODE_SIZE_CAP
-    : GRAPH_EXTERNAL_NODE_SIZE_CAP;
-}
-
-function graphNodeSize(node: GraphNode, importance?: GraphNodeImportance) {
-  const base = graphNodeBaseSize(node);
-  const multiplier = isCurrentPaperGraphNode(node) ? 1.5 : 1;
-  if (!importance || importance.incomingDegree <= 0) {
-    return base * multiplier;
-  }
-  const cap = graphNodeSizeCap(node);
-  return (
-    Math.min(cap, base + (cap - base) * importance.percentile) * multiplier
-  );
-}
-
-function graphNodeZIndex(node: GraphNode, importance?: GraphNodeImportance) {
+function graphNodeZIndex(
+  node: GraphNode,
+  importance?: CitationGraphNodeImportance,
+) {
   if (isCurrentPaperGraphNode(node)) {
     return 18;
   }
@@ -14009,76 +13973,6 @@ function graphNodeZIndex(node: GraphNode, importance?: GraphNodeImportance) {
     return Math.max(1, importanceZIndex);
   }
   return Math.max(2, importanceZIndex);
-}
-
-function graphNodeIncomingDegree(
-  node: GraphNode,
-  fallbackIncomingDegrees: Map<string, number>,
-) {
-  const metricDegree = node.metrics?.internal_in_degree;
-  if (typeof metricDegree === "number" && Number.isFinite(metricDegree)) {
-    return Math.max(0, Math.floor(metricDegree));
-  }
-  return fallbackIncomingDegrees.get(node.id) || 0;
-}
-
-function fallbackGraphIncomingDegrees(snapshot: Snapshot) {
-  const visibleIds = new Set(
-    snapshot.graph.visibleNodes.map((node) => node.id),
-  );
-  const incoming = new Map<string, number>();
-  [...snapshot.graph.edges, ...snapshot.graph.hoverOnlyEdges].forEach(
-    (edge) => {
-      if (visibleIds.has(edge.target)) {
-        incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
-      }
-    },
-  );
-  return incoming;
-}
-
-function buildGraphNodeImportance(snapshot: Snapshot) {
-  const fallbackIncomingDegrees = fallbackGraphIncomingDegrees(snapshot);
-  const entries = snapshot.graph.visibleNodes
-    .map((node) => ({
-      node,
-      incomingDegree: graphNodeIncomingDegree(node, fallbackIncomingDegrees),
-    }))
-    .filter((entry) => entry.incomingDegree > 0);
-  const degreeRanks = Array.from(
-    new Set(entries.map((entry) => entry.incomingDegree)),
-  ).sort((left, right) => left - right);
-  const rankByDegree = new Map(
-    degreeRanks.map((degree, index) => [
-      degree,
-      degreeRanks.length <= 1 ? 1 : index / (degreeRanks.length - 1),
-    ]),
-  );
-  const haloCount = Math.min(
-    GRAPH_IMPORTANCE_HALO_MAX,
-    Math.max(1, Math.ceil(entries.length * GRAPH_IMPORTANCE_HALO_TOP_RATIO)),
-  );
-  const haloNodeIds = new Set(
-    entries
-      .slice()
-      .sort(
-        (left, right) =>
-          right.incomingDegree - left.incomingDegree ||
-          left.node.id.localeCompare(right.node.id),
-      )
-      .slice(0, haloCount)
-      .map((entry) => entry.node.id),
-  );
-  return new Map(
-    entries.map((entry) => [
-      entry.node.id,
-      {
-        incomingDegree: entry.incomingDegree,
-        percentile: rankByDegree.get(entry.incomingDegree) || 0,
-        halo: haloNodeIds.has(entry.node.id),
-      },
-    ]),
-  );
 }
 
 function graphUsesDarkTheme() {
@@ -14223,7 +14117,10 @@ function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
 
 function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   const graph = new Graph({ multi: false, type: "directed" });
-  const importanceByNodeId = buildGraphNodeImportance(snapshot);
+  const importanceByNodeId = buildCitationGraphNodeImportance(
+    snapshot.graph.visibleNodes,
+    snapshot.graph.visibleEdges,
+  );
   state.dynamicHoverNodeIds.clear();
   state.dynamicHoverEdgeIds.clear();
   const visibleIds = new Set(
@@ -14237,7 +14134,11 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       label: "",
       x: typeof node.x === "number" ? node.x : 0,
       y: typeof node.y === "number" ? node.y : 0,
-      size: graphNodeSize(node, importance),
+      size: citationGraphNodeSize(
+        node,
+        importance,
+        isCurrentPaperGraphNode(node),
+      ),
       color:
         importance?.halo || currentPaperNode
           ? graphNodeImportanceColor(node)
@@ -14481,7 +14382,10 @@ function renderSelectedDetail(snapshot: Snapshot) {
   }
   if (selected.kind === "node") {
     const node = graphNodeById(snapshot).get(selected.id);
-    const incomingDegrees = fallbackGraphIncomingDegrees(snapshot);
+    const incomingDegrees = citationGraphFallbackIncomingDegrees(
+      snapshot.graph.visibleNodes,
+      snapshot.graph.visibleEdges,
+    );
     const fields: Array<[string, unknown]> = [
       ["title", node?.label || selected.id],
       ["type", node?.kind || selected.kind],
@@ -14492,7 +14396,7 @@ function renderSelectedDetail(snapshot: Snapshot) {
     if (!state.standaloneGraphOnly) {
       fields.splice(4, 0, [
         "incoming citations",
-        node ? graphNodeIncomingDegree(node, incomingDegrees) : "-",
+        node ? citationGraphIncomingDegree(node, incomingDegrees) : "-",
       ]);
     }
     if (!state.standaloneExport) {
