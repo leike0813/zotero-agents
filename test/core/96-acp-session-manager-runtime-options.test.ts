@@ -68,6 +68,7 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import { RequestError } from "../../src/modules/acpProtocol";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -453,6 +454,71 @@ describe("acp session manager", function () {
     ]);
     assert.deepEqual(harness.lastAdapter?.modeSelections, []);
     assert.deepEqual(harness.lastAdapter?.modelSelections, []);
+  });
+
+  it("keeps Chat effort when Kilo rejects none", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-kilo",
+            displayName: "Kilo ACP",
+            type: "acp",
+            command: "kilo",
+            args: ["acp"],
+            acp: { agentFamily: "kilo" },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      harness.lastFactoryArgs = args;
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.sessionConfigOptions = [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "kilo-model",
+          options: [{ value: "kilo-model", name: "Kilo model" }],
+        },
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: "low",
+          options: [
+            { value: "none", name: "None" },
+            { value: "low", name: "Low" },
+          ],
+        },
+      ];
+      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
+        harness.lastAdapter,
+      );
+      harness.lastAdapter.setConfigOption = async (request) => {
+        if (request.category === "thought_level" && request.value === "none") {
+          throw new RequestError(-32602, "invalid reasoning effort");
+        }
+        return setConfigOption(request);
+      };
+      return harness.lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-kilo" });
+    await connectAcpConversation();
+    await setAcpConversationReasoningEffort({ effortId: "none" });
+
+    assert.equal(
+      getAcpConversationSnapshot().currentReasoningEffort?.id,
+      "low",
+    );
   });
 
   it("allows updating current mode and model for the active session", async function () {

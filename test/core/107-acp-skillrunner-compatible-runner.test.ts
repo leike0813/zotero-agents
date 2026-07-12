@@ -470,6 +470,57 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
+function createKiloNoneFallbackAdapter() {
+  const base = createFinalOutputAdapter({ ok: true });
+  const configSelections: string[] = [];
+  let promptCount = 0;
+  return {
+    adapter: {
+      ...base,
+      prompt: async (args: { sessionId: string; message: string }) => {
+        promptCount += 1;
+        return base.prompt(args);
+      },
+      setConfigOption: async (args: {
+        sessionId: string;
+        category: string;
+        value: string;
+      }) => {
+        configSelections.push(`${args.category}:${args.value}`);
+        if (args.category === "thought_level" && args.value === "none") {
+          throw new RequestError(-32602, "invalid reasoning effort");
+        }
+        return true;
+      },
+    } satisfies AcpConnectionAdapter,
+    configSelections,
+    getPromptCount: () => promptCount,
+  };
+}
+
+function createKiloRejectedReasoningAdapter(args: {
+  effortId: string;
+  errorCode: number;
+}) {
+  const base = createFinalOutputAdapter({ ok: true });
+  return {
+    ...base,
+    setConfigOption: async (request: {
+      sessionId: string;
+      category: string;
+      value: string;
+    }) => {
+      if (
+        request.category === "thought_level" &&
+        request.value === args.effortId
+      ) {
+        throw new RequestError(args.errorCode, "rejected reasoning effort");
+      }
+      return true;
+    },
+  } satisfies AcpConnectionAdapter;
+}
+
 function createPromptStopAdapter(args: {
   stopReason?: string;
   assistantText?: string | ((promptCount: number) => string | undefined);
@@ -808,6 +859,64 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetRuntimeCommandRegistryForTests();
     seedRecoveredRunBackendsForTests();
   });
+
+  it("continues a Kilo task after none is rejected before the first prompt", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, configSelections, getPromptCount } =
+      createKiloNoneFallbackAdapter();
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend({ acp: { agentFamily: "kilo" } }),
+        providerOptions: { acpReasoningEffort: "none" },
+      });
+
+      assert.equal(getPromptCount(), 1);
+      assert.deepEqual(configSelections, ["thought_level:none"]);
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.isUndefined(record?.acpReasoningEffort);
+      assert.isTrue(
+        (record?.events || []).some(
+          (event) => event.stage === "runtime-reasoning-fallback",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const { effortId, errorCode } of [
+    { effortId: "high", errorCode: -32602 },
+    { effortId: "none", errorCode: -32000 },
+  ]) {
+    it(`preserves Kilo reasoning errors for ${effortId} with ${errorCode}`, async function () {
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root);
+      try {
+        let caught: unknown;
+        try {
+          await runDemoAcpSkill({
+            root,
+            entry,
+            adapter: createKiloRejectedReasoningAdapter({
+              effortId,
+              errorCode,
+            }),
+            backend: createBackend({ acp: { agentFamily: "kilo" } }),
+            providerOptions: { acpReasoningEffort: effortId },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert.instanceOf(caught, Error);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   afterEach(async function () {
     await flushAcpSkillRunAuditTrailWritesForTests();

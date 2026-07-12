@@ -55,6 +55,7 @@ import {
   resolveAcpChatTranscriptPaths,
 } from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
+import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
   buildAcpRuntimeOptionsStateFromConfigOptions,
   hasAcpRuntimeOptionSelectors,
@@ -4861,20 +4862,31 @@ export async function setAcpConversationReasoningEffort(args: {
     displayModelId,
     effortId,
   );
-  const applied =
-    (await adapter.setConfigOption?.({
-      sessionId: sessionRuntime.snapshot.sessionId,
-      category: "thought_level",
-      value: effortId,
-    })) === true;
-  if (applied) {
+  const result = await applyAcpReasoningEffortWithFallback({
+    adapter,
+    backend: sessionRuntime.snapshot.backend || undefined,
+    sessionId: sessionRuntime.snapshot.sessionId,
+    effortId,
+  });
+  if (result.kind === "applied") {
     applyCurrentReasoningEffort(sessionRuntime.snapshot, effortId);
-  } else {
+  } else if (result.kind === "unavailable") {
     await adapter.setModel({
       sessionId: sessionRuntime.snapshot.sessionId,
       modelId: rawModelId,
     });
     applyModelState(sessionRuntime, { currentModelId: rawModelId });
+  } else {
+    appendDiagnostic(sessionRuntime, {
+      id: nextOpaqueId("acp-diag"),
+      ts: nowIso(),
+      kind: "reasoning_effort_fallback",
+      level: "warn",
+      message:
+        "Kilo rejected the None reasoning effort; retaining the model default.",
+      detail: result.error.message,
+      stage: "runtime-options",
+    });
   }
   emitSessionRuntimeSnapshot(sessionRuntime);
 }

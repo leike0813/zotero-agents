@@ -141,7 +141,7 @@
 ```
 
 - [x] 增加opencode和kilo code ACP后端预设的注入环境变量，将`question`工具禁用
-- [ ] kilo ACP 有一个小BUG: kilo会提供“none"这个推理强度，而这个推理强度对于某些模型不可用，会导致任务提交失败。不知道有没有办法进行自动fallback
+- [x] kilo ACP 有一个小BUG: kilo会提供“none"这个推理强度，而这个推理强度对于某些模型不可用，会导致任务提交失败。不知道有没有办法进行自动fallback
 - [x] 优化transcript写盘的IO负载
 - [x] 增加静默执行模式（除了交互消息外，什么都不渲染，连transcript都不写盘，最大程度降低负载），我觉得可以和实时渲染开关做到一起
 - [x] /usr/local/bin/ 如果作为默认的CLI安装目录，会因为没有权限而安装失败

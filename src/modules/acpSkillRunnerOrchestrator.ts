@@ -119,6 +119,7 @@ import {
   type AcpSkillRunForegroundDeps,
 } from "./acpSkillRunForeground";
 import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
+import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
   listWorkflowTasks,
   updateWorkflowTaskStateByRequest,
@@ -1270,6 +1271,7 @@ function shouldSkipInitialAcpModelSet(args: {
 
 async function runPrompt(args: {
   adapter: AcpConnectionAdapter;
+  backend?: BackendInstance;
   requestId: string;
   message: string;
   runtimeOptions?: FrozenAcpRuntimeOptions;
@@ -1324,11 +1326,29 @@ async function runPrompt(args: {
       }
     }
     if (args.runtimeOptions?.reasoningEffort) {
-      await args.adapter.setConfigOption?.({
+      const reasoningResult = await applyAcpReasoningEffortWithFallback({
+        adapter: args.adapter,
+        backend: args.backend,
         sessionId,
-        category: "thought_level",
-        value: args.runtimeOptions.reasoningEffort,
+        effortId: args.runtimeOptions.reasoningEffort,
       });
+      if (reasoningResult.kind === "fallback") {
+        upsertAcpSkillRun({
+          requestId: args.requestId,
+          acpReasoningEffort: null,
+          event: {
+            stage: "runtime-reasoning-fallback",
+            message:
+              "Kilo rejected the None reasoning effort; using the model default.",
+            level: "warn",
+            details: {
+              code: reasoningResult.error.code,
+              data: reasoningResult.error.data,
+              requestedEffort: args.runtimeOptions.reasoningEffort,
+            },
+          },
+        });
+      }
     }
   } else {
     upsertAcpSkillRun({
@@ -2162,6 +2182,7 @@ async function buildRecoveredContinuationPrompt(args: {
 
 async function applyRecoveredRuntimeOptions(args: {
   adapter: AcpConnectionAdapter;
+  backend: BackendInstance;
   requestId: string;
   sessionId: string;
   runtimeOptions: FrozenAcpRuntimeOptions;
@@ -2179,11 +2200,30 @@ async function applyRecoveredRuntimeOptions(args: {
     });
   }
   if (args.runtimeOptions.reasoningEffort) {
-    await args.adapter.setConfigOption?.({
+    const reasoningResult = await applyAcpReasoningEffortWithFallback({
+      adapter: args.adapter,
+      backend: args.backend,
       sessionId: args.sessionId,
-      category: "thought_level",
-      value: args.runtimeOptions.reasoningEffort,
+      effortId: args.runtimeOptions.reasoningEffort,
     });
+    if (reasoningResult.kind === "fallback") {
+      upsertAcpSkillRun({
+        requestId: args.requestId,
+        acpReasoningEffort: null,
+        event: {
+          stage: "runtime-reasoning-fallback",
+          message:
+            "Kilo rejected the None reasoning effort; using the model default.",
+          level: "warn",
+          details: {
+            code: reasoningResult.error.code,
+            data: reasoningResult.error.data,
+            requestedEffort: args.runtimeOptions.reasoningEffort,
+            recovered: true,
+          },
+        },
+      });
+    }
   }
   if (
     args.runtimeOptions.modeId ||
@@ -3209,6 +3249,7 @@ export async function recoverAcpSkillRunConversation(args: {
     });
     await applyRecoveredRuntimeOptions({
       adapter,
+      backend,
       requestId,
       sessionId: liveSessionId,
       runtimeOptions: recoveredRuntimeOptions,
@@ -4055,6 +4096,7 @@ export async function executeAcpSkillRunnerJob(args: {
       });
       const promptPromise = runPrompt({
         adapter,
+        backend: args.backend,
         requestId: workspace.requestId,
         message,
         runtimeOptions: frozenRuntimeOptions,

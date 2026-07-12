@@ -3092,7 +3092,7 @@ export function upsertAcpSkillRun(update: {
   resultJsonPath?: string;
   acpModeId?: string;
   acpModelId?: string;
-  acpReasoningEffort?: string;
+  acpReasoningEffort?: string | null;
   acpRawModelId?: string;
   agentFamily?: string;
   skillRoots?: string[];
@@ -3237,7 +3237,14 @@ export function upsertAcpSkillRun(update: {
   assignString("resultJsonPath", update.resultJsonPath);
   assignString("acpModeId", update.acpModeId);
   assignString("acpModelId", update.acpModelId);
-  assignString("acpReasoningEffort", update.acpReasoningEffort);
+  if (Object.prototype.hasOwnProperty.call(update, "acpReasoningEffort")) {
+    const effort = normalizeString(update.acpReasoningEffort);
+    if (effort) {
+      next.acpReasoningEffort = effort;
+    } else {
+      delete next.acpReasoningEffort;
+    }
+  }
   assignString("acpRawModelId", update.acpRawModelId);
   assignString("agentFamily", update.agentFamily);
   assignString("sharedSkillCatalogPath", update.sharedSkillCatalogPath);
