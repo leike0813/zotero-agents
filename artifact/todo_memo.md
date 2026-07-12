@@ -152,7 +152,7 @@
 - [x] 新增export-research-bundle workflow
 - [x] 新增export/import-literature-bundle workflow
 - [x] 新增collection-collector workflow
-- [ ] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
+- [x] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
 - [x] 观测到ACP Chat在prompting状态下点击Cancel(interrupt)后前端已经乐观变为cancelled，但后端仍在继续执行，需要复核这个interrupt的逻辑。ACP Skills中很有可能存在相同问题
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题

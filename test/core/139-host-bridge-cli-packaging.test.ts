@@ -1667,6 +1667,7 @@ describe("host bridge cli packaging and install", function () {
     assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(surfaceWorkflow, "npm run check:host-bridge-surface");
     assert.include(surfaceWorkflow, "npm run render:host-bridge-surface");
     assert.include(surfaceWorkflow, "Publish Host Bridge CLI bundle branch");
     assert.include(

@@ -260,6 +260,14 @@ describe("zotero-librarian Hermes profile distribution", function () {
       packageJson.scripts["render:host-bridge-surface"],
       "render-zotero-librarian-profile",
     );
+    assert.strictEqual(
+      packageJson.scripts["check:host-bridge-surface"],
+      "tsx scripts/render-host-bridge-surface.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check",
+    );
+    assert.include(
+      packageJson.scripts["inspect:zotero-librarian-profile-version"],
+      "zotero-librarian-profile-version",
+    );
 
     const renderScript = await fs.readFile(
       "scripts/render-zotero-librarian-profile.ts",

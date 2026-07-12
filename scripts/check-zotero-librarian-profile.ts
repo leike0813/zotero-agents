@@ -5,6 +5,10 @@ import {
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
+import {
+  inspectZoteroLibrarianProfileVersion,
+  ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
+} from "./zotero-librarian-profile-version";
 
 const ROOT = process.cwd();
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
@@ -160,6 +164,36 @@ function checkTerminologyReference(errors: string[]) {
       errors,
       "profile terminology reference differs from shared terminology source",
     );
+  }
+}
+
+function checkProfileVersion(errors: string[]) {
+  const inspected = inspectZoteroLibrarianProfileVersion(ROOT);
+  const distribution = readProfile("distribution.yaml");
+  const distributionVersion =
+    /^version:\s*(\S+)\s*$/m.exec(distribution)?.[1] || "";
+  if (distributionVersion !== inspected.resolved.version) {
+    fail(
+      errors,
+      `distribution.yaml version must equal ${inspected.resolved.version}`,
+    );
+  }
+  const manifest = json(
+    join(PROFILE_ROOT, "assets/profile-manifest-source.json"),
+  );
+  if (
+    manifest.sourceFiles?.profileVersionSource !==
+    ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH
+  ) {
+    fail(errors, "profile manifest source is missing profile version source");
+  }
+  if (manifest.generated?.profileVersion !== inspected.resolved.version) {
+    fail(errors, "profile manifest source has an incorrect profile version");
+  }
+  if (
+    manifest.generated?.zoteroBridgeCliVersion !== inspected.resolved.cliVersion
+  ) {
+    fail(errors, "profile manifest source has an incorrect CLI version");
   }
 }
 
@@ -541,6 +575,7 @@ function checkBinaries(errors: string[]) {
     "assets/zotero-bridge/bin",
     "manifest.json",
     "sourceCommit",
+    "zoteroBridgeCliVersion",
     "dirty",
   ]) {
     assertIncludes(errors, publishScript, snippet, "publish script");
@@ -557,6 +592,7 @@ function checkBinaries(errors: string[]) {
 const errors: string[] = [];
 checkStructure(errors);
 checkTerminologyReference(errors);
+checkProfileVersion(errors);
 checkSecrets(errors);
 checkHostBridgeSurface(errors);
 checkWorkflowCatalog(errors);
