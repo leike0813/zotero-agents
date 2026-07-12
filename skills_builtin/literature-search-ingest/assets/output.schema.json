@@ -10,63 +10,117 @@
         "missing_pdf_references"
       ],
       "properties": {
-        "kind": { "const": "literature_search_ingest" },
-        "query": { "type": "string" },
+        "kind": {
+          "const": "literature_search_ingest"
+        },
+        "query": {
+          "type": "string"
+        },
         "search_mode": {
           "type": "string",
           "enum": [
+            "guided",
             "topic_expansion",
             "paper_seed_expansion",
             "targeted_ingest"
           ]
         },
-         "ingested_references": {
-           "type": "array",
-           "description": "Successfully ingested reference items. Each entry has index, title, and status.",
-           "items": {
+        "ingested_references": {
+          "type": "array",
+          "description": "Successfully ingested reference items. Each entry has index, title, and status.",
+          "items": {
             "type": "object",
-            "required": ["index", "title", "status"],
+            "required": [
+              "index",
+              "title",
+              "status"
+            ],
             "properties": {
-              "index": { "type": "number" },
-              "title": { "type": "string" },
+              "index": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              },
               "status": {
                 "type": "string",
-                "enum": ["created", "existing"]
+                "enum": [
+                  "created",
+                  "existing"
+                ]
               },
-              "itemRef": { "type": "object" },
-              "doi": { "type": "string" },
-              "arxiv": { "type": "string" },
-              "pmid": { "type": "string" },
-              "isbn": { "type": "string" },
-              "landingUrl": { "type": "string" }
+              "itemRef": {
+                "type": "object"
+              },
+              "doi": {
+                "type": "string"
+              },
+              "arxiv": {
+                "type": "string"
+              },
+              "pmid": {
+                "type": "string"
+              },
+              "isbn": {
+                "type": "string"
+              },
+              "landingUrl": {
+                "type": "string"
+              }
             },
             "additionalProperties": true
           }
         },
-         "missing_pdf_references": {
-           "type": "array",
-           "description": "Ingested references without PDF attachments, with landing page and manual search links.",
-           "items": {
+        "missing_pdf_references": {
+          "type": "array",
+          "description": "Ingested references without PDF attachments, with landing page and manual search links.",
+          "items": {
             "type": "object",
-            "required": ["index", "title"],
+            "required": [
+              "index",
+              "title"
+            ],
             "properties": {
-              "index": { "type": "number" },
-              "title": { "type": "string" },
+              "index": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              },
               "status": {
                 "type": "string",
-                "enum": ["created", "existing"]
+                "enum": [
+                  "created",
+                  "existing"
+                ]
               },
-              "itemRef": { "type": "object" },
-              "doi": { "type": "string" },
-              "arxiv": { "type": "string" },
-              "pmid": { "type": "string" },
-              "isbn": { "type": "string" },
-              "landingUrl": { "type": "string" },
+              "itemRef": {
+                "type": "object"
+              },
+              "doi": {
+                "type": "string"
+              },
+              "arxiv": {
+                "type": "string"
+              },
+              "pmid": {
+                "type": "string"
+              },
+              "isbn": {
+                "type": "string"
+              },
+              "landingUrl": {
+                "type": "string"
+              },
               "manualSearchLinks": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               },
-              "reason": { "type": "string" }
+              "reason": {
+                "type": "string"
+              }
             },
             "additionalProperties": true
           }
@@ -75,11 +129,21 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["index", "title", "error"],
+            "required": [
+              "index",
+              "title",
+              "error"
+            ],
             "properties": {
-              "index": { "type": "number" },
-              "title": { "type": "string" },
-              "error": { "type": "object" }
+              "index": {
+                "type": "number"
+              },
+              "title": {
+                "type": "string"
+              },
+              "error": {
+                "type": "object"
+              }
             },
             "additionalProperties": true
           }
@@ -89,12 +153,27 @@
     },
     {
       "type": "object",
-      "required": ["kind", "status", "reason", "message"],
+      "required": [
+        "kind",
+        "status",
+        "reason",
+        "message"
+      ],
       "properties": {
-        "kind": { "const": "literature_search_ingest_canceled" },
-        "status": { "const": "canceled" },
-         "reason": { "type": "string", "description": "Machine-readable reason code explaining the cancellation." },
-         "message": { "type": "string", "description": "Human-readable explanation message." }
+        "kind": {
+          "const": "literature_search_ingest_canceled"
+        },
+        "status": {
+          "const": "canceled"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Machine-readable reason code explaining the cancellation."
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable explanation message."
+        }
       },
       "additionalProperties": true
     }

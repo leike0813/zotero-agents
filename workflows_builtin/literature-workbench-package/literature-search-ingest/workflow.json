@@ -18,15 +18,17 @@
     "query": {
       "type": "string",
       "title": "Search Query",
-      "description": "Free-form literature search topic, research direction, paper title, DOI, arXiv, PMID, or related seed."
+      "description": "Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.",
+      "default": ""
     },
     "searchMode": {
       "type": "string",
       "title": "Search Mode",
-      "description": "Choose auto mode detection, topic expansion, paper seed expansion, or exact targeted ingest.",
+      "description": "Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.",
       "default": "auto",
       "enum": [
         "auto",
+        "guided",
         "topic_expansion",
         "paper_seed_expansion",
         "targeted_ingest"
@@ -61,7 +63,9 @@
     }
   },
   "result": {
-    "fetch": { "type": "result" },
+    "fetch": {
+      "type": "result"
+    },
     "expects": {
       "result_json": "result/result.json"
     }

@@ -2,92 +2,52 @@
 
 ## 用途
 
-通过 AI 搜索学术文献，并将结果直接入库到 Zotero。支持多种搜索模式，交互式确认后再执行入库操作。
-
-## 适用场景
-
-- 在研究一个新主题时搜索相关文献并批量入库
-- 输入一篇已知论文的标题、DOI、arXiv ID 或 PMID，快速导入
-- 基于一篇种子论文扩展搜索相关文献
-
-## 输入约束
-
-| 约束类型 | 说明 |
-|---------|------|
-| 输入单元 | workflow（无需选中条目） |
-| 触发方式 | 右键菜单或 Dashboard 中运行，无需预先选择任何条目 |
+通过 AI 搜索学术文献并将确认后的结果入库到 Zotero。`query` 留空时，可由引导模式通过对话把研究需求逐步收敛为经确认的搜索 brief。
 
 ## 搜索模式
 
 | 模式 | 说明 |
 |------|------|
-| `auto` | 自动判断最适合的搜索模式（默认） |
-| `topic_expansion` | 按研究方向或主题搜索，查找相关文献 |
-| `paper_seed_expansion` | 基于一篇种子论文扩展搜索 | 
-| `targeted_ingest` | 精确定位导入单篇文献 |
+| `auto` | 非空查询时自动判断；空查询时自动进入引导模式。 |
+| `guided` | 澄清研究需求、只读检查本地 Zotero/Synthesis 覆盖，并直接执行确认后的 brief。 |
+| `topic_expansion` | 按研究方向或主题搜索。 |
+| `paper_seed_expansion` | 基于种子论文扩展搜索。 |
+| `targeted_ingest` | 精确定位并导入单篇文献。 |
 
 ## 运行过程
 
 ```
-1. 方案确认阶段
-   └── 读取 Zotero 库和 Synthesis 上下文
-       └── 自动判断搜索模式（auto 模式）
-       └── 向用户展示搜索方案
-       └── 等待用户确认
+1. 引导规划（空 query + auto 或 guided）
+   └── 以短轮次澄清研究目标
+   └── 只读查询本地 Zotero/Synthesis 覆盖
+   └── 展示结构化 search brief
+   └── 等待确认；确认前不联网或写入
 
-2. 搜索阶段（不入库）
-   └── 按确认后的方案搜索候选文献
-       └── 展示搜索结果列表
-       └── 用户选择需要入库的文献
+2. 候选搜索与选择
+   └── 按确认的 brief 或显式模式搜索
+   └── 核验 identifier、权威元数据、landing page 和合法公开 PDF 线索
+   └── 用户选择要入库的文献
 
-3. 入库阶段
-   └── 逐篇调用 zotero-bridge 入库
-       └── 包含元数据导入和 PDF 附件导入
-       └── 显示入库进度
-
-4. 完成
-   └── 输出入库结果汇总
-       └── 包含成功/失败的条目信息
+3. 入库与完成
+   └── 通过 zotero-bridge 逐篇入库
+   └── 输出包含缺 PDF 链接的简洁结果 JSON
 ```
-
-### 交互说明
-
-- 该 workflow 为**交互式**执行，在关键节点需要用户确认
-- 方案确认：AI 展示搜索方案后，用户确认或调整
-- 列表确认：搜索结果展示后，用户勾选需要入库的条目
-- 执行过程中可在 Dashboard 中查看状态
-
-## 模型建议
-
-🔴 **必须**有网络搜索能力。此 workflow 的核心是联网检索学术文献，没有网络搜索能力的模型无法完成。
-🟢 模型本身的推理能力不需要太强——搜索和入库本质上是检索和工具调用任务，轻量模型即可胜任。
-
-## 运行产物
-
-- 搜索结果直接作为 Zotero 条目入库
-- 会自动尝试下载 PDF 附件（best-effort）
-- 可指定目标 Collection 进行归类
 
 ## 参数
 
 | 参数 | 类型 | 说明 | 默认值 |
-|------|------|------|--------|
-| `query` | string | 搜索主题、研究方向、论文标题、DOI、arXiv ID、PMID 等 | — |
-| `searchMode` | string | 搜索模式 | `auto` |
-| `targetCollection` | string | 目标 Collection（可选） | 空 |
+|------|------|------|------|
+| `query` | string | 搜索主题、论文标识、种子；留空可启动引导规划。 | 空 |
+| `searchMode` | string | `auto`、`guided`、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`。 | `auto` |
+| `targetCollection` | string | 目标 Collection（可选）。 | 空 |
 
-### searchMode 可选值
+## 产出
 
-- `auto`：自动判断
-- `topic_expansion`：主题扩展
-- `paper_seed_expansion`：种子论文扩展
-- `targeted_ingest`：定向入库
+- 候选在用户确认入库前会完成证据核验。
+- 成功条目写入 Zotero；无 PDF 时保留合法 landing page 线索。
+- 引导模式的最终结果为 `search_mode: "guided"`。
 
 ## 依赖
 
-- **后端**：ACP 后端（需要 ACP 协议支持）
-- **Skill**：后端需部署 `literature-search-ingest` skill
-
-## 相关工作流
-
-- [文献分析](#doc/workflows%2Fliterature-analysis) — 对已入库文献生成摘要
+- **后端**：支持 interactive 的 ACP 后端
+- **Skill**：`literature-search-ingest`

@@ -1,8 +1,10 @@
 import { assert } from "chai";
+import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { buildAcpSkillResourceManifest } from "../../src/modules/acpSkillResourceManifest";
+import { validateAcpSkillRunRequestAgainstSchemas } from "../../src/modules/acpSkillSchemaAssets";
 import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
 import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSettings";
@@ -10,12 +12,12 @@ import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflo
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 
-function completedPayload() {
+function completedPayload(searchMode = "topic_expansion") {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
     query: "foundation models for visual inspection",
-    search_mode: "topic_expansion",
+    search_mode: searchMode,
     ingested_references: [
       {
         index: 1,
@@ -90,9 +92,11 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     assert.notProperty(workflow.execution || {}, "mcp");
     assert.equal(workflow.parameters?.query?.type, "string");
+    assert.equal(workflow.parameters?.query?.default, "");
     assert.equal(workflow.parameters?.searchMode?.type, "string");
     assert.deepEqual(workflow.parameters?.searchMode?.enum, [
       "auto",
+      "guided",
       "topic_expansion",
       "paper_seed_expansion",
       "targeted_ingest",
@@ -444,6 +448,70 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.isUndefined((requests[0] as any).runtime_options?.workflow_mcp);
   });
 
+  it("keeps blank auto queries as interactive workflow input", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const requests = (await executeBuildRequests({
+      workflow: workflow!,
+      selectionContext: { items: { attachments: [] } },
+      executionOptions: {
+        workflowParams: {
+          query: "   ",
+          searchMode: "auto",
+        },
+      },
+    })) as Array<{
+      parameter?: Record<string, unknown>;
+      runtime_options?: Record<string, unknown>;
+    }>;
+
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].parameter?.query, "   ");
+    assert.equal(requests[0].parameter?.searchMode, "auto");
+    assert.equal(requests[0].runtime_options?.execution_mode, "interactive");
+  });
+
+  it("accepts blank query parameters while retaining the required query key", async function () {
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const entry = registry.entriesById["literature-search-ingest"];
+    assert.isOk(entry);
+    const runnerJson = JSON.parse(
+      await fs.readFile(entry.runnerJsonPath, "utf8"),
+    );
+    const skillDir = path.dirname(path.dirname(entry.runnerJsonPath));
+
+    const blank = await validateAcpSkillRunRequestAgainstSchemas({
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "literature-search-ingest",
+        parameter: { query: "", searchMode: "auto" },
+      },
+      runnerJson,
+      skillDir,
+      workspaceDir: os.tmpdir(),
+    });
+    const missing = await validateAcpSkillRunRequestAgainstSchemas({
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "literature-search-ingest",
+        parameter: { searchMode: "auto" },
+      },
+      runnerJson,
+      skillDir,
+      workspaceDir: os.tmpdir(),
+    });
+
+    assert.isTrue(blank.ok, blank.errors.join("; "));
+    assert.isFalse(missing.ok);
+    assert.match(missing.errors.join("; "), /required property 'query'/);
+  });
+
   it("registers the workflow package files and skill resource manifest", async function () {
     const packageJson = JSON.parse(
       await fs.readFile(
@@ -537,15 +605,22 @@ describe("Literature Search Ingest workflow contract", function () {
       primarySkillDir,
     });
 
+    const guided = await validateAcpSkillFinalPayload({
+      payload: completedPayload("guided"),
+      runnerJson,
+      primarySkillDir,
+    });
+
     assert.isTrue(completed.ok, completed.errors.join("; "));
     assert.isTrue(
       completedAfterConvergence.ok,
       completedAfterConvergence.errors.join("; "),
     );
     assert.isTrue(canceled.ok, canceled.errors.join("; "));
+    assert.isTrue(guided.ok, guided.errors.join("; "));
   });
 
-  it("documents two confirmation gates, host context, and no browser automation", async function () {
+  it("keeps detailed skill rules while delegating runner behavior", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
       "utf8",
@@ -558,38 +633,40 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     const prompt = runner.entrypoint?.prompts?.common || "";
 
-    for (const text of [skill, prompt]) {
-      assert.include(text, "synthesis topic list");
-      assert.include(text, "synthesis index library get");
-      assert.include(text, "mutation literature-ingest");
-      assert.include(text, "targeted_ingest");
-      assert.include(text, "synthesis artifact read");
-      assert.include(text, "best-effort");
-      assert.include(text, "filetype:pdf");
-      assert.include(text, "attachLandingUrlOnMissingPdf");
-      assert.include(text, "ingested_references");
-      assert.include(text, "missing_pdf_references");
-      assert.include(text, "Connector");
-      assert.include(text, "CDP");
-      assert.include(text, "identifier_not_found");
-      assert.include(text, "China DOI");
-      assert.include(text, "知网");
-      assert.include(text, "万方");
-      assert.include(text, "PDC");
-    }
-    assert.include(skill, "等待用户明确确认后再进入搜索");
+    assert.include(prompt, "必须先阅读 SKILL.md");
+    assert.notInclude(prompt, "China DOI");
+    assert.notInclude(prompt, "attachLandingUrlOnMissingPdf");
+    assert.include(skill, "`guided`");
+    assert.include(skill, "`query.trim()`");
+    assert.include(skill, "本地 Zotero/Synthesis");
+    assert.include(skill, "不得联网、下载、创建或写入条目");
+    assert.include(skill, "不得重新选择、映射或分类为原三种策略");
+    assert.include(skill, "确认后直接进入候选搜索");
+    assert.include(skill, "open_text");
+    assert.include(skill, "普通 assistant 消息");
+    assert.include(skill, "synthesis topic list");
+    assert.include(skill, "synthesis index library get");
+    assert.include(skill, "synthesis artifact read");
+    assert.include(skill, "targeted_ingest");
+    assert.include(skill, "China DOI");
+    assert.include(skill, "知网");
+    assert.include(skill, "万方");
+    assert.include(skill, "PDC");
+    assert.include(skill, "filetype:pdf");
+    assert.include(skill, "identifier_not_found");
     assert.include(skill, "等待用户确认");
     assert.include(skill, "逐篇调用");
     assert.include(skill, "ingest-paper-001.json");
-    assert.include(skill, "禁止生成包含 `papers`");
-    assert.include(skill, "最终只输出合法 JSON object");
+    assert.include(skill, "papers[]");
+    assert.include(skill, "最终输出必须是单个合法 JSON object");
     assert.include(skill, "hasPdfAttachment");
     assert.include(skill, "manualSearchLinks");
     assert.include(skill, "不得以仅有标题");
-    assert.include(skill, '"ingested_references"');
-    assert.include(skill, '"missing_pdf_references"');
+    assert.include(skill, "`ingested_references`");
+    assert.include(skill, "`missing_pdf_references`");
     assert.include(skill, '"literature_search_ingest"');
     assert.include(skill, '"literature_search_ingest_canceled"');
+    assert.include(skill, '"user_cancelled"');
     assert.notInclude(skill, "confirmed_references");
     assert.notInclude(skill, "confirmed-papers.json");
     assert.notInclude(prompt, "confirmed-papers.json");

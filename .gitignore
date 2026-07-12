@@ -31,6 +31,7 @@ logs
 .claude/
 .kilo/
 .kilocode/
+.codebuddy/
 .qwen/
 .codegraph/
 .agents/*
