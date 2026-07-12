@@ -21,6 +21,14 @@ export type AcpExecutionProgressChange = {
   segmentClosed: boolean;
 };
 
+export type AcpExecutionProgressResetOptions = {
+  promoteUnavailableToComplete?: boolean;
+};
+
+export type AcpExecutionProgressRestoreOptions = {
+  missingCompleteness?: AssistantMessageCountsSnapshot["completeness"];
+};
+
 const states = new Map<string, AcpExecutionProgressState>();
 
 function emptyChange(): AcpExecutionProgressChange {
@@ -61,10 +69,13 @@ function closeSegment(
   return wasOpen;
 }
 
-export function resetAcpExecutionProgress(scopeKeyRaw: string) {
+export function resetAcpExecutionProgress(
+  scopeKeyRaw: string,
+  options: AcpExecutionProgressResetOptions = {},
+) {
   const scopeKey = String(scopeKeyRaw || "");
   const state = getOrCreateState(scopeKey);
-  beginAssistantMessageCountExecution(state);
+  beginAssistantMessageCountExecution(state, "", options);
   state.openSegment = null;
   state.terminalCandidateChunks = [];
   states.set(scopeKey, state);
@@ -74,11 +85,16 @@ export function resetAcpExecutionProgress(scopeKeyRaw: string) {
 export function restoreAcpExecutionProgress(
   scopeKeyRaw: string,
   value: unknown,
+  options: AcpExecutionProgressRestoreOptions = {},
 ) {
   const scopeKey = String(scopeKeyRaw || "");
   const restored = normalizeAssistantMessageCounts(value, scopeKey);
   const state: AcpExecutionProgressState = {
-    ...(restored || createAssistantMessageCounts(scopeKey, "unavailable")),
+    ...(restored ||
+      createAssistantMessageCounts(
+        scopeKey,
+        options.missingCompleteness || "unavailable",
+      )),
     openSegment: null,
     terminalCandidateChunks: [],
   };

@@ -81,7 +81,15 @@ export function cloneAssistantMessageCounts(
 export function beginAssistantMessageCountExecution(
   value: AssistantMessageCountsSnapshot,
   executionKey = "",
+  options: { promoteUnavailableToComplete?: boolean } = {},
 ) {
+  if (
+    options.promoteUnavailableToComplete === true &&
+    value.completeness === "unavailable"
+  ) {
+    value.completeness = "complete";
+    value.cumulative = emptyAssistantMessageCountTriplet();
+  }
   value.executionKey = executionKey;
   value.active = true;
   value.current = emptyAssistantMessageCountTriplet();

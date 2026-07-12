@@ -1893,25 +1893,37 @@
           : authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
             ? authAsk.ui_hints
             : {};
-      const methods = Array.isArray(session && session.authAvailableMethods)
-        ? session.authAvailableMethods
-        : [];
-      const methodActions = methods.map(function (method) {
+      const authAskHints =
+        authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
+          ? authAsk.ui_hints
+          : {};
+      const authHint =
+        safeText(authAsk && authAsk.hint) ||
+        safeText(authAskHints.hint) ||
+        safeText(authHints.hint);
+      const askMethodOptions = normalizeSkillRunnerOptionList(
+        authAsk && Array.isArray(authAsk.options) ? authAsk.options : [],
+      );
+      const availableMethodOptions = normalizeSkillRunnerOptionList(
+        Array.isArray(session && session.authAvailableMethods)
+          ? session.authAvailableMethods
+          : [],
+      );
+      const methodOptions =
+        askMethodOptions.length > 0 ? askMethodOptions : availableMethodOptions;
+      const methodActions = methodOptions.map(function (method) {
         return contextAction(
           "reply-run",
-          safeText(method.label || method.name || method.id) ||
+          safeText(method.label || method.value) ||
             labelFrom(source, "actions.useMethod", "Use method"),
           {
             mode: "auth",
-            authSessionId: safeText(session && session.authSessionId),
-            submission: {
+            selection: {
               kind: "auth_method",
-              responseValue: safeText(
-                method.value || method.id || method.label,
-              ),
+              value: safeText(method.value || method.label),
             },
           },
-          true,
+          !session || session.authControlPending !== true,
         );
       });
       const authImportFiles =
@@ -1929,25 +1941,28 @@
           "interaction.authenticationRequiredTitle",
           "Authentication required",
         ),
-        message:
-          safeText(
-            (authAsk && authAsk.prompt) ||
-              authHints.prompt ||
-              session.authPrompt,
-          ) ||
-          labelFrom(
-            source,
-            "interaction.authenticationRequiredMessage",
-            "Authentication required.",
-          ),
+        message: safeText(
+          (authAsk && authAsk.prompt) || authHints.prompt || session.authPrompt,
+        ),
         actions: methodActions,
         auth: {
-          authSessionId: safeText(session && session.authSessionId),
-          inputKind:
-            safeText(session && session.authInputKind) || "auth_code_or_url",
+          phase: safeText(session && session.authPhase),
+          challengeKind: safeText(session && session.authChallengeKind),
+          hint: authHint,
+          inputKind: safeText(session && session.authInputKind),
           acceptsChatInput: session && session.authAcceptsChatInput === true,
+          authUrl: safeText(session && session.authUrl),
+          userCode: safeText(session && session.authUserCode),
+          lastError:
+            safeText(session && session.authControlError) ||
+            safeText(session && session.authLastError),
+          actionPending: session && session.authControlPending === true,
+          actionKind: safeText(session && session.authControlAction),
           uiHints: authHints,
           importFiles: authImportFiles,
+          importRiskNoticeRequired:
+            authAskHints.risk_notice_required === true ||
+            authHints.risk_notice_required === true,
         },
       };
     }
@@ -3759,9 +3774,40 @@
             (status === "waiting-user" || status === "waiting-auth");
     const skillRunnerBusy =
       backendInteractive && (status === "running" || status === "prompting");
-    const skillRunnerWaiting =
-      backendInteractive &&
-      (status === "waiting-user" || status === "waiting-auth");
+    const skillRunnerAuthInputVisible =
+      status === "waiting-auth" &&
+      interaction &&
+      interaction.auth &&
+      interaction.auth.acceptsChatInput === true &&
+      !!safeText(interaction.auth.inputKind) &&
+      !["import_files", "custom_provider"].includes(
+        safeText(interaction.auth.inputKind),
+      ) &&
+      safeText(interaction.auth.phase) !== "method_selection";
+    const skillRunnerAuthActionPending =
+      status === "waiting-auth" &&
+      interaction &&
+      interaction.auth &&
+      interaction.auth.actionPending === true;
+    const skillRunnerAuthInputEnabled =
+      canReply && skillRunnerAuthInputVisible && !skillRunnerAuthActionPending;
+    const skillRunnerAuthInputKind = safeText(
+      interaction && interaction.auth && interaction.auth.inputKind,
+    );
+    const skillRunnerAuthHint = safeText(
+      interaction && interaction.auth && interaction.auth.hint,
+    );
+    const skillRunnerAuthPlaceholder = skillRunnerAuthInputEnabled
+      ? skillRunnerAuthHint ||
+        (skillRunnerAuthInputKind === "api_key"
+          ? labelFrom(envelope, "authPasteApiKey", "Paste API key")
+          : labelFrom(envelope, "authPasteCode", "Paste authorization code"))
+      : labelFrom(envelope, "authInProgress", "Awaiting auth state update...");
+    const skillRunnerAuthSubmitLabel = skillRunnerAuthInputEnabled
+      ? skillRunnerAuthInputKind === "api_key"
+        ? labelFrom(envelope, "authSubmitApiKey", "Submit API Key")
+        : labelFrom(envelope, "authSubmitCode", "Submit Code")
+      : labelFrom(envelope, "authAwaiting", "Awaiting");
     const skillRunnerSecondaryLabel = buildSkillRunSecondaryLabel(
       selectedTask,
       session,
@@ -3840,18 +3886,31 @@
       plan: conversation.plan,
       interaction,
       reply: {
-        enabled: pendingPermission ? false : canReply || skillRunnerBusy,
+        enabled: pendingPermission
+          ? false
+          : status === "waiting-auth"
+            ? skillRunnerAuthInputEnabled
+            : canReply || skillRunnerBusy,
         inputEnabled: pendingPermission
           ? false
-          : canReply && skillRunnerWaiting,
-        placeholder: labelFrom(
-          envelope,
-          "reply.placeholderSkillRunner",
-          "Reply to the pending SkillRunner interaction...",
-        ),
-        submitLabel: skillRunnerBusy
-          ? labelFrom(envelope, "actions.cancel", "Cancel")
-          : labelFrom(envelope, "actions.send", "Send"),
+          : status === "waiting-auth"
+            ? skillRunnerAuthInputEnabled
+            : canReply && status === "waiting-user",
+        placeholder:
+          status === "waiting-auth"
+            ? skillRunnerAuthPlaceholder
+            : labelFrom(
+                envelope,
+                "reply.placeholderSkillRunner",
+                "Reply to the pending SkillRunner interaction...",
+              ),
+        submitLabel:
+          status === "waiting-auth"
+            ? skillRunnerAuthSubmitLabel
+            : skillRunnerBusy
+              ? labelFrom(envelope, "actions.cancel", "Cancel")
+              : labelFrom(envelope, "actions.send", "Send"),
+        sending: skillRunnerAuthActionPending,
         action: skillRunnerBusy ? "cancel-run" : "reply-run",
         tone: skillRunnerBusy ? "danger" : "primary",
         clearOnSend: !skillRunnerBusy,

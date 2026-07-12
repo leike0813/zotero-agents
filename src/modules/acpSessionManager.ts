@@ -423,9 +423,13 @@ function hydrateSnapshot(backendId: string, conversationId?: string) {
     items: [],
     updatedAt: restored.snapshot.updatedAt || nowIso(),
   };
-  restoreAcpExecutionProgress(
+  snapshot.messageCounts = restoreAcpExecutionProgress(
     `${backendId}\n${String(snapshot.conversationId || "").trim()}`,
     snapshot.messageCounts,
+    {
+      missingCompleteness:
+        snapshot.transcriptItemCount === 0 ? "complete" : "unavailable",
+    },
   );
   if (snapshot.conversationId && !snapshot.conversationCreatedAt) {
     snapshot.conversationCreatedAt = nowIso();
@@ -3125,6 +3129,11 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
         inheritPlaceholderAutoApprove: true,
       });
       rekeySessionRuntime(sessionRuntime);
+      sessionRuntime.snapshot.messageCounts = restoreAcpExecutionProgress(
+        acpChatExecutionProgressScope(sessionRuntime),
+        sessionRuntime.snapshot.messageCounts,
+        { missingCompleteness: "complete" },
+      );
       resetSessionRuntimeTransientState(sessionRuntime);
     }
     await ensureRuntimeDirectory(
@@ -4250,7 +4259,9 @@ export async function sendAcpConversationPrompt(args: {
     createdAt: nowIso(),
     state: "complete",
   });
-  resetAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime));
+  resetAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime), {
+    promoteUnavailableToComplete: true,
+  });
   sessionRuntime.snapshot.messageCounts = snapshotAcpMessageCounts(
     acpChatExecutionProgressScope(sessionRuntime),
   );
@@ -4425,6 +4436,11 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
   );
   sessionRuntime.snapshot = snapshot;
   rekeySessionRuntime(sessionRuntime);
+  sessionRuntime.snapshot.messageCounts = restoreAcpExecutionProgress(
+    acpChatExecutionProgressScope(sessionRuntime),
+    sessionRuntime.snapshot.messageCounts,
+    { missingCompleteness: "complete" },
+  );
   if (preservedBackend) {
     applyRuntimeOptionsCache(sessionRuntime, preservedBackend);
   }

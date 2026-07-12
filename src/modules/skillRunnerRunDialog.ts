@@ -162,6 +162,9 @@ type RunSessionState = {
   pendingInteraction?: RunDialogPendingInteraction;
   pendingAuth?: RunDialogPendingAuth;
   pendingPermission?: AcpPendingPermissionRequest | null;
+  authControlPending?: boolean;
+  authControlAction?: "method" | "submission" | "import";
+  authControlError?: string;
   messages: SkillRunnerConversationEntry[];
   seenMessageKeys: Set<string>;
   lastSeq: number;
@@ -230,6 +233,9 @@ type RunDialogSnapshot = {
   authUserCode?: string;
   authLastError?: string;
   authUiHints?: Record<string, unknown>;
+  authControlPending?: boolean;
+  authControlAction?: "method" | "submission" | "import";
+  authControlError?: string;
   loading: boolean;
   historyLoading?: boolean;
   error?: string;
@@ -294,11 +300,13 @@ type RunDialogSnapshot = {
     authAwaiting: string;
     authInProgress: string;
     authImportSubmit: string;
+    authImportSubmitting: string;
     authImportHintDefault: string;
     authImportRiskNotice: string;
     authImportRequired: string;
     authImportOptional: string;
     authImportUnsupported: string;
+    authImportNoFile: string;
     thinkingTitle: string;
     thinkingDesc: string;
     roleThinking: string;
@@ -570,6 +578,7 @@ const runDialogProbeState = {
 };
 
 const MAX_RUN_DIALOG_STREAMS_PER_BACKEND = 2;
+const WAITING_AUTH_OBSERVER_INTERVAL_MS = 1500;
 
 function markRunDialogEntryFocused(entry: RunDialogEntry) {
   entry.streamLastFocusedAt = Date.now();
@@ -839,6 +848,92 @@ export function hasRunDialogWaitingAuthExited(args: {
     return true;
   }
   return false;
+}
+
+export function resolveRunDialogWaitingAuthObservation(args: {
+  currentStatus: unknown;
+  canonicalStatus: unknown;
+  authExitHint?: boolean;
+}):
+  | { action: "stop"; recheckCanonical: false }
+  | { action: "observe"; recheckCanonical: boolean }
+  | {
+      action: "handoff";
+      observedStatus: string;
+      recheckCanonical: false;
+    } {
+  const currentStatus = normalizeStatus(args.currentStatus, "running");
+  if (currentStatus !== "waiting_auth") {
+    return { action: "stop", recheckCanonical: false };
+  }
+  const canonicalStatus = normalizeStatus(args.canonicalStatus, currentStatus);
+  if (canonicalStatus !== "waiting_auth") {
+    return {
+      action: "handoff",
+      observedStatus: canonicalStatus,
+      recheckCanonical: false,
+    };
+  }
+  return {
+    action: "observe",
+    recheckCanonical: args.authExitHint === true,
+  };
+}
+
+export function resolveRunDialogAuthExternalUrl(args: {
+  candidate: unknown;
+  expected: unknown;
+}) {
+  const candidate = String(args.candidate || "").trim();
+  const expected = String(args.expected || "").trim();
+  if (!candidate || candidate !== expected) {
+    return "";
+  }
+  try {
+    const url = new URL(candidate);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.href
+      : "";
+  } catch {
+    return "";
+  }
+}
+
+type RunDialogAuthImportFile = {
+  name: string;
+  content_base64: string;
+};
+
+export function validateRunDialogAuthImportFiles(args: {
+  requiredNames: string[];
+  files: RunDialogAuthImportFile[];
+  clientError?: string;
+}):
+  | { ok: true; files: RunDialogAuthImportFile[] }
+  | {
+      ok: false;
+      reason: "client_error" | "empty" | "missing_required";
+      missingNames?: string[];
+      error?: string;
+    } {
+  const clientError = String(args.clientError || "").trim();
+  if (clientError) {
+    return { ok: false, reason: "client_error", error: clientError };
+  }
+  const files = args.files.filter(
+    (file) => !!String(file.name || "").trim() && !!file.content_base64,
+  );
+  const selectedNames = new Set(files.map((file) => file.name));
+  const missingNames = args.requiredNames.filter(
+    (name) => !selectedNames.has(name),
+  );
+  if (missingNames.length > 0) {
+    return { ok: false, reason: "missing_required", missingNames };
+  }
+  if (files.length === 0) {
+    return { ok: false, reason: "empty" };
+  }
+  return { ok: true, files };
 }
 
 function isTerminalStatus(status: string) {
@@ -1387,7 +1482,7 @@ export function normalizeRunDialogPendingState(
   };
 }
 
-function mergePendingAuthWithSession(args: {
+export function mergePendingAuthWithSession(args: {
   pendingAuth?: RunDialogPendingAuth;
   authSession?: SkillRunnerManagementAuthSession;
 }) {
@@ -1406,17 +1501,27 @@ function mergePendingAuthWithSession(args: {
   }
   const current = args.pendingAuth || ({} as RunDialogPendingAuth);
   return {
-    ...current,
-    ...sessionPending,
+    phase: sessionPending.phase ?? current.phase,
+    authSessionId: sessionPending.authSessionId ?? current.authSessionId,
+    providerId: sessionPending.providerId ?? current.providerId,
+    engine: sessionPending.engine ?? current.engine,
+    prompt: sessionPending.prompt ?? current.prompt,
+    challengeKind: sessionPending.challengeKind ?? current.challengeKind,
     availableMethods:
       sessionPending.availableMethods.length > 0
         ? sessionPending.availableMethods
         : current.availableMethods || [],
+    askUser: sessionPending.askUser ?? current.askUser,
+    acceptsChatInput:
+      sessionPending.acceptsChatInput ?? current.acceptsChatInput,
+    inputKind: sessionPending.inputKind ?? current.inputKind,
+    authUrl: sessionPending.authUrl ?? current.authUrl,
+    userCode: sessionPending.userCode ?? current.userCode,
+    lastError: sessionPending.lastError ?? current.lastError,
     uiHints:
       sessionPending.uiHints && Object.keys(sessionPending.uiHints).length > 0
         ? sessionPending.uiHints
         : current.uiHints || {},
-    askUser: sessionPending.askUser || current.askUser,
   } as RunDialogPendingAuth;
 }
 
@@ -1746,6 +1851,9 @@ function clearRunDialogEntryPendingState(entry: RunDialogEntry) {
   entry.session.pendingOwner = undefined;
   entry.session.pendingInteraction = undefined;
   entry.session.pendingAuth = undefined;
+  entry.session.authControlPending = false;
+  entry.session.authControlAction = undefined;
+  entry.session.authControlError = undefined;
 }
 
 function applyManagementStatusToRunDialogEntry(args: {
@@ -2480,6 +2588,9 @@ function buildRunDialogSnapshot(
     authUserCode: pendingAuth?.userCode,
     authLastError: pendingAuth?.lastError,
     authUiHints: pendingAuth?.uiHints,
+    authControlPending: entry.session.authControlPending,
+    authControlAction: entry.session.authControlAction,
+    authControlError: entry.session.authControlError,
     loading: entry.session.loading,
     historyLoading:
       entry.session.historyLoading === true || entry.historyHydrating === true,
@@ -2630,6 +2741,10 @@ function buildRunDialogSnapshot(
         "task-dashboard-run-auth-import-submit",
         "Import and Continue",
       ),
+      authImportSubmitting: localize(
+        "task-dashboard-run-auth-import-submitting",
+        "Importing...",
+      ),
       authImportHintDefault: localize(
         "task-dashboard-run-auth-import-hint-default",
         "Upload required auth files and continue.",
@@ -2649,6 +2764,10 @@ function buildRunDialogSnapshot(
       authImportUnsupported: localize(
         "task-dashboard-run-auth-import-unsupported",
         "unsupported import target",
+      ),
+      authImportNoFile: localize(
+        "task-dashboard-run-auth-import-no-file",
+        "Please select required files before submitting.",
       ),
       thinkingTitle: localize(
         "task-dashboard-run-thinking-title",
@@ -3295,7 +3414,8 @@ async function startRunObserver(entry: RunDialogEntry) {
   let refreshChain: Promise<void> = Promise.resolve();
   let chatStreamAbortController: AbortController | null = null;
   let chatRetryDelayMs = 800;
-  let waitingAuthObserverTimer: ReturnType<typeof setInterval> | undefined;
+  let waitingAuthObserverTimer: ReturnType<typeof setTimeout> | undefined;
+  let waitingAuthHandoffStarted = false;
   const supportsAbortController = typeof AbortController === "function";
   const client = buildSkillRunnerManagementClient({
     backend: entry.backend,
@@ -3350,6 +3470,7 @@ async function startRunObserver(entry: RunDialogEntry) {
 
   const syncRunMeta = async () => {
     const generation = observerGeneration;
+    let observedStatus = normalizeStatus(entry.session.status, "running");
     try {
       const run = await client.getRun({
         requestId: entry.requestId,
@@ -3364,7 +3485,7 @@ async function startRunObserver(entry: RunDialogEntry) {
         response: run,
         fallbackStatus: normalizedStatus,
       });
-      const observedStatus = responseSemantic.status;
+      observedStatus = responseSemantic.status;
       const observedMessage =
         String(responseSemantic.message || "").trim() || undefined;
       const currentError =
@@ -3392,17 +3513,20 @@ async function startRunObserver(entry: RunDialogEntry) {
       }
     } catch (error) {
       if (settleObserverTerminalError(error, "run-dialog-meta")) {
-        return;
+        return normalizeStatus(entry.session.status, "failed");
       }
       // Keep existing banner metadata when metadata refresh fails.
     }
+    return observedStatus;
   };
 
   const clearPendingState = () => {
     clearRunDialogEntryPendingState(entry);
   };
 
-  const syncPendingState = async () => {
+  const syncPendingState = async (options?: {
+    preserveWaitingAuthStatus?: boolean;
+  }) => {
     const generation = observerGeneration;
     const normalizedStatus = normalizeStatus(entry.session.status, "running");
     if (!isWaiting(normalizedStatus)) {
@@ -3425,7 +3549,13 @@ async function startRunObserver(entry: RunDialogEntry) {
         response: pending,
         fallbackStatus: normalizedStatus,
       });
-      if (responseSemantic.status !== normalizedStatus) {
+      if (
+        responseSemantic.status !== normalizedStatus &&
+        !(
+          normalizedStatus === "waiting_auth" &&
+          options?.preserveWaitingAuthStatus === true
+        )
+      ) {
         applyManagementStatusToRunDialogEntry({
           entry,
           status: responseSemantic.status,
@@ -3469,6 +3599,29 @@ async function startRunObserver(entry: RunDialogEntry) {
       });
       const incomingInteraction = normalizedPending.pendingInteraction;
       const incomingAuth = normalizedPending.pendingAuth;
+      const currentAuthControlKey = [
+        entry.session.pendingAuth?.authSessionId,
+        entry.session.pendingAuth?.phase,
+        entry.session.pendingAuth?.challengeKind,
+      ]
+        .map((value) => String(value || "").trim())
+        .join("\n");
+      const incomingAuthControlKey = [
+        incomingAuth?.authSessionId,
+        incomingAuth?.phase,
+        incomingAuth?.challengeKind,
+      ]
+        .map((value) => String(value || "").trim())
+        .join("\n");
+      if (
+        currentAuthControlKey &&
+        incomingAuthControlKey &&
+        currentAuthControlKey !== incomingAuthControlKey
+      ) {
+        entry.session.authControlPending = false;
+        entry.session.authControlAction = undefined;
+        entry.session.authControlError = undefined;
+      }
       const hasMeaningfulInteraction =
         !!incomingInteraction &&
         (Number(incomingInteraction.interactionId || 0) > 0 ||
@@ -3530,7 +3683,7 @@ async function startRunObserver(entry: RunDialogEntry) {
 
   const stopWaitingAuthObserver = () => {
     if (waitingAuthObserverTimer) {
-      clearInterval(waitingAuthObserverTimer);
+      clearTimeout(waitingAuthObserverTimer);
       waitingAuthObserverTimer = undefined;
       runDialogProbeState.waitingAuthTimerCount = Math.max(
         0,
@@ -3545,8 +3698,110 @@ async function startRunObserver(entry: RunDialogEntry) {
     return refreshChain;
   };
 
-  const syncWaitingAuthObserver = () => {
+  const handoffWaitingAuthExit = (observedStatus: string) => {
     stopWaitingAuthObserver();
+    if (stopped || waitingAuthHandoffStarted) {
+      return;
+    }
+    waitingAuthHandoffStarted = true;
+    void startRunDialogEntryForegroundContinuation(
+      entry,
+      "run-dialog-waiting-auth-auto-resume",
+      observedStatus,
+    );
+  };
+
+  const executeWaitingAuthObserverTick = async () => {
+    const waitingStatus = normalizeStatus(entry.session.status, "running");
+    if (stopped || waitingStatus !== "waiting_auth") {
+      stopWaitingAuthObserver();
+      return;
+    }
+    let canonicalStatus = await syncRunMeta();
+    let decision = resolveRunDialogWaitingAuthObservation({
+      currentStatus: waitingStatus,
+      canonicalStatus,
+    });
+    if (decision.action === "handoff") {
+      await syncHistory();
+      handoffWaitingAuthExit(decision.observedStatus);
+      return;
+    }
+    if (decision.action === "stop" || stopped) {
+      stopWaitingAuthObserver();
+      return;
+    }
+    const pendingResult = await syncPendingState({
+      preserveWaitingAuthStatus: true,
+    });
+    await syncHistory();
+    decision = resolveRunDialogWaitingAuthObservation({
+      currentStatus: waitingStatus,
+      canonicalStatus,
+      authExitHint: pendingResult.waitingAuthExited,
+    });
+    if (decision.action === "observe" && decision.recheckCanonical) {
+      canonicalStatus = await syncRunMeta();
+      decision = resolveRunDialogWaitingAuthObservation({
+        currentStatus: waitingStatus,
+        canonicalStatus,
+      });
+    }
+    if (decision.action === "handoff") {
+      handoffWaitingAuthExit(decision.observedStatus);
+      return;
+    }
+    if (decision.action === "stop" || stopped) {
+      stopWaitingAuthObserver();
+      return;
+    }
+    pushSnapshotForRunDialogEntry(entry);
+  };
+
+  const syncWaitingAuthObserver = () => {
+    if (
+      stopped ||
+      normalizeStatus(entry.session.status, "running") !== "waiting_auth"
+    ) {
+      stopWaitingAuthObserver();
+      return;
+    }
+    if (waitingAuthObserverTimer) {
+      return;
+    }
+    waitingAuthHandoffStarted = false;
+    waitingAuthObserverTimer = setTimeout(() => {
+      waitingAuthObserverTimer = undefined;
+      runDialogProbeState.waitingAuthTimerCount = Math.max(
+        0,
+        runDialogProbeState.waitingAuthTimerCount - 1,
+      );
+      void queueObserverRefresh(async () => {
+        try {
+          await executeWaitingAuthObserverTick();
+        } catch (error) {
+          if (
+            settleObserverTerminalError(
+              error,
+              "run-dialog-waiting-auth-observer",
+            )
+          ) {
+            return;
+          }
+          entry.session.error = compactError(error);
+          pushSnapshotForRunDialogEntry(entry);
+        } finally {
+          if (!stopped) {
+            syncWaitingAuthObserver();
+          }
+        }
+      });
+    }, WAITING_AUTH_OBSERVER_INTERVAL_MS);
+    runDialogProbeState.waitingAuthTimerCount += 1;
+    const timerLike = waitingAuthObserverTimer as unknown as {
+      unref?: () => void;
+    };
+    timerLike.unref?.();
   };
 
   const refreshRunState = async () => {
@@ -3555,9 +3810,13 @@ async function startRunObserver(entry: RunDialogEntry) {
     }
     try {
       syncSessionStateFromRunStore(entry);
-      await syncRunMeta();
-      await syncPendingState();
-      await syncHistory();
+      if (normalizeStatus(entry.session.status, "running") === "waiting_auth") {
+        await executeWaitingAuthObserverTick();
+      } else {
+        await syncRunMeta();
+        await syncPendingState();
+        await syncHistory();
+      }
       if (!isWaiting(normalizeStatus(entry.session.status, "running"))) {
         entry.session.error = undefined;
       }
@@ -3587,9 +3846,13 @@ async function startRunObserver(entry: RunDialogEntry) {
       if (stopped) {
         return;
       }
-      await syncRunMeta();
-      await syncPendingState();
-      await syncHistory();
+      if (normalizeStatus(entry.session.status, "running") === "waiting_auth") {
+        await executeWaitingAuthObserverTick();
+      } else {
+        await syncRunMeta();
+        await syncPendingState();
+        await syncHistory();
+      }
       pushSnapshotForRunDialogEntry(entry);
     });
     return refreshChain;
@@ -3616,7 +3879,11 @@ async function startRunObserver(entry: RunDialogEntry) {
         if (next !== "running") {
           abortCurrentChatStream();
         }
-        if (isWaiting(next) && !isWaiting(previous)) {
+        if (previous === "waiting_auth" && next !== "waiting_auth") {
+          clearPendingState();
+          entry.session.error = undefined;
+          handoffWaitingAuthExit(next);
+        } else if (isWaiting(next) && !isWaiting(previous)) {
           await syncPendingState();
         } else if (!isWaiting(next) && isWaiting(previous)) {
           clearPendingState();
@@ -3651,11 +3918,9 @@ async function startRunObserver(entry: RunDialogEntry) {
         eventType.startsWith("auth.") &&
         normalizeStatus(entry.session.status, "running") === "waiting_auth"
       ) {
-        stopWaitingAuthObserver();
         void queueObserverRefresh(async () => {
-          await syncPendingState();
-          await syncHistory();
-          pushSnapshotForRunDialogEntry(entry);
+          await executeWaitingAuthObserverTick();
+          syncWaitingAuthObserver();
         });
       } else {
         void queueObserverRefresh(async () => {
@@ -3845,6 +4110,20 @@ async function handleRunDialogActionForEntry(
     pushSnapshot("snapshot");
     return;
   }
+  if (action === "open-auth-url") {
+    const url = resolveRunDialogAuthExternalUrl({
+      candidate: payload.url,
+      expected: entry.session.pendingAuth?.authUrl,
+    });
+    if (!url) {
+      return;
+    }
+    const runtime = globalThis as typeof globalThis & {
+      Zotero?: { launchURL?: (url: string) => void };
+    };
+    runtime.Zotero?.launchURL?.(url);
+    return;
+  }
   if (action === "cancel-run") {
     if (!canCurrentRunUseBackend(entry)) {
       pushSnapshot("snapshot");
@@ -3925,23 +4204,34 @@ async function handleRunDialogActionForEntry(
       .trim()
       .toLowerCase();
     if (mode === "auth") {
-      const authSessionId = String(
-        payload.authSessionId || entry.session.pendingAuth?.authSessionId || "",
-      ).trim();
-      if (!authSessionId) {
-        return;
-      }
-      const replyKind = String(payload.replyKind || "").trim() || "text";
-      const replyText = String(payload.replyText || "").trim();
       const selection = isObject(payload.selection)
         ? payload.selection
         : undefined;
       const submission = isObject(payload.submission)
         ? payload.submission
         : undefined;
+      if (selection && submission) {
+        return;
+      }
+      const authSessionId = String(
+        payload.authSessionId || entry.session.pendingAuth?.authSessionId || "",
+      ).trim();
+      const replyKind = String(payload.replyKind || "").trim() || "text";
+      const replyText = String(payload.replyText || "").trim();
+      const hasSubmission = !!submission || !!replyText;
+      if (hasSubmission && !authSessionId) {
+        return;
+      }
+      if (!selection && !hasSubmission) {
+        return;
+      }
       let submitted = false;
       let shouldContinueAfterReply = false;
       let continuationStatus: unknown = "running";
+      entry.session.authControlPending = true;
+      entry.session.authControlAction = selection ? "method" : "submission";
+      entry.session.authControlError = undefined;
+      pushSnapshotForRunDialogEntry(entry);
       try {
         const client = buildSkillRunnerManagementClient({
           backend: entry.backend,
@@ -3952,7 +4242,7 @@ async function handleRunDialogActionForEntry(
           requestId: entry.requestId,
           payload: {
             mode: "auth",
-            auth_session_id: authSessionId,
+            ...(authSessionId ? { auth_session_id: authSessionId } : {}),
             ...(selection ? { selection } : {}),
             ...(submission
               ? { submission }
@@ -3972,6 +4262,11 @@ async function handleRunDialogActionForEntry(
           fallbackStatus: normalizeStatus(entry.session.status, "running"),
         });
         submitted = semantic.accepted !== false;
+        if (submitted) {
+          entry.session.authControlError = undefined;
+        } else if (semantic.message) {
+          entry.session.authControlError = semantic.message;
+        }
         if (
           semantic.accepted === false ||
           semantic.shouldClearPending ||
@@ -3994,6 +4289,7 @@ async function handleRunDialogActionForEntry(
           }
         }
       } catch (error) {
+        entry.session.authControlError = compactError(error);
         if (
           settleRunDialogEntryAsFailed({
             entry,
@@ -4015,13 +4311,18 @@ async function handleRunDialogActionForEntry(
             },
           ),
         );
+      } finally {
+        entry.session.authControlPending = false;
+        entry.session.authControlAction = undefined;
       }
-      if ((submitted || shouldContinueAfterReply) && entry.refreshDisplay) {
+      if (shouldContinueAfterReply && entry.refreshDisplay) {
         void startRunDialogEntryForegroundContinuation(
           entry,
           "run-dialog-auth-reply",
-          shouldContinueAfterReply ? continuationStatus : "running",
+          continuationStatus,
         );
+        await entry.refreshDisplay();
+      } else if (submitted && entry.refreshDisplay) {
         await entry.refreshDisplay();
       } else {
         pushSnapshot("snapshot");
@@ -4191,7 +4492,7 @@ async function handleRunDialogActionForEntry(
       return;
     }
     const filesRaw = Array.isArray(payload.files) ? payload.files : [];
-    const files = filesRaw
+    const normalizedFiles = filesRaw
       .map((entryItem) =>
         isObject(entryItem)
           ? {
@@ -4204,10 +4505,41 @@ async function handleRunDialogActionForEntry(
         (entryItem): entryItem is { name: string; content_base64: string } =>
           !!entryItem && !!entryItem.name && !!entryItem.content_base64,
       );
-    if (files.length === 0) {
+    const authAskUser = entry.session.pendingAuth?.askUser;
+    const authImportSpecs = Array.isArray(authAskUser?.files)
+      ? authAskUser.files
+      : [];
+    const requiredNames = authImportSpecs
+      .filter((file) => isObject(file) && file.required === true)
+      .map((file) =>
+        String((file as Record<string, unknown>).name || "").trim(),
+      )
+      .filter(Boolean);
+    const validation = validateRunDialogAuthImportFiles({
+      requiredNames,
+      files: normalizedFiles,
+      clientError: String(payload.error || "").trim() || undefined,
+    });
+    if (!validation.ok) {
+      const missingSuffix = validation.missingNames?.length
+        ? ` (${validation.missingNames.join(", ")})`
+        : "";
+      entry.session.authControlError =
+        validation.reason === "client_error"
+          ? validation.error
+          : localize(
+              "task-dashboard-run-auth-import-no-file",
+              "Please select required files before submitting.",
+            ) + missingSuffix;
+      pushSnapshotForRunDialogEntry(entry);
       return;
     }
+    const files = validation.files;
     let imported = false;
+    entry.session.authControlPending = true;
+    entry.session.authControlAction = "import";
+    entry.session.authControlError = undefined;
+    pushSnapshotForRunDialogEntry(entry);
     try {
       const client = buildSkillRunnerManagementClient({
         backend: entry.backend,
@@ -4222,7 +4554,9 @@ async function handleRunDialogActionForEntry(
         files,
       });
       imported = true;
+      entry.session.authControlError = undefined;
     } catch (error) {
+      entry.session.authControlError = compactError(error);
       if (
         settleRunDialogEntryAsFailed({
           entry,
@@ -4244,6 +4578,9 @@ async function handleRunDialogActionForEntry(
           },
         ),
       );
+    } finally {
+      entry.session.authControlPending = false;
+      entry.session.authControlAction = undefined;
     }
     if (imported && entry.refreshDisplay) {
       void startRunDialogEntryForegroundContinuation(

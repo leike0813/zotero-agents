@@ -1155,6 +1155,65 @@
         target.appendChild(box);
       }
     }
+    if (kind === "auth" && interaction.auth) {
+      const auth = interaction.auth;
+      if (safeText(auth.hint) && safeText(auth.phase) === "method_selection") {
+        target.appendChild(
+          el("div", "assistant-panel-auth-hint", safeText(auth.hint)),
+        );
+      }
+      const authUrl = safeText(auth.authUrl);
+      const authUrlLinkable = /^https?:\/\//i.test(authUrl);
+      if (authUrlLinkable) {
+        const row = el("div", "assistant-panel-auth-diagnostic");
+        row.appendChild(
+          el(
+            "span",
+            "assistant-panel-auth-diagnostic-label",
+            labelOf(panel, "authUrlPrefix", "auth_url:"),
+          ),
+        );
+        const link = el("a", "assistant-panel-auth-link", authUrl);
+        link.href = authUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          emit(options, "open-auth-url", { url: authUrl });
+        });
+        row.appendChild(link);
+        target.appendChild(row);
+      }
+      const diagnostics = [
+        authUrl && !authUrlLinkable
+          ? [labelOf(panel, "authUrlPrefix", "auth_url:"), authUrl]
+          : null,
+        [
+          labelOf(panel, "userCodePrefix", "user_code:"),
+          safeText(auth.userCode),
+        ],
+        [
+          labelOf(panel, "lastErrorPrefix", "last_error:"),
+          safeText(auth.lastError),
+        ],
+      ].filter(function (entry) {
+        return !!entry && !!entry[1];
+      });
+      if (diagnostics.length > 0) {
+        const box = el("div", "assistant-panel-auth-diagnostics");
+        diagnostics.forEach(function (entry) {
+          const row = el("div", "assistant-panel-auth-diagnostic");
+          row.appendChild(
+            el("span", "assistant-panel-auth-diagnostic-label", entry[0]),
+          );
+          row.appendChild(
+            el("span", "assistant-panel-auth-diagnostic-value", entry[1]),
+          );
+          box.appendChild(row);
+        });
+        target.appendChild(box);
+      }
+    }
     const actionList = Array.isArray(interaction.actions)
       ? interaction.actions
       : [];
@@ -1176,22 +1235,52 @@
       const importFiles = interaction.auth.importFiles;
       if (importFiles.length > 0) {
         const importBox = el("div", "assistant-panel-auth-import");
-        importFiles.forEach(function (fileSpec, index) {
-          const spec = fileSpec && typeof fileSpec === "object" ? fileSpec : {};
-          const row = el("label", "assistant-panel-auth-import-file");
-          row.appendChild(
+        importBox.appendChild(
+          el(
+            "div",
+            "assistant-panel-auth-import-hint",
+            safeText(interaction.auth.hint) ||
+              labelOf(
+                panel,
+                "authImportHintDefault",
+                "Upload required auth files and continue.",
+              ),
+          ),
+        );
+        if (interaction.auth.importRiskNoticeRequired === true) {
+          importBox.appendChild(
             el(
-              "span",
-              "",
-              safeText(
-                spec.name ||
-                  spec.label ||
-                  spec.filename ||
-                  "Auth file " + String(index + 1),
+              "div",
+              "assistant-panel-auth-import-risk",
+              labelOf(
+                panel,
+                "authImportRiskNotice",
+                "Review files before importing.",
               ),
             ),
           );
-          const input = el("input", "");
+        }
+        importFiles.forEach(function (fileSpec, index) {
+          const spec = fileSpec && typeof fileSpec === "object" ? fileSpec : {};
+          const row = el("label", "assistant-panel-auth-import-file");
+          const name = safeText(
+            spec.name ||
+              spec.label ||
+              spec.filename ||
+              "Auth file " + String(index + 1),
+          );
+          const requiredLabel =
+            spec.required === true
+              ? labelOf(panel, "authImportRequired", "Required")
+              : labelOf(panel, "authImportOptional", "Optional");
+          row.appendChild(
+            el(
+              "span",
+              "assistant-panel-auth-import-file-label",
+              name + " (" + requiredLabel + ")",
+            ),
+          );
+          const input = el("input", "assistant-panel-auth-import-input");
           input.type = "file";
           input.setAttribute("data-assistant-auth-import-file", "true");
           input.setAttribute(
@@ -1199,15 +1288,32 @@
             safeText(spec.name || spec.filename),
           );
           input.required = spec.required === true;
+          if (safeText(spec.accept)) input.accept = safeText(spec.accept);
           row.appendChild(input);
+          if (safeText(spec.hint)) {
+            row.appendChild(
+              el(
+                "small",
+                "assistant-panel-auth-import-file-hint",
+                safeText(spec.hint),
+              ),
+            );
+          }
           importBox.appendChild(row);
         });
+        const importPending =
+          interaction.auth.actionPending === true &&
+          safeText(interaction.auth.actionKind) === "import";
         const submit = el(
           "button",
           "asst-button-compact assistant-panel-action",
-          "Import and Continue",
+          importPending
+            ? labelOf(panel, "authImportSubmitting", "Importing...")
+            : labelOf(panel, "authImportSubmit", "Import and Continue"),
         );
         submit.type = "button";
+        submit.disabled = importPending;
+        if (importPending) submit.setAttribute("aria-busy", "true");
         submit.addEventListener("click", function () {
           emit(options, "auth-import-run", {});
         });
@@ -1379,8 +1485,6 @@
       replyState: safeText(
         panel && panel.lifecycle && panel.lifecycle.replyState,
       ),
-      enabled: reply.enabled === true,
-      inputEnabled: reply.inputEnabled !== false,
       action: safeText(reply.action || "reply"),
       tone: safeText(reply.tone || "primary"),
       clearOnSend: reply.clearOnSend !== false,
@@ -2446,6 +2550,8 @@
     return {
       structure: replyStructuralSignature(panel),
       live: {
+        enabled: reply.enabled === true,
+        inputEnabled: reply.inputEnabled !== false,
         placeholder: safeText(reply.placeholder),
         hint: safeText(reply.hint),
         submitLabel: safeText(reply.submitLabel),

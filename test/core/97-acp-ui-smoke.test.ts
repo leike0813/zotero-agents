@@ -995,6 +995,302 @@ describe("acp ui smoke", function () {
     assert.notEqual(panel.reply.action, "cancel-run");
   });
 
+  it("keeps inputless SkillRunner auth composer visible but disabled", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-auth-inputless",
+        status: "waiting_auth",
+        authPhase: "challenge_active",
+        authSessionId: "secret-session",
+        authEngine: "engine-secret",
+        authProviderId: "provider-secret",
+        authAcceptsChatInput: false,
+        authInputKind: "",
+        authUrl: "https://auth.example/device",
+        authUserCode: "ABCDE",
+        authLastError: "pending approval",
+      },
+    });
+
+    assert.equal(panel.interaction.kind, "auth");
+    assert.deepInclude(panel.interaction.auth, {
+      authUrl: "https://auth.example/device",
+      userCode: "ABCDE",
+      lastError: "pending approval",
+      acceptsChatInput: false,
+    });
+    assert.notProperty(panel.reply, "visible");
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+    assert.equal(panel.reply.placeholder, "Awaiting auth state update...");
+    assert.equal(panel.reply.submitLabel, "Awaiting");
+  });
+
+  it("normalizes SkillRunner auth methods into canonical selection actions", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-auth-method",
+        status: "waiting_auth",
+        authPhase: "method_selection",
+        authAvailableMethods: ["oauth", "api_key"],
+        authAskUser: {
+          hint: "Choose one method",
+          options: [{ label: "Browser", value: "oauth" }],
+        },
+      },
+    });
+
+    assert.lengthOf(panel.interaction.actions, 1);
+    assert.deepEqual(panel.interaction.actions[0].payload, {
+      mode: "auth",
+      selection: { kind: "auth_method", value: "oauth" },
+    });
+    assert.notProperty(panel.reply, "visible");
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+    assert.equal(panel.interaction.auth.hint, "Choose one method");
+    const pendingPanel = model.projectSkillRunnerPanelSnapshot({
+      session: {
+        requestId: "skillrunner-auth-method",
+        status: "waiting_auth",
+        authPhase: "method_selection",
+        authControlPending: true,
+        authControlAction: "method",
+        authAskUser: {
+          options: [{ label: "Browser", value: "oauth" }],
+        },
+      },
+    });
+    assert.isFalse(pendingPanel.interaction.actions[0].enabled);
+  });
+
+  it("uses challenge-specific SkillRunner auth reply labels", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      labels: {
+        authPasteApiKey: "Paste API key",
+        authSubmitApiKey: "Submit API Key",
+      },
+      session: {
+        requestId: "skillrunner-auth-api-key",
+        status: "waiting_auth",
+        authPhase: "challenge_active",
+        authAcceptsChatInput: true,
+        authInputKind: "api_key",
+        authUiHints: { hint: "Use a scoped key" },
+      },
+    });
+
+    assert.isTrue(panel.reply.enabled);
+    assert.isTrue(panel.reply.inputEnabled);
+    assert.equal(panel.reply.placeholder, "Use a scoped key");
+    assert.equal(panel.reply.submitLabel, "Submit API Key");
+  });
+
+  it("renders auth diagnostics without rebuilding unrelated managed regions", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const actions: Array<{ action: string; data: Record<string, unknown> }> =
+      [];
+    const regions = {
+      banner: fakeDocument.createElement("div"),
+      hint: fakeDocument.createElement("div"),
+      reply: fakeDocument.createElement("div"),
+      details: fakeDocument.createElement("div"),
+    };
+    const snapshot = {
+      session: {
+        requestId: "skillrunner-auth-regions",
+        status: "waiting_auth",
+        title: "Auth run",
+        authPhase: "challenge_active",
+        authSessionId: "secret-session",
+        authEngine: "engine-secret",
+        authProviderId: "provider-secret",
+        authAcceptsChatInput: false,
+        authInputKind: "",
+        authUrl: "https://auth.example/device",
+        authUserCode: "ABCDE",
+        authLastError: "pending approval",
+      },
+    };
+    const firstPanel = model.projectSkillRunnerPanelSnapshot(snapshot);
+    assert.equal(firstPanel.interaction.message, "");
+    assert.equal(
+      model.projectSkillRunnerPanelSnapshot({
+        session: {
+          ...snapshot.session,
+          authPrompt: "Complete sign-in in your browser",
+        },
+      }).interaction.message,
+      "Complete sign-in in your browser",
+    );
+    const renderOptions = {
+      managed: true,
+      managedRegions: {
+        banner: true,
+        hint: true,
+        reply: true,
+        details: true,
+      },
+      regions,
+      onAction: (action: string, data: Record<string, unknown>) => {
+        actions.push({ action, data });
+      },
+    };
+
+    renderer.renderAssistantPanelSnapshot(firstPanel, renderOptions);
+    assert.lengthOf(
+      regions.hint.querySelectorAll(".assistant-panel-permission-summary-text"),
+      0,
+    );
+    assert.include(
+      collectFakeText(regions.hint),
+      "https://auth.example/device",
+    );
+    assert.include(collectFakeText(regions.hint), "ABCDE");
+    assert.include(collectFakeText(regions.hint), "pending approval");
+    assert.notInclude(collectFakeText(regions.hint), "secret-session");
+    assert.notInclude(collectFakeText(regions.hint), "engine-secret");
+    assert.notInclude(collectFakeText(regions.hint), "provider-secret");
+    const authLink = regions.hint.querySelector(
+      ".assistant-panel-auth-link",
+    ) as any;
+    assert.ok(authLink);
+    authLink.click();
+    assert.deepEqual(actions, [
+      {
+        action: "open-auth-url",
+        data: { url: "https://auth.example/device" },
+      },
+    ]);
+    assert.isFalse(regions.reply.classList.contains("hidden"));
+    assert.isTrue(
+      regions.reply.querySelector(".assistant-panel-reply-input").disabled,
+    );
+    assert.isTrue(
+      regions.reply.querySelector(".assistant-panel-reply-submit").disabled,
+    );
+    const firstBanner = regions.banner.querySelector(
+      ".assistant-panel-managed-banner",
+    );
+    const firstReply = regions.reply.querySelector(
+      ".assistant-panel-managed-reply",
+    );
+    const firstDetails = regions.details.querySelector(
+      ".assistant-panel-managed-details",
+    );
+
+    renderer.renderAssistantPanelSnapshot(
+      model.projectSkillRunnerPanelSnapshot({
+        session: {
+          ...snapshot.session,
+          authLastError: "still pending",
+        },
+      }),
+      renderOptions,
+    );
+
+    assert.strictEqual(
+      regions.banner.querySelector(".assistant-panel-managed-banner"),
+      firstBanner,
+    );
+    assert.strictEqual(
+      regions.reply.querySelector(".assistant-panel-managed-reply"),
+      firstReply,
+    );
+    assert.strictEqual(
+      regions.details.querySelector(".assistant-panel-managed-details"),
+      firstDetails,
+    );
+    assert.include(collectFakeText(regions.hint), "still pending");
+  });
+
+  it("renders complete auth import controls while keeping reply disabled", async function () {
+    const model = await loadAssistantPanelModelForSmoke();
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const hintRegion = fakeDocument.createElement("div");
+    const replyRegion = fakeDocument.createElement("div");
+    const panel = model.projectSkillRunnerPanelSnapshot({
+      labels: {
+        authImportSubmit: "Import and Continue",
+        authImportHintDefault: "Upload required auth files and continue.",
+        authImportRiskNotice: "Review files before importing.",
+        authImportRequired: "Required",
+        authImportOptional: "Optional",
+      },
+      session: {
+        requestId: "skillrunner-auth-import",
+        status: "waiting_auth",
+        authPhase: "challenge_active",
+        authChallengeKind: "import_files",
+        authAcceptsChatInput: false,
+        authInputKind: "import_files",
+        authAskUser: {
+          kind: "upload_files",
+          hint: "Choose credentials",
+          files: [
+            {
+              name: "oauth.json",
+              required: true,
+              accept: ".json",
+              hint: "OAuth export",
+            },
+            { name: "optional.txt", required: false },
+          ],
+          ui_hints: { risk_notice_required: true },
+        },
+      },
+    });
+
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      managedRegions: { hint: true, reply: true },
+      regions: { hint: hintRegion, reply: replyRegion },
+    });
+
+    assert.include(collectFakeText(hintRegion), "Choose credentials");
+    assert.include(
+      collectFakeText(hintRegion),
+      "Review files before importing.",
+    );
+    assert.include(collectFakeText(hintRegion), "oauth.json");
+    assert.include(collectFakeText(hintRegion), "Required");
+    assert.include(collectFakeText(hintRegion), "Optional");
+    assert.include(collectFakeText(hintRegion), "OAuth export");
+    const inputs = hintRegion.querySelectorAll(
+      ".assistant-panel-auth-import-input",
+    ) as any[];
+    assert.lengthOf(inputs, 2);
+    assert.isTrue(inputs[0].required);
+    assert.equal(inputs[0].accept, ".json");
+    inputs[0].files = [{ name: "oauth.json" }];
+    renderer.renderAssistantPanelSnapshot(panel, {
+      managed: true,
+      managedRegions: { hint: true, reply: true },
+      regions: { hint: hintRegion, reply: replyRegion },
+    });
+    assert.strictEqual(
+      hintRegion.querySelector(".assistant-panel-auth-import-input"),
+      inputs[0],
+    );
+    assert.equal(
+      hintRegion.querySelector(".assistant-panel-auth-import-input").files[0]
+        .name,
+      "oauth.json",
+    );
+    assert.isTrue(
+      replyRegion.querySelector(".assistant-panel-reply-input").disabled,
+    );
+    assert.isTrue(
+      replyRegion.querySelector(".assistant-panel-reply-submit").disabled,
+    );
+  });
+
   it("projects SkillRunner pending permissions as shared permission interactions", async function () {
     const model = await loadAssistantPanelModelForSmoke();
     const panel = model.projectSkillRunnerPanelSnapshot({
@@ -7725,6 +8021,8 @@ describe("acp ui smoke", function () {
         usage: { used: 100, size: 1000 },
         reply: {
           ...basePanel.reply,
+          enabled: false,
+          inputEnabled: false,
           value: "new model echo",
           hint: "Still waiting",
         },
@@ -7744,6 +8042,10 @@ describe("acp ui smoke", function () {
     assert.equal(nextInput.selectionStart, 2);
     assert.equal(nextInput.selectionEnd, 7);
     assert.strictEqual(fakeDocument.activeElement, input);
+    assert.isTrue(nextInput.disabled);
+    assert.isTrue(
+      replyRegion.querySelector(".assistant-panel-reply-submit").disabled,
+    );
   });
 
   it("preserves all managed non-transcript regions across transcript-only snapshots", async function () {

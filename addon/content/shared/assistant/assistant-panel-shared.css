@@ -1990,7 +1990,38 @@ summary,
 }
 
 .assistant-panel-auth-import {
+  display: grid;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.assistant-panel-auth-hint,
+.assistant-panel-auth-import-hint,
+.assistant-panel-auth-import-file-hint {
+  color: var(--asst-muted);
+  font-size: 12px;
+}
+
+.assistant-panel-auth-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.assistant-panel-auth-diagnostic-label {
+  color: var(--asst-muted);
+}
+
+.assistant-panel-auth-link,
+.assistant-panel-auth-diagnostic-value {
+  overflow-wrap: anywhere;
+}
+
+.assistant-panel-auth-import-risk {
+  border-left: 3px solid var(--asst-warning, #b7791f);
+  color: var(--asst-warning-text, #7c4a03);
+  padding-left: 8px;
 }
 
 .assistant-panel-auth-import-file {
@@ -1999,6 +2030,10 @@ summary,
   min-width: 160px;
   color: var(--asst-muted);
   font-size: 12px;
+}
+
+.assistant-panel-auth-import-file + .assistant-panel-auth-import-file {
+  margin-top: 4px;
 }
 
 .assistant-panel-auth-import-file input {

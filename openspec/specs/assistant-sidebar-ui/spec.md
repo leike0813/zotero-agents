@@ -786,13 +786,19 @@ Reader handling, and Assistant live rendering.
 
 ACP Chat, ACP Skills, and SkillRunner SHALL render one localized message-counter managed region between the banner and main transcript area in `live`, `boundary`, and `silent` display modes. The region SHALL show separate Assistant, Thought, and Tool values for the current user execution and selected-owner cumulative totals.
 
-The counter SHALL remain after terminal state and SHALL NOT be represented as a transcript item, pagination item, or transcript loading node. When a legacy owner has no complete cumulative metadata, the region SHALL show current values without a cumulative denominator.
+The counter SHALL remain after terminal state and SHALL NOT be represented as a transcript item, pagination item, or transcript loading node. When a legacy owner has no complete cumulative metadata, the region SHALL show current values without a cumulative denominator. ACP Chat SHALL render an `x/y` denominator for empty conversations and from the first user prompt that establishes a persisted observed cumulative epoch.
 
 #### Scenario: complete owner shows three current and cumulative values
 
 - **WHEN** a selected owner has complete message-count metadata
 - **THEN** the counter shows localized Assistant, Thought, and Tool categories
 - **AND** each category is displayed as current execution / owner cumulative.
+
+#### Scenario: ACP Chat starts with x/y values
+
+- **WHEN** an empty ACP Chat conversation is selected
+- **THEN** all three counter categories render as `0/0`
+- **AND** the next user prompt advances the same `x/y` presentation.
 
 #### Scenario: terminal count remains visible
 

@@ -714,7 +714,11 @@
     if (!requestId) return;
     const textValue = safeText(message);
     const status = normalizedStatus();
-    if (payload && payload.mode === "auth" && payload.submission) {
+    if (
+      payload &&
+      payload.mode === "auth" &&
+      (payload.submission || payload.selection)
+    ) {
       sendAction("reply-run", Object.assign({ requestId }, payload));
       return;
     }
@@ -865,7 +869,6 @@
       if (!requestId) return;
       readAuthImportFiles()
         .then(function (files) {
-          if (!files.length) return;
           sendAction("auth-import-run", {
             requestId,
             providerId: safeText(

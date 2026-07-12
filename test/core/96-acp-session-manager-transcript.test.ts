@@ -73,10 +73,76 @@ import {
   enqueueAcpChatTranscriptEvent,
   readAcpChatTranscriptPage,
 } from "../../src/modules/acpConversationTranscriptStore";
+import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("initializes empty ACP Chat counters and promotes legacy counters at the next prompt", async function () {
+    await startNewAcpConversation();
+    const emptyPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    assert.equal((emptyPanel.messageCounts as any)?.completeness, "complete");
+    assert.deepEqual((emptyPanel.messageCounts as any)?.current, {
+      assistant: 0,
+      thought: 0,
+      tool: 0,
+    });
+    assert.deepEqual((emptyPanel.messageCounts as any)?.cumulative, {
+      assistant: 0,
+      thought: 0,
+      tool: 0,
+    });
+
+    await sendAcpConversationPrompt({ message: "legacy count baseline" });
+    const conversationId = getAcpConversationSnapshot().conversationId;
+    const legacy = loadAcpConversationState(
+      ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    ).snapshot;
+    legacy.messageCounts = undefined;
+    saveAcpConversationState(legacy);
+
+    resetAcpSessionManagerForTests();
+    await setActiveAcpConversation({
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    });
+    assert.equal(getAcpConversationSnapshot().conversationId, conversationId);
+    assert.equal(
+      (getAcpConversationSnapshot().messageCounts as any)?.completeness,
+      "unavailable",
+    );
+    await sendAcpConversationPrompt({ message: "first observed epoch" });
+    const promoted = getAcpConversationSnapshot().messageCounts as any;
+    assert.equal(promoted?.completeness, "complete");
+    assert.deepEqual(promoted?.current, promoted?.cumulative);
+    const promotedPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    assert.equal(
+      (promotedPanel.messageCounts as any)?.completeness,
+      "complete",
+    );
+
+    const persisted = loadAcpConversationState(
+      ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    ).snapshot.messageCounts as any;
+    assert.equal(persisted?.completeness, "complete");
+    assert.deepEqual(persisted?.current, persisted?.cumulative);
+
+    resetAcpSessionManagerForTests();
+    await setActiveAcpConversation({
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    });
+    const restored = getAcpConversationSnapshot().messageCounts as any;
+    assert.equal(restored?.completeness, "complete");
+    assert.deepEqual(restored?.cumulative, persisted?.cumulative);
+  });
 
   it("persists only user and final assistant content for a silent prompt", async function () {
     setAssistantExecutionDisplayMode("silent");

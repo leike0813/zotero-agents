@@ -5,6 +5,7 @@ import {
   releaseAcpExecutionProgress,
   resetAcpExecutionProgress,
   resetAllAcpExecutionProgressForTests,
+  restoreAcpExecutionProgress,
   snapshotAcpExecutionProgress,
   takeAcpExecutionProgressTerminalCandidate,
   updateAcpExecutionProgress,
@@ -136,6 +137,28 @@ describe("ACP execution progress", function () {
     assert.deepEqual(reset.cumulative, {
       assistant: 1,
       thought: 1,
+      tool: 0,
+    });
+  });
+
+  it("promotes an unavailable owner only when the caller requests a new observed epoch", function () {
+    restoreAcpExecutionProgress("legacy-owner", undefined);
+    assert.equal(
+      snapshotAcpExecutionProgress("legacy-owner")?.completeness,
+      "unavailable",
+    );
+
+    const defaultReset = resetAcpExecutionProgress("legacy-owner");
+    assert.equal(defaultReset.completeness, "unavailable");
+
+    const promoted = resetAcpExecutionProgress("legacy-owner", {
+      promoteUnavailableToComplete: true,
+    });
+    assert.equal(promoted.completeness, "complete");
+    assert.deepEqual(promoted.current, { assistant: 0, thought: 0, tool: 0 });
+    assert.deepEqual(promoted.cumulative, {
+      assistant: 0,
+      thought: 0,
       tool: 0,
     });
   });

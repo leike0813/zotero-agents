@@ -146,9 +146,9 @@
 - [x] 增加静默执行模式（除了交互消息外，什么都不渲染，连transcript都不写盘，最大程度降低负载），我觉得可以和实时渲染开关做到一起
 - [x] /usr/local/bin/ 如果作为默认的CLI安装目录，会因为没有权限而安装失败
 - [x] 文献元数据修复 workflow 有可能会改掉标题，需要收紧一些；相对地，无法改变条目的类型是一个缺陷
-- [ ] 文献搜索入库还需要加强一些，agent容易偷懒（无标识符、无pdf），尤其是对于中文文献，因为直接搜索难以获取标识符，需要特定的策略
+- [x] 文献搜索入库还需要加强一些，agent容易偷懒（无标识符、无pdf），尤其是对于中文文献，因为直接搜索难以获取标识符，需要特定的策略
 - [ ] citation graph 的文献重要性算法有问题，现在的版本似乎是用入度和出度的比值？有些入度为1的节点居然都会成为重要文献，这明显不对
-- [ ] SkillRunner面板处理waiting_auth的行为和后端项目的e2e client没有对齐
+- [x] SkillRunner面板处理waiting_auth的行为和后端项目的e2e client没有对齐
 - [x] 新增export-research-bundle workflow
 - [x] 新增export/import-literature-bundle workflow
 - [x] 新增collection-collector workflow
