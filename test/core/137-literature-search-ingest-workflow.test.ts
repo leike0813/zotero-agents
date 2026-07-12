@@ -571,6 +571,11 @@ describe("Literature Search Ingest workflow contract", function () {
       assert.include(text, "missing_pdf_references");
       assert.include(text, "Connector");
       assert.include(text, "CDP");
+      assert.include(text, "identifier_not_found");
+      assert.include(text, "China DOI");
+      assert.include(text, "知网");
+      assert.include(text, "万方");
+      assert.include(text, "PDC");
     }
     assert.include(skill, "等待用户明确确认后再进入搜索");
     assert.include(skill, "等待用户确认");
@@ -580,6 +585,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "最终只输出合法 JSON object");
     assert.include(skill, "hasPdfAttachment");
     assert.include(skill, "manualSearchLinks");
+    assert.include(skill, "不得以仅有标题");
     assert.include(skill, '"ingested_references"');
     assert.include(skill, '"missing_pdf_references"');
     assert.include(skill, '"literature_search_ingest"');

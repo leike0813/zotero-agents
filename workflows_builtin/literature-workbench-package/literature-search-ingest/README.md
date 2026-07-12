@@ -23,7 +23,9 @@
 ## 产出什么？
 
 - 搜索结果作为 Zotero 条目直接入库
-- 自动尝试下载 PDF 附件（best-effort）
+- 每篇候选先核验 identifier、权威元数据来源与公开 PDF 线索；未找到 identifier 时会明确披露
+- 自动尝试下载合法公开 PDF 附件（best-effort）；无 PDF 时保留可用 landing page 线索
+- 中文期刊/会议、学位论文与图书分别补充 China DOI、知网/万方、授予单位/机构仓储及 PDC 等来源
 - 可指定目标 Collection 归类
 - 输出入库结果汇总（成功/失败条目信息）
 

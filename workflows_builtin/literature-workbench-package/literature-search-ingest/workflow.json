@@ -2,7 +2,7 @@
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
   "provider": "skillrunner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "display": {
     "core": true,
     "emoji": "🔎"

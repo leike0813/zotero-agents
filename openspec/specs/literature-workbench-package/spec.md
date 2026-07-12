@@ -213,7 +213,8 @@ The `literature-digest` workflow apply step SHALL consume optional `representati
 ### Requirement: Literature search ingest is ACP interactive and context aware
 
 `literature-search-ingest` SHALL support `auto`, `topic_expansion`,
-`paper_seed_expansion`, and `targeted_ingest` search modes.
+`paper_seed_expansion`, and `targeted_ingest` search modes, and SHALL resolve
+each candidate before interactive confirmation.
 
 #### Scenario: User selects auto mode
 
@@ -236,10 +237,21 @@ The `literature-digest` workflow apply step SHALL consume optional `representati
   artifacts through Host Bridge synthesis commands before falling back to web
   search from seed metadata.
 
+#### Scenario: Candidate has no resolved identifier
+
+- **WHEN** a candidate has completed applicable identifier searches without a
+  DOI, ISBN, arXiv, or PMID
+- **THEN** the skill SHALL record `identifier_not_found`, authoritative metadata
+  provenance, landing URL, and PDF attempt outcome before showing it
+- **AND** it SHALL NOT admit a bare title or unverified search snippet
+- **AND** it MAY ingest the candidate only after the user confirms the disclosed
+  record.
+
 ### Requirement: Literature search ingest performs legal public PDF best effort
 
-The skill SHALL explicitly guide agents to search legal public PDF sources and
-skip uncertain or restricted PDFs without blocking metadata ingest.
+The skill SHALL explicitly guide agents to resolve identifiers and authoritative
+metadata before searching legal public PDF sources, and SHALL skip uncertain or
+restricted PDFs without blocking eligible metadata ingest.
 
 #### Scenario: Public PDF is uncertain
 
@@ -381,4 +393,18 @@ The literature workbench package SHALL own collection selection apply validation
 - **WHEN** built-in content manifests are checked or rendered
 - **THEN** the collection collector workflow, apply hook, documentation, and locales SHALL be included
 - **AND** core workflow runtime modules SHALL NOT contain collection-collector identities or threshold rules.
+
+### Requirement: Literature search ingest routes Chinese literature to applicable sources
+
+The skill SHALL use additional Chinese metadata sources when the query or
+candidate indicates Chinese literature.
+
+#### Scenario: Chinese journal, thesis, or book candidate
+
+- **WHEN** a Chinese literature candidate is resolved
+- **THEN** the skill SHALL add China DOI, CNKI, Wanfang, official publishers,
+  institutions, or repositories as applicable
+- **AND** it SHALL add PDC and library catalogs for Chinese books or ISBNs
+- **AND** it SHALL use only public metadata, landing pages, and legally public
+  PDFs without login, proxy, or restricted full-text access.
 

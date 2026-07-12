@@ -38,15 +38,19 @@ description: Simple yet agentic workflow for literature ingest. Use this skill w
 2. 第一轮搜索，不入库
    - 使用 agent 自身搜索能力查找候选文献；不要调用浏览器自动化或 Connector。
    - `targeted_ingest` 模式跳过本阶段的额外扩展搜索；直接使用阶段 1 已确认的单篇候选作为落库对象。
-   - 偏好 DOI、arXiv、PMID、ISBN、publisher landing page、公开 PDF URL。
-   - PDF best-effort 需要尽可能尝试合法公开来源：DOI landing page、publisher PDF 链接、arXiv/eprint、PubMed Central、Europe PMC、OpenAlex/Crossref/开放获取线索、机构仓储、作者主页、实验室主页、项目页，以及 quoted title + `filetype:pdf` 或 identifier + `pdf` 等搜索。
+   - 每个候选都必须先完成标识符和权威元数据查证，才能进入候选表或最终入库列表。优先检索 DOI、arXiv、PMID、ISBN、publisher landing page，并用标题、作者、年份、载体相互核验。
+   - 中文文献触发条件为 query、候选标题、作者或载体显示中文文献特征。中文期刊/会议优先查询 China DOI、期刊或会议官方页、知网、万方；中文学位论文优先查询知网、万方、授予单位或机构仓储；中文图书或 ISBN 优先查询 PDC、出版社和图书馆目录。知网、万方与 PDC 只用于公开元数据、落地页和合法公开全文线索，不使用登录态、机构代理或受限全文。
+   - 每个候选必须记录 `identifier_status`：找到可靠 identifier 时标记 `resolved`；已完成适用来源检索仍未找到时标记 `identifier_not_found`，并记录 `metadata_source` 与已核对的标题、作者、年份、载体。不得以仅有标题或未核验的搜索摘要进入候选表或入库。
+   - 没有 identifier 的候选只有在存在权威元数据来源，且标题、作者、年份、载体等可用信息不冲突时才能展示；必须向用户披露 `identifier_not_found`。没有权威元数据来源的候选直接跳过。
+   - PDF best-effort 需要在完成标识符/元数据查证后尽可能尝试合法公开来源：DOI landing page、publisher PDF 链接、arXiv/eprint、PubMed Central、Europe PMC、OpenAlex/Crossref/开放获取线索、机构仓储、作者主页、实验室主页、项目页，以及 quoted title + `filetype:pdf` 或 identifier + `pdf` 等搜索。中文文献还应尝试来源机构、期刊或出版社公开页及可公开访问的机构仓储。
    - 禁止使用登录态、机构代理、验证码、Sci-Hub、LibGen 或其他盗版来源。`pdfUrl` 只有在标题、作者、DOI/arXiv/PMID 等元数据高度匹配时才写入；不确定时标记为 `skipped`。
    - 对找到的 `pdfUrl` 需要逐个验证可访问性，不可访问的 `pdfUrl` 不得作为可信 PDF 来源。
-   - 输出候选表格并等待用户确认。表格字段至少包括：序号、标题、年份、作者/venue、identifier、landing link、PDF URL 状态、推荐理由、是否疑似已存在。
-   - 需要登录、机构代理或无法确定 PDF URL 的正文附件，标记为 `skipped`，不得阻断候选入库。
+   - 输出候选表格并等待用户确认。表格字段至少包括：序号、标题、年份、作者/venue、identifier 与 `identifier_status`、`metadata_source`、landing link、PDF 尝试与 URL 状态、推荐理由、是否疑似已存在。
+   - 需要登录、机构代理或无法确定 PDF URL 的正文附件，标记为 `skipped`，不得阻断已通过元数据准入的候选入库。
 
 3. 最终落库列表确认
    - 用户可选择任意数量候选；不要设置硬上限。
+   - 只有已完成候选准入的条目可以写入入库 payload。`identifier_not_found` 且无公开 PDF 的条目仍可在已披露权威元数据来源、PDF 尝试结果和 landing link 后由用户确认入库。
    - 将确认候选规范化为单篇 `zotero-bridge mutation literature-ingest` 的 JSON 输入。每次 payload 顶层只能包含 `paper` 和可选 `collection`；`paper` 可包含 `title`、`authors`、`year`、`doi`、`arxiv`、`pmid`、`isbn`、`landingUrl`、`pdfUrl`、`attachLandingUrlOnMissingPdf`、`abstract`、`venue`。
    - 写入 payload 的 `pdfUrl` 必须是经过验证后的可达 URL。
    - 每篇 payload 都必须设置 `paper.attachLandingUrlOnMissingPdf: true`，让入库阶段在缺 PDF 时为条目创建 landing page 网页链接附件。
