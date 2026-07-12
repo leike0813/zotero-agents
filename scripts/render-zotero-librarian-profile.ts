@@ -11,6 +11,11 @@ import {
   ZOTERO_BRIDGE_CLI_RELEASE_PATH,
   type ZoteroBridgeCliRelease,
 } from "./zotero-bridge-cli-release";
+import {
+  inspectZoteroLibrarianProfileVersion,
+  ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
+  type ZoteroLibrarianProfileVersion,
+} from "./zotero-librarian-profile-version";
 
 type WorkflowCatalogEntry = {
   id: string;
@@ -25,6 +30,7 @@ type WorkflowCatalogEntry = {
 const ROOT = process.cwd();
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
 const PROFILE_SEMANTIC_ROOT = "profiles_src/hermes/zotero-librarian";
+const PROFILE_DISTRIBUTION_TARGET = join(PROFILE_ROOT, "distribution.yaml");
 const HOST_BRIDGE_REFERENCE = join(
   PROFILE_ROOT,
   "skills/zotero-librarian/references/host-bridge.md",
@@ -117,6 +123,13 @@ function replaceGeneratedSection(
     "\n",
     source.slice(endIndex),
   ].join("");
+}
+
+function replaceDistributionVersion(source: string, version: string) {
+  if (!/^version:\s*\S+\s*$/m.test(source)) {
+    throw new Error("zotero-librarian distribution.yaml is missing version");
+  }
+  return source.replace(/^version:\s*\S+\s*$/m, `version: ${version}`);
 }
 
 function writeOrCheck(
@@ -221,11 +234,11 @@ function renderHostBridgeReference(
     "",
     "## Snapshot Payload",
     "",
-    "`zotero-bridge library snapshot --input <JSON_OR_FILE>` maps to `library.sync_snapshot`.",
+    "`zotero-bridge library snapshot --query <JSON_OR_FILE>` maps to `library.sync_snapshot`.",
     "",
-    "`zotero-bridge library items list --input <JSON_OR_FILE>` maps to `library.list_items`.",
+    "`zotero-bridge library items list --query <JSON_OR_FILE>` maps to `library.list_items`.",
     "",
-    "`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --input <JSON_OR_FILE>` maps to `library.readiness_audit`.",
+    "`zotero-bridge library readiness audit|missing-pdf|missing-markdown|missing-analysis --query <JSON_OR_FILE>` maps to `library.readiness_audit`.",
     "",
     "Input fields: `libraryId`, `cursor`, `limit`, `collectionId`, `collectionKey`, `tag`, `itemType`, and `query`.",
     "",
@@ -318,6 +331,7 @@ function renderManifestSource(
   catalog: HostBridgeSurfaceCatalog,
   workflowEntries: WorkflowCatalogEntry[],
   release: ZoteroBridgeCliRelease,
+  profileVersion: ZoteroLibrarianProfileVersion,
 ) {
   const source = {
     schema: "zotero-librarian.profile.manifest-source.v1",
@@ -331,6 +345,7 @@ function renderManifestSource(
         "src/modules/hostBridgeCapabilityRegistry.ts",
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       zoteroBridgeCliRelease: ZOTERO_BRIDGE_CLI_RELEASE_PATH,
+      profileVersionSource: ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
       semanticSources: [
@@ -348,6 +363,11 @@ function renderManifestSource(
       catalogChecksum: sha256(JSON.stringify(catalog)),
       workflowCatalogChecksum: sha256(JSON.stringify(workflowEntries)),
       zoteroBridgeCliRelease: release,
+      profileVersion: profileVersion.version,
+      zoteroBridgeCliVersion: profileVersion.cliVersion,
+      profileVersionSourceChecksum: sha256(
+        read(ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH),
+      ),
       semanticSourceChecksum: sha256(
         [
           ...PROFILE_SEMANTIC_COPIES.map((path) =>
@@ -377,6 +397,17 @@ function render(check = false) {
   }
   const workflows = loadWorkflowCatalog();
   const release = readZoteroBridgeCliRelease(ROOT);
+  const profileVersion = inspectZoteroLibrarianProfileVersion(ROOT).resolved;
+
+  writeOrCheck(
+    PROFILE_DISTRIBUTION_TARGET,
+    replaceDistributionVersion(
+      read(PROFILE_DISTRIBUTION_TARGET),
+      profileVersion.version,
+    ),
+    check,
+    diffs,
+  );
 
   for (const path of PROFILE_SEMANTIC_COPIES) {
     writeOrCheck(
@@ -426,7 +457,7 @@ function render(check = false) {
   );
   writeOrCheck(
     MANIFEST_SOURCE_TARGET,
-    renderManifestSource(catalog, workflows, release),
+    renderManifestSource(catalog, workflows, release, profileVersion),
     check,
     diffs,
   );

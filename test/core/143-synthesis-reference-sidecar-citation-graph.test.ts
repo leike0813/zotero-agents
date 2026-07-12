@@ -656,6 +656,54 @@ describe("Synthesis sidecar cache hard cut", function () {
     );
   });
 
+  it("projects persisted citation metrics into the Workbench graph", async function () {
+    const root = await makeRuntimeRoot();
+    const { service } = makeService({
+      root,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Citing Paper",
+          year: "2020",
+          notes: [],
+        },
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Cited Paper",
+          year: "2021",
+          notes: [],
+        },
+      ],
+    });
+
+    await service.applyReferenceMatchingSidecar({
+      libraryId: 1,
+      itemKey: "AAA",
+      title: "Citing Paper",
+      year: "2020",
+      references: [{ title: "Cited Paper", year: "2021", citekey: "cited" }],
+      matchedItems: [
+        {
+          libraryId: 1,
+          itemKey: "BBB",
+          title: "Cited Paper",
+          year: "2021",
+          citekey: "cited",
+        },
+      ],
+    });
+    await service.rebuildCitationGraphCacheNow();
+    const input = await service.getSynthesisWorkbenchSurfaceInput("graph");
+
+    assert.equal(
+      input.graph?.nodes?.find((node) => node.id === "zotero:item:BBB")?.metrics
+        ?.internal_in_degree,
+      1,
+    );
+  });
+
   it("returns nested reference facts only when reference rows are requested", async function () {
     const root = await makeRuntimeRoot();
     const { service } = makeService({

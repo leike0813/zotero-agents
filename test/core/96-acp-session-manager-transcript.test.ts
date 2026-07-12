@@ -69,9 +69,189 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import {
+  enqueueAcpChatTranscriptEvent,
+  readAcpChatTranscriptPage,
+} from "../../src/modules/acpConversationTranscriptStore";
+import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
+import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("initializes empty ACP Chat counters and promotes legacy counters at the next prompt", async function () {
+    await startNewAcpConversation();
+    const emptyPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    assert.equal((emptyPanel.messageCounts as any)?.completeness, "complete");
+    assert.deepEqual((emptyPanel.messageCounts as any)?.current, {
+      assistant: 0,
+      thought: 0,
+      tool: 0,
+    });
+    assert.deepEqual((emptyPanel.messageCounts as any)?.cumulative, {
+      assistant: 0,
+      thought: 0,
+      tool: 0,
+    });
+
+    await sendAcpConversationPrompt({ message: "legacy count baseline" });
+    const conversationId = getAcpConversationSnapshot().conversationId;
+    const legacy = loadAcpConversationState(
+      ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    ).snapshot;
+    legacy.messageCounts = undefined;
+    saveAcpConversationState(legacy);
+
+    resetAcpSessionManagerForTests();
+    await setActiveAcpConversation({
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    });
+    assert.equal(getAcpConversationSnapshot().conversationId, conversationId);
+    assert.equal(
+      (getAcpConversationSnapshot().messageCounts as any)?.completeness,
+      "unavailable",
+    );
+    await sendAcpConversationPrompt({ message: "first observed epoch" });
+    const promoted = getAcpConversationSnapshot().messageCounts as any;
+    assert.equal(promoted?.completeness, "complete");
+    assert.deepEqual(promoted?.current, promoted?.cumulative);
+    const promotedPanel = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    assert.equal(
+      (promotedPanel.messageCounts as any)?.completeness,
+      "complete",
+    );
+
+    const persisted = loadAcpConversationState(
+      ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    ).snapshot.messageCounts as any;
+    assert.equal(persisted?.completeness, "complete");
+    assert.deepEqual(persisted?.current, persisted?.cumulative);
+
+    resetAcpSessionManagerForTests();
+    await setActiveAcpConversation({
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    });
+    const restored = getAcpConversationSnapshot().messageCounts as any;
+    assert.equal(restored?.completeness, "complete");
+    assert.deepEqual(restored?.cumulative, persisted?.cumulative);
+  });
+
+  it("persists only user and final assistant content for a silent prompt", async function () {
+    setAssistantExecutionDisplayMode("silent");
+    await sendAcpConversationPrompt({ message: "silent result" });
+
+    const items = await readActiveTranscriptItems();
+    assert.deepEqual(
+      items.map((entry) => entry.kind),
+      ["message", "message"],
+    );
+    assert.equal((items[1] as { text?: string }).text, "Echo: silent result");
+    const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
+    assert.equal(panel.executionDisplayMode, "silent");
+    assert.deepEqual((panel.messageCounts as any)?.current, {
+      assistant: 1,
+      thought: 1,
+      tool: 1,
+    });
+    assert.isFalse((panel.messageCounts as any)?.active);
+  });
+
+  it("seals visible history and never backfills content across silent transitions", async function () {
+    await connectAcpConversation();
+    const sessionId = getAcpConversationSnapshot().sessionId;
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible before" },
+      },
+    });
+
+    setAssistantExecutionDisplayMode("silent");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "omitted" },
+      },
+    });
+    setAssistantExecutionDisplayMode("live");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible after" },
+      },
+    });
+
+    const messages = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      messages.map((entry) => (entry as { text?: string }).text),
+      ["visible before", "visible after"],
+    );
+    assert.equal((messages[0] as { state?: string }).state, "complete");
+  });
+
+  it("flushes only the requested conversation transcript owner", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-chat-owner-"));
+    const first = path.join(root, "first");
+    const second = path.join(root, "second");
+    try {
+      for (const [storageDir, itemId] of [
+        [first, "first-item"],
+        [second, "second-item"],
+      ] as const) {
+        enqueueAcpChatTranscriptEvent({
+          conversationStorageDir: storageDir,
+          op: "upsert_item",
+          itemId,
+          item: {
+            id: itemId,
+            kind: "message",
+            role: "assistant",
+            text: itemId,
+            state: "complete",
+            createdAt: new Date(0).toISOString(),
+          },
+        });
+      }
+
+      const firstPage = await readAcpChatTranscriptPage({
+        conversationStorageDir: first,
+      });
+      assert.deepEqual(
+        firstPage.items.map((item) => item.id),
+        ["first-item"],
+      );
+      let secondExists = true;
+      try {
+        await fs.access(path.join(second, "transcript.jsonl"));
+      } catch {
+        secondExists = false;
+      }
+      assert.isFalse(secondExists);
+
+      const secondPage = await readAcpChatTranscriptPage({
+        conversationStorageDir: second,
+      });
+      assert.deepEqual(
+        secondPage.items.map((item) => item.id),
+        ["second-item"],
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("upserts tool calls by id and does not roll completed back to pending", async function () {
     await connectAcpConversation();
@@ -1195,7 +1375,7 @@ describe("acp session manager", function () {
     const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
 
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
-    assert.equal(panel.streamingRenderEnabled, true);
+    assert.equal(panel.executionDisplayMode, "live");
     assert.equal(panel.backendAvailability, "selected");
     assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.activeBackendId, active.backendId);
@@ -1628,7 +1808,7 @@ describe("acp session manager", function () {
       activeTab: "acp-chat" as const,
       hasActiveTarget: true,
       transcriptPaginationVirtualizationEnabled: true,
-      streamingRenderEnabled: true,
+      executionDisplayMode: "live" as const,
     };
 
     assert.isTrue(
@@ -1653,7 +1833,7 @@ describe("acp session manager", function () {
       shouldRefreshAcpChatSnapshotForChange(
         {
           ...base,
-          streamingRenderEnabled: false,
+          executionDisplayMode: "boundary" as const,
         },
         {
           active: true,
@@ -1891,6 +2071,43 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     assert.isAtMost(snapshot.diagnostics.length, 40);
     assert.isBelow(snapshotCount, 20);
+  });
+
+  it("keeps trailing transcript updates in the active turn while cancellation is requested", async function () {
+    await connectAcpConversation();
+    const releasePrompt = harness.lastAdapter!.holdPrompt();
+    harness.lastAdapter!.promptStopReason = "cancelled";
+    const prompt = sendAcpConversationPrompt({ message: "Trailing update" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+
+    await harness.lastAdapter!.emitUpdate({
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "final trailing text" },
+      },
+    });
+    const requested = await waitForAcpConversationSnapshot((snapshot) =>
+      snapshot.items.some(
+        (item) =>
+          item.kind === "message" && item.text === "final trailing text",
+      ),
+    );
+    assert.equal(requested.promptInterruptState, "requested");
+    assert.equal(requested.busy, true);
+
+    releasePrompt();
+    await prompt;
+    const settled = getAcpConversationSnapshot();
+    assert.equal(settled.promptInterruptState, "confirmed");
+    const canonical = await readActiveTranscriptItems();
+    assert.isTrue(
+      canonical.some(
+        (item) =>
+          item.kind === "message" && item.text.includes("final trailing text"),
+      ),
+    );
   });
 
   it("persists ACP chat display mode and compact status expansion state", async function () {

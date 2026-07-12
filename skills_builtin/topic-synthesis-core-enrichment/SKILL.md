@@ -407,7 +407,7 @@ Payload JSON 示例（可提交结构样例）：
 语义处理步骤：
 
 1. 读取 concept candidate context。
-2. 读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --input '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --input '{}'`。
+2. 读取库中已有 topic 列表。优先执行 `./.zotero-bridge/bin/zotero-bridge synthesis topic list --query '{}'`；工作区没有 shim 时执行 `zotero-bridge synthesis topic list --query '{}'`。
 3. 为关键概念写 definition、aliases、disambiguation 和 topic relevance。
 4. 以当前 synthesis topic 为出发点，判断每个 target topic 的方向关系：target 更宽、target 更窄、相关、交叉或对照。
 5. 判断关系时使用当前 topic 的语义全集，不使用 workset 最密集子域替代当前 topic。

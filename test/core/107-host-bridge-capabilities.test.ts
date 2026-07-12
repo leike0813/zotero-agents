@@ -10,6 +10,7 @@ import {
 } from "../../src/modules/hostBridgePermissionManager";
 import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { listHostBridgeCapabilities } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   resetAcpSkillRunsForTests,
   upsertAcpSkillRun,
@@ -1333,6 +1334,34 @@ describe("host bridge capability calls", function () {
     } finally {
       (Zotero as any).getMainWindow = previousGetMainWindow;
     }
+  });
+
+  it("exposes read-only workflow-product capabilities without MCP export or removal", async function () {
+    const capabilityNames = listHostBridgeCapabilities().map(
+      (entry) => entry.name,
+    );
+    assert.includeMembers(capabilityNames, [
+      "workflow_products.list",
+      "workflow_products.get",
+      "workflow_products.read_asset",
+      "workflow_products.export",
+      "workflow_products.remove",
+    ]);
+    const response: any = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "workflow-products",
+      method: "tools/list",
+    });
+    const toolNames = response.result.tools.map(
+      (tool: { name: string }) => tool.name,
+    );
+    assert.includeMembers(toolNames, [
+      "workflow_products.list",
+      "workflow_products.get",
+      "workflow_products.read_asset",
+    ]);
+    assert.notInclude(toolNames, "workflow_products.export");
+    assert.notInclude(toolNames, "workflow_products.remove");
   });
 
   it("decodes Zotero MCP JSON-RPC bodies as UTF-8 bytes", async function () {

@@ -714,7 +714,11 @@
     if (!requestId) return;
     const textValue = safeText(message);
     const status = normalizedStatus();
-    if (payload && payload.mode === "auth" && payload.submission) {
+    if (
+      payload &&
+      payload.mode === "auth" &&
+      (payload.submission || payload.selection)
+    ) {
       sendAction("reply-run", Object.assign({ requestId }, payload));
       return;
     }
@@ -865,7 +869,6 @@
       if (!requestId) return;
       readAuthImportFiles()
         .then(function (files) {
-          if (!files.length) return;
           sendAction("auth-import-run", {
             requestId,
             providerId: safeText(
@@ -1026,6 +1029,7 @@
         managedRegions: {
           toolbar: true,
           banner: true,
+          messageCounter: true,
           plan: true,
           hint: true,
           reply: true,
@@ -1037,6 +1041,9 @@
         regions: {
           toolbar: document.getElementById("skillrunner-toolbar"),
           banner: document.getElementById("skillrunner-banner"),
+          messageCounter: document.getElementById(
+            "skillrunner-message-counter",
+          ),
           conversation: document.getElementById(
             "skillrunner-conversation-window",
           ),

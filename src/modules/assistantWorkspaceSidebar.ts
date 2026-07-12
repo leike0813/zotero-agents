@@ -6,10 +6,11 @@ import { resolveAddonRef } from "../utils/runtimeBridge";
 import { copyText } from "../utils/ztoolkit";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
 import {
-  isAssistantStreamingRenderEnabled,
-  setAssistantStreamingRenderEnabled,
-  subscribeAssistantStreamingRenderPreference,
-} from "./assistantStreamingRenderPreference";
+  getAssistantExecutionDisplayMode,
+  isAssistantExecutionDisplayMode,
+  setAssistantExecutionDisplayMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "./assistantExecutionDisplayPolicy";
 import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
 import {
   SKILLRUNNER_ICON_URI,
@@ -248,7 +249,7 @@ function summarizeAcpChatPanelSnapshot(snapshot: Record<string, unknown>) {
     backendChatSessions: countArray(snapshot.backendChatSessions),
     transcriptPaginationVirtualizationEnabled:
       snapshot.transcriptPaginationVirtualizationEnabled === true,
-    streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+    executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
     selectedTranscriptPage: page
       ? {
           requestId: String(page.requestId || ""),
@@ -291,7 +292,7 @@ function summarizeChildSnapshot(
       runs: countArray(snapshot.runs),
       transcriptPaginationVirtualizationEnabled:
         snapshot.transcriptPaginationVirtualizationEnabled === true,
-      streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+      executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
       selectedTranscriptPage: page
         ? {
             requestId: String(page.requestId || ""),
@@ -323,7 +324,7 @@ function summarizeChildSnapshot(
     ),
     transcriptPaginationVirtualizationEnabled:
       snapshot.transcriptPaginationVirtualizationEnabled === true,
-    streamingRenderEnabled: snapshot.streamingRenderEnabled !== false,
+    executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
   };
 }
 
@@ -696,7 +697,7 @@ function buildDecoratedSkillRunnerSnapshot(
     snapshot: {
       ...snapshot,
       hostMode: "sidebar" as const,
-      streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+      executionDisplayMode: getAssistantExecutionDisplayMode(),
       drawer: {
         open: host.drawerOpen,
         notice: snapshot.drawer?.notice,
@@ -1553,7 +1554,7 @@ async function postAcpSkillRunSnapshot(
   }
   const payload = {
     ...(snapshot as unknown as Record<string, unknown>),
-    streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
     transcriptPaginationVirtualizationEnabled:
       isAssistantTranscriptPaginationVirtualizationEnabled(),
   };
@@ -1941,13 +1942,16 @@ function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
   }, 16);
 }
 
-function setAssistantWorkspaceStreamingRenderEnabled(
+function setAssistantWorkspaceExecutionDisplayMode(
   host: AssistantWorkspaceHostRuntime,
-  enabled: boolean,
+  mode: unknown,
 ) {
+  if (!isAssistantExecutionDisplayMode(mode)) {
+    return getAssistantExecutionDisplayMode();
+  }
   host.streamingRenderPreferenceLocalWriteDepth += 1;
   try {
-    return setAssistantStreamingRenderEnabled(enabled);
+    return setAssistantExecutionDisplayMode(mode);
   } finally {
     host.streamingRenderPreferenceLocalWriteDepth = Math.max(
       0,
@@ -2327,11 +2331,8 @@ async function handleChildAction(
     return;
   }
   if (tab === "skillrunner") {
-    if (action === "set-streaming-render-enabled") {
-      setAssistantWorkspaceStreamingRenderEnabled(
-        host,
-        childPayload.enabled === true,
-      );
+    if (action === "set-execution-display-mode") {
+      setAssistantWorkspaceExecutionDisplayMode(host, childPayload.mode);
       scheduleSkillRunnerSidebarRefresh(host, target, {
         selectionChanged: false,
       });
@@ -2430,11 +2431,8 @@ async function handleAcpSkillRunAction(
     if (action === "ready") {
       return;
     }
-    if (action === "set-streaming-render-enabled") {
-      setAssistantWorkspaceStreamingRenderEnabled(
-        host,
-        payload.enabled === true,
-      );
+    if (action === "set-execution-display-mode") {
+      setAssistantWorkspaceExecutionDisplayMode(host, payload.mode);
       return;
     }
     if (action === "select-run") {
@@ -2548,11 +2546,8 @@ async function handleAcpChatAction(
     if (action === "ready") {
       return;
     }
-    if (action === "set-streaming-render-enabled") {
-      setAssistantWorkspaceStreamingRenderEnabled(
-        host,
-        payload.enabled === true,
-      );
+    if (action === "set-execution-display-mode") {
+      setAssistantWorkspaceExecutionDisplayMode(host, payload.mode);
       return;
     }
     if (action === "set-active-backend") {
@@ -3179,7 +3174,7 @@ export function installAssistantWorkspaceSidebarShell(
             hasActiveTarget: !!host.activeTarget,
             transcriptPaginationVirtualizationEnabled:
               isAssistantTranscriptPaginationVirtualizationEnabled(),
-            streamingRenderEnabled: isAssistantStreamingRenderEnabled(),
+            executionDisplayMode: getAssistantExecutionDisplayMode(),
           },
           change,
         )
@@ -3204,7 +3199,7 @@ export function installAssistantWorkspaceSidebarShell(
     updateAssistantAttentionIndicator(host);
   });
   host.removeStreamingRenderPreferenceSubscription =
-    subscribeAssistantStreamingRenderPreference(() => {
+    subscribeAssistantExecutionDisplayMode(() => {
       if (!host.streamingRenderPreferenceInitialized) {
         host.streamingRenderPreferenceInitialized = true;
         logAssistantWorkspaceDebug(

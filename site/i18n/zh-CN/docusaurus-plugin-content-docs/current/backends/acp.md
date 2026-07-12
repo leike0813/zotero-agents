@@ -54,7 +54,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 
 | 预设 | 默认命令 | 说明 |
 |------|------|------|
-| **OpenCode** | `opencode acp` | OpenCode ACP 后端，支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
+| **OpenCode** | `opencode acp` | OpenCode ACP 后端；会注入 `OPENCODE_CONFIG_CONTENT` 以拒绝权限提问，并支持通过 `OPENCODE_CONFIG_DIR` 隔离配置目录 |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | 面向 OpenAI Codex 的 ACP adapter |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | 面向 Claude Code 的 ACP adapter |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP 模式 |
@@ -65,7 +65,7 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter，支持通过 `--session-dir` 隔离 session 目录 |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP 模式 |
-| **Kilo** | `kilo acp` | Kilo Code ACP 模式；已实测核心 XDG 路径可隔离 config、data/session/auth/log 和 cache 状态 |
+| **Kilo** | `kilo acp` | Kilo Code ACP 模式；会注入 `KILO_CONFIG_CONTENT` 以拒绝权限提问，且已实测核心 XDG 路径可隔离 config、data/session/auth/log 和 cache 状态 |
 | **Cline** | `cline --acp` | Cline ACP 模式 |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP 模式 |
 | **Grok** | `grok agent stdio` | Grok agent stdio 模式 |
@@ -77,6 +77,8 @@ ACP 后端是**首推**的配置方式——只要本机安装了任意一款支
 ## 环境变量配置建议
 
 部分 Agent 支持通过环境变量或命令参数实现配置隔离和 session 持久化。启用预设的 **隔离环境** 后，插件会自动注入对应设置；手动配置 Profile 时，可以自行添加：
+
+OpenCode 与 Kilo 预设还会始终注入内联权限配置：分别使用 `OPENCODE_CONFIG_CONTENT` 与 `KILO_CONFIG_CONTENT`，值均为 `{"permission":{"question":"deny"}}`。添加预设后，仍可自行编辑或删除这些值。
 
 | 设置 | Agent | 用途 |
 |------|-------|------|

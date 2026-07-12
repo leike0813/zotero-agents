@@ -21,14 +21,14 @@ skills:
         schema: stage-10-create-topic-context.schema.json
         payload_path: runtime/payloads/create-topic-context.json
         required_reads:
-          - "<zotero-bridge> synthesis topic list --input '{}'"
+          - "<zotero-bridge> synthesis topic list --query '{}'"
       - id: stage_20_resolver_and_workset
         kind: payload
         task: 编写 resolver proposal；后续由 runtime 执行 resolver、图谱查询和 artifact 准备。
         schema: stage-20-resolver-and-workset.schema.json
         payload_path: runtime/payloads/resolver-and-workset.json
         required_reads:
-          - '<zotero-bridge> synthesis index library get --input ''{"cursor":0,"limit":200}'''
+          - '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
       - id: stage_30_prepare_analysis_context
         kind: payload
         task: 为已解析的文献工作集编写轻量 paper triage 判断。
@@ -59,7 +59,7 @@ skills:
         payload_path: runtime/payloads/update-topic-context.json
         required_reads:
           - runtime/payloads/update-audit-report.json
-          - '<zotero-bridge> synthesis index library get --input ''{"cursor":0,"limit":200}'''
+          - '<zotero-bridge> synthesis index library get --query ''{"cursor":0,"limit":200}'''
       - id: stage_30_prepare_analysis_context
         kind: payload
         task: 为已解析的文献工作集编写轻量 paper triage 判断。

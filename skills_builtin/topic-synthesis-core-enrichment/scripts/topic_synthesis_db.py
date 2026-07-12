@@ -102,7 +102,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "task": "编写新建主题意图和重复检查判断。",
                 "schema": "stage-10-create-topic-context.schema.json",
                 "payload_path": "runtime/payloads/create-topic-context.json",
-                "required_reads": ["<zotero-bridge> synthesis topic list --input '{}'"],
+                "required_reads": ["<zotero-bridge> synthesis topic list --query '{}'"],
             },
             {
                 "id": "stage_20_resolver_and_workset",
@@ -111,7 +111,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "schema": "stage-20-resolver-and-workset.schema.json",
                 "payload_path": "runtime/payloads/resolver-and-workset.json",
                 "required_reads": [
-                    "<zotero-bridge> synthesis index library get --input '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":200}'"
                 ],
             },
             {
@@ -159,7 +159,7 @@ SKILL_STAGE_CONTRACT: dict[str, dict[str, Any]] = {
                 "payload_path": "runtime/payloads/update-topic-context.json",
                 "required_reads": [
                     "runtime/payloads/update-audit-report.json",
-                    "<zotero-bridge> synthesis index library get --input '{\"cursor\":0,\"limit\":200}'"
+                    "<zotero-bridge> synthesis index library get --query '{\"cursor\":0,\"limit\":200}'"
                 ],
             },
             {

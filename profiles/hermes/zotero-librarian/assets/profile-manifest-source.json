@@ -8,6 +8,7 @@
     "hostBridgeCapabilityRegistry": "src/modules/hostBridgeCapabilityRegistry.ts",
     "zoteroBridgeCliCommands": "cli/zotero-bridge/src/commands.rs",
     "zoteroBridgeCliRelease": "cli/zotero-bridge/release.json",
+    "profileVersionSource": "profiles_src/hermes/zotero-librarian/profile-version.json",
     "workflowManifest": "workflows_builtin/manifest.json",
     "profileExample": "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
     "semanticSources": [
@@ -44,15 +45,18 @@
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "f3fdd3b24d2a7673e7001800b6e2e955d9780b7cea32392a641f5721bb97966f",
-    "workflowCatalogChecksum": "d7096235cfd137aa89991d1f7406aa648eff150ee09020e905bbf571c7765745",
+    "catalogChecksum": "761e83b9b8f43e8f25597d4d10f441c8e7f9607160102fc9f00115fd63aff8e5",
+    "workflowCatalogChecksum": "1fe659ff51b66bdf9710aefcce41cf1e87c6a72198f1a3e7ddee12c359f822d1",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
       "version": "0.2.1",
       "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
       "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
     },
-    "semanticSourceChecksum": "bd88a1735a6242fbb3db6ea8329ecf498315a3eaa4f83c85cfd9472126025917",
+    "profileVersion": "0.2.1",
+    "zoteroBridgeCliVersion": "0.2.1",
+    "profileVersionSourceChecksum": "7f2f775fbc65573d7338f5086c3aff0bf135c00d257afd284ec9e27c1b2e7f76",
+    "semanticSourceChecksum": "43682a782afe36177e81efe8359eb50a821e0ab02522cadba2266eb07919407a",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
   }
 }

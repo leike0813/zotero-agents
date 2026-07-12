@@ -1091,6 +1091,14 @@ correlated by spawn id.
 - **THEN** audit failure SHALL be logged as diagnostic failure
 - **AND** it SHALL NOT by itself fail the SkillRunner-compatible run.
 
+### Requirement: ACP Skills process-tree cleanup SHALL preserve validated signal targets
+ACP Skills normal runs, recovered runs, sequence stages, terminal cleanup, and diagnostics SHALL delegate local transport teardown to the shared controller whose signal actuation preserves the complete validated process-group target.
+
+#### Scenario: Wrapper-backed ACP Skills controller closes
+- **WHEN** an ACP Skills controller requires TERM or KILL escalation
+- **THEN** it SHALL use the shared validated signal boundary
+- **AND** normal, recovered, sequence, and diagnostic paths MUST NOT implement independent negative-PID cleanup
+
 ### Requirement: ACP backend diagnostics SHALL record bridge transport audit
 
 ACP backend refresh-cache and backend probe diagnostics SHALL use the same
@@ -1377,3 +1385,135 @@ ACP Skills SHALL record workflow apply-result state independently from local con
 #### Scenario: Failed step apply cleans up before propagation
 - **WHEN** an ACP sequence step result apply fails
 - **THEN** Host SHALL record the failed apply state and settle the owned controller before propagating the failure.
+
+### Requirement: Plugin-owned ACP audit streams are physically batched
+
+Debug-only plugin-owned `timeline.ndjson`, `acp-updates.ndjson`, and `transport.ndjson` streams SHALL retain every sanitized logical record while using bounded low-frequency true append operations.
+
+#### Scenario: Audit burst appends one batch without whole-file rewrite
+
+- **GIVEN** ACP debug mode is enabled
+- **WHEN** many audit records are emitted for one owner and file before a forced boundary
+- **THEN** every logical record SHALL remain independently readable in order
+- **AND** the plugin SHALL append the pending batch without reading and rewriting the existing complete file
+- **AND** physical writes SHALL be bounded by the configured time, byte, entry, and durability thresholds.
+
+#### Scenario: Audit enqueue does not await timer durability
+
+- **WHEN** an adapter session update or transport callback enqueues an audit record
+- **THEN** the callback SHALL be able to continue without waiting for the trailing flush timer
+- **AND** the record SHALL remain pending until a threshold or audit boundary drains it.
+
+#### Scenario: Audit failure is best-effort and retryable
+
+- **WHEN** one physical audit append fails
+- **THEN** the run SHALL continue
+- **AND** one structured audit failure SHALL be recorded for that attempt
+- **AND** the pending logical records SHALL remain available for retry at the next boundary.
+
+### Requirement: ACP audit durability follows diagnostic boundaries
+
+Plugin-owned pending audit streams SHALL flush for their target owner at prompt or turn terminal, adapter close or explicit disconnect, run terminal, diagnostic completion, and controlled shutdown.
+
+#### Scenario: Diagnostic result contains complete plugin audit
+
+- **WHEN** a backend probe or refresh-cache diagnostic returns its result
+- **THEN** pending plugin-owned audit records for that diagnostic owner SHALL already be appended
+- **AND** the returned diagnostic directory SHALL be complete for those streams.
+
+#### Scenario: Non-debug execution creates no high-volume audit
+
+- **GIVEN** debug mode is disabled
+- **WHEN** ACP execution emits transcript, transport, or lifecycle activity
+- **THEN** the plugin SHALL NOT create `timeline.ndjson`, `acp-updates.ndjson`, or `transport.ndjson`.
+
+#### Scenario: Bridge audit ownership remains external
+
+- **WHEN** the Rust WebSocket bridge writes `bridge.ndjson`
+- **THEN** the plugin buffered audit writer SHALL NOT own, buffer, merge, or rewrite that file.
+
+### Requirement: ACP Skills silent projection does not alter execution semantics
+
+Silent mode SHALL suppress ACP Skills process projection before transcript persistence while preserving prompt execution, assistant output accumulation for validation, permission handling, recovery, timeout, cancellation, output convergence, and audit ownership.
+
+#### Scenario: suppressed protocol updates still support final output
+
+- **WHEN** a silent ACP Skills prompt uses thoughts and tools before producing valid output
+- **THEN** those process updates do not enter transcript state
+- **AND** validation and final output completion behave as in other display modes.
+
+#### Scenario: dynamic mode change applies immediately
+
+- **WHEN** the global mode changes during an active prompt
+- **THEN** subsequent updates use the new policy
+- **AND** omitted updates are neither deleted from prior history nor backfilled later.
+
+### Requirement: ACP Skills message counts follow user execution boundaries
+
+ACP Skills SHALL begin a new current message-count execution only for a user-originated run or explicit user retry. Automatic prompt repair, continuation, recovery, and output convergence attempts SHALL retain the same execution identity while continuing to update the owner cumulative count.
+
+#### Scenario: automatic retry preserves current identity
+
+- **WHEN** the orchestrator automatically starts another agent prompt for repair or recovery
+- **THEN** it reuses the current message-count execution identity
+- **AND** new Assistant, Thought, and Tool activity continues the current values.
+
+#### Scenario: explicit retry begins new current values
+
+- **WHEN** the user explicitly retries the selected run
+- **THEN** current category values reset before new protocol activity
+- **AND** cumulative owner values remain unchanged until new semantic activity occurs.
+
+### Requirement: Kilo ACP Skill runs SHALL safely omit rejected none reasoning overrides
+
+Before an ACP Skill prompt starts, the runner SHALL omit a Kilo
+`thought_level=none` override when the config request returns JSON-RPC invalid
+parameters (`-32602`). It SHALL retain the same session and selected model,
+continue with the backend-default reasoning behavior, and record the fallback
+as a structured run event. The persisted effective runtime options SHALL not
+restore the rejected override.
+
+#### Scenario: Initial prompt continues after Kilo none rejection
+
+- **WHEN** a new Kilo ACP session rejects `thought_level=none` with code `-32602`
+- **THEN** the runner SHALL submit the prompt once in that same session without a thought-level override
+- **AND** the run SHALL record the fallback without marking the task failed.
+
+#### Scenario: Recovered session does not resend rejected none
+
+- **GIVEN** a prior Kilo run recorded the none fallback
+- **WHEN** the session is recovered
+- **THEN** runtime-option restoration SHALL not submit `thought_level=none`
+- **AND** the recovered prompt SHALL retain the selected model and normal recovery behavior.
+
+#### Scenario: Other configuration failures are preserved
+
+- **WHEN** a non-Kilo backend, a value other than `none`, or a non-`-32602` error occurs
+- **THEN** the runner SHALL preserve the configuration failure
+- **AND** it SHALL not start a fallback prompt.
+
+### Requirement: ACP Skills lifecycle cleanup SHALL use the shared controller close
+
+ACP Skills and the SkillRunner-compatible runner SHALL use the shared transport controller for local execution, recovery, sequence, probe, diagnostic, failure, detach, and shutdown cleanup.
+
+#### Scenario: Normal and recovered runs share controller safety
+
+- **WHEN** a local ACP Skills run starts normally or through recover, resume, or load
+- **THEN** all owned session transports SHALL use the same shared controller teardown policy.
+
+#### Scenario: Terminal paths share controller safety
+
+- **WHEN** a run is cancelled, interrupted, hard-timed-out, explicitly disconnected, ended, detached after apply, fails, or is closed during shutdown
+- **THEN** the owning path SHALL close the shared controller
+- **AND** it SHALL NOT duplicate process-group ownership logic.
+
+#### Scenario: Sequence detach ordering is preserved
+
+- **WHEN** a sequence step reaches its awaited detach boundary
+- **THEN** it SHALL await the shared controller close using the existing sequence lifecycle semantics
+- **AND** this change SHALL NOT synthesize an apply result or alter workflow output.
+
+#### Scenario: Diagnostic paths share controller safety
+
+- **WHEN** an ACP Skills diagnostic uses an adapter session or a raw transport probe
+- **THEN** both paths SHALL enter the shared controller boundary.

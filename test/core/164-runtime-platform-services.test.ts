@@ -27,10 +27,12 @@ import {
   seedRuntimeCommandRegistryForTests,
 } from "../../src/platform/command";
 import {
+  buildPosixProcessGroupSignalInvocation,
   getRuntimeProcessControlSnapshot,
   preflightRuntimeProcessControlOnStartup,
   resetRuntimeProcessControlSnapshotForTests,
   seedRuntimeProcessControlSnapshotForTests,
+  validatePosixProcessGroupOwnership,
 } from "../../src/platform/processControl";
 import {
   runtimePathExists,
@@ -167,6 +169,14 @@ describe("runtime platform services", function () {
       }),
       "/bin/kill",
     );
+    assert.deepInclude(
+      buildNonInteractiveCommandCandidates({
+        command: "ps",
+        platform: "linux",
+        homeDir: "/home/leike",
+      }),
+      "/bin/ps",
+    );
   });
 
   it("orders Windows PATH command candidates by executable preference", function () {
@@ -270,6 +280,12 @@ describe("runtime platform services", function () {
             resolvedPath: "/bin/kill",
             checkedCandidates: [],
           },
+          ps: {
+            command: "ps",
+            available: true,
+            resolvedPath: "/bin/ps",
+            checkedCandidates: [],
+          },
         },
       },
     });
@@ -282,12 +298,72 @@ describe("runtime platform services", function () {
       supportsProcessGroupLaunch: true,
       supportsNegativePidSignal: true,
       supportsPidFileSupervisor: true,
+      supportsProcessIdentityQuery: true,
     });
     assert.equal(snapshot.initializedAt, "2026-07-07T00:00:00.000Z");
     assert.equal(
       getRuntimeProcessControlSnapshot().preferredCleanupStrategy,
       "posix-pidfile-supervisor",
     );
+  });
+
+  it("preserves the complete validated PGID in external signal operands", function () {
+    const validation = validatePosixProcessGroupOwnership({
+      strategy: "posix-pidfile-supervisor",
+      expectedStrategy: "posix-pidfile-supervisor",
+      childPid: 1_743_624,
+      launchIdentity: {
+        pid: 1_743_624,
+        pgid: 1_743_624,
+        sid: 1_743_624,
+      },
+      liveIdentity: {
+        pid: 1_743_624,
+        pgid: 1_743_624,
+        sid: 1_743_624,
+      },
+      pidfileIdentity: {
+        pid: 1_743_624,
+        token: "launch-bound-token",
+      },
+      supervisorToken: "launch-bound-token",
+      identityQuerySupported: true,
+    });
+
+    assert.isTrue(validation.ok);
+    if (!validation.ok) {
+      return;
+    }
+    assert.isTrue(Object.isFrozen(validation.target));
+    assert.deepEqual(
+      buildPosixProcessGroupSignalInvocation(validation.target, "TERM"),
+      {
+        signal: "TERM",
+        targetPgid: 1_743_624,
+        arguments: ["-s", "TERM", "--", "-1743624"],
+      },
+    );
+    assert.deepEqual(
+      buildPosixProcessGroupSignalInvocation(validation.target, "KILL")
+        .arguments,
+      ["-s", "KILL", "--", "-1743624"],
+    );
+  });
+
+  it("rejects process groups that cannot be safe signal targets", function () {
+    const validation = validatePosixProcessGroupOwnership({
+      strategy: "node-process-group",
+      expectedStrategy: "node-process-group",
+      childPid: 1,
+      launchIdentity: { pid: 1, pgid: 1, sid: 1 },
+      liveIdentity: { pid: 1, pgid: 1, sid: 1 },
+      identityQuerySupported: true,
+    });
+
+    assert.deepEqual(validation, {
+      ok: false,
+      reason: "unsafe-process-group",
+    });
   });
 
   it("keeps process-control preflight cached after initialization", async function () {

@@ -56,6 +56,10 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.get_item_attachments",
   "library.list_annotations",
   "library.export_annotations",
+  "workflow_products.list",
+  "workflow_products.get",
+  "workflow_products.read_asset",
+  "workflow_products.export",
   "mutation.preview",
   "diagnostic.get_status",
 ]);
@@ -86,6 +90,7 @@ const CACHE_VIEW_CAPABILITIES = new Set([
 const RAW_ONLY_CAPABILITIES = new Set([
   "diagnostic.get_status",
   "debug.zotero.eval",
+  "workflow_products.read_asset",
 ]);
 
 const RESPONSE_SIZING = new Map<
@@ -104,6 +109,10 @@ const RESPONSE_SIZING = new Map<
   ["library.get_item_attachments", "selector-bounded"],
   ["library.list_annotations", "selector-bounded"],
   ["library.export_annotations", "selector-bounded"],
+  ["workflow_products.list", "paged"],
+  ["workflow_products.get", "selector-bounded"],
+  ["workflow_products.read_asset", "file-output"],
+  ["workflow_products.export", "file-output"],
   ["topics.list", "paged"],
   ["topics.find_by_paper_ref", "selector-bounded"],
   ["topics.get_context", "file-output"],
@@ -132,6 +141,7 @@ const HIGH_CARDINALITY_READ_CAPABILITIES = new Set([
   "library.list_items",
   "library.sync_snapshot",
   "library.readiness_audit",
+  "workflow_products.list",
   "topics.list",
   "citation_graph.get_overview",
   "citation_graph.query_cluster",
@@ -317,6 +327,10 @@ function coreCliMappings(): HostBridgeCliMapping[] {
     ["library note get", "library.get_note_detail"],
     ["library note payloads", "library.list_note_payloads"],
     ["library note payload", "library.get_note_payload"],
+    ["product list", "workflow_products.list"],
+    ["product get", "workflow_products.get"],
+    ["product download", "workflow_products.export"],
+    ["product remove", "workflow_products.remove"],
     ["mutation preview", "mutation.preview"],
     ["mutation apply", "mutation.execute"],
     ["mutation literature-ingest", "mutation.execute"],

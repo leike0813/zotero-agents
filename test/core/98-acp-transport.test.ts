@@ -631,6 +631,7 @@ describe("acp transport", function () {
 
   it("waits for natural Mozilla subprocess exit before cleanup kill", async function () {
     let killCount = 0;
+    let stdinCloseCount = 0;
     let stderrReadCount = 0;
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -639,7 +640,9 @@ describe("acp transport", function () {
           call: async () => ({
             stdin: {
               write: async () => undefined,
-              close: async () => undefined,
+              close: async () => {
+                stdinCloseCount += 1;
+              },
             },
             stdout: {
               readString: async () => "",
@@ -678,15 +681,23 @@ describe("acp transport", function () {
         cwd: "D:\\ZoteroData",
       });
 
-      await transport.close({ graceMs: 100 });
+      const firstClose = transport.close({ graceMs: 100 });
+      const secondClose = transport.close({ graceMs: 100 });
+      assert.strictEqual(firstClose, secondClose);
+      await firstClose;
 
       assert.equal(killCount, 0);
+      assert.equal(stdinCloseCount, 1);
       assert.equal(transport.getExitCode(), 7);
       assert.include(transport.getStderrText(), "backend failed");
       assert.include(transport.getLifecycle(), {
         exitCode: 7,
         exitSource: "natural-exit",
         killedByClose: false,
+        stdinEofStatus: "succeeded",
+        gracefulExit: true,
+        closeInvocationCount: 2,
+        closeReused: true,
       });
     } finally {
       restoreGlobalProperty("Zotero", previousZotero);
@@ -695,6 +706,7 @@ describe("acp transport", function () {
   });
 
   it("bounds Mozilla subprocess transport close after cleanup kill", async function () {
+    this.timeout(5000);
     let killCount = 0;
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -703,7 +715,7 @@ describe("acp transport", function () {
           call: async () => ({
             stdin: {
               write: async () => undefined,
-              close: async () => undefined,
+              close: async () => new Promise(() => undefined),
             },
             stdout: {
               readString: async () => "",
@@ -739,11 +751,12 @@ describe("acp transport", function () {
 
       await transport.close({ graceMs: 0 });
 
-      assert.isBelow(Date.now() - startedAt, 1600);
+      assert.isBelow(Date.now() - startedAt, 3800);
       assert.equal(killCount, 1);
       assert.include(transport.getLifecycle(), {
         killedByClose: true,
         closeTimedOut: true,
+        stdinEofStatus: "timed-out",
       });
       assert.isString(transport.getLifecycle().cleanupKillTimedOutAt);
     } finally {
@@ -763,6 +776,11 @@ describe("acp transport", function () {
     let publishedPid = 4321;
     let publishedTokenOverride = "";
     let failTermSignal = false;
+    let livePgid = 4321;
+    let liveSid = 4321;
+    let mutateIdentityAfterTerm = false;
+    let publishCorruptIdentity = false;
+    let liveIdentityUnavailable = false;
     let directKillCount = 0;
     seedRuntimeCommandRegistryForTests({
       initialized: true,
@@ -786,6 +804,12 @@ describe("acp transport", function () {
           resolvedPath: "/bin/kill",
           checkedCandidates: [],
         },
+        ps: {
+          command: "ps",
+          available: true,
+          resolvedPath: "/bin/ps",
+          checkedCandidates: [],
+        },
         uv: {
           command: "uv",
           available: true,
@@ -803,6 +827,7 @@ describe("acp transport", function () {
       supportsProcessGroupLaunch: true,
       supportsNegativePidSignal: true,
       supportsPidFileSupervisor: true,
+      supportsProcessIdentityQuery: true,
     });
     const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
       import: () => ({
@@ -821,7 +846,9 @@ describe("acp transport", function () {
               const supervisorToken = invocation.arguments?.[5] || "";
               await fs.writeFile(
                 pidFile,
-                `${publishedPid}\n${publishedTokenOverride || supervisorToken}`,
+                publishCorruptIdentity
+                  ? "not-a-supervisor-identity"
+                  : `${publishedPid}\n${publishedTokenOverride || supervisorToken}`,
                 "utf8",
               );
               return {
@@ -842,8 +869,30 @@ describe("acp transport", function () {
                 },
               };
             }
-            if (failTermSignal && invocation.arguments?.[0] === "-TERM") {
-              throw new Error("TERM rejected");
+            if (invocation.command === "/bin/ps") {
+              return {
+                stdout: {
+                  readString: async () =>
+                    liveIdentityUnavailable
+                      ? ""
+                      : `4321 ${livePgid} ${liveSid}\n`,
+                },
+                stderr: { readString: async () => "" },
+                wait: async () => ({ exitCode: 0 }),
+              };
+            }
+            if (failTermSignal && invocation.arguments?.[1] === "TERM") {
+              return {
+                stdout: { readString: async () => "" },
+                stderr: { readString: async () => "" },
+                wait: async () => ({ exitCode: 1 }),
+              };
+            }
+            if (
+              mutateIdentityAfterTerm &&
+              invocation.arguments?.[1] === "TERM"
+            ) {
+              liveSid = 9876;
             }
             return {
               stdout: {
@@ -894,17 +943,40 @@ describe("acp transport", function () {
         "agent",
         "acp",
       ]);
-      assert.include(calls[1], {
+      const initialSignals = calls.filter(
+        (entry) => entry.command === "/bin/kill",
+      );
+      assert.include(initialSignals[0], {
         command: "/bin/kill",
       });
-      assert.deepEqual(calls[1].arguments, ["-TERM", "-4321"]);
-      assert.deepEqual(calls[2].arguments, ["-KILL", "-4321"]);
+      assert.deepEqual(initialSignals[0].arguments, [
+        "-s",
+        "TERM",
+        "--",
+        "-4321",
+      ]);
+      assert.deepEqual(initialSignals[1].arguments, [
+        "-s",
+        "KILL",
+        "--",
+        "-4321",
+      ]);
       assert.include(transport.getLifecycle(), {
         wrapperProneCommand: true,
         processTreeCleanupSupported: true,
         processTreeCleanupStrategy: "posix-pidfile-supervisor",
         processTreeCleanupPid: 4321,
         processTreeCleanupValidation: "validated",
+        launchPidValidated: true,
+        launchPgidValidated: true,
+        launchSidValidated: true,
+        termSignalSent: true,
+        killRevalidationPerformed: true,
+        killSignalSent: true,
+        processGroupSignalDelivery: "mozilla-external-kill",
+        processGroupSignalTargetPgid: 4321,
+        processGroupSignalOperandDelimited: true,
+        stdinEofStatus: "succeeded",
       });
       assert.equal(transport.getStdoutText(), "");
 
@@ -936,7 +1008,7 @@ describe("acp transport", function () {
       });
       assert.include(
         mismatchedTransport.getLifecycle().processTreeCleanupDiagnostic || "",
-        "pidfile PID does not match",
+        "pidfile-pid-mismatch",
       );
 
       calls.length = 0;
@@ -963,8 +1035,57 @@ describe("acp transport", function () {
       assert.equal(directKillCount, 2);
       assert.include(
         wrongTokenTransport.getLifecycle().processTreeCleanupDiagnostic || "",
-        "pidfile token does not match",
+        "pidfile-token-mismatch",
       );
+
+      calls.length = 0;
+      publishedTokenOverride = "";
+      const pgidMismatchTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-pgid-mismatch",
+          displayName: "ACP uv PGID mismatch",
+          type: "acp",
+          baseUrl: "local://acp-uv-pgid-mismatch",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+      livePgid = 9999;
+      await pgidMismatchTransport.close({ graceMs: 0 });
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(
+        pgidMismatchTransport.getLifecycle().processTreeCleanupValidationReason,
+        "live-pgid-mismatch",
+      );
+      livePgid = 4321;
+
+      calls.length = 0;
+      const sidMismatchTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-sid-mismatch",
+          displayName: "ACP uv SID mismatch",
+          type: "acp",
+          baseUrl: "local://acp-uv-sid-mismatch",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+      liveSid = 9999;
+      await sidMismatchTransport.close({ graceMs: 0 });
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(
+        sidMismatchTransport.getLifecycle().processTreeCleanupValidationReason,
+        "live-sid-mismatch",
+      );
+      liveSid = 4321;
 
       calls.length = 0;
       publishedTokenOverride = "";
@@ -985,12 +1106,90 @@ describe("acp transport", function () {
 
       const groupSignals = calls
         .filter((entry) => entry.command === "/bin/kill")
-        .map((entry) => entry.arguments[0]);
-      assert.deepEqual(groupSignals, ["-TERM"]);
-      assert.equal(directKillCount, 3);
+        .map((entry) => entry.arguments[1]);
+      assert.deepEqual(groupSignals, ["TERM"]);
+      assert.equal(directKillCount, 5);
       assert.include(
         failedTermTransport.getLifecycle().processTreeCleanupDiagnostic || "",
         "TERM failed",
+      );
+
+      calls.length = 0;
+      failTermSignal = false;
+      mutateIdentityAfterTerm = true;
+      const changedIdentityTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-identity-change",
+          displayName: "ACP uv identity change",
+          type: "acp",
+          baseUrl: "local://acp-uv-identity-change",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+      await changedIdentityTransport.close({ graceMs: 0 });
+      assert.deepEqual(
+        calls
+          .filter((entry) => entry.command === "/bin/kill")
+          .map((entry) => entry.arguments[1]),
+        ["TERM"],
+      );
+      assert.equal(
+        changedIdentityTransport.getLifecycle()
+          .processTreeCleanupValidationReason,
+        "live-sid-mismatch",
+      );
+
+      calls.length = 0;
+      mutateIdentityAfterTerm = false;
+      liveSid = 4321;
+      publishCorruptIdentity = true;
+      const corruptIdentityTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-corrupt-identity",
+          displayName: "ACP uv corrupt identity",
+          type: "acp",
+          baseUrl: "local://acp-uv-corrupt-identity",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+      await corruptIdentityTransport.close({ graceMs: 0 });
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(
+        corruptIdentityTransport.getLifecycle()
+          .processTreeCleanupValidationReason,
+        "pidfile-missing-or-invalid",
+      );
+
+      calls.length = 0;
+      publishCorruptIdentity = false;
+      const unavailableIdentityTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-uv-live-identity-unavailable",
+          displayName: "ACP uv live identity unavailable",
+          type: "acp",
+          baseUrl: "local://acp-uv-live-identity-unavailable",
+          command: "uv",
+          args: ["run", "--", "agent", "acp"],
+        } as BackendInstance,
+        cwd,
+      });
+      liveIdentityUnavailable = true;
+      await unavailableIdentityTransport.close({ graceMs: 0 });
+      assert.equal(
+        calls.filter((entry) => entry.command === "/bin/kill").length,
+        0,
+      );
+      assert.equal(
+        unavailableIdentityTransport.getLifecycle()
+          .processTreeCleanupValidationReason,
+        "live-process-missing",
       );
     } finally {
       restoreGlobalProperty("Zotero", previousZotero);
@@ -1016,6 +1215,12 @@ describe("acp transport", function () {
           resolvedPath: process.execPath,
           checkedCandidates: [],
         },
+        ps: {
+          command: "ps",
+          available: true,
+          resolvedPath: "/usr/bin/ps",
+          checkedCandidates: [],
+        },
       },
     });
     seedRuntimeProcessControlSnapshotForTests({
@@ -1027,6 +1232,7 @@ describe("acp transport", function () {
       supportsProcessGroupLaunch: true,
       supportsNegativePidSignal: true,
       supportsPidFileSupervisor: true,
+      supportsProcessIdentityQuery: true,
     });
 
     try {
@@ -1041,18 +1247,60 @@ describe("acp transport", function () {
         } as BackendInstance,
         cwd: process.cwd(),
       });
+      const unrelatedTransport = await launchAcpTransport({
+        backend: {
+          id: "acp-node-unrelated",
+          displayName: "ACP Node unrelated",
+          type: "acp",
+          baseUrl: "local://acp-node-unrelated",
+          command: "node",
+          args: ["-e", "setInterval(() => undefined, 1000);"],
+        } as BackendInstance,
+        cwd: process.cwd(),
+      });
 
       await transport.close({ graceMs: 0 });
+      assert.isFalse(await unrelatedTransport.waitForExit(1));
 
       assert.include(transport.getLifecycle(), {
         processTreeCleanupSupported: true,
         processTreeCleanupStrategy: "node-process-group",
+        processTreeCleanupValidation: "validated",
+        launchPidValidated: true,
+        launchPgidValidated: true,
+        launchSidValidated: true,
+        termSignalSent: true,
+        processGroupSignalDelivery: "node-direct",
+        processGroupSignalOperandDelimited: false,
         killedByClose: true,
       });
+      assert.notEqual(transport.getLifecycle().directSubprocessFallback, true);
       assert.isNumber(transport.getLifecycle().childPid);
+      await unrelatedTransport.close({ graceMs: 0 });
     } finally {
       restoreGlobalProperty("ChromeUtils", previousChromeUtils);
     }
+  });
+
+  it("keeps external negative-PGID actuation behind the safe process-control builder", async function () {
+    const transportSource = await fs.readFile(
+      path.join(process.cwd(), "src/modules/acpTransport.ts"),
+      "utf8",
+    );
+    const processControlSource = await fs.readFile(
+      path.join(process.cwd(), "src/platform/processControl.ts"),
+      "utf8",
+    );
+
+    assert.notMatch(
+      transportSource,
+      /arguments:\s*\[\s*`-\$\{args\.signal\}`\s*,\s*`-\$\{args\.pid\}`/u,
+    );
+    assert.include(transportSource, "buildPosixProcessGroupSignalInvocation");
+    assert.include(
+      processControlSource,
+      'arguments: ["-s", signal, "--", `-${target.pgid}`]',
+    );
   });
 
   it("bounds ACP WebSocket bridge service shutdown when process wait never settles", async function () {
@@ -1193,6 +1441,10 @@ describe("acp transport", function () {
         childPid: 9001,
         exitCode: 0,
         exitSource: "natural-exit",
+        processIdentityQuerySupported: false,
+        processTreeCleanupValidation: "not-required",
+        directSubprocessFallback: false,
+        possibleWrapperDescendants: false,
       });
       assert.notInclude(
         transport.getLifecycle().bridgeUrl || "",
@@ -1212,6 +1464,11 @@ describe("acp transport", function () {
           "websocket_close",
         ],
       );
+      const launchAudit = auditEvents.find(
+        (event) => event.event === "launch_plan_built",
+      );
+      assert.notProperty(launchAudit || {}, "commandLine");
+      assert.notProperty(launchAudit || {}, "command");
       assert.isTrue(
         auditEvents.every((event) => event.spawnId === spawnRequest.id),
       );

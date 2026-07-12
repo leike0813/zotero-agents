@@ -1,6 +1,8 @@
 import type { AcpConversationItem } from "./acpTypes";
 import {
   appendAcpSkillRunTranscriptEvent,
+  enqueueAcpSkillRunTranscriptEvents,
+  flushAcpSkillRunTranscriptWrites,
   readAcpSkillRunTranscriptItems,
   readAcpSkillRunTranscriptPage,
   resolveAcpSkillRunTranscriptPaths,
@@ -40,6 +42,34 @@ export async function appendAcpChatTranscriptEvent(args: {
     patch: args.patch as never,
     createdAt: args.createdAt,
   });
+}
+
+export function enqueueAcpChatTranscriptEvent(args: {
+  conversationStorageDir?: string;
+  op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
+  itemId: string;
+  item?: AcpConversationItem;
+  text?: string;
+  patch?: Partial<AcpConversationItem>;
+  createdAt?: string;
+}) {
+  enqueueAcpSkillRunTranscriptEvents({
+    runtimeDir: args.conversationStorageDir,
+    events: [
+      {
+        op: args.op,
+        itemId: args.itemId,
+        item: args.item as never,
+        text: args.text,
+        patch: args.patch as never,
+        createdAt: args.createdAt,
+      },
+    ],
+  });
+}
+
+export function flushAcpChatTranscriptWrites(conversationStorageDir?: string) {
+  return flushAcpSkillRunTranscriptWrites(conversationStorageDir);
 }
 
 export async function readAcpChatTranscriptPage(args: {

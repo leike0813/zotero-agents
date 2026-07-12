@@ -84,64 +84,52 @@ Workspace activity status SHALL not split an active assistant stream.
 
 ### Requirement: ACP Streaming Render Can Be Disabled
 
-ACP Chat and ACP Skills SHALL participate in the Assistant Workspace UI publish
-policy and SHALL use the global streaming render preference. The preference
-defaults to enabled.
+ACP Chat and ACP Skills SHALL use the global `live`, `boundary`, or `silent` Assistant execution display mode. `live` SHALL preserve natural text/thought streaming and coalesced metadata publication. `boundary` SHALL preserve the existing disabled-live behavior: canonical transcript remains complete, partial text stays hidden until semantic boundaries, and structural events remain visible.
 
-When the preference is enabled, ACP text and thought chunks SHALL advance the
-UI-visible transcript naturally as backend streaming arrives. Metadata live
-updates SHALL remain coalesced to the shared Assistant Workspace live cadence.
+In every mode, ACP Chat and ACP Skills SHALL count Assistant, Thought, and Tool semantic activity before display-mode projection. Consecutive chunks in one Assistant or Thought segment SHALL increment that category once; a new tool call SHALL increment Tool once; tool updates and soft side-channel updates SHALL neither increment nor split a segment. In `silent`, process content remains suppressed while all three counts continue to advance.
 
-When the preference is disabled, ACP text and thought chunks SHALL still be
-stored in canonical state and persisted in the final transcript, but live
-updates SHALL NOT publish UI snapshots. The visible transcript SHALL update only
-at transcript boundaries or critical states.
+#### Scenario: live mode streams naturally
 
-Metadata, usage, session-info, diagnostics, and other non-transcript updates
-SHALL NOT leak unpublished partial text into the visible transcript. Workspace
-activity, tool state changes, and plan changes SHALL be structural transcript
-events and SHALL publish immediately without releasing unrelated unpublished
-streaming text.
+- **WHEN** mode is `live` and ACP emits many chunks plus metadata
+- **THEN** text advances naturally
+- **AND** semantic counts advance independently of metadata cadence.
 
-#### Scenario: ACP Chat chunks plus metadata while streaming render is disabled
+#### Scenario: boundary mode retains complete canonical content
 
-- **WHEN** an ACP Chat prompt emits `agent_message_chunk` updates followed by
-  `usage_update` or `session_info_update`
-- **THEN** the canonical assistant message contains the accumulated text
-- **AND** the visible transcript does not show partial assistant text
-- **AND** prompt completion renders the completed assistant message.
+- **WHEN** mode is `boundary` and ACP emits text, thought, tool, and plan updates
+- **THEN** canonical transcript retains the complete content
+- **AND** visible text waits for its existing semantic boundary.
 
-#### Scenario: ACP Chat live render streams naturally while enabled
+#### Scenario: silent mode counts hidden process activity
 
-- **WHEN** streaming render is enabled
-- **AND** an ACP Chat prompt emits many chunks and metadata updates
-- **THEN** visible transcript snapshots advance with the text chunks
-- **AND** metadata-only snapshots are still governed by the shared live cadence
-- **AND** the final completion publishes the complete transcript immediately.
+- **WHEN** mode is `silent` and ACP emits Assistant, Thought, and Tool semantic activity
+- **THEN** no thought or tool row is displayed
+- **AND** the corresponding semantic category counts advance once per segment or tool call.
 
-#### Scenario: ACP Skills chunks plus non-text updates while disabled
+#### Scenario: silent critical states remain immediate
 
-- **WHEN** an ACP Skills run receives text or thought chunks followed by usage,
-  tool, plan, or workspace activity updates
-- **THEN** canonical run transcript stores the complete content
-- **AND** usage updates do not expose partial text
-- **AND** tool, plan, and workspace activity events appear immediately as
-  structural transcript events
-- **AND** a transcript boundary or turn completion publishes the complete text.
+- **WHEN** silent ACP Chat or ACP Skills receives permission, auth, waiting, error, cancel, interrupt, or terminal state
+- **THEN** the panel publishes that state immediately.
 
-#### Scenario: ACP tool result status is immediate while disabled
+### Requirement: Prompt interruption and transcript rendering remain region-scoped
 
-- **GIVEN** streaming render is disabled
-- **WHEN** an ACP tool call is visible as pending
-- **AND** a later `tool_call_update` marks it completed or failed
-- **THEN** the visible tool item updates immediately to the completed or failed
-  state.
+Assistant Workspace SHALL project prompt interruption state independently from transcript revisions and SHALL preserve managed region DOM identity when an unrelated region changes.
 
-#### Scenario: ACP critical states remain immediate
+#### Scenario: Trailing transcript update arrives while cancellation is requested
+- **WHEN** an ACP Chat or ACP Skills prompt is in requested interruption state
+- **AND** the backend emits a trailing transcript update
+- **THEN** only the transcript region MUST render the transcript change
+- **AND** toolbar, banner, plan, hint, reply, context drawer, details drawer, and permission drawer DOM MUST retain identity when their own visible state is unchanged.
 
-- **WHEN** ACP Chat or ACP Skills receives permission, error, waiting, cancel,
-  or interrupt state
-- **THEN** the panel publishes that state immediately
-- **AND** the transcript content in that snapshot uses the latest published
-  transcript view unless the event is also a transcript boundary.
+#### Scenario: Interruption state changes without transcript content
+- **WHEN** the interruption state changes from idle to requested
+- **AND** transcript content is unchanged
+- **THEN** only regions whose visible interruption controls or status changed MAY rebuild
+- **AND** transcript and unrelated managed regions MUST retain DOM identity.
+
+#### Scenario: Requested interruption disables repeated input
+- **WHEN** interruption state is `requested`
+- **THEN** the reply input and submit action MUST be disabled
+- **AND** mode, model, and reasoning controls MUST remain disabled
+- **AND** a repeated cancel action MUST NOT be emitted.
 

@@ -36,7 +36,7 @@ Use the run-local shim first when it exists. If the observed `zotero-bridge` ver
 
 ## Workflow Model
 
-Use `workflow describe <workflowId>` or `workflow requirements <workflowId>` before submitting a workflow whose input shape, output contract, or execution mode is uncertain. Use `workflow validate` when you have a draft selection, workflow options, or provider profile and need to check readiness without starting a run.
+Use `workflow describe --workflow <workflowId>` or `workflow requirements --workflow <workflowId>` before submitting a workflow whose input shape, output contract, or execution mode is uncertain. Use `workflow validate` when you have a draft selection, workflow options, or provider profile and need to check readiness without starting a run.
 
 Use `workflow submit` when Host Bridge should execute the workflow and produce a `workflowRunId`. Register and monitor only these Host-owned runs through the run control plane.
 
@@ -81,7 +81,7 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Command families
 
-- Prefer semantic CLI command families: bridge (backend list, backend status, manifest, profile diagnose, profile inspect, status); library (annotation export, annotation list, item attachments, item get, item notes, item search, items list, note get, note payload, note payloads, readiness audit, readiness missing-analysis, readiness missing-markdown, readiness missing-pdf, snapshot); synthesis (artifact export-filtered, artifact manifest, artifact read, artifact resolve-topic-digest, cache invalidate, cache status, concept query, graph get-layout, graph get-metrics, graph get-slice, graph overview, graph query-cluster, graph rank-external-references, graph rank-library-papers, graph refresh-metrics, index library get, index reference get, index status, insight attention-queue, resolver resolve, schema get, topic find-by-paper-ref, topic get-context, topic get-report, topic get-review-input, topic list); workflow (agent-apply, agent-run, describe, list, requirements, submit, validate); run (active, cancel, get, list, notification ack, notification list, notification wait, permission get, permission pending, recent, skill connect, skill events, skill get, skill recent, skill reply, workflow recent); mutation (apply, collection add-items, collection create, collection remove-items, item attach-file, item update, literature-ingest, note create, note update, note upsert-payload, preview, tag add, tag remove); file (download, upload); context (collection open, current, item open, note open, selection get, selection open).
+- Prefer semantic CLI command families: bridge (backend list, backend status, manifest, profile diagnose, profile inspect, status); library (annotation export, annotation list, item attachments, item get, item notes, item search, items list, note get, note payload, note payloads, readiness audit, readiness missing-analysis, readiness missing-markdown, readiness missing-pdf, snapshot); synthesis (artifact export-filtered, artifact manifest, artifact read, artifact resolve-topic-digest, cache invalidate, cache status, concept query, graph get-layout, graph get-metrics, graph get-slice, graph overview, graph query-cluster, graph rank-external-references, graph rank-library-papers, graph refresh-metrics, index library get, index reference get, index status, insight attention-queue, resolver resolve, schema get, topic find-by-paper-ref, topic get-context, topic get-report, topic get-review-input, topic list); workflow (agent-apply, agent-run, describe, list, requirements, submit, validate); run (active, cancel, get, list, notification ack, notification list, notification wait, permission get, permission pending, recent, skill connect, skill events, skill get, skill recent, skill reply, workflow recent); mutation (apply, collection add-items, collection create, collection remove-items, item attach-file, item update, literature-ingest, note create, note update, note upsert-payload, preview, tag add, tag remove); file (download, upload); context (collection open, current, item open, note open, selection get, selection open); product (download, get, list, remove).
 - Current graph/insight commands: synthesis graph get-layout, synthesis graph get-metrics, synthesis graph get-slice, synthesis graph overview, synthesis graph query-cluster, synthesis graph rank-external-references, synthesis graph rank-library-papers, synthesis graph refresh-metrics, synthesis insight attention-queue.
 - Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.
 - MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.
@@ -89,10 +89,10 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Topic context payloads
 
-- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.
+- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--query` JSON.
 - Omit `view` only when the flat topic context response is required.
 - For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.
-- Example: `zotero-bridge synthesis topic get-context --input '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
+- Example: `zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
 
 ### Large response pagination
 
@@ -103,20 +103,20 @@ This section is generated from the Host Bridge surface catalog.
 
 ### Resolver payloads
 
-- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.
+- `synthesis resolver resolve` accepts direct resolver fields in `--query`; do not wrap them in a top-level `resolver` object.
 - Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
 - `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
 - `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
-- Examples: `zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --input '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Examples: `zotero-bridge synthesis resolver resolve --query '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --query '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
 - Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
 ### Workflow payloads
 
-- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
-- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use `--input`.
+- Use `workflow describe --workflow <id>` or `workflow requirements --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` and `workflow validate` use `--selection <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows.
 - Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
 - Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
-- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- Use `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
 - `workflow agent-run` does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task; the host only prepares request context for the handoff.
 - `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and is recalculated when apply-back is submitted.
 - Use `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing a SkillRunner-compatible output bundle from the handoff output contract.

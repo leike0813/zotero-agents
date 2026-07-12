@@ -20,7 +20,24 @@ import { buildAssistantPanelLabels } from "./assistantPanelLabels";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
-} from "./assistantWorkspaceUiPublishPolicy";
+  getAssistantExecutionDisplayMode,
+  isAssistantSilentExecutionMode,
+  subscribeAssistantExecutionDisplayMode,
+} from "./assistantExecutionDisplayPolicy";
+import {
+  discardAcpExecutionProgressCandidate,
+  finishAcpExecutionProgress,
+  releaseAcpExecutionProgress,
+  resetAcpExecutionProgress,
+  restoreAcpExecutionProgress,
+  snapshotAcpMessageCounts,
+  snapshotAcpExecutionProgress,
+  updateAcpExecutionProgress,
+} from "./acpExecutionProgress";
+import {
+  normalizeAssistantMessageCounts,
+  type AssistantMessageCountsSnapshot,
+} from "./assistantMessageCounts";
 import { readUiVisibleTranscriptPage } from "./assistantTranscriptPageProjection";
 import { isAcpTranscriptHardBoundaryUpdate } from "./acpTranscriptBoundary";
 import {
@@ -45,7 +62,9 @@ import type {
 import type {
   AcpMcpHealthSnapshot,
   AcpPendingPermissionRequest,
+  AcpPromptInterruptState,
 } from "./acpTypes";
+import { normalizeAcpPromptInterruptState } from "./acpTypes";
 import {
   parseAcpEffortFromModelText,
   resolveAcpRawModelIdForSelection,
@@ -54,7 +73,10 @@ import {
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import {
-  appendAcpSkillRunTranscriptEvents,
+  enqueueAcpSkillRunTranscriptEvents,
+  flushAllAcpTranscriptWrites,
+  flushAcpSkillRunTranscriptWrites,
+  resetAcpTranscriptWritesForTests,
   readAcpSkillRunTranscriptPage as readAcpSkillRunTranscriptPageFromStore,
   resolveAcpSkillRunTranscriptPaths,
   type AcpSkillRunTranscriptEventInput,
@@ -302,6 +324,7 @@ export type AcpSkillRunRecord = {
   applyResultState?: "pending" | "succeeded" | "failed";
   sessionId?: string;
   activePrompt?: boolean;
+  promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
   transcriptItems?: AcpSkillRunTranscriptItem[];
@@ -322,6 +345,7 @@ export type AcpSkillRunRecord = {
   transcriptEventSeq?: number;
   transcriptItemCount?: number;
   transcriptPreview?: string;
+  messageCounts?: AssistantMessageCountsSnapshot;
   runContextPath?: string;
   createdAt: string;
   updatedAt: string;
@@ -369,6 +393,7 @@ export type AcpSkillRunSummary = Pick<
   | "pendingInteraction"
   | "pendingPermission"
   | "activePrompt"
+  | "promptInterruptState"
   | "transcriptRevision"
   | "transcriptEventSeq"
   | "transcriptItemCount"
@@ -392,6 +417,8 @@ export type AcpSkillRunSummaryListOptions = {
 
 export type AcpSkillRunPanelSnapshot = {
   generatedAt: string;
+  executionDisplayMode: ReturnType<typeof getAssistantExecutionDisplayMode>;
+  messageCounts?: AssistantMessageCountsSnapshot;
   selectedRequestId: string;
   selectedTranscript?: {
     requestId: string;
@@ -453,6 +480,7 @@ export type AcpSkillRunRuntimeOptionsSnapshot = {
 export type AcpSkillRunSnapshotChangeKind =
   | "run"
   | "transcript"
+  | "progress"
   | "runtime-options"
   | "selection"
   | "archive"
@@ -534,14 +562,10 @@ const waitingUserDetachTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 const runtimeFileWrites = new Set<Promise<unknown>>();
-const transcriptWriteBatches = new Map<
-  string,
-  {
-    events: AcpSkillRunTranscriptEventInput[];
-    timer: ReturnType<typeof setTimeout> | null;
-    flushing: Promise<void> | null;
-  }
->();
+const SOFT_RUN_PERSIST_DELAY_MS = 2000;
+const softRunPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const softRunPersistRecords = new Map<string, AcpSkillRunRecord>();
+const lastPersistedEventIds = new Map<string, string>();
 const runtimeOptionsByRequestId = new Map<
   string,
   AcpSkillRunRuntimeOptionsSnapshot
@@ -573,6 +597,8 @@ async function waitForAcpSkillRunShutdownTask(
 }
 const listeners = new Set<AcpSkillRunListener>();
 let hydrated = false;
+let unsubscribeExecutionDisplayMode: (() => void) | undefined;
+let lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -869,7 +895,7 @@ function readUiVisibleTranscriptMirrorPage(args: {
     itemIds: args.state.itemIds,
     getItem: (itemId) => args.state.itemsById.get(itemId),
     cloneItem: cloneAcpSkillRunTranscriptItem,
-    streamingRenderEnabled: canPublishAssistantWorkspaceLiveUpdates(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
     cursor: args.cursor,
     limit: args.limit,
     defaultLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
@@ -1408,73 +1434,15 @@ function queueAcpSkillRunTranscriptPersistence(
   if (!runtimeDir) {
     return;
   }
-  let batch = transcriptWriteBatches.get(runtimeDir);
-  if (!batch) {
-    batch = {
-      events: [],
-      timer: null,
-      flushing: null,
-    };
-    transcriptWriteBatches.set(runtimeDir, batch);
-  }
-  batch.events.push(event);
-  if (batch.timer || batch.flushing) {
-    return;
-  }
-  batch.timer = setTimeout(() => {
-    const current = transcriptWriteBatches.get(runtimeDir);
-    if (current) {
-      current.timer = null;
-    }
-    const write = flushAcpSkillRunTranscriptWriteBatch(runtimeDir).catch(
-      () => undefined,
-    );
-    runtimeFileWrites.add(write);
-    void write.finally(() => {
-      runtimeFileWrites.delete(write);
-    });
-  }, 50);
+  enqueueAcpSkillRunTranscriptEvents({ runtimeDir, events: [event] });
 }
 
 async function flushAcpSkillRunTranscriptWriteBatch(runtimeDir: string) {
-  const batch = transcriptWriteBatches.get(runtimeDir);
-  if (!batch) {
-    return;
-  }
-  if (batch.flushing) {
-    await batch.flushing;
-    return;
-  }
-  if (batch.timer) {
-    clearTimeout(batch.timer);
-    batch.timer = null;
-  }
-  batch.flushing = (async () => {
-    while (batch.events.length > 0) {
-      const events = batch.events.splice(0, batch.events.length);
-      await appendAcpSkillRunTranscriptEvents({
-        runtimeDir,
-        events,
-      }).catch(() => undefined);
-    }
-  })();
-  try {
-    await batch.flushing;
-  } finally {
-    batch.flushing = null;
-    if (batch.events.length === 0 && !batch.timer) {
-      transcriptWriteBatches.delete(runtimeDir);
-    }
-  }
+  await flushAcpSkillRunTranscriptWrites(runtimeDir);
 }
 
 async function flushAcpSkillRunTranscriptWriteBatches() {
-  const flushes = Array.from(transcriptWriteBatches.keys()).map((runtimeDir) =>
-    flushAcpSkillRunTranscriptWriteBatch(runtimeDir),
-  );
-  if (flushes.length > 0) {
-    await Promise.all(flushes);
-  }
+  await flushAllAcpTranscriptWrites().catch(() => undefined);
 }
 
 function hasLargeAcpSkillRunPayload(raw: Record<string, unknown>) {
@@ -1793,6 +1761,7 @@ function materializeAcpSkillRunPanelSelectedRequestId(
 function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
   transcriptLiveStates.delete(requestId);
+  releaseAcpExecutionProgress(requestId);
   forgetColdAcpSkillRunTranscriptMirror(requestId);
   activeRunRequestIds.delete(requestId);
   removeRecentVisibleRunRequestId(requestId);
@@ -1801,6 +1770,9 @@ function deleteAcpSkillRunRecord(requestId: string) {
 }
 
 function clearAcpSkillRunRecords() {
+  for (const requestId of runRecords.keys()) {
+    releaseAcpExecutionProgress(requestId);
+  }
   runRecords.clear();
   transcriptLiveStates.clear();
   coldAcpSkillRunTranscriptMirrorLru.clear();
@@ -2066,30 +2038,62 @@ function toolEventTime(item: { updatedAt?: string; createdAt?: string }) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const ACP_SKILL_RUN_TRANSCRIPT_EVENT_STAGES = new Set([
+  "output-validation-failed",
+  "repair-started",
+  "repair-validation-failed",
+  "acp-prompt-no-output",
+  "acp-prompt-stopped",
+  "acp-prompt-failed",
+  "permission-requested",
+  "permission-resolved",
+  "conversation-ended",
+  "conversation-closed",
+  "conversation-error",
+  "reply-unavailable",
+  "workspace-activity",
+  "apply-pending",
+  "apply-succeeded",
+  "apply-failed",
+  "succeeded",
+  "failed",
+  "canceled",
+  "cancel-requested",
+  "interrupt-requested",
+  "interrupt-confirmed",
+  "interrupt-forced",
+  "interrupt-unconfirmed",
+]);
+
+const ACP_SKILL_RUN_SILENT_CRITICAL_STAGES = new Set([
+  "permission-requested",
+  "permission-resolved",
+  "conversation-ended",
+  "conversation-closed",
+  "conversation-error",
+  "reply-unavailable",
+  "waiting-user",
+  "waiting-auth",
+  "auth-required",
+  "apply-succeeded",
+  "apply-failed",
+  "succeeded",
+  "failed",
+  "canceled",
+  "cancel-requested",
+  "interrupt-requested",
+  "interrupt-confirmed",
+  "interrupt-forced",
+  "interrupt-unconfirmed",
+]);
+
 function shouldShowEventInTranscript(stage: string) {
-  return new Set([
-    "output-validation-failed",
-    "repair-started",
-    "repair-validation-failed",
-    "acp-prompt-no-output",
-    "acp-prompt-stopped",
-    "acp-prompt-failed",
-    "permission-requested",
-    "permission-resolved",
-    "conversation-ended",
-    "conversation-closed",
-    "conversation-error",
-    "reply-unavailable",
-    "workspace-activity",
-    "apply-pending",
-    "apply-succeeded",
-    "apply-failed",
-    "succeeded",
-    "failed",
-    "canceled",
-    "cancel-requested",
-    "interrupt-completed",
-  ]).has(normalizeString(stage));
+  const normalized = normalizeString(stage);
+  return (
+    ACP_SKILL_RUN_TRANSCRIPT_EVENT_STAGES.has(normalized) &&
+    (!isAssistantSilentExecutionMode() ||
+      ACP_SKILL_RUN_SILENT_CRITICAL_STAGES.has(normalized))
+  );
 }
 
 function permissionStatusFromResolution(details: Record<string, unknown>) {
@@ -2420,6 +2424,9 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           : undefined,
     sessionId: normalizeString(raw.sessionId) || undefined,
     activePrompt: raw.activePrompt === true,
+    promptInterruptState: normalizeAcpPromptInterruptState(
+      raw.promptInterruptState,
+    ),
     pendingPermission: isRecord(raw.pendingPermission)
       ? ({
           requestId: normalizeString(raw.pendingPermission.requestId),
@@ -2478,6 +2485,10 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
       Math.floor(Number(raw.transcriptItemCount || 0) || 0),
     ),
     transcriptPreview: normalizeString(raw.transcriptPreview) || undefined,
+    messageCounts: normalizeAssistantMessageCounts(
+      raw.messageCounts,
+      requestId,
+    ),
     runContextPath: normalizeString(raw.runContextPath) || undefined,
     createdAt,
     updatedAt,
@@ -2500,6 +2511,28 @@ function ensureHydrated() {
     return;
   }
   hydrated = true;
+  lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
+  unsubscribeExecutionDisplayMode = subscribeAssistantExecutionDisplayMode(
+    (mode) => {
+      if (mode === lastExecutionDisplayMode) {
+        return;
+      }
+      for (const record of runRecords.values()) {
+        if (mode === "silent") {
+          const now = nowIso();
+          if (completeOpenStreamingTextItems(record, now)) {
+            persistRun(record);
+            emitChanged(
+              acpSkillRunSnapshotChange(record.requestId, ["transcript"]),
+            );
+          }
+        } else if (lastExecutionDisplayMode === "silent") {
+          discardAcpExecutionProgressCandidate(record.requestId);
+        }
+      }
+      lastExecutionDisplayMode = mode;
+    },
+  );
   for (const row of listPluginRunStoreEntries("acp")) {
     try {
       const raw = JSON.parse(row.payload || "{}") as Record<string, unknown>;
@@ -2509,6 +2542,7 @@ function ensureHydrated() {
         continue;
       }
       setAcpSkillRunRecord(parsed);
+      restoreAcpExecutionProgress(parsed.requestId, parsed.messageCounts);
       if (legacyLargePayload) {
         persistRun(parsed);
       }
@@ -2571,6 +2605,7 @@ function persistAcpSkillRunRuntimeFiles(
 }
 
 export async function flushAcpSkillRunRuntimeFileWrites() {
+  flushSoftRunPersists();
   await flushAcpSkillRunTranscriptWriteBatches();
   while (runtimeFileWrites.size > 0) {
     await Promise.all(Array.from(runtimeFileWrites)).catch(() => undefined);
@@ -2658,6 +2693,12 @@ function persistRun(
   if (normalizeString(record.backendType) !== ACP_BACKEND_TYPE) {
     return;
   }
+  const pendingTimer = softRunPersistTimers.get(record.requestId);
+  if (pendingTimer) {
+    clearTimeout(pendingTimer);
+    softRunPersistTimers.delete(record.requestId);
+  }
+  softRunPersistRecords.delete(record.requestId);
   persistAcpSkillRunRuntimeFiles(record, options);
   upsertPluginRunStoreEntry("acp", {
     runKey: record.requestId,
@@ -2672,8 +2713,13 @@ function persistRun(
     const persistedEvent = sanitizeAcpSkillRunPersistedValue(
       latestEvent,
     ) as AcpSkillRunEvent;
+    const eventId = `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`;
+    if (lastPersistedEventIds.get(record.requestId) === eventId) {
+      return;
+    }
+    lastPersistedEventIds.set(record.requestId, eventId);
     appendPluginRunEventStoreEntry("acp", {
-      eventId: `${record.requestId}:${latestEvent.ts}:${record.events.length}:${latestEvent.stage}`,
+      eventId,
       runKey: record.requestId,
       requestId: record.requestId,
       backendId: record.backendId,
@@ -2681,6 +2727,30 @@ function persistRun(
       createdAt: latestEvent.ts || record.updatedAt,
       payload: JSON.stringify(persistedEvent),
     });
+  }
+}
+
+function scheduleSoftRunPersist(record: AcpSkillRunRecord) {
+  softRunPersistRecords.set(record.requestId, record);
+  if (softRunPersistTimers.has(record.requestId)) {
+    return;
+  }
+  softRunPersistTimers.set(
+    record.requestId,
+    setTimeout(() => {
+      softRunPersistTimers.delete(record.requestId);
+      const pending = softRunPersistRecords.get(record.requestId);
+      if (pending) {
+        softRunPersistRecords.delete(record.requestId);
+        persistRun(pending);
+      }
+    }, SOFT_RUN_PERSIST_DELAY_MS),
+  );
+}
+
+function flushSoftRunPersists() {
+  for (const record of Array.from(softRunPersistRecords.values())) {
+    persistRun(record);
   }
 }
 
@@ -3009,6 +3079,7 @@ function resolveAcpSkillRunStatusTransition(args: {
 
 export function upsertAcpSkillRun(update: {
   requestId: string;
+  persistMode?: "immediate" | "trailing";
   status?: AcpSkillRunStatus;
   statusReason?: AcpSkillRunStatusTransitionReason;
   backendStatus?: AcpSkillRunStatus;
@@ -3035,7 +3106,7 @@ export function upsertAcpSkillRun(update: {
   resultJsonPath?: string;
   acpModeId?: string;
   acpModelId?: string;
-  acpReasoningEffort?: string;
+  acpReasoningEffort?: string | null;
   acpRawModelId?: string;
   agentFamily?: string;
   skillRoots?: string[];
@@ -3070,6 +3141,7 @@ export function upsertAcpSkillRun(update: {
   applyResultState?: AcpSkillRunRecord["applyResultState"];
   sessionId?: string;
   activePrompt?: boolean;
+  promptInterruptState?: AcpPromptInterruptState;
   pendingPermission?: AcpPendingPermissionRequest | null;
   resultJson?: unknown;
   error?: string;
@@ -3109,6 +3181,10 @@ export function upsertAcpSkillRun(update: {
     }),
     updatedAt: now,
   };
+  if (!existing) {
+    resetAcpExecutionProgress(requestId);
+    next.messageCounts = snapshotAcpMessageCounts(requestId);
+  }
   const assignString = <K extends keyof AcpSkillRunRecord>(
     key: K,
     value: unknown,
@@ -3176,7 +3252,14 @@ export function upsertAcpSkillRun(update: {
   assignString("resultJsonPath", update.resultJsonPath);
   assignString("acpModeId", update.acpModeId);
   assignString("acpModelId", update.acpModelId);
-  assignString("acpReasoningEffort", update.acpReasoningEffort);
+  if (Object.prototype.hasOwnProperty.call(update, "acpReasoningEffort")) {
+    const effort = normalizeString(update.acpReasoningEffort);
+    if (effort) {
+      next.acpReasoningEffort = effort;
+    } else {
+      delete next.acpReasoningEffort;
+    }
+  }
   assignString("acpRawModelId", update.acpRawModelId);
   assignString("agentFamily", update.agentFamily);
   assignString("sharedSkillCatalogPath", update.sharedSkillCatalogPath);
@@ -3279,6 +3362,15 @@ export function upsertAcpSkillRun(update: {
   if (update.applyResultState) next.applyResultState = update.applyResultState;
   if (typeof update.activePrompt === "boolean")
     next.activePrompt = update.activePrompt;
+  if (Object.prototype.hasOwnProperty.call(update, "promptInterruptState")) {
+    next.promptInterruptState = normalizeAcpPromptInterruptState(
+      update.promptInterruptState,
+    );
+  }
+  if (update.status && isTerminalAcpSkillRunStatus(next.status)) {
+    finishAcpExecutionProgress(requestId);
+    next.messageCounts = snapshotAcpMessageCounts(requestId);
+  }
   if (Object.prototype.hasOwnProperty.call(update, "pendingPermission")) {
     next.pendingPermission = update.pendingPermission || null;
   }
@@ -3304,12 +3396,30 @@ export function upsertAcpSkillRun(update: {
   setAcpSkillRunRecord(next);
   selectedRequestId = selectedRequestId || requestId;
   pruneInactiveAcpSkillRunTranscriptMirrors();
-  persistRun(next, {
-    writeRunContext: updateTouchesAcpSkillRunContext(
-      update as Record<string, unknown>,
-    ),
-    writeResultJson: Object.prototype.hasOwnProperty.call(update, "resultJson"),
-  });
+  const suppressedSilentTrailingEvent =
+    isAssistantSilentExecutionMode() &&
+    update.persistMode === "trailing" &&
+    !!update.event &&
+    !ACP_SKILL_RUN_SILENT_CRITICAL_STAGES.has(
+      normalizeString(update.event.stage),
+    );
+  if (suppressedSilentTrailingEvent) {
+    // Canonical memory may retain low-signal runtime state until the next
+    // lifecycle write, but silent mode does not create a soft persistence edge.
+    return next;
+  } else if (update.persistMode === "trailing") {
+    scheduleSoftRunPersist(next);
+  } else {
+    persistRun(next, {
+      writeRunContext: updateTouchesAcpSkillRunContext(
+        update as Record<string, unknown>,
+      ),
+      writeResultJson: Object.prototype.hasOwnProperty.call(
+        update,
+        "resultJson",
+      ),
+    });
+  }
   emitChanged(
     acpSkillRunSnapshotChange(requestId, [
       "run",
@@ -3595,6 +3705,11 @@ export function recordAcpSkillRunOutputRevision(args: {
     replacementReason: args.replacementReason,
     now,
   });
+  if (isAssistantSilentExecutionMode()) {
+    setAcpSkillRunRecord(next);
+    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    return;
+  }
   removeLatestAssistantCandidateMessage(next, args.candidateText);
   setAcpSkillRunRecord(next);
   persistRun(next);
@@ -3650,6 +3765,11 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
     errors: args.errors,
     now,
   });
+  if (isAssistantSilentExecutionMode() && args.kind === "pending") {
+    setAcpSkillRunRecord(next);
+    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    return;
+  }
   replaceLatestAssistantMessage({
     record: next,
     text: canonicalText,
@@ -3884,12 +4004,41 @@ export function recordAcpSkillRunSessionUpdate(
   }
   const update = event.update || { sessionUpdate: "" };
   const kind = normalizeString(update.sessionUpdate);
+  const progressChange = updateAcpExecutionProgress(requestId, update);
+  const messageCounts = snapshotAcpMessageCounts(requestId);
+  if (isAssistantSilentExecutionMode() && kind !== "user_message_chunk") {
+    if (kind === "usage_update") {
+      const used = Number((update as { used?: unknown }).used || 0);
+      const size = Number((update as { size?: unknown }).size || 0);
+      if (Number.isFinite(used) && Number.isFinite(size)) {
+        setAcpSkillRunRecord({
+          ...existing,
+          messageCounts,
+          usage: {
+            used: Math.max(0, Math.floor(used)),
+            size: Math.max(0, Math.floor(size)),
+          },
+        });
+      }
+    }
+    if (progressChange.countChanged) {
+      const next = {
+        ...(runRecords.get(requestId) || existing),
+        messageCounts,
+      };
+      setAcpSkillRunRecord(next);
+      scheduleSoftRunPersist(next);
+      emitChanged(acpSkillRunSnapshotChange(requestId, ["progress"]));
+    }
+    return;
+  }
   const isTextChunkUpdate =
     kind === "agent_message_chunk" ||
     kind === "user_message_chunk" ||
     kind === "agent_thought_chunk";
   const next: AcpSkillRunRecord = {
     ...existing,
+    messageCounts,
     updatedAt: isTextChunkUpdate ? existing.updatedAt : now,
     planEntries: existing.planEntries ? [...existing.planEntries] : undefined,
     usage: existing.usage ? { ...existing.usage } : undefined,
@@ -3944,21 +4093,34 @@ export function recordAcpSkillRunSessionUpdate(
     }
   }
   setAcpSkillRunRecord(next);
+  const softToolUpdate =
+    kind === "tool_call_update" &&
+    inferToolCallState(update as AcpToolCall) === "pending";
+  const softPersist =
+    isTextChunkUpdate || kind === "usage_update" || softToolUpdate;
   if (isTextChunkUpdate) {
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
-      persistRun(next);
+      scheduleSoftRunPersist(next);
       return;
     }
-    persistRun(next);
+    scheduleSoftRunPersist(next);
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
   if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
-    persistRun(next);
+    if (softPersist) {
+      scheduleSoftRunPersist(next);
+    } else {
+      persistRun(next);
+    }
     emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
     return;
   }
-  persistRun(next);
+  if (softPersist) {
+    scheduleSoftRunPersist(next);
+  } else {
+    persistRun(next);
+  }
   if (kind === "usage_update") {
     if (canPublishAssistantWorkspaceLiveUpdates()) {
       scheduleChangedEmit(
@@ -3980,6 +4142,10 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
   }
   const existing = runRecords.get(requestId);
   if (!existing) {
+    return;
+  }
+  if (isAssistantSilentExecutionMode()) {
+    discardAcpExecutionProgressCandidate(requestId);
     return;
   }
   const now = nowIso();
@@ -4514,18 +4680,6 @@ export async function interruptAcpSkillRunCurrentTurn(requestIdRaw: string) {
   } else {
     await controller.cancel();
   }
-  upsertAcpSkillRun({
-    requestId,
-    status: "waiting_user",
-    statusReason: "interrupt_turn",
-    activePrompt: false,
-    replyState: "idle",
-    event: {
-      stage: "interrupt-requested",
-      message: "ACP skill run current turn interruption requested.",
-      level: "warn",
-    },
-  });
 }
 
 export function archiveAcpSkillRun(requestIdRaw: string) {
@@ -5509,6 +5663,7 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
       ? { ...run.pendingPermission }
       : null,
     activePrompt: run.activePrompt,
+    promptInterruptState: run.promptInterruptState,
     transcriptRevision: run.transcriptRevision,
     transcriptEventSeq: run.transcriptEventSeq,
     transcriptItemCount: run.transcriptItemCount,
@@ -5632,6 +5787,10 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
   };
   return {
     generatedAt: nowIso(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+    messageCounts: selected
+      ? snapshotAcpMessageCounts(selected.requestId) || selected.messageCounts
+      : undefined,
     labels,
     selectedRequestId: snapshotSelectedRequestId,
     selectedTranscript,
@@ -5827,11 +5986,20 @@ export async function shutdownAcpSkillRunConversations() {
 }
 
 export function resetAcpSkillRunsForTests() {
+  unsubscribeExecutionDisplayMode?.();
+  unsubscribeExecutionDisplayMode = undefined;
   if (changedEmitTimer) {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
   clearAcpSkillRunRecords();
+  for (const timer of softRunPersistTimers.values()) {
+    clearTimeout(timer);
+  }
+  softRunPersistTimers.clear();
+  softRunPersistRecords.clear();
+  lastPersistedEventIds.clear();
+  resetAcpTranscriptWritesForTests();
   controllers.clear();
   applyResultControllerDetachPromises.clear();
   runtimeOptionsByRequestId.clear();

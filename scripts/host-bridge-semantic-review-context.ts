@@ -7,6 +7,7 @@ export type HostBridgeSemanticReviewContext = {
   changedFiles: string[];
   specLayerChanges: string[];
   semanticSourceChanges: string[];
+  profileReleaseMetadataChanges: string[];
   generatedTargetChanges: string[];
   unclassifiedChanges: string[];
   reviewRequired: boolean;
@@ -47,6 +48,10 @@ function isSemanticSource(path: string) {
     path.startsWith("skills_src/zotero-bridge-cli/semantic/") ||
     path.startsWith("profiles_src/hermes/zotero-librarian/")
   );
+}
+
+function isProfileReleaseMetadata(path: string) {
+  return path === "profiles_src/hermes/zotero-librarian/profile-version.json";
 }
 
 function isGeneratedTarget(path: string) {
@@ -107,6 +112,7 @@ function isSpecLayer(path: string) {
 function focusFor(
   specLayerChanges: string[],
   semanticSourceChanges: string[],
+  profileReleaseMetadataChanges: string[],
   generatedTargetChanges: string[],
 ) {
   const focus: string[] = [];
@@ -121,6 +127,11 @@ function focusFor(
   if (semanticSourceChanges.length) {
     focus.push(
       "Review edited semantic sources for current-state wording and alignment with the generated Host Bridge surface.",
+    );
+  }
+  if (profileReleaseMetadataChanges.length) {
+    focus.push(
+      "Review Zotero Librarian profile version governance; semantic-source review is not required for version metadata alone.",
     );
   }
   if (
@@ -146,11 +157,14 @@ export function classifyChangedFiles(
   const normalized = sortedUnique(changedFiles);
   const specLayerChanges: string[] = [];
   const semanticSourceChanges: string[] = [];
+  const profileReleaseMetadataChanges: string[] = [];
   const generatedTargetChanges: string[] = [];
   const unclassifiedChanges: string[] = [];
 
   for (const path of normalized) {
-    if (isSemanticSource(path)) {
+    if (isProfileReleaseMetadata(path)) {
+      profileReleaseMetadataChanges.push(path);
+    } else if (isSemanticSource(path)) {
       semanticSourceChanges.push(path);
     } else if (isGeneratedTarget(path)) {
       generatedTargetChanges.push(path);
@@ -166,6 +180,7 @@ export function classifyChangedFiles(
     changedFiles: normalized,
     specLayerChanges,
     semanticSourceChanges,
+    profileReleaseMetadataChanges,
     generatedTargetChanges,
     unclassifiedChanges,
     reviewRequired:
@@ -173,6 +188,7 @@ export function classifyChangedFiles(
     recommendedFocus: focusFor(
       specLayerChanges,
       semanticSourceChanges,
+      profileReleaseMetadataChanges,
       generatedTargetChanges,
     ),
   };

@@ -996,4 +996,26 @@ describe("background refresh governance", function () {
       assert.include(source, `owner: "${owner}"`);
     }
   });
+
+  it("gates ACP Skills workspace observation with the execution display mode", function () {
+    const source = readFileSync(
+      join(process.cwd(), "src/modules/acpSkillRunnerOrchestrator.ts"),
+      "utf8",
+    );
+    assert.include(source, "subscribeAssistantExecutionDisplayMode");
+    assert.include(source, "isAssistantSilentExecutionMode()");
+    assert.include(source, "workspaceActivityPromptActive");
+    assert.include(source, "stopWorkspaceActivityHeartbeat()");
+    assert.include(source, "unsubscribeExecutionDisplayMode()");
+    assert.isBelow(
+      source.indexOf(
+        "isAssistantSilentExecutionMode()",
+        source.indexOf("const startWorkspaceActivityHeartbeat"),
+      ),
+      source.indexOf(
+        "void scanWorkspaceActivity()",
+        source.indexOf("const startWorkspaceActivityHeartbeat"),
+      ),
+    );
+  });
 });

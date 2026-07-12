@@ -585,7 +585,7 @@
       sessionId: safeText(snap.sessionId || snap.remoteSessionId),
       title: safeText(snap.title || snap.conversationTitle),
       chatDisplayMode: safeText(snap.chatDisplayMode),
-      streamingRenderEnabled: snap.streamingRenderEnabled !== false,
+      executionDisplayMode: safeText(snap.executionDisplayMode) || "live",
       transcriptPaginationVirtualizationEnabled:
         snap.transcriptPaginationVirtualizationEnabled === true,
       selectedMode: safeText(snap.currentMode && snap.currentMode.id),
@@ -595,9 +595,7 @@
       ),
       backendOptions: backendOptions.map(compactOptionKey),
       chatSessions: chatSessions.map(compactConversationKey),
-      authMethods: authMethods.map(function (entry) {
-        return compactOptionKey(entry);
-      }),
+      authMethods: authMethods.map(compactOptionKey),
       modeOptions: modeOptions.map(compactOptionKey),
       modelOptions: modelOptions.map(compactOptionKey),
       reasoningOptions: reasoningOptions.map(compactOptionKey),
@@ -877,23 +875,29 @@
   }
 
   function renderPanel(snapshot) {
-    const renderKey = compactPanelRenderKey(snapshot || {});
-    if (state.panelRenderKey === renderKey) {
-      trace("render-panel-skip", { summary: snapshotSummary(snapshot || {}) });
-      syncDrawerVisibility();
-      return;
-    }
     const renderer = assistantPanelRenderer();
     if (
       !renderer ||
       typeof renderer.renderAssistantPanelSnapshot !== "function"
     )
       return;
+    const panelSnapshot = projectPanelSnapshot(snapshot || {});
+    renderer.renderAssistantPanelSnapshot(panelSnapshot, {
+      managed: true,
+      managedRegions: { messageCounter: true },
+      root: rootEl,
+      regions: {
+        messageCounter: document.getElementById("acp-chat-message-counter"),
+      },
+    });
+    const renderKey = compactPanelRenderKey(snapshot || {});
+    if (state.panelRenderKey === renderKey) {
+      syncDrawerVisibility();
+      return;
+    }
     state.panelRenderKey = renderKey;
     trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
-    const panelSnapshot = applyDrawerGroupCollapseState(
-      projectPanelSnapshot(snapshot || {}),
-    );
+    applyDrawerGroupCollapseState(panelSnapshot);
     if (!snapshot || !snapshot.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
@@ -907,6 +911,7 @@
       managedRegions: {
         toolbar: true,
         banner: true,
+        messageCounter: true,
         plan: true,
         hint: true,
         reply: true,
@@ -919,6 +924,7 @@
       regions: {
         toolbar: document.getElementById("acp-chat-toolbar"),
         banner: document.getElementById("acp-chat-banner"),
+        messageCounter: document.getElementById("acp-chat-message-counter"),
         conversation: document.getElementById("acp-chat-conversation-window"),
         plan: document.getElementById("acp-chat-plan-panel"),
         hint: document.getElementById("acp-chat-interaction"),

@@ -124,7 +124,12 @@ summary,
   position: fixed;
   inset: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "toolbar"
+    "banner"
+    "counter"
+    "content";
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 8px;
   padding: 10px;
   min-height: 0;
@@ -136,6 +141,7 @@ summary,
 }
 
 .asst-panel-main {
+  grid-area: content;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto auto;
   gap: 8px;
@@ -154,6 +160,7 @@ summary,
 }
 
 .asst-shell-toolbar {
+  grid-area: toolbar;
   justify-content: flex-start;
   padding: 6px 8px;
   border: 1px solid var(--asst-line);
@@ -192,6 +199,7 @@ summary,
 }
 
 .asst-banner {
+  grid-area: banner;
   min-width: 0;
   padding: 6px 10px;
 }
@@ -582,6 +590,51 @@ summary,
   animation: asst-spin 0.85s linear infinite;
 }
 
+.assistant-message-counter-region {
+  grid-area: counter;
+  align-self: start;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--asst-line);
+  border-radius: 9px;
+  background: var(--asst-line);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--asst-text) 8%, transparent);
+}
+
+.assistant-message-counter-region.hidden {
+  display: none;
+}
+
+.assistant-message-counter-item {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 9px;
+  background: var(--asst-surface-soft);
+}
+
+.assistant-message-counter-label {
+  overflow: hidden;
+  color: var(--asst-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-message-counter-value {
+  flex: 0 0 auto;
+  color: var(--asst-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .asst-tone-accent {
   color: var(--asst-accent);
   background: var(--asst-accent-soft);
@@ -686,6 +739,7 @@ summary,
 }
 
 .asst-empty-state {
+  grid-area: content;
   margin: 0;
   padding: 18px;
   border: 1px solid var(--asst-line);
@@ -746,6 +800,50 @@ summary,
 
 .assistant-panel-action[data-assistant-action-align="end"] {
   margin-left: auto;
+}
+
+.assistant-panel-display-mode {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px;
+  border: 1px solid var(--asst-line);
+  border-radius: 8px;
+  background: var(--asst-surface-soft);
+}
+
+.assistant-panel-display-mode-option {
+  min-width: 0;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--asst-muted);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.assistant-panel-display-mode-option[aria-checked="true"] {
+  color: var(--asst-text);
+  background: var(--asst-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14);
+}
+
+.assistant-panel-display-mode-option[data-execution-display-mode="live"][aria-checked="true"] {
+  color: var(--asst-success);
+}
+
+.assistant-panel-display-mode-option[data-execution-display-mode="boundary"][aria-checked="true"] {
+  color: var(--asst-warning);
+}
+
+@media (max-width: 420px) {
+  .assistant-panel-display-mode {
+    order: 10;
+    width: 100%;
+  }
+  .assistant-panel-display-mode-option {
+    flex: 1 1 0;
+  }
 }
 
 .assistant-panel-switch-action {
@@ -1892,7 +1990,38 @@ summary,
 }
 
 .assistant-panel-auth-import {
+  display: grid;
+  gap: 8px;
   margin-top: 8px;
+}
+
+.assistant-panel-auth-hint,
+.assistant-panel-auth-import-hint,
+.assistant-panel-auth-import-file-hint {
+  color: var(--asst-muted);
+  font-size: 12px;
+}
+
+.assistant-panel-auth-diagnostic {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.assistant-panel-auth-diagnostic-label {
+  color: var(--asst-muted);
+}
+
+.assistant-panel-auth-link,
+.assistant-panel-auth-diagnostic-value {
+  overflow-wrap: anywhere;
+}
+
+.assistant-panel-auth-import-risk {
+  border-left: 3px solid var(--asst-warning, #b7791f);
+  color: var(--asst-warning-text, #7c4a03);
+  padding-left: 8px;
 }
 
 .assistant-panel-auth-import-file {
@@ -1901,6 +2030,10 @@ summary,
   min-width: 160px;
   color: var(--asst-muted);
   font-size: 12px;
+}
+
+.assistant-panel-auth-import-file + .assistant-panel-auth-import-file {
+  margin-top: 4px;
 }
 
 .assistant-panel-auth-import-file input {

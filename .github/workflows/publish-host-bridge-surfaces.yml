@@ -7,12 +7,18 @@ on:
       - main
     paths:
       - "skills_builtin/zotero-bridge-cli/**"
+      - "skills_src/zotero-bridge-cli/semantic/**"
+      - "skills_src/host-bridge-shared/terminology.md"
+      - "profiles_src/hermes/zotero-librarian/**"
       - "profiles/hermes/zotero-librarian/**"
+      - "workflows_builtin/manifest.json"
+      - "workflows_builtin/**/workflow.json"
       - "src/modules/hostBridgeCapabilityRegistry.ts"
       - "src/modules/zoteroHostCapabilityBroker.ts"
       - "scripts/host-bridge-surface-catalog.ts"
       - "scripts/render-host-bridge-surface.ts"
       - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/zotero-librarian-profile-version.ts"
       - "scripts/check-host-bridge-doc-sync.ts"
       - "scripts/check-zotero-librarian-profile.ts"
       - "scripts/publish-host-bridge-cli-bundle.ps1"
@@ -21,12 +27,18 @@ on:
   pull_request:
     paths:
       - "skills_builtin/zotero-bridge-cli/**"
+      - "skills_src/zotero-bridge-cli/semantic/**"
+      - "skills_src/host-bridge-shared/terminology.md"
+      - "profiles_src/hermes/zotero-librarian/**"
       - "profiles/hermes/zotero-librarian/**"
+      - "workflows_builtin/manifest.json"
+      - "workflows_builtin/**/workflow.json"
       - "src/modules/hostBridgeCapabilityRegistry.ts"
       - "src/modules/zoteroHostCapabilityBroker.ts"
       - "scripts/host-bridge-surface-catalog.ts"
       - "scripts/render-host-bridge-surface.ts"
       - "scripts/render-zotero-librarian-profile.ts"
+      - "scripts/zotero-librarian-profile-version.ts"
       - "scripts/check-host-bridge-doc-sync.ts"
       - "scripts/check-zotero-librarian-profile.ts"
       - ".github/workflows/publish-host-bridge-surfaces.yml"
@@ -55,6 +67,9 @@ jobs:
 
       - name: Sync latest Host Bridge CLI prebuilds
         run: npm run sync:host-bridge-cli-prebuilds
+
+      - name: Check committed Host Bridge surfaces
+        run: npm run check:host-bridge-surface
 
       - name: Render Host Bridge surfaces
         run: npm run render:host-bridge-surface

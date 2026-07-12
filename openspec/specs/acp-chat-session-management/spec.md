@@ -181,6 +181,27 @@ to the conversation that owns the active permission request.
 - **WHEN** the user switches to another conversation for the same backend
 - **THEN** the second conversation SHALL use its own persisted setting.
 
+### Requirement: ACP Chat cleanup SHALL use the shared controller close
+
+ACP Chat SHALL use the same bounded, idempotent shared-controller close for every local conversation lifecycle boundary.
+
+#### Scenario: Conversation lifecycle cleanup is controlled
+
+- **WHEN** disconnect, forced interruption, LRU eviction, initialization failure, reconnect, backend removal, or Zotero shutdown closes a local ACP Chat connection
+- **THEN** ACP Chat SHALL await or reuse the owned shared-controller close
+- **AND** it SHALL NOT implement process-group signaling policy.
+
+#### Scenario: Session operations retain one controller
+
+- **WHEN** ACP Chat creates, loads, resumes, or lazily starts a session for a prompt
+- **THEN** the resulting local transport SHALL remain owned by its shared controller until the conversation ownership boundary closes it.
+
+#### Scenario: Pending request settles on close
+
+- **WHEN** a local ACP Chat connection closes with pending JSON-RPC work
+- **THEN** pending requests SHALL fail in bounded time
+- **AND** controller close SHALL not remain blocked on those requests.
+
 ### Requirement: ACP Chat panel SHALL expose explicit empty availability states
 
 ACP Chat panel snapshots SHALL distinguish a complete no-backend state from a
@@ -256,3 +277,62 @@ plugin-managed local ACP transports through the shared transport cleanup path.
 - **WHEN** ACP Chat preserves local state for later reconnection or recovery
 - **THEN** it SHALL NOT preserve orphaned local backend processes as part of that
   recovery state.
+
+### Requirement: ACP Chat cancellation distinguishes request from completion
+
+ACP Chat SHALL keep an active prompt busy after sending `session/cancel` and SHALL expose a requested interruption state until the original `session/prompt` settles or the owned adapter is force-closed.
+
+#### Scenario: Cancellation notification is written while prompt remains active
+- **WHEN** the user cancels an in-flight ACP Chat prompt
+- **AND** the cancellation notification is written successfully
+- **THEN** the conversation MUST remain busy
+- **AND** a second prompt or cancellation MUST remain disabled
+- **AND** the interruption state MUST be `requested`.
+
+#### Scenario: Agent confirms cancellation
+- **WHEN** the original prompt returns `stopReason: "cancelled"`
+- **THEN** ACP Chat MUST set the interruption state to `confirmed`
+- **AND** it MUST finish the prompt without closing the adapter.
+
+#### Scenario: Agent completes with another result
+- **WHEN** cancellation was requested
+- **AND** the original prompt returns a non-cancelled result
+- **THEN** ACP Chat MUST preserve that result and stop reason
+- **AND** it MUST set the interruption state to `unconfirmed`.
+
+### Requirement: ACP Chat cancellation has a bounded force-stop fallback
+
+ACP Chat SHALL close only the active conversation's adapter and process tree when its cancellation remains unconfirmed for 10 seconds.
+
+#### Scenario: Cancellation grace period expires
+- **WHEN** the original prompt remains unsettled for 10 seconds after cancellation was requested
+- **THEN** ACP Chat MUST close the active conversation adapter
+- **AND** it MUST set the interruption state to `forced`
+- **AND** other conversation adapters MUST remain unaffected.
+
+#### Scenario: Force-stopped conversation is used again
+- **WHEN** the user sends another prompt after a force-stop
+- **THEN** ACP Chat MUST create a new adapter
+- **AND** it MUST try resume, then load, then new-session fallback using the existing recovery policy.
+
+#### Scenario: Cancellation notification cannot be written
+- **WHEN** the client cannot write `session/cancel` to the active connection
+- **THEN** ACP Chat MUST enter the force-stop cleanup path without waiting for the grace period.
+
+### Requirement: ACP Chat cancellation resolves pending permission requests
+
+ACP Chat SHALL answer a pending ACP permission request with the cancelled outcome before requesting prompt cancellation.
+
+#### Scenario: Cancel is selected during a permission request
+- **WHEN** an active prompt has a pending ACP permission request
+- **AND** the user cancels the prompt
+- **THEN** the pending permission request MUST be resolved as cancelled
+- **AND** prompt cancellation MUST continue through the same interruption lifecycle.
+
+### Requirement: ACP Chat process-tree cleanup SHALL preserve validated signal targets
+ACP Chat SHALL delegate local transport teardown to the shared controller whose POSIX signal actuation preserves the complete validated process-group target.
+
+#### Scenario: Wrapper-backed Chat conversation closes
+- **WHEN** an ACP Chat conversation using a wrapper-prone local backend does not exit during EOF grace
+- **THEN** any TERM or KILL escalation SHALL use the shared controller's validated target
+- **AND** an actuation failure SHALL fall back only to the directly held child process

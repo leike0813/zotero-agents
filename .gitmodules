@@ -14,3 +14,6 @@
 	path = skills_builtin/literature-translator
 	url = https://github.com/leike0813/agent-skills
 	branch = skill/literature-translator
+[submodule "reference/Skill-Runner"]
+	path = reference/Skill-Runner
+	url = https://github.com/leike0813/Skill-Runner

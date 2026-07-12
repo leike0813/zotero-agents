@@ -183,7 +183,7 @@ Host Bridge CLI 使用说明由内置 `zotero-bridge-cli` wrapper skill 维护�
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis topic list --input '{}'`。用途：获取现有 topic 列表，用于 create duplicate check。
+- Host read：`<zotero-bridge> synthesis topic list --query '{}'`。用途：获取现有 topic 列表，用于 create duplicate check。
   说明：只根据返回 topic 的 title、description、aliases 和 id 判断是否同一主题；不要把相关主题直接判为 duplicate。
 
 材料使用说明：
@@ -266,7 +266,7 @@ Payload JSON 示例（可提交结构样例）：
 
 上下文获取方式：
 
-- Host read：`<zotero-bridge> synthesis index library get --input '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
+- Host read：`<zotero-bridge> synthesis index library get --query '{"cursor":0,"limit":200}'`。用途：读取 Synthesis sidecar cache 的文库索引，用于设计 resolver proposal。
   说明：如果返回 has_more/next_cursor，按同一 input shape 继续分页；该命令只辅助 resolver 设计，不代表 resolver result。
 
 材料使用说明：

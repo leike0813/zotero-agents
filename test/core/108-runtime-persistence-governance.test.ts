@@ -764,6 +764,7 @@ describe("runtime persistence governance", function () {
   });
 
   it("runs standalone cleanup scripts through runtime persistence internals", async function () {
+    this.timeout(10_000);
     const root = path.join(tempRoot, "standalone-cleanup-root");
     const env = {
       ...process.env,

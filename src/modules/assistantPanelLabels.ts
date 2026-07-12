@@ -10,6 +10,7 @@ export function buildAssistantPanelLabels() {
     actions: {
       send: l("assistant-panel-action-send", "Send"),
       cancel: l("assistant-panel-action-cancel", "Cancel"),
+      cancelling: l("assistant-panel-action-cancelling", "Cancelling..."),
       cancelRun: l("assistant-panel-action-cancel-run", "Cancel Task"),
       archive: l("assistant-panel-action-archive", "Archive"),
       close: l("assistant-panel-action-close", "Close"),
@@ -20,17 +21,21 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-manage-backends",
         "Manage Backends",
       ),
-      streamingRender: l(
-        "assistant-panel-action-streaming-render",
-        "Streaming",
+      executionDisplayMode: l(
+        "assistant-panel-action-execution-display-mode",
+        "Display mode",
       ),
-      streamingRenderOn: l(
-        "assistant-panel-action-streaming-render-on",
-        "Streaming on",
+      executionDisplayLive: l(
+        "assistant-panel-action-execution-display-live",
+        "Live",
       ),
-      streamingRenderOff: l(
-        "assistant-panel-action-streaming-render-off",
-        "Streaming off",
+      executionDisplayBoundary: l(
+        "assistant-panel-action-execution-display-boundary",
+        "By message",
+      ),
+      executionDisplaySilent: l(
+        "assistant-panel-action-execution-display-silent",
+        "Silent",
       ),
       autoApproveAcpPermissions: l(
         "assistant-panel-action-auto-approve-acp-permissions",
@@ -310,6 +315,7 @@ export function buildAssistantPanelLabels() {
       ),
     },
     transcript: {
+      assistant: l("assistant-panel-transcript-assistant", "Assistant"),
       empty: l("assistant-panel-transcript-empty", "No messages yet."),
       historyLoading: l(
         "assistant-panel-transcript-history-loading",

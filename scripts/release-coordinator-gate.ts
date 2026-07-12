@@ -106,6 +106,8 @@ const DEFAULT_REPO = "leike0813/zotero-agents";
 const HOST_BRIDGE_PREFIXES = [
   "cli/zotero-bridge/",
   "skills_builtin/zotero-bridge-cli/",
+  "skills_src/zotero-bridge-cli/semantic/",
+  "profiles_src/hermes/zotero-librarian/",
   "profiles/hermes/zotero-librarian/",
 ] as const;
 
@@ -115,6 +117,7 @@ const HOST_BRIDGE_EXACT_FILES = new Set([
   "scripts/host-bridge-surface-catalog.ts",
   "scripts/render-zotero-librarian-profile.ts",
   "scripts/check-zotero-librarian-profile.ts",
+  "scripts/zotero-librarian-profile-version.ts",
   "scripts/build-zotero-bridge-cli.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
   "scripts/publish-host-bridge-cli-bundle.ps1",

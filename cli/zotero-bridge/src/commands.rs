@@ -12,25 +12,26 @@ use crate::{
     args::{
         AnnotationArgs, AnnotationCommand, AnnotationExportArgs, AnnotationItemArgs, BridgeArgs,
         BridgeBackendArgs, BridgeBackendCommand, BridgeBackendStatusArgs, BridgeCommand,
-        BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, CallArgs, CitationGraphArgs,
-        CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs, ContextCollectionCommand,
-        ContextCollectionOpenArgs, ContextCommand, ContextItemCommand, ContextNoteCommand,
-        ContextObjectRefArgs, ContextSelectionCommand, ContextSelectionOpenArgs,
-        DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs, DebugSynthesisCommand,
-        FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs, InsightsArgs, InsightsCommand,
-        ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs, ItemSearchArgs, LibraryArgs,
-        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, LiteratureIngestArgs,
-        MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
+        BridgeInputArgs, BridgeProfileArgs, BridgeProfileCommand, BridgeQueryArgs, CallArgs,
+        CitationGraphArgs, CitationGraphCommand, ConceptsArgs, ConceptsCommand, ContextArgs,
+        ContextCollectionCommand, ContextCollectionOpenArgs, ContextCommand, ContextItemCommand,
+        ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
+        ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
+        DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
+        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs,
+        ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
+        LiteratureIngestArgs, MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
         MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
         MutationItemArgs, MutationItemAttachFileArgs, MutationItemCommand, MutationItemUpdateArgs,
         MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
         MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
         NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
         NotificationListArgs, NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand,
-        PermissionRequestIdArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand,
-        RunPermissionArgs, RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand,
-        RunWorkflowRecentArgs, SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs,
-        SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
+        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductIdArgs,
+        ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand, RunPermissionArgs,
+        RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs,
+        SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs,
+        SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
         SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
         SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
         TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentRunArgs, WorkflowArgs,
@@ -98,7 +99,7 @@ pub fn call(config: &BridgeConfig, args: CallArgs) -> Result<Value, CliError> {
 pub fn item(config: &BridgeConfig, args: ItemArgs) -> Result<Value, CliError> {
     match args.command {
         ItemCommand::Search(args) => {
-            call_capability(config, "library.search_items", item_search_input(args))
+            call_capability(config, "library.search_items", item_search_input(args)?)
         }
         ItemCommand::Get(args) => {
             call_capability(config, "library.get_item_detail", item_ref(args)?)
@@ -132,14 +133,14 @@ pub fn library(config: &BridgeConfig, args: LibraryArgs) -> Result<Value, CliErr
     match args.command {
         LibraryCommand::Items(args) => match args.command {
             LibraryItemsCommand::List(input) => {
-                call_capability(config, "library.list_items", bridge_input(input)?)
+                call_capability(config, "library.list_items", bridge_query(input)?)
             }
         },
         LibraryCommand::Item(args) => item(config, args),
         LibraryCommand::Note(args) => note(config, args),
         LibraryCommand::Annotation(args) => annotation(config, args),
         LibraryCommand::Snapshot(input) => {
-            call_capability(config, "library.sync_snapshot", bridge_input(input)?)
+            call_capability(config, "library.sync_snapshot", bridge_query(input)?)
         }
         LibraryCommand::Readiness(args) => call_capability(
             config,
@@ -209,12 +210,12 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
             SynthesisIndexCommand::Status => client::get(config, "/synthesis/index/status"),
             SynthesisIndexCommand::Library(args) => match args.command {
                 SynthesisIndexGetCommand::Get(input) => {
-                    call_capability(config, "library_index.get", bridge_input(input)?)
+                    call_capability(config, "library_index.get", bridge_query(input)?)
                 }
             },
             SynthesisIndexCommand::Reference(args) => match args.command {
                 SynthesisIndexGetCommand::Get(input) => {
-                    call_capability(config, "reference_index.get", bridge_input(input)?)
+                    call_capability(config, "reference_index.get", bridge_query(input)?)
                 }
             },
         },
@@ -262,45 +263,97 @@ pub fn mutation(config: &BridgeConfig, args: MutationArgs) -> Result<Value, CliE
     }
 }
 
+pub fn product(config: &BridgeConfig, args: ProductArgs) -> Result<Value, CliError> {
+    match args.command {
+        ProductCommand::List(args) => {
+            call_capability(config, "workflow_products.list", product_list_input(args))
+        }
+        ProductCommand::Get(args) => {
+            call_capability(config, "workflow_products.get", product_id_input(args))
+        }
+        ProductCommand::Download(args) => call_capability(
+            config,
+            "workflow_products.export",
+            product_download_input(args),
+        ),
+        ProductCommand::Remove(args) => {
+            call_capability(config, "workflow_products.remove", product_id_input(args))
+        }
+    }
+}
+
+fn product_id_input(args: ProductIdArgs) -> Value {
+    json!({ "productId": args.product_id.trim() })
+}
+
+fn product_list_input(args: ProductListArgs) -> Value {
+    let mut input = Map::new();
+    push_value(&mut input, "workflowId", args.workflow_id);
+    push_value(&mut input, "backendId", args.backend_id);
+    push_value(&mut input, "requestId", args.request_id);
+    insert_u32(&mut input, "cursor", args.cursor);
+    insert_u32(&mut input, "limit", args.limit);
+    Value::Object(input)
+}
+
+fn product_download_input(args: ProductDownloadArgs) -> Value {
+    let mut input = Map::new();
+    input.insert("productId".to_string(), json!(args.product_id.trim()));
+    push_value(&mut input, "assetId", args.asset);
+    input.insert(
+        "outputDir".to_string(),
+        json!(args.output_dir.display().to_string()),
+    );
+    input.insert("overwrite".to_string(), json!(args.force));
+    Value::Object(input)
+}
+
 pub fn topics(config: &BridgeConfig, args: TopicsArgs) -> Result<Value, CliError> {
     let capability = topics_capability(&args.command);
-    let input = bridge_input(topics_input(args.command))?;
+    let input = bridge_query(topics_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn schemas(config: &BridgeConfig, args: SchemasArgs) -> Result<Value, CliError> {
     let capability = schemas_capability(&args.command);
-    let input = bridge_input(schemas_input(args.command))?;
+    let input = bridge_query(schemas_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn concepts(config: &BridgeConfig, args: ConceptsArgs) -> Result<Value, CliError> {
     let capability = concepts_capability(&args.command);
-    let input = bridge_input(concepts_input(args.command))?;
+    let input = bridge_query(concepts_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<Value, CliError> {
+    if let CitationGraphCommand::RefreshMetrics(input) = args.command {
+        return call_capability(
+            config,
+            "citation_graph.refresh_metrics",
+            bridge_input(input)?,
+        );
+    }
     let capability = citation_graph_capability(&args.command);
-    let input = bridge_input(citation_graph_input(args.command))?;
+    let input = bridge_query(citation_graph_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
     let capability = resolvers_capability(&args.command);
-    let input = bridge_input(resolvers_input(args.command))?;
+    let input = bridge_query(resolvers_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn paper_artifacts(config: &BridgeConfig, args: PaperArtifactsArgs) -> Result<Value, CliError> {
     let capability = paper_artifacts_capability(&args.command);
-    let input = bridge_input(paper_artifacts_input(args.command))?;
+    let input = bridge_query(paper_artifacts_input(args.command))?;
     call_capability(config, capability, input)
 }
 
 pub fn insights(config: &BridgeConfig, args: InsightsArgs) -> Result<Value, CliError> {
     let capability = insights_capability(&args.command);
-    let input = bridge_input(insights_input(args.command))?;
+    let input = bridge_query(insights_input(args.command))?;
     call_capability(config, capability, input)
 }
 
@@ -480,7 +533,7 @@ fn topics_capability(command: &TopicsCommand) -> &'static str {
     }
 }
 
-fn topics_input(command: TopicsCommand) -> BridgeInputArgs {
+fn topics_input(command: TopicsCommand) -> BridgeQueryArgs {
     match command {
         TopicsCommand::List(args)
         | TopicsCommand::FindByPaperRef(args)
@@ -496,7 +549,7 @@ fn schemas_capability(command: &SchemasCommand) -> &'static str {
     }
 }
 
-fn schemas_input(command: SchemasCommand) -> BridgeInputArgs {
+fn schemas_input(command: SchemasCommand) -> BridgeQueryArgs {
     match command {
         SchemasCommand::Get(args) => args,
     }
@@ -508,7 +561,7 @@ fn concepts_capability(command: &ConceptsCommand) -> &'static str {
     }
 }
 
-fn concepts_input(command: ConceptsCommand) -> BridgeInputArgs {
+fn concepts_input(command: ConceptsCommand) -> BridgeQueryArgs {
     match command {
         ConceptsCommand::Query(args) => args,
     }
@@ -529,7 +582,7 @@ fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
     }
 }
 
-fn citation_graph_input(command: CitationGraphCommand) -> BridgeInputArgs {
+fn citation_graph_input(command: CitationGraphCommand) -> BridgeQueryArgs {
     match command {
         CitationGraphCommand::Overview(args)
         | CitationGraphCommand::QueryCluster(args)
@@ -537,8 +590,8 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeInputArgs {
         | CitationGraphCommand::GetLayout(args)
         | CitationGraphCommand::GetMetrics(args)
         | CitationGraphCommand::RankExternalReferences(args)
-        | CitationGraphCommand::RankLibraryPapers(args)
-        | CitationGraphCommand::RefreshMetrics(args) => args,
+        | CitationGraphCommand::RankLibraryPapers(args) => args,
+        CitationGraphCommand::RefreshMetrics(_) => unreachable!("mutation input uses --input"),
     }
 }
 
@@ -548,7 +601,7 @@ fn resolvers_capability(command: &ResolversCommand) -> &'static str {
     }
 }
 
-fn resolvers_input(command: ResolversCommand) -> BridgeInputArgs {
+fn resolvers_input(command: ResolversCommand) -> BridgeQueryArgs {
     match command {
         ResolversCommand::Resolve(args) => args,
     }
@@ -563,7 +616,7 @@ fn paper_artifacts_capability(command: &PaperArtifactsCommand) -> &'static str {
     }
 }
 
-fn paper_artifacts_input(command: PaperArtifactsCommand) -> BridgeInputArgs {
+fn paper_artifacts_input(command: PaperArtifactsCommand) -> BridgeQueryArgs {
     match command {
         PaperArtifactsCommand::Manifest(args)
         | PaperArtifactsCommand::Read(args)
@@ -578,7 +631,7 @@ fn insights_capability(command: &InsightsCommand) -> &'static str {
     }
 }
 
-fn insights_input(command: InsightsCommand) -> BridgeInputArgs {
+fn insights_input(command: InsightsCommand) -> BridgeQueryArgs {
     match command {
         InsightsCommand::AttentionQueue(args) => args,
     }
@@ -588,14 +641,18 @@ fn bridge_input(args: BridgeInputArgs) -> Result<Value, CliError> {
     read_json_arg(args.input.as_deref())
 }
 
+fn bridge_query(args: BridgeQueryArgs) -> Result<Value, CliError> {
+    read_json_arg(args.query.as_deref())
+}
+
 fn library_readiness_input(command: LibraryReadinessCommand) -> Result<Value, CliError> {
     let (input, check) = match command {
-        LibraryReadinessCommand::Audit(input) => return bridge_input(input),
+        LibraryReadinessCommand::Audit(input) => return bridge_query(input),
         LibraryReadinessCommand::MissingPdf(input) => (input, "pdf"),
         LibraryReadinessCommand::MissingMarkdown(input) => (input, "markdown"),
         LibraryReadinessCommand::MissingAnalysis(input) => (input, "analysis"),
     };
-    let mut value = bridge_input(input)?;
+    let mut value = bridge_query(input)?;
     if !value.is_object() {
         value = json!({});
     }
@@ -828,7 +885,8 @@ fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError
 }
 
 fn workflow_requirements_input(args: WorkflowRequirementsArgs) -> Result<Value, CliError> {
-    let workflow = workflow_id_arg(&args.workflow, "requirements")?;
+    let workflow = args.workflow.or(args.legacy_workflow).unwrap_or_default();
+    let workflow = workflow_id_arg(&workflow, "requirements")?;
     Ok(json!({ "workflowId": workflow }))
 }
 
@@ -843,14 +901,14 @@ fn workflow_selection_from(
     let Some(items_input) = items_input else {
         return Err(CliError::validation(
             "missing_workflow_selection",
-            format!("Workflow {command} requires --items or --none"),
+            format!("Workflow {command} requires --selection or --none"),
         ));
     };
     let items = read_json_arg(Some(items_input))?;
     if !items.is_array() {
         return Err(CliError::validation(
             "invalid_workflow_items",
-            "Workflow --items must be a JSON array",
+            "Workflow --selection must be a JSON array",
         ));
     }
     Ok(json!({
@@ -860,7 +918,7 @@ fn workflow_selection_from(
 }
 
 fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
-    workflow_selection_from(args.items.as_deref(), args.none, "submit")
+    workflow_selection_from(args.selection.as_deref(), args.none, "submit")
 }
 
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
@@ -877,7 +935,7 @@ fn workflow_agent_run_input(args: &WorkflowAgentRunArgs) -> Result<Value, CliErr
     let workflow = workflow_id_arg(&args.workflow, "agent-run")?;
     Ok(json!({
         "workflowId": workflow,
-        "selection": workflow_selection_from(args.items.as_deref(), args.none, "agent-run")?,
+        "selection": workflow_selection_from(args.selection.as_deref(), args.none, "agent-run")?,
         "delivery": {
             "mode": "bundle"
         }
@@ -1605,12 +1663,48 @@ fn percent_encode(value: &str, encode_space_as_plus: bool) -> String {
     output
 }
 
-fn item_search_input(args: ItemSearchArgs) -> Value {
+fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
+    let query = read_json_arg(Some(&args.query))?;
+    let Value::Object(mut query) = query else {
+        return Err(CliError::validation(
+            "invalid_item_search_query",
+            "Item search --query must be a JSON object",
+        ));
+    };
+    let text = query
+        .remove("text")
+        .and_then(|value| value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            CliError::validation(
+                "missing_item_search_text",
+                "Item search --query must include non-empty text",
+            )
+        })?;
     let mut input = Map::new();
-    input.insert("query".to_string(), Value::String(args.query));
-    insert_u32(&mut input, "limit", args.limit);
-    insert_u64(&mut input, "libraryId", args.library_id);
-    Value::Object(input)
+    input.insert("query".to_string(), Value::String(text));
+    if let Some(limit) = query.remove("limit") {
+        let limit = limit
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .ok_or_else(|| {
+                CliError::validation(
+                    "invalid_item_search_limit",
+                    "Item search --query limit must be an unsigned 32-bit integer",
+                )
+            })?;
+        input.insert("limit".to_string(), Value::from(limit));
+    }
+    if let Some(library_id) = query.remove("libraryId") {
+        let library_id = library_id.as_u64().ok_or_else(|| {
+            CliError::validation(
+                "invalid_item_search_library_id",
+                "Item search --query libraryId must be an unsigned integer",
+            )
+        })?;
+        input.insert("libraryId".to_string(), Value::from(library_id));
+    }
+    Ok(Value::Object(input))
 }
 
 fn item_notes_input(args: ItemNotesArgs) -> Result<Value, CliError> {
@@ -1674,6 +1768,15 @@ fn insert_u32(input: &mut Map<String, Value>, name: &str, value: Option<u32>) {
     }
 }
 
+fn push_value(input: &mut Map<String, Value>, name: &str, value: Option<String>) {
+    if let Some(value) = value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        input.insert(name.to_string(), Value::String(value));
+    }
+}
+
 fn insert_u64(input: &mut Map<String, Value>, name: &str, value: Option<u64>) {
     if let Some(value) = value {
         input.insert(name.to_string(), Value::from(value));
@@ -1715,23 +1818,31 @@ fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::args::BridgeInputArgs;
+    use crate::args::{BridgeInputArgs, BridgeQueryArgs};
 
     #[test]
-    fn maps_item_search_to_bridge_input() {
+    fn maps_item_search_json_query_to_bridge_input() {
         let input = item_search_input(ItemSearchArgs {
-            query: "graph".to_string(),
-            limit: Some(5),
-            library_id: Some(1),
+            query: "{\"text\":\"graph\",\"limit\":5,\"libraryId\":1}".to_string(),
         });
         assert_eq!(
-            input,
+            input.unwrap(),
             json!({
                 "query": "graph",
                 "limit": 5,
                 "libraryId": 1
             })
         );
+    }
+
+    #[test]
+    fn rejects_item_search_bare_text_query() {
+        let error = item_search_input(ItemSearchArgs {
+            query: "graph".to_string(),
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, "input_json_invalid");
     }
 
     #[test]
@@ -1763,78 +1874,61 @@ mod tests {
 
     #[test]
     fn maps_domain_subcommands_to_capabilities() {
+        let query = || BridgeQueryArgs { query: None };
         assert_eq!(
-            topics_capability(&TopicsCommand::List(BridgeInputArgs { input: None })),
+            topics_capability(&TopicsCommand::List(query())),
             "topics.list"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::FindByPaperRef(BridgeInputArgs {
-                input: None
-            })),
+            topics_capability(&TopicsCommand::FindByPaperRef(query())),
             "topics.find_by_paper_ref"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::GetContext(BridgeInputArgs { input: None })),
+            topics_capability(&TopicsCommand::GetContext(query())),
             "topics.get_context"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::GetReport(BridgeInputArgs { input: None })),
+            topics_capability(&TopicsCommand::GetReport(query())),
             "topics.get_report"
         );
         assert_eq!(
-            topics_capability(&TopicsCommand::GetReviewInput(BridgeInputArgs {
-                input: None
-            })),
+            topics_capability(&TopicsCommand::GetReviewInput(query())),
             "topics.get_review_input"
         );
         assert_eq!(
-            schemas_capability(&SchemasCommand::Get(BridgeInputArgs { input: None })),
+            schemas_capability(&SchemasCommand::Get(query())),
             "schemas.get"
         );
         assert_eq!(
-            concepts_capability(&ConceptsCommand::Query(BridgeInputArgs { input: None })),
+            concepts_capability(&ConceptsCommand::Query(query())),
             "concepts.query"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::Overview(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::Overview(query())),
             "citation_graph.get_overview"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::QueryCluster(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::QueryCluster(query())),
             "citation_graph.query_cluster"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetSlice(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::GetSlice(query())),
             "citation_graph.get_slice"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetLayout(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::GetLayout(query())),
             "citation_graph.get_layout"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::GetMetrics(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::GetMetrics(query())),
             "citation_graph.get_metrics"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::RankExternalReferences(
-                BridgeInputArgs { input: None }
-            )),
+            citation_graph_capability(&CitationGraphCommand::RankExternalReferences(query())),
             "citation_graph.rank_external_references"
         );
         assert_eq!(
-            citation_graph_capability(&CitationGraphCommand::RankLibraryPapers(BridgeInputArgs {
-                input: None
-            })),
+            citation_graph_capability(&CitationGraphCommand::RankLibraryPapers(query())),
             "citation_graph.rank_library_papers"
         );
         assert_eq!(
@@ -1844,37 +1938,27 @@ mod tests {
             "citation_graph.refresh_metrics"
         );
         assert_eq!(
-            resolvers_capability(&ResolversCommand::Resolve(BridgeInputArgs { input: None })),
+            resolvers_capability(&ResolversCommand::Resolve(query())),
             "resolvers.resolve"
         );
         assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::Manifest(BridgeInputArgs {
-                input: None
-            })),
+            paper_artifacts_capability(&PaperArtifactsCommand::Manifest(query())),
             "paper_artifacts.get_manifest"
         );
         assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::Read(BridgeInputArgs {
-                input: None
-            })),
+            paper_artifacts_capability(&PaperArtifactsCommand::Read(query())),
             "paper_artifacts.read"
         );
         assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::ExportFiltered(BridgeInputArgs {
-                input: None
-            })),
+            paper_artifacts_capability(&PaperArtifactsCommand::ExportFiltered(query())),
             "paper_artifacts.export_filtered"
         );
         assert_eq!(
-            paper_artifacts_capability(&PaperArtifactsCommand::ResolveTopicDigest(
-                BridgeInputArgs { input: None }
-            )),
+            paper_artifacts_capability(&PaperArtifactsCommand::ResolveTopicDigest(query())),
             "paper_artifacts.resolve_topic_digest"
         );
         assert_eq!(
-            insights_capability(&InsightsCommand::AttentionQueue(BridgeInputArgs {
-                input: None
-            })),
+            insights_capability(&InsightsCommand::AttentionQueue(query())),
             "insights.get_attention_queue"
         );
     }
@@ -1982,15 +2066,15 @@ mod tests {
 
     #[test]
     fn builds_library_readiness_missing_inputs() {
-        let audit = library_readiness_input(LibraryReadinessCommand::Audit(BridgeInputArgs {
-            input: Some("{\"limit\":25,\"checks\":[\"pdf\",\"analysis\"]}".to_string()),
+        let audit = library_readiness_input(LibraryReadinessCommand::Audit(BridgeQueryArgs {
+            query: Some("{\"limit\":25,\"checks\":[\"pdf\",\"analysis\"]}".to_string()),
         }))
         .unwrap();
         assert_eq!(audit, json!({ "limit": 25, "checks": ["pdf", "analysis"] }));
 
         let missing_markdown =
-            library_readiness_input(LibraryReadinessCommand::MissingMarkdown(BridgeInputArgs {
-                input: Some("{\"collectionKey\":\"COLL\",\"limit\":10}".to_string()),
+            library_readiness_input(LibraryReadinessCommand::MissingMarkdown(BridgeQueryArgs {
+                query: Some("{\"collectionKey\":\"COLL\",\"limit\":10}".to_string()),
             }))
             .unwrap();
         assert_eq!(
@@ -2197,7 +2281,7 @@ mod tests {
     fn maps_workflow_submit_to_bridge_input() {
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "topic-synthesis".to_string(),
-            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
             none: false,
             workflow_options: Some("{\"language\":\"zh-CN\"}".to_string()),
             provider_profile: Some(
@@ -2236,7 +2320,7 @@ mod tests {
     fn maps_workflow_submit_none_selection() {
         let input = workflow_submit_input(WorkflowSubmitArgs {
             workflow: "global-workflow".to_string(),
-            items: None,
+            selection: None,
             none: true,
             workflow_options: None,
             provider_profile: None,
@@ -2259,7 +2343,7 @@ mod tests {
     fn maps_workflow_agent_run_to_bridge_input() {
         let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
             workflow: "topic-synthesis".to_string(),
-            items: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
+            selection: Some("[{\"key\":\"ABC\",\"libraryId\":1}]".to_string()),
             none: false,
             output_dir: None,
         })
@@ -2288,7 +2372,7 @@ mod tests {
     fn maps_workflow_agent_run_none_selection() {
         let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
             workflow: "global-workflow".to_string(),
-            items: None,
+            selection: None,
             none: true,
             output_dir: None,
         })
@@ -2316,7 +2400,7 @@ mod tests {
         fs::write(&path, "[{\"id\":123}]").unwrap();
         let input = workflow_agent_run_input(&WorkflowAgentRunArgs {
             workflow: "topic-synthesis".to_string(),
-            items: Some(format!("@{}", path.display())),
+            selection: Some(format!("@{}", path.display())),
             none: false,
             output_dir: None,
         })

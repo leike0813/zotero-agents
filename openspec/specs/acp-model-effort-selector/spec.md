@@ -23,10 +23,14 @@ When raw ACP model options contain multiple recognized effort variants for the s
 - **AND** the reasoning selector SHALL be hidden or unavailable
 ### Requirement: Frontend selections SHALL map back to raw ACP model IDs
 
-
 Changing display model or reasoning effort SHALL apply the matching ACP model or
 configuration value through the control mechanism advertised by the active ACP
 session.
+
+When a Kilo ACP session rejects `thought_level=none` with JSON-RPC invalid
+parameters (`-32602`), the frontend SHALL retain its last confirmed reasoning
+selection and leave the session's model-default reasoning configuration in
+effect. All other configuration failures SHALL remain visible errors.
 
 #### Scenario: Changing effort maps to advertised config option
 
@@ -34,6 +38,13 @@ session.
 - **WHEN** the user selects a reasoning effort
 - **THEN** the ACP adapter SHALL call `session/set_config_option` with the
   thought-level config id and selected value.
+
+#### Scenario: Kilo none falls back to the model default
+
+- **GIVEN** the active Kilo ACP session rejects `thought_level=none` with code `-32602`
+- **WHEN** the user selects `none`
+- **THEN** the frontend SHALL not apply `none` to its current selection
+- **AND** the current session continues with the model-default reasoning setting.
 
 #### Scenario: Legacy model variant mapping remains available
 

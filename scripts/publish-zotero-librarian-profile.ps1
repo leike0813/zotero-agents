@@ -91,6 +91,17 @@ if ($profileVersion -notmatch "(?m)^version:\s*(.+)\s*$") {
   throw "distribution.yaml must declare profile version"
 }
 $profileVersion = $Matches[1].Trim()
+$profileManifestSourcePath = Join-Path $profileRoot "assets/profile-manifest-source.json"
+Assert-File $profileManifestSourcePath
+$profileManifestSource = Get-Content -LiteralPath $profileManifestSourcePath -Raw | ConvertFrom-Json
+$generatedProfileVersion = [string]$profileManifestSource.generated.profileVersion
+$zoteroBridgeCliVersion = [string]$profileManifestSource.generated.zoteroBridgeCliVersion
+if (-not $generatedProfileVersion -or $generatedProfileVersion -ne $profileVersion) {
+  throw "profile-manifest-source.json profileVersion must match distribution.yaml"
+}
+if (-not $zoteroBridgeCliVersion) {
+  throw "profile-manifest-source.json must declare zoteroBridgeCliVersion"
+}
 
 if (-not $WorktreePath) {
   $WorktreePath = Join-Path ([System.IO.Path]::GetTempPath()) "zotero-librarian-profile-publish"
@@ -143,6 +154,7 @@ try {
     schema = "zotero-librarian.profile.release-manifest.v1"
     profile = "zotero-librarian"
     profileVersion = $profileVersion
+    zoteroBridgeCliVersion = $zoteroBridgeCliVersion
     sourceRepository = $mainRepository
     releaseRepository = "https://github.com/leike0813/zotero-librarian-profile"
     installCommand = $installCommand

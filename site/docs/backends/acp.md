@@ -52,7 +52,7 @@ When **Use npx** is enabled, the preset switches to the `npx <package>` launch f
 
 | Preset | Default command | Description |
 |--------|-----------------|-------------|
-| **OpenCode** | `opencode acp` | OpenCode ACP backend; supports documented configuration-directory isolation through `OPENCODE_CONFIG_DIR` |
+| **OpenCode** | `opencode acp` | OpenCode ACP backend; injects `OPENCODE_CONFIG_CONTENT` to deny permission questions and supports configuration-directory isolation through `OPENCODE_CONFIG_DIR` |
 | **Codex** | `npx -y @agentclientprotocol/codex-acp@latest` | Codex ACP adapter for OpenAI Codex |
 | **Claude Code** | `npx -y @agentclientprotocol/claude-agent-acp@latest` | ACP adapter for Claude Code |
 | **Gemini CLI** | `gemini --experimental-acp` | Gemini CLI ACP mode |
@@ -63,7 +63,7 @@ When **Use npx** is enabled, the preset switches to the `npx <package>` launch f
 | **Cursor Agent ACP** | `cursor-agent-acp` | Cursor Agent ACP adapter; supports documented session-directory isolation through `--session-dir` |
 | **DeepAgents** | `deepagents-acp` | DeepAgents ACP adapter |
 | **Auggie** | `auggie --acp` | Auggie ACP mode |
-| **Kilo** | `kilo acp` | Kilo Code ACP mode; core XDG path isolation has been observed for config, data/session/auth/log, and cache state |
+| **Kilo** | `kilo acp` | Kilo Code ACP mode; injects `KILO_CONFIG_CONTENT` to deny permission questions, and core XDG path isolation has been observed for config, data/session/auth/log, and cache state |
 | **Cline** | `cline --acp` | Cline ACP mode |
 | **CodeBuddy** | `codebuddy --acp` | CodeBuddy ACP mode |
 | **Grok** | `grok agent stdio` | Grok agent stdio mode |
@@ -99,6 +99,8 @@ Free models are sufficient for casual use, but be aware of the following constra
 ## Environment Variable Configuration Recommendations
 
 Some agents support configuration isolation and session persistence through environment variables or command arguments. Presets with **Isolated environment** enabled inject the documented values automatically; for manual profiles, add the relevant values yourself:
+
+The OpenCode and Kilo presets also always inject an inline permission configuration: `OPENCODE_CONFIG_CONTENT` and `KILO_CONFIG_CONTENT`, respectively, both set to `{"permission":{"question":"deny"}}`. You can edit or remove these values after adding the preset.
 
 | Setting | Agent | Purpose |
 |---------|-------|---------|

@@ -44,6 +44,7 @@ import {
   resolveAcpConversationPermission,
   sendAcpConversationPrompt,
   setAcpConnectionAdapterFactoryForTests,
+  setAcpChatPromptInterruptGraceMsForTests,
   setAcpConversationAutoApprovePermissions,
   setAcpConversationChatDisplayMode,
   setAcpConversationModel,
@@ -303,24 +304,59 @@ describe("acp session manager", function () {
     assert.equal(snapshot.lastError, "");
   });
 
-  it("treats a close after prompt cancellation as a stopped prompt rather than a disconnect", async function () {
-    await sendAcpConversationPrompt({
-      message: "Cancelable turn",
-    });
-
+  it("keeps an in-flight prompt busy until cancellation is confirmed", async function () {
+    await connectAcpConversation();
+    const releasePrompt = harness.lastAdapter!.holdPrompt();
+    harness.lastAdapter!.promptStopReason = "cancelled";
+    const prompt = sendAcpConversationPrompt({ message: "Cancelable turn" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
     await cancelAcpConversationPrompt();
-    harness.lastAdapter?.emitClose({
-      message: "ACP connection closed after cancel",
-      stderrText: "cancelled by client",
-    });
+    let snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.busy, true);
+    assert.equal(snapshot.promptInterruptState, "requested");
+    assert.deepEqual(harness.lastAdapter?.cancelSessionIds, ["session-1"]);
 
-    const snapshot = getAcpConversationSnapshot();
+    releasePrompt();
+    await prompt;
+
+    snapshot = getAcpConversationSnapshot();
     assert.equal(snapshot.status, "connected");
     assert.equal(snapshot.busy, false);
     assert.equal(snapshot.lastStopReason, "cancelled");
-    assert.equal(snapshot.lastLifecycleEvent, "prompt_cancelled");
-    assert.equal(snapshot.lastError, "");
-    assert.equal(snapshot.stderrTail, "");
+    assert.equal(snapshot.promptInterruptState, "confirmed");
     assert.equal(harness.lastAdapter?.closeCalls, 0);
+  });
+
+  it("preserves a non-cancelled backend result as unconfirmed", async function () {
+    await connectAcpConversation();
+    const releasePrompt = harness.lastAdapter!.holdPrompt();
+    const prompt = sendAcpConversationPrompt({ message: "Cancel lost race" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+    releasePrompt();
+    await prompt;
+
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.lastStopReason, "end_turn");
+    assert.equal(snapshot.promptInterruptState, "unconfirmed");
+    assert.equal(snapshot.status, "connected");
+  });
+
+  it("force-closes only the active conversation after the interrupt grace period", async function () {
+    setAcpChatPromptInterruptGraceMsForTests(5);
+    await connectAcpConversation();
+    harness.lastAdapter!.holdPrompt();
+    void sendAcpConversationPrompt({ message: "Ignore cancellation" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+
+    const snapshot = await waitForAcpConversationSnapshot(
+      (current) => current.promptInterruptState === "forced",
+    );
+    assert.equal(snapshot.status, "idle");
+    assert.equal(snapshot.busy, false);
+    assert.equal(snapshot.sessionId, "");
+    assert.equal(snapshot.remoteSessionId, "session-1");
+    assert.equal(harness.lastAdapter?.closeCalls, 1);
   });
 });

@@ -1,6 +1,7 @@
 import type { BackendInstance } from "../backends/types";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import type { AcpPermissionOptionKind } from "./acpPermissionOptions";
+import type { AssistantMessageCountsSnapshot } from "./assistantMessageCounts";
 
 export type AcpConnectionStatus =
   | "idle"
@@ -13,6 +14,27 @@ export type AcpConnectionStatus =
   | "auth-required"
   | "permission-required"
   | "error";
+
+export type AcpPromptInterruptState =
+  | "idle"
+  | "requested"
+  | "confirmed"
+  | "forced"
+  | "unconfirmed";
+
+export function normalizeAcpPromptInterruptState(
+  value: unknown,
+): AcpPromptInterruptState {
+  switch (String(value || "").trim()) {
+    case "requested":
+    case "confirmed":
+    case "forced":
+    case "unconfirmed":
+      return String(value).trim() as AcpPromptInterruptState;
+    default:
+      return "idle";
+  }
+}
 
 export type AcpSidebarTarget = "library" | "reader";
 export type AcpChatDisplayMode = "plain" | "bubble";
@@ -282,6 +304,7 @@ export type AcpConversationSnapshot = {
   remoteSessionRestoreMessage: string;
   status: AcpConnectionStatus;
   busy: boolean;
+  promptInterruptState: AcpPromptInterruptState;
   showDiagnostics: boolean;
   statusExpanded: boolean;
   chatDisplayMode: AcpChatDisplayMode;
@@ -315,6 +338,7 @@ export type AcpConversationSnapshot = {
   transcriptEventSeq: number;
   transcriptItemCount: number;
   transcriptPreview?: string;
+  messageCounts?: AssistantMessageCountsSnapshot;
   transcriptState?: {
     backendId: string;
     conversationId: string;
@@ -441,6 +465,7 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     remoteSessionRestoreMessage: "",
     status: "idle",
     busy: false,
+    promptInterruptState: "idle",
     showDiagnostics: false,
     statusExpanded: false,
     chatDisplayMode: "plain",
@@ -474,6 +499,7 @@ export function createEmptyAcpConversationSnapshot(): AcpConversationSnapshot {
     transcriptEventSeq: 0,
     transcriptItemCount: 0,
     transcriptPreview: undefined,
+    messageCounts: undefined,
     items: [],
     lastHostContext: null,
     agentWorkspaceDir: "",

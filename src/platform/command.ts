@@ -25,6 +25,7 @@ export type RuntimeCommandName =
   | "sh"
   | "setsid"
   | "kill"
+  | "ps"
   | "uv"
   | "python"
   | "python3"
@@ -81,6 +82,7 @@ const STARTUP_COMMANDS: RuntimeCommandName[] = [
   "sh",
   "setsid",
   "kill",
+  "ps",
   "uv",
   "python",
   "python3",

@@ -20,6 +20,7 @@ pref("tagVocabularyStagedJson", "");
 pref("collectSkillRunFeedbackEnabled", false);
 pref("markdownReaderEnabled", true);
 pref("assistantStreamingRenderEnabled", true);
+pref("assistantExecutionDisplayMode", "");
 pref("assistantTranscriptPaginationVirtualizationEnabled", true);
 pref("workflowDir", "");
 pref("skillDir", "");

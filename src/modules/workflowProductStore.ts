@@ -92,6 +92,12 @@ export type ProductStorageAssetSource =
   | { kind: "local-file"; path: string }
   | { kind: "inline-text"; text: string };
 
+export type ResolvedWorkflowProductAsset = {
+  product: WorkflowProductRecord;
+  asset: WorkflowProductAsset;
+  localPath: string;
+};
+
 export type ProductStorageAssetInput = {
   assetId?: string;
   label?: string;
@@ -496,6 +502,53 @@ export function removeWorkflowProduct(productIdRaw: string) {
     PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
     productId,
   );
+}
+
+function normalizePathForContainment(pathRaw: string) {
+  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function pathIsInside(rootRaw: string, candidateRaw: string) {
+  const root = normalizePathForContainment(rootRaw);
+  const candidate = normalizePathForContainment(candidateRaw);
+  return Boolean(
+    root &&
+    candidate &&
+    (candidate === root || candidate.startsWith(`${root}/`)),
+  );
+}
+
+/**
+ * Resolve an asset only when its persisted path is still inside the owning
+ * product's managed cache and is available. Host-facing callers must use this
+ * instead of trusting the persisted localPath field directly.
+ */
+export async function resolveManagedWorkflowProductAsset(
+  productIdRaw: string,
+  assetIdRaw: string,
+): Promise<ResolvedWorkflowProductAsset | null> {
+  const product = getWorkflowProduct(productIdRaw);
+  if (!product || !product.cacheDir) {
+    return null;
+  }
+  const asset = product.assets.find(
+    (entry) => entry.assetId === safeId(assetIdRaw, ""),
+  );
+  const localPath = cleanString(asset?.localPath);
+  if (!asset || !localPath || !pathIsInside(product.cacheDir, localPath)) {
+    return null;
+  }
+  if (!(await runtimePathExists(localPath))) {
+    return null;
+  }
+  return {
+    product: cloneRecord(product),
+    asset: {
+      ...asset,
+      diagnostics: asset.diagnostics ? [...asset.diagnostics] : undefined,
+    },
+    localPath,
+  };
 }
 
 function resolveRequestId(source: unknown) {

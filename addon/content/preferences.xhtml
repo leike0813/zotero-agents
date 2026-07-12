@@ -28,9 +28,10 @@
     column; gap: 8px; padding-top: 4px; } .zs-host-access-operation-notice {
     display: none; border: 1px solid rgba(59, 130, 246, 0.35); border-radius:
     6px; padding: 8px; background: rgba(239, 246, 255, 0.75); color: #1e3a8a;
-    font-size: 12px; } .zs-host-access-operation-notice.is-visible { display:
-    block; } .zs-host-access-operation-notice.is-error { border-color: rgba(185,
-    28, 28, 0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
+    font-size: 12px; white-space: pre-line; }
+    .zs-host-access-operation-notice.is-visible { display: block; }
+    .zs-host-access-operation-notice.is-error { border-color: rgba(185, 28, 28,
+    0.45); background: rgba(254, 242, 242, 0.85); color: #7f1d1d; }
     .zs-host-access-operation-notice-title { font-weight: 700; margin-right:
     6px; } .zs-host-access-security-panel { display: none; }
     .zs-host-access-security-panel.is-visible { display: flex; }
@@ -87,6 +88,10 @@
     { font-size: 12px; color: #334155; } .zs-pref-about-actions { display: flex;
     gap: 8px; justify-content: center; } .zs-pref-about-button { min-width:
     120px; text-align: center; -moz-box-pack: center; justify-content: center; }
+    .zs-execution-display-mode { display: inline-flex; gap: 4px; padding: 3px;
+    border: 1px solid rgba(15, 23, 42, 0.15); border-radius: 8px; }
+    .zs-execution-display-mode button[aria-checked="true"] { font-weight: 700;
+    background: rgba(15, 23, 42, 0.1); }
   </html:style>
   <vbox class="zs-pref-root">
     <vbox class="zs-pref-card">
@@ -245,17 +250,37 @@
       <description
         data-l10n-id="pref-markdown-reader-enabled-help"
       ></description>
-      <html:label class="zs-uninstall-option">
-        <html:input
-          id="zotero-prefpane-__addonRef__-assistant-streaming-render-enabled"
-          type="checkbox"
-        ></html:input>
-        <html:span
-          data-l10n-id="pref-assistant-streaming-render-enabled"
-        ></html:span>
-      </html:label>
+      <html:span
+        id="zotero-prefpane-__addonRef__-assistant-execution-display-mode-label"
+        data-l10n-id="pref-assistant-execution-display-mode"
+      ></html:span>
+      <html:div
+        id="zotero-prefpane-__addonRef__-assistant-execution-display-mode"
+        class="zs-execution-display-mode"
+        role="radiogroup"
+        aria-labelledby="zotero-prefpane-__addonRef__-assistant-execution-display-mode-label"
+      >
+        <html:button
+          type="button"
+          role="radio"
+          data-mode="live"
+          data-l10n-id="pref-assistant-execution-display-live"
+        ></html:button>
+        <html:button
+          type="button"
+          role="radio"
+          data-mode="boundary"
+          data-l10n-id="pref-assistant-execution-display-boundary"
+        ></html:button>
+        <html:button
+          type="button"
+          role="radio"
+          data-mode="silent"
+          data-l10n-id="pref-assistant-execution-display-silent"
+        ></html:button>
+      </html:div>
       <description
-        data-l10n-id="pref-assistant-streaming-render-enabled-help"
+        data-l10n-id="pref-assistant-execution-display-mode-help"
       ></description>
     </vbox>
 

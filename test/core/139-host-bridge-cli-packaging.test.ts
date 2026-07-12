@@ -648,7 +648,7 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
-  it("chooses user-level install targets per platform", function () {
+  it("chooses only user-level CLI install targets on POSIX", function () {
     assert.include(
       resolveHostBridgeCliInstallTarget({
         platform: () => "win32",
@@ -662,7 +662,15 @@ describe("host bridge cli packaging and install", function () {
         homeDir: () => "/Users/a",
         pathEnv: () => "/opt/homebrew/bin:/usr/bin",
       }).targetPath,
-      "/opt/homebrew/bin/zotero-bridge",
+      "/Users/a/.local/bin/zotero-bridge",
+    );
+    assert.strictEqual(
+      resolveHostBridgeCliInstallTarget({
+        platform: () => "darwin",
+        homeDir: () => "/Users/a",
+        pathEnv: () => "/Users/a/bin:/usr/bin",
+      }).targetPath,
+      "/Users/a/bin/zotero-bridge",
     );
     assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
@@ -670,7 +678,7 @@ describe("host bridge cli packaging and install", function () {
         homeDir: () => "/Users/a",
         pathEnv: () => "/usr/bin",
       }).targetPath,
-      "/Users/a/bin/zotero-bridge",
+      "/Users/a/.local/bin/zotero-bridge",
     );
     assert.strictEqual(
       resolveHostBridgeCliInstallTarget({
@@ -684,10 +692,42 @@ describe("host bridge cli packaging and install", function () {
       resolveHostBridgeCliInstallTarget({
         platform: () => "linux",
         homeDir: () => "/home/a",
-        pathEnv: () => "/usr/bin",
+        pathEnv: () => "/usr/local/bin:/usr/bin",
       }).targetPath,
       "/home/a/.local/bin/zotero-bridge",
     );
+  });
+
+  it("marks user-directory fallback installs as requiring shell profile PATH setup", async function () {
+    const copied: Array<[string, string]> = [];
+    const result = await installHostBridgeCli({
+      resolveCli: async () => ({
+        available: true,
+        binaryPath: "addon/bin/linux-x64/zotero-bridge",
+        cliDir: "addon/bin/linux-x64",
+        source: "bundled",
+      }),
+      copyFile: async (source, target) => {
+        copied.push([source, target]);
+      },
+      chmodExecutable: async () => true,
+      platform: () => "linux",
+      homeDir: () => "/home/a",
+      pathEnv: () => "/usr/local/bin:/usr/bin",
+      pathIncludes: () => false,
+    });
+
+    assert.isTrue(result.ok);
+    assert.deepEqual(copied, [
+      ["addon/bin/linux-x64/zotero-bridge", "/home/a/.local/bin/zotero-bridge"],
+    ]);
+    if (result.ok) {
+      assert.isFalse(result.pathAlreadyConfigured);
+      assert.isTrue(
+        (result as { manualPathSetupRequired?: boolean })
+          .manualPathSetupRequired,
+      );
+    }
   });
 
   it("installs an extensionless Windows shell shim beside the exe", async function () {
@@ -889,6 +929,7 @@ describe("host bridge cli packaging and install", function () {
         });
       },
       writeTextFile: async () => undefined,
+      chmodExecutable: async () => true,
     });
 
     assert.isTrue(result.ok);
@@ -950,7 +991,10 @@ describe("host bridge cli packaging and install", function () {
     const runtime = globalThis as typeof globalThis & {
       Components?: unknown;
     };
-    const previousComponents = runtime.Components;
+    const previousComponents = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Components",
+    );
     const file = {
       path: "",
       permissions: 0,
@@ -958,16 +1002,20 @@ describe("host bridge cli packaging and install", function () {
         this.path = value;
       },
     };
-    runtime.Components = {
-      classes: {
-        "@mozilla.org/file/local;1": {
-          createInstance: () => file,
+    Object.defineProperty(runtime, "Components", {
+      configurable: true,
+      writable: true,
+      value: {
+        classes: {
+          "@mozilla.org/file/local;1": {
+            createInstance: () => file,
+          },
+        },
+        interfaces: {
+          nsIFile: {},
         },
       },
-      interfaces: {
-        nsIFile: {},
-      },
-    };
+    });
     try {
       const ok = await setRuntimeExecutablePermissions("/tmp/zotero-bridge");
       assert.isTrue(ok);
@@ -975,7 +1023,7 @@ describe("host bridge cli packaging and install", function () {
       assert.strictEqual(file.permissions, 0o755);
     } finally {
       if (previousComponents) {
-        runtime.Components = previousComponents;
+        Object.defineProperty(runtime, "Components", previousComponents);
       } else {
         delete runtime.Components;
       }
@@ -1018,6 +1066,7 @@ describe("host bridge cli packaging and install", function () {
           );
         },
         writeTextFile: async () => undefined,
+        chmodExecutable: async () => true,
       });
 
       assert.isTrue(result.ok);
@@ -1381,6 +1430,7 @@ describe("host bridge cli packaging and install", function () {
             targetDir: "dir",
             pathAlreadyConfigured: true,
             pathUpdated: false,
+            manualPathSetupRequired: false,
             terminalRestartRequired: false,
             changed: true,
             sourceSha256: "source",
@@ -1452,6 +1502,7 @@ describe("host bridge cli packaging and install", function () {
             targetDir: "dir",
             pathAlreadyConfigured: true,
             pathUpdated: false,
+            manualPathSetupRequired: false,
             terminalRestartRequired: false,
             changed: true,
             sourceSha256: "source",
@@ -1616,6 +1667,7 @@ describe("host bridge cli packaging and install", function () {
     assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
     assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(surfaceWorkflow, "npm run check:host-bridge-surface");
     assert.include(surfaceWorkflow, "npm run render:host-bridge-surface");
     assert.include(surfaceWorkflow, "Publish Host Bridge CLI bundle branch");
     assert.include(

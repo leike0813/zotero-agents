@@ -35,8 +35,8 @@ exposed as `mutation literature-ingest`.
 Synthesis commands that require structured parameters accept `--input`:
 
 ```text
-zotero-bridge synthesis topic get-context --input '{"topicId":"abc123"}'
-zotero-bridge synthesis graph get-metrics --input input.json
+zotero-bridge synthesis topic get-context --query '{"topicId":"abc123"}'
+zotero-bridge synthesis graph get-metrics --query input.json
 ```
 
 The `--input` value is either inline JSON, `-` for stdin, `@file`, or a path to

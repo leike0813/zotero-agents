@@ -26,9 +26,9 @@
     replyFocusedRequestId: "",
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
+    panelRenderKey: "",
     pendingRenderSnapshot: null,
     renderScheduled: false,
-    panelRenderKey: "",
     drawerGroupCollapsed: new Map(),
   };
   function bridge() {
@@ -386,7 +386,7 @@
       selectedRuntimeOptions: compactRuntimeOptionsKey(
         raw.selectedRuntimeOptions,
       ),
-      streamingRenderEnabled: raw.streamingRenderEnabled !== false,
+      executionDisplayMode: safeText(raw.executionDisplayMode) || "live",
       runs: runs.map(compactRunKey),
       runDrawerOpen: state.runDrawerOpen,
       detailsOpen: state.detailsOpen,
@@ -655,11 +655,6 @@
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
     }
-    const renderKey = buildPanelRenderKey(snapshot || {});
-    if (state.panelRenderKey === renderKey) {
-      trace("render-panel-skip", { summary: snapshotSummary(snapshot || {}) });
-      return;
-    }
     const renderer = assistantPanelRenderer();
     if (
       !renderer ||
@@ -676,6 +671,19 @@
     }
     try {
       const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {});
+      renderer.renderAssistantPanelSnapshot(panelSnapshot, {
+        managed: true,
+        managedRegions: { messageCounter: true },
+        root: document.querySelector(".acp-skill-run-shell"),
+        regions: {
+          messageCounter: $("acp-skill-run-message-counter"),
+        },
+      });
+      const renderKey = buildPanelRenderKey(snapshot || {});
+      if (state.panelRenderKey === renderKey) {
+        return;
+      }
+      state.panelRenderKey = renderKey;
       trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
       panelSnapshot.drawers = panelSnapshot.drawers || {};
       panelSnapshot.drawers.permissionRequest = state.permissionRequestDetails;
@@ -707,6 +715,7 @@
         managedRegions: {
           toolbar: true,
           banner: true,
+          messageCounter: true,
           plan: true,
           hint: true,
           reply: true,
@@ -719,6 +728,7 @@
         regions: {
           toolbar: $("acp-skill-run-toolbar"),
           banner: $("acp-skill-run-banner"),
+          messageCounter: $("acp-skill-run-message-counter"),
           conversation: $("acp-skill-conversation-window"),
           plan: $("acp-skill-run-plan-panel"),
           hint: $("acp-skill-run-interaction"),
@@ -727,7 +737,6 @@
           details: $("acp-skill-run-details"),
         },
       });
-      state.panelRenderKey = renderKey;
       restoreReplyFocus();
     } catch (error) {
       renderPanelRuntimeFailure(

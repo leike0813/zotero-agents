@@ -1,10 +1,28 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
-import { registerHostBridgeFileHandle } from "./hostBridgeFileRegistry";
+import {
+  registerHostBridgeFileHandle,
+  registerHostBridgeWorkflowArtifactFile,
+} from "./hostBridgeFileRegistry";
 import { isDebugModeEnabled } from "./debugMode";
 import {
+  copyRuntimeFile,
   getRuntimePersistencePaths,
+  readRuntimeBytes,
+  runtimePathExists,
   scanRuntimePersistenceUsage,
+  writeRuntimeBytes,
 } from "./runtimePersistence";
+import { joinPath } from "../utils/path";
+import { createStoreZipBytes } from "./zipStore";
+import {
+  getWorkflowProduct,
+  listWorkflowProducts,
+  removeWorkflowProduct,
+  resolveManagedWorkflowProductAsset,
+  WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
+  type WorkflowProductAsset,
+  type WorkflowProductRecord,
+} from "./workflowProductStore";
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
 import {
   listActiveWorkflowTaskSummaries,
@@ -55,6 +73,21 @@ export type HostBridgeCapabilityDefinition =
   HostBridgeCapabilityManifestEntry & {
     handler: HostBridgeCapabilityHandler;
   };
+
+export class HostBridgeWorkflowProductError extends Error {
+  readonly code:
+    | "workflow_product_not_found"
+    | "workflow_product_asset_not_found";
+
+  constructor(
+    code: "workflow_product_not_found" | "workflow_product_asset_not_found",
+    message: string,
+  ) {
+    super(message);
+    this.name = "HostBridgeWorkflowProductError";
+    this.code = code;
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -213,6 +246,220 @@ function debugEnvelope(
     },
     diagnostics: Array.isArray(payload.diagnostics) ? payload.diagnostics : [],
     ...payload,
+  };
+}
+
+const WORKFLOW_PRODUCT_PAGE_DEFAULT = 100;
+const WORKFLOW_PRODUCT_PAGE_MAX = 200;
+
+function normalizedWorkflowProductId(value: unknown) {
+  return String(value || "").trim();
+}
+
+function publicWorkflowProductAsset(asset: WorkflowProductAsset) {
+  return {
+    assetId: asset.assetId,
+    label: asset.label,
+    path: asset.path,
+    relativePath: asset.relativePath,
+    contentType: asset.contentType,
+    sourceKind: asset.sourceKind,
+    size: asset.size,
+    diagnostics: asset.diagnostics,
+  };
+}
+
+function publicWorkflowProduct(product: WorkflowProductRecord) {
+  return {
+    productId: product.productId,
+    productKey: product.productKey,
+    kind: product.kind,
+    title: product.title,
+    workflowId: product.workflowId,
+    workflowLabel: product.workflowLabel,
+    backendId: product.backendId,
+    backendType: product.backendType,
+    runKey: product.runKey,
+    requestId: product.requestId,
+    runId: product.runId,
+    storageMode: product.storageMode,
+    assets: product.assets.map(publicWorkflowProductAsset),
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+  };
+}
+
+function isNormalWorkflowProduct(
+  product: WorkflowProductRecord | null,
+): product is WorkflowProductRecord {
+  return !!product && product.kind !== WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK;
+}
+
+function workflowProductPageInput(input: unknown) {
+  const object = asObject(input);
+  const cursor = Math.max(0, Math.floor(Number(object.cursor) || 0));
+  const requestedLimit = Math.floor(
+    Number(object.limit) || WORKFLOW_PRODUCT_PAGE_DEFAULT,
+  );
+  return {
+    workflowId: normalizedWorkflowProductId(object.workflowId),
+    backendId: normalizedWorkflowProductId(object.backendId),
+    requestId: normalizedWorkflowProductId(object.requestId),
+    cursor,
+    limit: Math.max(1, Math.min(WORKFLOW_PRODUCT_PAGE_MAX, requestedLimit)),
+  };
+}
+
+function selectWorkflowProducts(input: unknown) {
+  const filters = workflowProductPageInput(input);
+  const matches = listWorkflowProducts().filter((product) => {
+    if (!isNormalWorkflowProduct(product)) return false;
+    return (
+      (!filters.workflowId || product.workflowId === filters.workflowId) &&
+      (!filters.backendId || product.backendId === filters.backendId) &&
+      (!filters.requestId || product.requestId === filters.requestId)
+    );
+  });
+  const products = matches
+    .slice(filters.cursor, filters.cursor + filters.limit)
+    .map(publicWorkflowProduct);
+  const next = filters.cursor + products.length;
+  return {
+    products,
+    total: matches.length,
+    nextCursor: next < matches.length ? next : null,
+    hasMore: next < matches.length,
+  };
+}
+
+function workflowProductOrThrow(productId: unknown) {
+  const product = getWorkflowProduct(normalizedWorkflowProductId(productId));
+  if (!isNormalWorkflowProduct(product)) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_not_found",
+      "Workflow product was not found",
+    );
+  }
+  return product;
+}
+
+async function managedWorkflowProductAssetOrThrow(
+  productId: unknown,
+  assetId: unknown,
+) {
+  const product = workflowProductOrThrow(productId);
+  const resolved = await resolveManagedWorkflowProductAsset(
+    product.productId,
+    normalizedWorkflowProductId(assetId),
+  );
+  if (!resolved) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_asset_not_found",
+      "Workflow product asset was not found",
+    );
+  }
+  return resolved;
+}
+
+function safeWorkflowProductExportPath(relativePath: string) {
+  const value = String(relativePath || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+  const parts = value.split("/").filter((part) => part && part !== ".");
+  if (!parts.length || parts.some((part) => part === "..")) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_asset_not_found",
+      "Workflow product asset path is unsafe",
+    );
+  }
+  return parts.join("/");
+}
+
+async function exportWorkflowProduct(
+  input: unknown,
+  context: HostBridgeCapabilityContext,
+) {
+  const object = asObject(input);
+  const product = workflowProductOrThrow(object.productId);
+  const requestedAssetId = normalizedWorkflowProductId(object.assetId);
+  const assets = requestedAssetId
+    ? product.assets.filter((asset) => asset.assetId === requestedAssetId)
+    : product.assets;
+  if (!assets.length) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_asset_not_found",
+      "Workflow product asset was not found",
+    );
+  }
+  const resolved = await Promise.all(
+    assets.map((asset) =>
+      managedWorkflowProductAssetOrThrow(product.productId, asset.assetId),
+    ),
+  );
+  if (context.connectionMode !== "remote") {
+    const outputDir = normalizedWorkflowProductId(object.outputDir);
+    if (!outputDir) {
+      throw new Error(
+        "workflow_products.export requires outputDir for local callers",
+      );
+    }
+    const overwrite = object.overwrite === true;
+    const files = [];
+    for (const entry of resolved) {
+      const relativePath = safeWorkflowProductExportPath(
+        entry.asset.relativePath,
+      );
+      const targetPath = joinPath(outputDir, relativePath);
+      if ((await runtimePathExists(targetPath)) && !overwrite) {
+        throw new Error("workflow product export output already exists");
+      }
+      await copyRuntimeFile({ sourcePath: entry.localPath, targetPath });
+      files.push({
+        assetId: entry.asset.assetId,
+        relativePath,
+        size: entry.asset.size,
+      });
+    }
+    return {
+      product: publicWorkflowProduct(product),
+      delivery: { mode: "local", files },
+    };
+  }
+  const exportRoot = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "host-bridge-exports",
+    "workflow-products",
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const zipName = `workflow-product-${product.productId.replace(/[^A-Za-z0-9._-]+/g, "-")}.zip`;
+  const zipPath = joinPath(exportRoot, zipName);
+  const entries = await Promise.all(
+    resolved.map(async (entry) => ({
+      name: safeWorkflowProductExportPath(entry.asset.relativePath),
+      bytes: await readRuntimeBytes(entry.localPath),
+    })),
+  );
+  const zipBytes = createStoreZipBytes(entries);
+  await writeRuntimeBytes(zipPath, zipBytes);
+  const file = await registerHostBridgeFileHandle({
+    localPath: zipPath,
+    sourceKind: "bridge-export",
+    displayName: zipName,
+    contentType: "application/zip",
+    size: zipBytes.byteLength,
+    owner: {
+      capability: "workflow_products.export",
+      requestId: product.requestId,
+    },
+  });
+  return {
+    product: publicWorkflowProduct(product),
+    delivery: {
+      mode: "bridge-download",
+      bundle: file,
+      downloadCommand: `zotero-bridge file download ${file.fileId} --output ${zipName}`,
+      unpackHint: `unzip ${zipName} -d .`,
+    },
   };
 }
 
@@ -827,6 +1074,112 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemRefFromInput(input),
         asObject(input) as { format?: string },
       ),
+  ),
+  capability(
+    "workflow_products.list",
+    "workflow_products",
+    "List normal Dashboard Products with bounded filters and pagination.",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        workflowId: { type: "string" },
+        backendId: { type: "string" },
+        requestId: { type: "string" },
+        cursor: { type: ["number", "string"], minimum: 0 },
+        limit: { type: ["number", "string"], minimum: 1 },
+      },
+    },
+    (input) => selectWorkflowProducts(input),
+  ),
+  capability(
+    "workflow_products.get",
+    "workflow_products",
+    "Return public metadata for one normal Dashboard Product.",
+    {
+      type: "object",
+      required: true,
+      properties: { productId: { type: "string" } },
+      requiredProperties: ["productId"],
+    },
+    (input) => ({
+      product: publicWorkflowProduct(
+        workflowProductOrThrow(asObject(input).productId),
+      ),
+    }),
+  ),
+  capability(
+    "workflow_products.read_asset",
+    "workflow_products",
+    "Register one normal Dashboard Product asset for opaque file download.",
+    {
+      type: "object",
+      required: true,
+      properties: {
+        productId: { type: "string" },
+        assetId: { type: "string" },
+      },
+      requiredProperties: ["productId", "assetId"],
+    },
+    async (input) => {
+      const object = asObject(input);
+      const resolved = await managedWorkflowProductAssetOrThrow(
+        object.productId,
+        object.assetId,
+      );
+      const file = await registerHostBridgeWorkflowArtifactFile({
+        localPath: resolved.localPath,
+        displayName: resolved.asset.label || resolved.asset.relativePath,
+        contentType: resolved.asset.contentType,
+        size: resolved.asset.size,
+        workflowId: resolved.product.workflowId,
+        requestId: resolved.product.requestId,
+        runId: resolved.product.runId,
+        owner: {
+          capability: "workflow_products.read_asset",
+          requestId: resolved.product.requestId,
+        },
+      });
+      return { asset: publicWorkflowProductAsset(resolved.asset), file };
+    },
+  ),
+  capability(
+    "workflow_products.export",
+    "workflow_products",
+    "Export one or all normal Dashboard Product assets with local or remote delivery.",
+    {
+      type: "object",
+      required: true,
+      properties: {
+        productId: { type: "string" },
+        assetId: { type: "string" },
+        outputDir: { type: "string" },
+        overwrite: { type: "boolean" },
+      },
+      requiredProperties: ["productId"],
+    },
+    exportWorkflowProduct,
+  ),
+  capability(
+    "workflow_products.remove",
+    "mutation",
+    "Remove one normal Dashboard Product record while retaining managed assets for persistence cleanup.",
+    {
+      type: "object",
+      required: true,
+      properties: { productId: { type: "string" } },
+      requiredProperties: ["productId"],
+    },
+    (input) => {
+      const product = workflowProductOrThrow(asObject(input).productId);
+      if (!removeWorkflowProduct(product.productId)) {
+        throw new HostBridgeWorkflowProductError(
+          "workflow_product_not_found",
+          "Workflow product was not found",
+        );
+      }
+      return { productId: product.productId, removed: true };
+    },
   ),
   capability(
     "mutation.preview",

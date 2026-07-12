@@ -389,7 +389,14 @@ describe("Synthesis Citation Graph", function () {
         {
           libraryId: 1,
           itemKey: "D",
-          title: "Isolated Paper",
+          title: "Old Isolated Paper",
+          year: "2020",
+        },
+        {
+          libraryId: 1,
+          itemKey: "E",
+          title: "Recent Isolated Paper",
+          year: "2024",
         },
       ],
     });
@@ -403,8 +410,8 @@ describe("Synthesis Citation Graph", function () {
     assert.equal(first.metrics_hash, second.metrics_hash);
     assert.equal(first.graph_hash, graph.graph_hash);
     assert.equal(first.graph_year, 2024);
-    assert.equal(first.diagnostics.library_node_count, 4);
-    assert.equal(first.diagnostics.component_count, 2);
+    assert.equal(first.diagnostics.library_node_count, 5);
+    assert.equal(first.diagnostics.component_count, 3);
     assert.equal(byId.get("zotero:item:B")?.internal_in_degree, 2);
     assert.equal(byId.get("zotero:item:A")?.internal_out_degree, 1);
     assert.equal(byId.get("zotero:item:A")?.external_reference_count, 1);
@@ -414,6 +421,12 @@ describe("Synthesis Citation Graph", function () {
       byId.get("zotero:item:D")?.synthesis_role_hints || [],
       "isolated",
     );
+    assert.equal(byId.get("zotero:item:E")?.is_isolated, true);
+    assert.isAbove(byId.get("zotero:item:D")?.internal_pagerank || 0, 0);
+    assert.equal(byId.get("zotero:item:D")?.foundation_score, 0.15);
+    assert.equal(byId.get("zotero:item:D")?.frontier_score, 0);
+    assert.equal(byId.get("zotero:item:E")?.foundation_score, 0);
+    assert.equal(byId.get("zotero:item:E")?.frontier_score, 0.55);
     assert.isAbove(byId.get("zotero:item:B")?.internal_pagerank || 0, 0);
     assert.isAtLeast(byId.get("zotero:item:C")?.recency_norm || 0, 1);
   });

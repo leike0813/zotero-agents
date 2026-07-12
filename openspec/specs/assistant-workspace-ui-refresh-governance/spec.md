@@ -6,91 +6,60 @@ Governs how Assistant Workspace panels classify, coalesce, and publish UI refres
 ### Requirement: Assistant Workspace UI publish events are governed
 
 Assistant Workspace panels SHALL classify runtime refreshes as `critical`,
-`boundary`, `live`, or `background` before publishing UI snapshots.
+`boundary`, `live`, or `background` and SHALL apply the global `live`,
+`boundary`, or `silent` execution display mode before publishing.
 
-`critical` and `boundary` events SHALL publish immediately. Text or thought
-`live` transcript events SHALL publish naturally when streaming render is
-enabled. Metadata `live` events SHALL publish at most once per shared live
-cadence when streaming render is enabled. Text or thought `live` events SHALL
-NOT publish transcript text when streaming render is disabled unless the panel
-classifies a complete semantic message as a boundary. `background`
-events SHALL update canonical state without publishing a visible snapshot.
+Critical events SHALL publish immediately and background events SHALL not publish. In `live`, text/thought live events SHALL publish naturally and metadata live events SHALL use the shared cadence. In `boundary`, live text SHALL remain unpublished until a complete semantic message or other existing boundary. In `silent`, ordinary live and boundary events SHALL not publish transcript content; only a semantic-message count change or critical interaction/terminal state SHALL publish.
 
-#### Scenario: text live updates stream naturally
+#### Scenario: live text advances naturally
 
-- **GIVEN** streaming render is enabled
-- **WHEN** a running Assistant Workspace panel receives text or thought chunks
-- **THEN** the UI-visible transcript advances with those chunks without waiting
-  for the metadata live cadence
-- **AND** canonical runtime state still records every update.
+- **GIVEN** execution display mode is `live`
+- **WHEN** a panel receives text or thought chunks
+- **THEN** the UI-visible transcript advances without waiting for metadata cadence.
 
-#### Scenario: metadata live updates are bounded
+#### Scenario: boundary mode preserves message publication
 
-- **GIVEN** streaming render is enabled
-- **WHEN** a running Assistant Workspace panel receives many metadata live
-  updates
-- **THEN** visible non-transcript panel snapshots are coalesced to the shared
-  live cadence.
+- **GIVEN** execution display mode is `boundary`
+- **WHEN** partial text is followed by a complete semantic message boundary
+- **THEN** partial text remains hidden until the boundary
+- **AND** the completed message publishes immediately.
 
-#### Scenario: disabled streaming render is boundary-only
+#### Scenario: silent chunks publish only first-segment progress
 
-- **GIVEN** streaming render is disabled
-- **WHEN** a running Assistant Workspace panel receives live runtime updates
-- **THEN** those updates do not publish UI snapshots
-- **AND** the next critical or boundary event publishes the latest allowed view.
+- **GIVEN** execution display mode is `silent`
+- **WHEN** many chunks form one assistant semantic message
+- **THEN** only the first chunk changes the visible message count
+- **AND** later chunks publish no snapshot.
 
-#### Scenario: panel-specific complete messages can be boundaries
+#### Scenario: silent critical state remains immediate
 
-- **GIVEN** streaming render is disabled
-- **WHEN** a panel receives a complete semantic message rather than a partial
-  text chunk
-- **THEN** the panel MAY classify that complete message as a boundary
-- **AND** publish the accumulated UI-visible transcript immediately.
-
-#### Scenario: critical and boundary events publish immediately
-
-- **WHEN** a runtime event is classified as `critical` or `boundary`
-- **THEN** the panel SHALL publish the UI snapshot immediately
-- **AND** SHALL NOT wait for the metadata live cadence or streaming render
-  preference.
+- **GIVEN** execution display mode is `silent`
+- **WHEN** a run requires permission, authentication, or user input, or becomes terminal
+- **THEN** that critical state publishes immediately.
 
 ### Requirement: UI-visible transcript is separate from canonical transcript
 
-Assistant Workspace panels SHALL publish transcript snapshots from a UI-visible
-transcript view instead of exposing the canonical transcript directly during
-live runs.
+Assistant Workspace panels SHALL publish transcript snapshots from a mode-specific UI-visible projection instead of exposing canonical runtime state directly. Metadata updates SHALL NOT expose unpublished text.
 
-Metadata, diagnostics, backend health, usage, and session information updates
-SHALL NOT expose unpublished partial text simply because the canonical
-transcript has advanced.
+In `live` and `boundary`, existing structural transcript behavior SHALL remain. In `silent`, thought, tool, plan, workspace activity, ordinary status, invalid/pending output revision, and non-final assistant content SHALL be absent from the UI-visible transcript. User content, critical interaction state, and final assistant/terminal content SHALL remain eligible.
 
-Workspace activity, tool state changes, plan changes, output revision
-projection, permission, waiting, and error events SHALL be treated as
-structural transcript events. They SHALL update the UI-visible transcript
-immediately without releasing unrelated unpublished streaming text.
+#### Scenario: metadata does not leak boundary text
 
-#### Scenario: metadata does not leak partial text
+- **GIVEN** mode is `boundary` and partial text is unpublished
+- **WHEN** metadata publishes
+- **THEN** the partial text remains hidden until its message boundary.
 
-- **GIVEN** streaming render is disabled
-- **WHEN** a text chunk updates canonical transcript state
-- **AND** a metadata update publishes panel state
-- **THEN** the visible transcript does not show the partial text
-- **AND** a later transcript boundary shows the complete text.
+#### Scenario: silent structural activity remains hidden
 
-#### Scenario: structural transcript updates do not wait for metadata cadence
+- **GIVEN** mode is `silent`
+- **WHEN** tool, plan, workspace, or pending-revision state changes
+- **THEN** those changes do not become visible transcript rows.
 
-- **GIVEN** streaming render is disabled
-- **WHEN** a text chunk updates canonical transcript state
-- **AND** a workspace activity or tool completion event updates the transcript
-- **THEN** the structural event appears immediately
-- **AND** the unpublished partial text remains hidden until its text boundary.
+#### Scenario: final output replaces silent progress
 
-#### Scenario: output revisions publish their projected message
-
-- **WHEN** an Assistant Workspace runtime projects an invalid, pending, or final
-  output revision into the transcript
-- **THEN** the UI-visible transcript immediately reflects the projected
-  assistant message and revision summary.
+- **GIVEN** silent progress is visible for an owner
+- **WHEN** the owner publishes a final assistant result
+- **THEN** progress is removed and the final result becomes visible.
 
 ### Requirement: Transcript rendering is revision-gated
 
@@ -380,3 +349,26 @@ Transcript loading indicators SHALL be scoped by the selected transcript owner, 
 - **WHEN** only run `B` transcript revision, event sequence, item count, or preview changes
 - **THEN** the Assistant Workspace host snapshot signature SHALL remain unchanged for the selected loading snapshot
 - **AND** the child panel SHALL NOT receive a repost that can rebuild owner `A` loading DOM.
+
+### Requirement: Message counter preserves managed-region identity
+
+Assistant message counts SHALL be rendered only by the message-counter managed region. Its owner, category values, activity, completeness, and revision SHALL NOT enter transcript, toolbar, banner, plan, hint, reply, context drawer, details drawer, or permission drawer render signatures.
+
+#### Scenario: count-only update is region-local
+
+- **WHEN** one selected-owner semantic count advances without another visible change
+- **THEN** only the message-counter region is eligible to update
+- **AND** transcript and all other managed-region nodes retain identity and interactive state.
+
+#### Scenario: owner-first rendering does not wait for transcript hydration
+
+- **WHEN** a selected owner changes and persisted count metadata is available
+- **THEN** the message counter may render from owner metadata independently
+- **AND** indexed page read and full mirror hydration remain separate transcript operations.
+
+#### Scenario: child panel guard does not swallow count-only snapshots
+
+- **WHEN** a child panel receives a snapshot whose only visible change is message-count state
+- **THEN** the snapshot reaches the shared message-counter region guard
+- **AND** unchanged toolbar, banner, transcript, reply, and drawer regions retain DOM identity.
+

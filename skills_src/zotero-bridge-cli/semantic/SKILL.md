@@ -36,7 +36,7 @@ Use the run-local shim first when it exists. If the observed `zotero-bridge` ver
 
 ## Workflow Model
 
-Use `workflow describe <workflowId>` or `workflow requirements <workflowId>` before submitting a workflow whose input shape, output contract, or execution mode is uncertain. Use `workflow validate` when you have a draft selection, workflow options, or provider profile and need to check readiness without starting a run.
+Use `workflow describe --workflow <workflowId>` or `workflow requirements --workflow <workflowId>` before submitting a workflow whose input shape, output contract, or execution mode is uncertain. Use `workflow validate` when you have a draft selection, workflow options, or provider profile and need to check readiness without starting a run.
 
 Use `workflow submit` when Host Bridge should execute the workflow and produce a `workflowRunId`. Register and monitor only these Host-owned runs through the run control plane.
 

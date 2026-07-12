@@ -3134,8 +3134,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "ResizeObserver");
     assert.include(source, "scheduleSigmaResize");
     assert.include(source, 'label: ""');
-    assert.include(source, "function graphNodeSize");
-    assert.include(source, "GRAPH_LIBRARY_BASE_NODE_SIZE");
+    assert.include(source, "buildCitationGraphNodeImportance");
+    assert.include(source, "citationGraphNodeSize");
     assert.include(graphVisualRules, "GRAPH_LIBRARY_BASE_NODE_SIZE = 4.6");
     assert.include(
       graphVisualRules,
@@ -3143,11 +3143,8 @@ describe("Synthesis tab UI model", function () {
     );
     assert.include(graphVisualRules, "GRAPH_LIBRARY_NODE_SIZE_CAP = 8");
     assert.include(graphVisualRules, "GRAPH_EXTERNAL_NODE_SIZE_CAP = 4.8");
-    assert.include(source, "function buildGraphNodeImportance");
-    assert.include(source, "function graphNodeIncomingDegree");
-    assert.include(source, "function fallbackGraphIncomingDegrees");
-    assert.include(source, "GRAPH_IMPORTANCE_HALO_TOP_RATIO");
-    assert.include(source, "GRAPH_IMPORTANCE_HALO_MAX");
+    assert.include(graphVisualRules, "buildCitationGraphNodeImportance");
+    assert.include(graphVisualRules, "citationGraphFallbackIncomingDegrees");
     assert.include(source, 'from "sigma/rendering"');
     assert.include(source, "function drawGraphImportanceHalo");
     assert.include(source, "function drawGraphNodeHover");

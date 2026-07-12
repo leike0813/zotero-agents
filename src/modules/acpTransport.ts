@@ -15,8 +15,15 @@ import {
 import { buildSubprocessEnvironment } from "../platform/env";
 import { joinNativePath } from "../platform/path";
 import {
+  buildPosixProcessGroupSignalInvocation,
   getRuntimeProcessControlSnapshot,
+  validatePosixProcessGroupOwnership,
+  type PosixProcessGroupSignal,
+  type PosixProcessIdentity,
+  type PosixProcessOwnershipRejectionReason,
+  type PosixProcessOwnershipValidation,
   type RuntimeProcessCleanupStrategy,
+  type ValidatedPosixProcessGroupTarget,
 } from "../platform/processControl";
 import { detectRuntimePlatform } from "../platform/runtimePlatform";
 import {
@@ -144,7 +151,30 @@ export type AcpTransportLifecycle = {
   processTreeCleanupDiagnostic?: string;
   processTreeCleanupPid?: number | null;
   processTreeCleanupValidation?: "validated" | "rejected" | "not-required";
+  processTreeCleanupValidationReason?: AcpProcessOwnershipRejectionReason;
+  processIdentityQuerySupported?: boolean;
+  launchPidValidated?: boolean;
+  launchPgidValidated?: boolean;
+  launchSidValidated?: boolean;
+  stdinEofRequested?: boolean;
+  stdinEofStatus?: "not-requested" | "succeeded" | "failed" | "timed-out";
+  gracefulExit?: boolean;
+  closeInvocationCount?: number;
+  closeReused?: boolean;
+  termSignalSent?: boolean;
+  termSignalSucceeded?: boolean;
+  killRevalidationPerformed?: boolean;
+  killSignalSent?: boolean;
+  killSignalSucceeded?: boolean;
+  processGroupSignalDelivery?: "mozilla-external-kill" | "node-direct";
+  processGroupSignalTargetPgid?: number | null;
+  processGroupSignalOperandDelimited?: boolean;
+  directSubprocessFallback?: boolean;
+  possibleWrapperDescendants?: boolean;
 };
+
+export type AcpProcessOwnershipRejectionReason =
+  PosixProcessOwnershipRejectionReason;
 
 export type AcpTransportCloseOptions = {
   graceMs?: number;
@@ -172,6 +202,7 @@ const ACP_STDERR_MAX_CHARS = 64 * 1024;
 const ACP_PIPE_DRAIN_TIMEOUT_MS = 2_000;
 const ACP_TRANSPORT_CLOSE_GRACE_MS = 250;
 const ACP_TRANSPORT_KILL_WAIT_MS = 1_000;
+const ACP_PROCESS_IDENTITY_QUERY_TIMEOUT_MS = 500;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -255,7 +286,7 @@ function applyProcessControlLifecycle(args: {
   }
 }
 
-function getCachedResolvedCommand(command: "sh" | "setsid" | "kill") {
+function getCachedResolvedCommand(command: "sh" | "setsid" | "kill" | "ps") {
   const resolution = getCachedRuntimeCommand(command);
   return normalizeString(
     resolution?.resolvedPath || resolution?.launch?.command,
@@ -301,7 +332,7 @@ function buildMozillaProcessLaunch(args: {
         pidFilePath,
         supervisorToken,
         strategy: "posix-pidfile-supervisor" as const,
-        supported: true,
+        supported: snapshot.supportsProcessTreeCleanup,
       };
     }
   }
@@ -928,24 +959,120 @@ async function removeSupervisorPidFile(pidFilePath: string) {
 
 async function terminatePosixProcessGroupWithMozilla(args: {
   subprocess: MozillaSubprocessModule;
-  pid: number;
-  signal: "TERM" | "KILL";
+  target: ValidatedPosixProcessGroupTarget;
+  signal: PosixProcessGroupSignal;
 }) {
   const killCommand = getCachedResolvedCommand("kill");
   if (!killCommand || !args.subprocess.call) {
     return false;
   }
   try {
+    const invocation = buildPosixProcessGroupSignalInvocation(
+      args.target,
+      args.signal,
+    );
     const killProc = await args.subprocess.call({
       command: killCommand,
-      arguments: [`-${args.signal}`, `-${args.pid}`],
+      arguments: invocation.arguments,
     });
-    if (typeof killProc.wait === "function") {
-      await killProc.wait();
-    }
-    return true;
+    const waited =
+      typeof killProc.wait === "function" ? await killProc.wait() : undefined;
+    const exitCode = extractExitCode(waited) ?? extractExitCode(killProc);
+    return exitCode === 0;
   } catch {
     return false;
+  }
+}
+
+function parsePosixProcessIdentity(
+  value: unknown,
+): PosixProcessIdentity | null {
+  const fields = normalizeString(value).split(/\s+/);
+  if (fields.length < 3) {
+    return null;
+  }
+  const [pid, pgid, sid] = fields.map((field) =>
+    toPositiveProcessId(Number.parseInt(field, 10)),
+  );
+  return pid && pgid && sid ? { pid, pgid, sid } : null;
+}
+
+async function queryPosixProcessIdentityWithMozilla(args: {
+  subprocess: MozillaSubprocessModule;
+  pid: number;
+}) {
+  const psCommand = getCachedResolvedCommand("ps");
+  if (!psCommand || !args.subprocess.call) {
+    return null;
+  }
+  return await withTimeoutValue(
+    (async () => {
+      try {
+        const proc = await args.subprocess.call!({
+          command: psCommand,
+          arguments: ["-o", "pid=,pgid=,sid=", "-p", String(args.pid)],
+        });
+        const output = await proc.stdout?.readString?.();
+        if (typeof proc.wait === "function") {
+          await proc.wait();
+        }
+        return parsePosixProcessIdentity(output);
+      } catch {
+        return null;
+      }
+    })(),
+    ACP_PROCESS_IDENTITY_QUERY_TIMEOUT_MS,
+  );
+}
+
+async function queryPosixProcessIdentityWithNode(args: {
+  childProcess: any;
+  pid: number;
+}) {
+  const psCommand = getCachedResolvedCommand("ps");
+  if (!psCommand || typeof args.childProcess.execFile !== "function") {
+    return null;
+  }
+  return await new Promise<PosixProcessIdentity | null>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, ACP_PROCESS_IDENTITY_QUERY_TIMEOUT_MS);
+    args.childProcess.execFile(
+      psCommand,
+      ["-o", "pid=,pgid=,sid=", "-p", String(args.pid)],
+      (error: unknown, stdout: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        resolve(error ? null : parsePosixProcessIdentity(stdout));
+      },
+    );
+  });
+}
+
+function applyOwnershipValidationLifecycle(
+  lifecycle: AcpTransportLifecycle,
+  validation: PosixProcessOwnershipValidation,
+) {
+  lifecycle.processTreeCleanupValidation = validation.ok
+    ? "validated"
+    : "rejected";
+  lifecycle.processTreeCleanupValidationReason = validation.ok
+    ? undefined
+    : validation.reason;
+  lifecycle.launchPidValidated = validation.ok;
+  lifecycle.launchPgidValidated = validation.ok;
+  lifecycle.launchSidValidated = validation.ok;
+  if (!validation.ok) {
+    lifecycle.directSubprocessFallback = true;
+    lifecycle.possibleWrapperDescendants = true;
+    lifecycle.processTreeCleanupDiagnostic = validation.reason;
   }
 }
 
@@ -963,6 +1090,15 @@ async function waitForPromiseWithTimeout<T>(
     ),
     new Promise<boolean>((resolve) => {
       setTimeout(() => resolve(false), timeoutMs);
+    }),
+  ]);
+}
+
+async function withTimeoutValue<T>(promise: Promise<T>, timeoutMs: number) {
+  return await Promise.race<T | null>([
+    promise.catch(() => null),
+    new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), timeoutMs);
     }),
   ]);
 }
@@ -1049,6 +1185,15 @@ async function launchMozillaAcpTransport(
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "mozilla-subprocess";
   lifecycle.childPid = toPositiveProcessId(proc.pid);
+  const identityQuerySupported =
+    getRuntimeProcessControlSnapshot().supportsProcessIdentityQuery === true;
+  lifecycle.processIdentityQuerySupported = identityQuerySupported;
+  const launchIdentity = lifecycle.childPid
+    ? await queryPosixProcessIdentityWithMozilla({
+        subprocess,
+        pid: lifecycle.childPid,
+      })
+    : null;
   applyProcessControlLifecycle({
     lifecycle,
     backendCommand,
@@ -1121,51 +1266,74 @@ async function launchMozillaAcpTransport(
       lifecycle.cleanupKillRequestedAt ||= nowIso();
       lifecycle.killedByClose = true;
       if (processLaunch.pidFilePath) {
-        const identity = await readSupervisorIdentity(
+        const pidfileIdentity = await readSupervisorIdentity(
           processLaunch.pidFilePath,
         );
-        lifecycle.processTreeCleanupPid = identity?.pid ?? null;
-        const identityValidated =
-          processLaunch.strategy === "posix-pidfile-supervisor" &&
-          lifecycle.childPid !== null &&
-          typeof lifecycle.childPid !== "undefined" &&
-          identity?.pid === lifecycle.childPid &&
-          identity.token === processLaunch.supervisorToken;
-        if (identityValidated && identity) {
-          lifecycle.processTreeCleanupValidation = "validated";
+        lifecycle.processTreeCleanupPid = pidfileIdentity?.pid ?? null;
+        const validateOwnership = async () =>
+          validatePosixProcessGroupOwnership({
+            strategy: processLaunch.strategy,
+            expectedStrategy: "posix-pidfile-supervisor",
+            childPid: lifecycle.childPid,
+            launchIdentity,
+            liveIdentity: lifecycle.childPid
+              ? await queryPosixProcessIdentityWithMozilla({
+                  subprocess,
+                  pid: lifecycle.childPid,
+                })
+              : null,
+            pidfileIdentity: await readSupervisorIdentity(
+              processLaunch.pidFilePath,
+            ),
+            supervisorToken: processLaunch.supervisorToken,
+            identityQuerySupported,
+          });
+        const termValidation = await validateOwnership();
+        applyOwnershipValidationLifecycle(lifecycle, termValidation);
+        if (termValidation.ok) {
+          lifecycle.termSignalSent = true;
+          lifecycle.processGroupSignalDelivery = "mozilla-external-kill";
+          lifecycle.processGroupSignalTargetPgid = termValidation.target.pgid;
+          lifecycle.processGroupSignalOperandDelimited = true;
           const terminated = await terminatePosixProcessGroupWithMozilla({
             subprocess,
-            pid: identity.pid,
+            target: termValidation.target,
             signal: "TERM",
           });
+          lifecycle.termSignalSucceeded = terminated;
           if (terminated && (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS))) {
             await removeSupervisorPidFile(processLaunch.pidFilePath);
             return;
           }
           if (terminated) {
-            await terminatePosixProcessGroupWithMozilla({
-              subprocess,
-              pid: identity.pid,
-              signal: "KILL",
-            });
-            await waitForCleanupKillExit({ waitForExit, lifecycle });
-            await removeSupervisorPidFile(processLaunch.pidFilePath);
-            return;
+            lifecycle.killRevalidationPerformed = true;
+            const killValidation = await validateOwnership();
+            applyOwnershipValidationLifecycle(lifecycle, killValidation);
+            if (killValidation.ok) {
+              lifecycle.killSignalSent = true;
+              lifecycle.killSignalSucceeded =
+                await terminatePosixProcessGroupWithMozilla({
+                  subprocess,
+                  target: killValidation.target,
+                  signal: "KILL",
+                });
+              if (lifecycle.killSignalSucceeded) {
+                await waitForCleanupKillExit({ waitForExit, lifecycle });
+                await removeSupervisorPidFile(processLaunch.pidFilePath);
+                return;
+              }
+            }
           }
-          lifecycle.processTreeCleanupDiagnostic =
-            "Validated POSIX process group TERM failed; using direct subprocess cleanup";
-        } else {
-          lifecycle.processTreeCleanupValidation = "rejected";
-          lifecycle.processTreeCleanupDiagnostic = !identity
-            ? "POSIX pidfile supervisor did not publish a valid launch identity before cleanup"
-            : lifecycle.childPid === null ||
-                typeof lifecycle.childPid === "undefined"
-              ? "POSIX process group cleanup rejected because the current subprocess PID is unavailable"
-              : identity.pid !== lifecycle.childPid
-                ? "POSIX process group cleanup rejected because the pidfile PID does not match the current subprocess"
-                : "POSIX process group cleanup rejected because the pidfile token does not match the current transport";
+          lifecycle.directSubprocessFallback = true;
+          lifecycle.possibleWrapperDescendants = true;
+          lifecycle.processTreeCleanupDiagnostic = terminated
+            ? "Validated POSIX process group KILL was rejected or failed; using direct subprocess cleanup"
+            : "Validated POSIX process group TERM failed; using direct subprocess cleanup";
         }
       }
+      lifecycle.directSubprocessFallback = true;
+      lifecycle.possibleWrapperDescendants =
+        lifecycle.wrapperProneCommand === true;
       try {
         proc.kill?.(0);
       } catch {
@@ -1264,6 +1432,7 @@ async function launchNodeAcpTransport(
   const platform = String(processModule.platform || "").trim();
   const useNodeProcessGroup =
     platform !== "win32" && processControl.supportsProcessGroupLaunch;
+  const nodeLaunchToken = randomTransportId();
   const child = spawn(launchPlan.command, launchPlan.args, {
     cwd: args.cwd,
     env,
@@ -1275,6 +1444,16 @@ async function launchNodeAcpTransport(
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "node-subprocess";
   lifecycle.childPid = toPositiveProcessId(child.pid);
+  const identityQuerySupported =
+    processControl.supportsProcessIdentityQuery === true;
+  lifecycle.processIdentityQuerySupported = identityQuerySupported;
+  const launchIdentity =
+    useNodeProcessGroup && lifecycle.childPid
+      ? await queryPosixProcessIdentityWithNode({
+          childProcess,
+          pid: lifecycle.childPid,
+        })
+      : null;
   applyProcessControlLifecycle({
     lifecycle,
     backendCommand: command,
@@ -1283,13 +1462,13 @@ async function launchNodeAcpTransport(
       ? "node-process-group"
       : processControl.preferredCleanupStrategy,
     supported:
-      useNodeProcessGroup ||
+      (useNodeProcessGroup && identityQuerySupported) ||
       !isWrapperProneCommand(command, launchPlan) ||
       processControl.supportsProcessTreeCleanup,
   });
   lifecycle.processTreeCleanupPid = lifecycle.childPid;
   lifecycle.processTreeCleanupValidation = useNodeProcessGroup
-    ? "validated"
+    ? undefined
     : "not-required";
   child.stderr.on("data", (chunk: Buffer | string) => {
     stderrText = appendTail(stderrText, chunk);
@@ -1463,29 +1642,66 @@ async function launchNodeAcpTransport(
       lifecycle.cleanupKillRequestedAt ||= nowIso();
       lifecycle.killedByClose = true;
       if (useNodeProcessGroup && lifecycle.childPid) {
-        let groupSignalSent = false;
-        try {
-          processModule.kill(-lifecycle.childPid, "SIGTERM");
-          groupSignalSent = true;
-        } catch (error) {
-          lifecycle.processTreeCleanupDiagnostic = String(
-            (error as Error)?.message || error,
-          );
+        const validateOwnership = async () =>
+          validatePosixProcessGroupOwnership({
+            strategy: "node-process-group",
+            expectedStrategy: "node-process-group",
+            childPid: lifecycle.childPid,
+            launchIdentity,
+            liveIdentity: lifecycle.childPid
+              ? await queryPosixProcessIdentityWithNode({
+                  childProcess,
+                  pid: lifecycle.childPid,
+                })
+              : null,
+            supervisorToken: nodeLaunchToken,
+            identityQuerySupported,
+          });
+        const termValidation = await validateOwnership();
+        applyOwnershipValidationLifecycle(lifecycle, termValidation);
+        let termSent = false;
+        if (termValidation.ok) {
+          lifecycle.termSignalSent = true;
+          lifecycle.processGroupSignalDelivery = "node-direct";
+          lifecycle.processGroupSignalTargetPgid = termValidation.target.pgid;
+          lifecycle.processGroupSignalOperandDelimited = false;
+          try {
+            processModule.kill(-termValidation.target.pgid, "SIGTERM");
+            termSent = true;
+            lifecycle.termSignalSucceeded = true;
+          } catch (error) {
+            lifecycle.termSignalSucceeded = false;
+            lifecycle.processTreeCleanupDiagnostic = String(
+              (error as Error)?.message || error,
+            );
+          }
         }
-        if (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS)) {
+        if (termSent && (await waitForExit(ACP_TRANSPORT_KILL_WAIT_MS))) {
           return;
         }
-        try {
-          processModule.kill(-lifecycle.childPid, "SIGKILL");
-          groupSignalSent = true;
-        } catch {
-          // Fall through to direct child kill below.
+        if (termSent) {
+          lifecycle.killRevalidationPerformed = true;
+          const killValidation = await validateOwnership();
+          applyOwnershipValidationLifecycle(lifecycle, killValidation);
+          if (killValidation.ok) {
+            lifecycle.killSignalSent = true;
+            try {
+              processModule.kill(-killValidation.target.pgid, "SIGKILL");
+              lifecycle.killSignalSucceeded = true;
+              await waitForCleanupKillExit({ waitForExit, lifecycle });
+              return;
+            } catch {
+              lifecycle.killSignalSucceeded = false;
+            }
+          }
         }
-        if (groupSignalSent) {
-          await waitForCleanupKillExit({ waitForExit, lifecycle });
-          return;
-        }
+        lifecycle.directSubprocessFallback = true;
+        lifecycle.possibleWrapperDescendants =
+          lifecycle.wrapperProneCommand === true;
       }
+      lifecycle.directSubprocessFallback = true;
+      lifecycle.possibleWrapperDescendants =
+        lifecycle.wrapperProneCommand === true;
       try {
         child.kill();
       } catch {
@@ -1652,6 +1868,10 @@ async function launchWebSocketBridgeAcpTransport(
     strategy: "windows-bridge",
     supported: true,
   });
+  lifecycle.processIdentityQuerySupported = false;
+  lifecycle.processTreeCleanupValidation = "not-required";
+  lifecycle.directSubprocessFallback = false;
+  lifecycle.possibleWrapperDescendants = false;
   const emitAudit = (event: string, details: Record<string, unknown> = {}) => {
     dispatchTransportAuditEvent(args.diagnosticCapture, {
       schema: "zotero-skills.acp.transport-audit.v1",
@@ -1664,9 +1884,7 @@ async function launchWebSocketBridgeAcpTransport(
   };
   emitAudit("launch_plan_built", {
     commandLabel: launchPlan.commandLabel,
-    commandLine: launchPlan.commandLine,
     mode: launchPlan.mode,
-    command: launchPlan.command,
     argCount: launchPlan.args.length,
     envKeys: Object.keys(env).sort(),
     bridgePid: bridge.pid,
@@ -1951,6 +2169,167 @@ async function launchWebSocketBridgeAcpTransport(
   };
 }
 
+function createControlledAcpTransport(
+  transport: AcpTransport,
+  diagnosticCapture?: AcpTransportDiagnosticCaptureOptions,
+): AcpTransport {
+  let acceptingWrites = true;
+  let writeQueue: Promise<void> = Promise.resolve();
+  let eofPromise: Promise<void> | null = null;
+  let closePromise: Promise<void> | null = null;
+  const controllerLifecycle: Partial<AcpTransportLifecycle> = {
+    stdinEofRequested: false,
+    stdinEofStatus: "not-requested",
+    gracefulExit: false,
+    closeInvocationCount: 0,
+    closeReused: false,
+  };
+
+  const requestEof = () => {
+    if (eofPromise) {
+      return eofPromise;
+    }
+    controllerLifecycle.stdinEofRequested = true;
+    controllerLifecycle.stdinEofStatus = "not-requested";
+    eofPromise = (async () => {
+      let writer: AcpWritableWriter<Uint8Array> | null = null;
+      try {
+        writer = transport.stdin.getWriter();
+        if (typeof writer.close === "function") {
+          await writer.close();
+        }
+        controllerLifecycle.stdinEofStatus = "succeeded";
+      } catch {
+        controllerLifecycle.stdinEofStatus = "failed";
+      } finally {
+        writer?.releaseLock();
+      }
+    })();
+    return eofPromise;
+  };
+
+  const stdin: AcpWritableLike<Uint8Array> = {
+    getWriter() {
+      let released = false;
+      return {
+        async write(chunk: Uint8Array) {
+          if (released) {
+            throw new Error("ACP transport stdin writer lock released");
+          }
+          if (!acceptingWrites) {
+            throw new Error("ACP transport is closing");
+          }
+          const operation = writeQueue
+            .catch(() => undefined)
+            .then(async () => {
+              const writer = transport.stdin.getWriter();
+              try {
+                await writer.write(chunk);
+              } finally {
+                writer.releaseLock();
+              }
+            });
+          writeQueue = operation;
+          await operation;
+        },
+        async close() {
+          acceptingWrites = false;
+          await writeQueue.catch(() => undefined);
+          await requestEof();
+        },
+        async abort(reason?: unknown) {
+          acceptingWrites = false;
+          const writer = transport.stdin.getWriter();
+          try {
+            await writer.abort?.(reason);
+          } finally {
+            writer.releaseLock();
+          }
+        },
+        releaseLock() {
+          released = true;
+        },
+      };
+    },
+  };
+
+  const close = (options?: AcpTransportCloseOptions) => {
+    controllerLifecycle.closeInvocationCount =
+      (controllerLifecycle.closeInvocationCount || 0) + 1;
+    if (closePromise) {
+      controllerLifecycle.closeReused = true;
+      dispatchTransportAuditEvent(diagnosticCapture, {
+        schema: "zotero-skills.acp.transport-audit.v1",
+        ts: nowIso(),
+        event: "controller_close_reused",
+        transportKind: transport.getLifecycle().transportKind,
+      });
+      return closePromise;
+    }
+    acceptingWrites = false;
+    closePromise = (async () => {
+      dispatchTransportAuditEvent(diagnosticCapture, {
+        schema: "zotero-skills.acp.transport-audit.v1",
+        ts: nowIso(),
+        event: "controller_close_started",
+        transportKind: transport.getLifecycle().transportKind,
+      });
+      await waitForPromiseWithTimeout(
+        writeQueue.catch(() => undefined),
+        ACP_PIPE_DRAIN_TIMEOUT_MS,
+      );
+      const eofSettled = await waitForPromiseWithTimeout(
+        requestEof(),
+        ACP_PIPE_DRAIN_TIMEOUT_MS,
+      );
+      if (!eofSettled) {
+        controllerLifecycle.stdinEofStatus = "timed-out";
+      }
+      await transport.close(options);
+      const platformLifecycle = transport.getLifecycle();
+      controllerLifecycle.gracefulExit =
+        platformLifecycle.killedByClose !== true &&
+        platformLifecycle.exitSource === "natural-exit";
+      const lifecycle = {
+        ...platformLifecycle,
+        ...controllerLifecycle,
+      };
+      dispatchTransportAuditEvent(diagnosticCapture, {
+        schema: "zotero-skills.acp.transport-audit.v1",
+        ts: nowIso(),
+        event: "controller_close_completed",
+        transportKind: lifecycle.transportKind,
+        stdinEofStatus: lifecycle.stdinEofStatus,
+        gracefulExit: lifecycle.gracefulExit,
+        processTreeCleanupValidation: lifecycle.processTreeCleanupValidation,
+        processTreeCleanupValidationReason:
+          lifecycle.processTreeCleanupValidationReason,
+        termSignalSent: lifecycle.termSignalSent === true,
+        killRevalidationPerformed: lifecycle.killRevalidationPerformed === true,
+        killSignalSent: lifecycle.killSignalSent === true,
+        processGroupSignalDelivery: lifecycle.processGroupSignalDelivery,
+        processGroupSignalTargetPgid: lifecycle.processGroupSignalTargetPgid,
+        processGroupSignalOperandDelimited:
+          lifecycle.processGroupSignalOperandDelimited,
+        directSubprocessFallback: lifecycle.directSubprocessFallback === true,
+        possibleWrapperDescendants:
+          lifecycle.possibleWrapperDescendants === true,
+      });
+    })();
+    return closePromise;
+  };
+
+  return {
+    ...transport,
+    stdin,
+    close,
+    getLifecycle: () => ({
+      ...transport.getLifecycle(),
+      ...controllerLifecycle,
+    }),
+  };
+}
+
 export async function launchAcpTransport(args: AcpTransportLaunchArgs) {
   const subprocess = getMozillaSubprocessModule();
   if (subprocess) {
@@ -1958,9 +2337,18 @@ export async function launchAcpTransport(args: AcpTransportLaunchArgs) {
       detectRuntimePlatform() === "win32" &&
       shouldUseAcpWebSocketBridgeTransport()
     ) {
-      return launchWebSocketBridgeAcpTransport(args, subprocess);
+      return createControlledAcpTransport(
+        await launchWebSocketBridgeAcpTransport(args, subprocess),
+        args.diagnosticCapture,
+      );
     }
-    return launchMozillaAcpTransport(args);
+    return createControlledAcpTransport(
+      await launchMozillaAcpTransport(args),
+      args.diagnosticCapture,
+    );
   }
-  return launchNodeAcpTransport(args);
+  return createControlledAcpTransport(
+    await launchNodeAcpTransport(args),
+    args.diagnosticCapture,
+  );
 }

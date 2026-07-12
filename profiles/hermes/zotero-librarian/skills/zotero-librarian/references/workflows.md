@@ -29,6 +29,7 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 | `literature-translator` | Literature Translator | skillrunner | attachment per_parent | target_language, mode |
 | `manuscript-literature-framing` | Manuscript Literature Framing | skillrunner | workflow | paperTitle, language, targetVenue, articleType, stylePreference |
 | `mineru` | MinerU | generic-http | attachment | none |
+| `tag-auditor` | Tag Auditor | pass-through | workflow | none |
 | `tag-bootstrapper` | Tag Bootstrapper | skillrunner | workflow | tag_note_language |
 | `tag-regulator` | Tag Regulator | skillrunner | parent | infer_tag, tag_note_language |
 | `update-topic-synthesis` | Update Topic Synthesis | skillrunner | workflow | topicId |

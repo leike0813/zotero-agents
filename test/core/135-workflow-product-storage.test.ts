@@ -13,6 +13,7 @@ import {
   listSkillRunFeedbackProducts,
   readProductAssetPreview,
   removeWorkflowProduct,
+  resolveManagedWorkflowProductAsset,
   SKILL_RUN_FEEDBACK_ASSET_ID,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
 } from "../../src/modules/workflowProductStore";
@@ -294,6 +295,52 @@ describe("workflow product storage", function () {
     }
     assert.match(String(error), /unsafe product asset path/i);
     assert.isNull(getWorkflowProduct(`${requestId}:unsafe`));
+  });
+
+  it("resolves only a managed asset owned by its product", async function () {
+    const requestId = `req-product-resolve-${Date.now()}`;
+    const workspaceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-product-resolve-"),
+    );
+    await fs.mkdir(path.join(workspaceDir, "result"), { recursive: true });
+    await fs.writeFile(
+      path.join(workspaceDir, "result", "asset.md"),
+      "# Product",
+      "utf8",
+    );
+    const resultContext = await createWorkflowResultContext({
+      runResult: { status: "succeeded", requestId, workspaceDir },
+      bundleReader: {
+        async readText() {
+          throw new Error("not used");
+        },
+      },
+      manifest: { result: { expects: { result_json: "result/result.json" } } },
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-product", label: "Workflow Product" },
+      resultContext,
+      runResult: { requestId },
+    });
+    const record = await api.registerProduct({
+      productKey: "resolve",
+      kind: "writing.test",
+      title: "Resolvable Product",
+      assets: [{ assetId: "asset", rawPath: "result/asset.md" }],
+    });
+    try {
+      const resolved = await resolveManagedWorkflowProductAsset(
+        record.productId,
+        "asset",
+      );
+      assert.equal(resolved?.product.productId, record.productId);
+      assert.equal(resolved?.asset.assetId, "asset");
+      assert.isNull(
+        await resolveManagedWorkflowProductAsset(record.productId, "missing"),
+      );
+    } finally {
+      removeWorkflowProduct(record.productId);
+    }
   });
 
   it("collects skill run feedback sidecar as a dedicated product", async function () {

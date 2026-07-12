@@ -28,6 +28,7 @@ import {
   type AcpUsageSummary,
 } from "./acpTypes";
 import { resolveAcpChatTranscriptPaths } from "./acpConversationTranscriptStore";
+import { normalizeAssistantMessageCounts } from "./assistantMessageCounts";
 
 const ACP_SCOPE_ACTIVE = "active";
 const ACP_FRONTEND_REQUEST_ID = "frontend";
@@ -387,6 +388,10 @@ function normalizeSnapshotPayload(args: {
       Math.floor(Number(parsed.transcriptItemCount || 0) || 0),
     );
     snapshot.transcriptPreview = truncatePreview(parsed.transcriptPreview);
+    snapshot.messageCounts = normalizeAssistantMessageCounts(
+      parsed.messageCounts,
+      `${args.backendId}\n${snapshot.conversationId}`,
+    );
     snapshot.lastHostContext = parseHostContext(parsed.lastHostContext);
     snapshot.agentWorkspaceDir = normalizeString(parsed.agentWorkspaceDir);
     const legacyParsed = parsed as Partial<AcpConversationSnapshot> & {
@@ -914,6 +919,7 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       transcriptEventSeq: snapshot.transcriptEventSeq,
       transcriptItemCount: snapshot.transcriptItemCount,
       transcriptPreview: snapshot.transcriptPreview,
+      messageCounts: snapshot.messageCounts,
       lastHostContext: snapshot.lastHostContext
         ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
         : null,

@@ -226,20 +226,22 @@ function cliReleaseGuidance(release: ZoteroBridgeCliRelease) {
 
 function topicContextGuidance() {
   return [
-    "- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--input` JSON.",
+    "- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--query` JSON.",
     "- Omit `view` only when the flat topic context response is required.",
     "- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.",
-    '- Example: `zotero-bridge synthesis topic get-context --input \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
+    '- Example: `zotero-bridge synthesis topic get-context --query \'{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}\'`.',
   ].join("\n");
 }
 
 function libraryGuidance() {
   return [
-    '- Use `zotero-bridge library items list --input \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library pages.',
-    '- Use `zotero-bridge library snapshot --input \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
-    "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --input '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
-    "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
-    "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--input`.",
+    "- Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.",
+    '- Use `zotero-bridge library item search --query \'{"text":"graph","limit":10}\'` for finite candidate discovery.',
+    '- Use `zotero-bridge library items list --query \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library inventory pages.',
+    '- Use `zotero-bridge library snapshot --query \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
+    "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
+    "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.",
+    "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.",
     "- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.",
     "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
   ].join("\n");
@@ -256,22 +258,22 @@ function largeResponseGuidance() {
 
 function resolverGuidance() {
   return [
-    "- `synthesis resolver resolve` accepts direct resolver fields in `--input`; do not wrap them in a top-level `resolver` object.",
+    "- `synthesis resolver resolve` accepts direct resolver fields in `--query`; do not wrap them in a top-level `resolver` object.",
     "- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.",
     "- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.",
     "- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.",
-    '- Examples: `zotero-bridge synthesis resolver resolve --input \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge synthesis resolver resolve --input \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
+    '- Examples: `zotero-bridge synthesis resolver resolve --query \'{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}\'`; `zotero-bridge synthesis resolver resolve --query \'{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}\'`.',
     "- Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.",
   ].join("\n");
 }
 
 function workflowGuidance() {
   return [
-    "- Use `workflow describe --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.",
-    "- `workflow submit` uses `--items <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows; do not use `--input`.",
+    "- Use `workflow describe --workflow <id>` or `workflow requirements --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.",
+    "- `workflow submit` and `workflow validate` use `--selection <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows.",
     "- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.",
     "- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.",
-    "- Use `workflow agent-run --workflow <id> (--items <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
+    "- Use `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.",
     "- `workflow agent-run` does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task; the host only prepares request context for the handoff.",
     "- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and is recalculated when apply-back is submitted.",
     "- Use `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing a SkillRunner-compatible output bundle from the handoff output contract.",

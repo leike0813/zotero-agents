@@ -586,24 +586,36 @@
     return safeText(cursor) || fallback;
   }
 
-  function buildStreamingRenderToggleAction(source) {
-    const enabled =
-      !source ||
-      !Object.prototype.hasOwnProperty.call(source, "streamingRenderEnabled") ||
-      source.streamingRenderEnabled !== false;
-    const baseLabel = labelFrom(source, "actions.streamingRender", "Streaming");
-    const stateLabel = enabled
-      ? labelFrom(source, "actions.streamingRenderOn", "Streaming on")
-      : labelFrom(source, "actions.streamingRenderOff", "Streaming off");
+  function buildExecutionDisplayModeAction(source) {
+    const mode = ["live", "boundary", "silent"].includes(
+      safeText(source && source.executionDisplayMode),
+    )
+      ? safeText(source.executionDisplayMode)
+      : "live";
     return {
-      kind: "switch",
+      kind: "display-mode",
       align: "end",
-      action: "set-streaming-render-enabled",
-      label: stateLabel,
-      baseLabel,
-      stateLabel,
-      checked: enabled,
-      payload: { enabled: !enabled },
+      action: "set-execution-display-mode",
+      label: labelFrom(source, "actions.executionDisplayMode", "Display mode"),
+      value: mode,
+      options: [
+        {
+          value: "live",
+          label: labelFrom(source, "actions.executionDisplayLive", "Live"),
+        },
+        {
+          value: "boundary",
+          label: labelFrom(
+            source,
+            "actions.executionDisplayBoundary",
+            "By message",
+          ),
+        },
+        {
+          value: "silent",
+          label: labelFrom(source, "actions.executionDisplaySilent", "Silent"),
+        },
+      ],
     };
   }
 
@@ -1881,25 +1893,37 @@
           : authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
             ? authAsk.ui_hints
             : {};
-      const methods = Array.isArray(session && session.authAvailableMethods)
-        ? session.authAvailableMethods
-        : [];
-      const methodActions = methods.map(function (method) {
+      const authAskHints =
+        authAsk && authAsk.ui_hints && typeof authAsk.ui_hints === "object"
+          ? authAsk.ui_hints
+          : {};
+      const authHint =
+        safeText(authAsk && authAsk.hint) ||
+        safeText(authAskHints.hint) ||
+        safeText(authHints.hint);
+      const askMethodOptions = normalizeSkillRunnerOptionList(
+        authAsk && Array.isArray(authAsk.options) ? authAsk.options : [],
+      );
+      const availableMethodOptions = normalizeSkillRunnerOptionList(
+        Array.isArray(session && session.authAvailableMethods)
+          ? session.authAvailableMethods
+          : [],
+      );
+      const methodOptions =
+        askMethodOptions.length > 0 ? askMethodOptions : availableMethodOptions;
+      const methodActions = methodOptions.map(function (method) {
         return contextAction(
           "reply-run",
-          safeText(method.label || method.name || method.id) ||
+          safeText(method.label || method.value) ||
             labelFrom(source, "actions.useMethod", "Use method"),
           {
             mode: "auth",
-            authSessionId: safeText(session && session.authSessionId),
-            submission: {
+            selection: {
               kind: "auth_method",
-              responseValue: safeText(
-                method.value || method.id || method.label,
-              ),
+              value: safeText(method.value || method.label),
             },
           },
-          true,
+          !session || session.authControlPending !== true,
         );
       });
       const authImportFiles =
@@ -1917,25 +1941,28 @@
           "interaction.authenticationRequiredTitle",
           "Authentication required",
         ),
-        message:
-          safeText(
-            (authAsk && authAsk.prompt) ||
-              authHints.prompt ||
-              session.authPrompt,
-          ) ||
-          labelFrom(
-            source,
-            "interaction.authenticationRequiredMessage",
-            "Authentication required.",
-          ),
+        message: safeText(
+          (authAsk && authAsk.prompt) || authHints.prompt || session.authPrompt,
+        ),
         actions: methodActions,
         auth: {
-          authSessionId: safeText(session && session.authSessionId),
-          inputKind:
-            safeText(session && session.authInputKind) || "auth_code_or_url",
+          phase: safeText(session && session.authPhase),
+          challengeKind: safeText(session && session.authChallengeKind),
+          hint: authHint,
+          inputKind: safeText(session && session.authInputKind),
           acceptsChatInput: session && session.authAcceptsChatInput === true,
+          authUrl: safeText(session && session.authUrl),
+          userCode: safeText(session && session.authUserCode),
+          lastError:
+            safeText(session && session.authControlError) ||
+            safeText(session && session.authLastError),
+          actionPending: session && session.authControlPending === true,
+          actionKind: safeText(session && session.authControlAction),
           uiHints: authHints,
           importFiles: authImportFiles,
+          importRiskNoticeRequired:
+            authAskHints.risk_notice_required === true ||
+            authHints.risk_notice_required === true,
         },
       };
     }
@@ -2710,6 +2737,8 @@
         },
       ];
     }
+    const promptInterruptRequested =
+      safeText(snap.promptInterruptState) === "requested";
     return normalizeAssistantPanelSnapshot({
       kind: "acp-chat",
       labels: snap.labels || {},
@@ -2866,7 +2895,11 @@
       lifecycle: {
         connectionState,
         executionState: effectiveStatus,
-        replyState: snap.busy === true ? "sending" : "idle",
+        replyState: promptInterruptRequested
+          ? "cancelling"
+          : snap.busy === true
+            ? "sending"
+            : "idle",
         terminal: false,
       },
       conversation,
@@ -2874,7 +2907,11 @@
       interaction,
       usage: conversation.usage || snap.usage || null,
       reply: {
-        enabled: hasConversation && !isConnecting && !isDisconnecting,
+        enabled:
+          hasConversation &&
+          !isConnecting &&
+          !isDisconnecting &&
+          !promptInterruptRequested,
         inputEnabled:
           hasConversation &&
           !isConnecting &&
@@ -2887,8 +2924,9 @@
             "reply.placeholderAcpChat",
             "Ask the active ACP backend about the current library or item...",
           ),
-        submitLabel:
-          snap.busy === true
+        submitLabel: promptInterruptRequested
+          ? labelFrom(snap, "actions.cancelling", "Cancelling...")
+          : snap.busy === true
             ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
             : labelFrom(snap, "actions.send", labels.send || "Send"),
         sending: snap.busy === true,
@@ -2902,7 +2940,7 @@
             snap.currentMode,
             modeOptions,
             "set-mode",
-            !runtimeControlsAvailable || modeOptions.length === 0,
+            !runtimeControlsAvailable || promptBusy || modeOptions.length === 0,
           ),
           buildReplySelectControl(
             "model",
@@ -2946,7 +2984,7 @@
               labelFrom(snap, "actions.manageBackends", "Manage"),
             enabled: true,
           },
-          Object.assign(buildStreamingRenderToggleAction(snap), {
+          Object.assign(buildExecutionDisplayModeAction(snap), {
             enabled: true,
           }),
         ],
@@ -3282,26 +3320,14 @@
           }
         : conversation.interaction;
     const activePrompt = Boolean(run && run.activePrompt === true);
+    const promptInterruptState = safeText(run && run.promptInterruptState);
+    const promptInterruptRequested = promptInterruptState === "requested";
     const replyState = safeText(run && run.replyState);
     const hasPendingInteraction = Boolean(run && run.pendingInteraction);
     const activeContinuation =
       ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
-    const interruptedTurn = Boolean(
-      run &&
-      ((Array.isArray(run.events) &&
-        run.events.some(function (event) {
-          const stage = safeText(event && event.stage);
-          return (
-            stage === "interrupt-requested" || stage === "interrupt-completed"
-          );
-        })) ||
-        transcriptItems.some(function (item) {
-          const label = safeText(item && (item.label || item.stage));
-          return (
-            label === "interrupt-requested" || label === "interrupt-completed"
-          );
-        })),
-    );
+    const interruptedTurn =
+      promptInterruptState === "confirmed" || promptInterruptState === "forced";
     const connectedIdleRun = Boolean(
       run &&
       connected &&
@@ -3534,16 +3560,18 @@
       interaction,
       usage: conversation.usage || (run && run.usage) || null,
       reply: {
-        enabled: busyRun || canReply,
+        enabled: (busyRun || canReply) && !promptInterruptRequested,
         inputEnabled: canReply && !busyRun,
         placeholder: labelFrom(
           panel,
           "reply.placeholderAcpSkill",
           "Reply to this ACP skill conversation...",
         ),
-        submitLabel: busyRun
-          ? labelFrom(panel, "actions.cancel", "Cancel")
-          : labelFrom(panel, "actions.send", "Send"),
+        submitLabel: promptInterruptRequested
+          ? labelFrom(panel, "actions.cancelling", "Cancelling...")
+          : busyRun
+            ? labelFrom(panel, "actions.cancel", "Cancel")
+            : labelFrom(panel, "actions.send", "Send"),
         sending: safeText(run && run.replyState) === "sending",
         action: busyRun ? "interrupt-run-turn" : "reply-run",
         tone: busyRun ? "danger" : "primary",
@@ -3611,7 +3639,7 @@
               "Manage Backends",
             ),
           },
-          buildStreamingRenderToggleAction(panel),
+          buildExecutionDisplayModeAction(panel),
         ],
         context: [],
         details: [
@@ -3747,9 +3775,40 @@
             (status === "waiting-user" || status === "waiting-auth");
     const skillRunnerBusy =
       backendInteractive && (status === "running" || status === "prompting");
-    const skillRunnerWaiting =
-      backendInteractive &&
-      (status === "waiting-user" || status === "waiting-auth");
+    const skillRunnerAuthInputVisible =
+      status === "waiting-auth" &&
+      interaction &&
+      interaction.auth &&
+      interaction.auth.acceptsChatInput === true &&
+      !!safeText(interaction.auth.inputKind) &&
+      !["import_files", "custom_provider"].includes(
+        safeText(interaction.auth.inputKind),
+      ) &&
+      safeText(interaction.auth.phase) !== "method_selection";
+    const skillRunnerAuthActionPending =
+      status === "waiting-auth" &&
+      interaction &&
+      interaction.auth &&
+      interaction.auth.actionPending === true;
+    const skillRunnerAuthInputEnabled =
+      canReply && skillRunnerAuthInputVisible && !skillRunnerAuthActionPending;
+    const skillRunnerAuthInputKind = safeText(
+      interaction && interaction.auth && interaction.auth.inputKind,
+    );
+    const skillRunnerAuthHint = safeText(
+      interaction && interaction.auth && interaction.auth.hint,
+    );
+    const skillRunnerAuthPlaceholder = skillRunnerAuthInputEnabled
+      ? skillRunnerAuthHint ||
+        (skillRunnerAuthInputKind === "api_key"
+          ? labelFrom(envelope, "authPasteApiKey", "Paste API key")
+          : labelFrom(envelope, "authPasteCode", "Paste authorization code"))
+      : labelFrom(envelope, "authInProgress", "Awaiting auth state update...");
+    const skillRunnerAuthSubmitLabel = skillRunnerAuthInputEnabled
+      ? skillRunnerAuthInputKind === "api_key"
+        ? labelFrom(envelope, "authSubmitApiKey", "Submit API Key")
+        : labelFrom(envelope, "authSubmitCode", "Submit Code")
+      : labelFrom(envelope, "authAwaiting", "Awaiting");
     const skillRunnerSecondaryLabel = buildSkillRunSecondaryLabel(
       selectedTask,
       session,
@@ -3828,18 +3887,31 @@
       plan: conversation.plan,
       interaction,
       reply: {
-        enabled: pendingPermission ? false : canReply || skillRunnerBusy,
+        enabled: pendingPermission
+          ? false
+          : status === "waiting-auth"
+            ? skillRunnerAuthInputEnabled
+            : canReply || skillRunnerBusy,
         inputEnabled: pendingPermission
           ? false
-          : canReply && skillRunnerWaiting,
-        placeholder: labelFrom(
-          envelope,
-          "reply.placeholderSkillRunner",
-          "Reply to the pending SkillRunner interaction...",
-        ),
-        submitLabel: skillRunnerBusy
-          ? labelFrom(envelope, "actions.cancel", "Cancel")
-          : labelFrom(envelope, "actions.send", "Send"),
+          : status === "waiting-auth"
+            ? skillRunnerAuthInputEnabled
+            : canReply && status === "waiting-user",
+        placeholder:
+          status === "waiting-auth"
+            ? skillRunnerAuthPlaceholder
+            : labelFrom(
+                envelope,
+                "reply.placeholderSkillRunner",
+                "Reply to the pending SkillRunner interaction...",
+              ),
+        submitLabel:
+          status === "waiting-auth"
+            ? skillRunnerAuthSubmitLabel
+            : skillRunnerBusy
+              ? labelFrom(envelope, "actions.cancel", "Cancel")
+              : labelFrom(envelope, "actions.send", "Send"),
+        sending: skillRunnerAuthActionPending,
         action: skillRunnerBusy ? "cancel-run" : "reply-run",
         tone: skillRunnerBusy ? "danger" : "primary",
         clearOnSend: !skillRunnerBusy,
@@ -3889,7 +3961,7 @@
               "Manage Backends",
             ),
           },
-          buildStreamingRenderToggleAction(envelope),
+          buildExecutionDisplayModeAction(envelope),
         ],
         context: [],
         details: [

@@ -404,6 +404,12 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(hostTs, "await syncPendingState()");
     assert.include(hostTs, "continueSkillRunnerForegroundRun");
     assert.include(hostTs, "startRunDialogEntryForegroundContinuation");
+    assert.include(hostTs, "WAITING_AUTH_OBSERVER_INTERVAL_MS = 1500");
+    assert.include(hostTs, "resolveRunDialogWaitingAuthObservation");
+    assert.include(hostTs, '"run-dialog-waiting-auth-auto-resume"');
+    assert.include(hostTs, 'action === "open-auth-url"');
+    assert.include(hostTs, "resolveRunDialogAuthExternalUrl");
+    assert.include(hostTs, "launchURL");
     assert.include(hostTs, "streamRunChat");
     assert.notInclude(hostTs, "ensureSkillRunnerSessionSync");
     assert.notInclude(hostTs, "restartSessionSyncAfterWaitingExit");

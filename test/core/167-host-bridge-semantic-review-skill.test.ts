@@ -57,6 +57,18 @@ describe("Host Bridge semantic surface review skill", function () {
     );
   });
 
+  it("classifies profile version metadata without requiring semantic review", function () {
+    const context = classifyChangedFiles([
+      "profiles_src/hermes/zotero-librarian/profile-version.json",
+    ]);
+
+    assert.isFalse(context.reviewRequired);
+    assert.sameMembers(context.profileReleaseMetadataChanges, [
+      "profiles_src/hermes/zotero-librarian/profile-version.json",
+    ]);
+    assert.isEmpty(context.semanticSourceChanges);
+  });
+
   it("defines a runnable meta skill with direct references", async function () {
     const skill = await fs.readFile(
       projectPath(
@@ -101,5 +113,8 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.isAtLeast(renderIndex, 0);
     assert.isBelow(reviewIndex, renderIndex);
     assert.include(releaseSkill, "semantic source files changed");
+    assert.include(releaseSkill, "inspect:zotero-librarian-profile-version");
+    assert.include(releaseSkill, "bump:zotero-librarian-profile");
+    assert.include(releaseSkill, "references/profile-versioning.md");
   });
 });

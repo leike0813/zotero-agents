@@ -33,6 +33,7 @@ logs
 .kilocode/
 .codebuddy/
 .qwen/
+.codebuddy/
 .codegraph/
 .agents/*
 !.agents/skills/

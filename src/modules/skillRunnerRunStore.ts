@@ -30,6 +30,10 @@ import {
   registerSkillRunnerSkillDisplaySnapshot,
   resetSkillRunnerSkillDisplayRegistryForTests,
 } from "./skillRunnerSkillDisplayRegistry";
+import {
+  normalizeAssistantMessageCounts,
+  type AssistantMessageCountsSnapshot,
+} from "./assistantMessageCounts";
 
 export type SkillRunnerRunApplyState =
   | "idle"
@@ -96,6 +100,7 @@ export type SkillRunnerRunRecord = {
   executionMode?: "auto" | "interactive";
   apply: SkillRunnerApplyState;
   result?: SkillRunnerResultState;
+  messageCounts?: AssistantMessageCountsSnapshot;
   archivedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -455,6 +460,10 @@ function parseRecord(payload: string): SkillRunnerRunRecord | null {
       executionMode: normalizeExecutionMode(parsed.executionMode),
       apply: normalizeApply(parsed.apply),
       result: normalizeResult(parsed.result),
+      messageCounts: normalizeAssistantMessageCounts(
+        parsed.messageCounts,
+        runKey,
+      ),
       archivedAt: normalizeString(parsed.archivedAt) || undefined,
       createdAt: normalizeString(parsed.createdAt) || nowIso(),
       updatedAt: normalizeString(parsed.updatedAt) || nowIso(),
@@ -651,6 +660,7 @@ export function createSkillRunnerRun(args: SkillRunnerRunInit) {
     executionMode: args.executionMode || existing?.executionMode,
     apply: existing?.apply || { state: "idle", attempt: 0 },
     result: existing?.result,
+    messageCounts: existing?.messageCounts,
     archivedAt: existing?.archivedAt,
     createdAt: existing?.createdAt || normalizeString(args.createdAt) || now,
     updatedAt: now,
@@ -675,6 +685,20 @@ export function createSkillRunnerRun(args: SkillRunnerRunInit) {
           },
         },
   );
+}
+
+export function updateSkillRunnerRunMessageCounts(args: {
+  runKey: string;
+  messageCounts: AssistantMessageCountsSnapshot;
+}) {
+  const existing = getSkillRunnerRunRecord(args.runKey);
+  if (!existing) {
+    return null;
+  }
+  return upsertSkillRunnerRunRecord({
+    ...existing,
+    messageCounts: args.messageCounts,
+  });
 }
 
 export function attachSkillRunnerRequestId(args: {

@@ -32,6 +32,7 @@ import {
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   prepareAcpSkillRunPanelSnapshot,
+  projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
   registerAcpSkillRunController,
@@ -91,7 +92,12 @@ import {
   createAcpSkillRunnerWorkspace,
   resetAcpWorkflowWorkspaceRegistryForTests,
 } from "../../src/modules/acpSkillRunnerWorkspace";
-import { flushAcpSkillRunAuditTrailWritesForTests } from "../../src/modules/acpSkillRunAuditTrail";
+import {
+  appendAcpSkillRunAuditUpdate,
+  flushAcpSkillRunAuditTrailWrites,
+  flushAcpSkillRunAuditTrailWritesForTests,
+} from "../../src/modules/acpSkillRunAuditTrail";
+import { getBufferedWriteDiagnosticsForTests } from "../../src/modules/bufferedWriteCoordinator";
 import {
   resetRuntimeCommandRegistryForTests,
   seedRuntimeCommandRegistryForTests,
@@ -100,7 +106,10 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
-import { setAssistantStreamingRenderEnabled } from "../../src/modules/assistantStreamingRenderPreference";
+import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+
+const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
+  setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import {
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
@@ -461,6 +470,57 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
+function createKiloNoneFallbackAdapter() {
+  const base = createFinalOutputAdapter({ ok: true });
+  const configSelections: string[] = [];
+  let promptCount = 0;
+  return {
+    adapter: {
+      ...base,
+      prompt: async (args: { sessionId: string; message: string }) => {
+        promptCount += 1;
+        return base.prompt(args);
+      },
+      setConfigOption: async (args: {
+        sessionId: string;
+        category: string;
+        value: string;
+      }) => {
+        configSelections.push(`${args.category}:${args.value}`);
+        if (args.category === "thought_level" && args.value === "none") {
+          throw new RequestError(-32602, "invalid reasoning effort");
+        }
+        return true;
+      },
+    } satisfies AcpConnectionAdapter,
+    configSelections,
+    getPromptCount: () => promptCount,
+  };
+}
+
+function createKiloRejectedReasoningAdapter(args: {
+  effortId: string;
+  errorCode: number;
+}) {
+  const base = createFinalOutputAdapter({ ok: true });
+  return {
+    ...base,
+    setConfigOption: async (request: {
+      sessionId: string;
+      category: string;
+      value: string;
+    }) => {
+      if (
+        request.category === "thought_level" &&
+        request.value === args.effortId
+      ) {
+        throw new RequestError(args.errorCode, "rejected reasoning effort");
+      }
+      return true;
+    },
+  } satisfies AcpConnectionAdapter;
+}
+
 function createPromptStopAdapter(args: {
   stopReason?: string;
   assistantText?: string | ((promptCount: number) => string | undefined);
@@ -800,6 +860,64 @@ describe("ACP SkillRunner-compatible runner", function () {
     seedRecoveredRunBackendsForTests();
   });
 
+  it("continues a Kilo task after none is rejected before the first prompt", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, configSelections, getPromptCount } =
+      createKiloNoneFallbackAdapter();
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend({ acp: { agentFamily: "kilo" } }),
+        providerOptions: { acpReasoningEffort: "none" },
+      });
+
+      assert.equal(getPromptCount(), 1);
+      assert.deepEqual(configSelections, ["thought_level:none"]);
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.isUndefined(record?.acpReasoningEffort);
+      assert.isTrue(
+        (record?.events || []).some(
+          (event) => event.stage === "runtime-reasoning-fallback",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const { effortId, errorCode } of [
+    { effortId: "high", errorCode: -32602 },
+    { effortId: "none", errorCode: -32000 },
+  ]) {
+    it(`preserves Kilo reasoning errors for ${effortId} with ${errorCode}`, async function () {
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root);
+      try {
+        let caught: unknown;
+        try {
+          await runDemoAcpSkill({
+            root,
+            entry,
+            adapter: createKiloRejectedReasoningAdapter({
+              effortId,
+              errorCode,
+            }),
+            backend: createBackend({ acp: { agentFamily: "kilo" } }),
+            providerOptions: { acpReasoningEffort: effortId },
+          });
+        } catch (error) {
+          caught = error;
+        }
+        assert.instanceOf(caught, Error);
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
   afterEach(async function () {
     await flushAcpSkillRunAuditTrailWritesForTests();
     setDebugModeOverrideForTests();
@@ -811,6 +929,43 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
     resetRuntimeCommandRegistryForTests();
+  });
+
+  it("batches plugin-owned audit updates into one physical append", async function () {
+    setDebugModeOverrideForTests(true);
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp", "audit-burst.1");
+    try {
+      await Promise.all(
+        Array.from({ length: 100 }, (_, index) =>
+          appendAcpSkillRunAuditUpdate({
+            requestId: "audit-burst",
+            runtimeDir,
+            event: {
+              sessionId: "session-audit",
+              update: {
+                sessionUpdate: "usage_update",
+                used: index,
+                size: 100,
+              },
+            } as never,
+          }),
+        ),
+      );
+
+      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
+
+      const auditPath = path.join(runtimeDir, "acp-updates.ndjson");
+      const lines = (await fs.readFile(auditPath, "utf8")).trim().split("\n");
+      assert.lengthOf(lines, 100);
+      const diagnostics = getBufferedWriteDiagnosticsForTests().find((entry) =>
+        entry.key.endsWith("acp-updates.ndjson"),
+      );
+      assert.equal(diagnostics?.logicalEntries, 100);
+      assert.equal(diagnostics?.physicalWriteCycles, 1);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("writes developer audit files under .acp for ACP skill runs", async function () {
@@ -2133,6 +2288,12 @@ describe("ACP SkillRunner-compatible runner", function () {
           requestId: "run-new",
           conversationState: "closed",
           conversationRecoveryState: "available",
+          promptInterruptState: "requested",
+          event: {
+            stage: "interrupt-requested",
+            message: "Interrupt requested.",
+            level: "warn",
+          },
         });
       },
     });
@@ -2140,7 +2301,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     const interruptedRun = getAcpSkillRunRecord("run-new");
     assert.isFalse(canceled);
     assert.isTrue(interrupted);
-    assert.equal(interruptedRun?.status, "waiting_user");
+    assert.equal(interruptedRun?.status, "running");
+    assert.equal(interruptedRun?.activePrompt, true);
+    assert.equal(interruptedRun?.promptInterruptState, "requested");
     assert.equal(interruptedRun?.conversationState, "closed");
     assert.equal(interruptedRun?.conversationRecoveryState, "available");
     assert.equal(interruptedRun?.events.at(-1)?.stage, "interrupt-requested");
@@ -2203,7 +2366,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     let resolvePromptStarted: () => void = () => undefined;
-    let rejectPrompt: ((error: Error) => void) | null = null;
+    let resolvePrompt: (() => void) | null = null;
     const promptStarted = new Promise<void>((resolve) => {
       resolvePromptStarted = resolve;
     });
@@ -2243,14 +2406,15 @@ describe("ACP SkillRunner-compatible runner", function () {
             },
           },
         });
-        return await new Promise<never>((_resolve, reject) => {
-          rejectPrompt = reject;
+        await new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
           resolvePromptStarted();
         });
+        return { stopReason: "cancelled" };
       },
       cancel: async () => {
         cancelCalls += 1;
-        rejectPrompt?.(new Error("prompt interrupted"));
+        resolvePrompt?.();
       },
       setMode: async () => undefined,
       setModel: async () => undefined,
@@ -2307,7 +2471,107 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.replyState, "idle");
     assert.equal(record?.conversationState, "active");
     assert.equal(record?.conversationRecoveryState, "connected");
+    assert.equal(record?.promptInterruptState, "confirmed");
     assert.isUndefined(record?.removedAt);
+  });
+
+  it("force-stops an unresponsive skill prompt and terminates an unrecoverable run", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      getSessionRecoveryCapabilities: () => ({
+        canLoadSession: false,
+        canResumeSession: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-force-interrupt" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async () => {
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+
+    const runPromise = executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "result",
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        promptInterruptGraceMs: 5,
+      },
+    });
+    await promptStarted;
+    const requestId = listAcpSkillRuns()[0]?.requestId || "";
+    await interruptAcpSkillRunCurrentTurn(requestId);
+    assert.equal(getAcpSkillRunRecord(requestId)?.activePrompt, true);
+    assert.equal(
+      getAcpSkillRunRecord(requestId)?.promptInterruptState,
+      "requested",
+    );
+
+    for (let index = 0; index < 40; index += 1) {
+      if (getAcpSkillRunRecord(requestId)?.promptInterruptState === "forced") {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const forced = getAcpSkillRunRecord(requestId);
+    assert.equal(forced?.promptInterruptState, "forced");
+    assert.equal(forced?.status, "canceled");
+    assert.equal(forced?.conversationState, "closed");
+    assert.equal(forced?.conversationRecoveryState, "unsupported");
+    assert.equal(closeCalls, 1);
+
+    releasePrompt?.();
+    const result = await runPromise;
+    assert.equal(result.status, "canceled");
+    assert.equal(
+      getAcpSkillRunRecord(requestId)?.promptInterruptState,
+      "forced",
+    );
   });
 
   it("cancels an active ACP skill prompt as a terminal task cancel", async function () {
@@ -6021,6 +6285,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         await fs.writeFile(targetPath, content, "utf8");
       },
     });
+    let blockedFlush: Promise<void> | null = null;
     resetAcpSkillRunsForTests();
     try {
       upsertAcpSkillRun({
@@ -6039,6 +6304,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           content: { type: "text", text: "Mirror text" },
         },
       } as any);
+      blockedFlush = flushAcpSkillRunRuntimeFileWritesForTests();
       await blockedWriteStarted.promise;
 
       const snapshot = await Promise.race([
@@ -6066,7 +6332,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isTrue(diagnostics.mirrorLoaded);
     } finally {
       releaseBlockedWrite.resolve();
-      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await blockedFlush;
       restoreGlobalProperty("IOUtils", previousIOUtils);
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
@@ -6837,6 +7103,82 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
     } finally {
       unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps silent ACP Skills process updates memory-only and projects one final envelope", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    setAssistantExecutionDisplayMode("silent");
+    upsertAcpSkillRun({
+      requestId: "run-silent",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: root,
+      runtimeDir: path.join(root, ".acp"),
+      activePrompt: true,
+    });
+    let notifications = 0;
+    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+      notifications += 1;
+    });
+    try {
+      for (const update of [
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "hidden" },
+        },
+        {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " continuation" },
+        },
+        { sessionUpdate: "tool_call", toolCallId: "tool-1" },
+        { sessionUpdate: "plan", entries: [] },
+        { sessionUpdate: "usage_update", used: 1, size: 10 },
+      ]) {
+        recordAcpSkillRunSessionUpdate("run-silent", {
+          sessionId: "session-1",
+          update,
+        } as any);
+      }
+      upsertAcpSkillRun({
+        requestId: "run-silent",
+        persistMode: "trailing",
+        event: {
+          stage: "workspace-activity",
+          message: "hidden activity",
+          level: "info",
+        },
+      });
+      assert.equal(notifications, 2);
+      assert.deepEqual(await readRunTranscriptItems("run-silent"), []);
+      const active = buildAcpSkillRunPanelSnapshot({
+        selectedRequestId: "run-silent",
+      });
+      assert.deepEqual(active.messageCounts?.current, {
+        assistant: 1,
+        thought: 0,
+        tool: 1,
+      });
+      assert.equal(active.selectedTranscriptPage?.total, 0);
+
+      projectAcpSkillRunOutputEnvelopeToTranscript({
+        requestId: "run-silent",
+        kind: "final",
+        resultJson: { ok: true },
+      });
+      const finalItems = await readRunTranscriptItems("run-silent");
+      assert.equal(
+        finalItems.filter(
+          (item) => item.kind === "message" && item.role === "assistant",
+        ).length,
+        1,
+      );
+    } finally {
+      unsubscribe();
+      setAssistantExecutionDisplayMode("live");
       await fs.rm(root, { recursive: true, force: true });
     }
   });
@@ -7979,7 +8321,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("treats recovered end_turn as interrupted when adapter reports cancelRequested", async function () {
+  it("does not treat a local cancelRequested flag as backend cancellation", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -7994,6 +8336,8 @@ describe("ACP SkillRunner-compatible runner", function () {
     const { adapter, getPromptCount } = createPromptStopAdapter({
       stopReason: "end_turn",
       cancelRequested: true,
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
     });
     try {
       resetAcpSkillRunsForTests();
@@ -8042,7 +8386,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(recovered?.activePrompt, false);
       assert.equal(recovered?.replyState, "idle");
       assert.equal(recovered?.repairRounds, 0);
-      assert.include(stages, "interrupt-completed");
+      assert.equal(recovered?.promptInterruptState, "idle");
+      assert.notInclude(stages, "interrupt-confirmed");
       assert.notInclude(stages, "acp-prompt-no-output");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
@@ -8865,10 +9210,126 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(record?.activePrompt, false);
       assert.equal(record?.status, "waiting_user");
       assert.notEqual(record?.status, "canceled");
-      assert.include(stages, "interrupt-turn-requested");
-      assert.include(stages, "interrupt-completed");
+      assert.include(stages, "interrupt-requested");
+      assert.include(stages, "interrupt-confirmed");
+      assert.equal(record?.promptInterruptState, "confirmed");
       assert.notInclude(stages, "recovered-output-validation-failed");
       assert.notInclude(stages, "repair-started");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("force-stops an unresponsive recovered prompt as recoverable", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-recovered-force-interrupt",
+    });
+    let resolvePromptStarted: () => void = () => undefined;
+    let releasePrompt: (() => void) | null = null;
+    const promptStarted = new Promise<void>((resolve) => {
+      resolvePromptStarted = resolve;
+    });
+    let closeCalls = 0;
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({ sessionId }),
+      prompt: async () => {
+        resolvePromptStarted();
+        await new Promise<void>((resolve) => {
+          releasePrompt = resolve;
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+        releasePrompt?.();
+      },
+    };
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: ACP_OPENCODE_BACKEND_ID,
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-force-interrupt",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+      });
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          createAdapter: async () => fakeAdapter,
+          dependencyProbe: async () => ({ ok: true }),
+          promptInterruptGraceMs: 5,
+        },
+      });
+      const replyPromise = replyAcpSkillRun({
+        requestId: workspace.requestId,
+        message: "continue recovered prompt",
+      });
+      await promptStarted;
+      await interruptAcpSkillRunCurrentTurn(workspace.requestId);
+      await replyPromise;
+
+      for (let index = 0; index < 40; index += 1) {
+        if (
+          getAcpSkillRunRecord(workspace.requestId)?.conversationState ===
+          "closed"
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(record?.promptInterruptState, "forced");
+      assert.equal(record?.status, "waiting_user");
+      assert.equal(record?.conversationState, "closed");
+      assert.equal(record?.conversationRecoveryState, "available");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(closeCalls, 1);
+      assert.include(
+        (record?.events || []).map((event) => event.stage),
+        "interrupt-forced",
+      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

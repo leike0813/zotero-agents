@@ -136,3 +136,37 @@ auto-approval option as high risk.
 - **WHEN** workflow settings render `autoApproveAcpPermissions`
 - **THEN** the option display text SHALL be bold and red
 - **AND** the checkbox control behavior SHALL remain unchanged.
+
+### Requirement: ACP connection tests and cache refresh SHALL isolate temporary controllers
+
+ACP connection tests and cache refresh operations SHALL close only the temporary controller created for that operation.
+
+#### Scenario: Successful temporary probe closes its controller
+
+- **WHEN** a connection test or cache refresh succeeds
+- **THEN** it SHALL complete and close its temporary shared controller once
+- **AND** it SHALL preserve the successful cache result.
+
+#### Scenario: Failed temporary probe closes its controller
+
+- **WHEN** initialize times out, session creation fails, a write fails, or the diagnostic is cancelled
+- **THEN** it SHALL settle through the same bounded shared-controller close.
+
+#### Scenario: Existing engine remains isolated
+
+- **GIVEN** another ACP controller is active
+- **WHEN** a temporary connection test or cache refresh controller closes
+- **THEN** it SHALL NOT signal or close the existing controller or unrelated desktop-session processes.
+
+### Requirement: ACP runtime-options probes SHALL preserve validated signal targets
+Backend connection tests and runtime-options cache refresh probes SHALL close their temporary ACP controllers through the shared target-preserving process cleanup boundary.
+
+#### Scenario: Successful npx cache refresh closes its temporary controller
+- **WHEN** an npx-backed runtime-options probe succeeds but the backend outlives EOF grace
+- **THEN** any process-group escalation SHALL preserve the complete validated PGID
+- **AND** the probe MUST NOT run an independent or ambiguous negative-PID command
+
+#### Scenario: Failed cache refresh closes its temporary controller
+- **WHEN** initialization or session creation fails
+- **THEN** the temporary controller SHALL use the same bounded, target-preserving close path
+- **AND** an existing user or ACP session process SHALL remain outside the cleanup target

@@ -24,6 +24,10 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "library.get_item_attachments",
   "library.list_annotations",
   "library.export_annotations",
+  "workflow_products.list",
+  "workflow_products.get",
+  "workflow_products.read_asset",
+  "workflow_products.export",
   "mutation.preview",
   "diagnostic.get_status",
 ]);

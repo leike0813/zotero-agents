@@ -36,7 +36,7 @@ operations rather than implementation-oriented legacy top-level groups.
 
 #### Scenario: Agent reads current library metadata for indexing
 - **WHEN** a user or agent runs
-  `zotero-bridge library snapshot --input <json-or-file>`
+  `zotero-bridge library snapshot --query <json-or-file>`
 - **THEN** the CLI SHALL call the read-only `library.sync_snapshot` Host Bridge
   capability
 - **AND** the result SHALL contain bounded current Zotero metadata suitable for
@@ -44,7 +44,7 @@ operations rather than implementation-oriented legacy top-level groups.
 
 #### Scenario: Agent reads compact current library pages
 - **WHEN** a user or agent runs
-  `zotero-bridge library items list --input <json-or-file>`
+  `zotero-bridge library items list --query <json-or-file>`
 - **THEN** the CLI SHALL call the existing read-only `library.list_items`
   capability
 - **AND** the command SHALL not trigger Zotero mutations or Synthesis cache
@@ -96,8 +96,8 @@ registered file downloads.
 
 #### Scenario: CLI submits a workflow with explicit input
 - **WHEN** a user runs
-  `zotero-bridge workflow submit --workflow <id> --input <file>`
-- **THEN** the CLI SHALL submit the file's JSON payload to the Host Bridge
+  `zotero-bridge workflow submit --workflow <id> --selection <json-or-file>`
+- **THEN** the CLI SHALL submit the explicit selection payload to the Host Bridge
   workflow submit endpoint
 - **AND** the CLI MUST NOT request fallback to the current Zotero UI selection.
 
@@ -117,7 +117,7 @@ registered file downloads.
 
 #### Scenario: CLI prepares an agent-owned workflow handoff with local output
 - **WHEN** a user or agent runs
-  `zotero-bridge workflow agent-run --workflow <id> --items <json-or-file> --output-dir <dir>`
+  `zotero-bridge workflow agent-run --workflow <id> --selection <json-or-file> --output-dir <dir>`
 - **THEN** the CLI SHALL call the Host Bridge workflow agent-run endpoint with
   the workflow id and explicit selection
 - **AND** the CLI SHALL download the returned bundle file with the same length,
@@ -900,7 +900,7 @@ items missing PDF attachments, same-stem source Markdown attachments, or
 #### Scenario: Agent audits library readiness
 
 - **WHEN** a user or agent runs
-  `zotero-bridge library readiness audit --input <json-or-file>`
+  `zotero-bridge library readiness audit --query <json-or-file>`
 - **THEN** the CLI SHALL call the `library.readiness_audit` Host Bridge
   capability
 - **AND** the input SHALL accept the same pagination and filter fields as
@@ -965,7 +965,7 @@ The Host Bridge CLI SHALL keep stdout as a single complete JSON object and SHALL
 not rely on unbounded payloads for library, topic, index, or graph reads.
 
 #### Scenario: CLI reads a paged graph overview
-- **WHEN** a user runs `zotero-bridge synthesis graph overview --input <json>`
+- **WHEN** a user runs `zotero-bridge synthesis graph overview --query <json>`
 - **THEN** the CLI SHALL call `citation_graph.get_overview`
 - **AND** the returned JSON SHALL represent one graph overview page with
   section-level pagination metadata.
@@ -1009,3 +1009,106 @@ The CLI SHALL expose `--client-id` on `run notification list`, `run notification
 
 - **WHEN** a user or agent runs `zotero-bridge run notification ack --client-id agent-a --event <eventId>`
 - **THEN** the CLI SHALL call `POST /bridge/v1/notifications/ack` with `clientId=agent-a` and the normalized event ids.
+
+### Requirement: Rust CLI exposes canonical product commands
+The Rust CLI SHALL provide `zotero-bridge product list`, `get`, `download`, and
+`remove` commands that map to the workflow-product Host Bridge capabilities.
+
+#### Scenario: User lists or reads products
+- **WHEN** a user invokes `product list` with optional workflow, backend,
+  request, cursor, or limit filters, or invokes `product get <product-id>`
+- **THEN** the CLI SHALL call `workflow_products.list` or
+  `workflow_products.get` with the canonical input fields
+- **AND** stdout SHALL remain one complete JSON object.
+
+#### Scenario: User downloads product assets
+- **WHEN** a user invokes `product download <product-id> --output-dir <dir>` with an
+  optional `--asset <asset-id>`
+- **THEN** the CLI SHALL export all assets when `--asset` is absent and only the
+  named asset when it is present
+- **AND** it SHALL reject existing target files unless `--force` is supplied
+- **AND** remote ZIP downloads SHALL use the registered-file integrity, retry,
+  atomic-write, and safe-unpack behavior.
+
+#### Scenario: User removes a product
+- **WHEN** a user invokes `product remove <product-id>`
+- **THEN** the CLI SHALL call `workflow_products.remove`
+- **AND** approval authority SHALL remain with the Host Bridge and Zotero, not a
+  CLI confirmation flag.
+
+### Requirement: Generated Host Bridge surface maps product commands
+The Host Bridge semantic surface catalog SHALL define canonical mappings for
+every public workflow-product capability and render them into CLI guidance,
+wrapper guidance, and Zotero Librarian profile guidance.
+
+#### Scenario: Surface catalog is validated
+- **WHEN** the Host Bridge surface catalog validation runs after product
+  capabilities are added
+- **THEN** each public workflow-product capability SHALL have a canonical CLI
+  mapping
+- **AND** generated guidance SHALL use the `product` command family rather than
+  Synthesis artifact commands.
+
+### Requirement: CLI separates read queries from request payloads
+
+The CLI SHALL use `--query <JSON_OR_FILE>` for semantic read commands that
+accept a generic JSON object and SHALL use `--input <JSON_OR_FILE>` for raw
+calls, mutations, and other request payloads. The read-query parser SHALL
+accept the existing JSON-or-file sources and SHALL retain a hidden `--input`
+compatibility alias.
+
+#### Scenario: Agent reads through a semantic command
+
+- **WHEN** an agent supplies inline JSON, stdin, `@file`, or a bare JSON file
+  path to a semantic read command
+- **THEN** the command SHALL accept it through `--query`
+- **AND** it SHALL preserve the existing Host Bridge capability payload.
+
+#### Scenario: Agent submits a request payload
+
+- **WHEN** an agent invokes raw `call`, a mutation, or a workflow request
+- **THEN** the command SHALL use `--input` for generic request data
+- **AND** the CLI SHALL not describe raw `call` as a way to bypass a semantic
+  command's argument validation.
+
+### Requirement: CLI keeps search, inventory, workflow, and output intents explicit
+
+The CLI SHALL keep finite library candidate discovery distinct from paged
+inventory reads, SHALL use domain-specific workflow flags, and SHALL distinguish
+product output directories from file-download output paths.
+
+#### Scenario: Agent searches a bounded candidate set
+
+- **WHEN** an agent runs `library item search --query '{"text":"..."}'`
+- **THEN** the CLI SHALL map the JSON object's `text`, `limit`, and `libraryId`
+  fields to `library.search_items`
+- **AND** a bare-text query value SHALL be rejected before request dispatch.
+
+#### Scenario: Agent selects workflow input
+
+- **WHEN** an agent invokes workflow submit, validate, or agent-run
+- **THEN** it SHALL use `--selection <JSON_OR_FILE>` or `--none`
+- **AND** it SHALL use `workflow requirements --workflow <id>` to inspect a
+  workflow's requirements.
+
+#### Scenario: Agent downloads output
+
+- **WHEN** an agent downloads a Dashboard Product
+- **THEN** it SHALL use `product download <product-id> --output-dir <dir>`
+- **AND** `file download <file-id> --output <path>` SHALL remain the file-path
+  command.
+
+### Requirement: Generated agent guidance SHALL use canonical argument intent
+
+Generated Host Bridge CLI guidance SHALL demonstrate inline JSON as the default
+JSON-or-file form. The rendered reference, wrapper skill, and Zotero Librarian
+guidance SHALL explain intentional stdin and file use and restrict raw `call`
+to raw-only capabilities or diagnostics.
+
+#### Scenario: Agent follows semantic command guidance
+
+- **WHEN** an agent consults generated Host Bridge CLI guidance
+- **THEN** it SHALL use semantic commands with `--query` for reads and
+  `--input` for requests or mutations
+- **AND** it SHALL not be directed to bypass semantic argument validation with
+  raw `call`.

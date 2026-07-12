@@ -22,6 +22,12 @@ Edit only these sources when semantic guidance needs to change:
 - `profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md`
 - `profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md`
 
+## Release Metadata
+
+- `profiles_src/hermes/zotero-librarian/profile-version.json` scopes the
+  Profile-owned patch to a CLI major/minor release line. It is release metadata,
+  not agent guidance, and does not require semantic-source review by itself.
+
 ## Generated Targets
 
 Do not edit these as semantic sources:

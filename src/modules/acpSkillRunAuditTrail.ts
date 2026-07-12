@@ -5,9 +5,14 @@ import {
   listRuntimeLogs,
 } from "./runtimeLogManager";
 import {
-  readRuntimeTextFile,
+  appendRuntimeTextFile as appendRuntimeTextFilePrimitive,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
+import {
+  discardBufferedWriteKey,
+  enqueueBufferedWrite,
+  flushBufferedWriteKey,
+} from "./bufferedWriteCoordinator";
 import type { SessionNotification } from "./acpProtocol";
 import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
 import type { AcpDiagnosticsEntry } from "./acpTypes";
@@ -30,7 +35,7 @@ const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 200;
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
-const appendQueuesByPath = new Map<string, Promise<void>>();
+const auditWriteKeys = new Map<string, string>();
 
 type AuditTrailFiles = Record<
   | "readme"
@@ -168,26 +173,54 @@ function jsonLine(value: unknown) {
   return `${JSON.stringify(sanitizeValue(value))}\n`;
 }
 
-async function appendRuntimeTextFile(path: string, line: string) {
-  const previous = appendQueuesByPath.get(path) || Promise.resolve();
-  const next = previous
-    .catch(() => undefined)
-    .then(async () => {
-      const existing = await readRuntimeTextFile(path);
-      await writeRuntimeTextFile(path, `${existing || ""}${line}`);
-    });
-  appendQueuesByPath.set(path, next);
-  try {
-    await next;
-  } finally {
-    if (appendQueuesByPath.get(path) === next) {
-      appendQueuesByPath.delete(path);
-    }
-  }
+function auditWriteKey(path: string) {
+  return `acp-audit:${path}`;
+}
+
+function appendRuntimeTextFile(args: {
+  path: string;
+  owner: string;
+  requestId: string;
+  line: string;
+}) {
+  const key = auditWriteKey(args.path);
+  auditWriteKeys.set(key, args.owner);
+  enqueueBufferedWrite({
+    key,
+    owner: args.owner,
+    entry: args.line,
+    bytes: new TextEncoder().encode(args.line).length,
+    sink: async (lines) => {
+      try {
+        await appendRuntimeTextFilePrimitive(args.path, lines.join(""));
+      } catch (error) {
+        recordAuditFailure({
+          requestId: args.requestId,
+          stage: "audit-batch-append-failed",
+          error,
+        });
+        throw error;
+      }
+    },
+  });
+}
+
+export async function flushAcpSkillRunAuditTrailWrites(runtimeDir?: string) {
+  const owner = normalizeString(runtimeDir);
+  const keys = Array.from(auditWriteKeys.entries())
+    .filter(([, entryOwner]) => !owner || entryOwner === owner)
+    .map(([key]) => key);
+  await Promise.all(keys.map((key) => flushBufferedWriteKey(key)));
 }
 
 export async function flushAcpSkillRunAuditTrailWritesForTests() {
-  await Promise.allSettled(Array.from(appendQueuesByPath.values()));
+  await Promise.allSettled(
+    Array.from(auditWriteKeys.keys()).map((key) => flushBufferedWriteKey(key)),
+  );
+  for (const key of auditWriteKeys.keys()) {
+    discardBufferedWriteKey(key);
+  }
+  auditWriteKeys.clear();
 }
 
 function toAuditError(error: unknown) {
@@ -356,9 +389,11 @@ export function appendAcpSkillRunAuditEvent(args: {
     stage: "audit-append-event-failed",
     run: async () => {
       const files = auditFiles(runtimeDir);
-      await appendRuntimeTextFile(
-        files.timeline,
-        jsonLine({
+      appendRuntimeTextFile({
+        path: files.timeline,
+        owner: runtimeDir,
+        requestId: args.requestId,
+        line: jsonLine({
           schema: ACP_TIMELINE_EVENT_SCHEMA,
           source: "run-event",
           requestId: args.requestId,
@@ -368,7 +403,7 @@ export function appendAcpSkillRunAuditEvent(args: {
           message: args.event.message,
           details: args.event.details,
         }),
-      );
+      });
     },
   });
 }
@@ -389,9 +424,11 @@ export function appendAcpSkillRunAuditDiagnostic(args: {
     requestId: args.requestId,
     stage: "audit-append-diagnostic-failed",
     run: async () => {
-      await appendRuntimeTextFile(
-        auditFiles(runtimeDir).timeline,
-        jsonLine({
+      appendRuntimeTextFile({
+        path: auditFiles(runtimeDir).timeline,
+        owner: runtimeDir,
+        requestId: args.requestId,
+        line: jsonLine({
           schema: ACP_TIMELINE_EVENT_SCHEMA,
           source: "acp-diagnostic",
           requestId: args.requestId,
@@ -403,7 +440,7 @@ export function appendAcpSkillRunAuditDiagnostic(args: {
           errorName: args.entry.errorName,
           code: args.entry.code,
         }),
-      );
+      });
     },
   });
 }
@@ -424,15 +461,17 @@ export function appendAcpSkillRunTransportAuditEvent(args: {
     requestId: args.requestId,
     stage: "audit-append-transport-failed",
     run: async () => {
-      await appendRuntimeTextFile(
-        auditFiles(runtimeDir).transport,
-        jsonLine({
+      appendRuntimeTextFile({
+        path: auditFiles(runtimeDir).transport,
+        owner: runtimeDir,
+        requestId: args.requestId,
+        line: jsonLine({
           schema: ACP_TRANSPORT_AUDIT_SCHEMA,
           requestId: args.requestId,
           ...args.event,
           ts: safeIso(args.event.ts),
         }),
-      );
+      });
     },
   });
 }
@@ -523,14 +562,16 @@ export function appendAcpSkillRunAuditUpdate(args: {
     requestId: args.requestId,
     stage: "audit-append-update-failed",
     run: async () => {
-      await appendRuntimeTextFile(
-        auditFiles(runtimeDir).acpUpdates,
-        jsonLine({
+      appendRuntimeTextFile({
+        path: auditFiles(runtimeDir).acpUpdates,
+        owner: runtimeDir,
+        requestId: args.requestId,
+        line: jsonLine({
           ...summarizeAcpUpdate(args.event),
           requestId: args.requestId,
           ts: new Date().toISOString(),
         }),
-      );
+      });
     },
   });
 }
@@ -548,6 +589,7 @@ export function writeAcpSkillRunAuditPrompt(args: {
     requestId: args.requestId,
     stage: "audit-write-prompt-failed",
     run: async () => {
+      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
       await writeRuntimeTextFile(
         auditFiles(runtimeDir).prompt,
         truncateString(sanitizeString(args.prompt), MAX_PROMPT_LENGTH),
@@ -592,6 +634,7 @@ export function writeAcpSkillRunAuditRuntimeLogs(args: {
     requestId: args.requestId,
     stage: "audit-write-runtime-logs-failed",
     run: async () => {
+      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
       const logs = listRuntimeLogs({
         requestId: args.requestId,
         order: "asc",
@@ -624,6 +667,7 @@ export function writeAcpSkillRunAuditFinalState(args: {
     requestId: args.requestId,
     stage: "audit-write-final-state-failed",
     run: async () => {
+      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
       const record = args.record;
       await writeRuntimeTextFile(
         auditFiles(runtimeDir).finalState,

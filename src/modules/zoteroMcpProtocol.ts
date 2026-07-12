@@ -3300,14 +3300,20 @@ function mcpInputSchemaForCapability(
 }
 
 function listHostBridgeMcpToolDefinitions(): ToolDefinition[] {
-  return listHostBridgeCapabilities().map((capability) => ({
-    name: capability.name,
-    title: capability.name,
-    description: capability.summary,
-    inputSchema: mcpInputSchemaForCapability(capability.input),
-    handler: async (args, context) =>
-      callHostBridgeCapabilityAsMcpTool(capability.name, args, context),
-  }));
+  return listHostBridgeCapabilities()
+    .filter(
+      (capability) =>
+        capability.name !== "workflow_products.export" &&
+        capability.name !== "workflow_products.remove",
+    )
+    .map((capability) => ({
+      name: capability.name,
+      title: capability.name,
+      description: capability.summary,
+      inputSchema: mcpInputSchemaForCapability(capability.input),
+      handler: async (args, context) =>
+        callHostBridgeCapabilityAsMcpTool(capability.name, args, context),
+    }));
 }
 
 const HOST_BRIDGE_MCP_ALLOWED_ARGS: Record<string, string[]> = {
