@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "スタイル設定",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "対象ジャーナル、会議、またはスタイルファミリー。",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "対象ジャーナルまたは会議",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 原稿文献フレーミング",
   "workflows.manuscript-literature-framing.taskNameTemplate": "原稿文献をフレーミング：{paperTitle}",
   "workflows.update-topic-synthesis.label": "トピック総説の更新",
   "workflows.update-topic-synthesis.parameters.topicId.description": "既存の総説トピックID。ホストが選択されたトピックから更新範囲、モード、理由、言語を導出します。",

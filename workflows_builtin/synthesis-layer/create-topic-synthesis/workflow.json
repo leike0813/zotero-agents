@@ -23,6 +23,7 @@
     "language": {
       "type": "string",
       "title": "Language",
+      "description": "Output language, such as auto, zh-CN, or en-US.",
       "enum": [
         "zh-CN",
         "en-US",

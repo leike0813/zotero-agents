@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "風格偏好",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "目標期刊、會議或風格家族。",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "目標期刊或會議",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 稿件文獻框架構建",
   "workflows.manuscript-literature-framing.taskNameTemplate": "建構手稿文獻框架：{paperTitle}",
   "workflows.update-topic-synthesis.label": "更新主題綜述",
   "workflows.update-topic-synthesis.parameters.topicId.description": "既有綜述主題的 ID。主機端會從所選主題推導範圍、模式、原因及語言。",

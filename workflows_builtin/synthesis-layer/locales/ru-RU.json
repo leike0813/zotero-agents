@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "Предпочтение по стилю",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "Целевой журнал, конференция или стилистическое направление.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "Целевой журнал или конференция",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 Литературное обрамление рукописи",
   "workflows.manuscript-literature-framing.taskNameTemplate": "Обрамление литературы рукописи: {paperTitle}",
   "workflows.update-topic-synthesis.label": "Обновите синтез темы",
   "workflows.update-topic-synthesis.parameters.topicId.description": "ID существующей темы синтеза. Хост определяет область, режим, причину и язык из выбранной темы.",

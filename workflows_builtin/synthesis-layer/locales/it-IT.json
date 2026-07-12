@@ -19,6 +19,7 @@
   "workflows.manuscript-literature-framing.parameters.stylePreference.title": "Preferenza di stile",
   "workflows.manuscript-literature-framing.parameters.targetVenue.description": "Rivista, conferenza o famiglia stilistica di destinazione.",
   "workflows.manuscript-literature-framing.parameters.targetVenue.title": "Rivista o conferenza di destinazione",
+  "workflows.manuscript-literature-framing.skills.manuscript-literature-framing.name": "🧭 Inquadramento bibliografico del manoscritto",
   "workflows.manuscript-literature-framing.taskNameTemplate": "Inquadrare la letteratura del manoscritto: {paperTitle}",
   "workflows.update-topic-synthesis.label": "Aggiorni la sintesi di argomento",
   "workflows.update-topic-synthesis.parameters.topicId.description": "ID di un argomento di sintesi esistente. L'host deriva ambito, modalità, motivo e lingua dall'argomento selezionato.",
