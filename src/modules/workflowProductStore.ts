@@ -1,5 +1,6 @@
 import { joinPath } from "../utils/path";
 import {
+  assertManagedRelativePath,
   copyRuntimeDirectory,
   copyRuntimeFile,
   getRuntimePersistencePaths,
@@ -169,23 +170,24 @@ function safeSegment(value: unknown, fallback = "asset") {
   return normalized || fallback;
 }
 
-function assertSafeProductAssetPath(value: unknown) {
-  const normalized = cleanString(value).replace(/\\/g, "/");
-  if (
-    !normalized ||
-    normalized.startsWith("/") ||
-    /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split("/").some((segment) => segment === "..")
-  ) {
-    throw new Error(`unsafe product asset path: ${normalized || "<empty>"}`);
-  }
-}
-
 function safeId(value: unknown, fallback = "product") {
   const normalized = cleanString(value)
     .replace(/[^A-Za-z0-9._:-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
+}
+
+function workflowProductCacheDir(productIdRaw: string) {
+  const productId = safeId(productIdRaw);
+  return joinPath(
+    getRuntimePersistencePaths().workflowProductsDir,
+    "assets",
+    safeSegment(productId),
+  );
+}
+
+function normalizedAbsolutePath(pathRaw: unknown) {
+  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/g, "");
 }
 
 function extensionOf(path: string) {
@@ -504,20 +506,6 @@ export function removeWorkflowProduct(productIdRaw: string) {
   );
 }
 
-function normalizePathForContainment(pathRaw: string) {
-  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-function pathIsInside(rootRaw: string, candidateRaw: string) {
-  const root = normalizePathForContainment(rootRaw);
-  const candidate = normalizePathForContainment(candidateRaw);
-  return Boolean(
-    root &&
-    candidate &&
-    (candidate === root || candidate.startsWith(`${root}/`)),
-  );
-}
-
 /**
  * Resolve an asset only when its persisted path is still inside the owning
  * product's managed cache and is available. Host-facing callers must use this
@@ -528,17 +516,30 @@ export async function resolveManagedWorkflowProductAsset(
   assetIdRaw: string,
 ): Promise<ResolvedWorkflowProductAsset | null> {
   const product = getWorkflowProduct(productIdRaw);
-  if (!product || !product.cacheDir) {
+  if (!product) {
     return null;
   }
   const asset = product.assets.find(
     (entry) => entry.assetId === safeId(assetIdRaw, ""),
   );
-  const localPath = cleanString(asset?.localPath);
-  if (!asset || !localPath || !pathIsInside(product.cacheDir, localPath)) {
+  if (!asset || asset.sourceKind !== "product-cache") {
     return null;
   }
-  if (!(await runtimePathExists(localPath))) {
+  let relativePath: string;
+  try {
+    relativePath = assertManagedRelativePath(asset.relativePath);
+  } catch {
+    return null;
+  }
+  const cacheDir = workflowProductCacheDir(product.productId);
+  const localPath = joinPath(cacheDir, relativePath);
+  if (
+    normalizedAbsolutePath(product.cacheDir) !==
+      normalizedAbsolutePath(cacheDir) ||
+    normalizedAbsolutePath(asset.localPath) !==
+      normalizedAbsolutePath(localPath) ||
+    !(await runtimePathExists(localPath))
+  ) {
     return null;
   }
   return {
@@ -623,12 +624,7 @@ export function createProductStorageApi(args: {
   const productBase = (productKeyRaw?: string) => {
     const productKey = safeId(productKeyRaw || "default");
     const productId = safeId(`${requestId}:${productKey}`);
-    const cacheDir = joinPath(
-      getRuntimePersistencePaths().runtimeRoot,
-      "workflow-products",
-      "assets",
-      safeSegment(productId),
-    );
+    const cacheDir = workflowProductCacheDir(productId);
     return { productId, productKey, cacheDir };
   };
 
@@ -666,76 +662,101 @@ export function createProductStorageApi(args: {
     });
   };
 
-  const makeAsset = async (
+  type ResolvedAssetInput = Partial<WorkflowResolvedArtifact> & {
+    bytes?: Uint8Array;
+    entryPath: string;
+    sourcePath?: string;
+  };
+
+  type ProductAssetTarget = {
+    assetId: string;
+    label: string;
+    relativePath: string;
+    targetPath: string;
+  };
+
+  const resolveAssetTarget = (
     input: ProductStorageAssetInput,
-    resolved:
-      | (Partial<WorkflowResolvedArtifact> & {
-          bytes?: Uint8Array;
-          entryPath: string;
-          sourcePath?: string;
-        })
-      | null,
-    cacheDir: string,
-  ): Promise<WorkflowProductAsset> => {
+    resolved: ResolvedAssetInput | null,
+    targetDir: string,
+  ): ProductAssetTarget => {
     const assetId = safeId(
       input.assetId || input.label || input.productAssetPath,
     );
-    const relativePath = safeSegment(
-      input.productAssetPath ||
-        input.fallbackPath ||
-        resolved?.entryPath ||
-        assetId,
+    const explicitPath = cleanString(input.productAssetPath);
+    const inferredPath = safeSegment(
+      input.fallbackPath || resolved?.entryPath || assetId,
       assetId,
     );
-    const label = cleanString(input.label) || assetId;
-    if (!resolved) {
-      return {
-        assetId,
-        label,
-        path: relativePath,
-        relativePath,
-        contentType: cleanString(input.contentType) || undefined,
-        sourceKind: "missing",
-        diagnostics: ["artifact not resolved"],
-      };
-    }
-    const targetPath = joinPath(cacheDir, relativePath);
+    const relativePath = assertManagedRelativePath(
+      explicitPath || inferredPath,
+    );
+    return {
+      assetId,
+      label: cleanString(input.label) || assetId,
+      relativePath,
+      targetPath: joinPath(targetDir, relativePath),
+    };
+  };
+
+  const missingAsset = (
+    input: ProductStorageAssetInput,
+    target: ProductAssetTarget,
+    error: unknown,
+  ): WorkflowProductAsset => ({
+    assetId: target.assetId,
+    label: target.label,
+    path: target.relativePath,
+    relativePath: target.relativePath,
+    contentType: cleanString(input.contentType) || undefined,
+    sourceKind: "missing",
+    diagnostics: [error instanceof Error ? error.message : String(error)],
+  });
+
+  const makeAsset = async (
+    input: ProductStorageAssetInput,
+    resolved: ResolvedAssetInput,
+    target: ProductAssetTarget,
+  ): Promise<WorkflowProductAsset> => {
     if (resolved.sourcePath) {
       await copyRuntimeFile({
         sourcePath: resolved.sourcePath,
-        targetPath,
+        targetPath: target.targetPath,
       });
     } else if (resolved.bytes) {
-      await writeRuntimeBytes(targetPath, resolved.bytes, { overwrite: true });
+      await writeRuntimeBytes(target.targetPath, resolved.bytes, {
+        overwrite: true,
+      });
     } else {
       throw new Error(
         `product asset has no readable content: ${resolved.entryPath}`,
       );
     }
-    const managedBytes = await readRuntimeBytes(targetPath);
+    const managedBytes = await readRuntimeBytes(target.targetPath);
     return {
-      assetId,
-      label,
-      path: relativePath,
-      relativePath,
+      assetId: target.assetId,
+      label: target.label,
+      path: target.relativePath,
+      relativePath: target.relativePath,
       contentType: cleanString(input.contentType) || undefined,
       sourceKind: "product-cache",
-      localPath: targetPath,
+      localPath: target.targetPath,
       entryPath: resolved.entryPath,
-      size: await statAsset(targetPath),
+      size: await statAsset(target.targetPath),
       sha256: await sha256Bytes(managedBytes),
     };
   };
 
+  const cacheSingleAsset = async (input: ProductStorageAssetInput) => {
+    const { cacheDir } = productBase("adhoc");
+    const resolved = await resolveInput(input);
+    const target = resolveAssetTarget(input, resolved, cacheDir);
+    return makeAsset(input, resolved, target);
+  };
+
   const api: ProductStorageApi = {
-    async cacheBundleAsset(input) {
-      const { cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), cacheDir);
-    },
-    async registerLocalAsset(input) {
-      const { cacheDir } = productBase("adhoc");
-      return makeAsset(input, await resolveInput(input), cacheDir);
-    },
+    cacheBundleAsset: cacheSingleAsset,
+    registerLocalAsset: cacheSingleAsset,
     async registerProduct(input) {
       const { productId, productKey, cacheDir } = productBase(
         input.productKey || input.kind,
@@ -751,41 +772,33 @@ export function createProductStorageApi(args: {
       const createdAt = existing?.createdAt || nowIso();
       const assets: WorkflowProductAsset[] = [];
       const seenPaths = new Set<string>();
+      const claimTarget = (target: ProductAssetTarget) => {
+        if (seenPaths.has(target.relativePath)) {
+          throw new Error(
+            `duplicate product asset path: ${target.relativePath}`,
+          );
+        }
+        seenPaths.add(target.relativePath);
+      };
       try {
         for (const assetInput of input.assets || []) {
-          if (assetInput.productAssetPath) {
-            assertSafeProductAssetPath(assetInput.productAssetPath);
-          }
-          const relativePath = safeSegment(
-            assetInput.productAssetPath ||
-              assetInput.fallbackPath ||
-              assetInput.assetId,
-          );
-          if (seenPaths.has(relativePath)) {
-            throw new Error(`duplicate product asset path: ${relativePath}`);
-          }
-          seenPaths.add(relativePath);
+          let resolved: ResolvedAssetInput;
           try {
-            const resolved = await resolveInput(assetInput);
-            assets.push(await makeAsset(assetInput, resolved, stagingDir));
+            resolved = await resolveInput(assetInput);
           } catch (error) {
             if (atomic) throw error;
-            assets.push({
-              assetId: safeId(assetInput.assetId || assetInput.label),
-              label:
-                cleanString(assetInput.label) || safeId(assetInput.assetId),
-              path: safeSegment(
-                assetInput.productAssetPath || assetInput.fallbackPath,
-              ),
-              relativePath: safeSegment(
-                assetInput.productAssetPath || assetInput.fallbackPath,
-              ),
-              contentType: cleanString(assetInput.contentType) || undefined,
-              sourceKind: "missing",
-              diagnostics: [
-                error instanceof Error ? error.message : String(error),
-              ],
-            });
+            const target = resolveAssetTarget(assetInput, null, stagingDir);
+            claimTarget(target);
+            assets.push(missingAsset(assetInput, target, error));
+            continue;
+          }
+          const target = resolveAssetTarget(assetInput, resolved, stagingDir);
+          claimTarget(target);
+          try {
+            assets.push(await makeAsset(assetInput, resolved, target));
+          } catch (error) {
+            if (atomic) throw error;
+            assets.push(missingAsset(assetInput, target, error));
           }
         }
         if (atomic) {
@@ -848,9 +861,7 @@ export async function readProductAssetPreview(
   assetIdRaw: string,
   options?: { maxBytes?: number },
 ): Promise<WorkflowProductPreview> {
-  const product = getWorkflowProduct(productIdRaw);
   const assetId = safeId(assetIdRaw, "");
-  const asset = product?.assets.find((entry) => entry.assetId === assetId);
   const fallback = {
     productId: safeId(productIdRaw, ""),
     assetId,
@@ -862,17 +873,14 @@ export async function readProductAssetPreview(
     language: "text",
     text: "",
   };
-  if (!product || !asset) {
+  const resolved = await resolveManagedWorkflowProductAsset(
+    productIdRaw,
+    assetId,
+  );
+  if (!resolved) {
     return { ...fallback, error: "product asset not found" };
   }
-  const path = cleanString(asset.localPath);
-  if (!path || !(await runtimePathExists(path))) {
-    return {
-      ...fallback,
-      path: asset.path,
-      error: "product asset file is missing",
-    };
-  }
+  const { product, asset, localPath: path } = resolved;
   const stat = await statRuntimePath(path);
   const kind = inferPreviewKind(path, asset.contentType);
   const maxBytes = Math.max(
