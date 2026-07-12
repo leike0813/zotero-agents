@@ -181,6 +181,27 @@ to the conversation that owns the active permission request.
 - **WHEN** the user switches to another conversation for the same backend
 - **THEN** the second conversation SHALL use its own persisted setting.
 
+### Requirement: ACP Chat cleanup SHALL use the shared controller close
+
+ACP Chat SHALL use the same bounded, idempotent shared-controller close for every local conversation lifecycle boundary.
+
+#### Scenario: Conversation lifecycle cleanup is controlled
+
+- **WHEN** disconnect, forced interruption, LRU eviction, initialization failure, reconnect, backend removal, or Zotero shutdown closes a local ACP Chat connection
+- **THEN** ACP Chat SHALL await or reuse the owned shared-controller close
+- **AND** it SHALL NOT implement process-group signaling policy.
+
+#### Scenario: Session operations retain one controller
+
+- **WHEN** ACP Chat creates, loads, resumes, or lazily starts a session for a prompt
+- **THEN** the resulting local transport SHALL remain owned by its shared controller until the conversation ownership boundary closes it.
+
+#### Scenario: Pending request settles on close
+
+- **WHEN** a local ACP Chat connection closes with pending JSON-RPC work
+- **THEN** pending requests SHALL fail in bounded time
+- **AND** controller close SHALL not remain blocked on those requests.
+
 ### Requirement: ACP Chat panel SHALL expose explicit empty availability states
 
 ACP Chat panel snapshots SHALL distinguish a complete no-backend state from a
@@ -307,3 +328,11 @@ ACP Chat SHALL answer a pending ACP permission request with the cancelled outcom
 - **AND** the user cancels the prompt
 - **THEN** the pending permission request MUST be resolved as cancelled
 - **AND** prompt cancellation MUST continue through the same interruption lifecycle.
+
+### Requirement: ACP Chat process-tree cleanup SHALL preserve validated signal targets
+ACP Chat SHALL delegate local transport teardown to the shared controller whose POSIX signal actuation preserves the complete validated process-group target.
+
+#### Scenario: Wrapper-backed Chat conversation closes
+- **WHEN** an ACP Chat conversation using a wrapper-prone local backend does not exit during EOF grace
+- **THEN** any TERM or KILL escalation SHALL use the shared controller's validated target
+- **AND** an actuation failure SHALL fall back only to the directly held child process

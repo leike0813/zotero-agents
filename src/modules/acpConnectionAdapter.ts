@@ -361,6 +361,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private connection: AcpClientConnection | null = null;
   private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
     null;
+  private closePromise: Promise<void> | null = null;
   private initialized = false;
   private commandLabel = "";
   private commandLine = "";
@@ -1027,6 +1028,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         canUseSseMcp: this.canUseSseMcp,
       };
     }
+    if (this.closePromise) {
+      throw new Error("ACP connection adapter is closed");
+    }
     this.emitDiagnostic({
       kind: "command_check",
       message: "Checking OpenCode command availability",
@@ -1183,6 +1187,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           raw: transportSnapshot,
         });
       }
+      await this.close().catch(() => undefined);
       throw error;
     }
   }
@@ -1630,18 +1635,25 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     });
   }
 
-  async close() {
-    this.closing = true;
-    try {
-      this.unsubscribeZoteroMcpDiagnostics();
-      this.unsubscribeZoteroMcpDiagnostics = () => undefined;
-      await this.transport?.close({ graceMs: 1_000 });
-    } finally {
-      this.transport = null;
-      this.connection = null;
-      this.initialized = false;
-      this.closing = false;
+  close() {
+    if (this.closePromise) {
+      return this.closePromise;
     }
+    this.closing = true;
+    this.closePromise = (async () => {
+      try {
+        this.unsubscribeZoteroMcpDiagnostics();
+        this.unsubscribeZoteroMcpDiagnostics = () => undefined;
+        await this.connection?.close().catch(() => undefined);
+        await this.transport?.close({ graceMs: 1_000 });
+      } finally {
+        this.transport = null;
+        this.connection = null;
+        this.initialized = false;
+        this.closing = false;
+      }
+    })();
+    return this.closePromise;
   }
 }
 

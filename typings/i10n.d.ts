@@ -13,6 +13,7 @@ export type FluentMessageId =
   | 'assistant-panel-action-auto-approve-acp-permissions-on'
   | 'assistant-panel-action-cancel'
   | 'assistant-panel-action-cancel-run'
+  | 'assistant-panel-action-cancelling'
   | 'assistant-panel-action-close'
   | 'assistant-panel-action-connect'
   | 'assistant-panel-action-connecting'

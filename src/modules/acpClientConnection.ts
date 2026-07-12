@@ -69,6 +69,8 @@ export class AcpClientConnection {
   private readonly client: AcpClientHandler;
   private nextRequestId = 0;
   private writeQueue = Promise.resolve();
+  private acceptingWrites = true;
+  private closePromise: Promise<void> | null = null;
   private closedResolved = false;
   private closedResolver!: () => void;
   readonly closed: Promise<void>;
@@ -210,6 +212,9 @@ export class AcpClientConnection {
   }
 
   private async sendMessage(message: JsonRpcMessage) {
+    if (!this.acceptingWrites) {
+      throw new Error("ACP connection is closing");
+    }
     this.writeQueue = this.writeQueue.then(async () => {
       const writer = this.stream.writable.getWriter();
       try {
@@ -220,6 +225,32 @@ export class AcpClientConnection {
       }
     });
     return this.writeQueue;
+  }
+
+  close() {
+    if (this.closePromise) {
+      return this.closePromise;
+    }
+    this.acceptingWrites = false;
+    this.resolveClosed(new Error("ACP connection closed by client"));
+    this.closePromise = (async () => {
+      await Promise.race([
+        this.writeQueue.catch(() => undefined),
+        new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+      ]);
+      const writer = this.stream.writable.getWriter();
+      try {
+        if (typeof writer.close === "function") {
+          await Promise.race([
+            writer.close().catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 2_000)),
+          ]);
+        }
+      } finally {
+        writer.releaseLock();
+      }
+    })();
+    return this.closePromise;
   }
 
   private traceMessage(direction: "in" | "out", message: JsonRpcMessage) {
@@ -264,6 +295,9 @@ export class AcpClientConnection {
     method: string,
     params?: unknown,
   ): Promise<TResponse> {
+    if (!this.acceptingWrites) {
+      throw new Error("ACP connection is closing");
+    }
     const id = this.nextRequestId++;
     const response = new Promise<TResponse>((resolve, reject) => {
       this.pendingResponses.set(id, {
@@ -271,12 +305,17 @@ export class AcpClientConnection {
         reject,
       });
     });
-    await this.sendMessage({
-      jsonrpc: "2.0",
-      id,
-      method,
-      params,
-    });
+    try {
+      await this.sendMessage({
+        jsonrpc: "2.0",
+        id,
+        method,
+        params,
+      });
+    } catch (error) {
+      this.pendingResponses.delete(id);
+      throw error;
+    }
     return response;
   }
 

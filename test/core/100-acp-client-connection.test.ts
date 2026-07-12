@@ -45,6 +45,7 @@ function createMessageHarness() {
   > = [];
   const waitingOutbound: Array<(message: JsonRpcMessage) => void> = [];
   let inboundClosed = false;
+  let writableCloseCount = 0;
 
   const flushInbound = () => {
     while (waitingInbound.length > 0) {
@@ -106,6 +107,9 @@ function createMessageHarness() {
               outboundQueue.push(message);
               flushOutbound();
             },
+            async close() {
+              writableCloseCount += 1;
+            },
             releaseLock() {
               return;
             },
@@ -120,6 +124,9 @@ function createMessageHarness() {
     closeInbound() {
       inboundClosed = true;
       flushInbound();
+    },
+    getWritableCloseCount() {
+      return writableCloseCount;
     },
     async nextOutbound() {
       if (outboundQueue.length > 0) {
@@ -351,6 +358,46 @@ describe("acp client connection", function () {
         /stdout frame decode failed/,
       );
     }
+  });
+
+  it("closes once, publishes EOF, rejects pending requests, and blocks new writes", async function () {
+    const harness = createMessageHarness();
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      harness.stream,
+    );
+    const pending = connection.initialize({
+      protocolVersion: ACP_PROTOCOL_VERSION,
+      clientCapabilities: {},
+    });
+    await harness.nextOutbound();
+
+    const firstClose = connection.close();
+    const secondClose = connection.close();
+    assert.strictEqual(firstClose, secondClose);
+    await firstClose;
+    assert.equal(harness.getWritableCloseCount(), 1);
+
+    const [pendingResult, newSessionResult] = await Promise.allSettled([
+      pending,
+      connection.newSession({ cwd: "/tmp", mcpServers: [] }),
+    ]);
+    assert.equal(pendingResult.status, "rejected");
+    assert.match(
+      String(pendingResult.status === "rejected" ? pendingResult.reason : ""),
+      /closed by client/,
+    );
+    assert.equal(newSessionResult.status, "rejected");
+    assert.match(
+      String(
+        newSessionResult.status === "rejected" ? newSessionResult.reason : "",
+      ),
+      /closing/,
+    );
+    harness.closeInbound();
   });
 
   it("handles session/request_permission and responds with the selected outcome", async function () {
@@ -658,6 +705,10 @@ describe("acp client connection", function () {
         ),
         ["", '{"probe":"raw","ok":true}'],
       );
+      const firstClose = adapter.close();
+      const secondClose = adapter.close();
+      assert.strictEqual(firstClose, secondClose);
+      await firstClose;
     } finally {
       await adapter?.close().catch(() => undefined);
       await fs.rm(root, {
