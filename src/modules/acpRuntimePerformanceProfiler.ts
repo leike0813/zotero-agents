@@ -1,3 +1,8 @@
+import {
+  ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+  isDebugModeEnabled,
+} from "./debugMode";
+
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA =
   "zotero-agents.acp-runtime-performance-profile.v1" as const;
 
@@ -171,19 +176,16 @@ let state: ProfilerState | null = null;
 let testOptions: ProfilerTestOptions = {};
 
 function isProfilerDebugModeEnabled() {
+  if (!ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED) {
+    return false;
+  }
   if (typeof __debug_mode__ !== "undefined") {
     return __debug_mode__;
   }
-  return (
-    (
-      globalThis as typeof globalThis & {
-        __zs_debug_mode_override_for_tests__?: boolean;
-      }
-    ).__zs_debug_mode_override_for_tests__ === true
-  );
+  return isDebugModeEnabled();
 }
 
-function safeNow() {
+export function readAcpRuntimePerformanceClockMs() {
   try {
     const value = (
       testOptions.now || (() => globalThis.performance?.now?.() ?? Date.now())
@@ -221,7 +223,7 @@ function clearProfilerTimer(timer: TimerHandle | null) {
 
 function createProfile(
   context: AcpRuntimeProfileContext,
-  startedAtMs = safeNow(),
+  startedAtMs = readAcpRuntimePerformanceClockMs(),
 ): ProfileState {
   return {
     ...context,
@@ -321,14 +323,17 @@ function scheduleDriftProbe() {
   if (!enabled || !state || state.active.size === 0 || state.timer !== null) {
     return;
   }
-  const current = safeNow();
+  const current = readAcpRuntimePerformanceClockMs();
   state.expectedDriftAtMs = current + DRIFT_INTERVAL_MS;
   state.timer = setProfilerTimer(() => {
     if (!state) {
       return;
     }
     state.timer = null;
-    const drift = Math.max(0, safeNow() - state.expectedDriftAtMs);
+    const drift = Math.max(
+      0,
+      readAcpRuntimePerformanceClockMs() - state.expectedDriftAtMs,
+    );
     observeAcpRuntimeDuration(null, "event_loop_drift", {}, drift);
     scheduleDriftProbe();
   }, DRIFT_INTERVAL_MS);
@@ -393,7 +398,7 @@ export function finishAcpRuntimeProfile(requestIdRaw: string) {
       return;
     }
     state.active.delete(requestId);
-    profile.finishedAtMs = safeNow();
+    profile.finishedAtMs = readAcpRuntimePerformanceClockMs();
     state.completed.push(profile);
     if (state.completed.length > MAX_COMPLETED_PROFILES) {
       state.completed.splice(
@@ -533,7 +538,7 @@ export function snapshotAcpRuntimeProfiles():
   try {
     return deepFreeze({
       schema: ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA,
-      generatedAtMs: safeNow(),
+      generatedAtMs: readAcpRuntimePerformanceClockMs(),
       limits: {
         activeProfiles: MAX_ACTIVE_PROFILES,
         completedProfiles: MAX_COMPLETED_PROFILES,

@@ -60,6 +60,11 @@ import {
   resolveAcpChatTranscriptPaths,
 } from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  getAcpRuntimeSemanticTraceRecorderView,
+  recordAcpRuntimeSemanticTraceEvent,
+} from "./acpRuntimeSemanticTraceRecorder";
 import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
   buildAcpRuntimeOptionsStateFromConfigOptions,
@@ -3209,6 +3214,15 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       sessionCwd: sessionRuntime.snapshot.sessionCwd,
       workspaceDir: sessionRuntime.snapshot.workspaceDir,
       runtimeDir: sessionRuntime.snapshot.runtimeDir,
+      semanticTraceContext: sessionRuntime.snapshot.conversationId
+        ? {
+            sourceKind: "acp-chat-conversation",
+            owner: {
+              rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
+              conversationId: sessionRuntime.snapshot.conversationId,
+            },
+          }
+        : undefined,
     });
     bindAdapter(sessionRuntime, nextAdapter);
     touchLiveAcpChatSessionRuntime(sessionRuntime);
@@ -4309,6 +4323,41 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSessionRuntimeSnapshot(sessionRuntime);
   const promptToken = nextOpaqueId("acp-prompt-turn");
+  const semanticTraceOwner = {
+    rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
+    conversationId: sessionRuntime.snapshot.conversationId,
+    turnId: promptToken,
+  };
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    !getAcpRuntimeSemanticTraceRecorderView().rootId
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-start",
+      sourceKind: "acp-chat-conversation",
+      owner: semanticTraceOwner,
+      payload: {
+        backendId: sessionRuntime.snapshot.backendId,
+        conversationId: sessionRuntime.snapshot.conversationId,
+      },
+    });
+  }
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "turn-start",
+      sourceKind: "acp-chat-conversation",
+      owner: semanticTraceOwner,
+      payload: { message: promptMessage, hostContext: args.hostContext },
+    });
+  }
   try {
     await flushPendingChatTranscriptWrites(sessionRuntime);
     const promptPromise = adapter.prompt({
@@ -4365,6 +4414,22 @@ export async function sendAcpConversationPrompt(args: {
       publishMode: "full",
     });
     await flushPendingChatTranscriptWrites(sessionRuntime);
+    if (
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      __acp_runtime_semantic_trace_recorder_enabled__
+    ) {
+      await recordAcpRuntimeSemanticTraceEvent({
+        kind: "turn-end",
+        sourceKind: "acp-chat-conversation",
+        owner: semanticTraceOwner,
+        payload: {
+          stopReason: sessionRuntime.snapshot.lastStopReason,
+          outcome: "complete",
+        },
+      });
+    }
   } catch (error) {
     if (sessionRuntime.activePrompt?.token !== promptToken) {
       return;
@@ -4417,6 +4482,22 @@ export async function sendAcpConversationPrompt(args: {
       publishMode: "full",
     });
     await flushPendingChatTranscriptWrites(sessionRuntime);
+    if (
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      __acp_runtime_semantic_trace_recorder_enabled__
+    ) {
+      await recordAcpRuntimeSemanticTraceEvent({
+        kind: "turn-end",
+        sourceKind: "acp-chat-conversation",
+        owner: semanticTraceOwner,
+        payload: {
+          outcome: "error",
+          error: serializeAcpError(error, "prompt"),
+        },
+      });
+    }
     throw error;
   }
 }
@@ -5177,6 +5258,110 @@ export function setAcpConnectionAdapterFactoryForTests(
   ) => Promise<AcpConnectionAdapter>,
 ) {
   adapterFactory = factory || createAcpConnectionAdapter;
+}
+
+export function prepareSyntheticAcpChatReplay(args: {
+  backendId: string;
+  conversationId: string;
+  sessionId?: string;
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  sessionRuntime.snapshot.conversationId = args.conversationId;
+  sessionRuntime.snapshot.sessionId = String(args.sessionId || "").trim();
+  sessionRuntime.snapshot.status = "connected";
+  sessionRuntime.snapshot.busy = false;
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  touchLiveAcpChatSessionRuntime(sessionRuntime);
+  return {
+    backendId: args.backendId,
+    conversationId: args.conversationId,
+  };
+}
+
+export function applySyntheticAcpChatReplaySessionUpdate(args: {
+  backendId: string;
+  conversationId: string;
+  event: {
+    sessionId: string;
+    update: { sessionUpdate: string; [key: string]: unknown };
+  };
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  sessionRuntime.snapshot.sessionId = args.event.sessionId;
+  handleSessionUpdate(sessionRuntime, args.event);
+}
+
+export function applySyntheticAcpChatReplayPrompt(args: {
+  backendId: string;
+  conversationId: string;
+  message: string;
+  createdAt?: string;
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  pushItem(sessionRuntime, {
+    id: nextOpaqueId("acp-replay-user"),
+    kind: "message",
+    role: "user",
+    text: args.message,
+    createdAt: args.createdAt || nowIso(),
+    state: "complete",
+  });
+}
+
+export function applySyntheticAcpChatReplayPermission(args: {
+  backendId: string;
+  conversationId: string;
+  request: AcpPendingPermissionRequest | null;
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  sessionRuntime.snapshot.pendingPermissionRequest = args.request;
+  sessionRuntime.snapshot.status = args.request
+    ? "permission-required"
+    : "connected";
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    uiReason: "critical",
+    publishMode: "metadata",
+  });
+}
+
+export async function drainSyntheticAcpChatReplay(args: {
+  backendId: string;
+  conversationId: string;
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  await flushPendingChatTranscriptWrites(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    uiReason: "critical",
+    publishMode: "full",
+  });
+}
+
+export async function cleanupSyntheticAcpChatReplay(args: {
+  backendId: string;
+  conversationId: string;
+}) {
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    args.conversationId,
+  );
+  await flushPendingChatTranscriptWrites(sessionRuntime);
+  sessionRuntimes.delete(sessionRuntime.key);
+  deleteAcpConversationState(args.backendId, args.conversationId);
 }
 
 export function setAcpChatPromptInterruptGraceMsForTests(timeoutMs?: number) {

@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = Alle
 task-dashboard-runtime-logs-copy-success = { $count } Protokolleinträge in die Zwischenablage kopiert!
 task-dashboard-runtime-logs-copy-success-bundle = Diagnosebundle in die Zwischenablage kopiert!
 task-dashboard-runtime-logs-copy-success-issue = Problemzusammenfassung in die Zwischenablage kopiert!
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = Pfad zur vollständigen lokalen .ndjson-Trace-Datei
 task-dashboard-col-time = Zeit
 task-dashboard-col-level = Stufe
 task-dashboard-col-stage = Phase
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = Backend { $backend } wurde deaktiviert
 # Assistenten-Panel gemeinsame Benutzeroberfläche
 assistant-panel-action-send = Senden
 assistant-panel-action-cancel = Abbrechen
+assistant-panel-action-cancelling = Wird abgebrochen…
 assistant-panel-action-cancel-run = Aufgabe abbrechen
 assistant-panel-action-archive = Archivieren
 assistant-panel-action-close = Schließen

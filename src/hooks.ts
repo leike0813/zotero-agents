@@ -1119,6 +1119,21 @@ async function onShutdown(): Promise<void> {
     "skillrunner-async-lifecycle-shutdown",
     shutdownSkillRunnerAsyncLifecycle,
   );
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    await runShutdownStepWithTimeout(
+      "acp-runtime-semantic-trace-recorder-shutdown",
+      async () => {
+        const { shutdownAcpRuntimeSemanticTraceRecorder } =
+          await import("./modules/acpRuntimeSemanticTraceRecorder");
+        await shutdownAcpRuntimeSemanticTraceRecorder();
+      },
+    );
+  }
   await runShutdownStepWithTimeout(
     "runtime-log-flush",
     flushRuntimeLogsPersistence,

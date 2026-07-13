@@ -65,6 +65,7 @@ import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
   observeAcpRuntimeGauge,
+  readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import {
   createZoteroHostCapabilityBrokerApis,
@@ -3289,13 +3290,14 @@ async function handleHttpRequestImpl(request: HttpRequest) {
 
 async function handleHttpRequest(request: HttpRequest) {
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     const requestId = performanceProfileRequestIdForHostRequest(request);
     const operationClass = hostOperationClass(request);
-    const startedAt = performance.now();
+    const startedAt = readAcpRuntimePerformanceClockMs();
     observeAcpRuntimeGauge(
       requestId,
       "host_request_inflight",
@@ -3326,11 +3328,49 @@ async function handleHttpRequest(request: HttpRequest) {
         requestId,
         "host_request_duration",
         { operationClass },
-        performance.now() - startedAt,
+        readAcpRuntimePerformanceClockMs() - startedAt,
       );
     }
   }
   return handleHttpRequestImpl(request);
+}
+
+function readProfiledHostBridgeRequest(inputStream: any) {
+  const input = readInputStream(inputStream);
+  const request = parseHttpRequestBytes(input.bytes);
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const requestId = performanceProfileRequestIdForHostRequest(request);
+    incrementAcpRuntimeMetric(
+      requestId,
+      "host_input_bytes",
+      {},
+      input.bytes.byteLength,
+    );
+    incrementAcpRuntimeMetric(
+      requestId,
+      "host_input_fragment",
+      {},
+      input.fragments,
+    );
+    incrementAcpRuntimeMetric(
+      requestId,
+      "host_input_unavailable",
+      {},
+      input.unavailableReads,
+    );
+    observeAcpRuntimeDuration(
+      requestId,
+      "host_input_duration",
+      {},
+      input.durationMs,
+    );
+  }
+  return request;
 }
 
 function listen(serverSocket: any) {
@@ -3339,39 +3379,7 @@ function listen(serverSocket: any) {
       void (async () => {
         const inputStream = transport.openInputStream(0, 0, 0);
         const outputStream = transport.openOutputStream(0, 0, 0);
-        const input = readInputStream(inputStream);
-        const request = parseHttpRequestBytes(input.bytes);
-        if (
-          typeof __debug_mode__ === "undefined"
-            ? isDebugModeEnabled()
-            : __debug_mode__
-        ) {
-          const requestId = performanceProfileRequestIdForHostRequest(request);
-          incrementAcpRuntimeMetric(
-            requestId,
-            "host_input_bytes",
-            {},
-            input.bytes.byteLength,
-          );
-          incrementAcpRuntimeMetric(
-            requestId,
-            "host_input_fragment",
-            {},
-            input.fragments,
-          );
-          incrementAcpRuntimeMetric(
-            requestId,
-            "host_input_unavailable",
-            {},
-            input.unavailableReads,
-          );
-          observeAcpRuntimeDuration(
-            requestId,
-            "host_input_duration",
-            {},
-            input.durationMs,
-          );
-        }
+        const request = readProfiledHostBridgeRequest(inputStream);
         const rawResponse = await handleHttpRequest(request);
         writeOutputStream(outputStream, rawResponse);
       })().catch((error) => {
@@ -3744,6 +3752,7 @@ export const hostBridgeServerInternalsForTests = {
     SUPERVISOR_INTERVAL_MS,
   },
   readInputStream,
+  readProfiledHostBridgeRequest,
   parseHttpRequestBytes,
   setServerSocketFactory(
     factory?: (port: number, bindMode: HostBridgeBindMode) => any,

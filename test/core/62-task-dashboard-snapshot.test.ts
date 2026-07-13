@@ -197,6 +197,37 @@ describe("task dashboard snapshot", function () {
     );
   });
 
+  it("keeps ACP recorder and replay tabs independently debug gated", function () {
+    const backends = [makeBackend("skillrunner-primary", "skillrunner")];
+    for (const [tabKey, flag] of [
+      ["acp-trace-recorder", "acpTraceRecorderEnabled"],
+      ["acp-replay-profiler", "acpReplayProfilerEnabled"],
+    ] as const) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: tabKey,
+          backends,
+          debugModeEnabled: true,
+          [flag]: true,
+        }),
+        tabKey,
+      );
+      for (const args of [
+        { debugModeEnabled: false, [flag]: true },
+        { debugModeEnabled: true, [flag]: false },
+      ]) {
+        assert.equal(
+          normalizeDashboardTabKey({
+            requestedTabKey: tabKey,
+            backends,
+            ...args,
+          }),
+          "home",
+        );
+      }
+    }
+  });
+
   it("maps managed local backend id to localized display name", function () {
     const displayName = resolveBackendDisplayName("local-skillrunner-backend");
     assert.notEqual(displayName, "local-skillrunner-backend");

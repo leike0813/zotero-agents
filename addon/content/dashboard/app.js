@@ -71,6 +71,8 @@
       products: "zs-icon-inventory-2",
       "runtime-logs": "zs-icon-terminal",
       "skillrunner-connection-audit": "zs-icon-terminal",
+      "acp-trace-recorder": "zs-icon-terminal",
+      "acp-replay-profiler": "zs-icon-terminal",
     };
     return icons[String(tabKey || "")] || "";
   }
@@ -2871,6 +2873,217 @@
     main.appendChild(section);
   }
 
+  function renderAcpTraceRecorder(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const view = snapshot.acpTraceRecorderView;
+    if (!view) {
+      main.appendChild(el("div", "empty", "ACP Trace Recorder unavailable"));
+      return;
+    }
+    main.appendChild(el("h2", "page-title", "ACP Trace Recorder"));
+    main.appendChild(
+      el(
+        "div",
+        "error-banner profiler-sensitive-warning",
+        "Trace files contain complete prompts, assistant text, tool arguments, and outputs. They remain local and may contain sensitive data.",
+      ),
+    );
+    const panel = el("section", "panel profiler-capture-panel");
+    const fields = el("div", "profiler-fields");
+    function field(label, control) {
+      const wrapper = el("label", "profiler-field");
+      wrapper.appendChild(el("span", "profiler-field-label", label));
+      wrapper.appendChild(control);
+      fields.appendChild(wrapper);
+    }
+    const source = el("select", "select-input profiler-input");
+    [
+      ["acp-chat-conversation", "ACP Chat conversation"],
+      ["acp-workflow-execution", "ACP Workflow execution"],
+    ].forEach(function (entry) {
+      const option = document.createElement("option");
+      option.value = entry[0];
+      option.textContent = entry[1];
+      source.appendChild(option);
+    });
+    source.value = view.sourceKind || "acp-chat-conversation";
+    const maxBytes = el("input", "text-input profiler-input");
+    maxBytes.type = "number";
+    maxBytes.value = String((view.limits && view.limits.maxBytes) || 268435456);
+    const maxEvents = el("input", "text-input profiler-input");
+    maxEvents.type = "number";
+    maxEvents.value = String((view.limits && view.limits.maxEvents) || 250000);
+    const maxEventBytes = el("input", "text-input profiler-input");
+    maxEventBytes.type = "number";
+    maxEventBytes.value = String(
+      (view.limits && view.limits.maxEventBytes) || 16777216,
+    );
+    const locked = view.state !== "idle";
+    [source, maxBytes, maxEvents, maxEventBytes].forEach(function (control) {
+      control.disabled = locked;
+    });
+    field("Trace type", source);
+    field("Maximum bytes", maxBytes);
+    field("Maximum events", maxEvents);
+    field("Maximum bytes per event", maxEventBytes);
+    panel.appendChild(fields);
+    panel.appendChild(
+      el(
+        "div",
+        "mono profiler-saved-path",
+        `State: ${view.state}; events: ${view.eventCount}; bytes: ${view.contentBytes}; completion: ${view.completion || "pending"}`,
+      ),
+    );
+    const actions = el("div", "toolbar-actions profiler-toolbar-actions");
+    if (view.state === "idle") {
+      const start = el("button", "btn primary", "Arm Recorder");
+      start.addEventListener("click", function () {
+        sendAction("acp-trace-recorder-start", {
+          sourceKind: source.value,
+          maxBytes: Number(maxBytes.value),
+          maxEvents: Number(maxEvents.value),
+          maxEventBytes: Number(maxEventBytes.value),
+        });
+      });
+      actions.appendChild(start);
+    }
+    if (view.state === "armed" || view.state === "recording") {
+      const stop = el("button", "btn danger", "Stop / Freeze");
+      stop.addEventListener("click", function () {
+        sendAction("acp-trace-recorder-stop");
+      });
+      actions.appendChild(stop);
+    }
+    if (view.state === "frozen" && view.completion === "complete") {
+      const save = el("button", "btn primary", "Save Local Trace");
+      save.addEventListener("click", function () {
+        sendAction("acp-trace-recorder-save");
+      });
+      actions.appendChild(save);
+    }
+    const folder = el("button", "btn", "Open Folder");
+    folder.disabled = !view.folder;
+    folder.addEventListener("click", function () {
+      sendAction("acp-trace-recorder-open-folder");
+    });
+    actions.appendChild(folder);
+    panel.appendChild(actions);
+    main.appendChild(panel);
+    if (Array.isArray(view.warnings) && view.warnings.length) {
+      const warningList = el("ul", "profiler-warning-list");
+      view.warnings.forEach(function (warning) {
+        warningList.appendChild(
+          el(
+            "li",
+            "",
+            `${warning.code}${warning.detail ? `: ${warning.detail}` : ""}`,
+          ),
+        );
+      });
+      main.appendChild(warningList);
+    }
+    if (view.savedPath || view.partialPath) {
+      main.appendChild(
+        el(
+          "div",
+          "mono profiler-saved-path",
+          view.savedPath || view.partialPath,
+        ),
+      );
+    }
+  }
+
+  function renderAcpReplayProfiler(main, snapshot) {
+    const labels = snapshot.labels || {};
+    const view = snapshot.acpReplayProfilerView;
+    if (!view) {
+      main.appendChild(el("div", "empty", "ACP Replay Profiler unavailable"));
+      return;
+    }
+    main.appendChild(el("h2", "page-title", "ACP Replay Profiler"));
+    const panel = el("section", "panel profiler-capture-panel");
+    const fields = el("div", "profiler-fields");
+    function field(label, control) {
+      const wrapper = el("label", "profiler-field");
+      wrapper.appendChild(el("span", "profiler-field-label", label));
+      wrapper.appendChild(control);
+      fields.appendChild(wrapper);
+    }
+    const tracePath = el("input", "text-input profiler-input");
+    tracePath.placeholder = labelText(
+      labels.acpReplayProfilerTracePlaceholder,
+      "Local complete .ndjson trace path",
+    );
+    tracePath.value = view.tracePath || "";
+    const phase = el("select", "select-input profiler-input");
+    ["before-governance", "after-governance"].forEach(function (value) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      phase.appendChild(option);
+    });
+    phase.value = view.phase || "before-governance";
+    const cadence = el("select", "select-input profiler-input");
+    ["recorded", "burst"].forEach(function (value) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      cadence.appendChild(option);
+    });
+    cadence.value = view.cadence || "recorded";
+    const running = view.state === "running";
+    [tracePath, phase, cadence].forEach(function (control) {
+      control.disabled = running;
+    });
+    field("Complete local trace", tracePath);
+    field("Phase", phase);
+    field("Cadence", cadence);
+    panel.appendChild(fields);
+    panel.appendChild(
+      el(
+        "div",
+        "mono profiler-saved-path",
+        `State: ${view.state}; progress: ${(view.progress && view.progress.completed) || 0}/9`,
+      ),
+    );
+    const actions = el("div", "toolbar-actions profiler-toolbar-actions");
+    const start = el("button", "btn primary", "Run Nine-Replay Matrix");
+    start.disabled = running || !tracePath.value.trim();
+    start.addEventListener("click", function () {
+      sendAction("acp-replay-profiler-start", {
+        tracePath: tracePath.value,
+        phase: phase.value,
+        cadence: cadence.value,
+      });
+    });
+    actions.appendChild(start);
+    const folder = el("button", "btn", "Open Result Folder");
+    folder.disabled = !view.resultFolder;
+    folder.addEventListener("click", function () {
+      sendAction("acp-replay-profiler-open-folder");
+    });
+    actions.appendChild(folder);
+    panel.appendChild(actions);
+    main.appendChild(panel);
+    if (view.error) main.appendChild(el("div", "error-banner", view.error));
+    if (Array.isArray(view.warnings) && view.warnings.length) {
+      const list = el("ul", "profiler-warning-list");
+      view.warnings.forEach(function (warning) {
+        list.appendChild(el("li", "", warning));
+      });
+      main.appendChild(list);
+    }
+    if (view.jsonPath || view.markdownPath) {
+      main.appendChild(
+        el(
+          "div",
+          "mono profiler-saved-path",
+          [view.jsonPath, view.markdownPath].filter(Boolean).join("\n"),
+        ),
+      );
+    }
+  }
+
   function renderRuntimeLogs(main, snapshot) {
     const labels = snapshot.labels || {};
     const view = snapshot.runtimeLogsView;
@@ -3617,6 +3830,15 @@
         });
         sidebar.appendChild(btn);
       }
+      ["acp-trace-recorder", "acp-replay-profiler"].forEach(function (key) {
+        const diagnosticsTab = tabs.find((tab) => tab.key === key);
+        if (!diagnosticsTab) return;
+        const btn = createTabButton(diagnosticsTab, snapshot);
+        btn.addEventListener("click", function () {
+          sendAction("select-tab", { tabKey: diagnosticsTab.key });
+        });
+        sidebar.appendChild(btn);
+      });
       const divider = el("div", "tab-divider");
       sidebar.appendChild(divider);
       sidebar.appendChild(
@@ -3629,7 +3851,9 @@
             tab.key !== "workflow-options" &&
             tab.key !== "products" &&
             tab.key !== "runtime-logs" &&
-            tab.key !== "skillrunner-connection-audit",
+            tab.key !== "skillrunner-connection-audit" &&
+            tab.key !== "acp-trace-recorder" &&
+            tab.key !== "acp-replay-profiler",
         )
         .forEach(function (tab) {
           const isDisabled = tab.disabled === true;
@@ -3681,6 +3905,10 @@
     } else if (snapshot.selectedTabKey === "skillrunner-connection-audit") {
       main.classList.add("skillrunner-fill");
       renderSkillRunnerConnectionAudit(main, snapshot);
+    } else if (snapshot.selectedTabKey === "acp-trace-recorder") {
+      renderAcpTraceRecorder(main, snapshot);
+    } else if (snapshot.selectedTabKey === "acp-replay-profiler") {
+      renderAcpReplayProfiler(main, snapshot);
     } else if (
       snapshot.backendView &&
       snapshot.backendView.backendType === "skillrunner"

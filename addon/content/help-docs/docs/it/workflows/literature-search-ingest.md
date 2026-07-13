@@ -1,93 +1,53 @@
-# Ricerca e acquisizione della letteratura
+# Literature Search & Ingest
 
 ## Scopo
 
-Cercare letteratura accademica tramite l'AI e acquisire i risultati direttamente in Zotero. Supporta più modalità di ricerca con conferma interattiva prima di eseguire l'operazione di acquisizione.
-
-## Casi d'uso
-
-- Cercare e acquisire in batch letteratura rilevante quando si esplora un nuovo argomento
-- Inserire il titolo, il DOI, l'ID arXiv o il PMID di un articolo noto per l'importazione rapida
-- Espandere la ricerca di letteratura correlata a partire da un articolo seed
-
-## Vincoli di input
-
-| Tipo di vincolo | Descrizione |
-|-----------------|-------------|
-| Unità di input | workflow (non è necessario selezionare elementi) |
-| Metodo di attivazione | Esegui dal menu contestuale o dalla Dashboard, non è necessario pre-selezionare elementi |
+Cercare letteratura accademica con l'IA e acquisire i risultati approvati direttamente in Zotero. Una query vuota può avviare una conversazione guidata che trasforma un bisogno di ricerca in un brief di ricerca confermato.
 
 ## Modalità di ricerca
 
 | Modalità | Descrizione |
-|----------|-------------|
-| `auto` | Determina automaticamente la modalità di ricerca più adatta (predefinita) |
-| `topic_expansion` | Cerca per direzione di ricerca o argomento per trovare letteratura correlata |
-| `paper_seed_expansion` | Espande la ricerca a partire da un articolo seed |
-| `targeted_ingest` | Localizza e acquisisce con precisione un singolo articolo |
+|------|------|
+| `auto` | Rileva una modalità adatta per una query non vuota; una query vuota avvia la pianificazione guidata. |
+| `guided` | Chiarire il bisogno di ricerca, ispezionare la copertura locale Zotero/Synthesis ed eseguire direttamente il brief confermato. |
+| `topic_expansion` | Ricerca per direzione di ricerca o argomento. |
+| `paper_seed_expansion` | Espansione da un articolo seed. |
+| `targeted_ingest` | Individuare e acquisire con precisione un singolo articolo. |
 
 ## Flusso di esecuzione
 
 ```
-1. Fase di conferma del piano
-   └── Legge la libreria di Zotero e il contesto di Sintesi
-       └── Determina automaticamente la modalità di ricerca (modalità auto)
-       └── Presenta il piano di ricerca all'utente
-       └── Attende la conferma dell'utente
+1. Pianificazione guidata (query auto vuota o modalità guided)
+    └── Chiarire l'obiettivo di ricerca in brevi turni
+    └── Leggere solo la copertura locale Zotero/Synthesis
+    └── Presentare un brief di ricerca strutturato
+    └── Attendere conferma; nessuna ricerca web o scrittura prima della conferma
 
-2. Fase di ricerca (senza acquisizione)
-   └── Cerca letteratura candidata secondo il piano confermato
-       └── Visualizza l'elenco dei risultati della ricerca
-       └── L'utente seleziona la letteratura da acquisire
+2. Ricerca e selezione dei candidati
+    └── Cercare secondo il brief confermato o la modalità esplicita
+    └── Verificare identificatori, metadati autorevoli, pagine di destinazione e prove legali di PDF pubblico
+    └── L'utente seleziona gli articoli da acquisire
 
-3. Fase di acquisizione
-   └── Acquisisce gli articoli uno per uno tramite zotero-bridge
-       └── Include l'importazione dei metadati e degli allegati PDF
-       └── Visualizza lo stato di avanzamento dell'acquisizione
-
-4. Completamento
-   └── Produce un riepilogo dei risultati dell'acquisizione
-       └── Include informazioni sugli elementi riusciti/falliti
+3. Acquisizione e completamento
+    └── Acquisire ogni articolo approvato tramite zotero-bridge
+    └── Produrre JSON di acquisizione conciso, inclusi i collegamenti PDF mancanti
 ```
-
-### Dettagli dell'interazione
-
-- Questo Workflow viene eseguito in modalità **interattiva**, richiedendo la conferma dell'utente in punti chiave
-- Conferma del piano: Dopo che l'AI presenta il piano di ricerca, l'utente lo conferma o lo adatta
-- Conferma dell'elenco: Dopo che i risultati della ricerca vengono visualizzati, l'utente seleziona gli elementi da acquisire
-- Lo stato di avanzamento dell'esecuzione può essere monitorato nella Dashboard
-
-## Raccomandazioni sul modello
-
-🔴 **Deve** avere funzionalità di ricerca web. Il cuore di questo Workflow è la ricerca di letteratura accademica online — i modelli senza funzionalità di ricerca web non possono eseguire questa attività.
-🟢 La capacità di ragionamento del modello non deve essere particolarmente forte — la ricerca e l'acquisizione sono essenzialmente attività di recupero e chiamata di strumenti, che possono essere gestite da modelli leggeri.
-
-## Output
-
-- I risultati della ricerca vengono acquisiti direttamente come elementi di Zotero
-- Tenta automaticamente di scaricare gli allegati PDF (best-effort)
-- È possibile specificare una Collezione di destinazione per la categorizzazione
 
 ## Parametri
 
 | Parametro | Tipo | Descrizione | Predefinito |
-|-----------|------|-------------|-------------|
-| `query` | string | Argomento di ricerca, direzione di ricerca, titolo dell'articolo, DOI, ID arXiv, PMID, ecc. | — |
-| `searchMode` | string | Modalità di ricerca | `auto` |
-| `targetCollection` | string | Collezione di destinazione (opzionale) | Vuoto |
+|------|------|------|------|
+| `query` | string | Argomento di ricerca, identificatore di articolo, seed o valore vuoto per la pianificazione guidata. | Vuoto |
+| `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` o `targeted_ingest`. | `auto` |
+| `targetCollection` | string | Collection destinazione opzionale. | Vuoto |
 
-### Valori disponibili per searchMode
+## Output
 
-- `auto`: Determina automaticamente
-- `topic_expansion`: Espansione dell'argomento
-- `paper_seed_expansion`: Espansione da articolo seed
-- `targeted_ingest`: Acquisizione mirata
+- Le prove del candidato vengono verificate prima che l'utente possa approvare l'acquisizione.
+- Ogni acquisizione riuscita viene creata o riutilizzata in Zotero; i collegamenti legali alle pagine di destinazione rimangono disponibili quando non viene allegato alcun PDF.
+- Le esecuzioni guidate riportano `search_mode: "guided"`; le altre esecuzioni mantengono la loro modalità di ricerca concreta.
 
 ## Dipendenze
 
-- **Backend**: Backend ACP (richiede il supporto del protocollo ACP)
-- **Skill**: La skill `literature-search-ingest` deve essere distribuita sul backend
-
-## Workflow correlati
-
-- [Analisi della letteratura](#doc/workflows%2Fliterature-analysis) — Genera riassunti per la letteratura acquisita
+- **Backend**: Backend ACP con esecuzione interattiva
+- **Skill**: `literature-search-ingest`

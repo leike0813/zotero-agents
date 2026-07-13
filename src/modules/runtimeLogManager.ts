@@ -9,6 +9,7 @@ import { isDebugModeEnabled } from "./debugMode";
 import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
   snapshotAcpRuntimeProfiles,
   type AcpRuntimePerformanceSnapshot,
 } from "./acpRuntimePerformanceProfiler";
@@ -817,21 +818,22 @@ function persistRuntimeLogsNow(force = false) {
   if (!force && !persistenceDirty) {
     return;
   }
-  const startedAt = (
-    typeof __debug_mode__ === "undefined"
+  const startedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? performance.now()
-    : 0;
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   try {
     const content = JSON.stringify(buildRuntimeLogDocument());
     writeRuntimeLogFileAsync(content);
     setPref(HISTORY_PREF_KEY, "");
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(null, "runtime_log_persist", {
         persistenceChannel: "runtime-log",
@@ -846,7 +848,7 @@ function persistRuntimeLogsNow(force = false) {
         null,
         "runtime_log_persist_duration",
         { persistenceChannel: "runtime-log" },
-        performance.now() - startedAt,
+        readAcpRuntimePerformanceClockMs() - startedAt,
       );
     }
   } catch {
@@ -1727,13 +1729,13 @@ export function buildRuntimeDiagnosticBundle(
     timelineEntries.map(toTimelineEvent);
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
-  const performanceProfiles = (
-    typeof __debug_mode__ === "undefined"
+  const performanceProfiles =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? snapshotAcpRuntimeProfiles()
-    : undefined;
+      : __debug_mode__)
+      ? snapshotAcpRuntimeProfiles()
+      : undefined;
   const includePerformanceProfiles =
     !!performanceProfiles &&
     (performanceProfiles.active.length > 0 ||
@@ -1799,13 +1801,13 @@ export function buildRuntimeIssueDiagnosticBundle(
     .map(toTimelineEvent);
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
-  const performanceProfiles = (
-    typeof __debug_mode__ === "undefined"
+  const performanceProfiles =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? snapshotAcpRuntimeProfiles()
-    : undefined;
+      : __debug_mode__)
+      ? snapshotAcpRuntimeProfiles()
+      : undefined;
   const includePerformanceProfiles =
     !!performanceProfiles &&
     (performanceProfiles.active.length > 0 ||

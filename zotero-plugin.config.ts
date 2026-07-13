@@ -2,6 +2,11 @@ import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
 import { acpRuntimeProfilerSideEffectsPlugin } from "./scripts/acp-runtime-profiler-esbuild";
+import {
+  ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+  ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
+  ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
+} from "./src/modules/debugMode";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
 type TestMode = "lite" | "full";
@@ -120,6 +125,15 @@ export default defineConfig({
         define: {
           __env__: `"${process.env.NODE_ENV}"`,
           __debug_mode__: String(DEBUG_MODE),
+          __acp_runtime_performance_profiler_enabled__: String(
+            ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+          ),
+          __acp_runtime_semantic_trace_recorder_enabled__: String(
+            ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
+          ),
+          __acp_runtime_replay_profiler_enabled__: String(
+            ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
+          ),
         },
         bundle: true,
         minifySyntax: true,

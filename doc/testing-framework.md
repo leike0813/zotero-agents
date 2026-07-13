@@ -383,19 +383,34 @@ ACP runtime profiling has two complementary validation layers:
   lifecycle, aggregation, bounds, drift sampling, immutability, and failure
   isolation.
 - `test/core/176-acp-silent-runtime-performance-baseline.test.ts` runs a
-  deterministic 1,000-update silent fixture with a fixed clock. It locks
-  mechanism-level counts, aggregation, and boundedness, not wall-clock speed.
+  deterministic 1,000-update silent fixture for the ordered `closed`,
+  `open-inactive`, and `acp-active` surface matrix. All cases traverse the same
+  production ACP JSON-RPC, persistence, Host Bridge, and buffered-write seams;
+  the closed case locks zero R3 publication work and both open cases lock their
+  Assistant Workspace surface attribution. It verifies mechanism-level counts,
+  aggregation, and boundedness, not wall-clock speed.
+- `test/core/178-acp-runtime-semantic-trace.test.ts` locks lossless payloads,
+  source ownership, NDJSON sequence/hash/footer integrity, partial recovery,
+  quotas, and incomplete trace rejection.
+- `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/burst
+  scheduling, backend-free target ports, fixed R2 v1 work, three warm-ups plus
+  six formal profiles, fresh owners, drain failures, provenance, and Workspace
+  restoration.
 - ACP connection, Host Bridge, runtime diagnostic bundle, and performance
   digest tests verify request attribution and export through real module entry
   points.
+- `npm run record:acp-runtime-before-baseline` runs the complete normalized
+  three-surface matrix twice and writes three per-surface JSON records plus one
+  consolidated Markdown report only when both matrices match.
 - `npm run check:acp-profiler-release-elision` bundles the real plugin entry in
-  debug and non-debug modes and requires the non-debug profiler contribution to
-  be zero bytes.
+  debug, non-debug, Recorder-disabled, and Replay-disabled modes and requires
+  each disabled diagnostic subsystem to retain zero bytes.
 
-Running the same scenario in Zotero 7 and Zotero 9 is optional real-host
-calibration. It is useful for measuring host-specific timings and event-loop
-drift, but is not a completion gate for profiler correctness and CI does not
-lock machine-specific millisecond thresholds.
+The automated surface matrix is a mechanism smoke baseline. Comparable
+real-workload evidence comes from complete source-specific replay matrices.
+Manual acceptance captures separate multi-turn Chat and multi-stage Workflow
+traces in Zotero and replays them without a backend. CI does not lock
+machine-specific millisecond thresholds.
 
 Diagnosis order:
 

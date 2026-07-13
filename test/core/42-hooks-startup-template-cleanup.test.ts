@@ -146,4 +146,37 @@ describe("hooks startup template cleanup", function () {
 
     assert.isTrue(getRuntimeLogDiagnosticMode());
   });
+
+  it("completes debug startup when the privileged host has no performance global", async function () {
+    const performanceDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "performance",
+    );
+    setDebugModeOverrideForTests(true);
+    setRuntimeLogDiagnosticMode(false);
+    if (usedAddonObject?.data) {
+      (usedAddonObject.data as { initialized?: boolean }).initialized = false;
+    }
+    Object.defineProperty(globalThis, "performance", {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+
+    try {
+      await hooks.onStartup();
+
+      assert.isTrue(
+        (usedAddonObject?.data as { initialized?: boolean } | undefined)
+          ?.initialized,
+      );
+      assert.isTrue(getRuntimeLogDiagnosticMode());
+    } finally {
+      if (performanceDescriptor) {
+        Object.defineProperty(globalThis, "performance", performanceDescriptor);
+      } else {
+        delete (globalThis as { performance?: unknown }).performance;
+      }
+    }
+  });
 });

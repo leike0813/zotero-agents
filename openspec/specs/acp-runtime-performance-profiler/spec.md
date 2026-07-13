@@ -3,9 +3,9 @@
 ## Purpose
 TBD - created by syncing change profile-acp-runtime-hot-paths. Update Purpose after archive.
 ## Requirements
-### Requirement: ACP runtime profiling is debug-only and explicitly enabled
+### Requirement: ACP runtime profiling is debug-only and source-enabled
 
-ACP runtime profiling SHALL activate only when debug mode is enabled and an explicit profiler enable action succeeds. Non-debug production bundles SHALL eliminate profiler hot-path code, imports, metric markers, and branches.
+ACP runtime profiling SHALL be available only when debug mode and its independent hard-coded profiler source switch are enabled. It SHALL activate only for replay profile windows or deterministic mechanism fixtures and SHALL remain disabled during semantic trace capture. Non-debug production bundles and profiler-switch-disabled debug bundles SHALL eliminate profiler hot-path code, imports, metric markers, and branches.
 
 #### Scenario: Non-debug bundle is profiler-free
 
@@ -13,15 +13,20 @@ ACP runtime profiling SHALL activate only when debug mode is enabled and an expl
 - **THEN** the profiler module SHALL contribute zero output bytes
 - **AND** the output SHALL contain no profiler schema or metric markers.
 
-#### Scenario: Debug mode alone remains inert
+#### Scenario: Source-disabled debug bundle is profiler-free
 
-- **WHEN** debug mode is enabled but the profiler has not been explicitly enabled
-- **THEN** no profile, metric map, timer, snapshot, log, or persistence write SHALL be created.
+- **WHEN** the plugin entry is bundled in debug mode with the profiler source switch set to false
+- **THEN** profiler recorder and replay profiling adapters SHALL contribute no runtime state, timer, persistence, or hot-path work.
+
+#### Scenario: Trace capture excludes profiling
+
+- **WHEN** the semantic trace recorder is armed, recording, or frozen
+- **THEN** no replay profile SHALL be active and no profiler aggregate SHALL be allocated for captured work.
 
 #### Scenario: Test activation respects debug mode
 
-- **WHEN** a test requests profiler activation without enabling the debug-mode test override
-- **THEN** activation SHALL fail and all recorder APIs SHALL remain inert.
+- **WHEN** a test requests profiling without enabling the debug-mode test override
+- **THEN** activation SHALL fail and all profiler APIs SHALL remain inert.
 
 ### Requirement: ACP runtime profiles are bounded aggregates
 
@@ -53,19 +58,24 @@ Request-scoped ACP work SHALL be attributed to its durable request id. Host Brid
 - **THEN** it SHALL be recorded only in the global aggregate
 - **AND** it SHALL NOT be copied to or guessed from active request profiles.
 
-### Requirement: Profiling lifecycle follows ACP run lifecycle
+### Requirement: Profiling lifecycle follows replay target lifecycle
 
-A profile SHALL start after a durable ACP Skill run request identity exists, SHALL survive recoverable conversation and apply-pending states, and SHALL finish once on the first `succeeded`, `failed`, or `canceled` run transition.
+Chat and ACP Skills replay targets SHALL expose symmetric profile prepare, start, R3 signature/post attribution, drain, and finish lifecycle. A profile SHALL begin only after synthetic ownership and surface preparation drain and SHALL finish exactly once before cleanup.
 
-#### Scenario: Recovery reuses active profile
+#### Scenario: Chat target is active
 
-- **WHEN** an ACP Skill run conversation is recovered for an already active request profile
-- **THEN** the profiler SHALL reuse the profile without resetting its aggregates or creating a second event-loop timer.
+- **WHEN** a Chat trace profile window publishes Workspace work
+- **THEN** R3 prepare, signature, and post metrics SHALL be attributed to the Chat synthetic conversation and selected surface.
 
-#### Scenario: Terminal transition finishes once
+#### Scenario: Skills target is active
 
-- **WHEN** a run first becomes succeeded, failed, or canceled and later receives another terminal update
-- **THEN** its profile SHALL move to completed exactly once.
+- **WHEN** a Workflow trace profile window publishes Workspace work
+- **THEN** the same R3 lifecycle metrics SHALL be attributed to the synthetic workflow/request owners and selected surface.
+
+#### Scenario: Closed surface runs
+
+- **WHEN** a replay profile executes with Workspace closed
+- **THEN** it SHALL produce no R3 metrics.
 
 ### Requirement: Automated fixtures establish the mechanism baseline
 

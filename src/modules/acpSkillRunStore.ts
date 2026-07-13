@@ -58,7 +58,9 @@ import {
   finishAcpRuntimeProfile,
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
+import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
 import type {
   AcpSessionConfigCategory,
   AcpToolCall,
@@ -2714,13 +2716,13 @@ function persistRun(
     softRunPersistTimers.delete(record.requestId);
   }
   softRunPersistRecords.delete(record.requestId);
-  const startedAt = (
-    typeof __debug_mode__ === "undefined"
+  const startedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? performance.now()
-    : 0;
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   persistAcpSkillRunRuntimeFiles(record, options);
   const payload = JSON.stringify(buildPersistedAcpSkillRunPayload(record));
   upsertPluginRunStoreEntry("acp", {
@@ -2732,9 +2734,10 @@ function persistRun(
     payload,
   });
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     incrementAcpRuntimeMetric(record.requestId, "run_persist");
     incrementAcpRuntimeMetric(
@@ -2747,7 +2750,7 @@ function persistRun(
       record.requestId,
       "run_persist_duration",
       { persistenceChannel: "run" },
-      performance.now() - startedAt,
+      readAcpRuntimePerformanceClockMs() - startedAt,
     );
   }
   const latestEvent = record.events[record.events.length - 1];
@@ -3021,9 +3024,10 @@ function emitChanged(change?: AcpSkillRunSnapshotChange) {
     : normalizeAcpSkillRunSnapshotChange(change);
   pendingChangedEmit = null;
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     const requestId = emittedChange.requestIds?.[0];
     for (const kind of emittedChange.kinds || ["global"]) {
@@ -3043,9 +3047,10 @@ function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
     change,
   );
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     const normalized = normalizeAcpSkillRunSnapshotChange(change);
     const requestId = normalized.requestIds?.[0];
@@ -3499,11 +3504,42 @@ export function upsertAcpSkillRun(update: {
   if (
     !isTerminalAcpSkillRunStatus(existing?.status || "queued") &&
     isTerminalAcpSkillRunStatus(next.status) &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
     finishAcpRuntimeProfile(requestId);
+  }
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    !isTerminalAcpSkillRunStatus(existing?.status || "queued") &&
+    isTerminalAcpSkillRunStatus(next.status)
+  ) {
+    const owner = {
+      rootId: next.runId || next.jobId || requestId,
+      workflowId: next.workflowId || undefined,
+      workflowRunId: next.runId || undefined,
+      jobId: next.jobId || undefined,
+      stageId: next.sequenceStepId || undefined,
+      requestId,
+      sessionId: next.sessionId || undefined,
+    };
+    void recordAcpRuntimeSemanticTraceEvent({
+      kind: "request-end",
+      sourceKind: "acp-workflow-execution",
+      owner,
+      payload: { status: next.status, error: next.error },
+    });
+    void recordAcpRuntimeSemanticTraceEvent({
+      kind: "terminal",
+      sourceKind: "acp-workflow-execution",
+      owner,
+      payload: { status: next.status, error: next.error },
+    });
   }
   return projectAcpSkillRunMetadataRecord(next);
 }
@@ -5688,6 +5724,59 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
   };
 }
 
+export function prepareSyntheticAcpSkillRunReplay(args: {
+  requestId: string;
+  workflowId?: string;
+  workflowRunId?: string;
+  jobId?: string;
+  stageId?: string;
+}) {
+  return upsertAcpSkillRun({
+    requestId: args.requestId,
+    status: "running",
+    statusReason: "start",
+    backendId: "acp-replay",
+    backendType: "acp",
+    workflowId: args.workflowId,
+    runId: args.workflowRunId,
+    jobId: args.jobId,
+    sequenceStepId: args.stageId,
+    taskName: "ACP replay",
+    skillId: "acp-replay",
+    conversationState: "active",
+    activePrompt: true,
+  });
+}
+
+export function applySyntheticAcpSkillRunReplayPermission(args: {
+  requestId: string;
+  request: AcpPendingPermissionRequest | null;
+}) {
+  return upsertAcpSkillRun({
+    requestId: args.requestId,
+    ...(args.request
+      ? {
+          status: "waiting_user" as const,
+          statusReason: "waiting_user" as const,
+        }
+      : {}),
+    pendingPermission: args.request,
+    conversationState: "active",
+  });
+}
+
+export async function cleanupSyntheticAcpSkillRunReplay(requestIds: string[]) {
+  await flushAcpSkillRunRuntimeFileWrites();
+  for (const requestId of requestIds) {
+    deletePluginRunStoreEntry("acp", requestId);
+    deleteAcpSkillRunRecord(requestId);
+    if (selectedRequestId === requestId) selectedRequestId = "";
+  }
+  if (requestIds.length > 0) {
+    emitChanged({ requestIds, kinds: ["archive"] });
+  }
+}
+
 export function getAcpSkillRunRecord(requestIdRaw: string) {
   ensureHydrated();
   const requestId = normalizeString(requestIdRaw);
@@ -5960,23 +6049,25 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
         };
       } else {
         try {
-          const pageReadStartedAt =
-            typeof __debug_mode__ === "undefined"
+          const pageReadStartedAt = __acp_runtime_performance_profiler_enabled__
+            ? typeof __debug_mode__ === "undefined"
               ? isDebugModeEnabled()
-                ? performance.now()
+                ? readAcpRuntimePerformanceClockMs()
                 : 0
               : __debug_mode__
-                ? performance.now()
-                : 0;
+                ? readAcpRuntimePerformanceClockMs()
+                : 0
+            : 0;
           selectedTranscriptPageOverride =
             await readSelectedTranscriptPageFromStore(
               selected,
               args?.transcriptPage,
             );
           if (
-            typeof __debug_mode__ === "undefined"
+            __acp_runtime_performance_profiler_enabled__ &&
+            (typeof __debug_mode__ === "undefined"
               ? isDebugModeEnabled()
-              : __debug_mode__
+              : __debug_mode__)
           ) {
             incrementAcpRuntimeMetric(
               selected.requestId,
@@ -5992,7 +6083,7 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
               selected.requestId,
               "transcript_page_read_duration",
               {},
-              performance.now() - pageReadStartedAt,
+              readAcpRuntimePerformanceClockMs() - pageReadStartedAt,
             );
           }
           if (selectedTranscriptPageOverride) {

@@ -62,9 +62,15 @@ El complemento incluye una serie de flujos de trabajo oficiales, agrupados por f
 | Flujo de trabajo | Propósito | Entrada | Backend | Docs |
 |------------------|-----------|---------|---------|------|
 | **Literature Analysis** ⭐ | Generar resumen, referencias y análisis de citas a partir de PDF/MD. Puede desencadenar la regulación de etiquetas | Adjunto | Skill-Runner | [Detalles](#doc/workflows%2Fliterature-analysis) |
+| **Literature Metadata Curator** | Consultar, corregir y completar metadatos bibliográficos de un elemento Zotero | Elemento padre | Skill-Runner | [Detalles](#doc/workflows%2Fliterature-metadata-curator) |
+| **Literature Translator** | Traducir literatura académica con gestión de glosario y controles de calidad | Adjunto | Skill-Runner | [Detalles](#doc/workflows%2Fliterature-translator) |
 | **Interactive Literature Explainer** | Diálogo multifase con IA para comprender la literatura en profundidad, con respuestas verificadas para evitar alucinaciones | Adjunto | Skill-Runner | [Detalles](#doc/workflows%2Fliterature-explainer) |
 | **Deep Reading** | Generar una vista HTML estructurada de lectura profunda con soporte de traducción | Adjunto | ACP | [Detalles](#doc/workflows%2Fliterature-deep-reading) |
 | **Literature Search & Ingest** | Permitir que el agente busque literatura académica y la incorpore directamente en Zotero | workflow | ACP | [Detalles](#doc/workflows%2Fliterature-search-ingest) |
+| **Collection Collector** | Seleccionar literatura existente de la biblioteca para una colección según un ámbito declarado | workflow | ACP | [Detalles](#doc/workflows%2Fcollection-collector) |
+| **Export/Import Literature Bundle** | Exportar/importar paquetes ZIP portables de elementos Zotero con metadatos, adjuntos y notas | Elemento padre / workflow | No requiere backend | [Detalles](#doc/workflows%2Fexport-import-literature-bundle) |
+| **Export Research Bundle** | Ensamblar automáticamente un paquete de investigación de solo lectura para un proyecto a partir de la biblioteca y contexto Synthesis | workflow | Skill-Runner | [Detalles](#doc/workflows%2Fexport-research-bundle) |
+| **Tag Auditor** | Escanear todos los elementos de la biblioteca contra el vocabulario de etiquetas controlado e informar cumplimiento | workflow | No requiere backend | [Detalles](#doc/workflows%2Ftag-auditor) |
 | **Tag Bootstrapper** | Crear interactivamente un vocabulario de etiquetas controlado para un dominio de investigación | workflow | Skill-Runner | [Detalles](#doc/workflows%2Ftag-bootstrapper) |
 | **Tag Regulator** | Normalizar etiquetas según un vocabulario controlado e inferir nuevas etiquetas | Elemento padre | Skill-Runner | [Detalles](#doc/workflows%2Ftag-regulator) |
 | **Export/Import Notes** | Exportar o importar notas de análisis con soporte para edición y reimportación | Elemento padre | No requiere backend | [Detalles](#doc/workflows%2Fexport-import-notes) |

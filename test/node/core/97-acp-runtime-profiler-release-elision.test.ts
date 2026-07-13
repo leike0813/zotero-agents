@@ -6,7 +6,10 @@ describe("ACP runtime profiler release elision", function () {
 
   it("removes profiler code from non-debug bundles", async function () {
     const result = await checkAcpRuntimeProfilerReleaseElision();
-    assert.equal(result.releaseBytes, 0);
-    assert.isAbove(result.debugBytes, 0);
+    for (const name of ["profiler", "recorder", "replay"] as const) {
+      assert.equal(result.releaseBytes[name], 0);
+      assert.equal(result.sourceDisabledBytes[name], 0);
+      assert.isAbove(result.debugBytes[name], 0);
+    }
   });
 });

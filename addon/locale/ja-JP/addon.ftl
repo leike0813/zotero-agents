@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = すべて
 task-dashboard-runtime-logs-copy-success = { $count }件のログエントリをクリップボードにコピーしました！
 task-dashboard-runtime-logs-copy-success-bundle = 診断バンドルをクリップボードにコピーしました！
 task-dashboard-runtime-logs-copy-success-issue = 問題概要をクリップボードにコピーしました！
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = 完全なローカル .ndjson トレースのパス
 task-dashboard-col-time = 時間
 task-dashboard-col-level = レベル
 task-dashboard-col-stage = ステージ
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = バックエンド { $backend } は 6 
 # Assistant panel shared UI
 assistant-panel-action-send = 送信
 assistant-panel-action-cancel = キャンセル
+assistant-panel-action-cancelling = キャンセル中…
 assistant-panel-action-cancel-run = タスクをキャンセル
 assistant-panel-action-archive = アーカイブ
 assistant-panel-action-close = 閉じる

@@ -97,7 +97,9 @@ import { isDebugModeEnabled } from "./debugMode";
 import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
+import { getAcpRuntimeReplayProfileContext } from "./acpRuntimeReplayProfileContext";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
@@ -880,18 +882,32 @@ function postShellMessage(
   );
   const profilerPayload =
     type === "assistant-workspace:child-snapshot" &&
-    payload?.tab === "acp-skills" &&
+    (payload?.tab === "acp-skills" || payload?.tab === "acp-chat") &&
     payload.snapshot &&
     typeof payload.snapshot === "object"
       ? (payload.snapshot as Record<string, unknown>)
       : null;
-  const requestId = String(profilerPayload?.selectedRequestId || "").trim();
+  const replayProfileContext =
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) && __acp_runtime_replay_profiler_enabled__
+      ? getAcpRuntimeReplayProfileContext()
+      : undefined;
+  const requestId =
+    replayProfileContext?.requestId ||
+    (payload?.tab === "acp-skills"
+      ? String(profilerPayload?.selectedRequestId || "").trim()
+      : [
+          String(profilerPayload?.activeBackendId || "").trim(),
+          String(profilerPayload?.activeConversationId || "").trim(),
+        ].join("\n"));
   const startedAt =
     profilerPayload &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
-      ? performance.now()
+      ? readAcpRuntimePerformanceClockMs()
       : 0;
   frameWindow.postMessage(
     {
@@ -902,6 +918,7 @@ function postShellMessage(
   );
   if (
     profilerPayload &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
@@ -913,7 +930,7 @@ function postShellMessage(
       requestId,
       "panel_post_duration",
       { operationClass: "panel" },
-      performance.now() - startedAt,
+      readAcpRuntimePerformanceClockMs() - startedAt,
     );
   }
 }
@@ -1370,11 +1387,44 @@ async function postAcpChatPanelSnapshot(
       transcriptPage: options?.transcriptPage || null,
     },
   );
+  const replayProfileContext =
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) && __acp_runtime_replay_profiler_enabled__
+      ? getAcpRuntimeReplayProfileContext()
+      : undefined;
+  const profileRequestId =
+    replayProfileContext?.requestId || getActiveAcpChatOwnerKey();
+  const prepareStartedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   const snapshot = await prepareAcpChatPanelSnapshot({
     target,
     transcriptReadMode: options?.transcriptReadMode,
     transcriptPage: options?.transcriptPage,
   });
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const surfaceState =
+      host.activeTab === "acp-chat" ? "acp-active" : "open-inactive";
+    incrementAcpRuntimeMetric(profileRequestId, "panel_prepare", {
+      surfaceState,
+    });
+    observeAcpRuntimeDuration(
+      profileRequestId,
+      "panel_prepare_duration",
+      { surfaceState },
+      readAcpRuntimePerformanceClockMs() - prepareStartedAt,
+    );
+  }
   if (host.acpChatSnapshotBuildSeq !== buildSeq) {
     logAssistantWorkspaceDebug(
       host,
@@ -1401,6 +1451,35 @@ async function postAcpChatPanelSnapshot(
       summary: summarizeAcpChatPanelSnapshot(snapshot),
     },
   );
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const signatureStartedAt = readAcpRuntimePerformanceClockMs();
+    const signatureSource = {
+      ...snapshot,
+      transcript: undefined,
+      transcriptPage: undefined,
+      transcriptRevision: undefined,
+      transcriptPageSignature: undefined,
+    };
+    const signature = JSON.stringify(signatureSource);
+    incrementAcpRuntimeMetric(profileRequestId, "panel_signature");
+    incrementAcpRuntimeMetric(
+      profileRequestId,
+      "panel_signature_bytes",
+      {},
+      new TextEncoder().encode(signature).byteLength,
+    );
+    observeAcpRuntimeDuration(
+      profileRequestId,
+      "panel_signature_duration",
+      {},
+      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
+    );
+  }
   postChildSnapshot(host, "acp-chat", phase, snapshot);
 }
 
@@ -1553,21 +1632,22 @@ async function postAcpSkillRunSnapshot(
     },
   );
   const selectedBeforeBuild = getSelectedAcpSkillRunRequestId();
-  const prepareStartedAt = (
-    typeof __debug_mode__ === "undefined"
+  const prepareStartedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? performance.now()
-    : 0;
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   const snapshot = await prepareAcpSkillRunPanelSnapshot({
     transcriptPage: options?.transcriptPage,
     transcriptReadMode: options?.transcriptReadMode,
   });
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     incrementAcpRuntimeMetric(selectedBeforeBuild, "panel_prepare", {
       surfaceState:
@@ -1580,7 +1660,7 @@ async function postAcpSkillRunSnapshot(
         surfaceState:
           host.activeTab === "acp-skills" ? "acp-active" : "open-inactive",
       },
-      performance.now() - prepareStartedAt,
+      readAcpRuntimePerformanceClockMs() - prepareStartedAt,
     );
   }
   if (host.acpSkillRunSnapshotBuildSeq !== buildSeq) {
@@ -1621,18 +1701,19 @@ async function postAcpSkillRunSnapshot(
     transcriptPaginationVirtualizationEnabled:
       isAssistantTranscriptPaginationVirtualizationEnabled(),
   };
-  const signatureStartedAt = (
-    typeof __debug_mode__ === "undefined"
+  const signatureStartedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? performance.now()
-    : 0;
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   const signature = buildAcpSkillRunSnapshotSignature(payload);
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     incrementAcpRuntimeMetric(
       String(snapshot.selectedRequestId || "").trim(),
@@ -1648,7 +1729,7 @@ async function postAcpSkillRunSnapshot(
       String(snapshot.selectedRequestId || "").trim(),
       "panel_signature_duration",
       {},
-      performance.now() - signatureStartedAt,
+      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
     );
   }
   const force = options?.force === true || phase === "init";
@@ -1683,6 +1764,22 @@ async function postAcpSkillRunSnapshot(
     },
   );
   postChildSnapshot(host, "acp-skills", phase, payload);
+}
+
+/**
+ * Narrow test adapter for exercising the production ACP Skills
+ * prepare/signature/post pipeline. Test fixtures provide a minimal host shape;
+ * no publication logic is duplicated here.
+ */
+export async function postAcpSkillRunSnapshotForPerformanceTests(
+  host: unknown,
+  options?: AcpSkillRunSnapshotPostOptions,
+) {
+  await postAcpSkillRunSnapshot(
+    host as AssistantWorkspaceHostRuntime,
+    "snapshot",
+    options,
+  );
 }
 
 function queueAcpSkillRunPageFirstSnapshot(
@@ -3416,6 +3513,42 @@ export function isAssistantWorkspaceSidebarOpen(args?: {
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
   if (!win) return false;
   return !!hosts.get(win)?.activeTarget;
+}
+
+export function getAssistantWorkspaceReplayState(args?: {
+  window?: _ZoteroTypes.MainWindow;
+}) {
+  const win =
+    args?.window ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  const host = win ? hosts.get(win) : undefined;
+  return {
+    open: !!host?.activeTarget,
+    tab: host?.activeTab || DEFAULT_TAB,
+    target: host?.activeTarget || undefined,
+  };
+}
+
+export async function drainAssistantWorkspaceReplayPublication(args?: {
+  window?: _ZoteroTypes.MainWindow;
+}) {
+  const win =
+    args?.window ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  const host = win ? hosts.get(win) : undefined;
+  if (!host?.activeTarget || !host.shell.ready) {
+    return { ok: false, detail: "workspace-shell-not-ready" };
+  }
+  if (host.activeTab === "acp-chat") {
+    await postAcpChatPanelSnapshot(host, host.activeTarget, "snapshot");
+  } else if (host.activeTab === "acp-skills") {
+    await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
+  } else {
+    postSnapshotForTab(host, host.activeTarget, host.activeTab, "snapshot", {
+      force: true,
+    });
+  }
+  return { ok: true };
 }
 
 export async function toggleAssistantWorkspaceSidebar(args?: {

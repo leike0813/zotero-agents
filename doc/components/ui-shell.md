@@ -37,6 +37,7 @@
 - 页面信息架构（整页 tab）：
   - `Dashboard Home`：总任务统计 + 当前运行任务表格
   - `backend:<id>`：每个 backend 独立页面（表格列表 + 操作区）
+  - `ACP Runtime Profiler`：仅 debug/source switch 开启时出现；显式采集、冻结和导出 R1/R2/R3 性能记录，不轮询
 - backend 详情视图：
   - `generic-http`：任务表格 + runtime logs 过滤视图（`requestId/jobId/workflowId`）
   - `skillrunner`：run 表格 + 状态区 + 对话区 + reply/cancel 操作

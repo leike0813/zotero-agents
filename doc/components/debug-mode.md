@@ -27,26 +27,30 @@ Zotero mock.
 
 ## ACP Runtime Performance Profiler
 
-`src/modules/acpRuntimePerformanceProfiler.ts` is available only in debug
-builds and still requires an explicit call to
-`enableAcpRuntimePerformanceProfiler()`. A debug build that does not enable it
-does not allocate profile state or start the event-loop drift timer.
+`src/modules/debugMode.ts` owns independent literal switches for the bounded
+performance profiler, semantic Trace Recorder, and Replay Profiler. Trace
+capture never enables profiling; replay activates profiling only inside its
+fixed profile windows. The Recorder and Replay modes are mutually exclusive.
 
 Production hot-path call sites use the injected `__debug_mode__` constant.
 The build marks the profiler module as side-effect free and enables syntax
 folding, so non-debug bundles eliminate both the guarded calls and the module.
-`npm run check:acp-profiler-release-elision` is the release gate for this
-property.
+`npm run check:acp-profiler-release-elision` verifies non-debug plus independent
+Recorder-disabled and Replay-disabled zero-byte elimination.
 
-The profiler has no preference or user-visible control. Tests enable it through
-the debug override; `ZOTERO_TEST_PERF_PROBE=1` enables it automatically only
-when the performance test harness is running in debug mode.
+The switches are not preferences. Debug builds expose separate **ACP Trace
+Recorder** and **ACP Replay Profiler** Dashboard tabs. Raw traces have no copy,
+upload, or submit action. Tests enable the capabilities through the debug override;
+`ZOTERO_TEST_PERF_PROBE=1` enables it automatically only when the performance
+test harness is running in debug mode. See
+`doc/components/acp-runtime-performance-profiler.md` for the automated and
+Zotero-host procedures.
 
 ## Consumers
 
 | Consumer | File | Effect when debug mode is OFF |
 |----------|------|-------------------------------|
-| ACP Runtime Performance Profiler | `acpRuntimePerformanceProfiler.ts` | Recorder calls and profiler module are removed from release bundles |
+| ACP Trace Recorder / Replay Profiler | `acpRuntimeSemanticTraceRecorder.ts`, `acpRuntimeReplayProfiler.ts` | Capture and replay modules are removed from release bundles |
 | Workflow Debug Probe | `workflowDebugProbe.ts` | Probe tool hidden from UI |
 | Plugin Skill Registry | `pluginSkillRegistry.ts` | `debug_only: true` skills excluded from registry |
 | Host Bridge Capability Registry | `hostBridgeCapabilityRegistry.ts` | Debug capabilities filtered from listings |

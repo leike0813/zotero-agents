@@ -258,9 +258,10 @@ export class AcpClientConnection {
 
   private traceMessage(direction: "in" | "out", message: JsonRpcMessage) {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(
         this.options?.performanceProfileRequestId,

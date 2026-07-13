@@ -20,7 +20,7 @@
 - **高可信风险推断**：代码已证实存在主线程长任务或事件风暴条件，但实际耗时仍取决于运行数据。
 - **待实测**：需要 profiler、埋点、队列深度或真实数据规模才能确定影响。
 
-2026-07-12 的审计采集本身没有修改代码，也没有运行测试或性能基准。2026-07-13 的后续 change `profile-acp-runtime-hot-paths` 已实现 debug-only profiler、R1/R2/R3 埋点、自动化机制基线和 release-elision 门禁；本文相应章节已按当前实现更新。
+2026-07-12 的审计采集本身没有修改代码，也没有运行测试或性能基准。2026-07-13 的后续 change `profile-acp-runtime-hot-paths` 实现了 debug-only profiler 与 R1/R2/R3 埋点；change `capture-acp-runtime-governance-baselines` 又把直接 recorder 模拟替换为 production-seam 自动化基线，并增加实际 Zotero 宿主采集机制；change `matrix-acp-runtime-governance-baselines` 将自动化记录扩展为 closed、open-inactive、acp-active 三个 surface 的固定矩阵。本文相应章节已按当前实现更新。
 
 ## 2. 总结结论
 
@@ -902,7 +902,7 @@ configureAcpRuntimePerformanceProfilerForTests(options): void
 
 ### 17.7 开关、内存与导出
 
-profiler 只存在于 debug 构建，并且在 debug 内仍需显式调用 `enableAcpRuntimePerformanceProfiler()`。不新增 hidden pref、用户可见设置或面板。非 debug 构建通过直接的 `__debug_mode__` guard、side-effect-free 模块声明和 syntax folding 消除热路径调用及 profiler 模块；`npm run check:acp-profiler-release-elision` 锁定该性质。
+profiler 只存在于 debug 构建，并受 `src/modules/debugMode.ts` 中的硬编码 source switch 控制；在 debug 内仍需显式开始采集。不新增 hidden pref。debug Dashboard 提供隔离的 ACP Runtime Profiler 页签；非 debug 或 source switch 关闭时，通过直接 guard、side-effect-free 模块声明和 syntax folding 消除热路径调用以及 profiler/baseline/capture 模块；`npm run check:acp-profiler-release-elision` 同时锁定两种关闭边界。
 
 debug build 与 profiler enabled 是两个独立状态：普通 debug build 不分配 profiler state、不启动 drift timer；自动化测试通过 `setDebugModeOverrideForTests(true)` 后显式启用。由于 detailed audit 与 profiler 都属于 debug 构建能力，本夹具不把 debug on/off 当作纯粹的 profiler 开销对照。
 
@@ -917,9 +917,10 @@ debug build 与 profiler enabled 是两个独立状态：普通 debug build 不�
 导出仅发生在：
 
 1. 用户显式构建现有 diagnostic bundle；
-2. Zotero performance test harness domain-end。
+2. Zotero performance test harness domain-end；
+3. 用户在 debug Dashboard profiler 页签中显式 Stop/Save/Copy。
 
-`src/modules/runtimeLogManager.ts` 的 diagnostic bundle 可增加可选 `performanceProfiles`。Task Manager 继续复用现有“Copy diagnostic bundle”，不新增按钮或刷新链。
+Dashboard profiler 页签不轮询，Start、Refresh、Stop、Save、Copy、Open Folder 均为显式动作；其 view 只进入自身 selected-surface signature，不进入 Dashboard chrome，也不进入 Assistant Workspace snapshot/signature/render key。
 
 `test/zotero/performanceProbeDigest.ts` 在 `ZOTERO_TEST_PERF_PROBE=1` 时可以程序化启用 runtime profiler，并在最终一次 JSON flush 中附加聚合结果。高频 runtime metric 不写入现有 raw `spans[]`。
 
@@ -928,12 +929,22 @@ debug build 与 profiler enabled 是两个独立状态：普通 debug build 不�
 新增：
 
 - `src/modules/acpRuntimePerformanceProfiler.ts`
+- `src/modules/acpRuntimePerformanceBaseline.ts`
+- `src/modules/acpRuntimeSemanticTraceRecorder.ts`
+- `src/modules/acpRuntimeReplayProfiler.ts`
+- `src/modules/acpRuntimeReplayTargets.ts`
 - `test/helpers/acpRuntimePerformanceHarness.ts`
 - `test/core/175-acp-runtime-performance-profiler.test.ts`
 - `test/core/176-acp-silent-runtime-performance-baseline.test.ts`
 - `scripts/acp-runtime-profiler-esbuild.ts`
 - `scripts/check-acp-runtime-profiler-release-elision.ts`
+- `scripts/record-acp-runtime-governance-baseline.ts`
 - `test/node/core/97-acp-runtime-profiler-release-elision.test.ts`
+- `artifact/performance-baselines/acp-runtime-before-governance-closed.json`
+- `artifact/performance-baselines/acp-runtime-before-governance-open-inactive.json`
+- `artifact/performance-baselines/acp-runtime-before-governance-acp-active.json`
+- `artifact/performance-baselines/acp-runtime-before-governance.md`
+- `doc/components/acp-runtime-performance-profiler.md`
 
 修改：
 
@@ -967,9 +978,9 @@ CI 只锁稳定行为，不锁具体毫秒数：
 
 ### 17.10 baseline 方案
 
-CI 基线使用固定时钟、固定 1,000-update 事件序列和 Zotero mock，验证调用次数、归属、聚合、有界性和导出结构，不锁具体毫秒值。它是机制基线，不声称复现真实 Zotero 卡顿。
+CI 基线使用固定时钟、固定 1,000-update 事件序列和 Zotero mock，按 `closed`、`open-inactive`、`acp-active` 的固定顺序运行三个相互重置的场景。三者都通过 ACP JSON-RPC、run persistence、Host Bridge input/handler 和 buffered-write production seam；closed 场景不触发 Assistant Workspace publication，并要求 R3 全零，两个 open 场景则通过 prepare/signature/post seam 并保留各自的 `surfaceState` 归属。`npm run record:acp-runtime-before-baseline` 连续运行两次完整矩阵，任一归一化记录不一致时拒绝写入；每个 surface 的 JSON 见 `artifact/performance-baselines/acp-runtime-before-governance-<surface>.json`，汇总报告见 `artifact/performance-baselines/acp-runtime-before-governance.md`。它验证调用次数、归属、聚合、有界性和导出结构，不锁具体毫秒值，也不声称复现真实 Zotero 卡顿。
 
-需要宿主校准时，可选在 Zotero 7 与 Zotero 9 各运行同一 fixture 三次；第一次 warm-up 不纳入对比。真实宿主校准可覆盖：
+需要宿主校准时，在 dev/debug 构建的 Dashboard ACP Runtime Profiler 页签中，于 Zotero 7 与 Zotero 9 各运行同一场景三次；第一次标记 warm-up 且不纳入对比。Stop 后如仍有 active profile，记录会标为 incomplete。完整操作见 `doc/components/acp-runtime-performance-profiler.md`。真实宿主校准可覆盖：
 
 1. silent + 大量小 assistant/tool updates，Workspace closed/open-inactive/acp-active；
 2. silent + 大量 diagnostics，Task Manager closed/open；
@@ -1033,14 +1044,14 @@ R6、R7、R9、R10、R12 实施前再扩展 fixture：
 
 ### 18.2 阶段 0：建立 profiler 与基线
 
-目标：建立治理前后可比较证据，不改变任何业务或 UI 行为。
+目标：建立治理前后可比较证据，不改变 ACP 业务协议或 Assistant Workspace 高频渲染行为；仅在 debug Dashboard 增加隔离的显式采集页签。
 
 实施内容见第 17 节。
 
 完成门：
 
 - profiler disabled/no-op、有界性和异常隔离测试通过；
-- 自动化 1,000-update 机制基线可重复，覆盖 R1/R2/R3 的关键归属和导出入口；
+- 自动化 1,000-update 三 surface 机制基线可重复，closed 的 R3 为零，两个 open 状态保留各自的 R3 归属，并覆盖 R1/R2/R3 的导出入口；
 - release-elision 门禁证明非 debug bundle 中 profiler 模块贡献为 0 bytes；
 - Zotero 7/9 的真实计时属于可选校准，不作为 profiler 正确性或阶段完成门；
 - 不要求达到任何性能目标，只要求自动化数据可重复、可解释。
@@ -1928,9 +1939,15 @@ npm run check:zotero-librarian-profile
 ### 现有 profiler 与诊断基础
 
 - `src/modules/acpRuntimePerformanceProfiler.ts`
+- `src/modules/acpRuntimePerformanceBaseline.ts`
+- `src/modules/acpRuntimeSemanticTraceRecorder.ts`
+- `src/modules/acpRuntimeReplayProfiler.ts`
 - `test/core/175-acp-runtime-performance-profiler.test.ts`
 - `test/core/176-acp-silent-runtime-performance-baseline.test.ts`
 - `scripts/check-acp-runtime-profiler-release-elision.ts`
+- `scripts/record-acp-runtime-governance-baseline.ts`
+- `artifact/performance-baselines/acp-runtime-before-governance.md`
+- `doc/components/acp-runtime-performance-profiler.md`
 - `src/modules/testPerformanceProbeBridge.ts`
 - `test/zotero/performanceProbeDigest.ts`
 - `test/node/core/96-zotero-test-performance-probe-digest.test.ts`
@@ -1961,4 +1978,4 @@ npm run check:zotero-librarian-profile
 - heap/queue 峰值变化；
 - 是否关闭该风险，或仅降低触发概率。
 
-阶段 0 已为 R1、R2、R3 建立自动化机制基线；后续治理应先读取这些计数、容量和 duration 聚合，再按需补充 Zotero 7/9 真实宿主校准。三者分别代表事件风暴、直接同步长任务和静默模式下仍发生的 UI 前置工作，覆盖了当前最可能的三类卡顿机制。
+阶段 0 已为 R1、R2、R3 建立 closed、open-inactive、acp-active 三 surface 自动化机制基线；后续治理应按相同矩阵读取这些计数、容量和 duration 聚合，再按需补充 Zotero 7/9 真实宿主校准。closed 的零 R3 是“面板关闭不发生 UI publication”的对照，两个 open 状态分别保留 inactive 与 active 的归属。R1、R2、R3 分别代表事件风暴、直接同步长任务和静默模式下仍发生的 UI 前置工作，覆盖了当前最可能的三类卡顿机制。

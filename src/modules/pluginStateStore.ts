@@ -27,6 +27,7 @@ import { isDebugModeEnabled } from "./debugMode";
 import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 
 type SqlPrimitive = string | number | null;
@@ -1833,10 +1834,11 @@ export function upsertPluginRunStoreEntry(
   const tables = runStoreTables(kind);
   const startedAt =
     kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
-      ? performance.now()
+      ? readAcpRuntimePerformanceClockMs()
       : 0;
   db.run(
     `
@@ -1855,6 +1857,7 @@ export function upsertPluginRunStoreEntry(
   );
   if (
     kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
@@ -1867,7 +1870,7 @@ export function upsertPluginRunStoreEntry(
       requestId,
       "state_store_write_duration",
       { persistenceChannel: "run" },
-      performance.now() - startedAt,
+      readAcpRuntimePerformanceClockMs() - startedAt,
     );
   }
 }
@@ -2082,10 +2085,11 @@ export function appendPluginRunEventStoreEntry(
   const tables = runStoreTables(kind);
   const startedAt =
     kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
-      ? performance.now()
+      ? readAcpRuntimePerformanceClockMs()
       : 0;
   db.run(
     `
@@ -2105,6 +2109,7 @@ export function appendPluginRunEventStoreEntry(
   );
   if (
     kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
@@ -2117,7 +2122,7 @@ export function appendPluginRunEventStoreEntry(
       requestId,
       "state_store_write_duration",
       { persistenceChannel: "event" },
-      performance.now() - startedAt,
+      readAcpRuntimePerformanceClockMs() - startedAt,
     );
   }
 }

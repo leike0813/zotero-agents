@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = Все
 task-dashboard-runtime-logs-copy-success = Скопировано { $count } записей лога в буфер обмена!
 task-dashboard-runtime-logs-copy-success-bundle = Пакет диагностики скопирован в буфер обмена!
 task-dashboard-runtime-logs-copy-success-issue = Сводка проблем скопирована в буфер обмена!
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = Путь к полному локальному trace-файлу .ndjson
 task-dashboard-col-time = Время
 task-dashboard-col-level = Уровень
 task-dashboard-col-stage = Этап
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = Бэкенд { $backend } был от�
 # Интерфейс панели помощника
 assistant-panel-action-send = Отправить
 assistant-panel-action-cancel = Отмена
+assistant-panel-action-cancelling = Отмена…
 assistant-panel-action-cancel-run = Отменить задачу
 assistant-panel-action-archive = Архивировать
 assistant-panel-action-close = Закрыть

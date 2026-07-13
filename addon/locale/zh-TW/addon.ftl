@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = 全部
 task-dashboard-runtime-logs-copy-success = 已複製 { $count } 筆日誌至剪貼簿！
 task-dashboard-runtime-logs-copy-success-bundle = 診斷套件已複製至剪貼簿！
 task-dashboard-runtime-logs-copy-success-issue = 問題摘要已複製至剪貼簿！
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = 本機完整 .ndjson trace 路徑
 task-dashboard-col-time = 時間
 task-dashboard-col-level = 層級
 task-dashboard-col-stage = 階段
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = 後端 { $backend } 在連續 6 小時
 # 助手面板共享介面
 assistant-panel-action-send = 傳送
 assistant-panel-action-cancel = 取消
+assistant-panel-action-cancelling = 正在取消…
 assistant-panel-action-cancel-run = 取消任務
 assistant-panel-action-archive = 封存
 assistant-panel-action-close = 關閉

@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = Tout
 task-dashboard-runtime-logs-copy-success = { $count } entrées de journal copiées dans le presse-papiers !
 task-dashboard-runtime-logs-copy-success-bundle = Bundle de diagnostic copié dans le presse-papiers !
 task-dashboard-runtime-logs-copy-success-issue = Résumé des problèmes copié dans le presse-papiers !
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = Chemin du fichier de trace local complet .ndjson
 task-dashboard-col-time = Heure
 task-dashboard-col-level = Niveau
 task-dashboard-col-stage = Étape
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = Le backend { $backend } a été désac
 # Assistant panel shared UI
 assistant-panel-action-send = Envoyer
 assistant-panel-action-cancel = Annuler
+assistant-panel-action-cancelling = Annulation…
 assistant-panel-action-cancel-run = Annuler la tâche
 assistant-panel-action-archive = Archiver
 assistant-panel-action-close = Fermer

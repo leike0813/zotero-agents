@@ -64,6 +64,10 @@ import {
   startAcpRuntimeProfile,
 } from "./acpRuntimePerformanceProfiler";
 import {
+  getAcpRuntimeSemanticTraceRecorderView,
+  recordAcpRuntimeSemanticTraceEvent,
+} from "./acpRuntimeSemanticTraceRecorder";
+import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
 } from "./acpSkillRunPromptBuilder";
@@ -292,9 +296,10 @@ function createAssistantTurnAccumulator(requestId?: string) {
       chunks = [];
       bytes = 0;
       if (
-        typeof __debug_mode__ === "undefined"
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
           ? isDebugModeEnabled()
-          : __debug_mode__
+          : __debug_mode__)
       ) {
         observeAcpRuntimeGauge(
           requestId,
@@ -312,9 +317,10 @@ function createAssistantTurnAccumulator(requestId?: string) {
       }
       chunks.push(chunk);
       if (
-        typeof __debug_mode__ === "undefined"
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
           ? isDebugModeEnabled()
-          : __debug_mode__
+          : __debug_mode__)
       ) {
         bytes += new TextEncoder().encode(chunk).byteLength;
         observeAcpRuntimeGauge(
@@ -2313,9 +2319,10 @@ export async function recoverAcpSkillRunConversation(args: {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     startAcpRuntimeProfile({
       requestId,
@@ -2437,6 +2444,44 @@ export async function recoverAcpSkillRunConversation(args: {
   }
   const createAdapter =
     args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const recoveredTraceOwner = {
+    rootId:
+      normalizeString(record.runId) ||
+      normalizeString(record.jobId) ||
+      requestId,
+    workflowId: normalizeString(record.workflowId) || undefined,
+    workflowRunId: normalizeString(record.runId) || undefined,
+    jobId: normalizeString(record.jobId) || undefined,
+    stageId: normalizeString(record.sequenceStepId) || undefined,
+    requestId,
+  };
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    !getAcpRuntimeSemanticTraceRecorderView().rootId
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-start",
+      sourceKind: "acp-workflow-execution",
+      owner: recoveredTraceOwner,
+      payload: { recovered: true },
+    });
+  }
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "request-start",
+      sourceKind: "acp-workflow-execution",
+      owner: recoveredTraceOwner,
+      payload: { recovered: true },
+    });
+  }
   const auditFiles = resolveAcpSkillRunAuditTrailFiles(runtimeDir);
   const detailedAuditEnabled = shouldWriteDetailedAcpAuditArtifacts();
   const adapter = await createAdapter({
@@ -2446,6 +2491,10 @@ export async function recoverAcpSkillRunConversation(args: {
     workspaceDir,
     runtimeDir,
     performanceProfileRequestId: requestId,
+    semanticTraceContext: {
+      sourceKind: "acp-workflow-execution",
+      owner: recoveredTraceOwner,
+    },
     diagnosticCapture: detailedAuditEnabled
       ? {
           bridgeAuditFile: normalizeString(auditFiles.bridge),
@@ -3166,9 +3215,10 @@ export async function recoverAcpSkillRunConversation(args: {
   });
   unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(requestId, "diagnostic_run_upsert");
     }
@@ -3584,9 +3634,10 @@ export async function executeAcpSkillRunnerJob(args: {
     },
   });
   if (
-    typeof __debug_mode__ === "undefined"
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
+      : __debug_mode__)
   ) {
     startAcpRuntimeProfile({
       requestId: workspace.requestId,
@@ -3893,6 +3944,41 @@ export async function executeAcpSkillRunnerJob(args: {
 
   const createAdapter =
     args.dependencies?.createAdapter || createAcpConnectionAdapter;
+  const workflowTraceOwner = {
+    rootId: runId || jobId || workspace.requestId,
+    workflowId: workflowId || undefined,
+    workflowRunId: runId || undefined,
+    jobId: jobId || undefined,
+    stageId: args.orchestrationContext?.sequenceStepId || undefined,
+    requestId: workspace.requestId,
+  };
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    !getAcpRuntimeSemanticTraceRecorderView().rootId
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-start",
+      sourceKind: "acp-workflow-execution",
+      owner: workflowTraceOwner,
+      payload: { workflowLabel },
+    });
+  }
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "request-start",
+      sourceKind: "acp-workflow-execution",
+      owner: workflowTraceOwner,
+      payload: { skillId: request.skill_id },
+    });
+  }
   let adapter: AcpConnectionAdapter;
   try {
     const bridgeAuditFile = normalizeString(auditTrail.files.bridge);
@@ -3904,6 +3990,10 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
       performanceProfileRequestId: workspace.requestId,
+      semanticTraceContext: {
+        sourceKind: "acp-workflow-execution",
+        owner: workflowTraceOwner,
+      },
       diagnosticCapture: detailedAuditEnabled
         ? {
             bridgeAuditFile,
@@ -4721,9 +4811,10 @@ export async function executeAcpSkillRunnerJob(args: {
   });
   unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(workspace.requestId, "diagnostic_run_upsert");
     }

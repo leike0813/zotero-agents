@@ -2,6 +2,7 @@ import { isDebugModeEnabled } from "./debugMode";
 import {
   incrementAcpRuntimeMetric,
   observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 
 export const BUFFERED_WRITE_DELAY_MS = 2000;
@@ -76,13 +77,13 @@ async function drain(state: KeyState<unknown>) {
   state.pending = [];
   state.pendingBytes = 0;
   const wasRetry = state.failed;
-  const startedAt = (
-    typeof __debug_mode__ === "undefined"
+  const startedAt =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
-      : __debug_mode__
-  )
-    ? performance.now()
-    : 0;
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   const write = (async () => {
     state.diagnostics.physicalWriteCycles += 1;
     if (wasRetry) {
@@ -104,9 +105,10 @@ async function drain(state: KeyState<unknown>) {
     await write;
   } finally {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       const labels = {
         persistenceChannel: state.performanceChannel || "other",
@@ -126,7 +128,7 @@ async function drain(state: KeyState<unknown>) {
         state.performanceProfileRequestId,
         "buffered_write_duration",
         labels,
-        performance.now() - startedAt,
+        readAcpRuntimePerformanceClockMs() - startedAt,
       );
     }
     if (state.draining === write) {

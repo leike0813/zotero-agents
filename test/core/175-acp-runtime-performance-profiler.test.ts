@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+  isAcpRuntimePerformanceProfilerAvailable,
+  setDebugModeOverrideForTests,
+} from "../../src/modules/debugMode";
 import {
   configureAcpRuntimePerformanceProfilerForTests,
   disableAcpRuntimePerformanceProfiler,
@@ -18,6 +22,14 @@ describe("ACP runtime performance profiler", function () {
   afterEach(function () {
     resetAcpRuntimePerformanceProfilerForTests();
     setDebugModeOverrideForTests();
+  });
+
+  it("exposes the source switch only inside debug mode", function () {
+    assert.isTrue(ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED);
+    setDebugModeOverrideForTests(false);
+    assert.isFalse(isAcpRuntimePerformanceProfilerAvailable());
+    setDebugModeOverrideForTests(true);
+    assert.isTrue(isAcpRuntimePerformanceProfilerAvailable());
   });
 
   it("cannot activate outside debug mode and remains inert", function () {

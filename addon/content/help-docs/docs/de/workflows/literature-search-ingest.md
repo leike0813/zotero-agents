@@ -2,92 +2,52 @@
 
 ## Zweck
 
-Akademische Literatur über KI durchsuchen und die Ergebnisse direkt in Zotero importieren. Unterstützt mehrere Suchmodi mit interaktiver Bestätigung vor dem Ausführen des Importvorgangs.
-
-## Anwendungsfälle
-
-- Suchen und batchweises Importieren relevanter Literatur bei der Erforschung eines neuen Themas
-- Titel, DOI, arXiv-ID oder PMID eines bekannten Artikels eingeben für den Schnellimport
-- Erweiterte Suche nach verwandter Literatur basierend auf einem Seed-Artikel
-
-## Eingabebedingungen
-
-| Bedingungstyp | Beschreibung |
-|---------|------|
-| Eingabeeinheit | Workflow (es müssen keine Einträge ausgewählt werden) |
-| Auslösemethode | Über Kontextmenü oder Dashboard ausführen, es müssen keine Einträge vorausgewählt werden |
+Akademische Literatur mit KI durchsuchen und genehmigte Ergebnisse direkt in Zotero importieren. Eine leere Abfrage kann ein geführtes Gespräch starten, das einen Forschungsbedarf in ein bestätigtes Suchbriefing verwandelt.
 
 ## Suchmodi
 
 | Modus | Beschreibung |
 |------|------|
-| `auto` | Automatisch den geeignetsten Suchmodus bestimmen (Standard) |
-| `topic_expansion` | Nach Forschungsrichtung oder Thema suchen, um verwandte Literatur zu finden |
-| `paper_seed_expansion` | Erweiterte Suche basierend auf einem Seed-Artikel |
-| `targeted_ingest` | Einen einzelnen Artikel gezielt lokalisieren und importieren |
+| `auto` | Erkennt einen geeigneten Modus für eine nicht-leere Abfrage; eine leere Abfrage startet die geführte Planung. |
+| `guided` | Klärt den Forschungsbedarf, prüft die lokale Zotero/Synthesis-Abdeckung und führt das bestätigte Briefing direkt aus. |
+| `topic_expansion` | Suche nach Forschungsrichtung oder Thema. |
+| `paper_seed_expansion` | Erweiterung ausgehend von einem Seed-Artikel. |
+| `targeted_ingest` | Gezieltes Auffinden und Importieren eines einzelnen Artikels. |
 
 ## Ausführungsablauf
 
 ```
-1. Planbestätigungsphase
-   └── Zotero-Bibliothek und Synthesis-Kontext lesen
-       └── Suchmodus automatisch bestimmen (Auto-Modus)
-       └── Den Suchplan dem Benutzer präsentieren
-       └── Auf Benutzerbestätigung warten
+1. Geführte Planung (leere auto-Abfrage oder guided-Modus)
+    └── Forschungsziel in kurzen Runden klären
+    └── Nur lokale Zotero/Synthesis-Abdeckung lesen
+    └── Strukturiertes Suchbriefing präsentieren
+    └── Auf Bestätigung warten; keine Websuche oder Schreibvorgänge vor der Bestätigung
 
-2. Suchphase (kein Import)
-   └── Kandidatenliteratur gemäß dem bestätigten Plan suchen
-       └── Suchergebnisliste anzeigen
-       └── Benutzer wählt zu importierende Literatur aus
+2. Kandidatensuche und -auswahl
+    └── Suche gemäß dem bestätigten Briefing oder expliziten Modus
+    └── Identifikatoren, autoritative Metadaten, Landing Pages und legale öffentliche PDF-Nachweise überprüfen
+    └── Benutzer wählt zu importierende Artikel aus
 
-3. Importphase
-   └── Artikel einzeln über zotero-bridge importieren
-       └── Einschließlich Metadatenimport und PDF-Anhangimport
-       └── Importfortschritt anzeigen
-
-4. Abschluss
-   └── Importergebnisübersicht ausgeben
-       └── Einschließlich erfolgreicher/fehlgeschlagener Eintragsinformationen
+3. Import und Abschluss
+    └── Jeden genehmigten Artikel über zotero-bridge importieren
+    └── Kompakte Import-JSON ausgeben, einschließlich Links für fehlende PDFs
 ```
-
-### Interaktionsdetails
-
-- Dieser Workflow läuft im **interaktiven** Modus und erfordert Benutzerbestätigung an wichtigen Punkten
-- Planbestätigung: Nachdem die KI den Suchplan präsentiert hat, bestätigt oder passt der Benutzer ihn an
-- Listenbestätigung: Nach der Anzeige der Suchergebnisse prüft der Benutzer die zu importierenden Einträge
-- Der Ausführungsfortschritt kann im Dashboard verfolgt werden
-
-## Modell-Empfehlung
-
-🔴 **Muss** über Web-Suchfähigkeit verfügen. Der Kern dieses Workflows ist die Online-Suche nach akademischer Literatur — Modelle ohne Web-Suchfähigkeit können diese Aufgabe nicht ausführen.
-🟢 Die Schlussfolgerungsfähigkeit des Modells muss nicht stark sein — Suche und Import sind im Wesentlichen Abruf- und Tool-Calling-Aufgaben, die auch leichte Modelle bewältigen können.
-
-## Ausgaben
-
-- Suchergebnisse werden direkt als Zotero-Einträge importiert
-- Es wird automatisch versucht, PDF-Anhänge herunterzuladen (Best-Effort)
-- Eine Ziel-Collection kann zur Kategorisierung angegeben werden
 
 ## Parameter
 
 | Parameter | Typ | Beschreibung | Standard |
-|------|------|------|--------|
-| `query` | string | Suchthema, Forschungsrichtung, Artikeltitel, DOI, arXiv-ID, PMID usw. | — |
-| `searchMode` | string | Suchmodus | `auto` |
-| `targetCollection` | string | Ziel-Collection (optional) | Leer |
+|------|------|------|------|
+| `query` | string | Suchthema, Artikelkennung, Seed oder ein leerer Wert für geführte Planung. | Leer |
+| `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` oder `targeted_ingest`. | `auto` |
+| `targetCollection` | string | Optionale Ziel-Collection. | Leer |
 
-### Verfügbare Werte für searchMode
+## Ausgaben
 
-- `auto`: Automatisch bestimmen
-- `topic_expansion`: Themaerweiterung
-- `paper_seed_expansion`: Seed-Artikel-Erweiterung
-- `targeted_ingest`: Gezielter Import
+- Kandidatennachweise werden überprüft, bevor ein Benutzer den Import genehmigen kann.
+- Jeder erfolgreiche Import wird in Zotero erstellt oder wiederverwendet; legale Landing-Page-Links bleiben verfügbar, wenn kein PDF angehängt wird.
+- Geführte Durchläufe melden `search_mode: "guided"`; andere Durchläufe behalten ihren konkreten Suchmodus.
 
 ## Abhängigkeiten
 
-- **Backend**: ACP-Backend (erfordert ACP-Protokollunterstützung)
-- **Skill**: Der Skill `literature-search-ingest` muss auf dem Backend bereitgestellt sein
-
-## Verwandte Workflows
-
-- [Literature Analysis](#doc/workflows%2Fliterature-analysis) — Zusammenfassungen für importierte Literatur erstellen
+- **Backend**: ACP-Backend mit interaktiver Ausführung
+- **Skill**: `literature-search-ingest`

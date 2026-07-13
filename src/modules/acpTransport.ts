@@ -1556,9 +1556,10 @@ async function launchNodeAcpTransport(
 
         const observeQueue = () => {
           if (
-            typeof __debug_mode__ === "undefined"
+            __acp_runtime_performance_profiler_enabled__ &&
+            (typeof __debug_mode__ === "undefined"
               ? isDebugModeEnabled()
-              : __debug_mode__
+              : __debug_mode__)
           ) {
             observeAcpRuntimeGauge(
               args.performanceProfileRequestId,
@@ -1951,9 +1952,10 @@ async function launchWebSocketBridgeAcpTransport(
           value,
         });
         if (
-          typeof __debug_mode__ === "undefined"
+          __acp_runtime_performance_profiler_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
             ? isDebugModeEnabled()
-            : __debug_mode__
+            : __debug_mode__)
         ) {
           observeAcpRuntimeGauge(
             args.performanceProfileRequestId,
@@ -2096,9 +2098,10 @@ async function launchWebSocketBridgeAcpTransport(
       stdoutQueue.push(bytes);
       stdoutQueuedBytes += bytes.byteLength;
       if (
-        typeof __debug_mode__ === "undefined"
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
           ? isDebugModeEnabled()
-          : __debug_mode__
+          : __debug_mode__)
       ) {
         observeAcpRuntimeGauge(
           args.performanceProfileRequestId,
@@ -2119,9 +2122,10 @@ async function launchWebSocketBridgeAcpTransport(
   socket.onmessage = (event: { data?: unknown }) => {
     messageQueueEntries += 1;
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       observeAcpRuntimeGauge(
         args.performanceProfileRequestId,
@@ -2136,9 +2140,10 @@ async function launchWebSocketBridgeAcpTransport(
       .finally(() => {
         messageQueueEntries = Math.max(0, messageQueueEntries - 1);
         if (
-          typeof __debug_mode__ === "undefined"
+          __acp_runtime_performance_profiler_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
             ? isDebugModeEnabled()
-            : __debug_mode__
+            : __debug_mode__)
         ) {
           observeAcpRuntimeGauge(
             args.performanceProfileRequestId,
@@ -2233,9 +2238,10 @@ async function launchWebSocketBridgeAcpTransport(
           stdoutQueuedBytes - (value?.byteLength || 0),
         );
         if (
-          typeof __debug_mode__ === "undefined"
+          __acp_runtime_performance_profiler_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
             ? isDebugModeEnabled()
-            : __debug_mode__
+            : __debug_mode__)
         ) {
           observeAcpRuntimeGauge(
             args.performanceProfileRequestId,

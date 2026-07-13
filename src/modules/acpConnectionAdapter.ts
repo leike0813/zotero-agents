@@ -46,6 +46,14 @@ import {
 import type { ZoteroMcpToolPermissionRequest } from "./zoteroMcpProtocol";
 import { isDebugModeEnabled } from "./debugMode";
 import { incrementAcpRuntimeMetric } from "./acpRuntimePerformanceProfiler";
+import {
+  type AcpRuntimeTraceOwner,
+  type AcpRuntimeTraceSourceKind,
+} from "./acpRuntimeSemanticTrace";
+import {
+  recordAcpRuntimeSemanticTraceEvent,
+  recordAcpSessionNotificationForTrace,
+} from "./acpRuntimeSemanticTraceRecorder";
 
 export type AcpConnectionUpdate = SessionNotification;
 export type AcpConnectionUpdateListener = (
@@ -76,6 +84,10 @@ export type AcpConnectionAdapterFactoryArgs = {
   mcpCompatibilityMode?: AcpMcpCompatibilityMode;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
   performanceProfileRequestId?: string;
+  semanticTraceContext?: {
+    sourceKind: AcpRuntimeTraceSourceKind;
+    owner: AcpRuntimeTraceOwner;
+  };
 };
 
 export type AcpMcpCompatibilityMode =
@@ -408,6 +420,32 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     return normalizeMcpCompatibilityMode(this.args.mcpCompatibilityMode);
   }
 
+  private traceSemanticEvent(
+    kind:
+      | "diagnostic"
+      | "permission-request"
+      | "permission-outcome"
+      | "connection-close",
+    payload: unknown,
+    owner?: Partial<AcpRuntimeTraceOwner>,
+  ) {
+    if (
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      __acp_runtime_semantic_trace_recorder_enabled__
+    ) {
+      const context = this.args.semanticTraceContext;
+      if (!context) return;
+      void recordAcpRuntimeSemanticTraceEvent({
+        kind,
+        sourceKind: context.sourceKind,
+        owner: { ...context.owner, ...owner },
+        payload,
+      });
+    }
+  }
+
   private emitDiagnostic(entry: {
     kind: string;
     level?: "info" | "warn" | "error";
@@ -422,9 +460,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     raw?: unknown;
   }) {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(
         this.args.performanceProfileRequestId,
@@ -450,6 +489,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
       data: entry.data,
       raw: entry.raw,
     };
+    this.traceSemanticEvent("diagnostic", payload, {
+      sessionId: this.currentSessionId || undefined,
+    });
     for (const listener of this.diagnosticsListeners) {
       void listener(payload);
     }
@@ -484,9 +526,10 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
 
   private emitTrace(event: AcpClientTraceEvent) {
     if (
-      typeof __debug_mode__ === "undefined"
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__)
     ) {
       incrementAcpRuntimeMetric(
         this.args.performanceProfileRequestId,
@@ -637,10 +680,28 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           content?: { type?: string | null; text?: string | null };
         }
       | undefined;
+    const semanticTraceContext = this.args.semanticTraceContext;
     if (
-      typeof __debug_mode__ === "undefined"
+      (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
-        : __debug_mode__
+        : __debug_mode__) &&
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      semanticTraceContext
+    ) {
+      await recordAcpSessionNotificationForTrace({
+        sourceKind: semanticTraceContext.sourceKind,
+        owner: {
+          ...semanticTraceContext.owner,
+          sessionId: sessionId || undefined,
+        },
+        notification: params,
+      });
+    }
+    if (
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
     ) {
       const kind = String(update?.sessionUpdate || "").trim();
       incrementAcpRuntimeMetric(
@@ -922,9 +983,15 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         ],
         resolve,
       };
+      this.traceSemanticEvent("permission-request", pending, {
+        sessionId: this.currentSessionId || undefined,
+      });
       for (const listener of this.permissionListeners) {
         void listener(pending);
       }
+    });
+    this.traceSemanticEvent("permission-outcome", outcome, {
+      sessionId: this.currentSessionId || undefined,
     });
     if (outcome.outcome === "selected" && outcome.optionId === "approve") {
       return {
@@ -947,6 +1014,9 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     exitCode?: number | null;
     transportLifecycle?: AcpTransportLifecycle;
   }) {
+    this.traceSemanticEvent("connection-close", event || {}, {
+      sessionId: this.currentSessionId || undefined,
+    });
     for (const listener of this.closeListeners) {
       void listener(event);
     }
@@ -1051,11 +1121,17 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
               options: normalizedOptions,
               resolve,
             };
+            this.traceSemanticEvent("permission-request", request, {
+              sessionId: String(params.sessionId || "").trim() || undefined,
+            });
             for (const listener of this.permissionListeners) {
               void listener(request);
             }
           },
         );
+        this.traceSemanticEvent("permission-outcome", outcome, {
+          sessionId: String(params.sessionId || "").trim() || undefined,
+        });
         return {
           outcome,
         };

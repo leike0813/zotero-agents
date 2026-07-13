@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = Todos
 task-dashboard-runtime-logs-copy-success = Se copiaron { $count } entradas de registro al portapapeles.
 task-dashboard-runtime-logs-copy-success-bundle = Paquete de diagnóstico copiado al portapapeles.
 task-dashboard-runtime-logs-copy-success-issue = Resumen de incidencia copiado al portapapeles.
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = Ruta del trace local completo en formato .ndjson
 task-dashboard-col-time = Hora
 task-dashboard-col-level = Nivel
 task-dashboard-col-stage = Etapa
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = El backend { $backend } se desactivó 
 # Interfaz compartida del panel del asistente
 assistant-panel-action-send = Enviar
 assistant-panel-action-cancel = Cancelar
+assistant-panel-action-cancelling = Cancelando...
 assistant-panel-action-cancel-run = Cancelar tarea
 assistant-panel-action-archive = Archivar
 assistant-panel-action-close = Cerrar

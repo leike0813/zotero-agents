@@ -9051,15 +9051,21 @@ describe("acp ui smoke", function () {
     }
   });
 
-  it("keeps ACP runtime profiler data out of workspace snapshots and shell render state", async function () {
+  it("keeps ACP recorder and replay data in independent Dashboard surfaces", async function () {
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const taskManagerDialog = await readProjectFile(
+      "src/modules/taskManagerDialog.ts",
     );
     const acpSkillRunJs = await readProjectFile(
       "addon/content/sidebar/acp-skill-run.js",
     );
     const assistantWorkspaceJs = await readProjectFile(
       "addon/content/sidebar/assistant-workspace.js",
+    );
+    const dashboardApp = await readProjectFile(
+      "addon/content/dashboard/app.js",
     );
     const signatureStart = assistantSidebar.indexOf(
       "function buildAcpSkillRunSnapshotSignature",
@@ -9078,10 +9084,77 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, '"panel_signature_duration"');
     assert.notInclude(signatureSource, "performanceProfiles");
     assert.notInclude(signatureSource, "runtimePerformanceProfiles");
+    assert.notInclude(signatureSource, "acpRuntimeProfiler");
     assert.notInclude(acpSkillRunJs, "performanceProfiles");
     assert.notInclude(acpSkillRunJs, "runtimePerformanceProfiles");
+    assert.notInclude(acpSkillRunJs, "acpRuntimeProfiler");
     assert.notInclude(assistantWorkspaceJs, "performanceProfiles");
     assert.notInclude(assistantWorkspaceJs, "runtimePerformanceProfiles");
+    assert.notInclude(assistantWorkspaceJs, "acpRuntimeProfiler");
+
+    const chromeStart = taskManagerDialog.indexOf(
+      "function dashboardChromeSignatureInput",
+    );
+    const selectedStart = taskManagerDialog.indexOf(
+      "function dashboardSelectedSurfaceSignatureInput",
+      chromeStart,
+    );
+    const selectedEnd = taskManagerDialog.indexOf(
+      "function finalizeDashboardSnapshot",
+      selectedStart,
+    );
+    assert.isAtLeast(chromeStart, 0);
+    assert.isAbove(selectedStart, chromeStart);
+    assert.isAbove(selectedEnd, selectedStart);
+    assert.notInclude(
+      taskManagerDialog.slice(chromeStart, selectedStart),
+      "acpRuntimeProfilerView",
+    );
+    assert.include(
+      taskManagerDialog.slice(selectedStart, selectedEnd),
+      'surfaceKey === "acp-trace-recorder"',
+    );
+    assert.include(
+      taskManagerDialog.slice(selectedStart, selectedEnd),
+      'surfaceKey === "acp-replay-profiler"',
+    );
+    assert.notInclude(
+      taskManagerDialog.slice(chromeStart, selectedStart),
+      "acpTraceRecorderView",
+    );
+    assert.notInclude(
+      taskManagerDialog.slice(chromeStart, selectedStart),
+      "acpReplayProfilerView",
+    );
+
+    const recorderRenderStart = dashboardApp.indexOf(
+      "function renderAcpTraceRecorder",
+    );
+    const replayRenderStart = dashboardApp.indexOf(
+      "function renderAcpReplayProfiler",
+      recorderRenderStart,
+    );
+    const replayRenderEnd = dashboardApp.indexOf(
+      "function renderRuntimeLogs",
+      replayRenderStart,
+    );
+    assert.isAtLeast(recorderRenderStart, 0);
+    assert.isAbove(replayRenderStart, recorderRenderStart);
+    assert.isAbove(replayRenderEnd, replayRenderStart);
+    const recorderRenderSource = dashboardApp.slice(
+      recorderRenderStart,
+      replayRenderStart,
+    );
+    const replayRenderSource = dashboardApp.slice(
+      replayRenderStart,
+      replayRenderEnd,
+    );
+    assert.notInclude(recorderRenderSource, "Copy JSON");
+    assert.notInclude(recorderRenderSource, "clipboard");
+    assert.include(recorderRenderSource, "sensitive data");
+    assert.include(replayRenderSource, "Run Nine-Replay Matrix");
+    assert.include(assistantSidebar, 'host.activeTab === "acp-chat"');
+    assert.include(assistantSidebar, 'host.activeTab === "acp-skills"');
   });
 
   it("canonicalizes ACP Skills host snapshot signatures for selected loading isolation", async function () {

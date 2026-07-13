@@ -190,6 +190,9 @@ task-dashboard-runtime-logs-filter-all = 전체
 task-dashboard-runtime-logs-copy-success = 로그 { $count }건이 클립보드에 복사되었습니다!
 task-dashboard-runtime-logs-copy-success-bundle = 진단 번들이 클립보드에 복사되었습니다!
 task-dashboard-runtime-logs-copy-success-issue = 이슈 요약이 클립보드에 복사되었습니다!
+task-dashboard-acp-trace-recorder-tab-title = ACP Trace Recorder
+task-dashboard-acp-replay-profiler-tab-title = ACP Replay Profiler
+task-dashboard-acp-replay-profiler-trace-placeholder = 완전한 로컬 .ndjson 트레이스 경로
 task-dashboard-col-time = 시간
 task-dashboard-col-level = 수준
 task-dashboard-col-stage = 단계
@@ -611,6 +614,7 @@ skillrunner-backend-auto-disabled-toast = 백엔드 { $backend }가 6시간 동�
 # 어시스턴트 패널 공유 UI
 assistant-panel-action-send = 보내기
 assistant-panel-action-cancel = 취소
+assistant-panel-action-cancelling = 취소 중…
 assistant-panel-action-cancel-run = 작업 취소
 assistant-panel-action-archive = 보관
 assistant-panel-action-close = 닫기

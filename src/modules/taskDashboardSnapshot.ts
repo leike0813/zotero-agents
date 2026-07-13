@@ -122,6 +122,8 @@ export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  acpTraceRecorderEnabled?: boolean;
+  acpReplayProfilerEnabled?: boolean;
 }) {
   const requested = String(args.requestedTabKey || "").trim();
   if (
@@ -135,6 +137,15 @@ export function normalizeDashboardTabKey(args: {
   if (
     args.debugModeEnabled === true &&
     requested === "skillrunner-connection-audit"
+  ) {
+    return requested;
+  }
+  if (
+    args.debugModeEnabled === true &&
+    ((args.acpTraceRecorderEnabled === true &&
+      requested === "acp-trace-recorder") ||
+      (args.acpReplayProfilerEnabled === true &&
+        requested === "acp-replay-profiler"))
   ) {
     return requested;
   }
