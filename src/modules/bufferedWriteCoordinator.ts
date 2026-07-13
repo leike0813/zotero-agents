@@ -1,3 +1,9 @@
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+} from "./acpRuntimePerformanceProfiler";
+
 export const BUFFERED_WRITE_DELAY_MS = 2000;
 export const BUFFERED_WRITE_MAX_BYTES = 128 * 1024;
 export const BUFFERED_WRITE_MAX_ENTRIES = 256;
@@ -29,6 +35,8 @@ type KeyState<T> = {
   timer: ReturnType<typeof setTimeout> | null;
   draining: Promise<void> | null;
   failed: boolean;
+  performanceProfileRequestId?: string;
+  performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
   diagnostics: Omit<
     BufferedWriteDiagnostics,
     "pendingEntries" | "pendingBytes"
@@ -68,6 +76,13 @@ async function drain(state: KeyState<unknown>) {
   state.pending = [];
   state.pendingBytes = 0;
   const wasRetry = state.failed;
+  const startedAt = (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  )
+    ? performance.now()
+    : 0;
   const write = (async () => {
     state.diagnostics.physicalWriteCycles += 1;
     if (wasRetry) {
@@ -88,6 +103,32 @@ async function drain(state: KeyState<unknown>) {
   try {
     await write;
   } finally {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      const labels = {
+        persistenceChannel: state.performanceChannel || "other",
+      } as const;
+      incrementAcpRuntimeMetric(
+        state.performanceProfileRequestId,
+        "buffered_write_batch",
+        labels,
+      );
+      incrementAcpRuntimeMetric(
+        state.performanceProfileRequestId,
+        "buffered_write_bytes",
+        labels,
+        batchBytes,
+      );
+      observeAcpRuntimeDuration(
+        state.performanceProfileRequestId,
+        "buffered_write_duration",
+        labels,
+        performance.now() - startedAt,
+      );
+    }
     if (state.draining === write) {
       state.draining = null;
     }
@@ -103,6 +144,8 @@ export function enqueueBufferedWrite<T>(args: {
   entry: T;
   bytes: number;
   sink: Sink<T>;
+  performanceProfileRequestId?: string;
+  performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
 }) {
   let state = states.get(args.key) as KeyState<T> | undefined;
   if (!state) {
@@ -115,6 +158,8 @@ export function enqueueBufferedWrite<T>(args: {
       timer: null,
       draining: null,
       failed: false,
+      performanceProfileRequestId: args.performanceProfileRequestId,
+      performanceChannel: args.performanceChannel,
       diagnostics: {
         logicalEntries: 0,
         physicalWriteCycles: 0,
@@ -128,6 +173,8 @@ export function enqueueBufferedWrite<T>(args: {
   }
   state.owner = args.owner;
   state.sink = args.sink;
+  state.performanceProfileRequestId = args.performanceProfileRequestId;
+  state.performanceChannel = args.performanceChannel;
   const bytes = Math.max(0, Math.floor(args.bytes));
   state.pending.push({ value: args.entry, bytes });
   state.pendingBytes += bytes;

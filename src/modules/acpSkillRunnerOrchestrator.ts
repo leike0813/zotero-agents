@@ -53,9 +53,16 @@ import {
 } from "./acpSkillMaterializer";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
+  getAssistantExecutionDisplayMode,
   isAssistantSilentExecutionMode,
   subscribeAssistantExecutionDisplayMode,
 } from "./assistantExecutionDisplayPolicy";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeGauge,
+  startAcpRuntimeProfile,
+} from "./acpRuntimePerformanceProfiler";
 import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
@@ -272,11 +279,31 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function createAssistantTurnAccumulator() {
+function resolveAcpProfileZoteroMajor(): 7 | 9 | "unknown" {
+  const major = Number.parseInt(String(Zotero?.version || ""), 10);
+  return major === 7 || major === 9 ? major : "unknown";
+}
+
+function createAssistantTurnAccumulator(requestId?: string) {
   let chunks: string[] = [];
+  let bytes = 0;
   return {
     async reset() {
       chunks = [];
+      bytes = 0;
+      if (
+        typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__
+      ) {
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_chunks",
+          {},
+          0,
+        );
+        observeAcpRuntimeGauge(requestId, "assistant_accumulator_bytes", {}, 0);
+      }
     },
     append(text: unknown) {
       const chunk = String(text || "");
@@ -284,6 +311,25 @@ function createAssistantTurnAccumulator() {
         return;
       }
       chunks.push(chunk);
+      if (
+        typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__
+      ) {
+        bytes += new TextEncoder().encode(chunk).byteLength;
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_chunks",
+          {},
+          chunks.length,
+        );
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_bytes",
+          {},
+          bytes,
+        );
+      }
     },
     async read() {
       return chunks.join("");
@@ -2266,6 +2312,18 @@ export async function recoverAcpSkillRunConversation(args: {
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    startAcpRuntimeProfile({
+      requestId,
+      displayMode: getAssistantExecutionDisplayMode(),
+      transport: "unknown",
+      zoteroMajor: resolveAcpProfileZoteroMajor(),
+    });
+  }
   await hydrateAcpSkillRunTranscriptMirror(requestId);
   const recoveredContext = await readAcpSkillRunContextPayload(
     record.runtimeDir,
@@ -2387,6 +2445,7 @@ export async function recoverAcpSkillRunConversation(args: {
     sessionCwd: workspaceDir,
     workspaceDir,
     runtimeDir,
+    performanceProfileRequestId: requestId,
     diagnosticCapture: detailedAuditEnabled
       ? {
           bridgeAuditFile: normalizeString(auditFiles.bridge),
@@ -2418,7 +2477,7 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredHardTimeoutMonitor: ReturnType<
     typeof createAcpHardTimeoutMonitor
   > | null = null;
-  const assistantTurnAccumulator = createAssistantTurnAccumulator();
+  const assistantTurnAccumulator = createAssistantTurnAccumulator(requestId);
   const pendingPermissionPauseIds = new Set<string>();
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
@@ -3106,6 +3165,13 @@ export async function recoverAcpSkillRunConversation(args: {
     recordAcpSkillRunSessionUpdate(requestId, event);
   });
   unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(requestId, "diagnostic_run_upsert");
+    }
     await appendAcpSkillRunAuditDiagnostic({
       requestId,
       runtimeDir: record.runtimeDir,
@@ -3517,6 +3583,18 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    startAcpRuntimeProfile({
+      requestId: workspace.requestId,
+      displayMode: getAssistantExecutionDisplayMode(),
+      transport: "unknown",
+      zoteroMajor: resolveAcpProfileZoteroMajor(),
+    });
+  }
   await appendAcpSkillRunAuditEvent({
     requestId: workspace.requestId,
     runtimeDir: workspace.runtimeDir,
@@ -3825,6 +3903,7 @@ export async function executeAcpSkillRunnerJob(args: {
       sessionCwd: workspace.workspaceDir,
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
+      performanceProfileRequestId: workspace.requestId,
       diagnosticCapture: detailedAuditEnabled
         ? {
             bridgeAuditFile,
@@ -3917,7 +3996,9 @@ export async function executeAcpSkillRunnerJob(args: {
     interruptWatchdog?.clear();
     interruptWatchdog = null;
   };
-  const assistantTurnAccumulator = createAssistantTurnAccumulator();
+  const assistantTurnAccumulator = createAssistantTurnAccumulator(
+    workspace.requestId,
+  );
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
     conversationState?: "ended" | "closed" | "error";
@@ -4639,6 +4720,13 @@ export async function executeAcpSkillRunnerJob(args: {
     recordAcpSkillRunSessionUpdate(workspace.requestId, event);
   });
   unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(workspace.requestId, "diagnostic_run_upsert");
+    }
     await appendAcpSkillRunAuditDiagnostic({
       requestId: workspace.requestId,
       runtimeDir: workspace.runtimeDir,

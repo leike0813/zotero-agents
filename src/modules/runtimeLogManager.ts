@@ -5,6 +5,13 @@ import {
   registerRuntimeLogClearer,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  snapshotAcpRuntimeProfiles,
+  type AcpRuntimePerformanceSnapshot,
+} from "./acpRuntimePerformanceProfiler";
 
 export type RuntimeLogLevel = "debug" | "info" | "warn" | "error";
 export type RuntimeLogErrorCategory =
@@ -221,6 +228,7 @@ export type RuntimeDiagnosticBundleV1 = {
   timeline: RuntimeDiagnosticTimelineEvent[];
   incidents: RuntimeDiagnosticIncident[];
   entries: Array<Record<string, unknown>>;
+  performanceProfiles?: AcpRuntimePerformanceSnapshot;
 };
 
 export type RuntimeIssueDiagnosticEvidenceGap = {
@@ -278,6 +286,7 @@ export type RuntimeIssueDiagnosticBundleV1 = {
     includesRawEntries: boolean;
   };
   developerRawEntries?: Array<Record<string, unknown>>;
+  performanceProfiles?: AcpRuntimePerformanceSnapshot;
 };
 
 export type RuntimeIssueBackendOperationHealth = {
@@ -808,9 +817,38 @@ function persistRuntimeLogsNow(force = false) {
   if (!force && !persistenceDirty) {
     return;
   }
+  const startedAt = (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  )
+    ? performance.now()
+    : 0;
   try {
-    writeRuntimeLogFileAsync(JSON.stringify(buildRuntimeLogDocument()));
+    const content = JSON.stringify(buildRuntimeLogDocument());
+    writeRuntimeLogFileAsync(content);
     setPref(HISTORY_PREF_KEY, "");
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(null, "runtime_log_persist", {
+        persistenceChannel: "runtime-log",
+      });
+      incrementAcpRuntimeMetric(
+        null,
+        "runtime_log_persist_bytes",
+        { persistenceChannel: "runtime-log" },
+        new TextEncoder().encode(content).byteLength,
+      );
+      observeAcpRuntimeDuration(
+        null,
+        "runtime_log_persist_duration",
+        { persistenceChannel: "runtime-log" },
+        performance.now() - startedAt,
+      );
+    }
   } catch {
     // Ignore prefs persistence failures in runtime logger.
   }
@@ -1689,6 +1727,18 @@ export function buildRuntimeDiagnosticBundle(
     timelineEntries.map(toTimelineEvent);
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
+  const performanceProfiles = (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  )
+    ? snapshotAcpRuntimeProfiles()
+    : undefined;
+  const includePerformanceProfiles =
+    !!performanceProfiles &&
+    (performanceProfiles.active.length > 0 ||
+      performanceProfiles.completed.length > 0 ||
+      performanceProfiles.global.metrics.length > 0);
   return {
     schemaVersion: "runtime-diagnostic-bundle/v1",
     generatedAt: new Date().toISOString(),
@@ -1720,6 +1770,7 @@ export function buildRuntimeDiagnosticBundle(
     timeline,
     incidents,
     entries: timelineEntries.map((entry) => toDiagnosticExportEntry(entry)),
+    ...(includePerformanceProfiles ? { performanceProfiles } : {}),
   };
 }
 
@@ -1748,6 +1799,18 @@ export function buildRuntimeIssueDiagnosticBundle(
     .map(toTimelineEvent);
   const incidents = buildIncidentsFromTimeline(timeline);
   const budget = resolveActiveRetentionBudget();
+  const performanceProfiles = (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  )
+    ? snapshotAcpRuntimeProfiles()
+    : undefined;
+  const includePerformanceProfiles =
+    !!performanceProfiles &&
+    (performanceProfiles.active.length > 0 ||
+      performanceProfiles.completed.length > 0 ||
+      performanceProfiles.global.metrics.length > 0);
   const bundle: RuntimeIssueDiagnosticBundleV1 = {
     schemaVersion: "runtime-issue-diagnostic-bundle/v1",
     generatedAt: new Date().toISOString(),
@@ -1801,6 +1864,7 @@ export function buildRuntimeIssueDiagnosticBundle(
       includesDebug: args.includeDebug === true,
       includesRawEntries: args.includeRawEntries === true,
     },
+    ...(includePerformanceProfiles ? { performanceProfiles } : {}),
   };
   if (args.includeRawEntries === true) {
     bundle.developerRawEntries = issueEntries.map((entry) =>

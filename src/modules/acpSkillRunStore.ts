@@ -53,6 +53,12 @@ import {
 } from "./zoteroMcpServer";
 import { getHostBridgeServerStatus } from "./hostBridgeServer";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  finishAcpRuntimeProfile,
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+} from "./acpRuntimePerformanceProfiler";
 import type {
   AcpSessionConfigCategory,
   AcpToolCall,
@@ -1377,15 +1383,19 @@ function queueTranscriptEvent(
       state.hydrateState = undefined;
       state.hydrateError = undefined;
       if (normalizeString(record.runtimeDir)) {
-        queueAcpSkillRunTranscriptPersistence(record.runtimeDir, {
-          seq: record.transcriptEventSeq || state.eventSeq,
-          op: args.op,
-          itemId: args.itemId,
-          item: args.item,
-          text: args.text,
-          patch: args.patch,
-          createdAt: args.createdAt,
-        });
+        queueAcpSkillRunTranscriptPersistence(
+          record.requestId,
+          record.runtimeDir,
+          {
+            seq: record.transcriptEventSeq || state.eventSeq,
+            op: args.op,
+            itemId: args.itemId,
+            item: args.item,
+            text: args.text,
+            patch: args.patch,
+            createdAt: args.createdAt,
+          },
+        );
       }
       return;
     }
@@ -1415,7 +1425,7 @@ function queueTranscriptEvent(
   if (!normalizeString(record.runtimeDir)) {
     return;
   }
-  queueAcpSkillRunTranscriptPersistence(record.runtimeDir, {
+  queueAcpSkillRunTranscriptPersistence(record.requestId, record.runtimeDir, {
     seq: record.transcriptEventSeq || state.eventSeq,
     op: args.op,
     itemId: args.itemId,
@@ -1427,6 +1437,7 @@ function queueTranscriptEvent(
 }
 
 function queueAcpSkillRunTranscriptPersistence(
+  requestId: string,
   runtimeDirRaw: string | undefined,
   event: AcpSkillRunTranscriptEventInput,
 ) {
@@ -1434,7 +1445,11 @@ function queueAcpSkillRunTranscriptPersistence(
   if (!runtimeDir) {
     return;
   }
-  enqueueAcpSkillRunTranscriptEvents({ runtimeDir, events: [event] });
+  enqueueAcpSkillRunTranscriptEvents({
+    runtimeDir,
+    requestId,
+    events: [event],
+  });
 }
 
 async function flushAcpSkillRunTranscriptWriteBatch(runtimeDir: string) {
@@ -2699,15 +2714,42 @@ function persistRun(
     softRunPersistTimers.delete(record.requestId);
   }
   softRunPersistRecords.delete(record.requestId);
+  const startedAt = (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  )
+    ? performance.now()
+    : 0;
   persistAcpSkillRunRuntimeFiles(record, options);
+  const payload = JSON.stringify(buildPersistedAcpSkillRunPayload(record));
   upsertPluginRunStoreEntry("acp", {
     runKey: record.requestId,
     requestId: record.requestId,
     backendId: record.backendId,
     state: record.status,
     updatedAt: record.updatedAt,
-    payload: JSON.stringify(buildPersistedAcpSkillRunPayload(record)),
+    payload,
   });
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    incrementAcpRuntimeMetric(record.requestId, "run_persist");
+    incrementAcpRuntimeMetric(
+      record.requestId,
+      "run_persist_bytes",
+      { persistenceChannel: "run" },
+      new TextEncoder().encode(payload).byteLength,
+    );
+    observeAcpRuntimeDuration(
+      record.requestId,
+      "run_persist_duration",
+      { persistenceChannel: "run" },
+      performance.now() - startedAt,
+    );
+  }
   const latestEvent = record.events[record.events.length - 1];
   if (latestEvent) {
     const persistedEvent = sanitizeAcpSkillRunPersistedValue(
@@ -2978,6 +3020,18 @@ function emitChanged(change?: AcpSkillRunSnapshotChange) {
       : normalizeAcpSkillRunSnapshotChange(pendingChangedEmit)
     : normalizeAcpSkillRunSnapshotChange(change);
   pendingChangedEmit = null;
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    const requestId = emittedChange.requestIds?.[0];
+    for (const kind of emittedChange.kinds || ["global"]) {
+      incrementAcpRuntimeMetric(requestId, "change_emitted", {
+        changeKind: kind === "selection" ? "other" : kind,
+      });
+    }
+  }
   for (const listener of listeners) {
     listener(emittedChange);
   }
@@ -2988,6 +3042,22 @@ function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
     pendingChangedEmit,
     change,
   );
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    const normalized = normalizeAcpSkillRunSnapshotChange(change);
+    const requestId = normalized.requestIds?.[0];
+    for (const kind of normalized.kinds || ["global"]) {
+      incrementAcpRuntimeMetric(requestId, "change_requested", {
+        changeKind: kind === "selection" ? "other" : kind,
+      });
+    }
+    if (changedEmitTimer) {
+      incrementAcpRuntimeMetric(requestId, "change_coalesced");
+    }
+  }
   if (changedEmitTimer) {
     return;
   }
@@ -3426,6 +3496,15 @@ export function upsertAcpSkillRun(update: {
       ...(update.event ? (["transcript"] as const) : []),
     ]),
   );
+  if (
+    !isTerminalAcpSkillRunStatus(existing?.status || "queued") &&
+    isTerminalAcpSkillRunStatus(next.status) &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    finishAcpRuntimeProfile(requestId);
+  }
   return projectAcpSkillRunMetadataRecord(next);
 }
 
@@ -5881,11 +5960,41 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
         };
       } else {
         try {
+          const pageReadStartedAt =
+            typeof __debug_mode__ === "undefined"
+              ? isDebugModeEnabled()
+                ? performance.now()
+                : 0
+              : __debug_mode__
+                ? performance.now()
+                : 0;
           selectedTranscriptPageOverride =
             await readSelectedTranscriptPageFromStore(
               selected,
               args?.transcriptPage,
             );
+          if (
+            typeof __debug_mode__ === "undefined"
+              ? isDebugModeEnabled()
+              : __debug_mode__
+          ) {
+            incrementAcpRuntimeMetric(
+              selected.requestId,
+              "transcript_page_read",
+            );
+            incrementAcpRuntimeMetric(
+              selected.requestId,
+              "transcript_page_scan_items",
+              {},
+              Math.max(0, Number(selected.transcriptItemCount || 0)),
+            );
+            observeAcpRuntimeDuration(
+              selected.requestId,
+              "transcript_page_read_duration",
+              {},
+              performance.now() - pageReadStartedAt,
+            );
+          }
           if (selectedTranscriptPageOverride) {
             selectedTranscriptOverride = {
               requestId: selected.requestId,

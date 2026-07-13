@@ -20,6 +20,8 @@ import {
   isJsonRpcRequest,
   isJsonRpcResponse,
 } from "./acpProtocol";
+import { isDebugModeEnabled } from "./debugMode";
+import { incrementAcpRuntimeMetric } from "./acpRuntimePerformanceProfiler";
 
 type AcpMessageReader<T> = {
   read: () => Promise<{ done: boolean; value?: T }>;
@@ -80,6 +82,7 @@ export class AcpClientConnection {
     private readonly stream: AcpMessageStream,
     private readonly options?: {
       onTrace?: (event: AcpClientTraceEvent) => void | Promise<void>;
+      performanceProfileRequestId?: string;
     },
   ) {
     this.client = toClient(this);
@@ -254,6 +257,25 @@ export class AcpClientConnection {
   }
 
   private traceMessage(direction: "in" | "out", message: JsonRpcMessage) {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(
+        this.options?.performanceProfileRequestId,
+        "jsonrpc_message",
+        {
+          updateClass: isJsonRpcRequest(message)
+            ? "request"
+            : isJsonRpcNotification(message)
+              ? "notification"
+              : isJsonRpcResponse(message)
+                ? "response"
+                : "other",
+        },
+      );
+    }
     const onTrace = this.options?.onTrace;
     if (!onTrace) {
       return;

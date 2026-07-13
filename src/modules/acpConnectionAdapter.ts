@@ -44,6 +44,8 @@ import {
   type ZoteroMcpServerDescriptor,
 } from "./zoteroMcpServer";
 import type { ZoteroMcpToolPermissionRequest } from "./zoteroMcpProtocol";
+import { isDebugModeEnabled } from "./debugMode";
+import { incrementAcpRuntimeMetric } from "./acpRuntimePerformanceProfiler";
 
 export type AcpConnectionUpdate = SessionNotification;
 export type AcpConnectionUpdateListener = (
@@ -73,6 +75,7 @@ export type AcpConnectionAdapterFactoryArgs = {
   runtimeDir: string;
   mcpCompatibilityMode?: AcpMcpCompatibilityMode;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
+  performanceProfileRequestId?: string;
 };
 
 export type AcpMcpCompatibilityMode =
@@ -418,6 +421,20 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     data?: unknown;
     raw?: unknown;
   }) {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(
+        this.args.performanceProfileRequestId,
+        "adapter_diagnostic",
+        {
+          updateClass:
+            entry.kind === "jsonrpc_trace" ? "notification" : "other",
+        },
+      );
+    }
     const payload: AcpDiagnosticsEntry = {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),
@@ -466,6 +483,17 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   }
 
   private emitTrace(event: AcpClientTraceEvent) {
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      incrementAcpRuntimeMetric(
+        this.args.performanceProfileRequestId,
+        "adapter_trace",
+        { updateClass: event.kind },
+      );
+    }
     const idText = event.id === undefined ? "" : ` id=${String(event.id)}`;
     const methodText = event.method ? ` ${event.method}` : "";
     const errorText =
@@ -609,6 +637,33 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           content?: { type?: string | null; text?: string | null };
         }
       | undefined;
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      const kind = String(update?.sessionUpdate || "").trim();
+      incrementAcpRuntimeMetric(
+        this.args.performanceProfileRequestId,
+        "session_update",
+        {
+          updateClass:
+            kind === "agent_message_chunk"
+              ? "assistant-message"
+              : kind === "agent_thought_chunk"
+                ? "assistant-thought"
+                : kind === "tool_call"
+                  ? "tool-call"
+                  : kind === "tool_call_update"
+                    ? "tool-update"
+                    : kind === "plan"
+                      ? "plan"
+                      : kind === "usage_update" || kind === "status_update"
+                        ? "usage-status"
+                        : "other",
+        },
+      );
+    }
     if (String(update?.sessionUpdate || "").trim() === "config_option_update") {
       this.updateLatestConfigOptions(update?.configOptions);
     }
@@ -1043,6 +1098,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         backend: this.args.backend,
         cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
         diagnosticCapture: this.args.diagnosticCapture,
+        performanceProfileRequestId: this.args.performanceProfileRequestId,
       });
       this.commandLabel = this.transport.getCommandLabel();
       this.commandLine = this.transport.getCommandLine();
@@ -1060,6 +1116,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         stream,
         {
           onTrace: (event) => this.emitTrace(event),
+          performanceProfileRequestId: this.args.performanceProfileRequestId,
         },
       );
       void this.connection.closed

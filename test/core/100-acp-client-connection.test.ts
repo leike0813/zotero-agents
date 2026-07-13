@@ -8,6 +8,13 @@ import {
   type AcpConnectionUpdate,
 } from "../../src/modules/acpConnectionAdapter";
 import type { BackendInstance } from "../../src/backends/types";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 import {
   ACP_CLIENT_METHODS,
   ACP_PROTOCOL_VERSION,
@@ -220,6 +227,56 @@ function createClaudeBackend(
 }
 
 describe("acp client connection", function () {
+  afterEach(function () {
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
+  });
+
+  it("attributes inbound and outbound JSON-RPC traffic to a performance profile", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-connection",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    const harness = createMessageHarness();
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      harness.stream,
+      { performanceProfileRequestId: "profiled-connection" },
+    );
+
+    await connection.notifySessionCancel({ sessionId: "session-active" });
+    await harness.nextOutbound();
+    harness.pushInbound({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "session-active",
+        update: { sessionUpdate: "usage_update", used: 1, size: 2 },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const messages = snapshotAcpRuntimeProfiles()?.active[0].metrics.filter(
+      (entry) => entry.name === "jsonrpc_message",
+    );
+    assert.equal(
+      messages?.reduce(
+        (total, entry) => total + (entry.counter?.total || 0),
+        0,
+      ),
+      2,
+    );
+    harness.closeInbound();
+    await connection.close();
+  });
+
   it("sends session/cancel as a notification without a request id", async function () {
     const harness = createMessageHarness();
     const connection = new AcpClientConnection(

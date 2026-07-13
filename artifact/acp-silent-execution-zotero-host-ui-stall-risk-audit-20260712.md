@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读代码审计与代码级治理路线图，尚未进入治理实现
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -20,7 +20,7 @@
 - **高可信风险推断**：代码已证实存在主线程长任务或事件风暴条件，但实际耗时仍取决于运行数据。
 - **待实测**：需要 profiler、埋点、队列深度或真实数据规模才能确定影响。
 
-本轮没有修改代码，也没有运行测试或性能基准。
+2026-07-12 的审计采集本身没有修改代码，也没有运行测试或性能基准。2026-07-13 的后续 change `profile-acp-runtime-hot-paths` 已实现 debug-only profiler、R1/R2/R3 埋点、自动化机制基线和 release-elision 门禁；本文相应章节已按当前实现更新。
 
 ## 2. 总结结论
 
@@ -902,18 +902,9 @@ configureAcpRuntimePerformanceProfilerForTests(options): void
 
 ### 17.7 开关、内存与导出
 
-新增 hidden pref：
+profiler 只存在于 debug 构建，并且在 debug 内仍需显式调用 `enableAcpRuntimePerformanceProfiler()`。不新增 hidden pref、用户可见设置或面板。非 debug 构建通过直接的 `__debug_mode__` guard、side-effect-free 模块声明和 syntax folding 消除热路径调用及 profiler 模块；`npm run check:acp-profiler-release-elision` 锁定该性质。
 
-```text
-acpRuntimePerformanceProfilerEnabled = false
-```
-
-涉及：
-
-- `src/utils/prefs.ts`
-- `addon/prefs.js`
-
-不要把 profiler 绑定到 debug/audit 开关，因为 debug 是本次需要独立测量的干扰变量。也不新增用户可见设置或面板，避免改变正常 UI。
+debug build 与 profiler enabled 是两个独立状态：普通 debug build 不分配 profiler state、不启动 drift timer；自动化测试通过 `setDebugModeOverrideForTests(true)` 后显式启用。由于 detailed audit 与 profiler 都属于 debug 构建能力，本夹具不把 debug on/off 当作纯粹的 profiler 开销对照。
 
 运行中：
 
@@ -937,13 +928,16 @@ acpRuntimePerformanceProfilerEnabled = false
 新增：
 
 - `src/modules/acpRuntimePerformanceProfiler.ts`
-- `test/core/<next>-acp-runtime-performance-profiler.test.ts`
-- 可选 Zotero fixture：`test/core/<next>-acp-silent-performance-baseline.zotero.test.ts`
+- `test/helpers/acpRuntimePerformanceHarness.ts`
+- `test/core/175-acp-runtime-performance-profiler.test.ts`
+- `test/core/176-acp-silent-runtime-performance-baseline.test.ts`
+- `scripts/acp-runtime-profiler-esbuild.ts`
+- `scripts/check-acp-runtime-profiler-release-elision.ts`
+- `test/node/core/97-acp-runtime-profiler-release-elision.test.ts`
 
 修改：
 
-- `src/utils/prefs.ts`
-- `addon/prefs.js`
+- `src/modules/debugMode.ts`
 - `src/modules/acpClientConnection.ts`
 - `src/modules/acpConnectionAdapter.ts`
 - `src/modules/acpSkillRunnerOrchestrator.ts`
@@ -973,12 +967,14 @@ CI 只锁稳定行为，不锁具体毫秒数：
 
 ### 17.10 baseline 方案
 
-在 Zotero 7 与 Zotero 9 各运行同一 fixture 三次；第一次 warm-up 不纳入对比。首轮至少覆盖：
+CI 基线使用固定时钟、固定 1,000-update 事件序列和 Zotero mock，验证调用次数、归属、聚合、有界性和导出结构，不锁具体毫秒值。它是机制基线，不声称复现真实 Zotero 卡顿。
+
+需要宿主校准时，可选在 Zotero 7 与 Zotero 9 各运行同一 fixture 三次；第一次 warm-up 不纳入对比。真实宿主校准可覆盖：
 
 1. silent + 大量小 assistant/tool updates，Workspace closed/open-inactive/acp-active；
 2. silent + 大量 diagnostics，Task Manager closed/open；
 3. Host Bridge 请求一次到齐与慢分片；
-4. debug audit off/on。
+4. 不同 surface state；debug audit 干扰需要单独标注，不能当作纯 profiler on/off 对照。
 
 每 1,000 个 updates 报告：
 
@@ -1044,9 +1040,10 @@ R6、R7、R9、R10、R12 实施前再扩展 fixture：
 完成门：
 
 - profiler disabled/no-op、有界性和异常隔离测试通过；
-- Zotero 7/9 至少各生成一组 R1/R2/R3 baseline；
-- baseline artifact 记录 commit、Zotero major、display mode、surface state 和 fixture 参数；
-- 不要求达到任何性能目标，只要求数据可重复、可解释。
+- 自动化 1,000-update 机制基线可重复，覆盖 R1/R2/R3 的关键归属和导出入口；
+- release-elision 门禁证明非 debug bundle 中 profiler 模块贡献为 0 bytes；
+- Zotero 7/9 的真实计时属于可选校准，不作为 profiler 正确性或阶段完成门；
+- 不要求达到任何性能目标，只要求自动化数据可重复、可解释。
 
 ### 18.3 阶段 1：统一 assistant text SSOT 与 update 顺序（R4）
 
@@ -1815,7 +1812,7 @@ npm run check:zotero-librarian-profile
 
 | 阶段 | 完成门 |
 | --- | --- |
-| 0 profiler | Zotero 7/9 R1-R3 baseline 可比较，profiler 自身有界 |
+| 0 profiler | 自动化 R1-R3 机制基线可重复、release bundle 零 profiler 负担、profiler 自身有界；Zotero 7/9 计时为可选校准 |
 | 1 text SSOT | 单一且有字节预算的 assistant accumulator，Chat/Skills coalescing/final output 不变 |
 | 2 diagnostic | ordinary diagnostic 不再写 canonical run 或驱动 panel |
 | 3 queue/log/transport | progress 业务事件不丢，UI/log publication 有界，flush 真正完成，frame queue 有背压和上限 |
@@ -1930,6 +1927,10 @@ npm run check:zotero-librarian-profile
 
 ### 现有 profiler 与诊断基础
 
+- `src/modules/acpRuntimePerformanceProfiler.ts`
+- `test/core/175-acp-runtime-performance-profiler.test.ts`
+- `test/core/176-acp-silent-runtime-performance-baseline.test.ts`
+- `scripts/check-acp-runtime-profiler-release-elision.ts`
 - `src/modules/testPerformanceProbeBridge.ts`
 - `test/zotero/performanceProbeDigest.ts`
 - `test/node/core/96-zotero-test-performance-probe-digest.test.ts`
@@ -1960,4 +1961,4 @@ npm run check:zotero-librarian-profile
 - heap/queue 峰值变化；
 - 是否关闭该风险，或仅降低触发概率。
 
-在没有 profiler 数据前，推荐优先验证 R1、R2、R3；它们分别代表事件风暴、直接同步长任务和静默模式下仍发生的 UI 前置工作，覆盖了当前最可能的三类卡顿机制。
+阶段 0 已为 R1、R2、R3 建立自动化机制基线；后续治理应先读取这些计数、容量和 duration 聚合，再按需补充 Zotero 7/9 真实宿主校准。三者分别代表事件风暴、直接同步长任务和静默模式下仍发生的 UI 前置工作，覆盖了当前最可能的三类卡顿机制。

@@ -60,6 +60,12 @@ import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  observeAcpRuntimeGauge,
+} from "./acpRuntimePerformanceProfiler";
 import {
   createZoteroHostCapabilityBrokerApis,
   ZoteroCollectionNotFoundError,
@@ -622,6 +628,8 @@ function readInputStream(inputStream: any) {
   }
   const chunks: Uint8Array[] = [];
   let totalLength = 0;
+  let fragments = 0;
+  let unavailableReads = 0;
   const startedAt = Date.now();
   while (Date.now() - startedAt < 500) {
     let available = 0;
@@ -636,6 +644,7 @@ function readInputStream(inputStream: any) {
       throw error;
     }
     if (available <= 0) {
+      unavailableReads += 1;
       const current = concatBytes(chunks, totalLength);
       const parsed = tryParseHeaders(current);
       if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
@@ -648,6 +657,7 @@ function readInputStream(inputStream: any) {
         ? Uint8Array.from(stream.readByteArray(available) || [])
         : binaryStringToBytes(stream.read(available));
     chunks.push(chunk);
+    fragments += 1;
     totalLength += chunk.length;
     const current = concatBytes(chunks, totalLength);
     const parsed = tryParseHeaders(current);
@@ -656,7 +666,12 @@ function readInputStream(inputStream: any) {
     }
   }
   stream.close?.();
-  return concatBytes(chunks, totalLength);
+  return {
+    bytes: concatBytes(chunks, totalLength),
+    durationMs: Date.now() - startedAt,
+    fragments,
+    unavailableReads,
+  };
 }
 
 function utf8ByteLength(text: string) {
@@ -716,6 +731,29 @@ function parsePermissionScopeHeader(request: HttpRequest) {
   } catch {
     return null;
   }
+}
+
+function performanceProfileRequestIdForHostRequest(request: HttpRequest) {
+  const scope = parsePermissionScopeHeader(request);
+  const kind = String(scope?.kind || "").trim();
+  if (kind !== "acp-skill-run" && kind !== "acp-run") {
+    return null;
+  }
+  return String(scope?.requestId || scope?.runId || "").trim() || null;
+}
+
+function hostOperationClass(
+  request: HttpRequest,
+): "file" | "library" | "mutation" | "workflow" | "diagnostic" | "other" {
+  const path = request.path;
+  if (path.includes("/files/")) return "file";
+  if (path.includes("/library/")) return "library";
+  if (path.includes("mutation")) return "mutation";
+  if (path.includes("workflow")) return "workflow";
+  if (path.includes("diagnostic") || path.endsWith("/health")) {
+    return "diagnostic";
+  }
+  return "other";
 }
 
 function parseConnectionModeHeader(
@@ -2997,7 +3035,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
   }
 }
 
-async function handleHttpRequest(request: HttpRequest) {
+async function handleHttpRequestImpl(request: HttpRequest) {
   updateState({
     requestCount: state.requestCount + 1,
     lastRequestMethod: `${request.method} ${request.path}`,
@@ -3249,14 +3287,91 @@ async function handleHttpRequest(request: HttpRequest) {
   );
 }
 
+async function handleHttpRequest(request: HttpRequest) {
+  if (
+    typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__
+  ) {
+    const requestId = performanceProfileRequestIdForHostRequest(request);
+    const operationClass = hostOperationClass(request);
+    const startedAt = performance.now();
+    observeAcpRuntimeGauge(
+      requestId,
+      "host_request_inflight",
+      { operationClass },
+      1,
+    );
+    try {
+      const result = await handleHttpRequestImpl(request);
+      const responseBytes =
+        typeof result === "string"
+          ? utf8ByteLength(result)
+          : utf8ByteLength(result.headers) + result.body.byteLength;
+      incrementAcpRuntimeMetric(
+        requestId,
+        "host_response_bytes",
+        { operationClass },
+        responseBytes,
+      );
+      return result;
+    } finally {
+      observeAcpRuntimeGauge(
+        requestId,
+        "host_request_inflight",
+        { operationClass },
+        0,
+      );
+      observeAcpRuntimeDuration(
+        requestId,
+        "host_request_duration",
+        { operationClass },
+        performance.now() - startedAt,
+      );
+    }
+  }
+  return handleHttpRequestImpl(request);
+}
+
 function listen(serverSocket: any) {
   const listener = {
     onSocketAccepted: (_socket: any, transport: any) => {
       void (async () => {
         const inputStream = transport.openInputStream(0, 0, 0);
         const outputStream = transport.openOutputStream(0, 0, 0);
-        const rawRequest = readInputStream(inputStream);
-        const request = parseHttpRequestBytes(rawRequest);
+        const input = readInputStream(inputStream);
+        const request = parseHttpRequestBytes(input.bytes);
+        if (
+          typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__
+        ) {
+          const requestId = performanceProfileRequestIdForHostRequest(request);
+          incrementAcpRuntimeMetric(
+            requestId,
+            "host_input_bytes",
+            {},
+            input.bytes.byteLength,
+          );
+          incrementAcpRuntimeMetric(
+            requestId,
+            "host_input_fragment",
+            {},
+            input.fragments,
+          );
+          incrementAcpRuntimeMetric(
+            requestId,
+            "host_input_unavailable",
+            {},
+            input.unavailableReads,
+          );
+          observeAcpRuntimeDuration(
+            requestId,
+            "host_input_duration",
+            {},
+            input.durationMs,
+          );
+        }
         const rawResponse = await handleHttpRequest(request);
         writeOutputStream(outputStream, rawResponse);
       })().catch((error) => {
@@ -3628,6 +3743,8 @@ export const hostBridgeServerInternalsForTests = {
     RECOVERY_DELAY_MS,
     SUPERVISOR_INTERVAL_MS,
   },
+  readInputStream,
+  parseHttpRequestBytes,
   setServerSocketFactory(
     factory?: (port: number, bindMode: HostBridgeBindMode) => any,
   ) {

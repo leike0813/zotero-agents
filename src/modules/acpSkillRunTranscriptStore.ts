@@ -779,6 +779,7 @@ async function persistTranscriptBatch(
 
 export function enqueueAcpSkillRunTranscriptEvents(args: {
   runtimeDir?: string;
+  requestId?: string;
   events: AcpSkillRunTranscriptEventInput[];
 }) {
   const runtimeDir = normalizeString(args.runtimeDir);
@@ -798,6 +799,8 @@ export function enqueueAcpSkillRunTranscriptEvents(args: {
       owner: runtimeDir,
       entry,
       bytes: utf8ByteLength(JSON.stringify(entry)) + 1,
+      performanceProfileRequestId: normalizeString(args.requestId),
+      performanceChannel: "transcript",
       sink: (events) => persistTranscriptBatch(runtimeDir, events),
     });
     transcriptWriteKeys.add(transcriptWriteKey(paths.transcriptPath));
@@ -845,6 +848,7 @@ export function resetAcpTranscriptWritesForTests() {
 
 export async function appendAcpSkillRunTranscriptEvents(args: {
   runtimeDir?: string;
+  requestId?: string;
   events: AcpSkillRunTranscriptEventInput[];
 }): Promise<AcpSkillRunTranscriptMetadata | null> {
   const runtimeDir = normalizeString(args.runtimeDir);
@@ -852,7 +856,11 @@ export async function appendAcpSkillRunTranscriptEvents(args: {
   if (!paths.transcriptPath || args.events.length === 0) {
     return null;
   }
-  enqueueAcpSkillRunTranscriptEvents({ runtimeDir, events: args.events });
+  enqueueAcpSkillRunTranscriptEvents({
+    runtimeDir,
+    requestId: args.requestId,
+    events: args.events,
+  });
   await flushAcpSkillRunTranscriptWrites(runtimeDir);
   const index = (await loadTranscriptIndexState(paths)).index;
   return {

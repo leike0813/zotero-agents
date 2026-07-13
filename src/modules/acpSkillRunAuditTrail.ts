@@ -190,6 +190,8 @@ function appendRuntimeTextFile(args: {
     owner: args.owner,
     entry: args.line,
     bytes: new TextEncoder().encode(args.line).length,
+    performanceProfileRequestId: args.requestId,
+    performanceChannel: "audit",
     sink: async (lines) => {
       try {
         await appendRuntimeTextFilePrimitive(args.path, lines.join(""));

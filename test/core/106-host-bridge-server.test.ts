@@ -27,6 +27,13 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { getPref, setPref } from "../../src/utils/prefs";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -95,6 +102,8 @@ function readTemporaryWellKnownProfile(root: string) {
 
 describe("host bridge server phase 1", function () {
   afterEach(function () {
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
     resetHostBridgeServerForTests();
     resetZoteroMcpServerForTests();
     setPref("hostBridgeLanEnabled", false);
@@ -106,6 +115,96 @@ describe("host bridge server phase 1", function () {
     setPref("hostBridgeMasterTokenUpdatedAt", "");
     setPref("hostBridgeMasterTokenKeyMaterial", "");
     setPref("hostBridgeDisableWriteApproval", false);
+  });
+
+  it("attributes scoped Host Bridge requests to the ACP runtime profile", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-host-request",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    configureHostBridgeServerForTests({ token: "phase-one-secret-token" });
+
+    await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: "/bridge/v1/health",
+      headers: {
+        "X-Zotero-Bridge-Scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "profiled-host-request",
+        }),
+      },
+    });
+
+    const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics;
+    assert.isAbove(
+      metrics?.find((entry) => entry.name === "host_response_bytes")?.counter
+        ?.total || 0,
+      0,
+    );
+    assert.equal(
+      metrics?.find((entry) => entry.name === "host_request_duration")?.duration
+        ?.count,
+      1,
+    );
+    assert.deepEqual(
+      metrics?.find((entry) => entry.name === "host_request_inflight")?.gauge,
+      { current: 0, max: 1 },
+    );
+  });
+
+  it("measures Host Bridge input fragments without a real Zotero socket", function () {
+    const raw = rawHttpRequestBytes({
+      method: "POST",
+      path: "/bridge/v1/health",
+      bodyBytes: new TextEncoder().encode("{}"),
+    });
+    const chunks = [raw.slice(0, 23), raw.slice(23)];
+    const binaryStream = {
+      setInputStream() {
+        return;
+      },
+      available() {
+        return chunks[0]?.byteLength || 0;
+      },
+      readByteArray() {
+        return Array.from(chunks.shift() || []);
+      },
+      close() {
+        return;
+      },
+    };
+    const runtime = globalThis as typeof globalThis & {
+      Components?: unknown;
+    };
+    const previous = Object.getOwnPropertyDescriptor(runtime, "Components");
+    Object.defineProperty(runtime, "Components", {
+      configurable: true,
+      value: {
+        classes: {
+          "@mozilla.org/binaryinputstream;1": {
+            createInstance: () => binaryStream,
+          },
+        },
+        interfaces: { nsIBinaryInputStream: {} },
+      },
+    });
+    try {
+      const input = hostBridgeServerInternalsForTests.readInputStream({});
+      assert.deepEqual(Array.from(input.bytes), Array.from(raw));
+      assert.equal(input.fragments, 2);
+      assert.equal(input.unavailableReads, 0);
+      assert.isAtLeast(input.durationMs, 0);
+    } finally {
+      if (previous) {
+        Object.defineProperty(runtime, "Components", previous);
+      } else {
+        delete runtime.Components;
+      }
+    }
   });
 
   it("serves unauthenticated health without leaking token or paths", async function () {

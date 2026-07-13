@@ -52,6 +52,13 @@ import {
   flushBufferedWriteKey,
   getBufferedWriteDiagnosticsForTests,
 } from "../../src/modules/bufferedWriteCoordinator";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -75,8 +82,58 @@ async function waitForTextFile(filePath: string, pattern?: RegExp) {
 
 describe("ACP runtime memory governance", function () {
   beforeEach(function () {
+    setDebugModeOverrideForTests();
+    resetAcpRuntimePerformanceProfilerForTests();
     resetPluginStateStoreForTests();
     resetAcpSkillRunsForTests();
+  });
+
+  it("profiles buffered write batches without retaining individual entries", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "buffered-profile",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    const key = `profiled-coordinator:${Date.now()}`;
+    const written: string[] = [];
+    try {
+      for (const entry of ["one", "two", "three"]) {
+        enqueueBufferedWrite({
+          key,
+          owner: "owner",
+          entry,
+          bytes: entry.length,
+          sink: async (entries) => written.push(...entries),
+          performanceProfileRequestId: "buffered-profile",
+          performanceChannel: "transcript",
+        });
+      }
+      await flushBufferedWriteKey(key);
+
+      assert.deepEqual(written, ["one", "two", "three"]);
+      const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics;
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_batch")?.counter
+          ?.total,
+        1,
+      );
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_bytes")?.counter
+          ?.total,
+        11,
+      );
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_duration")
+          ?.duration?.count,
+        1,
+      );
+      assert.notProperty(snapshotAcpRuntimeProfiles() || {}, "samples");
+    } finally {
+      discardBufferedWriteKey(key);
+    }
   });
 
   it("serializes entries arriving during a drain and retains failed batches for retry", async function () {
@@ -145,6 +202,8 @@ describe("ACP runtime memory governance", function () {
     await flushAcpSkillRunRuntimeFileWritesForTests();
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
   });
 
   it("persists ACP chat conversations as metadata-only while storing transcript text in JSONL", async function () {

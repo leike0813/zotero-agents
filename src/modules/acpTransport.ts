@@ -33,6 +33,8 @@ import {
   shouldUseAcpWebSocketBridgeTransport,
   type AcpWebSocketLike,
 } from "./acpWebSocketBridgeService";
+import { isDebugModeEnabled } from "./debugMode";
+import { observeAcpRuntimeGauge } from "./acpRuntimePerformanceProfiler";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -72,6 +74,7 @@ export type AcpTransportLaunchArgs = {
   backend: BackendInstance;
   cwd: string;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
+  performanceProfileRequestId?: string;
 };
 
 export type AcpReadResult<T> = {
@@ -1549,6 +1552,28 @@ async function launchNodeAcpTransport(
         }> = [];
         let ended = false;
         let pendingError: unknown = null;
+        let queuedBytes = 0;
+
+        const observeQueue = () => {
+          if (
+            typeof __debug_mode__ === "undefined"
+              ? isDebugModeEnabled()
+              : __debug_mode__
+          ) {
+            observeAcpRuntimeGauge(
+              args.performanceProfileRequestId,
+              "transport_queue_entries",
+              {},
+              queue.length,
+            );
+            observeAcpRuntimeGauge(
+              args.performanceProfileRequestId,
+              "transport_queue_bytes",
+              {},
+              queuedBytes,
+            );
+          }
+        };
 
         const flush = () => {
           while (waiting.length > 0) {
@@ -1559,10 +1584,13 @@ async function launchNodeAcpTransport(
             }
             if (queue.length > 0) {
               const next = waiting.shift();
+              const value = queue.shift();
+              queuedBytes = Math.max(0, queuedBytes - (value?.byteLength || 0));
               next?.resolve({
                 done: false,
-                value: queue.shift(),
+                value,
               });
+              observeQueue();
               continue;
             }
             if (ended) {
@@ -1575,7 +1603,10 @@ async function launchNodeAcpTransport(
         };
 
         const onData = (chunk: unknown) => {
-          queue.push(encodeUint8Chunk(chunk, encoder));
+          const encoded = encodeUint8Chunk(chunk, encoder);
+          queue.push(encoded);
+          queuedBytes += encoded.byteLength;
+          observeQueue();
           stdoutText = appendTail(stdoutText, chunk);
           lifecycle.stdoutChars += String(chunk || "").length;
           args.diagnosticCapture?.onStdoutChunk?.(String(chunk || ""));
@@ -1603,9 +1634,12 @@ async function launchNodeAcpTransport(
               throw pendingError;
             }
             if (queue.length > 0) {
+              const value = queue.shift();
+              queuedBytes = Math.max(0, queuedBytes - (value?.byteLength || 0));
+              observeQueue();
               return {
                 done: false,
-                value: queue.shift(),
+                value,
               };
             }
             if (ended) {
@@ -1728,6 +1762,7 @@ function createWebSocketStdoutReadable(args: {
   }>;
   getEnded: () => boolean;
   getError: () => unknown;
+  onDequeue?: (value: Uint8Array | undefined) => void;
 }) {
   return {
     getReader() {
@@ -1742,9 +1777,11 @@ function createWebSocketStdoutReadable(args: {
             throw error;
           }
           if (args.queue.length > 0) {
+            const value = args.queue.shift();
+            args.onDequeue?.(value);
             return {
               done: false,
-              value: args.queue.shift(),
+              value,
             };
           }
           if (args.getEnded()) {
@@ -1852,6 +1889,8 @@ async function launchWebSocketBridgeAcpTransport(
   let spawnReject: ((error: unknown) => void) | null = null;
   let messageQueue = Promise.resolve();
   const stdoutQueue: Uint8Array[] = [];
+  let stdoutQueuedBytes = 0;
+  let messageQueueEntries = 0;
   const stdoutWaiting: Array<{
     resolve: (result: AcpReadResult<Uint8Array>) => void;
     reject: (error: unknown) => void;
@@ -1902,10 +1941,33 @@ async function launchWebSocketBridgeAcpTransport(
         continue;
       }
       if (stdoutQueue.length > 0) {
+        const value = stdoutQueue.shift();
+        stdoutQueuedBytes = Math.max(
+          0,
+          stdoutQueuedBytes - (value?.byteLength || 0),
+        );
         stdoutWaiting.shift()?.resolve({
           done: false,
-          value: stdoutQueue.shift(),
+          value,
         });
+        if (
+          typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__
+        ) {
+          observeAcpRuntimeGauge(
+            args.performanceProfileRequestId,
+            "transport_queue_entries",
+            {},
+            stdoutQueue.length,
+          );
+          observeAcpRuntimeGauge(
+            args.performanceProfileRequestId,
+            "transport_queue_bytes",
+            {},
+            stdoutQueuedBytes,
+          );
+        }
         continue;
       }
       if (ended) {
@@ -2032,13 +2094,60 @@ async function launchWebSocketBridgeAcpTransport(
     });
     if (!args.diagnosticCapture?.captureStdout) {
       stdoutQueue.push(bytes);
+      stdoutQueuedBytes += bytes.byteLength;
+      if (
+        typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__
+      ) {
+        observeAcpRuntimeGauge(
+          args.performanceProfileRequestId,
+          "transport_queue_entries",
+          {},
+          stdoutQueue.length,
+        );
+        observeAcpRuntimeGauge(
+          args.performanceProfileRequestId,
+          "transport_queue_bytes",
+          {},
+          stdoutQueuedBytes,
+        );
+      }
       flushStdout();
     }
   };
   socket.onmessage = (event: { data?: unknown }) => {
+    messageQueueEntries += 1;
+    if (
+      typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__
+    ) {
+      observeAcpRuntimeGauge(
+        args.performanceProfileRequestId,
+        "transport_message_queue_entries",
+        {},
+        messageQueueEntries,
+      );
+    }
     messageQueue = messageQueue
       .then(() => handleMessage(event))
-      .catch((error) => fail(error));
+      .catch((error) => fail(error))
+      .finally(() => {
+        messageQueueEntries = Math.max(0, messageQueueEntries - 1);
+        if (
+          typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__
+        ) {
+          observeAcpRuntimeGauge(
+            args.performanceProfileRequestId,
+            "transport_message_queue_entries",
+            {},
+            messageQueueEntries,
+          );
+        }
+      });
   };
   socket.onerror = (event: unknown) => {
     const detail = describeWebSocketEvent(event);
@@ -2118,6 +2227,30 @@ async function launchWebSocketBridgeAcpTransport(
       waiting: stdoutWaiting,
       getEnded: () => ended,
       getError: () => pendingError,
+      onDequeue: (value) => {
+        stdoutQueuedBytes = Math.max(
+          0,
+          stdoutQueuedBytes - (value?.byteLength || 0),
+        );
+        if (
+          typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__
+        ) {
+          observeAcpRuntimeGauge(
+            args.performanceProfileRequestId,
+            "transport_queue_entries",
+            {},
+            stdoutQueue.length,
+          );
+          observeAcpRuntimeGauge(
+            args.performanceProfileRequestId,
+            "transport_queue_bytes",
+            {},
+            stdoutQueuedBytes,
+          );
+        }
+      },
     }),
     close: async (options?: AcpTransportCloseOptions) => {
       lifecycle.closeRequestedAt ||= nowIso();

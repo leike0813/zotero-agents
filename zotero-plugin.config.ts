@@ -1,6 +1,7 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
+import { acpRuntimeProfilerSideEffectsPlugin } from "./scripts/acp-runtime-profiler-esbuild";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
 type TestMode = "lite" | "full";
@@ -121,6 +122,8 @@ export default defineConfig({
           __debug_mode__: String(DEBUG_MODE),
         },
         bundle: true,
+        minifySyntax: true,
+        plugins: [acpRuntimeProfilerSideEffectsPlugin],
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },

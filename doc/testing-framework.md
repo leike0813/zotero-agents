@@ -374,6 +374,28 @@ Required policy:
   - event-loop lag
   - host resource snapshots
   - raw snapshots plus computed duration/lag/resource summary
+  - bounded ACP runtime performance profiles when the debug-only profiler is
+    explicitly enabled and has data
+
+ACP runtime profiling has two complementary validation layers:
+
+- `test/core/175-acp-runtime-performance-profiler.test.ts` locks activation,
+  lifecycle, aggregation, bounds, drift sampling, immutability, and failure
+  isolation.
+- `test/core/176-acp-silent-runtime-performance-baseline.test.ts` runs a
+  deterministic 1,000-update silent fixture with a fixed clock. It locks
+  mechanism-level counts, aggregation, and boundedness, not wall-clock speed.
+- ACP connection, Host Bridge, runtime diagnostic bundle, and performance
+  digest tests verify request attribution and export through real module entry
+  points.
+- `npm run check:acp-profiler-release-elision` bundles the real plugin entry in
+  debug and non-debug modes and requires the non-debug profiler contribution to
+  be zero bytes.
+
+Running the same scenario in Zotero 7 and Zotero 9 is optional real-host
+calibration. It is useful for measuring host-specific timings and event-loop
+drift, but is not a completion gate for profiler correctness and CI does not
+lock machine-specific millisecond thresholds.
 
 Diagnosis order:
 

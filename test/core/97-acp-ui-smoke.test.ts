@@ -9051,6 +9051,39 @@ describe("acp ui smoke", function () {
     }
   });
 
+  it("keeps ACP runtime profiler data out of workspace snapshots and shell render state", async function () {
+    const assistantSidebar = await readProjectFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+    );
+    const acpSkillRunJs = await readProjectFile(
+      "addon/content/sidebar/acp-skill-run.js",
+    );
+    const assistantWorkspaceJs = await readProjectFile(
+      "addon/content/sidebar/assistant-workspace.js",
+    );
+    const signatureStart = assistantSidebar.indexOf(
+      "function buildAcpSkillRunSnapshotSignature",
+    );
+    const signatureEnd = assistantSidebar.indexOf(
+      "async function postAcpSkillRunSnapshot",
+      signatureStart,
+    );
+    assert.isAtLeast(signatureStart, 0);
+    assert.isAbove(signatureEnd, signatureStart);
+    const signatureSource = assistantSidebar.slice(
+      signatureStart,
+      signatureEnd,
+    );
+
+    assert.include(assistantSidebar, '"panel_signature_duration"');
+    assert.notInclude(signatureSource, "performanceProfiles");
+    assert.notInclude(signatureSource, "runtimePerformanceProfiles");
+    assert.notInclude(acpSkillRunJs, "performanceProfiles");
+    assert.notInclude(acpSkillRunJs, "runtimePerformanceProfiles");
+    assert.notInclude(assistantWorkspaceJs, "performanceProfiles");
+    assert.notInclude(assistantWorkspaceJs, "runtimePerformanceProfiles");
+  });
+
   it("canonicalizes ACP Skills host snapshot signatures for selected loading isolation", async function () {
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",

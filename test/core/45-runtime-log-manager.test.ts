@@ -18,6 +18,13 @@ import {
   setRuntimeLogAllowedLevels,
   snapshotRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  incrementAcpRuntimeMetric,
+  resetAcpRuntimePerformanceProfilerForTests,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 
 describe("runtime log manager", function () {
   function readPersistedRuntimeLogDocument() {
@@ -35,9 +42,46 @@ describe("runtime log manager", function () {
   });
 
   afterEach(function () {
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
     clearRuntimeLogs();
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
+  });
+
+  it("includes active profiler aggregates only when the debug profiler is enabled", function () {
+    assert.notProperty(buildRuntimeDiagnosticBundle(), "performanceProfiles");
+    assert.notProperty(
+      buildRuntimeIssueDiagnosticBundle(),
+      "performanceProfiles",
+    );
+
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "diagnostic-profile",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    incrementAcpRuntimeMetric("diagnostic-profile", "session_update", {
+      updateClass: "assistant-message",
+    });
+
+    const rawBundle = buildRuntimeDiagnosticBundle();
+    const issueBundle = buildRuntimeIssueDiagnosticBundle();
+    assert.equal(
+      rawBundle.performanceProfiles?.active[0].requestId,
+      "diagnostic-profile",
+    );
+    assert.equal(
+      issueBundle.performanceProfiles?.active[0].requestId,
+      "diagnostic-profile",
+    );
+    assert.equal(
+      rawBundle.performanceProfiles?.active[0].metrics[0].counter?.total,
+      1,
+    );
   });
 
   it("normalizes schema and redacts sensitive fields", function () {
