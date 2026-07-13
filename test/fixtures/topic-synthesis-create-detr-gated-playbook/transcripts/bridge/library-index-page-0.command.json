@@ -3,7 +3,7 @@
     "zotero-bridge",
     "synthesis",
     "get-library-index",
-    "--input",
+    "--query",
     "{\"cursor\": 0, \"limit\": 200}"
   ],
   "cwd": "<redacted-local-path>",

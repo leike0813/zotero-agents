@@ -261,7 +261,7 @@ def run_bridge(
     command = [str(executable), *args]
     request = {"command": command, "payload": payload or {}}
     if payload is not None:
-        command.extend(["--input", json.dumps(payload, ensure_ascii=False)])
+        command.extend(["--query", json.dumps(payload, ensure_ascii=False)])
     completed = subprocess.run(
         command,
         cwd=run_root,

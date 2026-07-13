@@ -755,15 +755,19 @@ async function installFakeBridge(
 const fs = require("fs");
 const path = require("path");
 const args = process.argv.slice(2);
-const inputFlag = args.indexOf("--input");
-const inputArg = inputFlag >= 0 ? args[inputFlag + 1] : "{}";
+if (args.includes("--input")) {
+  console.error("semantic reads must use --query");
+  process.exit(64);
+}
+const queryFlag = args.indexOf("--query");
+const inputArg = queryFlag >= 0 ? args[queryFlag + 1] : "{}";
 let input = {};
 if (inputArg.startsWith("@")) {
   input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), inputArg.slice(1)), "utf8"));
 } else {
   input = JSON.parse(inputArg);
 }
-const command = args.slice(0, inputFlag >= 0 ? inputFlag : args.length).join(" ");
+const command = args.slice(0, queryFlag >= 0 ? queryFlag : args.length).join(" ");
 fs.appendFileSync(path.resolve(process.cwd(), "bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\\n", "utf8");
 function reply(result) {
   console.log(JSON.stringify({ ok: true, data: { result } }));

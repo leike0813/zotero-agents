@@ -77,15 +77,23 @@ async function createFakeBridge(runRoot: string) {
 const fs = require("fs");
 const path = require("path");
 const args = process.argv.slice(2);
-const inputIndex = args.indexOf("--input");
+if (args.includes("--input")) {
+  console.error("semantic reads must use --query");
+  process.exit(64);
+}
+const queryIndex = args.indexOf("--query");
 let input = {};
-if (inputIndex >= 0) {
-  const raw = args[inputIndex + 1] || "{}";
+if (queryIndex >= 0) {
+  const raw = args[queryIndex + 1] || "{}";
   input = raw.startsWith("@")
     ? JSON.parse(fs.readFileSync(path.resolve(raw.slice(1)), "utf8"))
     : JSON.parse(raw);
 }
-const command = args.slice(0, inputIndex >= 0 ? inputIndex : args.length).join(" ");
+const isItemGet = args.slice(0, 3).join(" ") === "library item get";
+const command = isItemGet
+  ? "library item get"
+  : args.slice(0, queryIndex >= 0 ? queryIndex : args.length).join(" ");
+fs.appendFileSync(path.resolve("bridge-calls.jsonl"), JSON.stringify({ command, args, input }) + "\n");
 let data = {};
 if (command === "bridge status") data = { status: "ok" };
 else if (command === "synthesis topic list") {
@@ -94,7 +102,7 @@ else if (command === "synthesis topic list") {
     ? { topics: [{ topic_id: "topic-a", title: "Graph Evidence", definition: "Citation graph evidence selection" }], cursor: "0", next_cursor: "1", has_more: true }
     : { topics: [{ topic_id: "topic-b", title: "Unrelated", definition: "Other research" }], cursor: "1", next_cursor: "", has_more: false };
 }
-else if (command === "library item search") data = input.query.includes("graph")
+else if (command === "library item search") data = input.text.includes("graph")
   ? [{ key: "AAAA1111", libraryId: 1, title: "Graph-grounded synthesis", creators: ["A"], year: "2024" }, { key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }]
   : [{ key: "BBBB2222", libraryId: 1, title: "Evidence selection", creators: ["B"], year: "2023" }];
 else if (command === "synthesis topic get-review-input") data = { topic: { topic_id: input.topicId, markdown: "# Graph Evidence" }, resolved_paper_set: { papers: [{ paper_ref: "1:AAAA1111" }] }, citation_graph_slice: { nodes: [], edges: [] }, diagnostics: { warnings: [] } };
@@ -109,6 +117,7 @@ else if (command === "synthesis artifact export-filtered") {
     process.exit(0);
   }
   const papers = refs.map((paper_ref, index) => {
+    if (index === refs.length - 1) return { paper_ref, artifacts: [] };
     const content_file = "runtime/payloads/artifacts/digest-" + (index + 1) + ".md";
     const absolute = path.resolve(content_file);
     fs.mkdirSync(path.dirname(absolute), { recursive: true });
@@ -119,7 +128,11 @@ else if (command === "synthesis artifact export-filtered") {
   fs.writeFileSync(path.resolve(manifest_file), JSON.stringify({ schema_id: "synthesis.filtered_paper_artifacts_manifest", papers }));
   data = { paper_refs: refs, manifest_file, artifact_statuses: [] };
 }
-else if (command === "library item get") data = { key: input.key, libraryId: Number(input.libraryId || 1), title: "Detail " + input.key, fields: { abstractNote: "Graph evidence abstract" } };
+else if (command === "library item get") {
+  const key = args[args.indexOf("--key") + 1];
+  const libraryId = Number(args[args.indexOf("--library-id") + 1]);
+  data = { key, libraryId, title: "Detail " + key, fields: { abstractNote: "Graph evidence abstract" } };
+}
 else if (command === "synthesis graph get-metrics") data = { ok: true, status: "ready", graph_hash: "sha256:graph", metrics_hash: "sha256:metrics", items: (input.paperRefs || []).map((paper_ref, index) => ({ paper_ref, foundation_score: 0.9 - index * 0.1, frontier_score: 0.7, pagerank_norm: 0.6, in_degree_norm: 0.5 })), cursor: "0", nextCursor: "", hasMore: false, diagnostics: { stale: false, warnings: [] } };
 else if (command === "library readiness audit") data = { items: [{ key: input.query, libraryId: Number(input.libraryId), readiness: input.query === "BBBB2222" ? { markdown: "missing", pdf: "present", analysis: "present" } : { markdown: "present", pdf: "present", analysis: "present" }, evidence: {} }], hasMore: false, nextCursor: "" };
 else { console.error("unsupported fake command: " + command); process.exit(2); }
@@ -327,6 +340,33 @@ describe("export research bundle skill runtime", function () {
         )
         .map((row: any) => row.paper_ref),
     );
+    const bridgeCalls = (await fs.readFile(
+      path.join(runRoot, "bridge-calls.jsonl"),
+      "utf8",
+    ))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line));
+    const searchCalls = bridgeCalls.filter(
+      (call) => call.command === "library item search",
+    );
+    assert.isNotEmpty(searchCalls);
+    for (const call of searchCalls) {
+      assert.isString(call.input.text);
+      assert.notProperty(call.input, "query");
+      assert.include(call.args, "--query");
+      assert.notInclude(call.args, "--input");
+    }
+    const itemGetCalls = bridgeCalls.filter(
+      (call) => call.command === "library item get",
+    );
+    assert.isNotEmpty(itemGetCalls);
+    for (const call of itemGetCalls) {
+      assert.include(call.args, "--key");
+      assert.include(call.args, "--library-id");
+      assert.notInclude(call.args, "--query");
+      assert.notInclude(call.args, "--input");
+    }
   });
 
   it("publishes bounded semantic relevance in the paper assessment contract", async function () {

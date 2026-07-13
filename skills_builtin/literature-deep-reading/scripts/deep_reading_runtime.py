@@ -737,7 +737,7 @@ def run_bridge_json(run_root: Path, subcommand: list[str], payload: dict[str, An
     input_path = PAYLOADS_DIR / input_name
     write_json(input_path, payload)
     completed = subprocess.run(
-        [str(bridge), *subcommand, "--input", f"@runtime/payloads/{input_name}"],
+        [str(bridge), *subcommand, "--query", f"@runtime/payloads/{input_name}"],
         cwd=str(run_root),
         capture_output=True,
         encoding="utf-8",

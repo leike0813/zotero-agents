@@ -6,7 +6,7 @@
   "payload_path": "runtime/payloads/create-topic-context.json",
   "payload_schema": "assets/schemas/stage-10-create-topic-context.schema.json",
   "required_reads": [
-    "zotero-bridge synthesis topic list --input '{}'"
+    "zotero-bridge synthesis topic list --query '{}'"
   ],
   "schema_id": "synthesis.topic_synthesis_gate_instruction",
   "schema_version": "1.0.0",

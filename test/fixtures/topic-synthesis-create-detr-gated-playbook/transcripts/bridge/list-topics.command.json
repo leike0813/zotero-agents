@@ -3,7 +3,7 @@
     "zotero-bridge",
     "synthesis",
     "list-topics",
-    "--input",
+    "--query",
     "{}"
   ],
   "cwd": "<redacted-local-path>",
