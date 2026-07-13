@@ -34,6 +34,18 @@ The published bundle includes `install.ps1`, `install.sh`, and `assets/profile.t
 
 Use the run-local shim first when it exists. If the observed `zotero-bridge` version differs from the expected version in the generated surface, prefer the workspace-injected skill and shim, then inspect `<zotero-bridge> --help` or `references/host-bridge-cli.md` beside that workspace copy before issuing task commands.
 
+## Provider Runtime Profiles
+
+`--profile` and `ZOTERO_BRIDGE_PROFILE` select the Host Bridge connection profile; they do not select a workflow provider runtime. A workflow `provider` is the runtime family, a `backendId` selects its configured backend, and `--provider-profile` is an external agent's request-level JSON preset for that backend and its non-sensitive `providerOptions`.
+
+For an ACP workflow whose external preset authorizes ACP tool-permission automation, submit the option inline:
+
+```bash
+zotero-bridge workflow submit ... --provider-profile '{"providerOptions":{"autoApproveAcpPermissions":true}}'
+```
+
+This option applies only to the submitted ACP run. It neither grants Zotero write access nor configures `autoApproveZoteroWrites`, and it does not persist in Host Bridge. It is not a CLI command to approve or reject a pending permission request.
+
 ## Workflow Model
 
 Use `workflow describe --workflow <workflowId>` or `workflow requirements --workflow <workflowId>` before submitting a workflow whose input shape, output contract, or execution mode is uncertain. Use `workflow validate` when you have a draft selection, workflow options, or provider profile and need to check readiness without starting a run.

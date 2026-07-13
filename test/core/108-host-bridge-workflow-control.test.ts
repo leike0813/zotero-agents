@@ -62,7 +62,7 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { JobRecord } from "../../src/jobQueue/manager";
-import { setPref } from "../../src/utils/prefs";
+import { getPref, setPref } from "../../src/utils/prefs";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 function parseRawHttpResponse(raw: string) {
@@ -1016,6 +1016,63 @@ describe("host bridge workflow control", function () {
       "missing_required_workflow_parameter",
     );
     assert.deepEqual(validate.json.error.details.requiredFields, ["scope"]);
+  });
+
+  it("accepts ACP permission auto-approval in an ACP provider profile", async function () {
+    const previousBackends = getPref("backendsConfigJson");
+    try {
+      setPref(
+        "backendsConfigJson",
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: "acp-opencode",
+              displayName: "OpenCode ACP",
+              type: "acp",
+              baseUrl: "local://acp-opencode",
+              command: "opencode",
+              args: ["acp"],
+              auth: { kind: "none" },
+            },
+          ],
+        }),
+      );
+      const entry = workflow("acp-bridge-workflow");
+      entry.manifest.provider = "skillrunner";
+      entry.manifest.request = { kind: "skillrunner.job.v1" };
+      installWorkflowRegistryForTests([entry]);
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-token",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/describe",
+        body: {
+          workflowId: "acp-bridge-workflow",
+          providerProfile: {
+            backendId: "acp-opencode",
+            providerOptions: { autoApproveAcpPermissions: true },
+          },
+        },
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.strictEqual(parsed.json.status, "ok");
+      assert.strictEqual(parsed.json.result.providerId, "acp");
+      assert.strictEqual(
+        parsed.json.result.providerProfile.selectedBackendId,
+        "acp-opencode",
+      );
+      assert.deepEqual(
+        parsed.json.result.providerProfile.normalizedProviderOptions,
+        { autoApproveAcpPermissions: true },
+      );
+    } finally {
+      setPref("backendsConfigJson", previousBackends);
+    }
   });
 
   it("rejects unsafe provider profile fields before workflow describe", async function () {

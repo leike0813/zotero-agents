@@ -53,10 +53,10 @@
       "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
       "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
     },
-    "profileVersion": "0.2.1",
+    "profileVersion": "0.2.2",
     "zoteroBridgeCliVersion": "0.2.1",
-    "profileVersionSourceChecksum": "7f2f775fbc65573d7338f5086c3aff0bf135c00d257afd284ec9e27c1b2e7f76",
-    "semanticSourceChecksum": "43682a782afe36177e81efe8359eb50a821e0ab02522cadba2266eb07919407a",
+    "profileVersionSourceChecksum": "28c8146b5c4cb76660e021d68912c4e3a9a4d336dee3ea055fcf06376eb402b0",
+    "semanticSourceChecksum": "c0845fc7e1c4c3da73310a3e7b479fb37913c7eb2fec6adbc73cefba0a2b08cf",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
   }
 }

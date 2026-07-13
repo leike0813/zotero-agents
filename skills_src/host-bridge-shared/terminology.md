@@ -2,6 +2,12 @@
 
 Use this reference when a user uses Chinese shorthand, domain abbreviations, or artifact names that could map to multiple Host Bridge concepts. Prefer these canonical meanings unless the user explicitly defines a different context.
 
+| Term | Canonical meaning |
+| --- | --- |
+| Provider | The workflow runtime family that interprets provider-specific options, such as ACP. |
+| Backend | A configured concrete connection or executable instance selected by `backendId` for a provider. |
+| Provider profile | An external agent's request-level preset that combines a backend selection with non-sensitive provider-specific `providerOptions`. Host Bridge validates and applies it only to that request; it does not store or manage it. |
+
 | 中文别名 | Canonical term | 含义 | 不要混淆 | 推荐入口 |
 | --- | --- | --- | --- | --- |
 | 图谱、引文图谱、citation graph | Synthesis citation graph | Synthesis 持久化的文献引用关系和图指标视图。 | 不等同于普通知识图谱、UI 示意图、topic map、概念网络。 | `zotero-bridge synthesis graph ...` |
