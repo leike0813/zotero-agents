@@ -2285,7 +2285,7 @@ mod tests {
             none: false,
             workflow_options: Some("{\"language\":\"zh-CN\"}".to_string()),
             provider_profile: Some(
-                "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\"}}".to_string(),
+                "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\",\"autoApproveAcpPermissions\":true}}".to_string(),
             ),
         })
         .unwrap();
@@ -2309,7 +2309,8 @@ mod tests {
                     "schema": "zotero-bridge.provider-profile.v1",
                     "backendId": "acp-opencode",
                     "providerOptions": {
-                        "acpModelId": "gpt-5.2"
+                        "acpModelId": "gpt-5.2",
+                        "autoApproveAcpPermissions": true
                     }
                 }
             })

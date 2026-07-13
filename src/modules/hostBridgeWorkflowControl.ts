@@ -539,8 +539,7 @@ function isUnsafeProviderProfileKey(key: string) {
     normalized.includes("baseurl") ||
     normalized.includes("path") ||
     normalized === "url" ||
-    normalized === "endpoint" ||
-    normalized === "autoapproveacppermissions"
+    normalized === "endpoint"
   );
 }
 

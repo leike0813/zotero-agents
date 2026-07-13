@@ -142,6 +142,10 @@ Use `product list --limit <n>` and returned cursor metadata for bounded product 
 
 `product remove <productId>` removes the Dashboard Product record through Zotero approval. It does not delete managed asset files immediately; do not retry an approval denial with a raw call.
 
+## Request-Level Provider Profiles
+
+Use `--provider-profile` only for a request-level provider profile supplied by the calling agent or workflow. It selects a concrete backend for a provider and the options for that backend; it does not select or modify the Host Bridge profile. For an ACP workflow that permits it, include `{"providerOptions":{"autoApproveAcpPermissions":true}}` to approve ACP backend tool permission requests for that submitted run; this neither approves Zotero writes nor approves or rejects pending requests exposed by `run permission`.
+
 ## Workflow Execution Choices
 
 Choose `workflow submit` when Host Bridge should run the workflow. The result is a `workflowRunId`; monitor it with `run get`, `run active`, or `run notification ...`, and use `run skill ...` for explicit skill-run interaction.
