@@ -19,6 +19,9 @@ export type AcpRuntimeMetricName =
   | "adapter_trace"
   | "adapter_diagnostic"
   | "session_update"
+  | "semantic_event"
+  | "semantic_event_bytes"
+  | "semantic_event_duration"
   | "diagnostic_run_upsert"
   | "run_persist"
   | "run_persist_bytes"
@@ -98,6 +101,8 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "audit"
     | "runtime-log"
     | "other";
+  semanticKind: string;
+  disposition: "projected" | "consumed-noop" | "skipped" | "unknown";
 }>;
 
 export type AcpRuntimeProfileContext = {
@@ -166,6 +171,7 @@ type ProfilerTestOptions = {
 type ProfilerState = {
   global: ProfileState;
   active: Map<string, ProfileState>;
+  aliases: Map<string, string>;
   completed: ProfileState[];
   timer: TimerHandle | null;
   expectedDriftAtMs: number;
@@ -242,6 +248,7 @@ function createState(): ProfilerState {
       zoteroMajor: "unknown",
     }),
     active: new Map(),
+    aliases: new Map(),
     completed: [],
     timer: null,
     expectedDriftAtMs: 0,
@@ -256,6 +263,8 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     "surfaceState",
     "operationClass",
     "persistenceChannel",
+    "semanticKind",
+    "disposition",
   ] as const) {
     const value = labels[key];
     if (value) {
@@ -277,7 +286,13 @@ function resolveProfile(requestIdRaw?: string | null) {
     return null;
   }
   const requestId = String(requestIdRaw || "").trim();
-  return requestId ? state.active.get(requestId) || null : state.global;
+  if (!requestId) return state.global;
+  const rootRequestId = state.aliases.get(requestId);
+  return (
+    state.active.get(requestId) ||
+    (rootRequestId ? state.active.get(rootRequestId) : null) ||
+    null
+  );
 }
 
 function getOrCreateSeries(
@@ -335,6 +350,9 @@ function scheduleDriftProbe() {
       readAcpRuntimePerformanceClockMs() - state.expectedDriftAtMs,
     );
     observeAcpRuntimeDuration(null, "event_loop_drift", {}, drift);
+    for (const requestId of state.active.keys()) {
+      observeAcpRuntimeDuration(requestId, "event_loop_drift", {}, drift);
+    }
     scheduleDriftProbe();
   }, DRIFT_INTERVAL_MS);
 }
@@ -387,6 +405,28 @@ export function startAcpRuntimeProfile(context: AcpRuntimeProfileContext) {
   });
 }
 
+export function registerAcpRuntimeProfileAlias(
+  rootRequestIdRaw: string,
+  aliasRequestIdRaw: string,
+) {
+  if (!enabled || !state || !isProfilerDebugModeEnabled()) return false;
+  const rootRequestId = String(rootRequestIdRaw || "").trim();
+  const aliasRequestId = String(aliasRequestIdRaw || "").trim();
+  if (
+    !rootRequestId ||
+    !aliasRequestId ||
+    rootRequestId === aliasRequestId ||
+    !state.active.has(rootRequestId) ||
+    (state.active.has(aliasRequestId) && aliasRequestId !== rootRequestId)
+  ) {
+    return false;
+  }
+  const existingRoot = state.aliases.get(aliasRequestId);
+  if (existingRoot && existingRoot !== rootRequestId) return false;
+  state.aliases.set(aliasRequestId, rootRequestId);
+  return true;
+}
+
 export function finishAcpRuntimeProfile(requestIdRaw: string) {
   recordSafely(() => {
     if (!state) {
@@ -398,6 +438,9 @@ export function finishAcpRuntimeProfile(requestIdRaw: string) {
       return;
     }
     state.active.delete(requestId);
+    for (const [aliasRequestId, rootRequestId] of state.aliases) {
+      if (rootRequestId === requestId) state.aliases.delete(aliasRequestId);
+    }
     profile.finishedAtMs = readAcpRuntimePerformanceClockMs();
     state.completed.push(profile);
     if (state.completed.length > MAX_COMPLETED_PROFILES) {

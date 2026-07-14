@@ -13,6 +13,7 @@ import {
   isAcpRuntimePerformanceProfilerEnabled,
   observeAcpRuntimeDuration,
   observeAcpRuntimeGauge,
+  registerAcpRuntimeProfileAlias,
   resetAcpRuntimePerformanceProfilerForTests,
   snapshotAcpRuntimeProfiles,
   startAcpRuntimeProfile,
@@ -126,6 +127,49 @@ describe("ACP runtime performance profiler", function () {
     assert.notProperty(profile || {}, "samples");
   });
 
+  it("attributes only explicitly registered synthetic owners to the root profile", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "replay-root",
+      displayMode: "live",
+      transport: "unknown",
+      zoteroMajor: 9,
+    });
+
+    assert.isTrue(
+      registerAcpRuntimeProfileAlias("replay-root", "replay-request"),
+    );
+    incrementAcpRuntimeMetric("replay-request", "run_persist");
+    incrementAcpRuntimeMetric("unrelated-request", "run_persist", {}, 99);
+    finishAcpRuntimeProfile("replay-root");
+
+    const profile = snapshotAcpRuntimeProfiles()?.completed[0];
+    assert.equal(
+      profile?.metrics.find((entry) => entry.name === "run_persist")?.counter
+        ?.total,
+      1,
+    );
+    assert.isFalse(
+      registerAcpRuntimeProfileAlias("replay-root", "late-request"),
+    );
+  });
+
+  it("rejects alias collisions between active profiles", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    for (const requestId of ["root-a", "root-b"]) {
+      startAcpRuntimeProfile({
+        requestId,
+        displayMode: "live",
+        transport: "unknown",
+        zoteroMajor: 9,
+      });
+    }
+    assert.isTrue(registerAcpRuntimeProfileAlias("root-a", "child"));
+    assert.isFalse(registerAcpRuntimeProfileAlias("root-b", "child"));
+  });
+
   it("uses one drift timer and finishes a request once", function () {
     setDebugModeOverrideForTests(true);
     let now = 0;
@@ -167,6 +211,12 @@ describe("ACP runtime performance profiler", function () {
     )?.duration;
     assert.equal(drift?.count, 1);
     assert.equal(drift?.maxMs, 51);
+    assert.equal(
+      snapshotAcpRuntimeProfiles()?.active[0].metrics.find(
+        (entry) => entry.name === "event_loop_drift",
+      )?.duration?.maxMs,
+      51,
+    );
 
     finishAcpRuntimeProfile("run-a");
     finishAcpRuntimeProfile("run-a");

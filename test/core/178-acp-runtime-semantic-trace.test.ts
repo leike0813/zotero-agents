@@ -10,14 +10,19 @@ import {
 } from "../../src/modules/acpRuntimeSemanticTrace";
 import {
   armAcpRuntimeSemanticTraceRecorder,
+  cancelAcpRuntimeSemanticTraceRecorder,
   discardAcpRuntimeSemanticTracePartialForTests,
   getAcpRuntimeSemanticTraceRecorderView,
   recordAcpRuntimeSemanticTraceEvent,
+  resetAcpRuntimeSemanticTraceRecorder,
   saveFrozenAcpRuntimeSemanticTrace,
   stopAcpRuntimeSemanticTraceRecorder,
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
-import { resetAcpRuntimeDiagnosticsModeForTests } from "../../src/modules/acpRuntimeDiagnosticsMode";
+import {
+  getAcpRuntimeDiagnosticsMode,
+  resetAcpRuntimeDiagnosticsModeForTests,
+} from "../../src/modules/acpRuntimeDiagnosticsMode";
 
 async function assertRejects(promise: Promise<unknown>, pattern: RegExp) {
   try {
@@ -319,5 +324,90 @@ describe("ACP runtime semantic trace", function () {
       saveFrozenAcpRuntimeSemanticTrace(),
       /not a complete frozen trace/,
     );
+  });
+
+  it("cancels to a preserved incomplete partial and starts another round", async function () {
+    const first = await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-chat-conversation",
+      root: tempRoot,
+    });
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-start",
+      sourceKind: "acp-chat-conversation",
+      owner: { rootId: "canceled-root" },
+      payload: {},
+    });
+    const canceled = await cancelAcpRuntimeSemanticTraceRecorder();
+    assert.equal(canceled.state, "frozen");
+    assert.equal(canceled.completion, "incomplete");
+    assert.equal(canceled.warnings[0]?.code, "user-canceled");
+    assert.equal(getAcpRuntimeDiagnosticsMode(), "idle");
+    assert.isTrue(await fs.stat(first.partialPath || "").then(() => true));
+    const canceledTrace = await loadAcpRuntimeSemanticTrace(
+      first.partialPath || "",
+    );
+    assert.equal(canceledTrace.footer.completion, "incomplete");
+    assert.equal(canceledTrace.footer.warnings[0]?.code, "user-canceled");
+
+    await resetAcpRuntimeSemanticTraceRecorder();
+    assert.equal(getAcpRuntimeSemanticTraceRecorderView().state, "idle");
+    const second = await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-workflow-execution",
+      root: tempRoot,
+    });
+    assert.notEqual(second.partialPath, first.partialPath);
+  });
+
+  it("resets a saved round without deleting its trace", async function () {
+    await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-chat-conversation",
+      root: tempRoot,
+    });
+    const owner = { rootId: "saved-root" };
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-start",
+      sourceKind: "acp-chat-conversation",
+      owner,
+      payload: {},
+    });
+    await recordAcpRuntimeSemanticTraceEvent({
+      kind: "root-end",
+      sourceKind: "acp-chat-conversation",
+      owner,
+      payload: {},
+    });
+    await stopAcpRuntimeSemanticTraceRecorder();
+    const saved = await saveFrozenAcpRuntimeSemanticTrace();
+    await resetAcpRuntimeSemanticTraceRecorder();
+    assert.equal(getAcpRuntimeSemanticTraceRecorderView().state, "idle");
+    assert.isTrue(await fs.stat(saved.path).then(() => true));
+    const next = await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-chat-conversation",
+      root: tempRoot,
+    });
+    assert.match(next.partialPath || "", /\.ndjson\.partial$/);
+  });
+
+  it("releases diagnostic ownership when recorder setup fails", async function () {
+    const blockedRoot = path.join(tempRoot, "not-a-directory");
+    await fs.writeFile(blockedRoot, "blocked", "utf8");
+    await assertRejects(
+      armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-chat-conversation",
+        root: blockedRoot,
+      }),
+      /ENOTDIR|not a directory/i,
+    );
+    assert.equal(getAcpRuntimeDiagnosticsMode(), "idle");
+    assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+      state: "frozen",
+      completion: "incomplete",
+    });
+    await resetAcpRuntimeSemanticTraceRecorder();
+    await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-chat-conversation",
+      root: tempRoot,
+    });
+    assert.equal(getAcpRuntimeSemanticTraceRecorderView().state, "armed");
   });
 });

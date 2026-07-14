@@ -330,6 +330,28 @@
     if (wrapped) wrapped[bridgeKeyForTab(tab)] = bridge;
   }
 
+  function requestChildReady(tab, reason) {
+    const frame = frameForTab(tab);
+    const frameWindow = frame && frame.contentWindow;
+    if (!frameWindow) {
+      traceAction("child-ready-request-drop-no-frame", { tab, reason });
+      return false;
+    }
+    installChildBridge(tab);
+    traceAction("child-ready-request", { tab, reason });
+    frameWindow.postMessage(
+      { type: "assistant-workspace:child-ready-request" },
+      "*",
+    );
+    return true;
+  }
+
+  function requestAllChildrenReady(reason) {
+    tabs.forEach(function (tab) {
+      requestChildReady(tab, reason);
+    });
+  }
+
   function childDeliveryKey(tab, phase, generation) {
     return [tab, phase, String(generation || 0)].join(":");
   }
@@ -606,9 +628,7 @@
       queueChildReplay(normalizedTab, "child-ready:" + normalizedTab);
     }
     updateLoadingState();
-    if (firstReady) {
-      sendChildAction(normalizedTab, "ready", payload || {});
-    }
+    sendChildAction(normalizedTab, "ready", payload || {});
   }
 
   function normalizeTab(tab, fallback) {
@@ -653,6 +673,7 @@
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     traceAction("frame-load", { tab: normalizedTab });
+    requestChildReady(normalizedTab, "frame-load:" + normalizedTab);
     if (!replayCachedChildPayload(normalizedTab)) {
       queueChildReplay(normalizedTab, "frame-load:" + normalizedTab);
     }
@@ -706,6 +727,7 @@
         notify: false,
         fallback: state.activeTab,
       });
+      requestAllChildrenReady("host-init");
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {
@@ -760,5 +782,6 @@
   });
 
   attachFrameLoadListeners();
+  requestAllChildrenReady("script-start");
   ensureHostReady("script-start");
 })();

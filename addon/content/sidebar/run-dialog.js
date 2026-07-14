@@ -1086,6 +1086,10 @@
   window.addEventListener("message", function (event) {
     const data = event.data;
     if (!data || typeof data !== "object") return;
+    if (data.type === "assistant-workspace:child-ready-request") {
+      sendAction("ready", {});
+      return;
+    }
     if (data.type === "assistant-panel:close-drawers") {
       closeAllDrawers();
       return;
@@ -1114,6 +1118,18 @@
         summary: envelopeSummary(payload || {}),
       });
       render(payload || {});
+      const drainId = safeText(payload && payload.replayPublicationDrainId);
+      if (drainId) {
+        const schedule =
+          typeof window.requestAnimationFrame === "function"
+            ? window.requestAnimationFrame.bind(window)
+            : function (callback) {
+                return setTimeout(callback, 0);
+              };
+        schedule(function () {
+          sendAction("replay-publication-applied", { drainId: drainId });
+        });
+      }
     }
   });
 

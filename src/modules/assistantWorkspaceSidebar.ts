@@ -100,6 +100,7 @@ import {
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
 import { getAcpRuntimeReplayProfileContext } from "./acpRuntimeReplayProfileContext";
+import type { AcpRuntimeReplayCancellationSignal } from "./acpRuntimeReplayProfiler";
 import { normalizeStatus } from "./skillRunnerProviderStateMachine";
 import { showWorkflowToast } from "./workflowExecution/feedbackSeam";
 import {
@@ -170,6 +171,15 @@ type AssistantWorkspaceHostRuntime = {
   lastAcpSkillRunSnapshotSignature?: string | null;
   lastAcpSkillWaitingToastKeys: Set<string>;
   readyTabs: Set<AssistantWorkspaceTab>;
+  replayPublicationNonce: number;
+  pendingReplayPublicationDrainIds: Map<AssistantWorkspaceTab, string>;
+  replayPublicationWaiters: Map<
+    string,
+    {
+      tab: AssistantWorkspaceTab;
+      settle: (result: { ok: boolean; detail?: string }) => void;
+    }
+  >;
 };
 type SkillRunnerSidebarRefreshRequest = {
   target: AcpSidebarTarget;
@@ -218,6 +228,8 @@ const hosts = new WeakMap<
 >();
 const FRAME_WINDOW_WAIT_TIMEOUT_MS = 2000;
 const SHELL_HANDSHAKE_INTERVAL_MS = 500;
+const REPLAY_PUBLICATION_WAIT_TIMEOUT_MS = 10_000;
+const REPLAY_PUBLICATION_POLL_INTERVAL_MS = 25;
 const DEFAULT_TAB: AssistantWorkspaceTab = "acp-chat";
 const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
   "acp-chat",
@@ -870,22 +882,41 @@ function postShellMessage(
     return;
   }
   installShellBridge(host);
+  let messagePayload = payload || {};
+  if (
+    type === "assistant-workspace:child-snapshot" &&
+    messagePayload.snapshot &&
+    typeof messagePayload.snapshot === "object"
+  ) {
+    const tab = normalizeTab(messagePayload.tab);
+    const drainId = host.pendingReplayPublicationDrainIds?.get(tab);
+    if (drainId) {
+      messagePayload = {
+        ...messagePayload,
+        snapshot: {
+          ...(messagePayload.snapshot as Record<string, unknown>),
+          replayPublicationDrainId: drainId,
+        },
+      };
+    }
+  }
   logAssistantWorkspaceDebug(
     host,
     "shell-post",
     "Assistant Workspace shell message posted.",
     {
       type,
-      tab: String(payload?.tab || ""),
-      phase: String(payload?.phase || ""),
+      tab: String(messagePayload.tab || ""),
+      phase: String(messagePayload.phase || ""),
     },
   );
   const profilerPayload =
     type === "assistant-workspace:child-snapshot" &&
-    (payload?.tab === "acp-skills" || payload?.tab === "acp-chat") &&
-    payload.snapshot &&
-    typeof payload.snapshot === "object"
-      ? (payload.snapshot as Record<string, unknown>)
+    (messagePayload.tab === "acp-skills" ||
+      messagePayload.tab === "acp-chat") &&
+    messagePayload.snapshot &&
+    typeof messagePayload.snapshot === "object"
+      ? (messagePayload.snapshot as Record<string, unknown>)
       : null;
   const replayProfileContext =
     (typeof __debug_mode__ === "undefined"
@@ -893,9 +924,14 @@ function postShellMessage(
       : __debug_mode__) && __acp_runtime_replay_profiler_enabled__
       ? getAcpRuntimeReplayProfileContext()
       : undefined;
+  const replayTabMatches =
+    (messagePayload.tab === "acp-chat" &&
+      replayProfileContext?.sourceKind === "acp-chat-conversation") ||
+    (messagePayload.tab === "acp-skills" &&
+      replayProfileContext?.sourceKind === "acp-workflow-execution");
   const requestId =
-    replayProfileContext?.requestId ||
-    (payload?.tab === "acp-skills"
+    (replayTabMatches ? replayProfileContext?.requestId : undefined) ||
+    (messagePayload.tab === "acp-skills"
       ? String(profilerPayload?.selectedRequestId || "").trim()
       : [
           String(profilerPayload?.activeBackendId || "").trim(),
@@ -912,7 +948,7 @@ function postShellMessage(
   frameWindow.postMessage(
     {
       type,
-      payload: payload || {},
+      payload: messagePayload,
     },
     "*",
   );
@@ -1394,7 +1430,9 @@ async function postAcpChatPanelSnapshot(
       ? getAcpRuntimeReplayProfileContext()
       : undefined;
   const profileRequestId =
-    replayProfileContext?.requestId || getActiveAcpChatOwnerKey();
+    (replayProfileContext?.sourceKind === "acp-chat-conversation"
+      ? replayProfileContext.requestId
+      : undefined) || getActiveAcpChatOwnerKey();
   const prepareStartedAt =
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -1632,6 +1670,16 @@ async function postAcpSkillRunSnapshot(
     },
   );
   const selectedBeforeBuild = getSelectedAcpSkillRunRequestId();
+  const replayProfileContext =
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) && __acp_runtime_replay_profiler_enabled__
+      ? getAcpRuntimeReplayProfileContext()
+      : undefined;
+  const profileRequestId =
+    (replayProfileContext?.sourceKind === "acp-workflow-execution"
+      ? replayProfileContext.requestId
+      : undefined) || selectedBeforeBuild;
   const prepareStartedAt =
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -1649,12 +1697,12 @@ async function postAcpSkillRunSnapshot(
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    incrementAcpRuntimeMetric(selectedBeforeBuild, "panel_prepare", {
+    incrementAcpRuntimeMetric(profileRequestId, "panel_prepare", {
       surfaceState:
         host.activeTab === "acp-skills" ? "acp-active" : "open-inactive",
     });
     observeAcpRuntimeDuration(
-      selectedBeforeBuild,
+      profileRequestId,
       "panel_prepare_duration",
       {
         surfaceState:
@@ -1715,18 +1763,15 @@ async function postAcpSkillRunSnapshot(
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
+    incrementAcpRuntimeMetric(profileRequestId, "panel_signature");
     incrementAcpRuntimeMetric(
-      String(snapshot.selectedRequestId || "").trim(),
-      "panel_signature",
-    );
-    incrementAcpRuntimeMetric(
-      String(snapshot.selectedRequestId || "").trim(),
+      profileRequestId,
       "panel_signature_bytes",
       {},
       new TextEncoder().encode(signature).byteLength,
     );
     observeAcpRuntimeDuration(
-      String(snapshot.selectedRequestId || "").trim(),
+      profileRequestId,
       "panel_signature_duration",
       {},
       readAcpRuntimePerformanceClockMs() - signatureStartedAt,
@@ -2519,6 +2564,14 @@ async function handleChildAction(
     publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
     return;
   }
+  if (action === "replay-publication-applied") {
+    const drainId = String(childPayload.drainId || "").trim();
+    const waiter = host.replayPublicationWaiters.get(drainId);
+    if (waiter?.tab === tab) {
+      waiter.settle({ ok: true });
+    }
+    return;
+  }
   if (tab === "skillrunner") {
     if (action === "set-execution-display-mode") {
       setAssistantWorkspaceExecutionDisplayMode(host, childPayload.mode);
@@ -3098,7 +3151,6 @@ function commitAssistantWorkspaceTarget(
     { target },
   );
   host.activeTarget = target;
-  clearAssistantWorkspaceReadyTabs(host, "target-commit");
   clearAssistantWorkspaceInitPublicationState(host, "target-commit");
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
@@ -3335,6 +3387,9 @@ export function installAssistantWorkspaceSidebarShell(
     },
     lastAcpSkillWaitingToastKeys: new Set<string>(),
     readyTabs: new Set<AssistantWorkspaceTab>(),
+    replayPublicationNonce: 0,
+    pendingReplayPublicationDrainIds: new Map<AssistantWorkspaceTab, string>(),
+    replayPublicationWaiters: new Map(),
   };
   mountLibraryPane(host);
   mountReaderPane(host);
@@ -3443,6 +3498,10 @@ export function removeAssistantWorkspaceSidebarShell(
     host.shell.frame.removeEventListener("load", host.shell.frameLoadHandler);
   }
   clearShellBridge(host.shell);
+  for (const waiter of Array.from(host.replayPublicationWaiters.values())) {
+    waiter.settle({ ok: false, detail: "workspace-host-removed" });
+  }
+  host.pendingReplayPublicationDrainIds.clear();
   host.shell.frame?.remove();
   host.library.button?.remove();
   host.library.container?.remove();
@@ -3529,26 +3588,165 @@ export function getAssistantWorkspaceReplayState(args?: {
   };
 }
 
-export async function drainAssistantWorkspaceReplayPublication(args?: {
+type AssistantWorkspaceReplayDrainOptions = {
   window?: _ZoteroTypes.MainWindow;
-}) {
+  tab: AssistantWorkspaceTab;
+  expectedChatOwner?: {
+    backendId: string;
+    conversationId: string;
+  };
+  expectedSkillRequestId?: string;
+  signal?: AcpRuntimeReplayCancellationSignal;
+  timeoutMs?: number;
+};
+
+function assistantWorkspaceReplayReadinessDetail(
+  host: AssistantWorkspaceHostRuntime,
+  args: AssistantWorkspaceReplayDrainOptions,
+) {
+  if (!host.activeTarget) return "workspace-target-not-ready";
+  if (host.activeTab !== args.tab) return "workspace-tab-not-ready";
+  if (!host.shell.ready) return "workspace-shell-not-ready";
+  if (!host.readyTabs.has(args.tab)) return "workspace-child-not-ready";
+  if (args.expectedChatOwner) {
+    const chat = getAcpFrontendSnapshot({ itemMode: "structural" });
+    if (
+      chat.activeBackendId !== args.expectedChatOwner.backendId ||
+      chat.activeConversationId !== args.expectedChatOwner.conversationId
+    ) {
+      return "workspace-owner-not-ready";
+    }
+  }
+  if (
+    args.expectedSkillRequestId &&
+    getSelectedAcpSkillRunRequestId() !== args.expectedSkillRequestId
+  ) {
+    return "workspace-owner-not-ready";
+  }
+  return "";
+}
+
+function assistantWorkspaceReplayTimeoutDetail(
+  detail: string,
+  tab: AssistantWorkspaceTab,
+) {
+  if (detail === "workspace-shell-not-ready") {
+    return "workspace-shell-ready-timeout";
+  }
+  if (detail === "workspace-child-not-ready") {
+    return `workspace-child-ready-timeout:${tab}`;
+  }
+  if (detail === "workspace-owner-not-ready") {
+    return `workspace-owner-ready-timeout:${tab}`;
+  }
+  if (detail === "workspace-tab-not-ready") {
+    return `workspace-tab-ready-timeout:${tab}`;
+  }
+  return "workspace-target-ready-timeout";
+}
+
+export async function drainAssistantWorkspaceReplayPublication(
+  args: AssistantWorkspaceReplayDrainOptions,
+) {
   const win =
-    args?.window ||
+    args.window ||
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
   const host = win ? hosts.get(win) : undefined;
-  if (!host?.activeTarget || !host.shell.ready) {
-    return { ok: false, detail: "workspace-shell-not-ready" };
+  if (!host) return { ok: false, detail: "workspace-host-not-ready" };
+  const timeoutMs = Math.max(
+    1,
+    Number(args.timeoutMs) || REPLAY_PUBLICATION_WAIT_TIMEOUT_MS,
+  );
+  const deadline = Date.now() + timeoutMs;
+  let readinessDetail = assistantWorkspaceReplayReadinessDetail(host, args);
+  while (readinessDetail) {
+    if (args.signal?.aborted) {
+      return { ok: false, detail: "workspace-publication-aborted" };
+    }
+    if (hosts.get(host.win) !== host) {
+      return { ok: false, detail: "workspace-host-removed" };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        ok: false,
+        detail: assistantWorkspaceReplayTimeoutDetail(
+          readinessDetail,
+          args.tab,
+        ),
+      };
+    }
+    await waitForTimeout(
+      Math.min(REPLAY_PUBLICATION_POLL_INTERVAL_MS, deadline - Date.now()),
+    );
+    readinessDetail = assistantWorkspaceReplayReadinessDetail(host, args);
   }
-  if (host.activeTab === "acp-chat") {
-    await postAcpChatPanelSnapshot(host, host.activeTarget, "snapshot");
-  } else if (host.activeTab === "acp-skills") {
-    await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
-  } else {
-    postSnapshotForTab(host, host.activeTarget, host.activeTab, "snapshot", {
-      force: true,
+
+  host.replayPublicationNonce += 1;
+  const drainId = `replay-publication-${host.replayPublicationNonce}-${args.tab}`;
+  host.pendingReplayPublicationDrainIds.set(args.tab, drainId);
+  let settleWaiter:
+    | ((result: { ok: boolean; detail?: string }) => void)
+    | undefined;
+  const acknowledgement = new Promise<{ ok: boolean; detail?: string }>(
+    (resolve) => {
+      let settled = false;
+      const onAbort = () =>
+        settleWaiter?.({
+          ok: false,
+          detail: "workspace-publication-aborted",
+        });
+      const timer = setTimeout(
+        () => {
+          settleWaiter?.({
+            ok: false,
+            detail: `workspace-publication-timeout:${args.tab}`,
+          });
+        },
+        Math.max(1, deadline - Date.now()),
+      );
+      settleWaiter = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        args.signal?.removeEventListener("abort", onAbort);
+        host.replayPublicationWaiters.delete(drainId);
+        if (host.pendingReplayPublicationDrainIds.get(args.tab) === drainId) {
+          host.pendingReplayPublicationDrainIds.delete(args.tab);
+        }
+        resolve(result);
+      };
+      host.replayPublicationWaiters.set(drainId, {
+        tab: args.tab,
+        settle: settleWaiter,
+      });
+      args.signal?.addEventListener("abort", onAbort, { once: true });
+    },
+  );
+  const activeTarget = host.activeTarget;
+  if (!activeTarget) {
+    settleWaiter?.({
+      ok: false,
+      detail: "workspace-target-ready-timeout",
+    });
+    return acknowledgement;
+  }
+  try {
+    if (args.tab === "acp-chat") {
+      await postAcpChatPanelSnapshot(host, activeTarget, "snapshot");
+    } else if (args.tab === "acp-skills") {
+      await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
+    } else {
+      postSnapshotForTab(host, activeTarget, args.tab, "snapshot", {
+        force: true,
+      });
+    }
+  } catch (error) {
+    settleWaiter?.({
+      ok: false,
+      detail: `workspace-publication-failed:${error instanceof Error ? error.message : String(error)}`,
     });
   }
-  return { ok: true };
+  return acknowledgement;
 }
 
 export async function toggleAssistantWorkspaceSidebar(args?: {

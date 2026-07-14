@@ -104,6 +104,7 @@ let monotonicNow = createAcpRuntimeMonotonicClock();
 let activeTurns = new Set<string>();
 let activeRequests = new Set<string>();
 let writeChain: Promise<void> = Promise.resolve();
+let footerWritten = false;
 let recorderNonce = 0;
 
 function recorderView(): AcpRuntimeSemanticTraceRecorderView {
@@ -145,36 +146,47 @@ export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
   if (!acquireAcpRuntimeDiagnosticsMode("recording")) {
     throw new Error("Another ACP runtime diagnostic mode is active");
   }
-  sourceKind = options.sourceKind;
-  limits = normalizeLimits(options.limits);
-  eventCount = 0;
-  contentBytes = 0;
-  warnings = [];
-  completion = undefined;
-  boundRootId = undefined;
-  savedPath = undefined;
-  activeTurns = new Set();
-  activeRequests = new Set();
-  monotonicNow = options.monotonicNow || createAcpRuntimeMonotonicClock();
-  startedMonotonicMs = monotonicNow();
-  const paths = getRuntimePersistencePaths(options.root);
-  folder = joinPath(paths.runtimeRoot, "profiles", "acp-traces");
-  await ensureRuntimeDirectory(folder);
-  recorderNonce += 1;
-  const stem = `acp-trace-${safeTimestamp(options.nowMs ?? Date.now())}-${recorderNonce}`;
-  partialPath = joinPath(folder, `${stem}.ndjson.partial`);
-  const header: AcpRuntimeSemanticTraceHeader = {
-    record: "header",
-    schema: ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA,
-    sourceKind,
-    createdAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-  };
-  const headerLine = encodeAcpRuntimeSemanticTraceLine(header);
-  await writeRuntimeTextFile(partialPath, headerLine);
-  await setRuntimeExecutablePermissions(partialPath, 0o600);
-  contentBytes = acpRuntimeSemanticTraceByteLength(headerLine);
-  state = "armed";
-  return recorderView();
+  try {
+    sourceKind = options.sourceKind;
+    limits = normalizeLimits(options.limits);
+    eventCount = 0;
+    contentBytes = 0;
+    warnings = [];
+    completion = undefined;
+    boundRootId = undefined;
+    partialPath = undefined;
+    savedPath = undefined;
+    activeTurns = new Set();
+    activeRequests = new Set();
+    writeChain = Promise.resolve();
+    footerWritten = false;
+    monotonicNow = options.monotonicNow || createAcpRuntimeMonotonicClock();
+    startedMonotonicMs = monotonicNow();
+    const paths = getRuntimePersistencePaths(options.root);
+    folder = joinPath(paths.runtimeRoot, "profiles", "acp-traces");
+    await ensureRuntimeDirectory(folder);
+    recorderNonce += 1;
+    const stem = `acp-trace-${safeTimestamp(options.nowMs ?? Date.now())}-${recorderNonce}`;
+    partialPath = joinPath(folder, `${stem}.ndjson.partial`);
+    const header: AcpRuntimeSemanticTraceHeader = {
+      record: "header",
+      schema: ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA,
+      sourceKind,
+      createdAt: new Date(options.nowMs ?? Date.now()).toISOString(),
+    };
+    const headerLine = encodeAcpRuntimeSemanticTraceLine(header);
+    await writeRuntimeTextFile(partialPath, headerLine);
+    await setRuntimeExecutablePermissions(partialPath, 0o600);
+    contentBytes = acpRuntimeSemanticTraceByteLength(headerLine);
+    state = "armed";
+    return recorderView();
+  } catch (error) {
+    freezeIncomplete({
+      code: "write-failed",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 function ownerActivityKey(owner: AcpRuntimeTraceOwner) {
@@ -255,17 +267,8 @@ export function recordAcpSessionNotificationForTrace(args: {
   });
 }
 
-export async function stopAcpRuntimeSemanticTraceRecorder() {
-  if (state !== "armed" && state !== "recording") return recorderView();
-  await writeChain;
-  if (state === "armed" || activeTurns.size > 0 || activeRequests.size > 0) {
-    freezeIncomplete({ code: "active-owner" });
-  } else {
-    completion = warnings.length > 0 ? "incomplete" : "complete";
-    state = "frozen";
-    releaseAcpRuntimeDiagnosticsMode("recording");
-  }
-  if (!partialPath) return recorderView();
+async function finalizeAcpRuntimeSemanticTracePartial() {
+  if (!partialPath || footerWritten) return;
   try {
     const content = await readRuntimeTextFile(partialPath);
     const digest = await sha256Hex(encodeAcpRuntimeSemanticTraceText(content));
@@ -282,6 +285,7 @@ export async function stopAcpRuntimeSemanticTraceRecorder() {
       partialPath,
       encodeAcpRuntimeSemanticTraceLine(footer),
     );
+    footerWritten = true;
     await parseAcpRuntimeSemanticTraceNdjson(
       await readRuntimeTextFile(partialPath),
     );
@@ -291,6 +295,27 @@ export async function stopAcpRuntimeSemanticTraceRecorder() {
       detail: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+export async function stopAcpRuntimeSemanticTraceRecorder() {
+  if (state !== "armed" && state !== "recording") return recorderView();
+  await writeChain;
+  if (state === "armed" || activeTurns.size > 0 || activeRequests.size > 0) {
+    freezeIncomplete({ code: "active-owner" });
+  } else {
+    completion = warnings.length > 0 ? "incomplete" : "complete";
+    state = "frozen";
+    releaseAcpRuntimeDiagnosticsMode("recording");
+  }
+  await finalizeAcpRuntimeSemanticTracePartial();
+  return recorderView();
+}
+
+export async function cancelAcpRuntimeSemanticTraceRecorder() {
+  if (state !== "armed" && state !== "recording") return recorderView();
+  await writeChain;
+  freezeIncomplete({ code: "user-canceled" });
+  await finalizeAcpRuntimeSemanticTracePartial();
   return recorderView();
 }
 
@@ -316,6 +341,40 @@ export async function saveFrozenAcpRuntimeSemanticTrace() {
   return { path: targetPath, folder };
 }
 
+export async function resetAcpRuntimeSemanticTraceRecorder() {
+  if (state === "armed" || state === "recording") {
+    throw new Error(
+      "Active ACP semantic trace recording must be canceled first",
+    );
+  }
+  if (state !== "frozen" && state !== "saved") {
+    throw new Error(
+      "ACP semantic trace recorder has no terminal round to reset",
+    );
+  }
+  if (state === "frozen") {
+    await writeChain;
+    await finalizeAcpRuntimeSemanticTracePartial();
+  }
+  releaseAcpRuntimeDiagnosticsMode("recording");
+  state = "idle";
+  sourceKind = undefined;
+  boundRootId = undefined;
+  partialPath = undefined;
+  savedPath = undefined;
+  folder = undefined;
+  limits = { ...ACP_RUNTIME_SEMANTIC_TRACE_DEFAULT_LIMITS };
+  eventCount = 0;
+  contentBytes = 0;
+  warnings = [];
+  completion = undefined;
+  activeTurns.clear();
+  activeRequests.clear();
+  writeChain = Promise.resolve();
+  footerWritten = false;
+  return recorderView();
+}
+
 export async function shutdownAcpRuntimeSemanticTraceRecorder() {
   await writeChain;
   releaseAcpRuntimeDiagnosticsMode("recording");
@@ -333,6 +392,7 @@ export async function shutdownAcpRuntimeSemanticTraceRecorder() {
   activeTurns.clear();
   activeRequests.clear();
   writeChain = Promise.resolve();
+  footerWritten = false;
 }
 
 export async function discardAcpRuntimeSemanticTracePartialForTests() {

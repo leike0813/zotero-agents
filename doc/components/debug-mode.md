@@ -31,6 +31,9 @@ Zotero mock.
 performance profiler, semantic Trace Recorder, and Replay Profiler. Trace
 capture never enables profiling; replay activates profiling only inside its
 fixed profile windows. The Recorder and Replay modes are mutually exclusive.
+Replay matrix v2 exposes execution and measurement completion independently;
+missing R1/R2/R3 evidence cannot be mistaken for a successful comparable
+baseline, even when all nine replay executions finish.
 
 Production hot-path call sites use the injected `__debug_mode__` constant.
 The build marks the profiler module as side-effect free and enables syntax
@@ -38,9 +41,11 @@ folding, so non-debug bundles eliminate both the guarded calls and the module.
 `npm run check:acp-profiler-release-elision` verifies non-debug plus independent
 Recorder-disabled and Replay-disabled zero-byte elimination.
 
-The switches are not preferences. Debug builds expose separate **ACP Trace
-Recorder** and **ACP Replay Profiler** Dashboard tabs. Raw traces have no copy,
-upload, or submit action. Tests enable the capabilities through the debug override;
+The switches are not preferences. Debug builds expose one **ACP Trace & Replay**
+Dashboard tab with independently gated Recorder and Replay steps. Raw traces
+have no copy, upload, submit, or automatic deletion action. Cancel preserves an
+incomplete partial and releases the mode so another round can start without a
+host restart. Tests enable the capabilities through the debug override;
 `ZOTERO_TEST_PERF_PROBE=1` enables it automatically only when the performance
 test harness is running in debug mode. See
 `doc/components/acp-runtime-performance-profiler.md` for the automated and

@@ -82,6 +82,7 @@ export type AcpRuntimeSemanticTraceWarning = {
     | "event-limit"
     | "byte-limit"
     | "single-event-limit"
+    | "user-canceled"
     | "write-failed"
     | "integrity-failed";
   detail?: string;

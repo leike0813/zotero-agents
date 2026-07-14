@@ -197,34 +197,48 @@ describe("task dashboard snapshot", function () {
     );
   });
 
-  it("keeps ACP recorder and replay tabs independently debug gated", function () {
+  it("normalizes ACP recorder and replay diagnostics into one debug surface", function () {
     const backends = [makeBackend("skillrunner-primary", "skillrunner")];
-    for (const [tabKey, flag] of [
+    for (const args of [
+      { acpTraceRecorderEnabled: true },
+      { acpReplayProfilerEnabled: true },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "acp-trace-replay",
+          backends,
+          debugModeEnabled: true,
+          ...args,
+        }),
+        "acp-trace-replay",
+      );
+    }
+    for (const [legacyKey, flag] of [
       ["acp-trace-recorder", "acpTraceRecorderEnabled"],
       ["acp-replay-profiler", "acpReplayProfilerEnabled"],
     ] as const) {
       assert.equal(
         normalizeDashboardTabKey({
-          requestedTabKey: tabKey,
+          requestedTabKey: legacyKey,
           backends,
           debugModeEnabled: true,
           [flag]: true,
         }),
-        tabKey,
+        "acp-trace-replay",
       );
-      for (const args of [
-        { debugModeEnabled: false, [flag]: true },
-        { debugModeEnabled: true, [flag]: false },
-      ]) {
-        assert.equal(
-          normalizeDashboardTabKey({
-            requestedTabKey: tabKey,
-            backends,
-            ...args,
-          }),
-          "home",
-        );
-      }
+    }
+    for (const args of [
+      { debugModeEnabled: false, acpTraceRecorderEnabled: true },
+      { debugModeEnabled: true },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "acp-trace-replay",
+          backends,
+          ...args,
+        }),
+        "home",
+      );
     }
   });
 

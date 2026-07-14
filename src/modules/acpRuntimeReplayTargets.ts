@@ -68,7 +68,7 @@ export async function createAcpChatRuntimeReplayTarget(args: {
         case "turn-end":
         case "diagnostic":
         case "connection-close":
-          return "applied";
+          return "consumed-noop";
         case "turn-start": {
           const payload = context.event.payload as { message?: unknown };
           applySyntheticAcpChatReplayPrompt({
@@ -150,7 +150,7 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
         case "turn-end":
         case "diagnostic":
         case "connection-close":
-          return "applied";
+          return "consumed-noop";
         case "request-start":
           ensureRequest(context.owner);
           return "applied";

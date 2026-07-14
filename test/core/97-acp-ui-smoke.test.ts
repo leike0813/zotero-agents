@@ -156,6 +156,11 @@ function createAssistantWorkspaceShellDocument(options: any = {}) {
         callback({ data: { type, payload } });
       }
     },
+    dispatchWindowEnvelope(data: Record<string, unknown>) {
+      for (const callback of windowListeners.get("message") || []) {
+        callback({ data });
+      }
+    },
     setHostBridge(bridge: any) {
       fakeWindow.__zsAssistantWorkspaceBridge = bridge;
       fakeWindow.wrappedJSObject.__zsAssistantWorkspaceBridge = bridge;
@@ -375,6 +380,11 @@ async function loadAcpSkillRunSidebarForSmoke(
   vm.runInNewContext(code, context);
   return {
     actions,
+    postMessage(data: Record<string, unknown>) {
+      for (const handler of listeners.get("message") || []) {
+        handler({ data });
+      }
+    },
     postSnapshot(snapshot: Record<string, unknown>) {
       for (const handler of listeners.get("message") || []) {
         handler({
@@ -500,6 +510,11 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     counterRenderCalls,
     resetCalls,
     transcriptRenderCalls,
+    postMessage(data: Record<string, unknown>) {
+      for (const handler of listeners.get("message") || []) {
+        handler({ data });
+      }
+    },
     postSnapshot(snapshot: Record<string, unknown>) {
       for (const handler of listeners.get("message") || []) {
         handler({
@@ -4313,6 +4328,68 @@ describe("acp ui smoke", function () {
     );
   });
 
+  it("recovers child readiness after host initialization and repeated declarations", async function () {
+    const bridgeCalls: any[] = [];
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage(type: string, payload: Record<string, unknown>) {
+          bridgeCalls.push({ type, payload });
+          return Promise.resolve({ ok: true });
+        },
+      },
+    });
+    const chatWindow = shell.elements.get(
+      "assistant-frame-acp-chat",
+    ).contentWindow;
+    const readyRequests = () =>
+      chatWindow.messages.filter(
+        (entry: any) =>
+          entry.type === "assistant-workspace:child-ready-request",
+      );
+    const forwardedReady = () =>
+      bridgeCalls.filter(
+        (entry) =>
+          entry.type === "assistant-workspace:child-action" &&
+          entry.payload?.tab === "acp-chat" &&
+          entry.payload?.action === "ready",
+      );
+
+    assert.isAbove(
+      readyRequests().length,
+      0,
+      "shell startup should probe children whose eager ready may have been lost",
+    );
+    shell.dispatchWindowEnvelope({
+      type: "acp:action",
+      action: "ready",
+      payload: {},
+    });
+    await flushMicrotasks();
+    assert.lengthOf(forwardedReady(), 1);
+
+    shell.dispatchWindowMessage("assistant-workspace:init", {
+      activeTab: "acp-chat",
+      scopeKey: "scope-after-target-commit",
+    });
+    await flushMicrotasks();
+    assert.isAbove(
+      readyRequests().length,
+      1,
+      "host init should probe the retained child document again",
+    );
+    shell.dispatchWindowEnvelope({
+      type: "acp:action",
+      action: "ready",
+      payload: {},
+    });
+    await flushMicrotasks();
+    assert.lengthOf(
+      forwardedReady(),
+      2,
+      "a repeated child declaration must reach a host that may have rejected the first",
+    );
+  });
+
   it("replays cached Assistant Workspace child payloads when the child frame becomes available", async function () {
     const bridgeCalls: any[] = [];
     const shell = await loadAssistantWorkspaceShellForSmoke({
@@ -6572,6 +6649,51 @@ describe("acp ui smoke", function () {
     assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
   });
 
+  it("acknowledges ACP Chat replay publication only after its render frame", async function () {
+    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+    sidebar.postSnapshot({
+      activeBackendId: "acp-replay",
+      backendId: "acp-replay",
+      activeConversationId: "synthetic-conversation",
+      conversationId: "synthetic-conversation",
+      backendAvailability: "available",
+      conversationAvailability: "available",
+      replayPublicationDrainId: "chat-drain-1",
+      labels: {},
+      items: [],
+    });
+    assert.deepInclude(sidebar.actions, {
+      action: "replay-publication-applied",
+      payload: { drainId: "chat-drain-1" },
+    });
+  });
+
+  it("lets ACP Chat and ACP Skills redeclare readiness when the shell probes", async function () {
+    const chatHarness = createAcpChatSidebarHarnessDocument();
+    const chat = await loadAcpChatSidebarForSmoke(chatHarness.fakeDocument);
+    const skillHarness = createAcpSkillRunSidebarHarnessDocument();
+    const skills = await loadAcpSkillRunSidebarForSmoke(skillHarness.document);
+    const chatReadyBefore = chat.actions.filter(
+      (entry) => entry.action === "ready",
+    ).length;
+    const skillsReadyBefore = skills.actions.filter(
+      (entry) => entry.action === "ready",
+    ).length;
+
+    chat.postMessage({ type: "assistant-workspace:child-ready-request" });
+    skills.postMessage({ type: "assistant-workspace:child-ready-request" });
+
+    assert.equal(
+      chat.actions.filter((entry) => entry.action === "ready").length,
+      chatReadyBefore + 1,
+    );
+    assert.equal(
+      skills.actions.filter((entry) => entry.action === "ready").length,
+      skillsReadyBefore + 1,
+    );
+  });
+
   it("keeps ACP Chat loading spinner stable for repeated same-conversation snapshots", async function () {
     const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
     const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
@@ -7413,6 +7535,24 @@ describe("acp ui smoke", function () {
 
     assert.include(collectFakeText(transcript), "run B transcript");
     assert.equal(transcript.scrollTop, 12000);
+  });
+
+  it("acknowledges ACP Skills replay publication only after its render frame", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document);
+    sidebar.postSnapshot({
+      selectedRequestId: "synthetic-request",
+      selectedRun: {
+        requestId: "synthetic-request",
+        status: "running",
+      },
+      replayPublicationDrainId: "skills-drain-1",
+      labels: {},
+    });
+    assert.deepInclude(sidebar.actions, {
+      action: "replay-publication-applied",
+      payload: { drainId: "skills-drain-1" },
+    });
   });
 
   it("does not let ACP Skills loading snapshots revive the previous virtual transcript", async function () {
@@ -9051,7 +9191,7 @@ describe("acp ui smoke", function () {
     }
   });
 
-  it("keeps ACP recorder and replay data in independent Dashboard surfaces", async function () {
+  it("keeps ACP recorder and replay data in one isolated Dashboard surface", async function () {
     const assistantSidebar = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
@@ -9112,11 +9252,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       taskManagerDialog.slice(selectedStart, selectedEnd),
-      'surfaceKey === "acp-trace-recorder"',
-    );
-    assert.include(
-      taskManagerDialog.slice(selectedStart, selectedEnd),
-      'surfaceKey === "acp-replay-profiler"',
+      'surfaceKey === "acp-trace-replay"',
     );
     assert.notInclude(
       taskManagerDialog.slice(chromeStart, selectedStart),
@@ -9153,6 +9289,27 @@ describe("acp ui smoke", function () {
     assert.notInclude(recorderRenderSource, "clipboard");
     assert.include(recorderRenderSource, "sensitive data");
     assert.include(replayRenderSource, "Run Nine-Replay Matrix");
+    assert.include(replayRenderSource, 'tracePath.addEventListener("input"');
+    assert.include(replayRenderSource, "syncReplayStartAvailability");
+    assert.include(replayRenderSource, 'sendAction("acp-replay-trace-browse"');
+    assert.include(
+      replayRenderSource,
+      'sendAction("acp-replay-profiler-cancel"',
+    );
+    assert.include(
+      taskManagerDialog,
+      "await replay.startAcpRuntimeReplayController({",
+    );
+    assert.notInclude(
+      taskManagerDialog,
+      "void replay.startAcpRuntimeReplayController({",
+    );
+    assert.include(
+      recorderRenderSource,
+      'sendAction("acp-trace-recorder-reset"',
+    );
+    assert.notInclude(taskManagerDialog, 'key: "acp-trace-recorder"');
+    assert.notInclude(taskManagerDialog, 'key: "acp-replay-profiler"');
     assert.include(assistantSidebar, 'host.activeTab === "acp-chat"');
     assert.include(assistantSidebar, 'host.activeTab === "acp-skills"');
   });

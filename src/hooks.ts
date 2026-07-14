@@ -1134,6 +1134,21 @@ async function onShutdown(): Promise<void> {
       },
     );
   }
+  if (
+    __acp_runtime_replay_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    await runShutdownStepWithTimeout(
+      "acp-runtime-replay-controller-shutdown",
+      async () => {
+        const { shutdownAcpRuntimeReplayController } =
+          await import("./modules/acpRuntimeReplayController");
+        await shutdownAcpRuntimeReplayController();
+      },
+    );
+  }
   await runShutdownStepWithTimeout(
     "runtime-log-flush",
     flushRuntimeLogsPersistence,

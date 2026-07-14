@@ -902,7 +902,7 @@ configureAcpRuntimePerformanceProfilerForTests(options): void
 
 ### 17.7 开关、内存与导出
 
-profiler 只存在于 debug 构建，并受 `src/modules/debugMode.ts` 中的硬编码 source switch 控制；在 debug 内仍需显式开始采集。不新增 hidden pref。debug Dashboard 提供隔离的 ACP Runtime Profiler 页签；非 debug 或 source switch 关闭时，通过直接 guard、side-effect-free 模块声明和 syntax folding 消除热路径调用以及 profiler/baseline/capture 模块；`npm run check:acp-profiler-release-elision` 同时锁定两种关闭边界。
+profiler 只存在于 debug 构建，并受 `src/modules/debugMode.ts` 中的硬编码 source switch 控制；在 debug 内仍需显式开始采集。不新增 hidden pref。debug Dashboard 提供统一的 ACP Trace & Replay 两步页；Recorder 与 Replay 继续由独立 source switch 和状态机控制。非 debug 或 source switch 关闭时，通过直接 guard、side-effect-free 模块声明和 syntax folding 消除对应热路径调用；`npm run check:acp-profiler-release-elision` 同时锁定这些关闭边界。
 
 debug build 与 profiler enabled 是两个独立状态：普通 debug build 不分配 profiler state、不启动 drift timer；自动化测试通过 `setDebugModeOverrideForTests(true)` 后显式启用。由于 detailed audit 与 profiler 都属于 debug 构建能力，本夹具不把 debug on/off 当作纯粹的 profiler 开销对照。
 
@@ -914,13 +914,13 @@ debug build 与 profiler enabled 是两个独立状态：普通 debug build 不�
 - 不深拷贝业务 DTO；
 - 不把 profiler revision/metric 放入 panel snapshot、render key 或 region signature。
 
-导出仅发生在：
+持久化仅发生在：
 
 1. 用户显式构建现有 diagnostic bundle；
 2. Zotero performance test harness domain-end；
-3. 用户在 debug Dashboard profiler 页签中显式 Stop/Save/Copy。
+3. 用户在 debug Dashboard 中显式停止并保存 trace，或完成/取消 replay matrix。
 
-Dashboard profiler 页签不轮询，Start、Refresh、Stop、Save、Copy、Open Folder 均为显式动作；其 view 只进入自身 selected-surface signature，不进入 Dashboard chrome，也不进入 Assistant Workspace snapshot/signature/render key。
+Dashboard 的统一诊断页不轮询。Recorder 支持 Stop、Cancel、Save、New Recording 与 Open Folder；Replay 支持原生文件选择、预检、逐 record 进度、Cancel、Retry 与 Open Result Folder。取消保留 incomplete 工件而不自动删除。两个 view 只进入同一个 selected-surface signature，不进入 Dashboard chrome，也不进入 Assistant Workspace snapshot/signature/render key；进度刷新只能发生在 profile window 之外。
 
 `test/zotero/performanceProbeDigest.ts` 在 `ZOTERO_TEST_PERF_PROBE=1` 时可以程序化启用 runtime profiler，并在最终一次 JSON flush 中附加聚合结果。高频 runtime metric 不写入现有 raw `spans[]`。
 
@@ -980,7 +980,7 @@ CI 只锁稳定行为，不锁具体毫秒数：
 
 CI 基线使用固定时钟、固定 1,000-update 事件序列和 Zotero mock，按 `closed`、`open-inactive`、`acp-active` 的固定顺序运行三个相互重置的场景。三者都通过 ACP JSON-RPC、run persistence、Host Bridge input/handler 和 buffered-write production seam；closed 场景不触发 Assistant Workspace publication，并要求 R3 全零，两个 open 场景则通过 prepare/signature/post seam 并保留各自的 `surfaceState` 归属。`npm run record:acp-runtime-before-baseline` 连续运行两次完整矩阵，任一归一化记录不一致时拒绝写入；每个 surface 的 JSON 见 `artifact/performance-baselines/acp-runtime-before-governance-<surface>.json`，汇总报告见 `artifact/performance-baselines/acp-runtime-before-governance.md`。它验证调用次数、归属、聚合、有界性和导出结构，不锁具体毫秒值，也不声称复现真实 Zotero 卡顿。
 
-需要宿主校准时，在 dev/debug 构建的 Dashboard ACP Runtime Profiler 页签中，于 Zotero 7 与 Zotero 9 各运行同一场景三次；第一次标记 warm-up 且不纳入对比。Stop 后如仍有 active profile，记录会标为 incomplete。完整操作见 `doc/components/acp-runtime-performance-profiler.md`。真实宿主校准可覆盖：
+需要宿主校准时，在 dev/debug 构建的 Dashboard ACP Trace & Replay 页中，于 Zotero 7 与 Zotero 9 分别录制真实 Chat/Workflow trace 并运行固定九次矩阵。每个 surface 的第一次运行仍是 warm-up。另需验证取消会保留 incomplete matrix、恢复 Workspace，且保存或取消后无需重启即可开始下一轮录制。完整操作见 `doc/components/acp-runtime-performance-profiler.md`。真实宿主校准可覆盖：
 
 1. silent + 大量小 assistant/tool updates，Workspace closed/open-inactive/acp-active；
 2. silent + 大量 diagnostics，Task Manager closed/open；

@@ -1234,6 +1234,52 @@ tr.clickable {
   white-space: normal;
 }
 
+.acp-trace-replay-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.acp-trace-replay-step {
+  padding: 16px;
+}
+
+.acp-trace-replay-step .section-title {
+  margin: 0 0 12px;
+}
+
+.acp-trace-replay-step .profiler-capture-panel {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.profiler-trace-control {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profiler-trace-control .profiler-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profiler-trace-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+
+.profiler-trace-summary dt {
+  color: var(--muted);
+}
+
+.profiler-trace-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 920px) {
   .profiler-capture-panel,
   .profiler-export-panel {

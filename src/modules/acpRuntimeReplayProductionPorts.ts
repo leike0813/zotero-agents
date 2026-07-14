@@ -3,6 +3,11 @@ import {
   disableAcpRuntimePerformanceProfiler,
   enableAcpRuntimePerformanceProfiler,
   finishAcpRuntimeProfile,
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  observeAcpRuntimeGauge,
+  readAcpRuntimePerformanceClockMs,
+  registerAcpRuntimeProfileAlias,
   snapshotAcpRuntimeProfiles,
   startAcpRuntimeProfile,
 } from "./acpRuntimePerformanceProfiler";
@@ -52,6 +57,55 @@ export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplay
             ? zoteroMajorRaw
             : "unknown",
       });
+      if (sourceKind === "acp-chat-conversation") {
+        registerAcpRuntimeProfileAlias(
+          syntheticRootId,
+          `acp-replay\n${syntheticRootId}-conversation`,
+        );
+      }
+    },
+    registerOwner: (owner) => {
+      for (const alias of [owner.requestId, owner.conversationId]) {
+        if (activeRequestId && alias) {
+          registerAcpRuntimeProfileAlias(activeRequestId, alias);
+        }
+      }
+    },
+    recordSemanticEvent: ({
+      event,
+      disposition,
+      durationMs,
+      bytes,
+      transcriptBoundary,
+    }) => {
+      if (!activeRequestId) return;
+      const labels = {
+        semanticKind: event.kind,
+        disposition,
+      } as const;
+      incrementAcpRuntimeMetric(activeRequestId, "semantic_event", labels);
+      incrementAcpRuntimeMetric(
+        activeRequestId,
+        "semantic_event_bytes",
+        labels,
+        bytes,
+      );
+      observeAcpRuntimeDuration(
+        activeRequestId,
+        "semantic_event_duration",
+        labels,
+        durationMs,
+      );
+      if (event.kind === "session-notification") {
+        incrementAcpRuntimeMetric(activeRequestId, "session_update", {
+          updateClass:
+            transcriptBoundary === "text-continuation"
+              ? "assistant-message"
+              : transcriptBoundary === "soft-side-channel"
+                ? "tool-update"
+                : "other",
+        });
+      }
     },
     finish: async () => {
       if (activeRequestId) finishAcpRuntimeProfile(activeRequestId);
@@ -69,12 +123,36 @@ export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplay
 
 export function createAcpRuntimeR2ProductionNoopPort(): AcpRuntimeR2InputPort {
   const fragmentsByRequest = new Map<string, Uint8Array[]>();
+  const startedAtByRequest = new Map<string, number>();
   return {
-    consumeFragment: async ({ requestId, fragment, final }) => {
+    consumeFragment: async ({
+      requestId,
+      fragment,
+      final,
+      profileRequestId,
+    }) => {
+      if (!fragmentsByRequest.has(requestId)) {
+        startedAtByRequest.set(requestId, readAcpRuntimePerformanceClockMs());
+      }
       fragmentsByRequest.set(requestId, [
         ...(fragmentsByRequest.get(requestId) || []),
         fragment,
       ]);
+      incrementAcpRuntimeMetric(profileRequestId, "host_input_fragment", {
+        operationClass: "other",
+      });
+      incrementAcpRuntimeMetric(
+        profileRequestId,
+        "host_input_bytes",
+        { operationClass: "other" },
+        fragment.byteLength,
+      );
+      observeAcpRuntimeGauge(
+        profileRequestId,
+        "host_request_inflight",
+        { operationClass: "other" },
+        fragmentsByRequest.size,
+      );
       if (!final) return;
       const fragments = fragmentsByRequest.get(requestId) || [];
       fragmentsByRequest.delete(requestId);
@@ -94,11 +172,12 @@ export function createAcpRuntimeR2ProductionNoopPort(): AcpRuntimeR2InputPort {
           };
         },
       };
+      let responseBytes = 0;
       const output = {
         getWriter() {
           return {
-            async write(_value: Uint8Array) {
-              return;
+            async write(value: Uint8Array) {
+              responseBytes += value.byteLength;
             },
             releaseLock() {
               return;
@@ -118,11 +197,96 @@ export function createAcpRuntimeR2ProductionNoopPort(): AcpRuntimeR2InputPort {
       if (!terminal.done) {
         throw new Error("R2 synthetic input produced unexpected messages");
       }
+      const writer = stream.writable.getWriter();
+      await writer.write({
+        jsonrpc: "2.0",
+        id: requestId,
+        result: { ok: true },
+      });
+      writer.releaseLock();
+      incrementAcpRuntimeMetric(
+        profileRequestId,
+        "host_response_bytes",
+        { operationClass: "other" },
+        responseBytes,
+      );
+      const durationMs =
+        readAcpRuntimePerformanceClockMs() -
+        (startedAtByRequest.get(requestId) ||
+          readAcpRuntimePerformanceClockMs());
+      observeAcpRuntimeDuration(
+        profileRequestId,
+        "host_input_duration",
+        { operationClass: "other" },
+        durationMs,
+      );
+      observeAcpRuntimeDuration(
+        profileRequestId,
+        "host_request_duration",
+        { operationClass: "other" },
+        durationMs,
+      );
+      startedAtByRequest.delete(requestId);
+      observeAcpRuntimeGauge(
+        profileRequestId,
+        "host_request_inflight",
+        { operationClass: "other" },
+        fragmentsByRequest.size,
+      );
+      return { responseBytes };
     },
   };
 }
 
 export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeReplayWorkspacePort {
+  const drainSurface = (args: {
+    surface: "closed" | "open-inactive" | "target-active";
+    sourceKind: "acp-chat-conversation" | "acp-workflow-execution";
+    syntheticRootId: string;
+    signal?: Parameters<
+      typeof drainAssistantWorkspaceReplayPublication
+    >[0]["signal"];
+    phase: "prepare" | "profile";
+  }) => {
+    if (args.surface === "closed") {
+      return Promise.resolve({
+        ok: true,
+        publication: "not-applicable" as const,
+      });
+    }
+    if (args.surface === "open-inactive" && args.phase === "profile") {
+      return Promise.resolve({
+        ok: true,
+        publication: "expected-zero" as const,
+      });
+    }
+    const targetActive = args.surface === "target-active";
+    const tab = targetActive
+      ? args.sourceKind === "acp-chat-conversation"
+        ? ("acp-chat" as const)
+        : ("acp-skills" as const)
+      : args.sourceKind === "acp-chat-conversation"
+        ? ("acp-skills" as const)
+        : ("acp-chat" as const);
+    return drainAssistantWorkspaceReplayPublication({
+      tab,
+      signal: args.signal,
+      ...(targetActive && args.sourceKind === "acp-chat-conversation"
+        ? {
+            expectedChatOwner: {
+              backendId: "acp-replay",
+              conversationId: `${args.syntheticRootId}-conversation`,
+            },
+          }
+        : {}),
+      ...(targetActive && args.sourceKind === "acp-workflow-execution"
+        ? { expectedSkillRequestId: `${args.syntheticRootId}-request` }
+        : {}),
+    }).then((result) => ({
+      ...result,
+      publication: "acknowledged" as const,
+    }));
+  };
   return {
     snapshot: async () => {
       const workspace = getAssistantWorkspaceReplayState();
@@ -134,35 +298,51 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
         skillRequestId: getSelectedAcpSkillRunRequestId(),
       };
     },
-    prepare: async ({ surface, sourceKind, syntheticRootId }) => {
+    prepare: async ({ surface, sourceKind, syntheticRootId, signal }) => {
       if (surface === "closed") {
         closeAssistantWorkspaceSidebar();
         return { ok: true };
       }
       if (surface === "open-inactive") {
-        await openAssistantWorkspaceSidebar({
+        const opened = await openAssistantWorkspaceSidebar({
           tab:
             sourceKind === "acp-chat-conversation" ? "acp-skills" : "acp-chat",
         });
-        return drainAssistantWorkspaceReplayPublication();
+        if (!opened) return { ok: false, detail: "workspace-open-failed" };
+        return drainSurface({
+          surface,
+          sourceKind,
+          syntheticRootId,
+          signal,
+          phase: "prepare",
+        });
       }
       if (sourceKind === "acp-chat-conversation") {
         await setActiveAcpConversation({
           backendId: "acp-replay",
           conversationId: `${syntheticRootId}-conversation`,
         });
-        await openAssistantWorkspaceSidebar({ tab: "acp-chat" });
+        const opened = await openAssistantWorkspaceSidebar({ tab: "acp-chat" });
+        if (!opened) return { ok: false, detail: "workspace-open-failed" };
       } else {
         const requestId = `${syntheticRootId}-request`;
         prepareSyntheticAcpSkillRunReplay({ requestId });
         await selectAcpSkillRun(requestId);
-        await openAssistantWorkspaceSidebar({
+        const opened = await openAssistantWorkspaceSidebar({
           tab: "acp-skills",
           requestId,
         });
+        if (!opened) return { ok: false, detail: "workspace-open-failed" };
       }
-      return drainAssistantWorkspaceReplayPublication();
+      return drainSurface({
+        surface,
+        sourceKind,
+        syntheticRootId,
+        signal,
+        phase: "prepare",
+      });
     },
+    drain: (args) => drainSurface({ ...args, phase: "profile" }),
     restore: async (snapshotRaw) => {
       const snapshot = snapshotRaw as {
         open?: boolean;
@@ -188,13 +368,32 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
       } else if (snapshot.tab === "acp-skills" && snapshot.skillRequestId) {
         await selectAcpSkillRun(snapshot.skillRequestId);
       }
-      await openAssistantWorkspaceSidebar({
+      const opened = await openAssistantWorkspaceSidebar({
         tab: snapshot.tab,
         target: snapshot.target,
         requestId:
           snapshot.tab === "acp-skills" ? snapshot.skillRequestId : undefined,
       });
-      await drainAssistantWorkspaceReplayPublication();
+      if (!opened) throw new Error("workspace-restore-open-failed");
+      const drained = await drainAssistantWorkspaceReplayPublication({
+        tab: snapshot.tab || "acp-chat",
+        ...(snapshot.tab === "acp-chat" &&
+        snapshot.chatBackendId &&
+        snapshot.chatConversationId
+          ? {
+              expectedChatOwner: {
+                backendId: snapshot.chatBackendId,
+                conversationId: snapshot.chatConversationId,
+              },
+            }
+          : {}),
+        ...(snapshot.tab === "acp-skills" && snapshot.skillRequestId
+          ? { expectedSkillRequestId: snapshot.skillRequestId }
+          : {}),
+      });
+      if (!drained.ok) {
+        throw new Error(drained.detail || "workspace-restore-drain-failed");
+      }
     },
   };
 }

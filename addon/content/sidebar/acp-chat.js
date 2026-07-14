@@ -1157,6 +1157,10 @@
       const nextSnapshot = state.pendingRenderSnapshot || {};
       state.pendingRenderSnapshot = null;
       render(nextSnapshot);
+      const drainId = safeText(nextSnapshot.replayPublicationDrainId);
+      if (drainId) {
+        sendAction("replay-publication-applied", { drainId: drainId });
+      }
     });
   }
 
@@ -1181,6 +1185,10 @@
 
   window.addEventListener("message", function (event) {
     const data = event.data;
+    if (data && data.type === "assistant-workspace:child-ready-request") {
+      sendAction("ready", {});
+      return;
+    }
     if (data && data.type === "assistant-panel:close-drawers") {
       closeAllDrawers();
       return;

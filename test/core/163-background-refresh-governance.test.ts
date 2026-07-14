@@ -49,7 +49,12 @@ import {
   recordBackgroundRefreshRead,
   resetBackgroundRefreshGovernanceForTests,
 } from "../../src/modules/backgroundRefreshGovernance";
-import { mountTaskDashboardRuntime } from "../../src/modules/taskManagerDialog";
+import {
+  mountTaskDashboardRuntime,
+  resetTaskManagerDialogRuntimeForTests,
+} from "../../src/modules/taskManagerDialog";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { resetAcpRuntimeReplayControllerForTests } from "../../src/modules/acpRuntimeReplayController";
 import {
   getWorkflowSettings,
   getWorkflowSettingsReadDiagnosticsForTests,
@@ -211,6 +216,8 @@ function seedBackendsPref() {
 
 function createDashboardRuntimeHarness() {
   let intervalCallback: (() => void) | undefined;
+  let messageCallback: ((event: { data: unknown }) => void) | undefined;
+  const alerts: string[] = [];
   const frameWindow = {
     posted: [] as unknown[],
     postMessage(message: unknown) {
@@ -257,23 +264,46 @@ function createDashboardRuntimeHarness() {
     clearTimeout(timer: number) {
       clearTimeout(timer as unknown as ReturnType<typeof setTimeout>);
     },
-    addEventListener() {
-      // no-op
+    addEventListener(
+      type: string,
+      callback: (event: { data: unknown }) => void,
+    ) {
+      if (type === "message") messageCallback = callback;
     },
     removeEventListener() {
       // no-op
     },
-    alert() {
-      // no-op
+    alert(message: string) {
+      alerts.push(message);
     },
   };
   return {
     root: root as unknown as HTMLElement,
     hostWindow: hostWindow as unknown as Window,
     frameWindow,
+    alerts,
+    dispatchAction(action: string, payload: Record<string, unknown>) {
+      messageCallback?.({
+        data: { type: "dashboard:action", action, payload },
+      });
+    },
     runInterval() {
       intervalCallback?.();
     },
+  };
+}
+
+function replaceGlobalProperty(key: string, value: unknown) {
+  const runtime = globalThis as Record<string, unknown>;
+  const previous = Object.getOwnPropertyDescriptor(runtime, key);
+  Object.defineProperty(runtime, key, {
+    configurable: true,
+    value,
+    writable: true,
+  });
+  return () => {
+    if (previous) Object.defineProperty(runtime, key, previous);
+    else delete runtime[key];
   };
 }
 
@@ -885,6 +915,47 @@ describe("background refresh governance", function () {
     assert.equal(runDiagnostics.lightweightProjectionUnscopedReadCount, 0);
     assert.equal(runDiagnostics.lightweightProjectionSummaryQueryCount, 0);
     assert.equal(getBackendsRegistryReadDiagnosticsForTests().parseCount, 0);
+  });
+
+  it("publishes a visible Replay failure when the host has no AbortController", async function () {
+    setDebugModeOverrideForTests(true);
+    resetAcpRuntimeReplayControllerForTests();
+    const restoreAbortController = replaceGlobalProperty(
+      "AbortController",
+      undefined,
+    );
+    const harness = createDashboardRuntimeHarness();
+    const runtime = await mountTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialTabKey: "acp-trace-replay",
+    });
+    try {
+      await flushDashboardRuntime();
+      harness.dispatchAction("acp-replay-profiler-start", {
+        tracePath: "/missing/complete-trace.ndjson",
+        phase: "before-governance",
+        cadence: "burst",
+      });
+      await flushDashboardRuntime();
+
+      const views = harness.frameWindow.posted
+        .map((message) => (message as any)?.payload?.acpReplayProfilerView)
+        .filter(Boolean);
+      assert.include(
+        views.map((entry) => entry.state),
+        "running",
+      );
+      assert.equal(views.at(-1)?.state, "failed");
+      assert.isNotEmpty(views.at(-1)?.error || "");
+      assert.deepEqual(harness.alerts, []);
+    } finally {
+      runtime.cleanup();
+      restoreAbortController();
+      resetAcpRuntimeReplayControllerForTests();
+      await resetTaskManagerDialogRuntimeForTests();
+      setDebugModeOverrideForTests();
+    }
   });
 
   it("broadcasts task changes to UI listeners without constructing a full task snapshot", function () {

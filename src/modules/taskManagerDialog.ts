@@ -103,6 +103,7 @@ import {
   type WorkflowProductPreview,
 } from "./workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
+import { openRuntimeFilePicker } from "../platform/filePicker";
 import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
@@ -399,15 +400,10 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
       governor: snapshot.skillRunnerConnectionAuditView?.governor,
     };
   }
-  if (surfaceKey === "acp-trace-recorder") {
+  if (surfaceKey === "acp-trace-replay") {
     return {
       surfaceKey,
       acpTraceRecorderView: snapshot.acpTraceRecorderView,
-    };
-  }
-  if (surfaceKey === "acp-replay-profiler") {
-    return {
-      surfaceKey,
       acpReplayProfilerView: snapshot.acpReplayProfilerView,
     };
   }
@@ -1507,17 +1503,83 @@ async function buildDashboardSnapshot(args: {
     ),
     tabProducts: localize("task-dashboard-tab-products", "Products"),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
-    acpTraceRecorderTabTitle: localize(
-      "task-dashboard-acp-trace-recorder-tab-title",
-      "ACP Trace Recorder",
-    ),
-    acpReplayProfilerTabTitle: localize(
-      "task-dashboard-acp-replay-profiler-tab-title",
-      "ACP Replay Profiler",
+    acpTraceReplayTabTitle: localize(
+      "task-dashboard-acp-trace-replay-tab-title",
+      "ACP Trace & Replay",
     ),
     acpReplayProfilerTracePlaceholder: localize(
       "task-dashboard-acp-replay-profiler-trace-placeholder",
       "Local complete .ndjson trace path",
+    ),
+    acpTraceRecorderStepTitle: localize(
+      "task-dashboard-acp-trace-recorder-step-title",
+      "1. ACP Trace Recorder",
+    ),
+    acpReplayProfilerStepTitle: localize(
+      "task-dashboard-acp-replay-profiler-step-title",
+      "2. ACP Replay Profiler",
+    ),
+    acpTraceSensitiveWarning: localize(
+      "task-dashboard-acp-trace-sensitive-warning",
+      "Trace files contain complete prompts, assistant text, tool arguments, and outputs. They remain local and may contain sensitive data.",
+    ),
+    acpTraceType: localize("task-dashboard-acp-trace-type", "Trace type"),
+    acpTraceChatSource: localize(
+      "task-dashboard-acp-trace-chat-source",
+      "ACP Chat conversation",
+    ),
+    acpTraceWorkflowSource: localize(
+      "task-dashboard-acp-trace-workflow-source",
+      "ACP Workflow execution",
+    ),
+    acpTraceMaxBytes: localize(
+      "task-dashboard-acp-trace-max-bytes",
+      "Maximum bytes",
+    ),
+    acpTraceMaxEvents: localize(
+      "task-dashboard-acp-trace-max-events",
+      "Maximum events",
+    ),
+    acpTraceMaxEventBytes: localize(
+      "task-dashboard-acp-trace-max-event-bytes",
+      "Maximum bytes per event",
+    ),
+    acpTraceArm: localize("task-dashboard-acp-trace-arm", "Arm Recorder"),
+    acpTraceStop: localize("task-dashboard-acp-trace-stop", "Stop / Freeze"),
+    acpTraceCancel: localize(
+      "task-dashboard-acp-trace-cancel",
+      "Cancel Recording",
+    ),
+    acpTraceSave: localize(
+      "task-dashboard-acp-trace-save",
+      "Save & Use for Replay",
+    ),
+    acpTraceOpenFolder: localize(
+      "task-dashboard-acp-trace-open-folder",
+      "Open Folder",
+    ),
+    acpTraceNewRecording: localize(
+      "task-dashboard-acp-trace-new-recording",
+      "New Recording",
+    ),
+    acpReplayCompleteTrace: localize(
+      "task-dashboard-acp-replay-complete-trace",
+      "Complete local trace",
+    ),
+    acpReplayBrowse: localize("task-dashboard-acp-replay-browse", "Browse…"),
+    acpReplayPhase: localize("task-dashboard-acp-replay-phase", "Phase"),
+    acpReplayCadence: localize("task-dashboard-acp-replay-cadence", "Cadence"),
+    acpReplayRun: localize(
+      "task-dashboard-acp-replay-run",
+      "Run Nine-Replay Matrix",
+    ),
+    acpReplayCancel: localize(
+      "task-dashboard-acp-replay-cancel",
+      "Cancel Replay",
+    ),
+    acpReplayOpenResultFolder: localize(
+      "task-dashboard-acp-replay-open-result-folder",
+      "Open Result Folder",
     ),
     loadingDashboard: localize(
       "task-dashboard-loading",
@@ -1924,19 +1986,11 @@ async function buildDashboardSnapshot(args: {
           },
         ]
       : []),
-    ...(acpTraceRecorderEnabled
+    ...(acpTraceRecorderEnabled || acpReplayProfilerEnabled
       ? [
           {
-            key: "acp-trace-recorder",
-            label: labels.acpTraceRecorderTabTitle,
-          },
-        ]
-      : []),
-    ...(acpReplayProfilerEnabled
-      ? [
-          {
-            key: "acp-replay-profiler",
-            label: labels.acpReplayProfilerTabTitle,
+            key: "acp-trace-replay",
+            label: labels.acpTraceReplayTabTitle,
           },
         ]
       : []),
@@ -2173,27 +2227,21 @@ async function buildDashboardSnapshot(args: {
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__) &&
-    __acp_runtime_semantic_trace_recorder_enabled__ &&
-    acpTraceRecorderEnabled &&
-    resolvedSelectedTabKey === "acp-trace-recorder"
+    resolvedSelectedTabKey === "acp-trace-replay"
   ) {
-    const { getAcpRuntimeSemanticTraceRecorderView } =
-      await import("./acpRuntimeSemanticTraceRecorder");
-    snapshot.acpTraceRecorderView = getAcpRuntimeSemanticTraceRecorderView();
-    return finalizeDashboardSnapshot(snapshot);
-  }
-
-  if (
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__) &&
-    __acp_runtime_replay_profiler_enabled__ &&
-    acpReplayProfilerEnabled &&
-    resolvedSelectedTabKey === "acp-replay-profiler"
-  ) {
-    const { getAcpRuntimeReplayControllerView } =
-      await import("./acpRuntimeReplayController");
-    snapshot.acpReplayProfilerView = getAcpRuntimeReplayControllerView();
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      acpTraceRecorderEnabled
+    ) {
+      const { getAcpRuntimeSemanticTraceRecorderView } =
+        await import("./acpRuntimeSemanticTraceRecorder");
+      snapshot.acpTraceRecorderView = getAcpRuntimeSemanticTraceRecorderView();
+    }
+    if (__acp_runtime_replay_profiler_enabled__ && acpReplayProfilerEnabled) {
+      const { getAcpRuntimeReplayControllerView } =
+        await import("./acpRuntimeReplayController");
+      snapshot.acpReplayProfilerView = getAcpRuntimeReplayControllerView();
+    }
     return finalizeDashboardSnapshot(snapshot);
   }
 
@@ -2358,6 +2406,7 @@ type RefreshReason =
   | "task-update"
   | "backend-health"
   | "backend-load"
+  | "diagnostic-update"
   | "save-state";
 
 const DASHBOARD_BACKEND_PERIODIC_REFRESH_MIN_INTERVAL_MS = 5000;
@@ -2878,8 +2927,7 @@ export async function openTaskManagerDialog(args?: {
       state.selectedTabKey === "products" ||
       state.selectedTabKey === "runtime-logs" ||
       state.selectedTabKey === "skillrunner-connection-audit" ||
-      state.selectedTabKey === "acp-trace-recorder" ||
-      state.selectedTabKey === "acp-replay-profiler"
+      state.selectedTabKey === "acp-trace-replay"
     );
   };
   const enqueueRefresh = (
@@ -3022,8 +3070,18 @@ export async function openTaskManagerDialog(args?: {
           });
         } else if (action === "acp-trace-recorder-stop") {
           await recorder.stopAcpRuntimeSemanticTraceRecorder();
+        } else if (action === "acp-trace-recorder-cancel") {
+          await recorder.cancelAcpRuntimeSemanticTraceRecorder();
+        } else if (action === "acp-trace-recorder-reset") {
+          await recorder.resetAcpRuntimeSemanticTraceRecorder();
         } else if (action === "acp-trace-recorder-save") {
-          await recorder.saveFrozenAcpRuntimeSemanticTrace();
+          const saved = await recorder.saveFrozenAcpRuntimeSemanticTrace();
+          if (__acp_runtime_replay_profiler_enabled__) {
+            const replay = await import("./acpRuntimeReplayController");
+            await replay.preflightAcpRuntimeReplayTrace({
+              tracePath: saved.path,
+            });
+          }
         } else if (action === "acp-trace-recorder-open-folder") {
           const folder =
             recorder.getAcpRuntimeSemanticTraceRecorderView().folder;
@@ -3043,11 +3101,52 @@ export async function openTaskManagerDialog(args?: {
         ? isDebugModeEnabled()
         : __debug_mode__) &&
       __acp_runtime_replay_profiler_enabled__ &&
-      action.startsWith("acp-replay-profiler-")
+      (action.startsWith("acp-replay-profiler-") ||
+        action.startsWith("acp-replay-trace-"))
     ) {
       try {
         const replay = await import("./acpRuntimeReplayController");
-        if (action === "acp-replay-profiler-start") {
+        if (action === "acp-replay-trace-browse") {
+          replay.setAcpRuntimeReplayDraft({
+            phase:
+              payload.phase === "after-governance"
+                ? "after-governance"
+                : "before-governance",
+            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+          });
+          const selected = await openRuntimeFilePicker({
+            title: localize(
+              "task-dashboard-acp-replay-select-file-title",
+              "Select ACP semantic trace",
+            ),
+            mode: "open",
+            filters: [
+              [
+                localize(
+                  "task-dashboard-acp-replay-trace-filter",
+                  "ACP semantic trace",
+                ),
+                "*.ndjson",
+              ],
+            ],
+          });
+          if (typeof selected === "string") {
+            await replay.preflightAcpRuntimeReplayTrace({
+              tracePath: selected,
+            });
+          }
+        } else if (action === "acp-replay-trace-preflight") {
+          replay.setAcpRuntimeReplayDraft({
+            phase:
+              payload.phase === "after-governance"
+                ? "after-governance"
+                : "before-governance",
+            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+          });
+          await replay.preflightAcpRuntimeReplayTrace({
+            tracePath: String(payload.tracePath || ""),
+          });
+        } else if (action === "acp-replay-profiler-start") {
           const environment = resolveAcpRuntimeCaptureEnvironment();
           await replay.startAcpRuntimeReplayController({
             tracePath: String(payload.tracePath || ""),
@@ -3061,7 +3160,11 @@ export async function openTaskManagerDialog(args?: {
               zoteroVersion: environment.zoteroVersion,
               platform: environment.platform,
             },
+            onViewChange: () =>
+              enqueueRefresh("dashboard:snapshot", "diagnostic-update"),
           });
+        } else if (action === "acp-replay-profiler-cancel") {
+          replay.cancelAcpRuntimeReplayController();
         } else if (action === "acp-replay-profiler-open-folder") {
           const folder =
             replay.getAcpRuntimeReplayControllerView().resultFolder;

@@ -394,8 +394,14 @@ ACP runtime profiling has two complementary validation layers:
   quotas, and incomplete trace rejection.
 - `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/burst
   scheduling, backend-free target ports, fixed R2 v1 work, three warm-ups plus
-  six formal profiles, fresh owners, drain failures, provenance, and Workspace
-  restoration.
+  six formal profiles, interruptible cadence, progress after cleanup, early
+  abort, fresh owners, drain failures, provenance, Workspace restoration,
+  explicit profile aliases, semantic projected/no-op accounting, measured R2,
+  independent execution/measurement completion, legacy-v1 classification, and
+  descriptive formal report aggregation.
+- `test/core/180-acp-runtime-replay-controller.test.ts` locks trace preflight
+  metadata, incomplete rejection, live nine-record progress, canceled matrix
+  persistence, retained options, and retry with fresh owners.
 - ACP connection, Host Bridge, runtime diagnostic bundle, and performance
   digest tests verify request attribution and export through real module entry
   points.
@@ -409,8 +415,9 @@ ACP runtime profiling has two complementary validation layers:
 The automated surface matrix is a mechanism smoke baseline. Comparable
 real-workload evidence comes from complete source-specific replay matrices.
 Manual acceptance captures separate multi-turn Chat and multi-stage Workflow
-traces in Zotero and replays them without a backend. CI does not lock
-machine-specific millisecond thresholds.
+traces in Zotero and replays them without a backend. It also verifies cancel,
+retry, save-to-Replay handoff, and a second recording round without restarting
+Zotero. CI does not lock machine-specific millisecond thresholds.
 
 Diagnosis order:
 

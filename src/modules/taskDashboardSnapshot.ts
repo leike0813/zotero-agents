@@ -140,14 +140,19 @@ export function normalizeDashboardTabKey(args: {
   ) {
     return requested;
   }
-  if (
+  const diagnosticsEnabled =
     args.debugModeEnabled === true &&
-    ((args.acpTraceRecorderEnabled === true &&
-      requested === "acp-trace-recorder") ||
-      (args.acpReplayProfilerEnabled === true &&
-        requested === "acp-replay-profiler"))
+    (args.acpTraceRecorderEnabled === true ||
+      args.acpReplayProfilerEnabled === true);
+  if (
+    diagnosticsEnabled &&
+    (requested === "acp-trace-replay" ||
+      (requested === "acp-trace-recorder" &&
+        args.acpTraceRecorderEnabled === true) ||
+      (requested === "acp-replay-profiler" &&
+        args.acpReplayProfilerEnabled === true))
   ) {
-    return requested;
+    return "acp-trace-replay";
   }
   if (requested.startsWith("backend:")) {
     const backendId = requested.slice("backend:".length);
