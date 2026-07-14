@@ -141,11 +141,11 @@ latency baseline and is not compared with replay matrices.
 The source-elision gate is:
 
 ```bash
-npm run check:acp-profiler-release-elision
+npm run check:runtime-diagnostics-release-elision
 ```
 
-It independently verifies zero bytes for non-debug, Recorder-disabled, and
-Replay-disabled builds.
+It independently verifies zero bytes for non-debug, Recorder-disabled,
+Replay-disabled, and SkillRunner-connection-audit-disabled builds.
 
 ## Manual Zotero Acceptance
 

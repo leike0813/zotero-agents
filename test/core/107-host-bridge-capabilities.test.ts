@@ -9,7 +9,10 @@ import {
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
 import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
-import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  setDebugModeOverrideForTests,
+  setSkillRunnerConnectionAuditSourceOverrideForTests,
+} from "../../src/modules/debugMode";
 import { listHostBridgeCapabilities } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   resetAcpSkillRunsForTests,
@@ -166,6 +169,7 @@ describe("host bridge capability calls", function () {
     resetHostBridgeWriteAutoApprovalScopesForTests();
     resetAcpSkillRunsForTests();
     setDebugModeOverrideForTests();
+    setSkillRunnerConnectionAuditSourceOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
   });
 
@@ -499,6 +503,7 @@ describe("host bridge capability calls", function () {
 
   it("hides debug capabilities when debug mode is disabled", async function () {
     setDebugModeOverrideForTests(false);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
     const token = configureHostBridgeServerForTests({
       token: "debug-off-token",
     });
@@ -528,8 +533,40 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(call.json.error.code, "capability_not_found");
   });
 
+  it("hides SkillRunner connection audit when its source switch is disabled", async function () {
+    setDebugModeOverrideForTests(true);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(false);
+    const token = configureHostBridgeServerForTests({
+      token: "connection-audit-off-token",
+    });
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    );
+    const names = manifest.json.result.capabilities.map(
+      (capability: { name: string }) => capability.name,
+    );
+    assert.include(names, "debug.status");
+    assert.notInclude(names, "debug.skillrunner.connections.snapshot");
+
+    const call = await callBridgeCapability({
+      token,
+      capability: "debug.skillrunner.connections.snapshot",
+      input: {},
+    });
+    assert.strictEqual(call.status, 404);
+    assert.strictEqual(call.json.error.code, "capability_not_found");
+  });
+
   it("exposes debug capabilities and Synthesis diagnostics when debug mode is enabled", async function () {
     setDebugModeOverrideForTests(true);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
     const token = configureHostBridgeServerForTests({
       token: "debug-on-token",
     });

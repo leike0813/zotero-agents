@@ -41,13 +41,11 @@ import {
   isAcpRuntimeReplayProfilerAvailable,
   isAcpRuntimeSemanticTraceRecorderAvailable,
   isDebugModeEnabled,
+  isSkillRunnerConnectionAuditAvailable,
 } from "./debugMode";
 import type { AcpRuntimeSemanticTraceRecorderView } from "./acpRuntimeSemanticTraceRecorder";
 import type { AcpRuntimeReplayControllerView } from "./acpRuntimeReplayController";
-import {
-  getSkillRunnerConnectionGovernorSnapshot,
-  type SkillRunnerConnectionGovernorSnapshot,
-} from "./skillRunnerConnectionGovernor";
+import type { SkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionAudit";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
 import { config, version } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
@@ -1415,6 +1413,10 @@ async function buildDashboardSnapshot(args: {
   const summary =
     args.historySummary || summarizeTaskDashboardHistory(args.history);
   const debugModeEnabled = isDebugModeEnabled();
+  const skillRunnerConnectionAuditEnabled =
+    __skillrunner_connection_audit_enabled__ &&
+    debugModeEnabled &&
+    isSkillRunnerConnectionAuditAvailable();
   const acpTraceRecorderEnabled =
     debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
   const acpReplayProfilerEnabled =
@@ -1423,6 +1425,7 @@ async function buildDashboardSnapshot(args: {
     requestedTabKey: args.state.selectedTabKey,
     backends: args.backends,
     debugModeEnabled,
+    skillRunnerConnectionAuditEnabled,
     acpTraceRecorderEnabled,
     acpReplayProfilerEnabled,
   });
@@ -1978,7 +1981,7 @@ async function buildDashboardSnapshot(args: {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
     },
-    ...(debugModeEnabled
+    ...(skillRunnerConnectionAuditEnabled
       ? [
           {
             key: "skillrunner-connection-audit",
@@ -2213,9 +2216,15 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (
-    debugModeEnabled &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __skillrunner_connection_audit_enabled__ &&
+    skillRunnerConnectionAuditEnabled &&
     resolvedSelectedTabKey === "skillrunner-connection-audit"
   ) {
+    const { getSkillRunnerConnectionGovernorSnapshot } =
+      await import("./skillRunnerConnectionAudit");
     snapshot.skillRunnerConnectionAuditView = {
       generatedAt: new Date().toISOString(),
       governor: getSkillRunnerConnectionGovernorSnapshot(),
@@ -2804,6 +2813,10 @@ export async function openTaskManagerDialog(args?: {
           Date.now() - lastBackendRegistryReadAt > 30000),
     );
     const debugModeEnabled = isDebugModeEnabled();
+    const skillRunnerConnectionAuditEnabled =
+      __skillrunner_connection_audit_enabled__ &&
+      debugModeEnabled &&
+      isSkillRunnerConnectionAuditAvailable();
     const acpTraceRecorderEnabled =
       debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
     const acpReplayProfilerEnabled =
@@ -2812,6 +2825,7 @@ export async function openTaskManagerDialog(args?: {
       requestedTabKey: state.selectedTabKey,
       backends: state.backends,
       debugModeEnabled,
+      skillRunnerConnectionAuditEnabled,
       acpTraceRecorderEnabled,
       acpReplayProfilerEnabled,
     });

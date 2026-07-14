@@ -122,6 +122,7 @@ export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  skillRunnerConnectionAuditEnabled?: boolean;
   acpTraceRecorderEnabled?: boolean;
   acpReplayProfilerEnabled?: boolean;
 }) {
@@ -136,6 +137,7 @@ export function normalizeDashboardTabKey(args: {
   }
   if (
     args.debugModeEnabled === true &&
+    args.skillRunnerConnectionAuditEnabled === true &&
     requested === "skillrunner-connection-audit"
   ) {
     return requested;

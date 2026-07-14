@@ -10,6 +10,7 @@ export const ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED = true;
 // other into a disabled bundle.
 export const ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED = true;
 export const ACP_RUNTIME_REPLAY_PROFILER_ENABLED = true;
+export const SKILLRUNNER_CONNECTION_AUDIT_ENABLED = false;
 
 if (typeof __acp_runtime_performance_profiler_enabled__ === "undefined") {
   (
@@ -38,6 +39,15 @@ if (typeof __acp_runtime_replay_profiler_enabled__ === "undefined") {
     ACP_RUNTIME_REPLAY_PROFILER_ENABLED;
 }
 
+if (typeof __skillrunner_connection_audit_enabled__ === "undefined") {
+  (
+    globalThis as typeof globalThis & {
+      __skillrunner_connection_audit_enabled__?: boolean;
+    }
+  ).__skillrunner_connection_audit_enabled__ =
+    SKILLRUNNER_CONNECTION_AUDIT_ENABLED;
+}
+
 let debugModeOverrideForTests: boolean | undefined;
 const DEBUG_MODE_OVERRIDE_KEY = "__zs_debug_mode_override_for_tests__";
 
@@ -62,6 +72,23 @@ export function isAcpRuntimeSemanticTraceRecorderAvailable() {
 
 export function isAcpRuntimeReplayProfilerAvailable() {
   return ACP_RUNTIME_REPLAY_PROFILER_ENABLED && isDebugModeEnabled();
+}
+
+export function isSkillRunnerConnectionAuditAvailable() {
+  return __skillrunner_connection_audit_enabled__ && isDebugModeEnabled();
+}
+
+export function setSkillRunnerConnectionAuditSourceOverrideForTests(
+  enabled?: boolean,
+) {
+  (
+    globalThis as typeof globalThis & {
+      __skillrunner_connection_audit_enabled__?: boolean;
+    }
+  ).__skillrunner_connection_audit_enabled__ =
+    typeof enabled === "boolean"
+      ? enabled
+      : SKILLRUNNER_CONNECTION_AUDIT_ENABLED;
 }
 
 export function setDebugModeOverrideForTests(enabled?: boolean) {

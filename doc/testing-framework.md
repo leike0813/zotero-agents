@@ -408,9 +408,10 @@ ACP runtime profiling has two complementary validation layers:
 - `npm run record:acp-runtime-before-baseline` runs the complete normalized
   three-surface matrix twice and writes three per-surface JSON records plus one
   consolidated Markdown report only when both matrices match.
-- `npm run check:acp-profiler-release-elision` bundles the real plugin entry in
-  debug, non-debug, Recorder-disabled, and Replay-disabled modes and requires
-  each disabled diagnostic subsystem to retain zero bytes.
+- `npm run check:runtime-diagnostics-release-elision` bundles the real plugin
+  entry in debug, non-debug, independently source-disabled ACP modes, and
+  SkillRunner-audit-disabled mode. Each disabled diagnostic subsystem must
+  retain zero bytes and no stable markers.
 
 The automated surface matrix is a mechanism smoke baseline. Comparable
 real-workload evidence comes from complete source-specific replay matrices.

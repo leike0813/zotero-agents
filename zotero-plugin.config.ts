@@ -1,11 +1,12 @@
 import { defineConfig } from "zotero-plugin-scaffold";
 import pkg from "./package.json";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
-import { acpRuntimeProfilerSideEffectsPlugin } from "./scripts/acp-runtime-profiler-esbuild";
+import { runtimeDiagnosticsSideEffectsPlugin } from "./scripts/runtime-diagnostics-esbuild";
 import {
   ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
   ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
   ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
+  SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
 } from "./src/modules/debugMode";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
@@ -134,10 +135,13 @@ export default defineConfig({
           __acp_runtime_replay_profiler_enabled__: String(
             ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
           ),
+          __skillrunner_connection_audit_enabled__: String(
+            SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
+          ),
         },
         bundle: true,
         minifySyntax: true,
-        plugins: [acpRuntimeProfilerSideEffectsPlugin],
+        plugins: [runtimeDiagnosticsSideEffectsPlugin],
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },

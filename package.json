@@ -37,7 +37,7 @@
     "check:builtin-workflow-manifest": "tsx scripts/check-builtin-workflow-manifest.ts",
     "check:localization-governance": "tsx scripts/check-localization-governance.ts",
     "check:ssot-invariants": "tsx --import ./test/setup/zotero-mock.ts scripts/check-skillrunner-ssot-invariants.ts",
-    "check:acp-profiler-release-elision": "tsx scripts/check-acp-runtime-profiler-release-elision.ts",
+    "check:runtime-diagnostics-release-elision": "tsx scripts/check-runtime-diagnostics-release-elision.ts",
     "record:acp-runtime-before-baseline": "tsx --import ./test/setup/zotero-mock.ts scripts/record-acp-runtime-governance-baseline.ts",
     "check:host-bridge-doc-sync": "tsx scripts/check-host-bridge-doc-sync.ts",
     "check:host-bridge-cli-prebuild-freshness": "node scripts/check-host-bridge-cli-prebuild-freshness.mjs",

@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { pathToFileURL } from "node:url";
-import { acpRuntimeProfilerSideEffectsPlugin } from "./acp-runtime-profiler-esbuild";
+import { runtimeDiagnosticsSideEffectsPlugin } from "./runtime-diagnostics-esbuild";
 
 const GROUPS = {
   profiler: {
@@ -31,6 +31,17 @@ const GROUPS = {
       "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
     ],
   },
+  skillRunnerAudit: {
+    paths: [
+      "src/modules/skillRunnerConnectionAudit.ts",
+      "src/modules/skillRunnerConnectionAuditStore.ts",
+    ],
+    markers: [
+      "host_bridge.debug.skillrunner.connections.snapshot.v1",
+      "duplicate_stream_rejected",
+      "late_resolve_after_timeout",
+    ],
+  },
 } as const;
 
 type Switches = {
@@ -38,6 +49,7 @@ type Switches = {
   profiler: boolean;
   recorder: boolean;
   replay: boolean;
+  skillRunnerAudit: boolean;
 };
 
 async function bundle(switches: Switches) {
@@ -45,7 +57,7 @@ async function bundle(switches: Switches) {
     entryPoints: ["src/index.ts"],
     bundle: true,
     minifySyntax: true,
-    plugins: [acpRuntimeProfilerSideEffectsPlugin],
+    plugins: [runtimeDiagnosticsSideEffectsPlugin],
     write: false,
     metafile: true,
     target: "firefox115",
@@ -58,6 +70,9 @@ async function bundle(switches: Switches) {
         switches.recorder,
       ),
       __acp_runtime_replay_profiler_enabled__: String(switches.replay),
+      __skillrunner_connection_audit_enabled__: String(
+        switches.skillRunnerAudit,
+      ),
       __env__: '"test"',
     },
     logLevel: "silent",
@@ -99,30 +114,49 @@ function assertAbsent(
   return bytes;
 }
 
-export async function checkAcpRuntimeProfilerReleaseElision() {
-  const enabled = { debug: true, profiler: true, recorder: true, replay: true };
-  const [release, debug, profilerDisabled, recorderDisabled, replayDisabled] =
-    await Promise.all([
-      bundle({ ...enabled, debug: false }),
-      bundle(enabled),
-      bundle({ ...enabled, profiler: false, replay: false }),
-      bundle({ ...enabled, recorder: false }),
-      bundle({ ...enabled, replay: false }),
-    ]);
+export async function checkRuntimeDiagnosticsReleaseElision() {
+  const enabled = {
+    debug: true,
+    profiler: true,
+    recorder: true,
+    replay: true,
+    skillRunnerAudit: true,
+  };
+  const [
+    release,
+    debug,
+    profilerDisabled,
+    recorderDisabled,
+    replayDisabled,
+    skillRunnerAuditDisabled,
+  ] = await Promise.all([
+    bundle({ ...enabled, debug: false }),
+    bundle(enabled),
+    bundle({ ...enabled, profiler: false, replay: false }),
+    bundle({ ...enabled, recorder: false }),
+    bundle({ ...enabled, replay: false }),
+    bundle({ ...enabled, skillRunnerAudit: false }),
+  ]);
   const releaseBytes = {
     profiler: assertAbsent("profiler", release),
     recorder: assertAbsent("recorder", release),
     replay: assertAbsent("replay", release),
+    skillRunnerAudit: assertAbsent("skillRunnerAudit", release),
   };
   const sourceDisabledBytes = {
     profiler: assertAbsent("profiler", profilerDisabled),
     recorder: assertAbsent("recorder", recorderDisabled),
     replay: assertAbsent("replay", replayDisabled),
+    skillRunnerAudit: assertAbsent(
+      "skillRunnerAudit",
+      skillRunnerAuditDisabled,
+    ),
   };
   const debugBytes = {
     profiler: groupBytes(debug, GROUPS.profiler.paths),
     recorder: groupBytes(debug, GROUPS.recorder.paths),
     replay: groupBytes(debug, GROUPS.replay.paths),
+    skillRunnerAudit: groupBytes(debug, GROUPS.skillRunnerAudit.paths),
   };
   for (const [name, bytes] of Object.entries(debugBytes)) {
     if (bytes <= 0) throw new Error(`Debug bundle did not retain ${name}`);
@@ -134,10 +168,10 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  checkAcpRuntimeProfilerReleaseElision()
+  checkRuntimeDiagnosticsReleaseElision()
     .then((result) => {
       process.stdout.write(
-        `ACP runtime diagnostic elision OK: ${JSON.stringify(result)}\n`,
+        `Runtime diagnostic elision OK: ${JSON.stringify(result)}\n`,
       );
     })
     .catch((error) => {

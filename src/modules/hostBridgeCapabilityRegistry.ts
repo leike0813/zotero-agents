@@ -3,7 +3,10 @@ import {
   registerHostBridgeFileHandle,
   registerHostBridgeWorkflowArtifactFile,
 } from "./hostBridgeFileRegistry";
-import { isDebugModeEnabled } from "./debugMode";
+import {
+  isDebugModeEnabled,
+  isSkillRunnerConnectionAuditAvailable,
+} from "./debugMode";
 import {
   copyRuntimeFile,
   getRuntimePersistencePaths,
@@ -29,7 +32,6 @@ import {
   listWorkflowTasks,
 } from "./taskRuntime";
 import { listAcpSkillRunSummaries } from "./acpSkillRunStore";
-import { getSkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionGovernor";
 import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
@@ -825,6 +827,8 @@ async function debugTasksSnapshot(input: unknown) {
 
 async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   const object = asObject(input);
+  const { getSkillRunnerConnectionGovernorSnapshot } =
+    await import("./skillRunnerConnectionAudit");
   return debugEnvelope(
     "host_bridge.debug.skillrunner.connections.snapshot.v1",
     object,
@@ -1223,11 +1227,16 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "Return debug-only workflow task and ACP run diagnostics.",
     debugTasksSnapshot,
   ),
-  debugCapability(
-    "debug.skillrunner.connections.snapshot",
-    "Return debug-only SkillRunner connection governor diagnostics.",
-    debugSkillRunnerConnectionsSnapshot,
-  ),
+  ...(typeof __debug_mode__ === "undefined" ||
+  (__debug_mode__ && __skillrunner_connection_audit_enabled__)
+    ? [
+        debugCapability(
+          "debug.skillrunner.connections.snapshot",
+          "Return debug-only SkillRunner connection governor diagnostics.",
+          debugSkillRunnerConnectionsSnapshot,
+        ),
+      ]
+    : []),
   debugCapability(
     "debug.acpSkillRun.reapplyResult",
     "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
@@ -1591,7 +1600,10 @@ function withCurrentApproval<T extends HostBridgeCapabilityManifestEntry>(
 
 export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[] {
   return CAPABILITIES.filter(
-    (entry) => entry.category !== "debug" || isDebugModeEnabled(),
+    (entry) =>
+      (entry.category !== "debug" || isDebugModeEnabled()) &&
+      (entry.name !== "debug.skillrunner.connections.snapshot" ||
+        isSkillRunnerConnectionAuditAvailable()),
   ).map(({ handler: _handler, ...entry }) => ({
     ...withCurrentApproval(entry),
   }));
@@ -1605,6 +1617,12 @@ export function getHostBridgeCapability(
     return null;
   }
   if (capability.category === "debug" && !isDebugModeEnabled()) {
+    return null;
+  }
+  if (
+    capability.name === "debug.skillrunner.connections.snapshot" &&
+    !isSkillRunnerConnectionAuditAvailable()
+  ) {
     return null;
   }
   return withCurrentApproval(capability);

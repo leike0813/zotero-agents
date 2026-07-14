@@ -177,24 +177,31 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "products");
   });
 
-  it("keeps SkillRunner connection audit tab only when debug mode is enabled", function () {
+  it("keeps SkillRunner connection audit tab only when both gates are enabled", function () {
     const backends = [makeBackend("skillrunner-primary", "skillrunner")];
     assert.equal(
       normalizeDashboardTabKey({
         requestedTabKey: "skillrunner-connection-audit",
         backends,
         debugModeEnabled: true,
+        skillRunnerConnectionAuditEnabled: true,
       }),
       "skillrunner-connection-audit",
     );
-    assert.equal(
-      normalizeDashboardTabKey({
-        requestedTabKey: "skillrunner-connection-audit",
-        backends,
-        debugModeEnabled: false,
-      }),
-      "home",
-    );
+    for (const gates of [
+      { debugModeEnabled: false, skillRunnerConnectionAuditEnabled: true },
+      { debugModeEnabled: true, skillRunnerConnectionAuditEnabled: false },
+      { debugModeEnabled: false, skillRunnerConnectionAuditEnabled: false },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "skillrunner-connection-audit",
+          backends,
+          ...gates,
+        }),
+        "home",
+      );
+    }
   });
 
   it("normalizes ACP recorder and replay diagnostics into one debug surface", function () {

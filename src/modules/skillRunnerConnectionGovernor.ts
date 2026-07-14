@@ -1,3 +1,9 @@
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  recordSkillRunnerConnectionAuditEvent,
+  resetSkillRunnerConnectionAudit,
+} from "./skillRunnerConnectionAuditStore";
+
 export type SkillRunnerConnectionLane =
   | "submit"
   | "foreground-stream"
@@ -7,42 +13,6 @@ export type SkillRunnerConnectionLane =
   | "background"
   | "maintenance"
   | "health";
-
-export type SkillRunnerConnectionAuditEventType =
-  | "queued"
-  | "started"
-  | "finished"
-  | "timeout"
-  | "skipped_reachability"
-  | "skipped_background"
-  | "skipped_history"
-  | "abort_requested"
-  | "aborted"
-  | "evicted_stream"
-  | "duplicate_stream_rejected"
-  | "physical_debt_recorded"
-  | "physical_debt_released"
-  | "late_resolve_after_timeout"
-  | "late_reject_after_timeout"
-  | "late_resolve_after_abort"
-  | "late_reject_after_abort";
-
-export type SkillRunnerConnectionAuditEvent = {
-  id: number;
-  type: SkillRunnerConnectionAuditEventType;
-  ts: number;
-  backendId?: string;
-  lane?: SkillRunnerConnectionLane;
-  requestId?: string;
-  operation?: string;
-  queuedAt?: number;
-  startedAt?: number;
-  finishedAt?: number;
-  durationMs?: number;
-  timeoutMs?: number;
-  reason?: string;
-  errorName?: string;
-};
 
 export type SkillRunnerConnectionRunArgs<T> = {
   backendId: string;
@@ -56,20 +26,14 @@ export type SkillRunnerConnectionRunArgs<T> = {
   task: (signal?: AbortSignal) => Promise<T>;
 };
 
-export type SkillRunnerConnectionGovernorSnapshot = {
+export type SkillRunnerConnectionGovernorCoreSnapshot = {
   maxActivePerBackend: number;
   summary: {
     activeTotal: number;
     queuedTotal: number;
     streamTotal: number;
-    timeoutCount: number;
-    lateSettlementCount: number;
     physicalDebtTotal: number;
     degradedBackendCount: number;
-    skippedReachabilityCount: number;
-    skippedBackgroundCount: number;
-    skippedHistoryCount: number;
-    recentTimeoutAt?: number;
     activeByBackend: Array<{ backendId: string; count: number }>;
     queuedByBackend: Array<{ backendId: string; count: number }>;
     physicalDebtByBackend: Array<{ backendId: string; count: number }>;
@@ -95,7 +59,6 @@ export type SkillRunnerConnectionGovernorSnapshot = {
     operation: string;
     queuedAt: number;
   }>;
-  events: SkillRunnerConnectionAuditEvent[];
 };
 
 type QueueEntry<T = unknown> = {
@@ -127,7 +90,6 @@ const DEFAULT_MAX_ACTIVE_PER_BACKEND = 6;
 const MAX_FOREGROUND_STREAMS_PER_BACKEND = 2;
 const DEGRADED_FOREGROUND_STREAMS_PER_BACKEND = 1;
 const LOW_PRIORITY_RESERVED_CONNECTIONS = 2;
-const AUDIT_EVENT_LIMIT = 200;
 const PHYSICAL_DEBT_COOLDOWN_MS = 30000;
 
 const LANE_PRIORITY: Record<SkillRunnerConnectionLane, number> = {
@@ -213,13 +175,9 @@ export class SkillRunnerConnectionGovernor {
 
   private nextId = 1;
 
-  private nextAuditEventId = 1;
-
   private readonly queued: QueueEntry[] = [];
 
   private readonly active = new Map<number, QueueEntry>();
-
-  private readonly auditEvents: SkillRunnerConnectionAuditEvent[] = [];
 
   private readonly physicalDebtByBackend = new Map<string, number>();
 
@@ -251,14 +209,21 @@ export class SkillRunnerConnectionGovernor {
       requestId &&
       this.hasForegroundStreamForRequest(backendId, requestId)
     ) {
-      this.recordAuditEvent({
-        type: "duplicate_stream_rejected",
-        backendId,
-        lane: args.lane,
-        requestId,
-        operation,
-        reason: `foreground stream already exists for request ${requestId}`,
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "duplicate_stream_rejected",
+          backendId,
+          lane: args.lane,
+          requestId,
+          operation,
+          reason: `foreground stream already exists for request ${requestId}`,
+        });
+      }
       return Promise.reject(
         createAbortError(
           `foreground stream already exists for request ${requestId}`,
@@ -275,15 +240,22 @@ export class SkillRunnerConnectionGovernor {
         skipType === "skipped_reachability"
           ? "reachability probe skipped while backend is busy or degraded"
           : "low-priority SkillRunner request skipped while backend is degraded";
-      this.recordAuditEvent({
-        type: skipType,
-        backendId,
-        lane: args.lane,
-        requestId,
-        operation,
-        reason,
-        errorName: "SkillRunnerConnectionSkippedError",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: skipType,
+          backendId,
+          lane: args.lane,
+          requestId,
+          operation,
+          reason,
+          errorName: "SkillRunnerConnectionSkippedError",
+        });
+      }
       return Promise.reject(createSkippedError(reason));
     }
     if (this.isCriticalLane(args.lane)) {
@@ -310,17 +282,31 @@ export class SkillRunnerConnectionGovernor {
         if (this.active.has(entry.id)) {
           return;
         }
-        this.recordAuditEvent({
-          type: "abort_requested",
-          entry,
-          reason: "external signal aborted queued task",
-        });
+        if (
+          __skillrunner_connection_audit_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__)
+        ) {
+          recordSkillRunnerConnectionAuditEvent(this, {
+            type: "abort_requested",
+            entry,
+            reason: "external signal aborted queued task",
+          });
+        }
         this.removeQueued(entry.id);
-        this.recordAuditEvent({
-          type: "aborted",
-          entry,
-          reason: "external signal aborted queued task",
-        });
+        if (
+          __skillrunner_connection_audit_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__)
+        ) {
+          recordSkillRunnerConnectionAuditEvent(this, {
+            type: "aborted",
+            entry,
+            reason: "external signal aborted queued task",
+          });
+        }
         reject(createAbortError());
       };
       if (args.signal) {
@@ -330,7 +316,14 @@ export class SkillRunnerConnectionGovernor {
         };
       }
       this.queued.push(entry as QueueEntry);
-      this.recordAuditEvent({ type: "queued", entry });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, { type: "queued", entry });
+      }
       if (entry.lane === "foreground-stream") {
         this.evictForegroundStreamIfNeeded(entry as QueueEntry);
       }
@@ -351,31 +344,52 @@ export class SkillRunnerConnectionGovernor {
       if (!this.matches(entry, backendId, args.lane, requestId)) {
         continue;
       }
-      this.recordAuditEvent({
-        type: "abort_requested",
-        entry,
-        reason: normalizeString(args.reason) || "abort requested",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "abort_requested",
+          entry,
+          reason: normalizeString(args.reason) || "abort requested",
+        });
+      }
       this.removeQueued(entry.id);
       entry.cleanup?.();
       entry.reject(createAbortError(args.reason));
       entry.finishReason = "abort";
-      this.recordAuditEvent({
-        type: "aborted",
-        entry,
-        reason: normalizeString(args.reason) || "queued task aborted",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "aborted",
+          entry,
+          reason: normalizeString(args.reason) || "queued task aborted",
+        });
+      }
       aborted += 1;
     }
     for (const entry of Array.from(this.active.values())) {
       if (!this.matches(entry, backendId, args.lane, requestId)) {
         continue;
       }
-      this.recordAuditEvent({
-        type: "abort_requested",
-        entry,
-        reason: normalizeString(args.reason) || "abort requested",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "abort_requested",
+          entry,
+          reason: normalizeString(args.reason) || "abort requested",
+        });
+      }
       entry.controller?.abort();
       entry.reject(createAbortError(args.reason));
       this.finish(entry, "abort", createAbortError(args.reason));
@@ -385,12 +399,12 @@ export class SkillRunnerConnectionGovernor {
     return aborted;
   }
 
-  snapshot(): SkillRunnerConnectionGovernorSnapshot {
+  getCoreSnapshot(): SkillRunnerConnectionGovernorCoreSnapshot {
     const active = Array.from(this.active.values());
     const queued = this.queued;
     return {
       maxActivePerBackend: this.maxActivePerBackend,
-      summary: this.buildSummary(active, queued),
+      summary: this.buildCoreSummary(active, queued),
       active: active.map((entry) => ({
         id: entry.id,
         backendId: entry.backendId,
@@ -409,38 +423,68 @@ export class SkillRunnerConnectionGovernor {
         operation: entry.operation,
         queuedAt: entry.queuedAt,
       })),
-      events: this.auditEvents.slice(),
     };
   }
 
   resetForTests() {
     for (const entry of Array.from(this.active.values())) {
-      this.recordAuditEvent({
-        type: "abort_requested",
-        entry,
-        reason: "reset",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "abort_requested",
+          entry,
+          reason: "reset",
+        });
+      }
       entry.controller?.abort();
       entry.reject(createAbortError("reset"));
       this.finish(entry, "abort", createAbortError("reset"));
     }
     for (const entry of Array.from(this.queued)) {
-      this.recordAuditEvent({
-        type: "abort_requested",
-        entry,
-        reason: "reset",
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "abort_requested",
+          entry,
+          reason: "reset",
+        });
+      }
       entry.cleanup?.();
       entry.reject(createAbortError("reset"));
       entry.finishReason = "abort";
-      this.recordAuditEvent({ type: "aborted", entry, reason: "reset" });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type: "aborted",
+          entry,
+          reason: "reset",
+        });
+      }
     }
     this.queued.length = 0;
     this.active.clear();
     this.physicalDebtByBackend.clear();
     this.physicalDebtRecordedAtByBackend.clear();
-    this.auditEvents.length = 0;
-    this.nextAuditEventId = 1;
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      resetSkillRunnerConnectionAudit(this);
+    }
   }
 
   hasActiveOrQueuedForBackend(backendId: string) {
@@ -614,22 +658,36 @@ export class SkillRunnerConnectionGovernor {
     }
     this.physicalDebtByBackend.delete(backendId);
     this.physicalDebtRecordedAtByBackend.delete(backendId);
-    this.recordAuditEvent({
-      type: "physical_debt_released",
-      backendId,
-      reason: "physical debt cooldown elapsed",
-    });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: "physical_debt_released",
+        backendId,
+        reason: "physical debt cooldown elapsed",
+      });
+    }
   }
 
   private recordPhysicalDebt(entry: AnyQueueEntry) {
     const current = this.getPhysicalDebt(entry.backendId);
     this.physicalDebtByBackend.set(entry.backendId, current + 1);
     this.physicalDebtRecordedAtByBackend.set(entry.backendId, Date.now());
-    this.recordAuditEvent({
-      type: "physical_debt_recorded",
-      entry,
-      reason: "timeout finished before underlying task settled",
-    });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: "physical_debt_recorded",
+        entry,
+        reason: "timeout finished before underlying task settled",
+      });
+    }
     this.evictDegradedWarmStreams(entry.backendId);
   }
 
@@ -645,11 +703,18 @@ export class SkillRunnerConnectionGovernor {
       this.physicalDebtByBackend.delete(backendId);
       this.physicalDebtRecordedAtByBackend.delete(backendId);
     }
-    this.recordAuditEvent({
-      type: "physical_debt_released",
-      backendId,
-      reason,
-    });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: "physical_debt_released",
+        backendId,
+        reason,
+      });
+    }
   }
 
   private maxForegroundStreams(backendId: string) {
@@ -712,16 +777,23 @@ export class SkillRunnerConnectionGovernor {
     if (!entry) {
       return;
     }
-    this.recordAuditEvent({
-      type: "evicted_stream",
-      entry,
-      reason: "foreground stream evicted",
-    });
-    this.recordAuditEvent({
-      type: "abort_requested",
-      entry,
-      reason: "foreground stream evicted",
-    });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: "evicted_stream",
+        entry,
+        reason: "foreground stream evicted",
+      });
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: "abort_requested",
+        entry,
+        reason: "foreground stream evicted",
+      });
+    }
     entry.controller?.abort();
     entry.reject(createAbortError("foreground stream evicted"));
     this.finish(entry, "evict", createAbortError("foreground stream evicted"));
@@ -753,7 +825,14 @@ export class SkillRunnerConnectionGovernor {
     }
     entry.startedAt = Date.now();
     this.active.set(entry.id, entry as QueueEntry);
-    this.recordAuditEvent({ type: "started", entry });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, { type: "started", entry });
+    }
     const signal = entry.controller?.signal || entry.externalSignal;
     const finishResolve = (value: T) => {
       if (entry.finished) {
@@ -776,11 +855,18 @@ export class SkillRunnerConnectionGovernor {
     };
     if (entry.externalSignal && entry.controller) {
       const abortActive = () => {
-        this.recordAuditEvent({
-          type: "abort_requested",
-          entry,
-          reason: "external signal aborted active task",
-        });
+        if (
+          __skillrunner_connection_audit_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__)
+        ) {
+          recordSkillRunnerConnectionAuditEvent(this, {
+            type: "abort_requested",
+            entry,
+            reason: "external signal aborted active task",
+          });
+        }
         entry.controller?.abort();
         finishReject(createAbortError(), "abort");
       };
@@ -799,12 +885,19 @@ export class SkillRunnerConnectionGovernor {
           operation: entry.operation,
           timeoutMs: entry.timeoutMs,
         });
-        this.recordAuditEvent({
-          type: "timeout",
-          entry,
-          reason: errorReason(timeoutError),
-          errorName: errorName(timeoutError),
-        });
+        if (
+          __skillrunner_connection_audit_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__)
+        ) {
+          recordSkillRunnerConnectionAuditEvent(this, {
+            type: "timeout",
+            entry,
+            reason: errorReason(timeoutError),
+            errorName: errorName(timeoutError),
+          });
+        }
         this.recordPhysicalDebt(entry);
         entry.controller?.abort();
         finishReject(timeoutError, "timeout");
@@ -836,17 +929,24 @@ export class SkillRunnerConnectionGovernor {
     if (reason === "resolve") {
       this.releasePhysicalDebt(entry.backendId, "successful request resolved");
     }
-    this.recordAuditEvent({
-      type: reason === "abort" || reason === "evict" ? "aborted" : "finished",
-      entry,
-      reason:
-        reason === "resolve"
-          ? "resolved"
-          : reason === "reject"
-            ? errorReason(error) || "rejected"
-            : reason,
-      errorName: errorName(error),
-    });
+    if (
+      __skillrunner_connection_audit_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      recordSkillRunnerConnectionAuditEvent(this, {
+        type: reason === "abort" || reason === "evict" ? "aborted" : "finished",
+        entry,
+        reason:
+          reason === "resolve"
+            ? "resolved"
+            : reason === "reject"
+              ? errorReason(error) || "rejected"
+              : reason,
+        errorName: errorName(error),
+      });
+    }
     this.drain();
   }
 
@@ -862,72 +962,45 @@ export class SkillRunnerConnectionGovernor {
           ? "late resolve after timeout"
           : "late reject after timeout",
       );
-      this.recordAuditEvent({
-        type:
-          settlement === "resolve"
-            ? "late_resolve_after_timeout"
-            : "late_reject_after_timeout",
-        entry,
-        reason: errorReason(error) || `late ${settlement} after timeout`,
-        errorName: errorName(error),
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type:
+            settlement === "resolve"
+              ? "late_resolve_after_timeout"
+              : "late_reject_after_timeout",
+          entry,
+          reason: errorReason(error) || `late ${settlement} after timeout`,
+          errorName: errorName(error),
+        });
+      }
       return;
     }
     if (entry.finishReason === "abort" || entry.finishReason === "evict") {
-      this.recordAuditEvent({
-        type:
-          settlement === "resolve"
-            ? "late_resolve_after_abort"
-            : "late_reject_after_abort",
-        entry,
-        reason: errorReason(error) || `late ${settlement} after abort`,
-        errorName: errorName(error),
-      });
+      if (
+        __skillrunner_connection_audit_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        recordSkillRunnerConnectionAuditEvent(this, {
+          type:
+            settlement === "resolve"
+              ? "late_resolve_after_abort"
+              : "late_reject_after_abort",
+          entry,
+          reason: errorReason(error) || `late ${settlement} after abort`,
+          errorName: errorName(error),
+        });
+      }
     }
   }
 
-  private recordAuditEvent(args: {
-    type: SkillRunnerConnectionAuditEventType;
-    entry?: AnyQueueEntry;
-    backendId?: string;
-    lane?: SkillRunnerConnectionLane;
-    requestId?: string;
-    operation?: string;
-    reason?: string;
-    errorName?: string;
-  }) {
-    const entry = args.entry;
-    const finishedAt = Date.now();
-    const startedAt = entry?.startedAt;
-    const event: SkillRunnerConnectionAuditEvent = {
-      id: this.nextAuditEventId++,
-      type: args.type,
-      ts: finishedAt,
-      backendId: entry?.backendId || args.backendId,
-      lane: entry?.lane || args.lane,
-      requestId: entry?.requestId || args.requestId,
-      operation: entry?.operation || args.operation,
-      queuedAt: entry?.queuedAt,
-      startedAt,
-      finishedAt:
-        args.type === "finished" ||
-        args.type === "timeout" ||
-        args.type === "aborted" ||
-        args.type.startsWith("late_")
-          ? finishedAt
-          : undefined,
-      durationMs: startedAt ? Math.max(0, finishedAt - startedAt) : undefined,
-      timeoutMs: entry?.timeoutMs,
-      reason: args.reason,
-      errorName: args.errorName,
-    };
-    this.auditEvents.push(event);
-    if (this.auditEvents.length > AUDIT_EVENT_LIMIT) {
-      this.auditEvents.splice(0, this.auditEvents.length - AUDIT_EVENT_LIMIT);
-    }
-  }
-
-  private buildSummary(active: AnyQueueEntry[], queued: AnyQueueEntry[]) {
+  private buildCoreSummary(active: AnyQueueEntry[], queued: AnyQueueEntry[]) {
     const activeByBackend = countByBackend(active);
     const queuedByBackend = countByBackend(queued);
     const activeByLane = countByLane(active);
@@ -936,42 +1009,35 @@ export class SkillRunnerConnectionGovernor {
       (entry) => entry.lane === "foreground-stream",
     );
     const streamByBackend = countByBackend(streams);
-    const timeoutEvents = this.auditEvents.filter(
-      (event) => event.type === "timeout",
-    );
-    const lateSettlementCount = this.auditEvents.filter((event) =>
-      event.type.startsWith("late_"),
-    ).length;
-    for (const backendId of Array.from(this.physicalDebtByBackend.keys())) {
-      this.releaseExpiredPhysicalDebt(backendId);
+    const now = Date.now();
+    const visiblePhysicalDebt = new Map<string, number>();
+    for (const [backendId, count] of this.physicalDebtByBackend) {
+      const recordedAt =
+        this.physicalDebtRecordedAtByBackend.get(backendId) || 0;
+      if (
+        recordedAt > 0 &&
+        now - recordedAt < PHYSICAL_DEBT_COOLDOWN_MS &&
+        count > 0
+      ) {
+        visiblePhysicalDebt.set(backendId, count);
+      }
     }
-    const physicalDebtByBackend = sortedCounts(
-      new Map(this.physicalDebtByBackend),
-    ).map(([backendId, count]) => ({
-      backendId,
-      count,
-    }));
+    const physicalDebtByBackend = sortedCounts(visiblePhysicalDebt).map(
+      ([backendId, count]) => ({
+        backendId,
+        count,
+      }),
+    );
     const physicalDebtTotal = physicalDebtByBackend.reduce(
       (sum, entry) => sum + entry.count,
       0,
     );
-    const countEvents = (type: SkillRunnerConnectionAuditEventType) =>
-      this.auditEvents.filter((event) => event.type === type).length;
-    const recentTimeoutAt = timeoutEvents.length
-      ? timeoutEvents[timeoutEvents.length - 1].ts
-      : undefined;
     return {
       activeTotal: active.length,
       queuedTotal: queued.length,
       streamTotal: streams.length,
-      timeoutCount: timeoutEvents.length,
-      lateSettlementCount,
       physicalDebtTotal,
       degradedBackendCount: physicalDebtByBackend.length,
-      skippedReachabilityCount: countEvents("skipped_reachability"),
-      skippedBackgroundCount: countEvents("skipped_background"),
-      skippedHistoryCount: countEvents("skipped_history"),
-      recentTimeoutAt,
       activeByBackend,
       queuedByBackend,
       physicalDebtByBackend,
@@ -1030,10 +1096,6 @@ export function abortSkillRunnerConnections(args: {
   reason?: string;
 }) {
   return defaultSkillRunnerConnectionGovernor.abort(args);
-}
-
-export function getSkillRunnerConnectionGovernorSnapshot() {
-  return defaultSkillRunnerConnectionGovernor.snapshot();
 }
 
 export function resetSkillRunnerConnectionGovernorForTests() {

@@ -183,22 +183,25 @@ function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  skillRunnerConnectionAuditEnabled?: boolean;
   acpTraceRecorderEnabled?: boolean;
   acpReplayProfilerEnabled?: boolean;
 }): string
 ```
 Validates a requested tab key. Known non-backend values: `"home"`,
 `"products"`, `"workflow-options"`, `"runtime-logs"`. The debug-only
-`"skillrunner-connection-audit"` value is accepted only when
-`debugModeEnabled` is true. `"acp-trace-replay"` is accepted when debug mode
-and either independent Recorder or Replay source switch is enabled; the two
-legacy diagnostic keys normalize to this merged surface. Backend keys are `"backend:<id>"`
+`"skillrunner-connection-audit"` value is accepted only when debug mode and
+its independent source switch are both enabled. `"acp-trace-replay"` is
+accepted when debug mode and either independent Recorder or Replay source
+switch is enabled; the two legacy diagnostic keys normalize to this merged
+surface. Backend keys are `"backend:<id>"`
 and are accepted only when the id exists in the backends array. Falls back to
 `"home"` when unrecognized.
 
-The SkillRunner connection audit tab is a read-only diagnostic surface. Normal
-Dashboard snapshots do not read connection governor audit data; the read occurs
-only when debug mode is enabled and the audit tab is selected.
+The SkillRunner connection audit tab is a read-only diagnostic surface. Audit
+collection is absent unless its source switch and debug mode are both enabled.
+The snapshot facade is loaded only when both gates are enabled and the audit
+tab is selected.
 
 ACP Trace Recorder and ACP Replay Profiler are selected-surface only. Their
 independent views share the `acp-trace-replay` selected-surface signature and

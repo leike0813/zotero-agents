@@ -38,8 +38,8 @@ baseline, even when all nine replay executions finish.
 Production hot-path call sites use the injected `__debug_mode__` constant.
 The build marks the profiler module as side-effect free and enables syntax
 folding, so non-debug bundles eliminate both the guarded calls and the module.
-`npm run check:acp-profiler-release-elision` verifies non-debug plus independent
-Recorder-disabled and Replay-disabled zero-byte elimination.
+`npm run check:runtime-diagnostics-release-elision` verifies non-debug plus
+independent Recorder-disabled and Replay-disabled zero-byte elimination.
 
 The switches are not preferences. Debug builds expose one **ACP Trace & Replay**
 Dashboard tab with independently gated Recorder and Replay steps. Raw traces
@@ -51,11 +51,26 @@ test harness is running in debug mode. See
 `doc/components/acp-runtime-performance-profiler.md` for the automated and
 Zotero-host procedures.
 
+## SkillRunner Connection Audit
+
+`SKILLRUNNER_CONNECTION_AUDIT_ENABLED` is an independent source literal in
+`debugMode.ts` and defaults to `false`. The Dashboard surface, Host Bridge
+capability, and governor collection path require both this source switch and
+debug mode. The switch is not a preference and cannot be enabled at runtime.
+
+Audit storage and snapshot projection live outside the connection governor.
+Governor event points guard before constructing audit inputs, and diagnostic
+readers use dynamic imports. The runtime-diagnostics elision check verifies
+that non-debug and audit-source-disabled bundles retain zero audit module bytes
+or event markers. When both gates are enabled, the existing bounded event
+ledger and read-only snapshot contract are preserved.
+
 ## Consumers
 
 | Consumer | File | Effect when debug mode is OFF |
 |----------|------|-------------------------------|
 | ACP Trace Recorder / Replay Profiler | `acpRuntimeSemanticTraceRecorder.ts`, `acpRuntimeReplayProfiler.ts` | Capture and replay modules are removed from release bundles |
+| SkillRunner Connection Audit | `skillRunnerConnectionAudit.ts`, `skillRunnerConnectionAuditStore.ts` | Collection and snapshot modules are removed from release bundles |
 | Workflow Debug Probe | `workflowDebugProbe.ts` | Probe tool hidden from UI |
 | Plugin Skill Registry | `pluginSkillRegistry.ts` | `debug_only: true` skills excluded from registry |
 | Host Bridge Capability Registry | `hostBridgeCapabilityRegistry.ts` | Debug capabilities filtered from listings |
