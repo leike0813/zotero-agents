@@ -31,6 +31,13 @@ import {
   createAcpRuntimeR2ProductionNoopPort,
   createAcpRuntimeReplayProductionProfilerPort,
 } from "../../src/modules/acpRuntimeReplayProductionPorts";
+import {
+  buildAcpRuntimeReplayArtifactStem,
+  deriveAcpRuntimeReplaySampleName,
+  normalizeAcpRuntimeReplayPhase,
+  resetAcpRuntimeReplayArtifactNonceForTests,
+  slugAcpRuntimeReplayArtifactSegment,
+} from "../../src/modules/acpRuntimeReplayIdentity";
 
 function fixtureTrace(
   sourceKind:
@@ -163,6 +170,54 @@ describe("ACP runtime replay profiler", function () {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-replay-"));
     setDebugModeOverrideForTests(true);
     resetAcpRuntimeDiagnosticsModeForTests();
+    resetAcpRuntimeReplayArtifactNonceForTests();
+  });
+
+  it("normalizes free-text stages and derives bounded filename identity", function () {
+    assert.deepEqual(normalizeAcpRuntimeReplayPhase("  治理\t第二 阶段  "), {
+      value: "治理 第二 阶段",
+      valid: true,
+    });
+    assert.equal(normalizeAcpRuntimeReplayPhase(" \n ").errorCode, "required");
+    assert.equal(
+      normalizeAcpRuntimeReplayPhase(`ok${String.fromCharCode(0)}bad`)
+        .errorCode,
+      "control-character",
+    );
+    assert.equal(
+      normalizeAcpRuntimeReplayPhase("a".repeat(81)).errorCode,
+      "too-long",
+    );
+    assert.equal(
+      deriveAcpRuntimeReplaySampleName(
+        "C:\\traces\\acp-trace-复杂 Sample.ndjson.partial",
+      ),
+      "复杂 Sample",
+    );
+    assert.equal(
+      slugAcpRuntimeReplayArtifactSegment(" 复杂__Sample / A ", 64, "trace"),
+      "复杂-sample-a",
+    );
+    assert.lengthOf(
+      slugAcpRuntimeReplayArtifactSegment("测".repeat(100), 48, "stage"),
+      48,
+    );
+
+    const first = buildAcpRuntimeReplayArtifactStem({
+      sampleName: "复杂 Sample",
+      phase: "治理 第二阶段",
+      createdAtMs: Date.UTC(2026, 6, 15, 1, 2, 3, 4),
+    });
+    const second = buildAcpRuntimeReplayArtifactStem({
+      sampleName: "复杂 Sample",
+      phase: "治理 第二阶段",
+      createdAtMs: Date.UTC(2026, 6, 15, 1, 2, 3, 4),
+    });
+    assert.match(
+      first,
+      /^acp-replay-复杂-sample__治理-第二阶段__2026-07-15T01-02-03-004Z-1$/,
+    );
+    assert.notEqual(first, second);
   });
 
   afterEach(async function () {
@@ -404,6 +459,7 @@ describe("ACP runtime replay profiler", function () {
     const workspaceCalls: string[] = [];
     const profileWindows: string[] = [];
     const cleaned: string[] = [];
+    const starts: string[] = [];
     let activeProfile:
       | {
           requestId: string;
@@ -413,18 +469,20 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
-      replayConfig: { fixture: true },
+      replayConfig: { fixture: true, phase: "治理 第二阶段" },
+      sampleName: "复杂 Sample",
       environment: {
         pluginVersion: "0.6.1",
         zoteroVersion: "9.0.1",
         platform: "linux",
       },
       createTarget: async ({ sourceKind, syntheticRootId }) =>
+        (starts.push(`target:${syntheticRootId}`),
         target({
           sourceKind,
           syntheticRootId,
           apply: async () => "applied",
-        }) && {
+        })) && {
           ...target({ sourceKind, syntheticRootId }),
           cleanup: async () => void cleaned.push(syntheticRootId),
         },
@@ -457,6 +515,14 @@ describe("ACP runtime replay profiler", function () {
       },
       r2Port: { consumeFragment: async () => undefined },
       sleep: async () => undefined,
+      onRecordStart: async (current) => {
+        await Promise.resolve();
+        starts.push(`publish:${current.syntheticRootId}`);
+        assert.equal(
+          current.matrixIndex,
+          starts.filter((entry) => entry.startsWith("publish:")).length,
+        );
+      },
     });
     assert.equal(matrix.schema, ACP_RUNTIME_REPLAY_MATRIX_SCHEMA);
     assert.lengthOf(matrix.records, 9);
@@ -510,6 +576,13 @@ describe("ACP runtime replay profiler", function () {
     assert.equal(matrix.completion, "complete");
     assert.equal(matrix.executionCompletion, "complete");
     assert.equal(matrix.measurementCompletion, "complete");
+    assert.equal(matrix.trace.sampleName, "复杂 Sample");
+    for (const record of matrix.records) {
+      assert.isBelow(
+        starts.indexOf(`publish:${record.syntheticRootId}`),
+        starts.indexOf(`target:${record.syntheticRootId}`),
+      );
+    }
 
     const saved = await saveAcpRuntimeReplayMatrix({
       matrix,
@@ -520,11 +593,16 @@ describe("ACP runtime replay profiler", function () {
       (await fs.readdir(saved.folder)).sort(),
       [path.basename(saved.jsonPath), path.basename(saved.markdownPath)].sort(),
     );
+    assert.match(
+      path.basename(saved.jsonPath),
+      /^acp-replay-复杂-sample__治理-第二阶段__2025-06-15T15-06-40-000Z-\d+\.json$/,
+    );
     assert.include(
       renderAcpRuntimeReplayMatrixMarkdown(matrix),
       "## Formal descriptive summary",
     );
     assert.include(renderAcpRuntimeReplayMatrixMarkdown(matrix), "Events/s");
+    assert.include(renderAcpRuntimeReplayMatrixMarkdown(matrix), "复杂 Sample");
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, structuredClone(matrix)),
     );
@@ -533,6 +611,11 @@ describe("ACP runtime replay profiler", function () {
     assert.throws(
       () => assertAcpRuntimeReplayMatricesComparable(matrix, incompatible),
       /incompatible provenance/,
+    );
+    const renamed = structuredClone(matrix);
+    renamed.trace.sampleName = "another alias";
+    assert.doesNotThrow(() =>
+      assertAcpRuntimeReplayMatricesComparable(matrix, renamed),
     );
   });
 

@@ -2938,13 +2938,34 @@
       control.disabled = locked;
     });
     field(labelText(labels, "acpTraceType", "Trace type"), source);
-    field(labelText(labels, "acpTraceMaxBytes", "Maximum bytes"), maxBytes);
-    field(labelText(labels, "acpTraceMaxEvents", "Maximum events"), maxEvents);
-    field(
-      labelText(labels, "acpTraceMaxEventBytes", "Maximum bytes per event"),
-      maxEventBytes,
-    );
     panel.appendChild(fields);
+    const advanced = el("details", "acp-trace-replay-details");
+    advanced.appendChild(
+      el(
+        "summary",
+        "acp-trace-replay-details-summary",
+        labelText(labels, "acpTraceAdvancedLimits", "Advanced capture limits"),
+      ),
+    );
+    const advancedFields = el(
+      "div",
+      "profiler-fields acp-trace-advanced-fields",
+    );
+    [
+      [labelText(labels, "acpTraceMaxBytes", "Maximum bytes"), maxBytes],
+      [labelText(labels, "acpTraceMaxEvents", "Maximum events"), maxEvents],
+      [
+        labelText(labels, "acpTraceMaxEventBytes", "Maximum bytes per event"),
+        maxEventBytes,
+      ],
+    ].forEach(function (entry) {
+      const wrapper = el("label", "profiler-field");
+      wrapper.appendChild(el("span", "profiler-field-label", entry[0]));
+      wrapper.appendChild(entry[1]);
+      advancedFields.appendChild(wrapper);
+    });
+    advanced.appendChild(advancedFields);
+    panel.appendChild(advanced);
     panel.appendChild(
       el(
         "div",
@@ -3083,14 +3104,14 @@
       "Local complete .ndjson trace path",
     );
     tracePath.value = view.tracePath || "";
-    const phase = el("select", "select-input profiler-input");
-    ["before-governance", "after-governance"].forEach(function (value) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value;
-      phase.appendChild(option);
-    });
-    phase.value = view.phase || "before-governance";
+    const phase = el("input", "text-input profiler-input");
+    phase.maxLength = 80;
+    phase.placeholder = labelText(
+      labels,
+      "acpReplayPhasePlaceholder",
+      "e.g. governance round 2",
+    );
+    phase.value = view.phase || "";
     const cadence = el("select", "select-input profiler-input");
     ["recorded", "burst"].forEach(function (value) {
       const option = document.createElement("option");
@@ -3125,13 +3146,22 @@
     field(labelText(labels, "acpReplayPhase", "Phase"), phase);
     field(labelText(labels, "acpReplayCadence", "Cadence"), cadence);
     panel.appendChild(fields);
-    panel.appendChild(
+    const identity = el("div", "acp-replay-identity");
+    identity.appendChild(
       el(
-        "div",
-        "mono profiler-saved-path",
-        `State: ${view.state}; progress: ${(view.progress && view.progress.completed) || 0}/9${view.progress && view.progress.surface ? `; ${view.progress.surface} / ${view.progress.role} / ${Number(view.progress.runIndex || 0) + 1}` : ""}`,
+        "span",
+        "acp-replay-sample-name",
+        `${labelText(labels, "acpReplaySample", "Sample")}: ${(view.traceMetadata && view.traceMetadata.sampleName) || "—"}`,
       ),
     );
+    identity.appendChild(
+      el(
+        "span",
+        "mono",
+        `${labelText(labels, "acpReplayProgress", "Progress")}: ${(view.progress && view.progress.completed) || 0}/9`,
+      ),
+    );
+    panel.appendChild(identity);
     const actions = el("div", "toolbar-actions profiler-toolbar-actions");
     const start = el(
       "button",
@@ -3139,9 +3169,22 @@
       labelText(labels, "acpReplayRun", "Run Nine-Replay Matrix"),
     );
     function syncReplayStartAvailability() {
-      start.disabled = running || !tracePath.value.trim();
+      const stage = phase.value.trim();
+      const stageValid =
+        stage.length > 0 &&
+        Array.from(stage).length <= 80 &&
+        !/[\u0000-\u001f\u007f]/.test(stage);
+      start.disabled = running || !tracePath.value.trim() || !stageValid;
+      phase.setAttribute("aria-invalid", stageValid ? "false" : "true");
     }
     tracePath.addEventListener("input", syncReplayStartAvailability);
+    phase.addEventListener("input", syncReplayStartAvailability);
+    phase.addEventListener("change", function () {
+      sendAction("acp-replay-profiler-set-draft", {
+        phase: phase.value,
+        cadence: cadence.value,
+      });
+    });
     tracePath.addEventListener("change", function () {
       sendAction("acp-replay-trace-preflight", {
         tracePath: tracePath.value,
@@ -3191,6 +3234,106 @@
     actions.appendChild(folder);
     panel.appendChild(actions);
     main.appendChild(panel);
+    if (view.phaseValidation === "invalid" || view.phaseErrorCode) {
+      main.appendChild(
+        el(
+          "div",
+          "error-banner",
+          labelText(
+            labels,
+            "acpReplayPhaseInvalid",
+            "Enter a valid stage (1–80 characters).",
+          ),
+        ),
+      );
+    }
+
+    const matrixGrid = el("div", "acp-replay-matrix-grid");
+    ["closed", "open-inactive", "target-active"].forEach(function (surface) {
+      const group = el("section", "acp-replay-matrix-surface");
+      group.appendChild(el("h4", "acp-replay-matrix-title", surface));
+      ["warm-up", "formal", "formal"].forEach(function (role, runIndex) {
+        const record = (view.records || []).find(function (entry) {
+          return entry.surface === surface && entry.runIndex === runIndex;
+        });
+        const current =
+          view.currentRun &&
+          view.currentRun.surface === surface &&
+          view.currentRun.runIndex === runIndex;
+        const state = current
+          ? "current"
+          : record
+            ? record.executionCompletion === "complete" &&
+              record.measurementCompletion === "complete"
+              ? record.replay.warnings && record.replay.warnings.length
+                ? "warning"
+                : "complete"
+              : "incomplete"
+            : "pending";
+        const slot = el(
+          "div",
+          `acp-replay-matrix-slot is-${state}`,
+          `${runIndex + 1}. ${role} · ${state}`,
+        );
+        slot.setAttribute("data-state", state);
+        if (current && view.currentRun.startedAt) {
+          slot.setAttribute("data-started-at", view.currentRun.startedAt);
+          const timer = el("span", "acp-replay-slot-timer");
+          const startedAtMs = Date.parse(view.currentRun.startedAt);
+          function updateSlotTimer() {
+            if (!slot.isConnected) return false;
+            timer.textContent = ` · ${Math.max(0, Date.now() - startedAtMs)} ms`;
+            return true;
+          }
+          slot.appendChild(timer);
+          updateSlotTimer();
+          const timerId = window.setInterval(function () {
+            if (!updateSlotTimer()) window.clearInterval(timerId);
+          }, 250);
+        }
+        group.appendChild(slot);
+      });
+      matrixGrid.appendChild(group);
+    });
+    main.appendChild(matrixGrid);
+
+    if (
+      Array.isArray(view.surfaceSummaries) &&
+      view.surfaceSummaries.some(function (entry) {
+        return entry.formalCount > 0;
+      })
+    ) {
+      const summaries = el("div", "acp-replay-summary-grid");
+      view.surfaceSummaries.forEach(function (entry) {
+        const card = el("section", "panel acp-replay-summary-card");
+        card.appendChild(el("h4", "acp-replay-matrix-title", entry.surface));
+        card.appendChild(
+          el(
+            "div",
+            "mono",
+            `${entry.completion} · n=${entry.formalCount} · ${entry.elapsedMeanMs.toFixed(1)} ms (${entry.elapsedMinMs.toFixed(1)}–${entry.elapsedMaxMs.toFixed(1)})`,
+          ),
+        );
+        card.appendChild(
+          el(
+            "div",
+            "mono",
+            `${entry.eventsPerSecond.toFixed(1)} events/s · ${entry.mibPerSecond.toFixed(3)} MiB/s`,
+          ),
+        );
+        summaries.appendChild(card);
+      });
+      main.appendChild(summaries);
+    }
+
+    const evidence = el("details", "acp-trace-replay-details");
+    evidence.appendChild(
+      el(
+        "summary",
+        "acp-trace-replay-details-summary",
+        labelText(labels, "acpReplayEvidenceDetails", "Trace and run evidence"),
+      ),
+    );
     if (view.traceMetadata) {
       const metadata = view.traceMetadata;
       const summary = el("dl", "profiler-trace-summary");
@@ -3206,7 +3349,7 @@
         summary.appendChild(el("dt", "", entry[0]));
         summary.appendChild(el("dd", "mono", entry[1]));
       });
-      main.appendChild(summary);
+      evidence.appendChild(summary);
     }
     if (view.matrix) {
       const resultSummary = el("dl", "profiler-trace-summary");
@@ -3217,7 +3360,7 @@
         resultSummary.appendChild(el("dt", "", entry[0]));
         resultSummary.appendChild(el("dd", "mono", entry[1]));
       });
-      main.appendChild(resultSummary);
+      evidence.appendChild(resultSummary);
     }
     if (view.error) main.appendChild(el("div", "error-banner", view.error));
     if (Array.isArray(view.warnings) && view.warnings.length) {
@@ -3225,10 +3368,10 @@
       view.warnings.forEach(function (warning) {
         list.appendChild(el("li", "", warning));
       });
-      main.appendChild(list);
+      evidence.appendChild(list);
     }
     if (view.jsonPath || view.markdownPath) {
-      main.appendChild(
+      evidence.appendChild(
         el(
           "div",
           "mono profiler-saved-path",
@@ -3236,6 +3379,20 @@
         ),
       );
     }
+    if ((view.records || []).length) {
+      const runList = el("ul", "profiler-warning-list acp-replay-run-evidence");
+      view.records.forEach(function (record) {
+        runList.appendChild(
+          el(
+            "li",
+            "mono",
+            `${record.surface} / ${record.role} ${record.runIndex + 1}: R1 ${record.measurement.families.r1.state}, R2 ${record.measurement.families.r2.state}, R3 ${record.measurement.families.r3.state}, drain ${record.replay.drain.ok ? "ok" : "failed"}`,
+          ),
+        );
+      });
+      evidence.appendChild(runList);
+    }
+    if (evidence.children.length > 1) main.appendChild(evidence);
   }
 
   function renderAcpTraceReplay(main, snapshot) {

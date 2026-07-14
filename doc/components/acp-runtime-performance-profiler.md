@@ -56,9 +56,11 @@ immediately; it never silently drops events and continues.
 
 ## Replay Matrix
 
-Choose or type a complete `.ndjson` trace, review its schema, source kind,
-digest, creation time, event count, bytes, and completion preflight, then choose
-governance phase and cadence:
+Choose or type a complete `.ndjson` trace, review its filename-derived sample
+name and preflight, then enter a required governance stage and choose cadence.
+Stages are free text so one trace can be replayed through any number of
+governance rounds. They are normalized for whitespace and retained across file
+selection, preflight, cancellation, and retry.
 
 - `recorded` waits each original monotonic gap after the previous event has
   finished consuming; it does not catch up with a burst.
@@ -89,8 +91,11 @@ child for an idempotent ready declaration. This recovers both an eager ready
 message sent before the shell listener existed and one rejected before the host
 had an active target. Replacing the shell window clears readiness and requires
 the replacement children to declare ready again.
-The Dashboard publishes each completed record as `completed/9` only after the
-profile has finished and the target has cleaned up. Cancel interrupts a
+Before each run, the Dashboard publishes the current surface, role, run number,
+matrix position, and start time outside the profile window. A browser-local
+timer updates without requesting host snapshots. The 3×3 matrix then marks each
+record complete only after the profile has finished and the target has cleaned
+up. Cancel interrupts a
 recorded cadence wait, prevents future runs, saves the completed prefix as an
 incomplete matrix, restores Workspace state, and leaves the selected trace and
 options ready for retry.
@@ -116,14 +121,20 @@ dispatch is not exposed. Its immutable coverage is 10 requests, 33 fragments,
 byte counts, request duration/inflight, and serialized no-op response bytes are
 recorded in the run profile.
 
-The result directory contains `zotero-agents.acp-runtime-replay-matrix.v2` JSON
-and a Markdown report. Each run has independent execution and measurement
+The result directory contains paired
+`acp-replay-{sample}__{stage}__{timestamp}-{nonce}.json/.md` artifacts. Their
+exact sample display name and stage are also recorded in matrix provenance;
+sample aliases do not replace the trace digest as comparison identity. Each run
+has independent execution and measurement
 completion. Measurement coverage reports R1 semantic/projection work, measured
 R2, and surface-specific R3 as captured, expected-zero, not-applicable, or
 missing. Diagnostics and lifecycle markers consumed without projection are
 counted separately from projected events. The report includes both formal runs'
 wall-time range and mean, event and byte throughput, delta from `closed`, and
-per-metric R1/R2/R3 totals. Two formal observations are descriptive only.
+per-metric R1/R2/R3 totals. Dashboard defaults to the same per-surface summary;
+raw metadata, paths, per-run measurement families, drain status, and warnings
+remain available in expandable evidence. Two formal observations are
+descriptive only.
 
 Governance comparison requires identical trace digest, source kind, cadence,
 R2 workload version, and replay configuration, with both completion dimensions
@@ -154,8 +165,10 @@ in Zotero. For each host, verify save-to-Replay handoff, live nine-record
 progress, cancellation with an incomplete result, retry with fresh owners, and
 a second recording round without restart. Replay without a running backend and
 confirm a stable trace digest, correct surface attribution, and Workspace state
-restoration. Repeat for Zotero 7 and Zotero 9 before treating host performance
-evidence as accepted.
+restoration. Also exercise Unicode sample/stage filenames and the responsive
+3×3 layout. Repeat for Zotero 7 and Zotero 9 before treating host performance
+evidence as accepted. This manual acceptance remains pending until both hosts
+have been exercised.
 
 Use Gecko Profiler for CPU stacks and flame graphs. It is complementary and is
 not part of semantic trace replay.

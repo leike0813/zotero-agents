@@ -1547,6 +1547,10 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-acp-trace-max-event-bytes",
       "Maximum bytes per event",
     ),
+    acpTraceAdvancedLimits: localize(
+      "task-dashboard-acp-trace-advanced-limits",
+      "Advanced capture limits",
+    ),
     acpTraceArm: localize("task-dashboard-acp-trace-arm", "Arm Recorder"),
     acpTraceStop: localize("task-dashboard-acp-trace-stop", "Stop / Freeze"),
     acpTraceCancel: localize(
@@ -1571,6 +1575,23 @@ async function buildDashboardSnapshot(args: {
     ),
     acpReplayBrowse: localize("task-dashboard-acp-replay-browse", "Browse…"),
     acpReplayPhase: localize("task-dashboard-acp-replay-phase", "Phase"),
+    acpReplayPhasePlaceholder: localize(
+      "task-dashboard-acp-replay-phase-placeholder",
+      "e.g. governance round 2",
+    ),
+    acpReplayPhaseInvalid: localize(
+      "task-dashboard-acp-replay-phase-invalid",
+      "Enter a valid stage (1–80 characters).",
+    ),
+    acpReplaySample: localize("task-dashboard-acp-replay-sample", "Sample"),
+    acpReplayProgress: localize(
+      "task-dashboard-acp-replay-progress",
+      "Progress",
+    ),
+    acpReplayEvidenceDetails: localize(
+      "task-dashboard-acp-replay-evidence-details",
+      "Trace and run evidence",
+    ),
     acpReplayCadence: localize("task-dashboard-acp-replay-cadence", "Cadence"),
     acpReplayRun: localize(
       "task-dashboard-acp-replay-run",
@@ -3122,10 +3143,7 @@ export async function openTaskManagerDialog(args?: {
         const replay = await import("./acpRuntimeReplayController");
         if (action === "acp-replay-trace-browse") {
           replay.setAcpRuntimeReplayDraft({
-            phase:
-              payload.phase === "after-governance"
-                ? "after-governance"
-                : "before-governance",
+            phase: String(payload.phase || ""),
             cadence: payload.cadence === "burst" ? "burst" : "recorded",
           });
           const selected = await openRuntimeFilePicker({
@@ -3151,23 +3169,22 @@ export async function openTaskManagerDialog(args?: {
           }
         } else if (action === "acp-replay-trace-preflight") {
           replay.setAcpRuntimeReplayDraft({
-            phase:
-              payload.phase === "after-governance"
-                ? "after-governance"
-                : "before-governance",
+            phase: String(payload.phase || ""),
             cadence: payload.cadence === "burst" ? "burst" : "recorded",
           });
           await replay.preflightAcpRuntimeReplayTrace({
             tracePath: String(payload.tracePath || ""),
           });
+        } else if (action === "acp-replay-profiler-set-draft") {
+          replay.setAcpRuntimeReplayDraft({
+            phase: String(payload.phase || ""),
+            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+          });
         } else if (action === "acp-replay-profiler-start") {
           const environment = resolveAcpRuntimeCaptureEnvironment();
           await replay.startAcpRuntimeReplayController({
             tracePath: String(payload.tracePath || ""),
-            phase:
-              payload.phase === "after-governance"
-                ? "after-governance"
-                : "before-governance",
+            phase: String(payload.phase || ""),
             cadence: payload.cadence === "burst" ? "burst" : "recorded",
             environment: {
               pluginVersion: environment.pluginVersion,

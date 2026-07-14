@@ -205,7 +205,8 @@ tab is selected.
 
 ACP Trace Recorder and ACP Replay Profiler are selected-surface only. Their
 independent views share the `acp-trace-replay` selected-surface signature and
-remain excluded from Dashboard chrome. Progress refreshes are published only
-between replay profile windows. Neither view enters an Assistant Workspace
+remain excluded from Dashboard chrome. Current-slot refreshes are published
+before target preparation and completed-record refreshes after cleanup, always
+outside replay profile windows. Neither view enters an Assistant Workspace
 snapshot or render key. See
 `doc/components/acp-runtime-performance-profiler.md`.

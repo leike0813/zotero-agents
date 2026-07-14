@@ -6,13 +6,16 @@ import {
 import {
   runAcpRuntimeReplayMatrix,
   saveAcpRuntimeReplayMatrix,
+  projectAcpRuntimeReplaySurfaceSummaries,
   type AcpRuntimeR2InputPort,
   type AcpRuntimeReplayCadence,
   type AcpRuntimeReplayCancellationSignal,
+  type AcpRuntimeReplayCurrentRun,
   type AcpRuntimeReplayMatrix,
   type AcpRuntimeReplayProfileRecord,
   type AcpRuntimeReplayProfilerPort,
   type AcpRuntimeReplayTarget,
+  type AcpRuntimeReplaySurfaceSummary,
   type AcpRuntimeReplayWorkspacePort,
 } from "./acpRuntimeReplayProfiler";
 import { createAcpRuntimeReplayTarget } from "./acpRuntimeReplayTargets";
@@ -21,6 +24,11 @@ import {
   createAcpRuntimeReplayProductionProfilerPort,
   createAcpRuntimeReplayProductionWorkspacePort,
 } from "./acpRuntimeReplayProductionPorts";
+import {
+  deriveAcpRuntimeReplaySampleName,
+  normalizeAcpRuntimeReplayPhase,
+  type AcpRuntimeReplayPhaseValidation,
+} from "./acpRuntimeReplayIdentity";
 
 export type AcpRuntimeReplayTraceMetadata = {
   schema: string;
@@ -30,6 +38,7 @@ export type AcpRuntimeReplayTraceMetadata = {
   eventCount: number;
   contentBytes: number;
   completion: "complete" | "incomplete";
+  sampleName: string;
 };
 
 export type AcpRuntimeReplayControllerView = {
@@ -44,7 +53,12 @@ export type AcpRuntimeReplayControllerView = {
   tracePath: string;
   traceValidation: "empty" | "unvalidated" | "validating" | "ready" | "invalid";
   traceMetadata?: AcpRuntimeReplayTraceMetadata;
-  phase: "before-governance" | "after-governance";
+  phase: string;
+  phaseValidation: "empty" | "ready" | "invalid";
+  phaseErrorCode?: Exclude<
+    AcpRuntimeReplayPhaseValidation,
+    { valid: true }
+  >["errorCode"];
   cadence: AcpRuntimeReplayCadence;
   progress: {
     completed: number;
@@ -53,6 +67,9 @@ export type AcpRuntimeReplayControllerView = {
     role?: AcpRuntimeReplayProfileRecord["role"];
     runIndex?: number;
   };
+  currentRun?: AcpRuntimeReplayCurrentRun;
+  records: readonly AcpRuntimeReplayProfileRecord[];
+  surfaceSummaries: readonly AcpRuntimeReplaySurfaceSummary[];
   warnings: readonly string[];
   matrix?: AcpRuntimeReplayMatrix;
   resultFolder?: string;
@@ -80,9 +97,12 @@ let view: AcpRuntimeReplayControllerView = {
   state: "idle",
   tracePath: "",
   traceValidation: "empty",
-  phase: "before-governance",
+  phase: "",
+  phaseValidation: "empty",
   cadence: "recorded",
   progress: { completed: 0, total: 9 },
+  records: [],
+  surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
   warnings: [],
 };
 type AcpRuntimeReplayCancellationController = {
@@ -142,6 +162,12 @@ export function getAcpRuntimeReplayControllerView() {
     ...view,
     ...(view.traceMetadata ? { traceMetadata: { ...view.traceMetadata } } : {}),
     progress: { ...view.progress },
+    ...(view.currentRun ? { currentRun: { ...view.currentRun } } : {}),
+    records: [...view.records],
+    surfaceSummaries: view.surfaceSummaries.map((summary) => ({
+      ...summary,
+      records: [...summary.records],
+    })),
     warnings: [...view.warnings],
   };
 }
@@ -152,6 +178,7 @@ async function notifyViewChange(onViewChange?: ViewChange) {
 
 function traceMetadata(
   trace: AcpRuntimeSemanticTraceDocument,
+  tracePath: string,
 ): AcpRuntimeReplayTraceMetadata {
   return {
     schema: trace.header.schema,
@@ -161,6 +188,7 @@ function traceMetadata(
     eventCount: trace.footer.eventCount,
     contentBytes: trace.footer.contentBytes,
     completion: trace.footer.completion,
+    sampleName: deriveAcpRuntimeReplaySampleName(tracePath),
   };
 }
 
@@ -174,7 +202,7 @@ async function loadCompleteTrace(tracePath: string) {
 
 export function setAcpRuntimeReplayDraft(args: {
   tracePath?: string;
-  phase?: "before-governance" | "after-governance";
+  phase?: string;
   cadence?: AcpRuntimeReplayCadence;
 }) {
   if (view.state === "running" || view.state === "canceling") {
@@ -185,10 +213,21 @@ export function setAcpRuntimeReplayDraft(args: {
       ? view.tracePath
       : String(args.tracePath || "").trim();
   const pathChanged = tracePath !== view.tracePath;
+  const phaseValidation = normalizeAcpRuntimeReplayPhase(
+    args.phase === undefined ? view.phase : args.phase,
+  );
   view = {
     ...view,
     tracePath,
-    phase: args.phase || view.phase,
+    phase: phaseValidation.value,
+    phaseValidation: phaseValidation.valid
+      ? "ready"
+      : phaseValidation.errorCode === "required"
+        ? "empty"
+        : "invalid",
+    phaseErrorCode: phaseValidation.valid
+      ? undefined
+      : phaseValidation.errorCode,
     cadence: args.cadence || view.cadence,
     ...(pathChanged
       ? {
@@ -227,7 +266,7 @@ export async function preflightAcpRuntimeReplayTrace(args: {
     view = {
       ...view,
       traceValidation: "ready",
-      traceMetadata: traceMetadata(trace),
+      traceMetadata: traceMetadata(trace, tracePath),
       error: undefined,
     };
   } catch (error) {
@@ -244,7 +283,7 @@ export async function preflightAcpRuntimeReplayTrace(args: {
 
 export async function startAcpRuntimeReplayController(args: {
   tracePath: string;
-  phase: "before-governance" | "after-governance";
+  phase: string;
   cadence: AcpRuntimeReplayCadence;
   environment: AcpRuntimeReplayMatrix["environment"];
   root?: string;
@@ -254,6 +293,20 @@ export async function startAcpRuntimeReplayController(args: {
     throw new Error("ACP replay profiler is already running");
   }
   const tracePath = String(args.tracePath || "").trim();
+  const phaseValidation = normalizeAcpRuntimeReplayPhase(args.phase);
+  if (!phaseValidation.valid) {
+    view = {
+      ...view,
+      state: "failed",
+      tracePath,
+      phase: phaseValidation.value,
+      phaseValidation: "invalid",
+      phaseErrorCode: phaseValidation.errorCode,
+      error: `ACP replay stage is invalid: ${phaseValidation.errorCode}`,
+    };
+    await notifyViewChange(args.onViewChange);
+    return getAcpRuntimeReplayControllerView();
+  }
   const controller = createAcpRuntimeReplayCancellationController();
   let resolveCompletion: (() => void) | undefined;
   const completion = new Promise<void>((resolve) => {
@@ -265,9 +318,12 @@ export async function startAcpRuntimeReplayController(args: {
     state: "running",
     tracePath,
     traceValidation: tracePath ? "validating" : "empty",
-    phase: args.phase,
+    phase: phaseValidation.value,
+    phaseValidation: "ready",
     cadence: args.cadence,
     progress: { completed: 0, total: 9 },
+    records: [],
+    surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
     warnings: [],
   };
   try {
@@ -276,22 +332,29 @@ export async function startAcpRuntimeReplayController(args: {
     view = {
       ...view,
       traceValidation: "ready",
-      traceMetadata: traceMetadata(trace),
+      traceMetadata: traceMetadata(trace, tracePath),
     };
     const currentRuntime = runtime();
     const matrix = await runAcpRuntimeReplayMatrix({
       trace,
+      sampleName: deriveAcpRuntimeReplaySampleName(tracePath),
       cadence: args.cadence,
-      replayConfig: { phase: args.phase },
+      replayConfig: { phase: phaseValidation.value },
       environment: args.environment,
       createTarget: currentRuntime.createTarget,
       workspace: currentRuntime.workspace,
       profiler: currentRuntime.profiler,
       r2Port: currentRuntime.r2Port,
       signal: controller.signal,
+      onRecordStart: async (currentRun) => {
+        view = { ...view, currentRun };
+        await notifyViewChange(args.onViewChange);
+      },
       onRecord: async (record, completed) => {
+        const records = [...view.records, record];
         view = {
           ...view,
+          currentRun: undefined,
           progress: {
             completed,
             total: 9,
@@ -299,6 +362,8 @@ export async function startAcpRuntimeReplayController(args: {
             role: record.role,
             runIndex: record.runIndex,
           },
+          records,
+          surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries(records),
           warnings: [...view.warnings, ...record.replay.warnings],
         };
         await notifyViewChange(args.onViewChange);
@@ -318,6 +383,9 @@ export async function startAcpRuntimeReplayController(args: {
           : "incomplete",
       progress: { ...view.progress, completed: matrix.records.length },
       warnings: [...matrix.warnings],
+      currentRun: undefined,
+      records: [...matrix.records],
+      surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries(matrix.records),
       matrix,
       resultFolder: saved.folder,
       jsonPath: saved.jsonPath,
@@ -330,6 +398,7 @@ export async function startAcpRuntimeReplayController(args: {
       state: controller.signal.aborted ? "canceled" : "failed",
       traceValidation: view.traceMetadata ? "ready" : "invalid",
       error: error instanceof Error ? error.message : String(error),
+      currentRun: undefined,
     };
   } finally {
     if (activeCancellationController === controller) {
@@ -374,9 +443,12 @@ export function resetAcpRuntimeReplayControllerForTests() {
     state: "idle",
     tracePath: "",
     traceValidation: "empty",
-    phase: "before-governance",
+    phase: "",
+    phaseValidation: "empty",
     cadence: "recorded",
     progress: { completed: 0, total: 9 },
+    records: [],
+    surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
     warnings: [],
   };
 }

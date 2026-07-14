@@ -7,6 +7,7 @@ import {
   getAcpRuntimeReplayControllerView,
   preflightAcpRuntimeReplayTrace,
   resetAcpRuntimeReplayControllerForTests,
+  setAcpRuntimeReplayDraft,
   setAcpRuntimeReplayControllerRuntimeForTests,
   startAcpRuntimeReplayController,
 } from "../../src/modules/acpRuntimeReplayController";
@@ -171,6 +172,7 @@ describe("ACP runtime replay controller", function () {
     assert.equal(ready.traceMetadata?.sourceKind, "acp-chat-conversation");
     assert.equal(ready.traceMetadata?.eventCount, 2);
     assert.match(ready.traceMetadata?.digest || "", /^[a-f0-9]{64}$/);
+    assert.isNotEmpty(ready.traceMetadata?.sampleName || "");
 
     await resetAcpRuntimeSemanticTraceRecorder();
     const incompletePath = await createTrace({ cancel: true });
@@ -181,6 +183,28 @@ describe("ACP runtime replay controller", function () {
     assert.match(invalid.error || "", /incomplete/i);
   });
 
+  it("keeps a normalized free-text stage draft and rejects invalid stages before setup", async function () {
+    const tracePath = await createTrace();
+    const ownerIds: string[] = [];
+    installRuntime(ownerIds);
+    const draft = setAcpRuntimeReplayDraft({ phase: "  治理\t第二 阶段  " });
+    assert.equal(draft.phase, "治理 第二 阶段");
+    assert.equal(draft.phaseValidation, "ready");
+    await preflightAcpRuntimeReplayTrace({ tracePath });
+    assert.equal(getAcpRuntimeReplayControllerView().phase, "治理 第二 阶段");
+
+    const rejected = await startAcpRuntimeReplayController({
+      tracePath,
+      phase: " ",
+      cadence: "burst",
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+    });
+    assert.equal(rejected.state, "failed");
+    assert.equal(rejected.phaseValidation, "invalid");
+    assert.equal(rejected.phaseErrorCode, "required");
+    assert.deepEqual(ownerIds, []);
+  });
+
   it("publishes all nine records and preserves the validated draft", async function () {
     const tracePath = await createTrace();
     const ownerIds: string[] = [];
@@ -188,17 +212,26 @@ describe("ACP runtime replay controller", function () {
     const completed: number[] = [];
     const result = await startAcpRuntimeReplayController({
       tracePath,
-      phase: "after-governance",
+      phase: "治理后复核",
       cadence: "burst",
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       onViewChange: (next) => {
         completed.push(next.progress.completed);
+        if (next.currentRun) {
+          assert.equal(
+            next.currentRun.matrixIndex,
+            next.progress.completed + 1,
+          );
+        }
       },
     });
     assert.equal(result.state, "complete");
     assert.equal(result.traceValidation, "ready");
     assert.equal(result.tracePath, tracePath);
-    assert.equal(result.phase, "after-governance");
+    assert.equal(result.phase, "治理后复核");
+    assert.isUndefined(result.currentRun);
+    assert.lengthOf(result.records, 9);
+    assert.lengthOf(result.surfaceSummaries, 3);
     assert.equal(result.progress.completed, 9);
     assert.includeMembers(completed, [0, 1, 9]);
     assert.lengthOf(ownerIds, 9);

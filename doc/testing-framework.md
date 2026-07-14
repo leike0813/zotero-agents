@@ -398,10 +398,12 @@ ACP runtime profiling has two complementary validation layers:
   abort, fresh owners, drain failures, provenance, Workspace restoration,
   explicit profile aliases, semantic projected/no-op accounting, measured R2,
   independent execution/measurement completion, legacy-v1 classification, and
-  descriptive formal report aggregation.
+  descriptive formal report aggregation, Unicode sample/stage identity,
+  collision-safe paired filenames, and current-slot publication before setup.
 - `test/core/180-acp-runtime-replay-controller.test.ts` locks trace preflight
-  metadata, incomplete rejection, live nine-record progress, canceled matrix
-  persistence, retained options, and retry with fresh owners.
+  metadata, required free-text stage validation, live current/completed
+  nine-record progress, shared surface summaries, canceled matrix persistence,
+  retained options, and retry with fresh owners.
 - ACP connection, Host Bridge, runtime diagnostic bundle, and performance
   digest tests verify request attribution and export through real module entry
   points.
@@ -418,7 +420,9 @@ real-workload evidence comes from complete source-specific replay matrices.
 Manual acceptance captures separate multi-turn Chat and multi-stage Workflow
 traces in Zotero and replays them without a backend. It also verifies cancel,
 retry, save-to-Replay handoff, and a second recording round without restarting
-Zotero. CI does not lock machine-specific millisecond thresholds.
+Zotero. Unicode artifact names and responsive progressive-disclosure layout
+remain Zotero 7/9 manual checks. CI does not lock machine-specific millisecond
+thresholds.
 
 Diagnosis order:
 

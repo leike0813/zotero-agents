@@ -1280,6 +1280,93 @@ tr.clickable {
   overflow-wrap: anywhere;
 }
 
+.acp-trace-replay-details {
+  width: 100%;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.acp-trace-replay-details-summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.acp-trace-advanced-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.acp-replay-identity {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  width: 100%;
+  color: var(--muted);
+}
+
+.acp-replay-sample-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.acp-replay-matrix-grid,
+.acp-replay-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.acp-replay-matrix-surface,
+.acp-replay-summary-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.acp-replay-matrix-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.acp-replay-matrix-slot {
+  margin-top: 5px;
+  border-left: 4px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--zs-subtle-bg);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.acp-replay-matrix-slot.is-current {
+  border-left-color: var(--accent);
+  font-weight: 700;
+}
+
+.acp-replay-matrix-slot.is-complete {
+  border-left-color: var(--zs-success-border);
+}
+
+.acp-replay-matrix-slot.is-incomplete,
+.acp-replay-matrix-slot.is-warning {
+  border-left-color: var(--zs-warning-border);
+}
+
+.acp-replay-summary-card .mono + .mono {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.acp-replay-run-evidence {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 920px) {
   .profiler-capture-panel,
   .profiler-export-panel {
@@ -1294,10 +1381,19 @@ tr.clickable {
   .profiler-start {
     align-self: flex-start;
   }
+
+  .acp-replay-matrix-grid,
+  .acp-replay-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 620px) {
   .profiler-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .acp-trace-advanced-fields {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -9291,6 +9291,14 @@ describe("acp ui smoke", function () {
     assert.include(replayRenderSource, "Run Nine-Replay Matrix");
     assert.include(replayRenderSource, 'tracePath.addEventListener("input"');
     assert.include(replayRenderSource, "syncReplayStartAvailability");
+    assert.include(
+      replayRenderSource,
+      'el("input", "text-input profiler-input")',
+    );
+    assert.include(replayRenderSource, "phaseValidation");
+    assert.include(replayRenderSource, "acp-replay-matrix-grid");
+    assert.include(replayRenderSource, "acp-replay-summary-grid");
+    assert.include(replayRenderSource, 'el("details"');
     assert.include(replayRenderSource, 'sendAction("acp-replay-trace-browse"');
     assert.include(
       replayRenderSource,
@@ -9300,6 +9308,7 @@ describe("acp ui smoke", function () {
       taskManagerDialog,
       "await replay.startAcpRuntimeReplayController({",
     );
+    assert.include(taskManagerDialog, 'phase: String(payload.phase || "")');
     assert.notInclude(
       taskManagerDialog,
       "void replay.startAcpRuntimeReplayController({",

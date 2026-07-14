@@ -16,6 +16,7 @@ import {
   type AcpRuntimeTraceSourceKind,
 } from "./acpRuntimeSemanticTrace";
 import { isAcpRuntimeReplayProfilerAvailable } from "./debugMode";
+import { buildAcpRuntimeReplayArtifactStem } from "./acpRuntimeReplayIdentity";
 import type {
   AcpRuntimeMetricName,
   AcpRuntimeProfileSnapshot,
@@ -438,6 +439,27 @@ export type AcpRuntimeReplayProfileRecord = {
   profile?: AcpRuntimeProfileSnapshot;
 };
 
+export type AcpRuntimeReplayCurrentRun = {
+  surface: AcpRuntimeReplaySurface;
+  role: AcpRuntimeReplayRunRole;
+  runIndex: number;
+  matrixIndex: number;
+  syntheticRootId: string;
+  startedAt: string;
+};
+
+export type AcpRuntimeReplaySurfaceSummary = {
+  surface: AcpRuntimeReplaySurface;
+  completion: "pending" | "complete" | "incomplete";
+  formalCount: number;
+  elapsedMeanMs: number;
+  elapsedMinMs: number;
+  elapsedMaxMs: number;
+  eventsPerSecond: number;
+  mibPerSecond: number;
+  records: AcpRuntimeReplayProfileRecord[];
+};
+
 export type AcpRuntimeReplayMeasurementState =
   | "captured"
   | "expected-zero"
@@ -460,6 +482,7 @@ export type AcpRuntimeReplayMatrix = {
     schema: typeof ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA;
     digest: string;
     sourceKind: AcpRuntimeTraceSourceKind;
+    sampleName?: string;
   };
   cadence: AcpRuntimeReplayCadence;
   r2WorkloadVersion: typeof ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1;
@@ -668,6 +691,7 @@ let replayMatrixNonce = 0;
 
 export async function runAcpRuntimeReplayMatrix(args: {
   trace: AcpRuntimeSemanticTraceDocument;
+  sampleName?: string;
   cadence: AcpRuntimeReplayCadence;
   replayConfig?: Record<string, string | number | boolean>;
   environment: AcpRuntimeReplayMatrix["environment"];
@@ -685,6 +709,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
     record: AcpRuntimeReplayProfileRecord,
     completed: number,
   ) => Promise<void> | void;
+  onRecordStart?: (current: AcpRuntimeReplayCurrentRun) => Promise<void> | void;
 }): Promise<AcpRuntimeReplayMatrix> {
   if (!isAcpRuntimeReplayProfilerAvailable()) {
     throw new Error("ACP replay profiler is unavailable");
@@ -749,6 +774,19 @@ export async function runAcpRuntimeReplayMatrix(args: {
         }
         ownerNonce += 1;
         const syntheticRootId = `acp-replay-${matrixNonce}-${ownerNonce}`;
+        const runIndex = records.filter(
+          (entry) => entry.surface === surface,
+        ).length;
+        if (args.onRecordStart) {
+          await args.onRecordStart({
+            surface,
+            role,
+            runIndex,
+            matrixIndex: records.length + 1,
+            syntheticRootId,
+            startedAt: new Date().toISOString(),
+          });
+        }
         let target: AcpRuntimeReplayTarget | undefined;
         let replay = emptyReplay("run-not-started");
         let r2 = emptyR2();
@@ -867,7 +905,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
         const record: AcpRuntimeReplayProfileRecord = {
           surface,
           role,
-          runIndex: records.filter((entry) => entry.surface === surface).length,
+          runIndex,
           syntheticRootId,
           completion: executionCompletion,
           executionCompletion,
@@ -921,6 +959,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
       schema: ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA,
       digest: args.trace.digest,
       sourceKind: args.trace.header.sourceKind,
+      ...(args.sampleName ? { sampleName: args.sampleName } : {}),
     },
     cadence: args.cadence,
     r2WorkloadVersion: ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1,
@@ -944,6 +983,61 @@ export async function runAcpRuntimeReplayMatrix(args: {
     records,
     warnings,
   };
+}
+
+export function projectAcpRuntimeReplaySurfaceSummaries(
+  records: readonly AcpRuntimeReplayProfileRecord[],
+): AcpRuntimeReplaySurfaceSummary[] {
+  return (["closed", "open-inactive", "target-active"] as const).map(
+    (surface) => {
+      const formal = records.filter(
+        (record) => record.surface === surface && record.role === "formal",
+      );
+      const elapsed = formal.map((record) => record.measurement.elapsedMs);
+      const elapsedMeanMs =
+        elapsed.reduce((sum, value) => sum + value, 0) /
+        Math.max(1, elapsed.length);
+      const events = formal.reduce(
+        (sum, record) => sum + record.replay.appliedEvents,
+        0,
+      );
+      const bytes = formal.reduce(
+        (sum, record) => sum + record.replay.appliedBytes,
+        0,
+      );
+      return {
+        surface,
+        completion:
+          formal.length === 0
+            ? "pending"
+            : formal.length === 2 &&
+                formal.every(
+                  (record) =>
+                    record.executionCompletion === "complete" &&
+                    record.measurementCompletion === "complete",
+                )
+              ? "complete"
+              : "incomplete",
+        formalCount: formal.length,
+        elapsedMeanMs,
+        elapsedMinMs: elapsed.length ? Math.min(...elapsed) : 0,
+        elapsedMaxMs: elapsed.length ? Math.max(...elapsed) : 0,
+        eventsPerSecond:
+          elapsedMeanMs > 0
+            ? events / Math.max(1, formal.length) / (elapsedMeanMs / 1000)
+            : 0,
+        mibPerSecond:
+          elapsedMeanMs > 0
+            ? bytes /
+              Math.max(1, formal.length) /
+              1024 /
+              1024 /
+              (elapsedMeanMs / 1000)
+            : 0,
+        records: formal,
+      };
+    },
+  );
 }
 
 export function assertAcpRuntimeReplayMatricesComparable(
@@ -993,34 +1087,10 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
   matrix: AcpRuntimeReplayMatrix,
 ) {
   const formal = matrix.records.filter((record) => record.role === "formal");
-  const surfaceSummary = (
-    ["closed", "open-inactive", "target-active"] as const
-  ).map((surface) => {
-    const records = formal.filter((record) => record.surface === surface);
-    const elapsed = records.map((record) => record.measurement.elapsedMs);
-    const mean =
-      elapsed.reduce((sum, value) => sum + value, 0) /
-      Math.max(1, elapsed.length);
-    const events = records.reduce(
-      (sum, record) => sum + record.replay.appliedEvents,
-      0,
-    );
-    const bytes = records.reduce(
-      (sum, record) => sum + record.replay.appliedBytes,
-      0,
-    );
-    return {
-      surface,
-      count: records.length,
-      mean,
-      min: elapsed.length ? Math.min(...elapsed) : 0,
-      max: elapsed.length ? Math.max(...elapsed) : 0,
-      eventsPerSecond: mean > 0 ? events / records.length / (mean / 1000) : 0,
-      mibPerSecond:
-        mean > 0 ? bytes / records.length / 1024 / 1024 / (mean / 1000) : 0,
-    };
-  });
-  const closedMean = surfaceSummary[0].mean;
+  const surfaceSummary = projectAcpRuntimeReplaySurfaceSummaries(
+    matrix.records,
+  );
+  const closedMean = surfaceSummary[0].elapsedMeanMs;
   const format = (value: number, digits = 1) =>
     Number.isFinite(value) ? value.toFixed(digits) : "n/a";
   const metricNames = Array.from(
@@ -1034,6 +1104,8 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     "# ACP Runtime Replay Matrix",
     "",
     `- Trace: \`${matrix.trace.digest}\``,
+    `- Sample: \`${matrix.trace.sampleName || "trace"}\``,
+    `- Stage: \`${String(matrix.replayConfig.phase || "")}\``,
     `- Source: \`${matrix.trace.sourceKind}\``,
     `- Cadence: \`${matrix.cadence}\``,
     `- R2 workload: \`${matrix.r2WorkloadVersion}\``,
@@ -1057,7 +1129,7 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...surfaceSummary.map(
       (entry) =>
-        `| ${entry.surface} | ${entry.count} | ${format(entry.mean)} | ${format(entry.min)}–${format(entry.max)} | ${format(entry.eventsPerSecond)} | ${format(entry.mibPerSecond, 3)} | ${closedMean > 0 ? `${format(((entry.mean - closedMean) / closedMean) * 100)}%` : "n/a"} |`,
+        `| ${entry.surface} | ${entry.formalCount} | ${format(entry.elapsedMeanMs)} | ${format(entry.elapsedMinMs)}–${format(entry.elapsedMaxMs)} | ${format(entry.eventsPerSecond)} | ${format(entry.mibPerSecond, 3)} | ${closedMean > 0 ? `${format(((entry.elapsedMeanMs - closedMean) / closedMean) * 100)}%` : "n/a"} |`,
     ),
     "",
     "## Formal metric totals",
@@ -1099,9 +1171,11 @@ export async function saveAcpRuntimeReplayMatrix(args: {
   const paths = getRuntimePersistencePaths(args.root);
   const folder = joinPath(paths.runtimeRoot, "profiles", "acp-replay");
   await ensureRuntimeDirectory(folder);
-  const stem = `acp-replay-${new Date(args.nowMs ?? Date.now())
-    .toISOString()
-    .replace(/[:.]/g, "-")}`;
+  const stem = buildAcpRuntimeReplayArtifactStem({
+    sampleName: args.matrix.trace.sampleName || "trace",
+    phase: String(args.matrix.replayConfig.phase || "stage"),
+    createdAtMs: args.nowMs,
+  });
   const files = [
     { extension: "json", content: `${JSON.stringify(args.matrix, null, 2)}\n` },
     {
