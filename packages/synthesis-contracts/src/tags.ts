@@ -12,6 +12,23 @@ export type SynthesisTagSelectionRequest = {
 
 export type SynthesisTagCommandResult = SynthesisJsonObject;
 
+export const SYNTHESIS_TAG_IMPORT_ACTIONS = [
+  "use-imported",
+  "merge-non-conflicting",
+] as const;
+
+export type SynthesisTagImportAction =
+  (typeof SYNTHESIS_TAG_IMPORT_ACTIONS)[number];
+
+export type SynthesisTagImportPreviewRequest = {
+  payload: string;
+};
+
+export type SynthesisTagImportApplyRequest = {
+  payload: string;
+  action: SynthesisTagImportAction;
+};
+
 export type SynthesisTagAuditReplaceRequest = {
   libraryId: number;
   entries: Array<{
@@ -38,6 +55,12 @@ export interface SynthesisTagsClient {
     request: SynthesisTagSelectionRequest,
   ): Promise<SynthesisTagCommandResult>;
   clearStagedTagSuggestions(): Promise<SynthesisTagCommandResult>;
+  previewTagVocabularyImport(
+    request: SynthesisTagImportPreviewRequest,
+  ): Promise<SynthesisTagCommandResult>;
+  applyTagVocabularyImport(
+    request: SynthesisTagImportApplyRequest,
+  ): Promise<SynthesisTagCommandResult>;
   replaceTagAuditRecords(
     request: SynthesisTagAuditReplaceRequest,
   ): Promise<SynthesisJsonObject>;

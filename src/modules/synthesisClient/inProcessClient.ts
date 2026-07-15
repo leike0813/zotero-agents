@@ -4,6 +4,7 @@ import {
   SYNTHESIS_CONCEPT_REVIEW_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
+  SYNTHESIS_TAG_IMPORT_ACTIONS,
   SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
@@ -38,6 +39,8 @@ import {
   type SynthesisStartupReconcileResult,
   type SynthesisTagAuditReplaceRequest,
   type SynthesisTagCommandResult,
+  type SynthesisTagImportApplyRequest,
+  type SynthesisTagImportPreviewRequest,
   type SynthesisTagSelectionRequest,
   type SynthesisTagStagedSuggestion,
   type SynthesisTagVocabularySnapshot,
@@ -120,6 +123,12 @@ export interface LegacySynthesisPort {
     request: SynthesisTagSelectionRequest,
   ): Promise<unknown>;
   clearStagedTagSuggestions?(): Promise<unknown>;
+  previewTagVocabularyImport?(
+    request: SynthesisTagImportPreviewRequest,
+  ): Promise<unknown>;
+  applyTagVocabularyImport?(
+    request: SynthesisTagImportApplyRequest,
+  ): Promise<unknown>;
   replaceTagAuditRecords?(
     request: SynthesisTagAuditReplaceRequest,
   ): Promise<unknown>;
@@ -403,6 +412,39 @@ function normalizeTagSelectionRequest(
         `tags[${index}]`,
         "Synthesis staged Tag selection tag",
       ),
+    ),
+  };
+}
+
+function normalizeTagImportPayload(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Tag import payload is required",
+      { field: "payload" },
+    );
+  }
+  return value;
+}
+
+function normalizeTagImportPreviewRequest(
+  value: unknown,
+): SynthesisTagImportPreviewRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return { payload: normalizeTagImportPayload(request.payload) };
+}
+
+function normalizeTagImportApplyRequest(
+  value: unknown,
+): SynthesisTagImportApplyRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    payload: normalizeTagImportPayload(request.payload),
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_TAG_IMPORT_ACTIONS,
+      "action",
+      "Synthesis Tag import action",
     ),
   };
 }
@@ -1434,6 +1476,32 @@ export function createInProcessSynthesisClient(
             "Staged Tag clear",
           ),
         );
+      },
+      async previewTagVocabularyImport(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagImportPreviewRequest(request);
+          const port = requireLegacyPort(
+            legacy.previewTagVocabularyImport,
+            "tags.previewTagVocabularyImport",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Tag vocabulary import preview",
+          ) as SynthesisTagCommandResult;
+        });
+      },
+      async applyTagVocabularyImport(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagImportApplyRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyTagVocabularyImport,
+            "tags.applyTagVocabularyImport",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Tag vocabulary import apply",
+          ) as SynthesisTagCommandResult;
+        });
       },
       async replaceTagAuditRecords(request) {
         return runLegacy(async () =>

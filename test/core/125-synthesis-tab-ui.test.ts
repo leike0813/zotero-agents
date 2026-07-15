@@ -2621,6 +2621,83 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(invalidationBlock, 'command === "exportTagVocabulary"');
   });
 
+  it("routes Tag import preview and apply through the strict Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const previewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "importTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateStagedTagSuggestion"',
+      ),
+    );
+    const applyRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTagVocabularyImport"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "openTopicArtifact"',
+      ),
+    );
+
+    assert.include(
+      previewRegion,
+      'result.hostCommand?.command === "previewTagVocabularyImport"',
+    );
+    assert.include(
+      previewRegion,
+      'typeof commandArgs.payload === "string" && commandArgs.payload.trim()',
+    );
+    assert.match(
+      previewRegion,
+      /"previewTagVocabularyImport",\s*\{\},\s*async \(\) =>/,
+    );
+    assert.match(
+      previewRegion,
+      /client\.tags\s*\.previewTagVocabularyImport\(\{\s*payload: commandArgs\.payload(?: as string)?,?\s*\}\)/,
+    );
+
+    assert.include(
+      applyRegion,
+      'const action = String(commandArgs.action || "").trim()',
+    );
+    assert.include(applyRegion, 'action === "use-imported"');
+    assert.include(applyRegion, 'action === "merge-non-conflicting"');
+    assert.match(applyRegion, /"applyTagVocabularyImport",\s*\{ action \}/);
+    assert.match(
+      applyRegion,
+      /client\.tags\s*\.applyTagVocabularyImport\(\{\s*payload: commandArgs\.payload(?: as string)?,\s*action,?\s*\}\)/,
+    );
+
+    for (const region of [previewRegion, applyRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "failOnDiagnostic");
+    }
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "previewTagVocabularyImport"');
+    assert.include(tagInvalidation, 'command === "applyTagVocabularyImport"');
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
   it("routes staged Tag bulk commands through the strict Tag client", async function () {
     const tabSource = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

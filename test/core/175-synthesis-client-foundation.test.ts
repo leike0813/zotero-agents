@@ -629,6 +629,227 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Tag import commands through normalized ports", async function () {
+    const calls: Array<{ operation: string; request: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async previewTagVocabularyImport(request) {
+        calls.push({ operation: "preview", request });
+        return {
+          conflicts: [{ tag: "model:detr" }],
+          warnings: [{ code: "tag_import_warning" }],
+          checked_at: new Date("2026-07-15T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async applyTagVocabularyImport(request) {
+        calls.push({ operation: "apply", request });
+        return {
+          ok: false,
+          diagnostics: [{ code: "tag_import_domain_failure" }],
+        };
+      },
+    });
+
+    assert.deepEqual(
+      await client.tags.previewTagVocabularyImport({
+        payload: '  {"entries":[]}\n',
+        unexpected: "discard",
+      } as never),
+      {
+        conflicts: [{ tag: "model:detr" }],
+        warnings: [{ code: "tag_import_warning" }],
+        checked_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      await client.tags.applyTagVocabularyImport({
+        payload: '\n{"entries":[]}  ',
+        action: "merge-non-conflicting",
+        unexpected: "discard",
+      } as never),
+      {
+        ok: false,
+        diagnostics: [{ code: "tag_import_domain_failure" }],
+      },
+    );
+    assert.deepEqual(calls, [
+      {
+        operation: "preview",
+        request: { payload: '  {"entries":[]}\n' },
+      },
+      {
+        operation: "apply",
+        request: {
+          payload: '\n{"entries":[]}  ',
+          action: "merge-non-conflicting",
+        },
+      },
+    ]);
+  });
+
+  it("rejects invalid Tag import requests before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async previewTagVocabularyImport() {
+        invocations += 1;
+        return {};
+      },
+      async applyTagVocabularyImport() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () => missingPortClient.tags.previewTagVocabularyImport({ payload: " " }),
+      () => client.tags.previewTagVocabularyImport(undefined as never),
+      () => client.tags.previewTagVocabularyImport({} as never),
+      () => client.tags.previewTagVocabularyImport({ payload: 7 } as never),
+      () =>
+        client.tags.previewTagVocabularyImport({
+          payload: "{}",
+          callback: (() => undefined) as never,
+        } as never),
+      () =>
+        client.tags.applyTagVocabularyImport({
+          payload: "{}",
+          action: "keep-local",
+        } as never),
+      () =>
+        client.tags.applyTagVocabularyImport({
+          payload: " ",
+          action: "use-imported",
+        }),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Tag import request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Tag import ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "import conflict");
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async previewTagVocabularyImport() {
+        throw preserved;
+      },
+      async applyTagVocabularyImport() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+    });
+    const ordinaryFailureClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async previewTagVocabularyImport() {
+        throw new Error("invalid Tag import JSON");
+      },
+    });
+    const invalidResultClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async previewTagVocabularyImport() {
+        return [];
+      },
+      async applyTagVocabularyImport() {
+        return undefined;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () =>
+          missingPortClient.tags.previewTagVocabularyImport({ payload: "{}" }),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          missingPortClient.tags.applyTagVocabularyImport({
+            payload: "{}",
+            action: "use-imported",
+          }),
+        code: "unavailable",
+      },
+      {
+        run: () => client.tags.previewTagVocabularyImport({ payload: "{}" }),
+        code: "conflict",
+        expected: preserved,
+      },
+      {
+        run: () =>
+          client.tags.applyTagVocabularyImport({
+            payload: "{}",
+            action: "merge-non-conflicting",
+          }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          ordinaryFailureClient.tags.previewTagVocabularyImport({
+            payload: "not-json",
+          }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          invalidResultClient.tags.previewTagVocabularyImport({
+            payload: "{}",
+          }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          invalidResultClient.tags.applyTagVocabularyImport({
+            payload: "{}",
+            action: "use-imported",
+          }),
+        code: "internal",
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Tag import operation to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes strict staged Tag bulk commands through normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
     const client = createInProcessSynthesisClient({

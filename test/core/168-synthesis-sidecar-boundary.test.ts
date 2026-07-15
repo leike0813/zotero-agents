@@ -168,6 +168,8 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.tags\s*\.promoteStagedTagSuggestions/);
     assert.match(workbench, /client\.tags\s*\.discardStagedTagSuggestions/);
     assert.match(workbench, /client\.tags\s*\.clearStagedTagSuggestions/);
+    assert.match(workbench, /client\.tags\s*\.previewTagVocabularyImport/);
+    assert.match(workbench, /client\.tags\s*\.applyTagVocabularyImport/);
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -238,6 +240,8 @@ describe("Synthesis sidecar migration boundary", function () {
       "validateTagVocabulary",
       "rebuildTagVocabularyIndex",
       "exportTagVocabularyForRegulator",
+      "previewTagVocabularyImport",
+      "applyTagVocabularyImport",
     ]) {
       assert.notMatch(
         workbench,

@@ -2807,10 +2807,16 @@ function handleAction(
   ) {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     if (typeof commandArgs.payload === "string" && commandArgs.payload.trim()) {
-      runWorkbenchCommandOnce(runtime, "previewTagVocabularyImport", {}, () =>
-        getDefaultSynthesisService().previewTagVocabularyImport(
-          commandArgs.payload as string,
-        ),
+      runWorkbenchCommandOnce(
+        runtime,
+        "previewTagVocabularyImport",
+        {},
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.previewTagVocabularyImport({
+            payload: commandArgs.payload as string,
+          });
+        },
       );
       return;
     }
@@ -2998,11 +3004,13 @@ function handleAction(
         runtime,
         "applyTagVocabularyImport",
         { action },
-        () =>
-          getDefaultSynthesisService().applyTagVocabularyImport({
-            payload: commandArgs.payload,
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.applyTagVocabularyImport({
+            payload: commandArgs.payload as string,
             action,
-          }),
+          });
+        },
       );
       return;
     }
