@@ -408,8 +408,6 @@ function buildDefaultSnapshotInput(): SynthesisUiSnapshotInput {
     libraryId: Number.isFinite(libraryId) && libraryId > 0 ? libraryId : 1,
     storage: {
       rootState: "unbound",
-      anchorState: "missing",
-      mirrorState: "missing",
     },
     preferences: {
       sourceWatchEnabled: false,

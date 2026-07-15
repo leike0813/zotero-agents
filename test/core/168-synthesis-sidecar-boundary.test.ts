@@ -36,7 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.lengthOf(report.publicMethods, 128);
+    assert.lengthOf(report.publicMethods, 125);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
     assert.notInclude(
@@ -182,6 +182,12 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(serviceSource, "zoteroCreatorsFromItem");
     assert.notInclude(serviceSource, "zoteroTagsFromItem");
     assert.notInclude(serviceSource, "zoteroCollectionsFromItem");
+    assert.notInclude(serviceSource, "SynthesisMirrorAdapter");
+    assert.notInclude(serviceSource, "SynthesisMirrorRefreshResult");
+    assert.notInclude(serviceSource, "createZoteroSynthesisMirrorAdapter");
+    assert.notInclude(serviceSource, "rebuildMirrorFromCanonical");
+    assert.notInclude(serviceSource, "recoverCanonicalFromMirror");
+    assert.notInclude(serviceSource, "globalThis as { Zotero");
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(
@@ -639,12 +645,16 @@ describe("Synthesis sidecar migration boundary", function () {
       "utf8",
     );
 
-    assert.include(readme, "Topic canonical current files are the SSOT");
+    assert.include(
+      readme,
+      "Topic canonical current files are the only runtime SSOT",
+    );
     assert.include(
       storage,
       "| Topic canonical current files and source manifests |",
     );
-    assert.include(storage, "| Zotero Topic note shards |");
+    assert.include(storage, "| Legacy Zotero Topic anchor/shard items |");
+    assert.include(storage, "Normal runtime does not discover, read, update");
     assert.notInclude(
       storage,
       "No external process requirement just to keep a local index current.",
@@ -654,6 +664,7 @@ describe("Synthesis sidecar migration boundary", function () {
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
+    assert.include(runtime, "complete 125-method service");
   });
 
   it("registers the migration-safe single-owner invariant", function () {

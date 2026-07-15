@@ -527,8 +527,6 @@ export type SynthesisUiPreferencesStatus = {
 export type SynthesisUiStorageStatus = {
   rootPath?: string;
   rootState: "missing" | "ready" | "unbound";
-  anchorState: "missing" | "ready" | "degraded";
-  mirrorState: "missing" | "ready" | "degraded";
 };
 
 export type SynthesisUiSyncDiagnostic = {
@@ -4042,16 +4040,6 @@ export function buildSynthesisUiSnapshot(
         input.storage?.rootState === "missing"
           ? input.storage.rootState
           : "unbound",
-      anchorState:
-        input.storage?.anchorState === "ready" ||
-        input.storage?.anchorState === "degraded"
-          ? input.storage.anchorState
-          : "missing",
-      mirrorState:
-        input.storage?.mirrorState === "ready" ||
-        input.storage?.mirrorState === "degraded"
-          ? input.storage.mirrorState
-          : "missing",
     },
     preferences: {
       sourceWatchEnabled: Boolean(input.preferences?.sourceWatchEnabled),

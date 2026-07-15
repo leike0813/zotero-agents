@@ -104,23 +104,6 @@ method_groups:
       - rejectTopicDiscoveryHint
       - restoreTopicDiscoveryHint
 
-  - id: topic_mirror_commands
-    category: host_effect
-    target_capability: topics.mirror
-    disposition: client_capability
-    consumer_groups: [workbench, host_bridge, mcp]
-    methods:
-      - refreshMirror
-      - rebuildMirrorFromCanonical
-
-  - id: legacy_mirror_recovery
-    category: command
-    target_capability: maintenance.migration
-    disposition: remove
-    consumer_groups: [workbench, host_bridge, mcp]
-    methods:
-      - recoverCanonicalFromMirror
-
   - id: review_input
     category: query
     target_capability: workflow_review

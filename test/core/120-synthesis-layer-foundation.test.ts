@@ -6,18 +6,13 @@ import {
   LibraryWriteLock,
   SynthesisSchemaRegistry,
   buildSynthesisKnowledgeGraphPaths,
-  buildMirrorManifest,
   checkBaseHashes,
   createCanonicalEnvelope,
-  decodeNoteShard,
   defaultSynthesisFoundationPrefs,
-  encodeNoteShard,
-  formatShardTitle,
   hashCanonicalJson,
   hashMarkdown,
   initializeSynthesisKnowledgeGraphStore,
   parseCanonicalEnvelope,
-  parseShardTitle,
   readCanonicalJsonAsset,
   readProjectionRegistryState,
   recordProjectionRebuild,
@@ -138,126 +133,6 @@ describe("Synthesis Layer foundation", function () {
     assert.match(left, /^sha256:[a-f0-9]{64}$/);
     assert.equal(left, right);
     assert.equal(hashMarkdown("a\r\nb\rc\n"), hashMarkdown("a\nb\nc\n"));
-  });
-
-  it("formats and parses note shard titles", function () {
-    const title = formatShardTitle({
-      libraryId: 1,
-      kind: "topics",
-      seq: 2,
-      total: 12,
-    });
-
-    assert.equal(title, "ZS Synthesis Mirror [1] topics 002/012");
-    assert.deepEqual(parseShardTitle(title), {
-      libraryId: 1,
-      kind: "topics",
-      seq: 2,
-      total: 12,
-    });
-    assert.isNull(parseShardTitle("not a shard"));
-  });
-
-  it("round-trips note shard HTML payloads and verifies hashes", function () {
-    const payload = JSON.stringify({ topics: [{ id: "topic:test" }] });
-    const shard = encodeNoteShard({
-      libraryId: 1,
-      anchorKey: "ABCD1234",
-      kind: "topics",
-      seq: 1,
-      total: 1,
-      payload,
-      compression: "none",
-      updatedAt: "2026-05-10T12:00:00.000Z",
-    });
-
-    assert.include(shard.html, "ZOTERO_SKILLS_SYNTHESIS_SHARD");
-    assert.notInclude(shard.html, payload);
-
-    const decoded = decodeNoteShard(shard.html);
-    assert.equal(decoded.payload, payload);
-    assert.equal(decoded.envelope.payload_hash, hashMarkdown(payload));
-    assert.equal(
-      decoded.envelope.encoded_hash,
-      hashMarkdown(shard.envelope.payload),
-    );
-  });
-
-  it("round-trips gzip-compressed note shard payloads", function () {
-    const payload = JSON.stringify({ resolvers: [{ id: "resolver:test" }] });
-    const shard = encodeNoteShard({
-      libraryId: 1,
-      anchorKey: "ABCD1234",
-      kind: "resolvers",
-      seq: 1,
-      total: 1,
-      payload,
-      compression: "gzip",
-      updatedAt: "2026-05-10T12:00:00.000Z",
-    });
-
-    assert.equal(shard.envelope.compression, "gzip");
-    assert.equal(decodeNoteShard(shard.html).payload, payload);
-  });
-
-  it("sorts mirror manifest shards and excludes manifest_hash from its hash input", function () {
-    const manifest = buildMirrorManifest({
-      libraryId: 1,
-      anchorKey: "ABCD1234",
-      mirrorId:
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      updatedAt: "2026-05-10T12:00:00.000Z",
-      shards: [
-        {
-          kind: "topics",
-          seq: 2,
-          total: 2,
-          noteKey: "N2",
-          title: "ZS Synthesis Mirror [1] topics 002/002",
-          payloadHash:
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          encodedHash:
-            "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        },
-        {
-          kind: "manifest",
-          seq: 1,
-          total: 1,
-          noteKey: "N0",
-          title: "ZS Synthesis Mirror [1] manifest 001/001",
-          payloadHash:
-            "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-          encodedHash:
-            "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        },
-        {
-          kind: "topics",
-          seq: 1,
-          total: 2,
-          noteKey: "N1",
-          title: "ZS Synthesis Mirror [1] topics 001/002",
-          payloadHash:
-            "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          encodedHash:
-            "sha256:1111111111111111111111111111111111111111111111111111111111111111",
-        },
-      ],
-    });
-
-    assert.deepEqual(
-      manifest.shards.map((entry) => `${entry.kind}:${entry.seq}`),
-      ["manifest:1", "topics:1", "topics:2"],
-    );
-
-    const withDifferentExistingHash = {
-      ...manifest,
-      manifest_hash:
-        "sha256:2222222222222222222222222222222222222222222222222222222222222222",
-    };
-    assert.equal(
-      buildMirrorManifest(withDifferentExistingHash).manifest_hash,
-      manifest.manifest_hash,
-    );
   });
 
   it("serializes local writes per library", async function () {

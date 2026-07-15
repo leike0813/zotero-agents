@@ -9,10 +9,7 @@ import {
   createCanonicalEnvelope,
   hashMarkdown,
 } from "../../src/modules/synthesis/foundation";
-import {
-  createSynthesisService,
-  type SynthesisMirrorAdapter,
-} from "../../src/modules/synthesis/service";
+import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTopicGraphService } from "../../src/modules/synthesis/topicGraph";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
@@ -183,35 +180,6 @@ function markdownResultContext(
   };
 }
 
-function createMirrorRecorder() {
-  const upserts: Array<{
-    title: string;
-    html: string;
-    kind: string;
-    seq: number;
-    total: number;
-  }> = [];
-  const adapter: SynthesisMirrorAdapter = {
-    async ensureAnchor() {
-      return { anchorKey: "ANCHOR01" };
-    },
-    async upsertShard(args) {
-      upserts.push({
-        title: args.title,
-        html: args.html,
-        kind: args.kind,
-        seq: args.seq,
-        total: args.total,
-      });
-      return { noteKey: `NOTE${upserts.length}` };
-    },
-    async deleteShardsNotIn() {
-      return undefined;
-    },
-  };
-  return { adapter, upserts };
-}
-
 async function makeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-integration-"));
 }
@@ -368,14 +336,12 @@ async function topicReasonCodes(root: string, topicId = "topic-alpha") {
 }
 
 describe("Synthesis Layer v1 integration service", function () {
-  it("persists a topic synthesis bundle as canonical assets without mirror writes", async function () {
+  it("persists a topic synthesis bundle as canonical assets", async function () {
     const root = await makeRoot();
-    const mirror = createMirrorRecorder();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: mirror.adapter,
     });
 
     const result = await service.applyTopicSynthesisResult(validBundle());
@@ -396,17 +362,14 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.notProperty(metadata.data, "export_hash");
     assert.equal(index.data.topics[0].topic_id, "topic-alpha");
     assert.notProperty(index.data.topics[0], "markdown_hash");
-    assert.lengthOf(mirror.upserts, 0);
   });
 
-  it("writes a fresh baseline after topic apply without mirror artifact-state shards", async function () {
+  it("writes a fresh baseline after topic apply", async function () {
     const root = await makeRoot();
-    const mirror = createMirrorRecorder();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: mirror.adapter,
       registryInputs: [
         registryInput({ itemKey: "A" }),
         registryInput({ itemKey: "B" }),
@@ -427,9 +390,10 @@ describe("Synthesis Layer v1 integration service", function () {
       "missing",
     );
     assert.equal(snapshot.artifacts.rows[0]?.source_materials_percent, 0);
+    assert.notProperty(snapshot.storage, "anchorState");
+    assert.notProperty(snapshot.storage, "mirrorState");
     assert.notProperty(snapshot.artifacts.rows[0] as any, "coverage");
     assert.notProperty(snapshot.artifacts.rows[0] as any, "completion");
-    assert.lengthOf(mirror.upserts, 0);
   });
 
   it("mirrors synthesis audit events into the unified runtime log", async function () {
@@ -747,7 +711,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
       registryInputs: [
         registryInput({ itemKey: "A" }),
         registryInput({ itemKey: "B" }),
@@ -826,7 +789,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-16T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     const snapshot = await service.getSynthesisSnapshot();
@@ -891,20 +853,12 @@ describe("Synthesis Layer v1 integration service", function () {
     );
   });
 
-  it("keeps canonical apply independent of mirror adapter failures", async function () {
+  it("returns a canonical-only apply result", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: {
-        async ensureAnchor() {
-          throw new Error("zotero anchor unavailable");
-        },
-        async upsertShard() {
-          assert.fail("upsertShard should not run when ensureAnchor fails");
-        },
-      },
     });
 
     const result = await service.applyTopicSynthesisResult(validBundle());
@@ -915,24 +869,19 @@ describe("Synthesis Layer v1 integration service", function () {
       await exists(legacyCurrentExportPath(root, "topic-alpha")),
       false,
     );
-    if (result.ok) {
-      assert.isUndefined(result.mirrorError);
-      assert.notInclude(result.warnings || [], "mirror_refresh_failed");
-    }
+    assert.notProperty(result, "mirror");
+    assert.notProperty(result, "mirrorError");
   });
 
   it("ignores stale legacy base hashes without creating conflict candidates", async function () {
     const root = await makeRoot();
-    const mirror = createMirrorRecorder();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: mirror.adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
-    const beforeUpserts = mirror.upserts.length;
     const update = await service.applyTopicSynthesisResult(
       validBundle({
         mode: "update",
@@ -951,7 +900,6 @@ describe("Synthesis Layer v1 integration service", function () {
       await exists(legacyCurrentExportPath(root, "topic-alpha")),
       false,
     );
-    assert.equal(mirror.upserts.length, beforeUpserts);
     assert.deepEqual(snapshot.conflicts.candidates, []);
   });
 
@@ -961,7 +909,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-11T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
       registryInputs: [
         {
           libraryId: 1,
@@ -1059,7 +1006,6 @@ describe("Synthesis Layer v1 integration service", function () {
         registryInput({ itemKey: "A" }),
         registryInput({ itemKey: "B" }),
       ],
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await first.applyTopicSynthesisResult(validBundle());
@@ -1095,7 +1041,6 @@ describe("Synthesis Layer v1 integration service", function () {
           },
         },
       },
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     const topicContext = (await readOnly.getTopicContext({
@@ -1118,7 +1063,6 @@ describe("Synthesis Layer v1 integration service", function () {
       libraryId: 1,
       now: () => "2026-05-12T00:00:00.000Z",
       registryInputs: [registryInput({ itemKey: "A" })],
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -1155,7 +1099,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(
@@ -1237,7 +1180,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(
@@ -1347,7 +1289,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => timestamp,
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(
@@ -1424,12 +1365,10 @@ describe("Synthesis Layer v1 integration service", function () {
 
   it("soft deletes topic artifacts from active state while preserving a deleted cleanup record", async function () {
     const root = await makeRoot();
-    const mirror = createMirrorRecorder();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-12T02:00:00.000Z",
-      mirrorAdapter: mirror.adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -1466,7 +1405,6 @@ describe("Synthesis Layer v1 integration service", function () {
       edgeId: proposalResult.accepted_edges[0]!.edge_id,
       status: "confirmed",
     });
-    const beforeDeleteUpserts = mirror.upserts.length;
     const result = await service.deleteTopicArtifact({
       topicId: "topic-alpha",
     });
@@ -1491,7 +1429,6 @@ describe("Synthesis Layer v1 integration service", function () {
       ["topic-alpha"],
     );
     assert.equal(snapshot.deletedArtifacts.count, 0);
-    assert.equal(mirror.upserts.length, beforeDeleteUpserts);
     assert.deepEqual(
       graphAfterDelete.edges
         .filter(
@@ -1520,7 +1457,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T02:30:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -1563,7 +1499,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T03:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -1635,7 +1570,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T04:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(validBundle());
@@ -1658,7 +1592,6 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-12T01:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     await service.applyTopicSynthesisResult(
@@ -4213,14 +4146,12 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.notProperty(paths, "currentExportMarkdown");
   });
 
-  it("applies structured topic results into current/ assets without mirror writes", async function () {
+  it("applies structured topic results into current/ assets", async function () {
     const root = await makeRoot();
-    const mirror = createMirrorRecorder();
     const service = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-16T00:00:00.000Z",
-      mirrorAdapter: mirror.adapter,
       registryInputs: [
         registryInput({
           itemKey: "DETR",
@@ -4255,7 +4186,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.isTrue(
       await exists(path.join(paths.currentSectionsRoot, "claims.json")),
     );
-    assert.lengthOf(mirror.upserts, 0);
     assert.equal(reviewInput.topic.markdown, reportBody);
     assert.include(reportBody, "## 技术路线");
     assert.include(reportBody, "DETR introduced a set-prediction framing");
@@ -4279,7 +4209,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         root,
         libraryId: 1,
         now: () => "2026-05-16T00:00:00.000Z",
-        mirrorAdapter: createMirrorRecorder().adapter,
       });
 
       const result = await service.applyTopicSynthesisResult(
@@ -4305,7 +4234,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         root,
         libraryId: 1,
         now: () => "2026-05-16T00:00:00.000Z",
-        mirrorAdapter: createMirrorRecorder().adapter,
       });
 
       await service.applyTopicSynthesisResult(
@@ -5162,7 +5090,6 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-16T00:00:00.000Z",
-      mirrorAdapter: createMirrorRecorder().adapter,
     });
 
     const snapshot = await service.getSynthesisSnapshot();

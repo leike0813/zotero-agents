@@ -45,24 +45,16 @@ import { registerHostBridgeExportFile } from "../hostBridgeFileRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "../zipStore";
 import { clearPluginTaskRowEntries } from "../pluginStateStore";
 import {
-  buildMirrorManifest,
   buildSynthesisKnowledgeGraphPaths,
   buildSynthesisStoragePaths,
   createCanonicalEnvelope,
-  encodeNoteShard,
-  decodeNoteShard,
   hashCanonicalJson,
   hashMarkdown,
   sha256,
   topicPathId,
   LibraryWriteLock,
   resolveSynthesisRuntimeFileRoot,
-  SYNTHESIS_ANCHOR_TITLE,
   type CanonicalEnvelope,
-  type MirrorAssetContentType,
-  type MirrorManifest,
-  type MirrorManifestShard,
-  type ShardKind,
 } from "./foundation";
 import {
   buildUnifiedCitationGraph,
@@ -102,8 +94,6 @@ import {
 } from "./reviewInput";
 import {
   assessSynthesisSyncRecovery,
-  planCanonicalRecoveryFromMirror,
-  type DecodedMirrorShardSummary,
   type SynthesisConflictCandidate,
 } from "./syncRecovery";
 import {
@@ -211,43 +201,12 @@ import {
   validateTopicSynthesisArtifact,
 } from "./topicStructuredArtifact";
 
-export type SynthesisMirrorAdapter = {
-  ensureAnchor: (args: {
-    libraryId: number;
-    title: string;
-    root: string;
-  }) => Promise<{ anchorKey: string }>;
-  upsertShard: (args: {
-    libraryId: number;
-    anchorKey: string;
-    title: string;
-    html: string;
-    kind: ShardKind;
-    assetId: string;
-    assetPath: string;
-    contentType: MirrorAssetContentType;
-    seq: number;
-    total: number;
-  }) => Promise<{ noteKey: string }>;
-  deleteShardsNotIn?: (args: {
-    libraryId: number;
-    anchorKey: string;
-    keepNoteKeys: string[];
-  }) => Promise<void>;
-  listShards?: (args: {
-    libraryId: number;
-    anchorKey: string;
-  }) => Promise<DecodedMirrorShardSummary[]>;
-};
-
 export type SynthesisApplyResult =
   | {
       ok: true;
       status: "persisted";
       topicId: string;
       hashes: Record<string, string>;
-      mirror?: SynthesisMirrorRefreshResult;
-      mirrorError?: string;
       warnings?: string[];
     }
   | {
@@ -274,20 +233,12 @@ export type SynthesisApplyResult =
       warnings?: string[];
     };
 
-export type SynthesisMirrorRefreshResult = {
-  anchorKey: string;
-  manifest: MirrorManifest;
-  shards: MirrorManifestShard[];
-};
-
 export type SynthesisTopicDeleteResult =
   | {
       ok: true;
       status: "deleted";
       topicId: string;
       deletedPathId: string;
-      mirror?: SynthesisMirrorRefreshResult;
-      mirrorError?: string;
       warnings?: string[];
     }
   | {
@@ -301,8 +252,6 @@ export type SynthesisTopicPurgeResult = {
   ok: true;
   status: "purged";
   purged_count: number;
-  mirror?: SynthesisMirrorRefreshResult;
-  mirrorError?: string;
   warnings?: string[];
 };
 
@@ -558,7 +507,6 @@ export type SynthesisServiceOptions = {
   libraryId: number;
   now?: () => string;
   runtimeLogAppender?: SynthesisRuntimeLogAppender;
-  mirrorAdapter?: SynthesisMirrorAdapter;
   hostReadPort?: SynthesisHostReadPort;
   hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort;
   registryInputs?: ReferenceSidecarInput[];
@@ -575,7 +523,6 @@ export type SynthesisServiceOptions = {
   hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
   hostTagEffectPort?: SynthesisHostTagEffectPort | null;
   synthesisRepository?: SynthesisRepository;
-  shardSize?: number;
   writeLock?: LibraryWriteLock;
 };
 
@@ -5182,15 +5129,6 @@ async function markTopicFreshnessStatus(args: {
   await writeArtifactStateRows(args.root, previous, args.timestamp);
 }
 
-function chunkText(input: string, size: number) {
-  const chunkSize = Math.max(1024, Math.floor(size || 0) || 64000);
-  const chunks: string[] = [];
-  for (let index = 0; index < input.length; index += chunkSize) {
-    chunks.push(input.slice(index, index + chunkSize));
-  }
-  return chunks.length ? chunks : [""];
-}
-
 async function readExistingTopic(root: string, topicId: string) {
   const candidates = await topicReadCandidates(root, topicId);
   let partial: {
@@ -5446,124 +5384,6 @@ async function recoverTopicIndexRowFromCurrentFiles(args: {
       ? metadata.coverage_summary
       : undefined,
   };
-}
-
-type MirrorPayloadSource = {
-  kind: ShardKind;
-  assetId: string;
-  assetPath: string;
-  contentType: MirrorAssetContentType;
-  path: string;
-};
-
-async function buildMirrorPayloadSources(
-  root: string,
-): Promise<MirrorPayloadSource[]> {
-  const paths = buildSynthesisStoragePaths(root);
-  const sources: MirrorPayloadSource[] = [
-    {
-      kind: "artifact_index",
-      assetId: "sidecar:index",
-      assetPath: "sidecar/index.json",
-      contentType: "json",
-      path: paths.index,
-    },
-    {
-      kind: "topics",
-      assetId: "sidecar:topic-definitions",
-      assetPath: "sidecar/topic-definitions.json",
-      contentType: "json",
-      path: paths.topicDefinitions,
-    },
-    {
-      kind: "resolvers",
-      assetId: "sidecar:resolvers",
-      assetPath: "sidecar/resolvers.json",
-      contentType: "json",
-      path: paths.resolvers,
-    },
-    {
-      kind: "paper_sets",
-      assetId: "sidecar:resolved-paper-sets",
-      assetPath: "sidecar/resolved-paper-sets.json",
-      contentType: "json",
-      path: paths.resolvedPaperSets,
-    },
-    {
-      kind: "artifact_state",
-      assetId: "sidecar:artifact-state",
-      assetPath: "sidecar/artifact-state.json",
-      contentType: "json",
-      path: paths.artifactState,
-    },
-    {
-      kind: "artifact_state",
-      assetId: "sidecar:deleted-topic-artifacts",
-      assetPath: "sidecar/deleted-topic-artifacts.json",
-      contentType: "json",
-      path: paths.deletedArtifacts,
-    },
-  ];
-  for (const row of await readIndexRows(root)) {
-    const topicPath = topicPathId(row.path_id || row.topic_id);
-    if (!topicPath) {
-      continue;
-    }
-    const topicPaths = buildSynthesisStoragePaths(root, topicPath);
-    if (!(await runtimePathExists(topicPaths.currentManifest))) {
-      continue;
-    }
-    sources.push(
-      {
-        kind: "topic_current",
-        assetId: `topic:${topicPath}:current-manifest`,
-        assetPath: `topics/${topicPath}/current/manifest.json`,
-        contentType: "json",
-        path: topicPaths.currentManifest,
-      },
-      {
-        kind: "topic_current",
-        assetId: `topic:${topicPath}:current-metadata`,
-        assetPath: `topics/${topicPath}/current/metadata.json`,
-        contentType: "json",
-        path: topicPaths.currentMetadata,
-      },
-      {
-        kind: "topic_current",
-        assetId: `topic:${topicPath}:current-artifact`,
-        assetPath: `topics/${topicPath}/current/artifact.json`,
-        contentType: "json",
-        path: topicPaths.currentArtifact,
-      },
-    );
-    for (const sectionPath of await listRuntimeChildren(
-      topicPaths.currentSectionsRoot,
-    )) {
-      if (!sectionPath.endsWith(".json")) {
-        continue;
-      }
-      const sectionName = sectionPath
-        .replace(/\\/g, "/")
-        .split("/")
-        .pop()
-        ?.replace(/\.json$/, "");
-      if (!sectionName) {
-        continue;
-      }
-      sources.push({
-        kind: "topic_current",
-        assetId: `topic:${topicPath}:section:${sectionName}`,
-        assetPath: `topics/${topicPath}/current/sections/${sectionName}.json`,
-        contentType: "json",
-        path: sectionPath,
-      });
-    }
-  }
-  return sources.sort(
-    (left, right) =>
-      left.assetId.localeCompare(right.assetId) ||
-      left.assetPath.localeCompare(right.assetPath),
-  );
 }
 
 type ApplyContext = {
@@ -14384,210 +14204,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return candidate;
   }
 
-  async function refreshMirror(): Promise<
-    SynthesisMirrorRefreshResult | undefined
-  > {
-    if (!options.mirrorAdapter) {
-      return undefined;
-    }
-    const paths = buildSynthesisStoragePaths(root);
-    const anchor = await options.mirrorAdapter.ensureAnchor({
-      libraryId,
-      title: SYNTHESIS_ANCHOR_TITLE,
-      root,
-    });
-    const anchorKey = cleanString(anchor.anchorKey);
-    if (!anchorKey) {
-      throw new Error("Synthesis mirror adapter returned empty anchorKey");
-    }
-    const payloadSources = await buildMirrorPayloadSources(root);
-    const manifestShards: MirrorManifestShard[] = [];
-    const keepNoteKeys: string[] = [];
-    for (const source of payloadSources) {
-      const payload = await readRuntimeTextFile(source.path);
-      if (!payload.trim()) {
-        continue;
-      }
-      const chunks = chunkText(payload, options.shardSize || 64000);
-      for (const [index, chunk] of chunks.entries()) {
-        const shard = encodeNoteShard({
-          libraryId,
-          anchorKey,
-          kind: source.kind,
-          assetId: source.assetId,
-          assetPath: source.assetPath,
-          contentType: source.contentType,
-          seq: index + 1,
-          total: chunks.length,
-          payload: chunk,
-          compression: "gzip",
-          updatedAt: now(),
-        });
-        const written = await options.mirrorAdapter.upsertShard({
-          libraryId,
-          anchorKey,
-          title: shard.title,
-          html: shard.html,
-          kind: source.kind,
-          assetId: source.assetId,
-          assetPath: source.assetPath,
-          contentType: source.contentType,
-          seq: index + 1,
-          total: chunks.length,
-        });
-        const noteKey = cleanString(written.noteKey);
-        keepNoteKeys.push(noteKey);
-        manifestShards.push({
-          kind: source.kind,
-          asset_id: source.assetId,
-          asset_path: source.assetPath,
-          content_type: source.contentType,
-          seq: index + 1,
-          total: chunks.length,
-          note_key: noteKey,
-          title: shard.title,
-          payload_hash: shard.envelope.payload_hash,
-          encoded_hash: shard.envelope.encoded_hash,
-        });
-      }
-    }
-    const manifest = buildMirrorManifest({
-      libraryId,
-      anchorKey,
-      mirrorId: hashCanonicalJson({
-        library_id: libraryId,
-        anchor_key: anchorKey,
-        root,
-      }),
-      updatedAt: now(),
-      shards: manifestShards,
-    });
-    await writeJson(
-      joinPath(paths.sidecarRoot, "mirror-manifest.json"),
-      manifest,
-    );
-    const manifestShard = encodeNoteShard({
-      libraryId,
-      anchorKey,
-      kind: "manifest",
-      assetId: "mirror:manifest",
-      assetPath: "sidecar/mirror-manifest.json",
-      contentType: "json",
-      seq: 1,
-      total: 1,
-      payload: canonicalText(manifest),
-      compression: "gzip",
-      updatedAt: now(),
-    });
-    const writtenManifest = await options.mirrorAdapter.upsertShard({
-      libraryId,
-      anchorKey,
-      title: manifestShard.title,
-      html: manifestShard.html,
-      kind: "manifest",
-      assetId: "mirror:manifest",
-      assetPath: "sidecar/mirror-manifest.json",
-      contentType: "json",
-      seq: 1,
-      total: 1,
-    });
-    const manifestNoteKey = cleanString(writtenManifest.noteKey);
-    if (manifestNoteKey) {
-      keepNoteKeys.push(manifestNoteKey);
-    }
-    await options.mirrorAdapter.deleteShardsNotIn?.({
-      libraryId,
-      anchorKey,
-      keepNoteKeys,
-    });
-    return { anchorKey, manifest, shards: manifestShards };
-  }
-
-  async function rebuildMirrorFromCanonical(): Promise<
-    SynthesisMirrorRefreshResult | undefined
-  > {
-    return lock.runExclusive(libraryId, async () => {
-      const paths = buildSynthesisStoragePaths(root);
-      if (!(await runtimePathExists(paths.synthesisRoot))) {
-        throw new Error(
-          "Cannot rebuild synthesis mirror because canonical root is missing",
-        );
-      }
-      return refreshMirror();
-    });
-  }
-
-  async function recoverCanonicalFromMirror(args: { confirm: true }) {
-    return lock.runExclusive(libraryId, async () => {
-      if (!args?.confirm) {
-        throw new Error("recoverCanonicalFromMirror requires confirm: true");
-      }
-      if (!options.mirrorAdapter?.listShards) {
-        throw new Error("Synthesis mirror adapter cannot list shards");
-      }
-      const paths = buildSynthesisStoragePaths(root);
-      if (await runtimePathExists(paths.synthesisRoot)) {
-        throw new Error(
-          "Canonical synthesis root already exists; refusing shard recovery",
-        );
-      }
-      const anchor = await options.mirrorAdapter.ensureAnchor({
-        libraryId,
-        title: SYNTHESIS_ANCHOR_TITLE,
-        root,
-      });
-      const anchorKey = cleanString(anchor.anchorKey);
-      const shards = await options.mirrorAdapter.listShards({
-        libraryId,
-        anchorKey,
-      });
-      const manifests = shards
-        .filter((shard) => shard.kind === "manifest")
-        .map((shard) => {
-          try {
-            return JSON.parse(shard.payload || "") as MirrorManifest;
-          } catch {
-            return null;
-          }
-        })
-        .filter((entry): entry is MirrorManifest => Boolean(entry));
-      const dataShards = shards.filter((shard) => shard.kind !== "manifest");
-      const plan = planCanonicalRecoveryFromMirror({
-        canonicalRoot: { state: "missing" },
-        manifests,
-        shards: dataShards,
-        confirm: true,
-      });
-      if (!plan.executable) {
-        throw new Error(
-          `Synthesis mirror recovery is not executable: ${plan.diagnostics.map((entry) => entry.code).join(", ")}`,
-        );
-      }
-      const tempRoot = joinPath(root, `synthesis-restore-tmp-${Date.now()}`);
-      try {
-        for (const [assetPath, payload] of Object.entries(
-          plan.payloadsByAssetPath,
-        )) {
-          await writeRuntimeTextFile(joinPath(tempRoot, assetPath), payload);
-        }
-        await copyRuntimeDirectory({
-          sourceDir: tempRoot,
-          targetDir: paths.synthesisRoot,
-        });
-      } finally {
-        await removeRuntimePath(tempRoot);
-      }
-      return {
-        ok: true as const,
-        status: "recovered" as const,
-        manifest: plan.manifest,
-        restoredAssets: Object.keys(plan.payloadsByAssetPath).sort(
-          (left, right) => left.localeCompare(right),
-        ),
-      };
-    });
-  }
-
   async function applyTopicSynthesisResult(
     rawBundle: unknown,
     context?: ApplyContext,
@@ -15452,10 +15068,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       root: {
         state: rootReady ? "ready" : "missing",
       },
-      mirror: {
-        manifest: undefined,
-        shards: [],
-      },
       localIndexes: {
         state:
           referenceSidecarCache?.status === "ready" ||
@@ -15488,8 +15100,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       storage: {
         rootPath: root,
         rootState: rootReady ? "ready" : "missing",
-        anchorState: "missing",
-        mirrorState: "missing",
       },
       sync: {
         status: sync.status,
@@ -15981,10 +15591,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       root: {
         state: rootReady ? "ready" : "missing",
       },
-      mirror: {
-        manifest: undefined,
-        shards: [],
-      },
       localIndexes: {
         state: artifactRows.length ? "healthy" : "missing",
       },
@@ -16013,8 +15619,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       storage: {
         rootPath: root,
         rootState: rootReady ? "ready" : "missing",
-        anchorState: "missing",
-        mirrorState: "missing",
       },
       sync: {
         status: sync.status,
@@ -21284,9 +20888,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     recomputeCitationGraphLayout,
     rejectTopicDiscoveryHint,
     restoreTopicDiscoveryHint,
-    refreshMirror,
-    rebuildMirrorFromCanonical,
-    recoverCanonicalFromMirror,
     readTopicArtifact,
     readTopicDetail,
     getReviewInput,
@@ -21390,155 +20991,3 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 }
 
 export type SynthesisService = ReturnType<typeof createSynthesisService>;
-
-export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
-  function resolveZotero() {
-    const zotero = (globalThis as { Zotero?: any }).Zotero;
-    if (!zotero) {
-      throw new Error("Zotero runtime is unavailable for synthesis mirror");
-    }
-    return zotero;
-  }
-
-  function prefKey(libraryId: number) {
-    return `extensions.zotero.zotero-skills.synthesis.anchorKey.${libraryId}`;
-  }
-
-  function getAnchorByKey(libraryId: number, key: string) {
-    const zotero = resolveZotero();
-    return key
-      ? zotero.Items?.getByLibraryAndKey?.(libraryId, key) || null
-      : null;
-  }
-
-  function childNotes(anchor: any) {
-    const zotero = resolveZotero();
-    const ids = typeof anchor?.getNotes === "function" ? anchor.getNotes() : [];
-    return (ids || [])
-      .map((id: number) => zotero.Items?.get?.(id))
-      .filter(Boolean);
-  }
-
-  function decodedManagedShard(note: any) {
-    try {
-      const decoded = decodeNoteShard(note?.getNote?.() || "");
-      return decoded.envelope.anchor_key === cleanString(note?.parentKey || "")
-        ? decoded
-        : decoded;
-    } catch {
-      return null;
-    }
-  }
-
-  function shardIdentityMatches(
-    note: any,
-    args: {
-      libraryId: number;
-      anchorKey: string;
-      kind: ShardKind;
-      assetId: string;
-      seq: number;
-      total: number;
-    },
-  ) {
-    const decoded = decodedManagedShard(note);
-    return Boolean(
-      decoded &&
-      decoded.envelope.library_id === args.libraryId &&
-      decoded.envelope.anchor_key === args.anchorKey &&
-      decoded.envelope.kind === args.kind &&
-      decoded.envelope.asset_id === args.assetId &&
-      decoded.envelope.seq === args.seq &&
-      decoded.envelope.total === args.total,
-    );
-  }
-
-  return {
-    async ensureAnchor(args) {
-      const zotero = resolveZotero();
-      const key = cleanString(
-        zotero.Prefs?.get?.(prefKey(args.libraryId), true),
-      );
-      const existing = getAnchorByKey(args.libraryId, key);
-      if (existing) {
-        return { anchorKey: existing.key };
-      }
-      const anchor = new zotero.Item("document");
-      anchor.libraryID = args.libraryId;
-      const titleField = "title";
-      anchor.setField?.(titleField, args.title);
-      anchor.setField?.("extra", `Synthesis root: ${args.root}`);
-      await anchor.saveTx();
-      zotero.Prefs?.set?.(prefKey(args.libraryId), anchor.key, true);
-      return { anchorKey: anchor.key };
-    },
-    async upsertShard(args) {
-      const zotero = resolveZotero();
-      const anchor = getAnchorByKey(args.libraryId, args.anchorKey);
-      if (!anchor) {
-        throw new Error(`Synthesis mirror anchor not found: ${args.anchorKey}`);
-      }
-      let note = childNotes(anchor).find((entry: any) =>
-        shardIdentityMatches(entry, args),
-      );
-      if (!note) {
-        note = new zotero.Item("note");
-        note.libraryID = args.libraryId;
-        note.parentItemID = anchor.id;
-      }
-      note.setNote(args.html);
-      await note.saveTx();
-      return { noteKey: note.key };
-    },
-    async deleteShardsNotIn(args) {
-      const zotero = resolveZotero();
-      const anchor = getAnchorByKey(args.libraryId, args.anchorKey);
-      if (!anchor) {
-        return;
-      }
-      const keep = new Set(args.keepNoteKeys);
-      const removals = childNotes(anchor)
-        .filter((note: any) => Boolean(decodedManagedShard(note)))
-        .filter((note: any) => !keep.has(cleanString(note.key)))
-        .map((note: any) => Number(note.id || 0))
-        .filter(Boolean);
-      if (removals.length && typeof zotero.Items?.trashTx === "function") {
-        await zotero.Items.trashTx(removals);
-      }
-    },
-    async listShards(args) {
-      const anchor = getAnchorByKey(args.libraryId, args.anchorKey);
-      if (!anchor) {
-        return [];
-      }
-      return childNotes(anchor)
-        .map((note: any): DecodedMirrorShardSummary | null => {
-          try {
-            const decoded = decodeNoteShard(note.getNote?.() || "");
-            return {
-              library_id: decoded.envelope.library_id,
-              mirror_id: decoded.envelope.mirror_id,
-              kind: decoded.envelope.kind,
-              seq: decoded.envelope.seq,
-              total: decoded.envelope.total,
-              note_key: cleanString(note.key),
-              title: `ZS Synthesis Mirror ${decoded.envelope.asset_id || decoded.envelope.kind}`,
-              asset_id: decoded.envelope.asset_id,
-              asset_path: decoded.envelope.asset_path,
-              content_type: decoded.envelope.content_type,
-              payload_hash: decoded.envelope.payload_hash,
-              encoded_hash: decoded.envelope.encoded_hash,
-              payload: decoded.payload,
-            };
-          } catch {
-            return null;
-          }
-        })
-        .filter(
-          (
-            entry: DecodedMirrorShardSummary | null,
-          ): entry is DecodedMirrorShardSummary => Boolean(entry),
-        );
-    },
-  };
-}

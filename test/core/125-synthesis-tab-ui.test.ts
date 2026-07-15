@@ -254,6 +254,8 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.artifacts.rows[1]?.discovery_status, "candidates");
     assert.equal(snapshot.artifacts.rows[1]?.candidate_count, 2);
     assert.equal(snapshot.preferences.graphRebuildMode, "off");
+    assert.notProperty(snapshot.storage, "anchorState");
+    assert.notProperty(snapshot.storage, "mirrorState");
     assert.equal(snapshot.graph.layoutAlgorithm, "force");
     assert.equal(
       snapshot.actions.inFlight[0]?.command,

@@ -81,7 +81,6 @@ describe("Synthesis Zotero runtime smoke", function () {
       root,
       libraryId,
       now: () => "2026-05-11T00:00:00.000Z",
-      shardSize: 4096,
     });
 
     const result = await service.applyTopicSynthesisResult(validBundle());
@@ -101,15 +100,17 @@ describe("Synthesis Zotero runtime smoke", function () {
     assert.isAbove(snapshot.artifacts.rows.length, 0);
   });
 
-  it("does not identify or mutate Zotero note shards through invalid note title fields", async function () {
+  it("keeps Topic mirror runtime out of the Synthesis service", async function () {
     const source = await fs.readFile(
       "src/modules/synthesis/service.ts",
       "utf8",
     );
 
-    assert.notInclude(source, 'note?.getField?.("title")');
-    assert.notInclude(source, 'note.setField?.("title"');
-    assert.notInclude(source, "noteTitle(entry) === args.title");
-    assert.include(source, "createZoteroSynthesisMirrorAdapter");
+    assert.notInclude(source, "SynthesisMirrorAdapter");
+    assert.notInclude(source, "createZoteroSynthesisMirrorAdapter");
+    assert.notInclude(source, "refreshMirror");
+    assert.notInclude(source, "rebuildMirrorFromCanonical");
+    assert.notInclude(source, "recoverCanonicalFromMirror");
+    assert.notInclude(source, "globalThis as { Zotero");
   });
 });

@@ -1,6 +1,6 @@
 # Persistence and Files
 
-Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal sidecar store for cache projections, review state, and user-approved derived decisions. Zotero Library and literature artifact notes remain the SSOT for library and literature workflow facts. Topic canonical current files are the SSOT for applied Topic content; Zotero Topic note shards are a mirror.
+Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal sidecar store for cache projections, review state, and user-approved derived decisions. Zotero Library and literature artifact notes remain the SSOT for library and literature workflow facts. Topic canonical current files are the only runtime SSOT for applied Topic content. Legacy Zotero Topic anchor/shard items are inert and untouched by normal runtime.
 
 Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not the normal Workbench read/write path.
 
@@ -15,7 +15,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Git durable exchange store | Git Sync worktree `synthesis/` root | Deterministic durable-state assets used for cross-device sync and recovery; see [Git Sync Durable State](./git-sync-durable-state.md) |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
-| Zotero Topic note shards | Zotero notes | Mirror of selected Topic canonical current state, not the ordinary Topic runtime read source |
+| Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
 | Explicit exports/checkpoints | User-selected path or explicit export directory | Portable output, not UI hot path |
 | Debug dumps | Debug/runtime path | Diagnostics only |
 | Legacy `data/synthesis/state` tree | Historical cleanup residue only | Former sidecar/projection location. Current code must not create new files there; remaining files are old backups or rebuildable projection/cache artifacts. |
