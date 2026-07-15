@@ -724,6 +724,20 @@ describe("UI readonly harness", function () {
     assert.ok(source.includes("runtime.client.workbench.readSurface"));
     assert.ok(source.includes("runtime.client.workbench.readTopicDetail"));
     assert.ok(source.includes("runtime.client.workbench.readPaperDigest"));
+    assert.ok(source.includes("toSynthesisWorkbenchReadState"));
+    assert.ok(source.includes("toSynthesisUiSnapshotInput"));
+    assert.ok(source.includes("toSynthesisWorkbenchPaperDigestReadRequest"));
+    assert.equal(source.includes("function paperDigestReadRequest"), false);
+    assert.equal(
+      source.includes(
+        'toSynthesisJsonObject(runtime.state, "$.workbench.state")',
+      ),
+      false,
+    );
+    assert.equal(
+      source.includes("input as unknown as SynthesisUiSnapshotInput"),
+      false,
+    );
     assert.equal(source.includes("runtime.service"), false);
     assert.equal(source.includes("getSynthesisSnapshot"), false);
     assert.ok(composition.includes("createLegacyInProcessSynthesisClient"));

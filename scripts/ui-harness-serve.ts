@@ -8,11 +8,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  toSynthesisJsonObject,
-  type SynthesisClient,
-  type SynthesisWorkbenchPaperDigestReadRequest,
-} from "../packages/synthesis-contracts/src/index";
+import { type SynthesisClient } from "../packages/synthesis-contracts/src/index";
 import {
   applySynthesisUiAction,
   buildSynthesisUiSnapshot,
@@ -26,6 +22,11 @@ import {
 import { parseHarnessEnv } from "../src/modules/harness/env";
 import { createSynthesisReadonlyClient } from "../src/modules/harness/synthesisReadonlyClient";
 import { buildHarnessSynthesisI18nEnvelope } from "../src/modules/harness/synthesisWorkbenchI18nEnvelope";
+import {
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchPaperDigestReadRequest,
+  toSynthesisWorkbenchReadState,
+} from "../src/modules/synthesisClient/workbenchUiAdapter";
 import {
   installReadonlyZoteroPrefs,
   readZoteroPrefsStore,
@@ -410,39 +411,12 @@ async function refreshSynthesisInput(
   if (!runtime.client) return;
   const input = await runtime.client.workbench.readSurface({
     surface,
-    state: toSynthesisJsonObject(runtime.state, "$.workbench.state"),
+    state: toSynthesisWorkbenchReadState(runtime.state),
   });
   runtime.input = mergeSynthesisUiSnapshotInput(
     runtime.input,
-    input as unknown as SynthesisUiSnapshotInput,
+    toSynthesisUiSnapshotInput(input),
   );
-}
-
-function paperDigestReadRequest(
-  args: Record<string, unknown>,
-): SynthesisWorkbenchPaperDigestReadRequest {
-  const topicId = typeof args.topicId === "string" ? args.topicId.trim() : "";
-  const paperRefValue = args.paper_ref ?? args.paperRef;
-  const paperRef =
-    typeof paperRefValue === "string" ? paperRefValue.trim() : "";
-  const digestRefValue = args.digest_ref ?? args.digestRef;
-  const includeRepresentativeImageValue =
-    args.include_representative_image ?? args.includeRepresentativeImage;
-  return {
-    ...(topicId ? { topicId } : {}),
-    ...(paperRef ? { paperRef } : {}),
-    ...(digestRefValue !== undefined
-      ? {
-          digestRef: toSynthesisJsonObject(
-            digestRefValue,
-            "$.workbench.digestRef",
-          ),
-        }
-      : {}),
-    ...(typeof includeRepresentativeImageValue === "boolean"
-      ? { includeRepresentativeImage: includeRepresentativeImageValue }
-      : {}),
-  };
 }
 
 async function handleSynthesisAction(
@@ -473,11 +447,11 @@ async function handleSynthesisAction(
 
   if (action === "ready") {
     const chrome = await runtime.client.workbench.readChrome({
-      state: toSynthesisJsonObject(runtime.state, "$.workbench.state"),
+      state: toSynthesisWorkbenchReadState(runtime.state),
     });
     runtime.input = mergeSynthesisUiSnapshotInput(
       runtime.input,
-      chrome as unknown as SynthesisUiSnapshotInput,
+      toSynthesisUiSnapshotInput(chrome),
     );
     await refreshSynthesisInput(runtime, surface);
     messages.push({ type: "synthesis:init", payload: snapshot(runtime) });
@@ -516,7 +490,7 @@ async function handleSynthesisAction(
       messages.push({
         type: "synthesis:digest",
         payload: await runtime.client.workbench.readPaperDigest(
-          paperDigestReadRequest(args),
+          toSynthesisWorkbenchPaperDigestReadRequest(args),
         ),
       });
     } else {

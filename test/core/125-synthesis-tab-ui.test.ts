@@ -1895,7 +1895,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command === "deleteTopicArtifact"');
     assert.include(source, 'command === "purgeDeletedTopicArtifacts"');
     assert.include(source, "confirmWorkbenchAction");
-    assert.include(source, "readTopicDetail");
+    assert.include(source, "client.workbench.readTopicDetail");
     assert.include(source, "getTopicReport");
     assert.include(source, "buildTopicDetailHtmlExport");
     assert.include(source, "ensureCachedTopicDetailHtmlExport");
@@ -2761,11 +2761,21 @@ describe("Synthesis tab UI model", function () {
     const hooks = await fs.readFile("src/hooks.ts", "utf8");
 
     assert.include(host, "snapshotInputLocked");
-    assert.include(host, "getSynthesisWorkbenchChromeInput");
-    assert.include(host, "getSynthesisWorkbenchSurfaceInput");
+    assert.include(host, "getDefaultSynthesisClient");
+    assert.include(host, "toSynthesisWorkbenchReadState");
+    assert.include(host, "toSynthesisUiSnapshotInput");
+    assert.include(host, "toSynthesisWorkbenchPaperDigestReadRequest");
+    assert.match(host, /client\.workbench\s*\.readChrome/);
+    assert.match(host, /client\.workbench\s*\.readSurface/);
+    assert.match(host, /client\.workbench\s*\.readTopicDetail/);
+    assert.match(host, /client\.workbench\s*\.readPaperDigest/);
+    assert.notInclude(host, ".getSynthesisWorkbenchChromeInput");
+    assert.notInclude(host, ".getSynthesisWorkbenchSurfaceInput");
+    assert.notInclude(host, ".resolveTopicPaperDigest");
     assert.include(host, "warmSynthesisWorkbenchSurfaces");
     const chromeBlock = extractFunctionBlock(host, "sendChrome");
-    assert.include(chromeBlock, "getSynthesisWorkbenchChromeInput");
+    assert.match(chromeBlock, /client\.workbench\s*\.readChrome/);
+    assert.include(chromeBlock, "toSynthesisWorkbenchReadState");
     assert.include(host, '"synthesis:chrome"');
     assert.include(host, '"synthesis:surface"');
     assert.notInclude(host, ".getSynthesisSnapshotInput(runtime.state)");
@@ -2796,6 +2806,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(actionBlock, "scheduleActiveSurfaceRefresh");
     const sendSurfaceBlock = extractFunctionBlock(host, "sendSurface");
     assert.include(sendSurfaceBlock, "requestId: request.requestId");
+    assert.include(sendSurfaceBlock, "client.workbench.readSurface");
     assert.include(sendSurfaceBlock, "isLatestSurfaceRefreshRequest");
     assert.include(sendSurfaceBlock, "!isActiveSurface(runtime, surface)");
     assert.include(sendSurfaceBlock, '"synthesis:surface-error"');
@@ -2984,6 +2995,10 @@ describe("Synthesis tab UI model", function () {
       "src/workflows/hostApi.ts",
       "utf8",
     );
+    const workflowHostClient = await fs.readFile(
+      "src/modules/synthesisClient/workflowHostClient.ts",
+      "utf8",
+    );
     const invalidationEvents = await fs.readFile(
       "src/modules/synthesisWorkbenchInvalidation.ts",
       "utf8",
@@ -3004,9 +3019,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "registerSynthesisWorkbenchSidecarChangeListener");
 
     const hostApiBlock = extractFunctionBlock(
-      workflowHostApi,
+      workflowHostClient,
       "createWorkflowSynthesisHostApi",
     );
+    assert.include(workflowHostApi, "createWorkflowSynthesisHostApi()");
     assert.include(hostApiBlock, "applyLiteratureDigestSidecar");
     assert.include(hostApiBlock, "notifySynthesisWorkbenchSidecarChanged");
     assert.include(hostApiBlock, 'reason: "literature_digest_apply"');
@@ -3915,7 +3931,8 @@ describe("Synthesis tab UI model", function () {
       source,
       "applyConceptOverlay(renderTopicSection(detail, snapshot), snapshot)",
     );
-    assert.include(host, 'getSynthesisWorkbenchSurfaceInput("concepts"');
+    assert.include(host, "client.workbench.readSurface");
+    assert.include(host, 'surface: "concepts"');
     assert.include(source, "topicReportConceptEntries");
     assert.include(source, "renderTopicReportConceptNav");
     assert.include(source, "function elRawText");

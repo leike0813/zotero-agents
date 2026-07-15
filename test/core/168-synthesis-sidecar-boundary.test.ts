@@ -73,6 +73,18 @@ describe("Synthesis sidecar migration boundary", function () {
       report.inventory.direct_consumers.map((consumer) => consumer.path).sort(),
       report.directConsumers,
     );
+
+    const workbench = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisWorkbenchTab.ts"),
+      "utf8",
+    );
+    assert.notInclude(workbench, ".getSynthesisWorkbenchChromeInput");
+    assert.notInclude(workbench, ".getSynthesisWorkbenchSurfaceInput");
+    assert.notInclude(workbench, ".resolveTopicPaperDigest");
+    assert.match(workbench, /client\.workbench\s*\.readChrome/);
+    assert.match(workbench, /client\.workbench\s*\.readSurface/);
+    assert.match(workbench, /client\.workbench\s*\.readTopicDetail/);
+    assert.match(workbench, /client\.workbench\s*\.readPaperDigest/);
   });
 
   it("records reviewable schema, canonical ownership, and bounded DTO fixtures [inv.runtime.single_production_owner]", function () {

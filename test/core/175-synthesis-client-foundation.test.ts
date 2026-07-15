@@ -6,6 +6,11 @@ import {
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
+import {
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchPaperDigestReadRequest,
+  toSynthesisWorkbenchReadState,
+} from "../../src/modules/synthesisClient/workbenchUiAdapter";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -242,6 +247,62 @@ describe("Synthesis client foundation", function () {
       assert.instanceOf(error, SynthesisClientError);
       assert.equal((error as SynthesisClientError).code, "internal");
       assert.equal(attempts, 1);
+    }
+  });
+
+  it("shares Workbench UI state, projection, and digest request conversion", function () {
+    const state = toSynthesisWorkbenchReadState({
+      selectedTab: "artifacts",
+      filters: { query: "topic" },
+    } as never);
+    assert.deepEqual(state, {
+      selectedTab: "artifacts",
+      filters: { query: "topic" },
+    });
+
+    const projection = toSynthesisUiSnapshotInput({
+      libraryId: 1,
+      registry: { rows: [] },
+    });
+    assert.deepEqual(projection, {
+      libraryId: 1,
+      registry: { rows: [] },
+    });
+
+    assert.deepEqual(
+      toSynthesisWorkbenchPaperDigestReadRequest({
+        topicId: " topic-alpha ",
+        paper_ref: " 1:ABCD1234 ",
+        digestRef: { note_key: "NOTE1234" },
+        include_representative_image: true,
+      }),
+      {
+        topicId: "topic-alpha",
+        paperRef: "1:ABCD1234",
+        digestRef: { note_key: "NOTE1234" },
+        includeRepresentativeImage: true,
+      },
+    );
+  });
+
+  it("preserves SQLite busy as a stable Workbench client error", async function () {
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getSynthesisWorkbenchSurfaceInput() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+    });
+
+    try {
+      await client.workbench.readSurface({ surface: "graph", state: {} });
+      assert.fail("expected the Workbench request to reject");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "storage_busy");
     }
   });
 

@@ -24,6 +24,12 @@ import {
 } from "./runtimePersistence";
 import { readPackagedBinaryAsset } from "./packagedAssetResolver";
 import { isTransientStorageBusyError } from "./guardedSqlite";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
+import {
+  toSynthesisUiSnapshotInput,
+  toSynthesisWorkbenchPaperDigestReadRequest,
+  toSynthesisWorkbenchReadState,
+} from "./synthesisClient/workbenchUiAdapter";
 import {
   buildSynthesisStoragePaths,
   hashCanonicalJson,
@@ -685,11 +691,13 @@ async function runUpdateTopicSynthesisFromWorkbench(args: {
     );
     return;
   }
-  const topicInput =
-    await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
-      "topics",
-      createDefaultSynthesisUiState(),
-    );
+  const client = await getDefaultSynthesisClient();
+  const topicInput = toSynthesisUiSnapshotInput(
+    await client.workbench.readSurface({
+      surface: "topics",
+      state: toSynthesisWorkbenchReadState(createDefaultSynthesisUiState()),
+    }),
+  );
   const snapshot = buildSynthesisUiSnapshot(
     mergeSynthesisUiSnapshotInput(buildDefaultSnapshotInput(), topicInput),
     createDefaultSynthesisUiState(),
@@ -1081,8 +1089,12 @@ async function sendChrome(
     return;
   }
   if (options.refreshFromService !== false && !runtime.snapshotInputLocked) {
-    const input = await getDefaultSynthesisService()
-      .getSynthesisWorkbenchChromeInput(runtime.state)
+    const client = await getDefaultSynthesisClient();
+    const input = await client.workbench
+      .readChrome({
+        state: toSynthesisWorkbenchReadState(runtime.state),
+      })
+      .then(toSynthesisUiSnapshotInput)
       .catch((error) => buildSnapshotErrorInput(error));
     mergeRuntimeSnapshotInput(runtime, input);
   }
@@ -1109,11 +1121,13 @@ async function sendSurface(
   );
   try {
     if (refreshFromService && !runtime.snapshotInputLocked) {
-      const input =
-        await getDefaultSynthesisService().getSynthesisWorkbenchSurfaceInput(
+      const client = await getDefaultSynthesisClient();
+      const input = toSynthesisUiSnapshotInput(
+        await client.workbench.readSurface({
           surface,
-          runtime.state,
-        );
+          state: toSynthesisWorkbenchReadState(runtime.state),
+        }),
+      );
       if (!isLatestSurfaceRefreshRequest(runtime, request)) {
         return;
       }
@@ -1182,16 +1196,20 @@ async function sendTopicDetail(
   if (!runtime?.frameWindow) {
     return;
   }
-  const service = getDefaultSynthesisService();
-  const detail = await service.readTopicDetail({
+  const client = await getDefaultSynthesisClient();
+  const detail = await client.workbench.readTopicDetail({
     topicId,
   });
   if (
     !runtime.snapshotInputLocked &&
     surfaceNeedsServiceRefresh(runtime, "concepts")
   ) {
-    const conceptInput = await service
-      .getSynthesisWorkbenchSurfaceInput("concepts", runtime.state)
+    const conceptInput = await client.workbench
+      .readSurface({
+        surface: "concepts",
+        state: toSynthesisWorkbenchReadState(runtime.state),
+      })
+      .then(toSynthesisUiSnapshotInput)
       .catch(() => undefined);
     if (conceptInput) {
       mergeRuntimeSnapshotInput(runtime, conceptInput);
@@ -1220,8 +1238,10 @@ async function sendTopicDigest(
   if (!runtime?.frameWindow) {
     return;
   }
-  const digest =
-    await getDefaultSynthesisService().resolveTopicPaperDigest(args);
+  const client = await getDefaultSynthesisClient();
+  const digest = await client.workbench.readPaperDigest(
+    toSynthesisWorkbenchPaperDigestReadRequest(args),
+  );
   postWorkbenchMessage(runtime, "synthesis:digest", digest);
 }
 
@@ -1478,6 +1498,8 @@ async function resolveTopicExportDigests(
   topicId: string,
 ) {
   const digestsByKey: Record<string, Record<string, unknown>> = {};
+  let clientPromise: ReturnType<typeof getDefaultSynthesisClient> | undefined;
+  const resolveClient = () => (clientPromise ||= getDefaultSynthesisClient());
   const sourcePapers = Array.isArray(detail.source_papers)
     ? detail.source_papers
     : [];
@@ -1491,13 +1513,16 @@ async function resolveTopicExportDigests(
       }
       let digest: Record<string, unknown>;
       try {
+        const client = await resolveClient();
         digest = cleanExportRecord(
-          await getDefaultSynthesisService().resolveTopicPaperDigest({
-            topicId,
-            paper_ref: paperRef,
-            digest_ref: digestRef,
-            include_representative_image: true,
-          }),
+          await client.workbench.readPaperDigest(
+            toSynthesisWorkbenchPaperDigestReadRequest({
+              topicId,
+              paper_ref: paperRef,
+              digest_ref: digestRef,
+              include_representative_image: true,
+            }),
+          ),
         );
       } catch (error) {
         digest = {
@@ -1604,8 +1629,8 @@ async function buildTopicDetailHtmlExport(
   runtime: SynthesisWorkbenchRuntime,
   topicId: string,
 ) {
-  const service = getDefaultSynthesisService();
-  const detail = (await service.readTopicDetail({
+  const client = await getDefaultSynthesisClient();
+  const detail = (await client.workbench.readTopicDetail({
     topicId,
   })) as SynthesisTopicDetailDto;
   const readerState = applySynthesisUiAction(runtime.state, {
@@ -1625,13 +1650,20 @@ async function buildTopicDetailHtmlExport(
     }).state,
   }));
   const [conceptInput, graphInputs, digestsByKey, assets] = await Promise.all([
-    service.getSynthesisWorkbenchSurfaceInput("concepts", graphState),
+    client.workbench
+      .readSurface({
+        surface: "concepts",
+        state: toSynthesisWorkbenchReadState(graphState),
+      })
+      .then(toSynthesisUiSnapshotInput),
     Promise.all(
       graphLayoutStates.map(async (entry) => ({
         ...entry,
-        input: await service.getSynthesisWorkbenchSurfaceInput(
-          "graph",
-          entry.state,
+        input: toSynthesisUiSnapshotInput(
+          await client.workbench.readSurface({
+            surface: "graph",
+            state: toSynthesisWorkbenchReadState(entry.state),
+          }),
         ),
       })),
     ),
@@ -3144,9 +3176,12 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
     return;
   }
   const service = getDefaultSynthesisService();
-  const input = await service.getSynthesisWorkbenchSurfaceInput(
-    "graph",
-    runtime.state,
+  const client = await getDefaultSynthesisClient();
+  const input = toSynthesisUiSnapshotInput(
+    await client.workbench.readSurface({
+      surface: "graph",
+      state: toSynthesisWorkbenchReadState(runtime.state),
+    }),
   );
   mergeRuntimeSnapshotInput(runtime, input);
   const status = input.graph?.layoutStatus || "missing";

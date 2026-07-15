@@ -25,6 +25,7 @@ import {
   type SynthesisWorkbenchSurfaceName,
   type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
+import { isTransientStorageBusyError } from "../guardedSqlite";
 
 export interface LegacySynthesisPort {
   listWorkflowTopicOptions(
@@ -79,6 +80,17 @@ export interface LegacySynthesisPort {
 function normalizeClientError(error: unknown): SynthesisClientError {
   if (error instanceof SynthesisClientError) {
     return error;
+  }
+  if (isTransientStorageBusyError(error)) {
+    return new SynthesisClientError(
+      "storage_busy",
+      error instanceof Error
+        ? error.message
+        : "Synthesis storage is temporarily busy",
+      {
+        causeName: error instanceof Error ? error.name : typeof error,
+      },
+    );
   }
   return new SynthesisClientError(
     "internal",

@@ -38,6 +38,7 @@ export type SynthesisClientErrorCode =
   | "timeout"
   | "conflict"
   | "not_found"
+  | "storage_busy"
   | "internal";
 
 export class SynthesisClientError extends Error {
