@@ -1,5 +1,6 @@
 export * from "./client";
 export * from "./common";
+export * from "./concepts";
 export * from "./graph";
 export * from "./lifecycle";
 export * from "./references";

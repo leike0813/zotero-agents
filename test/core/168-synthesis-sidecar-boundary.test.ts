@@ -147,6 +147,10 @@ describe("Synthesis sidecar migration boundary", function () {
       /client\.references\s*\.updateCanonicalReferenceMetadata/,
     );
     assert.match(workbench, /client\.references\s*\.archiveCanonicalReference/);
+    assert.match(workbench, /client\.concepts\s*\.rebuildConceptKbIndex/);
+    assert.match(workbench, /client\.concepts\s*\.updateConceptDisplayText/);
+    assert.match(workbench, /client\.concepts\s*\.applyConceptReviewAction/);
+    assert.match(workbench, /client\.concepts\s*\.deleteConceptEntries/);
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -170,6 +174,17 @@ describe("Synthesis sidecar migration boundary", function () {
       "applyCanonicalRevisionMergeRequests",
       "updateCanonicalReferenceMetadata",
       "archiveCanonicalReference",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(`getDefaultSynthesisService\\(\\)\\.${method}`),
+      );
+    }
+    for (const method of [
+      "rebuildConceptKbIndex",
+      "updateConceptDisplayText",
+      "applyConceptReviewAction",
+      "deleteConceptEntries",
     ]) {
       assert.notMatch(
         workbench,
@@ -207,6 +222,10 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/topics.ts"),
       "utf8",
     );
+    const conceptsContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/concepts.ts"),
+      "utf8",
+    );
     assert.include(topicsContract, "getTopicReport(");
     assert.notInclude(workbenchContract, "getTopicReport(");
     assert.include(workbenchContract, "readProgress()");
@@ -220,6 +239,7 @@ describe("Synthesis sidecar migration boundary", function () {
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
     );
     assert.include(clientContract, "references: SynthesisReferencesClient");
+    assert.include(clientContract, "concepts: SynthesisConceptsClient");
     assert.include(referencesContract, "refreshReferenceSidecarNow()");
     assert.include(referencesContract, "retryReferenceSidecarRefresh()");
     assert.include(referencesContract, "runAdvancedReferenceMatchingNow()");
@@ -240,6 +260,16 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(referencesContract, 'kind: "canonical_reference"');
     assert.notMatch(
       referencesContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
+    assert.include(conceptsContract, "rebuildConceptKbIndex()");
+    assert.include(conceptsContract, "updateConceptDisplayText(");
+    assert.include(conceptsContract, "applyConceptReviewAction(");
+    assert.include(conceptsContract, "deleteConceptEntries(");
+    assert.include(conceptsContract, '"merge_into_existing"');
+    assert.include(conceptsContract, "short_definition?: string");
+    assert.notMatch(
+      conceptsContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
     );
     assert.notMatch(

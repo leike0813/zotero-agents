@@ -1,3 +1,4 @@
+import type { SynthesisConceptsClient } from "./concepts";
 import type { SynthesisTopicsClient } from "./topics";
 import type {
   SynthesisMaintenanceClient,
@@ -14,6 +15,7 @@ import type { SynthesisGraphClient } from "./graph";
 import type { SynthesisReferencesClient } from "./references";
 
 export interface SynthesisClient {
+  readonly concepts: SynthesisConceptsClient;
   readonly graph: SynthesisGraphClient;
   readonly references: SynthesisReferencesClient;
   readonly topics: SynthesisTopicsClient;

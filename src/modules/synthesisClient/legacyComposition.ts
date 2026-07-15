@@ -138,6 +138,18 @@ function createLegacyPort(
     async archiveCanonicalReference(request) {
       return resolveService().archiveCanonicalReference(request);
     },
+    async rebuildConceptKbIndex() {
+      return resolveService().rebuildConceptKbIndex();
+    },
+    async updateConceptDisplayText(request) {
+      return resolveService().updateConceptDisplayText(request);
+    },
+    async applyConceptReviewAction(request) {
+      return resolveService().applyConceptReviewAction(request);
+    },
+    async deleteConceptEntries(request) {
+      return resolveService().deleteConceptEntries(request);
+    },
   };
 }
 

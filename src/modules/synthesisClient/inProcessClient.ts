@@ -1,6 +1,7 @@
 import {
   SYNTHESIS_CANONICAL_REVISION_REVIEW_ACTIONS,
   SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS,
+  SYNTHESIS_CONCEPT_REVIEW_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
@@ -8,6 +9,11 @@ import {
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisConceptCommandResult,
+  type SynthesisConceptDeleteRequest,
+  type SynthesisConceptDisplayFields,
+  type SynthesisConceptDisplayTextUpdateRequest,
+  type SynthesisConceptReviewActionRequest,
   type SynthesisCanonicalReferenceArchiveRequest,
   type SynthesisCanonicalReferenceMergePair,
   type SynthesisCanonicalReferenceMetadataPatch,
@@ -126,6 +132,16 @@ export interface LegacySynthesisPort {
   ): Promise<unknown>;
   archiveCanonicalReference?(
     request: SynthesisCanonicalReferenceArchiveRequest,
+  ): Promise<unknown>;
+  rebuildConceptKbIndex?(): Promise<unknown>;
+  updateConceptDisplayText?(
+    request: SynthesisConceptDisplayTextUpdateRequest,
+  ): Promise<unknown>;
+  applyConceptReviewAction?(
+    request: SynthesisConceptReviewActionRequest,
+  ): Promise<unknown>;
+  deleteConceptEntries?(
+    request: SynthesisConceptDeleteRequest,
   ): Promise<unknown>;
 }
 
@@ -569,6 +585,103 @@ function normalizeCanonicalReferenceArchiveRequest(
   };
 }
 
+const SYNTHESIS_CONCEPT_DISPLAY_FIELDS = [
+  "short_definition",
+  "definition",
+  "usage_note",
+  "editorial_note",
+] as const;
+
+function normalizeConceptDisplayFields(
+  value: unknown,
+): SynthesisConceptDisplayFields {
+  const fields = toSynthesisJsonObject(value, "$.request.fields");
+  const normalized: SynthesisConceptDisplayFields = {};
+  for (const field of SYNTHESIS_CONCEPT_DISPLAY_FIELDS) {
+    const fieldValue = fields[field];
+    if (fieldValue === undefined) continue;
+    if (typeof fieldValue !== "string") {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `Synthesis Concept display field ${field} must be a string`,
+        { field: `fields.${field}` },
+      );
+    }
+    normalized[field] = fieldValue.trim();
+  }
+  if (Object.keys(normalized).length === 0) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Concept display fields are required",
+      { field: "fields" },
+    );
+  }
+  return normalized;
+}
+
+function normalizeConceptDisplayTextUpdateRequest(
+  value: unknown,
+): SynthesisConceptDisplayTextUpdateRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    conceptId: normalizeRequiredString(
+      request.conceptId,
+      "conceptId",
+      "Synthesis Concept conceptId",
+    ),
+    fields: normalizeConceptDisplayFields(request.fields),
+  };
+}
+
+function normalizeConceptReviewActionRequest(
+  value: unknown,
+): SynthesisConceptReviewActionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  const normalized: SynthesisConceptReviewActionRequest = {
+    reviewId: normalizeRequiredString(
+      request.reviewId,
+      "reviewId",
+      "Synthesis Concept reviewId",
+    ),
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_CONCEPT_REVIEW_ACTIONS,
+      "action",
+      "Synthesis Concept review action",
+    ),
+  };
+  if (request.targetConceptId !== undefined) {
+    normalized.targetConceptId = normalizeRequiredString(
+      request.targetConceptId,
+      "targetConceptId",
+      "Synthesis Concept targetConceptId",
+    );
+  }
+  return normalized;
+}
+
+function normalizeConceptDeleteRequest(
+  value: unknown,
+): SynthesisConceptDeleteRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (!Array.isArray(request.conceptIds) || request.conceptIds.length === 0) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Concept conceptIds are required",
+      { field: "conceptIds" },
+    );
+  }
+  return {
+    conceptIds: request.conceptIds.map((conceptId, index) =>
+      normalizeRequiredString(
+        conceptId,
+        `conceptIds[${index}]`,
+        "Synthesis Concept conceptId",
+      ),
+    ),
+  };
+}
+
 function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
   const request = toSynthesisJsonObject(value, "$.request");
   const mapped: Record<string, unknown> = {};
@@ -611,6 +724,57 @@ export function createInProcessSynthesisClient(
   legacy: LegacySynthesisPort,
 ): SynthesisClient {
   return {
+    concepts: {
+      async rebuildConceptKbIndex() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.rebuildConceptKbIndex,
+                "concepts.rebuildConceptKbIndex",
+              )(),
+            ) as SynthesisConceptCommandResult,
+        );
+      },
+      async updateConceptDisplayText(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeConceptDisplayTextUpdateRequest(request);
+          const port = requireLegacyPort(
+            legacy.updateConceptDisplayText,
+            "concepts.updateConceptDisplayText",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisConceptCommandResult;
+        });
+      },
+      async applyConceptReviewAction(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeConceptReviewActionRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyConceptReviewAction,
+            "concepts.applyConceptReviewAction",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisConceptCommandResult;
+        });
+      },
+      async deleteConceptEntries(request) {
+        return runLegacy(async () => {
+          const normalizedRequest = normalizeConceptDeleteRequest(request);
+          const port = requireLegacyPort(
+            legacy.deleteConceptEntries,
+            "concepts.deleteConceptEntries",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisConceptCommandResult;
+        });
+      },
+    },
     graph: {
       async recomputeCitationGraphLayout(request) {
         return runLegacy(

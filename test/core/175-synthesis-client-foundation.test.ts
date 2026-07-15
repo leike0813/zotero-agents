@@ -1069,6 +1069,281 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Concept commands through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request?: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async rebuildConceptKbIndex() {
+        calls.push({ operation: "rebuild" });
+        return {
+          ok: true,
+          optional_field: undefined,
+          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
+        };
+      },
+      async updateConceptDisplayText(request) {
+        calls.push({ operation: "display", request });
+        return { ok: true, concept_id: request.conceptId };
+      },
+      async applyConceptReviewAction(request) {
+        calls.push({ operation: "review", request });
+        return request.targetConceptId
+          ? { ok: true, status: "merged" }
+          : {
+              ok: false,
+              diagnostic: { code: "concept_review_target_missing" },
+            };
+      },
+      async deleteConceptEntries(request) {
+        calls.push({ operation: "delete", request });
+        return {
+          deleted_concept_ids: [],
+          diagnostic: { code: "concept_delete_not_found" },
+        };
+      },
+    });
+
+    assert.deepEqual(await client.concepts.rebuildConceptKbIndex(), {
+      ok: true,
+      rebuilt_at: "2026-07-15T00:00:00.000Z",
+    });
+    assert.deepEqual(
+      await client.concepts.updateConceptDisplayText({
+        conceptId: " concept-1 ",
+        fields: {
+          short_definition: " Short definition ",
+          definition: " Full definition ",
+          usage_note: "   ",
+          editorial_note: " Editorial note ",
+          unknown: "discard",
+        },
+        unexpected: "discard",
+      } as never),
+      { ok: true, concept_id: "concept-1" },
+    );
+    assert.deepEqual(
+      await client.concepts.applyConceptReviewAction({
+        reviewId: " review-1 ",
+        action: "merge_into_existing",
+        targetConceptId: " target-1 ",
+        unexpected: "discard",
+      } as never),
+      { ok: true, status: "merged" },
+    );
+    assert.deepEqual(
+      await client.concepts.applyConceptReviewAction({
+        reviewId: " review-2 ",
+        action: "merge_into_existing",
+      }),
+      {
+        ok: false,
+        diagnostic: { code: "concept_review_target_missing" },
+      },
+    );
+    assert.deepEqual(
+      await client.concepts.deleteConceptEntries({
+        conceptIds: [" concept-1 ", "concept-2"],
+        unexpected: "discard",
+      } as never),
+      {
+        deleted_concept_ids: [],
+        diagnostic: { code: "concept_delete_not_found" },
+      },
+    );
+
+    assert.deepEqual(calls, [
+      { operation: "rebuild" },
+      {
+        operation: "display",
+        request: {
+          conceptId: "concept-1",
+          fields: {
+            short_definition: "Short definition",
+            definition: "Full definition",
+            usage_note: "",
+            editorial_note: "Editorial note",
+          },
+        },
+      },
+      {
+        operation: "review",
+        request: {
+          reviewId: "review-1",
+          action: "merge_into_existing",
+          targetConceptId: "target-1",
+        },
+      },
+      {
+        operation: "review",
+        request: {
+          reviewId: "review-2",
+          action: "merge_into_existing",
+        },
+      },
+      {
+        operation: "delete",
+        request: { conceptIds: ["concept-1", "concept-2"] },
+      },
+    ]);
+  });
+
+  it("rejects invalid Concept commands before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateConceptDisplayText() {
+        invocations += 1;
+        return {};
+      },
+      async applyConceptReviewAction() {
+        invocations += 1;
+        return {};
+      },
+      async deleteConceptEntries() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () =>
+        missingPortClient.concepts.updateConceptDisplayText({
+          conceptId: " ",
+          fields: { definition: "valid" },
+        }),
+      () =>
+        missingPortClient.concepts.applyConceptReviewAction({
+          reviewId: " ",
+          action: "reject",
+        }),
+      () => missingPortClient.concepts.deleteConceptEntries({ conceptIds: [] }),
+      () =>
+        client.concepts.updateConceptDisplayText({
+          conceptId: "concept-1",
+          fields: {},
+        }),
+      () =>
+        client.concepts.updateConceptDisplayText({
+          conceptId: "concept-1",
+          fields: { unknown: "discard" },
+        } as never),
+      ...[
+        { short_definition: 1 },
+        { definition: false },
+        { usage_note: [] },
+        { editorial_note: null },
+      ].map(
+        (fields) => () =>
+          client.concepts.updateConceptDisplayText({
+            conceptId: "concept-1",
+            fields,
+          } as never),
+      ),
+      () =>
+        client.concepts.applyConceptReviewAction({
+          reviewId: "review-1",
+          action: "approve",
+        } as never),
+      () =>
+        client.concepts.applyConceptReviewAction({
+          reviewId: "review-1",
+          action: "merge_into_existing",
+          targetConceptId: " ",
+        }),
+      () => client.concepts.deleteConceptEntries({ conceptIds: [] }),
+      () =>
+        client.concepts.deleteConceptEntries({
+          conceptIds: ["concept-1", " "],
+        }),
+      () =>
+        client.concepts.deleteConceptEntries({
+          conceptIds: ["concept-1", 2],
+        } as never),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Concept request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Concept command ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "delete conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateConceptDisplayText() {
+        throw new Error("display update exploded");
+      },
+      async applyConceptReviewAction() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async deleteConceptEntries() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () => client.concepts.rebuildConceptKbIndex(),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          client.concepts.updateConceptDisplayText({
+            conceptId: "concept-1",
+            fields: { definition: "Definition" },
+          }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          client.concepts.applyConceptReviewAction({
+            reviewId: "review-1",
+            action: "reject",
+          }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          client.concepts.deleteConceptEntries({ conceptIds: ["concept-1"] }),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Concept command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({

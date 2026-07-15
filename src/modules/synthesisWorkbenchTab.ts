@@ -2222,10 +2222,10 @@ function handleAction(
       runtime,
       "rebuildConceptKbIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildConceptKbIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.concepts.rebuildConceptKbIndex();
+      },
       { deferStart: true },
     );
     return;
@@ -2316,11 +2316,13 @@ function handleAction(
         runtime,
         "updateConceptDisplayText",
         { conceptId },
-        () =>
-          getDefaultSynthesisService().updateConceptDisplayText({
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts.updateConceptDisplayText({
             conceptId,
             fields,
-          }),
+          });
+        },
       );
       return;
     }
@@ -2342,14 +2344,16 @@ function handleAction(
         runtime,
         "applyConceptReviewAction",
         { reviewId, action, targetConceptId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts
             .applyConceptReviewAction({
               reviewId,
               action,
               targetConceptId: targetConceptId || undefined,
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2368,10 +2372,12 @@ function handleAction(
         runtime,
         "deleteConceptEntry",
         { conceptId: conceptIds[0], conceptIds },
-        () =>
-          getDefaultSynthesisService().deleteConceptEntries({
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.concepts.deleteConceptEntries({
             conceptIds,
-          }),
+          });
+        },
       );
       return;
     }

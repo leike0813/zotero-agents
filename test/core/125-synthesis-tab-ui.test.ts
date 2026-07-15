@@ -2154,6 +2154,137 @@ describe("Synthesis tab UI model", function () {
     assert.include(metadataInvalidation, 'return ["index", "review"]');
   });
 
+  it("routes Concept commands through the strict Concepts client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildConceptKbIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTopicGraphIndex"',
+      ),
+    );
+    const conceptRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateConceptDisplayText"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "refreshReferenceSidecarNow"',
+      ),
+    );
+    const displayRegion = conceptRegion.slice(
+      0,
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "applyConceptReviewAction"',
+      ),
+    );
+    const reviewRegion = conceptRegion.slice(
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "applyConceptReviewAction"',
+      ),
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "deleteConceptEntry"',
+      ),
+    );
+    const deleteRegion = conceptRegion.slice(
+      conceptRegion.indexOf(
+        'result.hostCommand?.command === "deleteConceptEntry"',
+      ),
+    );
+
+    assert.match(
+      rebuildRegion,
+      /client\.concepts\s*\.rebuildConceptKbIndex\(\)/,
+    );
+    assert.include(rebuildRegion, "await getDefaultSynthesisClient()");
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+    assert.notInclude(rebuildRegion, "getDefaultSynthesisService");
+
+    assert.match(
+      displayRegion,
+      /client\.concepts\s*\.updateConceptDisplayText\(/,
+    );
+    assert.include(displayRegion, 'String(commandArgs.conceptId || "").trim()');
+    assert.include(displayRegion, "Object.keys(fields).length");
+    assert.match(
+      displayRegion,
+      /"updateConceptDisplayText",\s*\{ conceptId \}/,
+    );
+    assert.notInclude(displayRegion, "failOnDiagnostic");
+
+    assert.match(
+      reviewRegion,
+      /client\.concepts\s*\.applyConceptReviewAction\(/,
+    );
+    for (const action of ["approve_create", "merge_into_existing", "reject"]) {
+      assert.include(reviewRegion, `action === "${action}"`);
+    }
+    assert.include(reviewRegion, "targetConceptId || undefined");
+    assert.match(
+      reviewRegion,
+      /"applyConceptReviewAction",\s*\{ reviewId, action, targetConceptId \}/,
+    );
+    assert.match(reviewRegion, /\.then\(failOnDiagnostic\)/);
+
+    assert.match(deleteRegion, /client\.concepts\s*\.deleteConceptEntries\(/);
+    assert.include(deleteRegion, "commandArgs.conceptIds");
+    assert.include(deleteRegion, "commandArgs.conceptId");
+    assert.include(deleteRegion, ".filter(Boolean)");
+    assert.match(
+      deleteRegion,
+      /"deleteConceptEntry",\s*\{ conceptId: conceptIds\[0\], conceptIds \}/,
+    );
+    assert.notInclude(deleteRegion, "failOnDiagnostic");
+
+    for (const region of [displayRegion, reviewRegion, deleteRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.notInclude(diagnosticBlock, '"diagnostics"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const conceptInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+      invalidationBlock.indexOf('command === "runSynthesizeTopic"'),
+    );
+    assert.include(conceptInvalidation, 'command === "deleteConceptEntry"');
+    assert.include(
+      conceptInvalidation,
+      'command === "updateConceptDisplayText"',
+    );
+    assert.include(
+      conceptInvalidation,
+      'command === "applyConceptReviewAction"',
+    );
+    assert.include(conceptInvalidation, 'return ["concepts", "review"]');
+
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildConceptKbIndex"');
+    const progressBlock = extractFunctionBlock(
+      tabSource,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
+  });
+
   it("routes Workbench artifact delete and purge host commands", function () {
     const deleteResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),
