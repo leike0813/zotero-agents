@@ -76,6 +76,8 @@ Advanced Reference Matching appears under Index and Review as an explicit review
 
 Reference Sidecar refresh/retry and advanced matching run/retry route through no-argument `SynthesisClient.references` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source. Refresh and advanced matching keep their confirmations, while both retry actions remain confirmation-free.
 
+Canonical revision Accept/Reject, single proposal actions, and batch proposal decisions route through strict `SynthesisClient.references` commands. The Workbench owns input aliases, trimming, default actions, batch filtering, and manual target mapping; the client boundary validates canonical identifiers, action enums, and either a positive-integer Zotero item target or a canonical-reference target. These review commands retain command single-flight and Index/Review/Graph refresh, add no confirmation, deferred start, or progress callback, and keep domain failure objects and plural `diagnostics` as results. Canonical merge/batch merge, metadata update, archive, and Reference queries remain on their existing service paths.
+
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
 ## Sync Status and Conflict Review

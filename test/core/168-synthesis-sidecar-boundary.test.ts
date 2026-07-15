@@ -122,6 +122,18 @@ describe("Synthesis sidecar migration boundary", function () {
       workbench,
       /client\.references\s*\.retryAdvancedReferenceMatching/,
     );
+    assert.match(
+      workbench,
+      /client\.references\s*\.applyCanonicalRevisionReviewAction/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.applyReferenceMatchProposalAction/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.applyReferenceMatchProposalActions/,
+    );
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -138,6 +150,9 @@ describe("Synthesis sidecar migration boundary", function () {
       "retryReferenceSidecarRefresh",
       "runAdvancedReferenceMatchingNow",
       "retryAdvancedReferenceMatching",
+      "applyCanonicalRevisionReviewAction",
+      "applyReferenceMatchProposalAction",
+      "applyReferenceMatchProposalActions",
     ]) {
       assert.notMatch(
         workbench,
@@ -192,6 +207,12 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(referencesContract, "retryReferenceSidecarRefresh()");
     assert.include(referencesContract, "runAdvancedReferenceMatchingNow()");
     assert.include(referencesContract, "retryAdvancedReferenceMatching()");
+    assert.include(referencesContract, "applyCanonicalRevisionReviewAction(");
+    assert.include(referencesContract, "applyReferenceMatchProposalAction(");
+    assert.include(referencesContract, "applyReferenceMatchProposalActions(");
+    assert.include(referencesContract, '"manual_target"');
+    assert.include(referencesContract, 'kind: "zotero_item"');
+    assert.include(referencesContract, 'kind: "canonical_reference"');
     assert.notMatch(
       referencesContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,

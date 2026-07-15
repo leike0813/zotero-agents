@@ -1908,6 +1908,112 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("routes Reference review actions through the strict References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const reviewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionReviewAction"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "mergeEffectiveCanonicalReference"',
+      ),
+    );
+    const canonicalRegion = reviewRegion.slice(
+      0,
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalActions"',
+      ),
+    );
+    const batchRegion = reviewRegion.slice(
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalActions"',
+      ),
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalAction"',
+      ),
+    );
+    const singleRegion = reviewRegion.slice(
+      reviewRegion.indexOf(
+        'result.hostCommand?.command === "applyReferenceMatchProposalAction"',
+      ),
+    );
+
+    for (const [command, method] of [
+      [
+        "applyCanonicalRevisionReviewAction",
+        "applyCanonicalRevisionReviewAction",
+      ],
+      [
+        "applyReferenceMatchProposalActions",
+        "applyReferenceMatchProposalActions",
+      ],
+      [
+        "applyReferenceMatchProposalAction",
+        "applyReferenceMatchProposalAction",
+      ],
+    ]) {
+      assert.match(
+        reviewRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,1800}client\\.references\\s*\\.${method}\\(`,
+        ),
+      );
+    }
+    assert.include(canonicalRegion, "review_item_id");
+    assert.include(batchRegion, "proposal_id");
+    assert.include(batchRegion, "canonical_reference_id");
+    assert.include(batchRegion, "library_id");
+    assert.include(batchRegion, "item_key");
+    assert.include(batchRegion, 'requestedAction === "manual_target"');
+    assert.include(batchRegion, "if (!proposalId)");
+    assert.include(batchRegion, "return normalizedTarget");
+    assert.notInclude(singleRegion, "proposal_id");
+    assert.match(canonicalRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(batchRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(singleRegion, /\.then\(failOnDiagnostic\)/);
+    assert.match(
+      batchRegion,
+      /runWorkbenchCommandOnce\([\s\S]*?"applyReferenceMatchProposalActions",\s*\{\}/,
+    );
+    assert.notInclude(reviewRegion, "getDefaultSynthesisService");
+    assert.notInclude(reviewRegion, "confirmWorkbenchAction");
+    assert.notInclude(reviewRegion, "deferStart");
+    assert.notInclude(reviewRegion, "onProgress");
+    assert.notInclude(reviewRegion, "notifyWorkbenchCommandProgress");
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.include(diagnosticBlock, ".diagnostic");
+    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    assert.notInclude(diagnosticBlock, ".diagnostics");
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const reviewInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "applyReferenceMatchProposalAction"',
+      ),
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    assert.include(
+      reviewInvalidation,
+      'command === "applyReferenceMatchProposalActions"',
+    );
+    assert.include(
+      reviewInvalidation,
+      'command === "applyCanonicalRevisionReviewAction"',
+    );
+    assert.include(reviewInvalidation, 'return ["index", "review", "graph"]');
+  });
+
   it("routes Workbench artifact delete and purge host commands", function () {
     const deleteResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),

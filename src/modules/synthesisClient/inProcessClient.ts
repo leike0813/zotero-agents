@@ -1,10 +1,14 @@
 import {
+  SYNTHESIS_CANONICAL_REVISION_REVIEW_ACTIONS,
   SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS,
+  SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
+  SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisCanonicalRevisionReviewRequest,
   type SynthesisCitationGraphLayoutRequest,
   type SynthesisDatabaseResetRequest,
   type SynthesisDatabaseResetResult,
@@ -12,6 +16,12 @@ import {
   type SynthesisPaperArtifactsRequest,
   type SynthesisPaperArtifactsResult,
   type SynthesisReferenceCommandResult,
+  type SynthesisReferenceMatchProposalAction,
+  type SynthesisReferenceMatchProposalActionRequest,
+  type SynthesisReferenceMatchProposalActionsRequest,
+  type SynthesisReferenceMatchProposalDecision,
+  type SynthesisReferenceMatchProposalDecisionAction,
+  type SynthesisReferenceMatchProposalManualTarget,
   type SynthesisRelatedItemsEchoRequest,
   type SynthesisStartupReconcileResult,
   type SynthesisTagAuditReplaceRequest,
@@ -90,6 +100,15 @@ export interface LegacySynthesisPort {
   retryReferenceSidecarRefresh?(): Promise<unknown>;
   runAdvancedReferenceMatchingNow?(): Promise<unknown>;
   retryAdvancedReferenceMatching?(): Promise<unknown>;
+  applyCanonicalRevisionReviewAction?(
+    request: SynthesisCanonicalRevisionReviewRequest,
+  ): Promise<unknown>;
+  applyReferenceMatchProposalAction?(
+    request: SynthesisReferenceMatchProposalActionRequest,
+  ): Promise<unknown>;
+  applyReferenceMatchProposalActions?(
+    request: SynthesisReferenceMatchProposalActionsRequest,
+  ): Promise<unknown>;
 }
 
 function normalizeClientError(error: unknown): SynthesisClientError {
@@ -216,6 +235,170 @@ function normalizeCitationGraphLayoutRequest(
           algorithm as SynthesisCitationGraphLayoutRequest["algorithm"],
         force: request.force as boolean,
       };
+}
+
+function normalizeRequiredString(
+  value: unknown,
+  location: string,
+  label: string,
+) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new SynthesisClientError("invalid_request", `${label} is required`, {
+      field: location,
+    });
+  }
+  return value.trim();
+}
+
+function normalizeStringEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  location: string,
+  label: string,
+): T {
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw new SynthesisClientError("invalid_request", `${label} is invalid`, {
+      field: location,
+      value: typeof value === "string" ? value : typeof value,
+    });
+  }
+  return value as T;
+}
+
+function normalizeCanonicalRevisionReviewRequest(
+  value: unknown,
+): SynthesisCanonicalRevisionReviewRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    reviewItemId: normalizeRequiredString(
+      request.reviewItemId,
+      "reviewItemId",
+      "Synthesis canonical revision reviewItemId",
+    ),
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_CANONICAL_REVISION_REVIEW_ACTIONS,
+      "action",
+      "Synthesis canonical revision action",
+    ),
+  };
+}
+
+function normalizeReferenceMatchProposalActionRequest(
+  value: unknown,
+): SynthesisReferenceMatchProposalActionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    proposalId: normalizeRequiredString(
+      request.proposalId,
+      "proposalId",
+      "Synthesis Reference match proposalId",
+    ),
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
+      "action",
+      "Synthesis Reference match proposal action",
+    ),
+  };
+}
+
+function normalizeReferenceMatchProposalManualTarget(
+  value: unknown,
+  location: string,
+): SynthesisReferenceMatchProposalManualTarget {
+  const target = toSynthesisJsonObject(value, location);
+  if (target.kind === "zotero_item") {
+    if (
+      typeof target.libraryId !== "number" ||
+      !Number.isInteger(target.libraryId) ||
+      target.libraryId <= 0
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis Reference match proposal target libraryId must be a positive integer",
+        { field: `${location}.libraryId` },
+      );
+    }
+    return {
+      kind: "zotero_item",
+      libraryId: target.libraryId,
+      itemKey: normalizeRequiredString(
+        target.itemKey,
+        `${location}.itemKey`,
+        "Synthesis Reference match proposal target itemKey",
+      ),
+    };
+  }
+  if (target.kind === "canonical_reference") {
+    return {
+      kind: "canonical_reference",
+      canonicalReferenceId: normalizeRequiredString(
+        target.canonicalReferenceId,
+        `${location}.canonicalReferenceId`,
+        "Synthesis Reference match proposal target canonicalReferenceId",
+      ),
+    };
+  }
+  throw new SynthesisClientError(
+    "invalid_request",
+    "Synthesis Reference match proposal target kind is invalid",
+    {
+      field: `${location}.kind`,
+      value: typeof target.kind === "string" ? target.kind : typeof target.kind,
+    },
+  );
+}
+
+function normalizeReferenceMatchProposalDecision(
+  value: unknown,
+  index: number,
+): SynthesisReferenceMatchProposalDecision {
+  const location = `$.request.decisions[${index}]`;
+  const decision = toSynthesisJsonObject(value, location);
+  const proposalId = normalizeRequiredString(
+    decision.proposalId,
+    `${location}.proposalId`,
+    "Synthesis Reference match proposalId",
+  );
+  const action = normalizeStringEnum(
+    decision.action,
+    SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
+    `${location}.action`,
+    "Synthesis Reference match proposal decision action",
+  ) as SynthesisReferenceMatchProposalDecisionAction;
+  if (action === "manual_target") {
+    return {
+      proposalId,
+      action,
+      target: normalizeReferenceMatchProposalManualTarget(
+        decision.target,
+        `${location}.target`,
+      ),
+    };
+  }
+  return {
+    proposalId,
+    action: action as SynthesisReferenceMatchProposalAction,
+  };
+}
+
+function normalizeReferenceMatchProposalActionsRequest(
+  value: unknown,
+): SynthesisReferenceMatchProposalActionsRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (!Array.isArray(request.decisions) || request.decisions.length === 0) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Reference match proposal decisions are required",
+      { field: "decisions" },
+    );
+  }
+  return {
+    decisions: request.decisions.map((decision, index) =>
+      normalizeReferenceMatchProposalDecision(decision, index),
+    ),
+  };
 }
 
 function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
@@ -350,6 +533,45 @@ export function createInProcessSynthesisClient(
               )(),
             ) as SynthesisReferenceCommandResult,
         );
+      },
+      async applyCanonicalRevisionReviewAction(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeCanonicalRevisionReviewRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyCanonicalRevisionReviewAction,
+            "references.applyCanonicalRevisionReviewAction",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async applyReferenceMatchProposalAction(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeReferenceMatchProposalActionRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyReferenceMatchProposalAction,
+            "references.applyReferenceMatchProposalAction",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async applyReferenceMatchProposalActions(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeReferenceMatchProposalActionsRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyReferenceMatchProposalActions,
+            "references.applyReferenceMatchProposalActions",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
       },
     },
     topics: {

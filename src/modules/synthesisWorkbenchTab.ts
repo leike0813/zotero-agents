@@ -1,4 +1,5 @@
 import { config } from "../../package.json";
+import type { SynthesisReferenceMatchProposalDecision } from "../../packages/synthesis-contracts/src/index";
 import { getString, getStringOrFallback } from "../utils/locale";
 import {
   SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES,
@@ -2442,10 +2443,12 @@ function handleAction(
         runtime,
         "applyCanonicalRevisionReviewAction",
         { reviewItemId, action },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyCanonicalRevisionReviewAction({ reviewItemId, action })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2460,7 +2463,7 @@ function handleAction(
             (entry): entry is Record<string, unknown> =>
               !!entry && typeof entry === "object" && !Array.isArray(entry),
           )
-          .map((entry) => {
+          .flatMap((entry): SynthesisReferenceMatchProposalDecision[] => {
             const proposalId = String(
               entry.proposalId || entry.proposal_id || "",
             ).trim();
@@ -2504,25 +2507,28 @@ function handleAction(
                       ).trim(),
                     }
                   : undefined;
-            return action === "manual_target"
-              ? { proposalId, action, target: normalizedTarget }
-              : { proposalId, action };
+            if (!proposalId) {
+              return [];
+            }
+            if (action === "manual_target") {
+              return normalizedTarget
+                ? [{ proposalId, action, target: normalizedTarget }]
+                : [];
+            }
+            return [{ proposalId, action }];
           })
-          .filter(
-            (entry) =>
-              entry.proposalId &&
-              (entry.action !== "manual_target" || Boolean(entry.target)),
-          )
       : [];
     if (decisions.length) {
       runWorkbenchCommandOnce(
         runtime,
         "applyReferenceMatchProposalActions",
         {},
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyReferenceMatchProposalActions({ decisions })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2545,10 +2551,12 @@ function handleAction(
         runtime,
         "applyReferenceMatchProposalAction",
         { proposalId, action },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyReferenceMatchProposalAction({ proposalId, action })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }

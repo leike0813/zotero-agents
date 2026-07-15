@@ -117,6 +117,15 @@ function createLegacyPort(
     async retryAdvancedReferenceMatching() {
       return resolveService().retryAdvancedReferenceMatching();
     },
+    async applyCanonicalRevisionReviewAction(request) {
+      return resolveService().applyCanonicalRevisionReviewAction(request);
+    },
+    async applyReferenceMatchProposalAction(request) {
+      return resolveService().applyReferenceMatchProposalAction(request);
+    },
+    async applyReferenceMatchProposalActions(request) {
+      return resolveService().applyReferenceMatchProposalActions(request);
+    },
   };
 }
 

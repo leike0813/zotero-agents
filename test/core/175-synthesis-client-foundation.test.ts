@@ -350,6 +350,368 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Reference review and proposal requests through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyCanonicalRevisionReviewAction(request) {
+        calls.push({ operation: "canonical", request });
+        return {
+          ok: true,
+          review_item_id: request.reviewItemId,
+          optional_field: undefined,
+          reviewed_at: new Date("2026-07-15T00:00:00.000Z"),
+        };
+      },
+      async applyReferenceMatchProposalAction(request) {
+        calls.push({ operation: "single", request });
+        return { ok: true, proposal_id: request.proposalId };
+      },
+      async applyReferenceMatchProposalActions(request) {
+        calls.push({ operation: "batch", request });
+        return {
+          ok: false,
+          failed_count: 1,
+          diagnostics: [{ code: "domain_failure" }],
+          optional_field: undefined,
+        };
+      },
+    });
+
+    for (const action of ["accept", "reject"] as const) {
+      assert.deepEqual(
+        await client.references.applyCanonicalRevisionReviewAction({
+          reviewItemId: ` review-${action} `,
+          action,
+          unexpected: "discard",
+        } as never),
+        {
+          ok: true,
+          review_item_id: `review-${action}`,
+          reviewed_at: "2026-07-15T00:00:00.000Z",
+        },
+      );
+    }
+    for (const action of [
+      "accept",
+      "reverse_accept",
+      "reject",
+      "reopen",
+      "delete",
+    ] as const) {
+      assert.deepEqual(
+        await client.references.applyReferenceMatchProposalAction({
+          proposalId: ` proposal-${action} `,
+          action,
+          target: { kind: "canonical_reference", canonicalReferenceId: "x" },
+          unexpected: "discard",
+        } as never),
+        { ok: true, proposal_id: `proposal-${action}` },
+      );
+    }
+    assert.deepEqual(
+      await client.references.applyReferenceMatchProposalActions({
+        decisions: [
+          ...["accept", "reverse_accept", "reject", "reopen", "delete"].map(
+            (action) => ({
+              proposalId: ` batch-${action} `,
+              action,
+              target: {
+                kind: "canonical_reference",
+                canonicalReferenceId: "discard",
+              },
+              unexpected: "discard",
+            }),
+          ),
+          {
+            proposalId: " batch-zotero ",
+            action: "manual_target",
+            target: {
+              kind: "zotero_item",
+              libraryId: 2,
+              itemKey: " ABCD1234 ",
+              unexpected: "discard",
+            },
+          },
+          {
+            proposalId: " batch-canonical ",
+            action: "manual_target",
+            target: {
+              kind: "canonical_reference",
+              canonicalReferenceId: " canonical-1 ",
+              unexpected: "discard",
+            },
+          },
+        ],
+        unexpected: "discard",
+      } as never),
+      {
+        ok: false,
+        failed_count: 1,
+        diagnostics: [{ code: "domain_failure" }],
+      },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        operation: "canonical",
+        request: { reviewItemId: "review-accept", action: "accept" },
+      },
+      {
+        operation: "canonical",
+        request: { reviewItemId: "review-reject", action: "reject" },
+      },
+      ...["accept", "reverse_accept", "reject", "reopen", "delete"].map(
+        (action) => ({
+          operation: "single",
+          request: { proposalId: `proposal-${action}`, action },
+        }),
+      ),
+      {
+        operation: "batch",
+        request: {
+          decisions: [
+            ...["accept", "reverse_accept", "reject", "reopen", "delete"].map(
+              (action) => ({
+                proposalId: `batch-${action}`,
+                action,
+              }),
+            ),
+            {
+              proposalId: "batch-zotero",
+              action: "manual_target",
+              target: {
+                kind: "zotero_item",
+                libraryId: 2,
+                itemKey: "ABCD1234",
+              },
+            },
+            {
+              proposalId: "batch-canonical",
+              action: "manual_target",
+              target: {
+                kind: "canonical_reference",
+                canonicalReferenceId: "canonical-1",
+              },
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("rejects invalid Reference review and proposal requests before invoking legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyCanonicalRevisionReviewAction() {
+        invocations += 1;
+        return {};
+      },
+      async applyReferenceMatchProposalAction() {
+        invocations += 1;
+        return {};
+      },
+      async applyReferenceMatchProposalActions() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () =>
+        missingPortClient.references.applyCanonicalRevisionReviewAction({
+          reviewItemId: " ",
+          action: "accept",
+        }),
+      () =>
+        missingPortClient.references.applyReferenceMatchProposalAction({
+          proposalId: " ",
+          action: "accept",
+        }),
+      () =>
+        missingPortClient.references.applyReferenceMatchProposalActions({
+          decisions: [],
+        }),
+      () =>
+        client.references.applyCanonicalRevisionReviewAction({
+          reviewItemId: " ",
+          action: "accept",
+        }),
+      () =>
+        client.references.applyCanonicalRevisionReviewAction({
+          reviewItemId: "review-1",
+          action: "reopen",
+        } as never),
+      () =>
+        client.references.applyReferenceMatchProposalAction({
+          proposalId: "",
+          action: "accept",
+        }),
+      () =>
+        client.references.applyReferenceMatchProposalAction({
+          proposalId: "proposal-1",
+          action: "manual_target",
+        } as never),
+      () =>
+        client.references.applyReferenceMatchProposalActions({ decisions: [] }),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [{ proposalId: " ", action: "reject" }],
+        }),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [{ proposalId: "proposal-1", action: "invalid" }],
+        } as never),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [{ proposalId: "proposal-1", action: "manual_target" }],
+        } as never),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [
+            {
+              proposalId: "proposal-1",
+              action: "manual_target",
+              target: { kind: "external_item", itemKey: "ABCD1234" },
+            },
+          ],
+        } as never),
+      ...[0, -1, 1.5].map(
+        (libraryId) => () =>
+          client.references.applyReferenceMatchProposalActions({
+            decisions: [
+              {
+                proposalId: "proposal-1",
+                action: "manual_target",
+                target: {
+                  kind: "zotero_item",
+                  libraryId,
+                  itemKey: "ABCD1234",
+                },
+              },
+            ],
+          }),
+      ),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [
+            {
+              proposalId: "proposal-1",
+              action: "manual_target",
+              target: { kind: "zotero_item", libraryId: 1, itemKey: " " },
+            },
+          ],
+        }),
+      () =>
+        client.references.applyReferenceMatchProposalActions({
+          decisions: [
+            {
+              proposalId: "proposal-1",
+              action: "manual_target",
+              target: {
+                kind: "canonical_reference",
+                canonicalReferenceId: " ",
+              },
+            },
+          ],
+        }),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Reference review request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Reference review ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "review conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyReferenceMatchProposalAction() {
+        throw new Error("proposal action exploded");
+      },
+      async applyReferenceMatchProposalActions() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+    });
+    const preservingClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyCanonicalRevisionReviewAction() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () =>
+          client.references.applyCanonicalRevisionReviewAction({
+            reviewItemId: "review-1",
+            action: "accept",
+          }),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          client.references.applyReferenceMatchProposalAction({
+            proposalId: "proposal-1",
+            action: "accept",
+          }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          client.references.applyReferenceMatchProposalActions({
+            decisions: [{ proposalId: "proposal-1", action: "reject" }],
+          }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          preservingClient.references.applyCanonicalRevisionReviewAction({
+            reviewItemId: "review-1",
+            action: "reject",
+          }),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Reference review command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({
