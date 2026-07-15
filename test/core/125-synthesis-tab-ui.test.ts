@@ -1787,6 +1787,61 @@ describe("Synthesis tab UI model", function () {
     assert.include(appSource, 'reason: "auto"');
   });
 
+  it("routes Citation Graph commands through the callback-free Graph client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const automaticLayoutBlock = extractFunctionBlock(
+      tabSource,
+      "refreshGraphLayoutIfNeeded",
+    );
+    const cacheCommandRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildCitationGraphCacheNow"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "validateTagVocabulary"',
+      ),
+    );
+
+    assert.match(
+      handleActionBlock,
+      /manualRecomputeLayout[\s\S]{0,420}client\.graph\s*\.recomputeCitationGraphLayout\(\{[\s\S]{0,120}force: true/,
+    );
+    for (const [command, method] of [
+      ["rebuildCitationGraphCacheNow", "rebuildCitationGraphCacheNow"],
+      [
+        "refreshCitationGraphCacheIncrementalNow",
+        "refreshCitationGraphCacheIncrementalNow",
+      ],
+      ["retryCitationGraphCacheRebuild", "retryCitationGraphCacheRebuild"],
+    ]) {
+      assert.match(
+        handleActionBlock,
+        new RegExp(
+          `${command}[\\s\\S]{0,420}client\\.graph\\s*\\.${method}\\(\\)[\\s\\S]{0,160}deferStart: true`,
+        ),
+      );
+    }
+    assert.notInclude(cacheCommandRegion, "onProgress");
+    assert.notInclude(cacheCommandRegion, "notifyWorkbenchCommandProgress");
+    assert.match(automaticLayoutBlock, /client\.workbench\s*\.readSurface/);
+    assert.match(
+      automaticLayoutBlock,
+      /client\.graph\s*\.recomputeCitationGraphLayout/,
+    );
+    assert.include(automaticLayoutBlock, 'status === "ready"');
+    assert.include(automaticLayoutBlock, "!input.graph?.graph_hash");
+    assert.notInclude(automaticLayoutBlock, "force: true");
+    assert.notInclude(automaticLayoutBlock, "getDefaultSynthesisService");
+    assert.notMatch(
+      tabSource,
+      /getDefaultSynthesisService\(\)\.(?:recomputeCitationGraphLayout|rebuildCitationGraphCacheNow|refreshCitationGraphCacheIncrementalNow|retryCitationGraphCacheRebuild)/,
+    );
+  });
+
   it("routes Workbench artifact delete and purge host commands", function () {
     const deleteResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),

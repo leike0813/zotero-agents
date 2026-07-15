@@ -93,6 +93,18 @@ function createLegacyPort(
     async resolveTopicPaperDigest(request) {
       return resolveService().resolveTopicPaperDigest(request);
     },
+    async recomputeCitationGraphLayout(request) {
+      return resolveService().recomputeCitationGraphLayout(request);
+    },
+    async rebuildCitationGraphCacheNow() {
+      return resolveService().rebuildCitationGraphCacheNow();
+    },
+    async refreshCitationGraphCacheIncrementalNow() {
+      return resolveService().refreshCitationGraphCacheIncrementalNow();
+    },
+    async retryCitationGraphCacheRebuild() {
+      return resolveService().retryCitationGraphCacheRebuild();
+    },
   };
 }
 

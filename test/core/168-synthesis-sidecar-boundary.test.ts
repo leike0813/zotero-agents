@@ -99,6 +99,24 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.workbench\s*\.readPaperDigest/);
     assert.match(workbench, /client\.workbench\s*\.readProgress/);
     assert.match(workbench, /client\.topics\s*\.getTopicReport/);
+    assert.match(workbench, /client\.graph\s*\.recomputeCitationGraphLayout/);
+    assert.match(workbench, /client\.graph\s*\.rebuildCitationGraphCacheNow/);
+    assert.match(
+      workbench,
+      /client\.graph\s*\.refreshCitationGraphCacheIncrementalNow/,
+    );
+    assert.match(workbench, /client\.graph\s*\.retryCitationGraphCacheRebuild/);
+    for (const method of [
+      "recomputeCitationGraphLayout",
+      "rebuildCitationGraphCacheNow",
+      "refreshCitationGraphCacheIncrementalNow",
+      "retryCitationGraphCacheRebuild",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(`getDefaultSynthesisService\\(\\)\\.${method}`),
+      );
+    }
     assert.notMatch(
       workbench,
       /getDefaultSynthesisService\(\)\.getTopicReport/,
@@ -118,6 +136,10 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/workbench.ts"),
       "utf8",
     );
+    const graphContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/graph.ts"),
+      "utf8",
+    );
     const topicsContract = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/topics.ts"),
       "utf8",
@@ -125,6 +147,15 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(topicsContract, "getTopicReport(");
     assert.notInclude(workbenchContract, "getTopicReport(");
     assert.include(workbenchContract, "readProgress()");
+    assert.include(clientContract, "graph: SynthesisGraphClient");
+    assert.include(graphContract, "recomputeCitationGraphLayout(");
+    assert.include(graphContract, "rebuildCitationGraphCacheNow()");
+    assert.include(graphContract, "refreshCitationGraphCacheIncrementalNow()");
+    assert.include(graphContract, "retryCitationGraphCacheRebuild()");
+    assert.notMatch(
+      graphContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
     assert.notMatch(
       `${clientContract}\n${workbenchContract}`,
       /prewarm|warmSynthesis|onPhase|fullSnapshot/,

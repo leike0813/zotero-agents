@@ -95,6 +95,8 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
 - If graph structure exists but layout is missing/stale, draw what is available and offer `manualRecomputeLayout`.
+- Route manual and automatic layout recomputation through `SynthesisClient.graph`; manual recomputation is forced, while automatic recomputation retains the layout-ready and graph-hash guards and is not forced.
+- Route full rebuild, incremental refresh, and failed rebuild retry through no-argument `SynthesisClient.graph` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source.
 - If graph cache is stale, failed, or missing, show a visible cache badge and keep topic workflows available.
 - Graph search is explicit: typing in the control does not refresh the surface until `Search` is pressed; `Clear` resets search immediately.
 - Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Hovering a visible neighbor of a selected node should show that neighbor title, including external reference nodes.

@@ -1,9 +1,11 @@
 import {
+  SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS,
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisCitationGraphLayoutRequest,
   type SynthesisDatabaseResetRequest,
   type SynthesisDatabaseResetResult,
   type SynthesisLiteratureDigestApplyRequest,
@@ -20,6 +22,7 @@ import {
   type SynthesisTopicReportResult,
   type SynthesisWorkflowTopicOptionsRequest,
   type SynthesisWorkflowTopicOptionsResult,
+  type SynthesisGraphCommandResult,
   type SynthesisWorkbenchPaperDigestResult,
   type SynthesisWorkbenchProjection,
   type SynthesisWorkbenchSurfaceName,
@@ -76,6 +79,12 @@ export interface LegacySynthesisPort {
   getSynthesisBackgroundJobRows?(): Promise<unknown>;
   readTopicDetail?(request: { topicId: string }): Promise<unknown>;
   resolveTopicPaperDigest?(request: Record<string, unknown>): Promise<unknown>;
+  recomputeCitationGraphLayout?(
+    request: SynthesisCitationGraphLayoutRequest,
+  ): Promise<unknown>;
+  rebuildCitationGraphCacheNow?(): Promise<unknown>;
+  refreshCitationGraphCacheIncrementalNow?(): Promise<unknown>;
+  retryCitationGraphCacheRebuild?(): Promise<unknown>;
 }
 
 function normalizeClientError(error: unknown): SynthesisClientError {
@@ -166,6 +175,44 @@ function normalizeTopicId(value: unknown) {
   return value.trim();
 }
 
+function normalizeCitationGraphLayoutRequest(
+  value: unknown,
+): SynthesisCitationGraphLayoutRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  const algorithm = request.algorithm;
+  if (
+    typeof algorithm !== "string" ||
+    !SYNTHESIS_CITATION_GRAPH_LAYOUT_ALGORITHMS.includes(
+      algorithm as SynthesisCitationGraphLayoutRequest["algorithm"],
+    )
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Citation Graph layout algorithm is invalid",
+      {
+        algorithm: typeof algorithm === "string" ? algorithm : typeof algorithm,
+      },
+    );
+  }
+  if (request.force !== undefined && typeof request.force !== "boolean") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Citation Graph layout force must be a boolean",
+      { field: "force" },
+    );
+  }
+  return request.force === undefined
+    ? {
+        algorithm:
+          algorithm as SynthesisCitationGraphLayoutRequest["algorithm"],
+      }
+    : {
+        algorithm:
+          algorithm as SynthesisCitationGraphLayoutRequest["algorithm"],
+        force: request.force as boolean,
+      };
+}
+
 function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
   const request = toSynthesisJsonObject(value, "$.request");
   const mapped: Record<string, unknown> = {};
@@ -208,6 +255,52 @@ export function createInProcessSynthesisClient(
   legacy: LegacySynthesisPort,
 ): SynthesisClient {
   return {
+    graph: {
+      async recomputeCitationGraphLayout(request) {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.recomputeCitationGraphLayout,
+                "graph.recomputeCitationGraphLayout",
+              )(normalizeCitationGraphLayoutRequest(request)),
+            ) as SynthesisGraphCommandResult,
+        );
+      },
+      async rebuildCitationGraphCacheNow() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.rebuildCitationGraphCacheNow,
+                "graph.rebuildCitationGraphCacheNow",
+              )(),
+            ) as SynthesisGraphCommandResult,
+        );
+      },
+      async refreshCitationGraphCacheIncrementalNow() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.refreshCitationGraphCacheIncrementalNow,
+                "graph.refreshCitationGraphCacheIncrementalNow",
+              )(),
+            ) as SynthesisGraphCommandResult,
+        );
+      },
+      async retryCitationGraphCacheRebuild() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.retryCitationGraphCacheRebuild,
+                "graph.retryCitationGraphCacheRebuild",
+              )(),
+            ) as SynthesisGraphCommandResult,
+        );
+      },
+    },
     topics: {
       async listWorkflowOptions(request) {
         try {

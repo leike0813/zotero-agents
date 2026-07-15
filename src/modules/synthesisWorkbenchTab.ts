@@ -2146,11 +2146,13 @@ function handleAction(
       runtime,
       "manualRecomputeLayout",
       { algorithm },
-      () =>
-        getDefaultSynthesisService().recomputeCitationGraphLayout({
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.graph.recomputeCitationGraphLayout({
           algorithm: algorithm as SynthesisUiLayoutAlgorithm,
           force: true,
-        }),
+        });
+      },
     );
     return;
   }
@@ -2159,10 +2161,10 @@ function handleAction(
       runtime,
       "rebuildCitationGraphCacheNow",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildCitationGraphCacheNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.graph.rebuildCitationGraphCacheNow();
+      },
       { deferStart: true },
     );
     return;
@@ -2174,10 +2176,10 @@ function handleAction(
       runtime,
       "refreshCitationGraphCacheIncrementalNow",
       {},
-      () =>
-        getDefaultSynthesisService().refreshCitationGraphCacheIncrementalNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.graph.refreshCitationGraphCacheIncrementalNow();
+      },
       { deferStart: true },
     );
     return;
@@ -2187,10 +2189,10 @@ function handleAction(
       runtime,
       "retryCitationGraphCacheRebuild",
       {},
-      () =>
-        getDefaultSynthesisService().retryCitationGraphCacheRebuild({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.graph.retryCitationGraphCacheRebuild();
+      },
       { deferStart: true },
     );
     return;
@@ -3172,7 +3174,6 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
   if (runtime.state.selectedTab !== "graph") {
     return;
   }
-  const service = getDefaultSynthesisService();
   const client = await getDefaultSynthesisClient();
   const input = toSynthesisUiSnapshotInput(
     await client.workbench.readSurface({
@@ -3188,7 +3189,7 @@ async function refreshGraphLayoutIfNeeded(runtime: SynthesisWorkbenchRuntime) {
     });
     return;
   }
-  await service.recomputeCitationGraphLayout({
+  await client.graph.recomputeCitationGraphLayout({
     algorithm: runtime.state.graph.layoutAlgorithm,
   });
   await sendSurface(runtime, "graph", {

@@ -105,6 +105,143 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes the four Citation Graph commands through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; args: unknown[] }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async recomputeCitationGraphLayout(request) {
+        calls.push({ operation: "layout", args: [request] });
+        return {
+          ok: true,
+          optional_field: undefined,
+          generated_at: new Date("2026-07-15T00:00:00.000Z"),
+        };
+      },
+      async rebuildCitationGraphCacheNow() {
+        calls.push({ operation: "rebuild", args: [] });
+        return { ok: true, status: "ready" };
+      },
+      async refreshCitationGraphCacheIncrementalNow() {
+        calls.push({ operation: "incremental", args: [] });
+        return { ok: true, status: "refreshed" };
+      },
+      async retryCitationGraphCacheRebuild() {
+        calls.push({ operation: "retry", args: [] });
+        return { ok: true, status: "retried" };
+      },
+    });
+
+    assert.deepEqual(
+      await client.graph.recomputeCitationGraphLayout({
+        algorithm: "radial",
+        force: true,
+      }),
+      {
+        ok: true,
+        generated_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(await client.graph.rebuildCitationGraphCacheNow(), {
+      ok: true,
+      status: "ready",
+    });
+    assert.deepEqual(
+      await client.graph.refreshCitationGraphCacheIncrementalNow(),
+      { ok: true, status: "refreshed" },
+    );
+    assert.deepEqual(await client.graph.retryCitationGraphCacheRebuild(), {
+      ok: true,
+      status: "retried",
+    });
+    assert.deepEqual(calls, [
+      {
+        operation: "layout",
+        args: [{ algorithm: "radial", force: true }],
+      },
+      { operation: "rebuild", args: [] },
+      { operation: "incremental", args: [] },
+      { operation: "retry", args: [] },
+    ]);
+  });
+
+  it("validates Citation Graph layout requests before invoking legacy code", async function () {
+    let invocations = 0;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async recomputeCitationGraphLayout() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests = [
+      undefined,
+      { algorithm: "grid" },
+      { algorithm: "force", force: "yes" },
+      { algorithm: "components", onProgress: () => undefined },
+    ];
+
+    for (const request of invalidRequests) {
+      try {
+        await client.graph.recomputeCitationGraphLayout(request as never);
+        assert.fail("expected the Graph layout request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Citation Graph command ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "retry conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async rebuildCitationGraphCacheNow() {
+        throw new Error("rebuild exploded");
+      },
+      async retryCitationGraphCacheRebuild() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () =>
+          client.graph.recomputeCitationGraphLayout({ algorithm: "force" }),
+        code: "unavailable",
+      },
+      {
+        run: () => client.graph.rebuildCitationGraphCacheNow(),
+        code: "internal",
+      },
+      {
+        run: () => client.graph.retryCitationGraphCacheRebuild(),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Graph command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({
