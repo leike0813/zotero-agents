@@ -1,5 +1,6 @@
 import { joinPath } from "../../utils/path";
 import {
+  rebuildSynthesisHostRepresentativeImageReadResult,
   rebuildSynthesisHostRelatedItemsEffectBatchResult,
   type SynthesisHostRelatedItemsEffect,
   type SynthesisHostRelatedItemsEffectPort,
@@ -8,6 +9,7 @@ import {
   type SynthesisHostArtifactReadResult,
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
+  type SynthesisHostRepresentativeImageReadPort,
   type SynthesisWorkflowTopicOption,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -75,7 +77,7 @@ import {
   readArtifactsFromRegistryInputs,
   type PaperArtifactReadResult,
 } from "./libraryAdapter";
-import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
+import { projectDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
 import {
   buildReferenceSidecarIndexRow,
   buildReferenceSidecarIndexRows,
@@ -549,6 +551,7 @@ export type SynthesisServiceOptions = {
   runtimeLogAppender?: SynthesisRuntimeLogAppender;
   mirrorAdapter?: SynthesisMirrorAdapter;
   hostReadPort?: SynthesisHostReadPort;
+  hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort;
   registryInputs?: ReferenceSidecarInput[];
   citationGraphPapers?: CitationGraphPaperInput[];
   gitSyncAdapter?: SynthesisGitSyncAdapter;
@@ -20016,7 +20019,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       : isObject(args.digestRef)
         ? (args.digestRef as Record<string, unknown>)
         : {};
-    const libraryId = cleanString(digestRef.library_id || digestRef.libraryId);
+    const digestLibraryId = cleanString(
+      digestRef.library_id || digestRef.libraryId,
+    );
     const itemKey = cleanString(digestRef.item_key || digestRef.itemKey);
     const paperRef =
       cleanString(
@@ -20024,7 +20029,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           args.paperRef ||
           digestRef.paper_ref ||
           digestRef.paperRef,
-      ) || (libraryId && itemKey ? `${libraryId}:${itemKey}` : "");
+      ) || (digestLibraryId && itemKey ? `${digestLibraryId}:${itemKey}` : "");
     const recordedHash = cleanString(
       digestRef.payload_hash || digestRef.payloadHash,
     );
@@ -20074,15 +20079,47 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const includeRepresentativeImage =
       args.include_representative_image === true ||
       args.includeRepresentativeImage === true;
-    const representativeImage = includeRepresentativeImage
-      ? await resolveDigestRepresentativeImageForUi({
-          libraryId:
-            libraryId ||
-            cleanString(artifact.paper_ref || paperRef).split(":")[0] ||
-            undefined,
-          noteKey: noteKey || artifact.note_key,
-        })
-      : undefined;
+    const representativeNoteKey = cleanString(noteKey || artifact.note_key);
+    const representativeLibraryId =
+      normalizeLibraryId(
+        digestLibraryId ||
+          cleanString(artifact.paper_ref || paperRef).split(":")[0],
+      ) || libraryId;
+    let representativeImage:
+      | ReturnType<typeof projectDigestRepresentativeImageForUi>
+      | undefined;
+    if (
+      includeRepresentativeImage &&
+      representativeNoteKey &&
+      options.hostRepresentativeImageReadPort
+    ) {
+      let hostResult: unknown;
+      let hostReadFailed = false;
+      try {
+        hostResult = await options.hostRepresentativeImageReadPort.read({
+          libraryId: representativeLibraryId,
+          noteKey: representativeNoteKey,
+        });
+      } catch {
+        hostReadFailed = true;
+        representativeImage = {
+          status: "unavailable",
+          diagnostics: ["representative_image_host_read_failed"],
+        };
+      }
+      if (!hostReadFailed) {
+        try {
+          representativeImage = projectDigestRepresentativeImageForUi(
+            rebuildSynthesisHostRepresentativeImageReadResult(hostResult),
+          );
+        } catch {
+          representativeImage = {
+            status: "unavailable",
+            diagnostics: ["representative_image_host_result_invalid"],
+          };
+        }
+      }
+    }
     return {
       ok: Boolean(markdown),
       status: markdown ? "available" : "unavailable",

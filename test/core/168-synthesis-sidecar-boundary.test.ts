@@ -104,6 +104,17 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesis/service.ts"),
       "utf8",
     );
+    const representativeImageHelper = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/digestRepresentativeImage.ts"),
+      "utf8",
+    );
+    const representativeImageAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/representativeImageReadAdapter.ts",
+      ),
+      "utf8",
+    );
     const legacyComposition = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisClient/legacyComposition.ts"),
       "utf8",
@@ -145,6 +156,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./libraryIndex"');
     assert.include(contractIndex, 'export * from "./workflowReview"');
     assert.include(contractIndex, 'export * from "./hostRead"');
+    assert.include(contractIndex, 'export * from "./representativeImageRead"');
     assert.include(contractIndex, 'export * from "./relatedItemsEffect"');
     assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
     assert.notInclude(
@@ -161,10 +173,37 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(legacyComposition, "hostReadPort");
     assert.include(
       legacyComposition,
+      "createZoteroSynthesisRepresentativeImageReadPort",
+    );
+    assert.include(legacyComposition, "hostRepresentativeImageReadPort");
+    assert.notInclude(readonlyComposition, "hostRepresentativeImageReadPort");
+    assert.include(
+      legacyComposition,
       "createZoteroSynthesisRelatedItemsEffectPort",
     );
     assert.include(legacyComposition, "hostRelatedItemsEffectPort");
     assert.notInclude(readonlyComposition, "hostRelatedItemsEffectPort");
+    assert.include(serviceSource, "hostRepresentativeImageReadPort");
+    assert.notInclude(
+      serviceSource,
+      "createZoteroSynthesisRepresentativeImageReadPort",
+    );
+    assert.notInclude(serviceSource, "resolveDigestRepresentativeImageForUi");
+    for (const forbidden of [
+      "runtimePersistence",
+      "readRuntimeBytes",
+      "globalThis",
+      "Zotero",
+      "getFilePathAsync",
+    ]) {
+      assert.notInclude(representativeImageHelper, forbidden);
+    }
+    assert.include(
+      representativeImageAdapter,
+      "rebuildSynthesisHostRepresentativeImageReadRequest",
+    );
+    assert.include(representativeImageAdapter, "readRuntimeBytes");
+    assert.include(representativeImageAdapter, "statRuntimePath");
     assert.notInclude(serviceSource, "type RelatedItemsSyncHost");
     assert.notInclude(serviceSource, "createDefaultRelatedItemsSyncHost");
     assert.notInclude(serviceSource, "zoteroItemByLibraryAndKey");

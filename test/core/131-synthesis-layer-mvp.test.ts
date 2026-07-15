@@ -4,7 +4,9 @@ import os from "os";
 import path from "path";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
+import type { SynthesisHostRepresentativeImageReadPort } from "../../packages/synthesis-contracts/src/index";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
+import { createZoteroSynthesisRepresentativeImageReadPort } from "../../src/modules/synthesis/representativeImageReadAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import {
   createInProcessSynthesisClient,
@@ -570,6 +572,8 @@ describe("Synthesis Layer MVP real-data closure", function () {
       hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
+      hostRepresentativeImageReadPort:
+        createZoteroSynthesisRepresentativeImageReadPort(),
     });
 
     const result: any = await service.resolveTopicPaperDigest({
@@ -589,6 +593,9 @@ describe("Synthesis Layer MVP real-data closure", function () {
     assert.equal(result.representative_image.caption, "Figure 2");
     assert.equal(result.representative_image.width, 320);
     assert.equal(result.representative_image.height, 180);
+    assert.equal(result.representative_image.compressed_bytes, 4);
+    assert.equal(result.representative_image.source_kind, "markdown_image_ref");
+    assert.equal(result.representative_image.strategy, "markdown_src_hint");
     assert.match(
       result.representative_image.data_url,
       /^data:image\/jpeg;base64,/,
@@ -602,5 +609,128 @@ describe("Synthesis Layer MVP real-data closure", function () {
       },
     });
     assert.notProperty(defaultResult, "representative_image");
+  });
+
+  it("keeps digest image Host enrichment optional and best-effort", async function () {
+    const imageRoot = await makeRoot();
+    const imagePath = path.join(imageRoot, "representative_image.jpg");
+    await fs.writeFile(imagePath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+    const paper = await createPaper({
+      title: "Best-effort Representative Image Paper",
+      date: "2026",
+    });
+    const { note } = await addDigestNoteWithRepresentativeImage(
+      paper,
+      "# Best-effort Digest",
+      imagePath,
+    );
+    const hostReadPort = createZoteroSynthesisHostReadPort({
+      libraryId: Zotero.Libraries.userLibraryID,
+    });
+    const request = {
+      paper_ref: `${paper.libraryID}:${paper.key}`,
+      digest_ref: {
+        note_key: note.key,
+        payload_type: "digest-markdown",
+      },
+      include_representative_image: true,
+    };
+    async function serviceFor(
+      hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort,
+    ) {
+      return createSynthesisService({
+        root: await makeRoot(),
+        libraryId: Zotero.Libraries.userLibraryID,
+        hostReadPort,
+        ...(hostRepresentativeImageReadPort
+          ? { hostRepresentativeImageReadPort }
+          : {}),
+      });
+    }
+
+    const withoutPort: any = await (
+      await serviceFor()
+    ).resolveTopicPaperDigest(request);
+    assert.equal(withoutPort.ok, true);
+    assert.notProperty(withoutPort, "representative_image");
+
+    let skippedReads = 0;
+    const skippedPort: SynthesisHostRepresentativeImageReadPort = {
+      async read() {
+        skippedReads += 1;
+        throw new Error("skipped port must not run");
+      },
+    };
+    const skippedService = await serviceFor(skippedPort);
+    const includeFalse: any = await skippedService.resolveTopicPaperDigest({
+      ...request,
+      include_representative_image: false,
+    });
+    const missingNoteKey: any = await skippedService.resolveTopicPaperDigest({
+      paper_ref: request.paper_ref,
+      digest_ref: { payload_type: "digest-markdown" },
+      include_representative_image: true,
+    });
+    assert.notProperty(includeFalse, "representative_image");
+    assert.notProperty(missingNoteKey, "representative_image");
+    assert.equal(skippedReads, 0);
+
+    const absent: any = await (
+      await serviceFor({
+        async read() {
+          return { status: "absent", diagnostics: [] };
+        },
+      })
+    ).resolveTopicPaperDigest(request);
+    assert.notProperty(absent, "representative_image");
+
+    const unavailable: any = await (
+      await serviceFor({
+        async read() {
+          return {
+            status: "unavailable",
+            diagnostics: ["representative_image_attachment_not_found"],
+          };
+        },
+      })
+    ).resolveTopicPaperDigest(request);
+    assert.deepEqual(unavailable.representative_image, {
+      status: "unavailable",
+      diagnostics: ["representative_image_attachment_not_found"],
+    });
+
+    const transportFailure: any = await (
+      await serviceFor({
+        async read() {
+          throw new Error("secret Host path");
+        },
+      })
+    ).resolveTopicPaperDigest(request);
+    assert.deepEqual(transportFailure.representative_image, {
+      status: "unavailable",
+      diagnostics: ["representative_image_host_read_failed"],
+    });
+    assert.notInclude(JSON.stringify(transportFailure), "secret Host path");
+
+    const malformed: any = await (
+      await serviceFor({
+        async read() {
+          return {
+            status: "available",
+            attachmentKey: "IMAGE001",
+            mimeType: "image/jpeg",
+            contentBase64: "not-base64",
+            alt: "Figure",
+            caption: "Figure",
+            compressedBytes: 1,
+            diagnostics: [],
+          } as any;
+        },
+      })
+    ).resolveTopicPaperDigest(request);
+    assert.deepEqual(malformed.representative_image, {
+      status: "unavailable",
+      diagnostics: ["representative_image_host_result_invalid"],
+    });
   });
 });
