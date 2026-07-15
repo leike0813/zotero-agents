@@ -97,6 +97,11 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.workbench\s*\.readSurface/);
     assert.match(workbench, /client\.workbench\s*\.readTopicDetail/);
     assert.match(workbench, /client\.workbench\s*\.readPaperDigest/);
+    assert.match(workbench, /client\.topics\s*\.getTopicReport/);
+    assert.notMatch(
+      workbench,
+      /getDefaultSynthesisService\(\)\.getTopicReport/,
+    );
     assert.notInclude(workbench, ".warmSynthesisWorkbenchSurfaces");
 
     const clientContract = fs.readFileSync(
@@ -107,6 +112,12 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/workbench.ts"),
       "utf8",
     );
+    const topicsContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/topics.ts"),
+      "utf8",
+    );
+    assert.include(topicsContract, "getTopicReport(");
+    assert.notInclude(workbenchContract, "getTopicReport(");
     assert.notMatch(
       `${clientContract}\n${workbenchContract}`,
       /prewarm|warmSynthesis|onPhase|fullSnapshot/,

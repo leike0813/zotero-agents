@@ -1864,7 +1864,8 @@ async function exportTopicSynthesisReport(
   if (!topicId) {
     throw new Error("exportTopicSynthesisReport requires topicId");
   }
-  const report = await getDefaultSynthesisService().getTopicReport({
+  const client = await getDefaultSynthesisClient();
+  const report = await client.topics.getTopicReport({
     topicId,
   });
   const markdown = cleanReportExportString(

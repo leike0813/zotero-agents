@@ -353,7 +353,7 @@ Child frame 收到 transient error 时不得清空当前 surface 内容；如果
 
 ### Topic Report 导出
 
-`exportTopicSynthesisReport(runtime, topicId)` 使用 Zotero FilePicker（`toolkit.FilePicker`）让用户选择保存路径，然后通过 `writeRuntimeTextFile()` 写入 Markdown 文件。
+`exportTopicSynthesisReport(runtime, topicId)` 通过现有 `SynthesisClient.topics.getTopicReport()` 读取报告，使用 Zotero FilePicker（`toolkit.FilePicker`）让用户选择保存路径，然后通过 `writeRuntimeTextFile()` 写入 Markdown 文件。
 
 文件名通过 `safeTopicReportExportFileName()` 规范化（替换非法字符，截断至 120 字符）。
 

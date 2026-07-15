@@ -1896,7 +1896,25 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, 'command === "purgeDeletedTopicArtifacts"');
     assert.include(source, "confirmWorkbenchAction");
     assert.include(source, "client.workbench.readTopicDetail");
-    assert.include(source, "getTopicReport");
+    const reportExportBlock = extractFunctionBlock(
+      source,
+      "exportTopicSynthesisReport",
+    );
+    assert.include(reportExportBlock, "getDefaultSynthesisClient");
+    assert.include(reportExportBlock, "client.topics.getTopicReport");
+    assert.notInclude(reportExportBlock, "getDefaultSynthesisService");
+    const topicGuardIndex = reportExportBlock.indexOf("if (!topicId)");
+    const clientIndex = reportExportBlock.indexOf("getDefaultSynthesisClient");
+    const markdownIndex = reportExportBlock.indexOf("cleanReportExportString");
+    const pickerIndex = reportExportBlock.indexOf("pickTopicReportExportPath");
+    const writeIndex = reportExportBlock.indexOf("writeRuntimeTextFile");
+    assert.isAtLeast(topicGuardIndex, 0);
+    assert.isAbove(clientIndex, topicGuardIndex);
+    assert.isAbove(markdownIndex, clientIndex);
+    assert.isAbove(pickerIndex, markdownIndex);
+    assert.isAbove(writeIndex, pickerIndex);
+    assert.include(reportExportBlock, "Synthesis report body is unavailable.");
+    assert.include(reportExportBlock, 'markdown.endsWith("\\n")');
     assert.include(source, "buildTopicDetailHtmlExport");
     assert.include(source, "ensureCachedTopicDetailHtmlExport");
     assert.include(source, "topicDetailHtmlExportSignature");
