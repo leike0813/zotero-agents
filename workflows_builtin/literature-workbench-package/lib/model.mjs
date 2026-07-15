@@ -23,18 +23,31 @@ export function normalizeParentBindings(value) {
   const seen = new Set();
   const normalized = [];
   for (const entry of Array.isArray(value) ? value : []) {
-    const numeric = Number(entry);
-    if (!Number.isFinite(numeric) || numeric <= 0) {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") {
       continue;
     }
-    const id = Math.trunc(numeric);
-    if (seen.has(id)) {
+    const libraryId = Number(entry.libraryId);
+    const itemKey = String(entry.itemKey || "").trim();
+    if (
+      !Number.isSafeInteger(libraryId) ||
+      libraryId <= 0 ||
+      !itemKey ||
+      !/^[A-Za-z0-9]+$/.test(itemKey)
+    ) {
       continue;
     }
-    seen.add(id);
-    normalized.push(id);
+    const key = `${libraryId}\n${itemKey}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push({ libraryId, itemKey });
   }
-  normalized.sort((left, right) => left - right);
+  normalized.sort(
+    (left, right) =>
+      left.libraryId - right.libraryId ||
+      left.itemKey.localeCompare(right.itemKey),
+  );
   return normalized;
 }
 

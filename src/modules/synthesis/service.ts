@@ -1,9 +1,19 @@
 import { joinPath } from "../../utils/path";
 import {
+  SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
+  SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
+  SynthesisClientError,
   rebuildSynthesisHostRepresentativeImageReadResult,
   rebuildSynthesisHostRelatedItemsEffectBatchResult,
+  rebuildSynthesisHostStagedTagBindingResolutionResult,
+  rebuildSynthesisHostTagEffectBatchRequest,
+  rebuildSynthesisHostTagEffectBatchResult,
+  type SynthesisHostItemRef,
   type SynthesisHostRelatedItemsEffect,
   type SynthesisHostRelatedItemsEffectPort,
+  type SynthesisHostStagedTagBindingMigrationPort,
+  type SynthesisHostTagEffect,
+  type SynthesisHostTagEffectPort,
   type SynthesisDeliveryContext,
   type SynthesisHostArtifactDescriptor,
   type SynthesisHostArtifactReadResult,
@@ -18,7 +28,6 @@ export type {
   SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
-import { handlers } from "../../handlers";
 import {
   ensureRuntimeDirectory,
   getRuntimePersistencePaths,
@@ -563,6 +572,8 @@ export type SynthesisServiceOptions = {
   onConfigurationChanged?: () => void;
   webDavSyncClient?: SynthesisWebDavHttpClient;
   hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort | null;
+  hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
+  hostTagEffectPort?: SynthesisHostTagEffectPort | null;
   synthesisRepository?: SynthesisRepository;
   shardSize?: number;
   writeLock?: LibraryWriteLock;
@@ -6923,6 +6934,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function reconcileSynthesisRuntimeWorkStateOnStartup() {
+    void ensureStagedTagBindingsMigrated().catch(() => undefined);
     return reconcileRestartOrphanedRuntimeWorkState();
   }
 
@@ -18194,19 +18206,148 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.validateTagVocabulary(args);
   }
 
+  const stagedTagMigrationOperationId = "staged-tag-binding-migration";
+  let stagedTagBindingMigration: Promise<void> | undefined;
+
+  function recordStagedTagMigration(args: {
+    status: "running" | "completed" | "failed";
+    affectedRows: number;
+    processedCount?: number;
+    droppedCount?: number;
+    diagnostics: Array<Record<string, unknown>>;
+  }) {
+    const timestamp = now();
+    synthesisRepository.upsertOperation({
+      operationId: stagedTagMigrationOperationId,
+      operationType: "staged_tag_binding_migration",
+      libraryId,
+      scopeKind: "library",
+      scopeRef: String(libraryId),
+      status: args.status,
+      label: "Migrate staged Tag parent bindings",
+      phase: args.status,
+      phaseLabel:
+        args.status === "completed"
+          ? "Completed"
+          : args.status === "failed"
+            ? "Failed"
+            : "Resolve legacy item IDs",
+      progressMode: "determinate",
+      processedCount: args.processedCount || 0,
+      skippedCount: args.droppedCount || 0,
+      failedCount: args.status === "failed" ? 1 : 0,
+      totalCount: args.affectedRows,
+      diagnosticsJson: JSON.stringify(args.diagnostics.slice(0, 20)),
+      createdAt: timestamp,
+      startedAt: timestamp,
+      ...(args.status === "completed" ? { completedAt: timestamp } : {}),
+      updatedAt: timestamp,
+    });
+  }
+
+  async function runStagedTagBindingMigration() {
+    const inspection = tagVocabulary.inspectLegacyStagedParentBindings();
+    if (!inspection.affectedRows) {
+      return;
+    }
+    recordStagedTagMigration({
+      status: "running",
+      affectedRows: inspection.affectedRows,
+      diagnostics: [],
+    });
+    const resolved: Array<{ itemId: number; ref: SynthesisHostItemRef }> = [];
+    try {
+      if (inspection.itemIds.length) {
+        const port = options.hostStagedTagBindingMigrationPort;
+        if (!port) {
+          throw new SynthesisClientError(
+            "unavailable",
+            "Staged Tag binding migration Host is unavailable",
+          );
+        }
+        for (
+          let offset = 0;
+          offset < inspection.itemIds.length;
+          offset += SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX
+        ) {
+          const request = {
+            libraryId,
+            itemIds: inspection.itemIds.slice(
+              offset,
+              offset + SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
+            ),
+          };
+          const result = rebuildSynthesisHostStagedTagBindingResolutionResult(
+            await port.resolve(request),
+            request,
+          );
+          resolved.push(...result.resolved);
+        }
+      }
+      const migrated = tagVocabulary.migrateLegacyStagedParentBindings({
+        resolved,
+      });
+      const diagnostics: Array<Record<string, unknown>> = [];
+      if (migrated.droppedBindings) {
+        diagnostics.push({
+          code: "staged_tag_binding_migration_dropped",
+          severity: "warning",
+          dropped_count: migrated.droppedBindings,
+        });
+      }
+      recordStagedTagMigration({
+        status: "completed",
+        affectedRows: inspection.affectedRows,
+        processedCount: migrated.migratedRows,
+        droppedCount: migrated.droppedBindings,
+        diagnostics,
+      });
+    } catch {
+      recordStagedTagMigration({
+        status: "failed",
+        affectedRows: inspection.affectedRows,
+        diagnostics: [
+          {
+            code: "staged_tag_binding_migration_unavailable",
+            severity: "error",
+          },
+        ],
+      });
+      throw new SynthesisClientError(
+        "unavailable",
+        "Staged Tag parent bindings are awaiting Host migration",
+      );
+    }
+  }
+
+  async function ensureStagedTagBindingsMigrated() {
+    if (!stagedTagBindingMigration) {
+      stagedTagBindingMigration = runStagedTagBindingMigration().catch(
+        (error) => {
+          stagedTagBindingMigration = undefined;
+          throw error;
+        },
+      );
+    }
+    await stagedTagBindingMigration;
+  }
+
   async function listStagedTagSuggestions() {
+    await ensureStagedTagBindingsMigrated();
     return tagVocabulary.listStagedTagSuggestions();
   }
 
   async function stageTagSuggestions(
     args: Parameters<typeof tagVocabulary.stageTagSuggestions>[0],
   ) {
+    await ensureStagedTagBindingsMigrated();
     return tagVocabulary.stageTagSuggestions(args);
   }
 
   async function updateStagedTagSuggestion(
     args: Parameters<typeof tagVocabulary.updateStagedTagSuggestion>[0],
   ) {
+    await ensureStagedTagBindingsMigrated();
     return tagVocabulary.updateStagedTagSuggestion(args);
   }
 
@@ -18231,6 +18372,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function promoteStagedTagSuggestions(
     args: Parameters<typeof tagVocabulary.promoteStagedTagSuggestions>[0],
   ) {
+    await ensureStagedTagBindingsMigrated();
     const requestedTags = Array.isArray(args?.tags)
       ? args.tags.map((tag) => cleanString(tag)).filter(Boolean)
       : [];
@@ -18242,33 +18384,89 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       tagVocabulary.promoteStagedTagSuggestions(args),
     );
     const diagnostics: Array<Record<string, unknown>> = [];
-    const appliedParentTags: Array<{ tag: string; parent_item_id: number }> =
-      [];
+    const appliedParentTags: Array<{
+      tag: string;
+      parent_ref: SynthesisHostItemRef;
+    }> = [];
+    const effects: SynthesisHostTagEffect[] = [];
+    const effectContext = new Map<
+      string,
+      { tag: string; parentRef: SynthesisHostItemRef }
+    >();
     for (const tag of result.promoted || []) {
       const staged = stagedByTag.get(tag.toLowerCase());
       const parentBindings = Array.isArray(staged?.parent_bindings)
         ? staged!.parent_bindings
         : [];
-      for (const parentItemId of parentBindings) {
-        const item = Zotero.Items.get(parentItemId);
-        if (!item) {
-          diagnostics.push({
-            code: "staged_tag_parent_missing",
-            tag,
-            parent_item_id: parentItemId,
-          });
-          continue;
-        }
+      for (const parentRef of parentBindings) {
+        const effectId = `staged-tag:${hashCanonicalJson({ tag, parentRef }).slice("sha256:".length)}`;
+        effects.push({
+          effectId,
+          action: "ensure_present",
+          target: parentRef,
+          tag,
+          provenance: { kind: "staged_tag_promotion" },
+          precondition: { target: "exists" },
+          permission: {
+            scope: "synthesis.tags",
+            reason: "promote_staged_tag",
+          },
+        });
+        effectContext.set(effectId, { tag, parentRef });
+      }
+    }
+    if (effects.length && !options.hostTagEffectPort) {
+      diagnostics.push({
+        code: "staged_tag_host_effect_unavailable",
+        severity: "error",
+      });
+    }
+    if (options.hostTagEffectPort) {
+      for (
+        let offset = 0;
+        offset < effects.length;
+        offset += SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX
+      ) {
+        const request = rebuildSynthesisHostTagEffectBatchRequest({
+          effects: effects.slice(
+            offset,
+            offset + SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
+          ),
+        });
         try {
-          await handlers.tag.add(item, [tag]);
-          appliedParentTags.push({ tag, parent_item_id: parentItemId });
-        } catch (error) {
-          diagnostics.push({
-            code: "staged_tag_parent_apply_failed",
-            tag,
-            parent_item_id: parentItemId,
-            message: compactError(error),
-          });
+          const batch = rebuildSynthesisHostTagEffectBatchResult(
+            await options.hostTagEffectPort.applyBatch(request),
+            request,
+          );
+          for (const receipt of batch.receipts) {
+            const context = effectContext.get(receipt.effectId)!;
+            if (
+              receipt.status === "applied" ||
+              receipt.status === "already_satisfied"
+            ) {
+              appliedParentTags.push({
+                tag: context.tag,
+                parent_ref: context.parentRef,
+              });
+            } else if (diagnostics.length < 20) {
+              diagnostics.push({
+                code:
+                  receipt.status === "not_found"
+                    ? "staged_tag_parent_missing"
+                    : "staged_tag_parent_apply_failed",
+                severity: "error",
+                tag: context.tag,
+                parent_ref: context.parentRef,
+              });
+            }
+          }
+        } catch {
+          if (diagnostics.length < 20) {
+            diagnostics.push({
+              code: "staged_tag_host_effect_unavailable",
+              severity: "error",
+            });
+          }
         }
       }
     }
@@ -18276,17 +18474,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ...result,
       requested: requestedTags,
       applied_parent_tags: appliedParentTags,
-      diagnostics,
+      diagnostics: diagnostics.slice(0, 20),
     };
   }
 
   async function discardStagedTagSuggestions(
     args: Parameters<typeof tagVocabulary.discardStagedTagSuggestions>[0],
   ) {
+    await ensureStagedTagBindingsMigrated();
     return tagVocabulary.discardStagedTagSuggestions(args);
   }
 
   async function clearStagedTagSuggestions() {
+    await ensureStagedTagBindingsMigrated();
     return tagVocabulary.clearStagedTagSuggestions();
   }
 

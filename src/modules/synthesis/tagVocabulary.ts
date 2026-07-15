@@ -20,9 +20,15 @@ import {
   type SynthesisTagVocabularyEntryRecord,
 } from "./repository";
 import type {
+  SynthesisHostItemRef,
   SynthesisStagedTagUpdateRequest,
   SynthesisTagVocabularyEntryDeleteRequest,
   SynthesisTagVocabularyEntryUpdateRequest,
+} from "../../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisHostItemRef,
+  rebuildSynthesisHostItemRefs,
+  synthesisHostItemRefKey,
 } from "../../../packages/synthesis-contracts/src/index";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
@@ -169,7 +175,7 @@ export type SynthesisTagStagedSuggestion = {
   facet: string;
   note?: string;
   source_flow?: string;
-  parent_bindings?: number[];
+  parent_bindings?: SynthesisHostItemRef[];
   created_at?: string;
   updated_at?: string;
 };
@@ -817,13 +823,7 @@ function tagWarningFromRecord(
 }
 
 function normalizeParentBindings(values: unknown) {
-  return Array.from(
-    new Set(
-      (Array.isArray(values) ? values : [])
-        .map((entry) => Math.trunc(Number(entry)))
-        .filter((entry) => Number.isFinite(entry) && entry > 0),
-    ),
-  ).sort((left, right) => left - right);
+  return rebuildSynthesisHostItemRefs(values, "parentBindings");
 }
 
 function parentBindingsJson(values: unknown) {
@@ -832,6 +832,41 @@ function parentBindingsJson(values: unknown) {
 
 function parentBindingsFromJson(value: unknown) {
   return normalizeParentBindings(parseJsonArrayText(value));
+}
+
+function inspectStoredParentBindings(value: unknown) {
+  let entries: unknown[] = [];
+  let invalidCount = 0;
+  try {
+    const parsed = JSON.parse(cleanString(value) || "[]");
+    if (Array.isArray(parsed)) {
+      entries = parsed;
+    } else {
+      invalidCount += 1;
+    }
+  } catch {
+    invalidCount += 1;
+  }
+  const stable: SynthesisHostItemRef[] = [];
+  const legacyItemIds: number[] = [];
+  for (const entry of entries) {
+    if (Number.isSafeInteger(entry) && Number(entry) > 0) {
+      legacyItemIds.push(Number(entry));
+      continue;
+    }
+    try {
+      stable.push(rebuildSynthesisHostItemRef(entry, "storedParentBinding"));
+    } catch {
+      invalidCount += 1;
+    }
+  }
+  return {
+    stable: rebuildSynthesisHostItemRefs(stable, "storedParentBindings"),
+    legacyItemIds: Array.from(new Set(legacyItemIds)).sort(
+      (left, right) => left - right,
+    ),
+    invalidCount,
+  };
 }
 
 function stagedSuggestionToRecord(
@@ -1146,13 +1181,75 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       .map(stagedSuggestionFromRecord);
   }
 
+  function inspectLegacyStagedParentBindings() {
+    repository.initialize();
+    const records = repository.listTagStagedSuggestions();
+    const itemIds = new Set<number>();
+    let invalidCount = 0;
+    let affectedRows = 0;
+    for (const record of records) {
+      const inspected = inspectStoredParentBindings(record.parentBindingsJson);
+      if (inspected.legacyItemIds.length || inspected.invalidCount) {
+        affectedRows += 1;
+      }
+      inspected.legacyItemIds.forEach((itemId) => itemIds.add(itemId));
+      invalidCount += inspected.invalidCount;
+    }
+    return {
+      affectedRows,
+      itemIds: Array.from(itemIds).sort((left, right) => left - right),
+      invalidCount,
+    };
+  }
+
+  function migrateLegacyStagedParentBindings(args: {
+    resolved: Array<{ itemId: number; ref: SynthesisHostItemRef }>;
+  }) {
+    repository.initialize();
+    const resolved = new Map(
+      args.resolved.map((entry) => [entry.itemId, entry.ref]),
+    );
+    return repository.transaction(() => {
+      let migratedRows = 0;
+      let resolvedBindings = 0;
+      let droppedBindings = 0;
+      for (const record of repository.listTagStagedSuggestions()) {
+        const inspected = inspectStoredParentBindings(
+          record.parentBindingsJson,
+        );
+        if (!inspected.legacyItemIds.length && !inspected.invalidCount) {
+          continue;
+        }
+        const refs = new Map(
+          inspected.stable.map((ref) => [synthesisHostItemRefKey(ref), ref]),
+        );
+        for (const itemId of inspected.legacyItemIds) {
+          const ref = resolved.get(itemId);
+          if (ref) {
+            refs.set(synthesisHostItemRefKey(ref), ref);
+            resolvedBindings += 1;
+          } else {
+            droppedBindings += 1;
+          }
+        }
+        droppedBindings += inspected.invalidCount;
+        repository.upsertTagStagedSuggestion({
+          ...record,
+          parentBindingsJson: parentBindingsJson(Array.from(refs.values())),
+        });
+        migratedRows += 1;
+      }
+      return { migratedRows, resolvedBindings, droppedBindings };
+    });
+  }
+
   async function stageTagSuggestions(args: {
     entries: Array<{
       tag: string;
       facet?: string;
       note?: string;
       source_flow?: string;
-      parent_bindings?: number[];
+      parent_bindings?: SynthesisHostItemRef[];
     }>;
   }) {
     await initializeIfMissing();
@@ -1548,6 +1645,8 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     exportTagVocabularyCheckpoint,
     validateTagVocabulary,
     listStagedTagSuggestions,
+    inspectLegacyStagedParentBindings,
+    migrateLegacyStagedParentBindings,
     stageTagSuggestions,
     updateStagedTagSuggestion,
     updateTagVocabularyEntry,

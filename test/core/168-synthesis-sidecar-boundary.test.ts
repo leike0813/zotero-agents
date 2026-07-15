@@ -115,6 +115,17 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const tagEffectAdapter = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
+      "utf8",
+    );
+    const tagRegulatorApply = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "workflows_builtin/literature-workbench-package/tag-regulator/hooks/applyResult.mjs",
+      ),
+      "utf8",
+    );
     const legacyComposition = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisClient/legacyComposition.ts"),
       "utf8",
@@ -158,6 +169,8 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./hostRead"');
     assert.include(contractIndex, 'export * from "./representativeImageRead"');
     assert.include(contractIndex, 'export * from "./relatedItemsEffect"');
+    assert.include(contractIndex, 'export * from "./itemRef"');
+    assert.include(contractIndex, 'export * from "./tagEffect"');
     assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
     assert.notInclude(
       serviceSource,
@@ -183,6 +196,27 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "hostRelatedItemsEffectPort");
     assert.notInclude(readonlyComposition, "hostRelatedItemsEffectPort");
+    assert.include(
+      legacyComposition,
+      "createZoteroSynthesisStagedTagBindingMigrationPort",
+    );
+    assert.include(legacyComposition, "hostStagedTagBindingMigrationPort");
+    assert.include(legacyComposition, "createZoteroSynthesisTagEffectPort");
+    assert.include(legacyComposition, "hostTagEffectPort");
+    assert.notInclude(readonlyComposition, "hostStagedTagBindingMigrationPort");
+    assert.notInclude(readonlyComposition, "hostTagEffectPort");
+    assert.include(
+      tagEffectAdapter,
+      "rebuildSynthesisHostTagEffectBatchRequest",
+    );
+    assert.notInclude(
+      serviceSource,
+      'import { handlers } from "../../handlers"',
+    );
+    assert.notInclude(serviceSource, "Zotero.Items.get(parentItemId)");
+    assert.notInclude(tagRegulatorApply, "appendTagToBoundParentItem");
+    assert.notInclude(tagRegulatorApply, "appendTagsToBoundParents");
+    assert.notInclude(tagRegulatorApply, "currentParentItemId");
     assert.include(serviceSource, "hostRepresentativeImageReadPort");
     assert.notInclude(
       serviceSource,

@@ -307,7 +307,7 @@ describe("workflow: tag-bootstrapper", function () {
           facet: "ai_task",
           note: "staged detection task",
           source_flow: "tag-regulator-suggest",
-          parent_bindings: [42],
+          parent_bindings: [{ libraryId: 1, itemKey: "ITEM0042" }],
         },
       ],
     });
@@ -346,7 +346,9 @@ describe("workflow: tag-bootstrapper", function () {
       staged.map((entry) => entry.tag),
       ["ai_task:detection"],
     );
-    assert.deepEqual(staged[0]?.parent_bindings, [42]);
+    assert.deepEqual(staged[0]?.parent_bindings, [
+      { libraryId: 1, itemKey: "ITEM0042" },
+    ]);
     assert.deepEqual(result.added, ["method:survey"]);
     assert.deepEqual(result.skipped_existing, ["field:cs/ai"]);
     assert.deepEqual(result.skipped_staged, ["ai_task:detection"]);

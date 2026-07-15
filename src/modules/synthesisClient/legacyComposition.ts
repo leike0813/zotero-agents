@@ -4,6 +4,10 @@ import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../synthesis/representativeImageReadAdapter";
 import { createZoteroSynthesisRelatedItemsEffectPort } from "../synthesis/relatedItemsEffectAdapter";
 import {
+  createZoteroSynthesisStagedTagBindingMigrationPort,
+  createZoteroSynthesisTagEffectPort,
+} from "../synthesis/tagEffectAdapter";
+import {
   createInProcessSynthesisClient,
   type LegacySynthesisPort,
 } from "./inProcessClient";
@@ -37,6 +41,9 @@ function createDefaultLegacyService(
     hostRepresentativeImageReadPort:
       createZoteroSynthesisRepresentativeImageReadPort(),
     hostRelatedItemsEffectPort: createZoteroSynthesisRelatedItemsEffectPort(),
+    hostStagedTagBindingMigrationPort:
+      createZoteroSynthesisStagedTagBindingMigrationPort(),
+    hostTagEffectPort: createZoteroSynthesisTagEffectPort(),
     onConfigurationChanged: invalidateDefaultLegacySynthesisService,
   });
   return defaultLegacyService;

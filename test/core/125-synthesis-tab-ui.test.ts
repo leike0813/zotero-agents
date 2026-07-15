@@ -1087,7 +1087,11 @@ describe("Synthesis tab UI model", function () {
               facet: "topic",
               note: "candidate note",
               source_flow: "tag-regulator-suggest",
-              parent_bindings: [22, 11, 22],
+              parent_bindings: [
+                { libraryId: 1, itemKey: "ITEM0022" },
+                { libraryId: 1, itemKey: "ITEM0011" },
+                { libraryId: 1, itemKey: "ITEM0022" },
+              ],
               updated_at: "2026-06-05T00:00:00.000Z",
             },
             {
@@ -1150,10 +1154,10 @@ describe("Synthesis tab UI model", function () {
       snapshot.tags.visibleStagedRows.map((row) => row.tag),
       ["topic:candidate"],
     );
-    assert.deepEqual(
-      snapshot.tags.visibleStagedRows[0]?.parent_bindings,
-      [11, 22],
-    );
+    assert.deepEqual(snapshot.tags.visibleStagedRows[0]?.parent_bindings, [
+      { libraryId: 1, itemKey: "ITEM0011" },
+      { libraryId: 1, itemKey: "ITEM0022" },
+    ]);
     assert.equal(snapshot.tags.visibleStagedRows[0]?.parent_count, 2);
     assert.isTrue(snapshot.tags.projection.stale);
     assert.equal(snapshot.tags.importDraft, '{"entries":[]}');

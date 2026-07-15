@@ -1,4 +1,8 @@
-import type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
+import {
+  rebuildSynthesisHostItemRefs,
+  type SynthesisHostItemRef,
+  type SynthesisWorkbenchSurfaceName,
+} from "../../../packages/synthesis-contracts/src/index";
 
 export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
 
@@ -308,7 +312,7 @@ export type SynthesisUiStagedTagRow = {
   facet: string;
   note?: string;
   source_flow?: string;
-  parent_bindings: number[];
+  parent_bindings: SynthesisHostItemRef[];
   parent_count: number;
   created_at?: string;
   updated_at?: string;
@@ -2516,17 +2520,12 @@ function normalizeTagRows(
     );
 }
 
-function normalizeNumberList(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as number[];
+function normalizeStableItemRefs(value: unknown) {
+  try {
+    return rebuildSynthesisHostItemRefs(value, "staged.parent_bindings");
+  } catch {
+    return [];
   }
-  return Array.from(
-    new Set(
-      value
-        .map((entry) => Math.trunc(Number(entry)))
-        .filter((entry) => Number.isFinite(entry) && entry > 0),
-    ),
-  ).sort((left, right) => left - right);
 }
 
 function normalizeStagedTagRows(
@@ -2536,7 +2535,7 @@ function normalizeStagedTagRows(
     .map((row) => {
       const tag = cleanString(row.tag);
       const facet = cleanString(row.facet) || tag.split(":")[0] || "unknown";
-      const parentBindings = normalizeNumberList(row.parent_bindings);
+      const parentBindings = normalizeStableItemRefs(row.parent_bindings);
       return {
         tag,
         facet,

@@ -50,7 +50,7 @@ type PersistedTagEntry = {
   source: string;
   note: string;
   deprecated: boolean;
-  parentBindings?: number[];
+  parentBindings?: Array<{ libraryId: number; itemKey: string }>;
   publishState?: string;
 };
 
@@ -258,11 +258,32 @@ const WORKBENCH_EMBEDDED_PAYLOAD_MARKER = "ZS_WORKBENCH_NOTE_PAYLOAD_V1:";
 let synthesisVocabularyEntries: PersistedTagEntry[] = [];
 let synthesisStagedEntries: PersistedTagEntry[] = [];
 
+function stableParentRef(item: { libraryID?: number; key?: string }) {
+  return { libraryId: Number(item.libraryID), itemKey: String(item.key || "") };
+}
+
+function normalizeTestParentBindings(value: unknown) {
+  const byKey = new Map<string, { libraryId: number; itemKey: string }>();
+  for (const entry of Array.isArray(value) ? value : []) {
+    const libraryId = Number((entry as any)?.libraryId);
+    const itemKey = String((entry as any)?.itemKey || "").trim();
+    if (!Number.isSafeInteger(libraryId) || libraryId <= 0 || !itemKey) {
+      continue;
+    }
+    byKey.set(`${libraryId}\n${itemKey}`, { libraryId, itemKey });
+  }
+  return Array.from(byKey.values()).sort(
+    (left, right) =>
+      left.libraryId - right.libraryId ||
+      left.itemKey.localeCompare(right.itemKey),
+  );
+}
+
 function clonePersistedTagEntry(entry: PersistedTagEntry): PersistedTagEntry {
   return {
     ...entry,
     parentBindings: Array.isArray(entry.parentBindings)
-      ? [...entry.parentBindings]
+      ? entry.parentBindings.map((binding) => ({ ...binding }))
       : undefined,
   };
 }
@@ -282,9 +303,7 @@ function normalizePersistedTagEntry(entry: Partial<PersistedTagEntry>) {
     source: String(entry.source || "manual").trim() || "manual",
     note: String(entry.note || "").trim(),
     deprecated: Boolean(entry.deprecated),
-    parentBindings: Array.isArray(entry.parentBindings)
-      ? [...entry.parentBindings]
-      : undefined,
+    parentBindings: normalizeTestParentBindings(entry.parentBindings),
     publishState: String(entry.publishState || "").trim(),
   };
 }
@@ -339,7 +358,7 @@ function installSynthesisTagVocabularyHostApiGlobals() {
             note: entry.note,
             source_flow: entry.source || "tag-regulator-suggest",
             parent_bindings: Array.isArray(entry.parentBindings)
-              ? [...entry.parentBindings]
+              ? entry.parentBindings.map((binding) => ({ ...binding }))
               : [],
           }));
         },
@@ -367,12 +386,10 @@ function installSynthesisTagVocabularyHostApiGlobals() {
               synthesisStagedEntries[existingIndex] = {
                 ...existing,
                 ...normalized,
-                parentBindings: Array.from(
-                  new Set([
-                    ...(existing.parentBindings || []),
-                    ...(normalized.parentBindings || []),
-                  ]),
-                ).sort((left, right) => left - right),
+                parentBindings: normalizeTestParentBindings([
+                  ...(existing.parentBindings || []),
+                  ...(normalized.parentBindings || []),
+                ]),
               };
             } else if (normalized.tag) {
               synthesisStagedEntries.push(normalized);
@@ -380,6 +397,55 @@ function installSynthesisTagVocabularyHostApiGlobals() {
           }
           return {
             entries: synthesisStagedEntries.map(clonePersistedTagEntry),
+          };
+        },
+        async promoteStagedTagSuggestions(args?: { tags?: string[] }) {
+          const requested = new Set(
+            (Array.isArray(args?.tags) ? args!.tags : []).map((tag) =>
+              String(tag || "")
+                .trim()
+                .toLowerCase(),
+            ),
+          );
+          const promoted: string[] = [];
+          const appliedParentTags: Array<{
+            tag: string;
+            parent_ref: { libraryId: number; itemKey: string };
+          }> = [];
+          for (const staged of synthesisStagedEntries) {
+            if (!requested.has(staged.tag.toLowerCase())) continue;
+            if (
+              !synthesisVocabularyEntries.some(
+                (entry) => entry.tag.toLowerCase() === staged.tag.toLowerCase(),
+              )
+            ) {
+              synthesisVocabularyEntries.push({
+                ...staged,
+                parentBindings: undefined,
+              });
+              promoted.push(staged.tag);
+            }
+            for (const parentRef of staged.parentBindings || []) {
+              const item = await Zotero.Items.getByLibraryAndKey(
+                parentRef.libraryId,
+                parentRef.itemKey,
+              );
+              if (!item) continue;
+              await handlers.tag.add(item, [staged.tag]);
+              appliedParentTags.push({
+                tag: staged.tag,
+                parent_ref: { ...parentRef },
+              });
+            }
+          }
+          synthesisStagedEntries = synthesisStagedEntries.filter(
+            (entry) => !promoted.includes(entry.tag),
+          );
+          return {
+            promoted,
+            skipped: [],
+            applied_parent_tags: appliedParentTags,
+            diagnostics: [],
           };
         },
         async discardStagedTagSuggestions(args?: { tags?: string[] }) {
@@ -1519,6 +1585,8 @@ function registerTagRegulatorApplyIntakeSegment(
         ]);
         assert.deepEqual((applied.added || []).sort(), [
           "topic:existing",
+          "topic:new-alpha",
+          "topic:new-beta",
           "topic:tunnel",
         ]);
       } finally {
@@ -1544,13 +1612,13 @@ function registerTagRegulatorApplyIntakeSegment(
         (entry) => entry.tag === "topic:new-alpha",
       );
       assert.isOk(newEntry, "expected selected suggest tag to be persisted");
-      assert.equal(newEntry?.source, "agent-suggest");
+      assert.equal(newEntry?.source, "tag-regulator-suggest");
       assert.equal(newEntry?.note, "alpha note");
       const newBetaEntry = afterEntries.find(
         (entry) => entry.tag === "topic:new-beta",
       );
       assert.isOk(newBetaEntry, "expected join-all to persist topic:new-beta");
-      assert.equal(newBetaEntry?.source, "agent-suggest");
+      assert.equal(newBetaEntry?.source, "tag-regulator-suggest");
       assert.deepEqual(listTags(parent), [
         "topic:existing",
         "topic:new-alpha",
@@ -1570,7 +1638,7 @@ function registerTagRegulatorApplyIntakeSegment(
           source: "tag-regulator-suggest",
           note: "staged note",
           deprecated: false,
-          parentBindings: [999],
+          parentBindings: [{ libraryId: 1, itemKey: "LEGACY99" }],
         },
       ]);
       const openCalls: SuggestTagsDialogOpenArgs[] = [];
@@ -1662,7 +1730,10 @@ function registerTagRegulatorApplyIntakeSegment(
         (entry) => entry.tag === "topic:already-staged",
       );
       assert.isOk(alreadyStaged);
-      assert.deepEqual(alreadyStaged?.parentBindings || [], [parent.id, 999]);
+      assert.deepEqual(alreadyStaged?.parentBindings || [], [
+        stableParentRef(parent),
+        { libraryId: 1, itemKey: "LEGACY99" },
+      ]);
     },
   );
 
@@ -1734,7 +1805,9 @@ function registerTagRegulatorApplyIntakeSegment(
           (entry) => entry.tag === "topic:stage-now",
         );
         assert.isOk(staged);
-        assert.deepEqual(staged?.parentBindings || [], [parent.id]);
+        assert.deepEqual(staged?.parentBindings || [], [
+          stableParentRef(parent),
+        ]);
       } finally {
         restoreOpen();
       }
@@ -1833,7 +1906,7 @@ function registerTagRegulatorApplyIntakeSegment(
           facet: "topic",
           note: "stage note",
           source_flow: "tag-regulator-suggest",
-          parent_bindings: [parent.id],
+          parent_bindings: [stableParentRef(parent)],
         });
       } finally {
         restoreOpen();

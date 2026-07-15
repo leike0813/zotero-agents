@@ -1,42 +1,16 @@
 import {
-  SynthesisClientError,
   rebuildSynthesisHostRelatedItemsEffectBatchRequest,
-  type SynthesisHostRelatedItemRef,
   type SynthesisHostRelatedItemsEffect,
   type SynthesisHostRelatedItemsEffectPort,
   type SynthesisHostRelatedItemsEffectReceipt,
 } from "../../../packages/synthesis-contracts/src/index";
+import {
+  findZoteroItemByRef,
+  requireZoteroItems,
+} from "./zoteroItemRefAdapter";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
-}
-
-function zoteroRuntime() {
-  const zotero = (globalThis as { Zotero?: any }).Zotero;
-  if (!zotero?.Items) {
-    throw new SynthesisClientError(
-      "unavailable",
-      "Zotero Related Items Host is unavailable",
-    );
-  }
-  return zotero;
-}
-
-async function itemByRef(zotero: any, ref: SynthesisHostRelatedItemRef) {
-  const direct = await zotero.Items?.getByLibraryAndKey?.(
-    ref.libraryId,
-    ref.itemKey,
-  );
-  if (direct) return direct;
-  const rows = await zotero.Items?.getAll?.(ref.libraryId);
-  if (!Array.isArray(rows)) return null;
-  return (
-    rows.find(
-      (item: any) =>
-        cleanString(item?.key) === ref.itemKey &&
-        Number(item?.libraryID) === ref.libraryId,
-    ) || null
-  );
 }
 
 function hasRelatedItem(source: any, target: any) {
@@ -77,8 +51,8 @@ async function applyEffect(
   now: () => string,
 ): Promise<SynthesisHostRelatedItemsEffectReceipt> {
   try {
-    const source = await itemByRef(zotero, effect.source);
-    const target = await itemByRef(zotero, effect.target);
+    const source = await findZoteroItemByRef(zotero, effect.source);
+    const target = await findZoteroItemByRef(zotero, effect.target);
     if (!source || !target) {
       return {
         effectId: effect.effectId,
@@ -142,7 +116,7 @@ export function createZoteroSynthesisRelatedItemsEffectPort(
     async applyBatch(request) {
       const canonical =
         rebuildSynthesisHostRelatedItemsEffectBatchRequest(request);
-      const zotero = zoteroRuntime();
+      const zotero = requireZoteroItems("Zotero Related Items");
       const receipts: SynthesisHostRelatedItemsEffectReceipt[] = [];
       for (const effect of canonical.effects) {
         receipts.push(await applyEffect(zotero, effect, now));

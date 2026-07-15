@@ -9,6 +9,7 @@ import {
   SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
+  rebuildSynthesisHostItemRefs,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
@@ -592,20 +593,10 @@ function normalizeStagedTagUpdateRequest(
       { field: "parentBindings" },
     );
   }
-  const parentBindings = request.parentBindings.map((binding, index) => {
-    if (
-      typeof binding !== "number" ||
-      !Number.isInteger(binding) ||
-      binding <= 0
-    ) {
-      throw new SynthesisClientError(
-        "invalid_request",
-        "Synthesis staged Tag update parent binding must be a positive integer",
-        { field: `parentBindings[${index}]` },
-      );
-    }
-    return binding;
-  });
+  const parentBindings = rebuildSynthesisHostItemRefs(
+    request.parentBindings,
+    "parentBindings",
+  );
   return {
     originalTag: normalizeRequiredString(
       request.originalTag,
@@ -628,9 +619,7 @@ function normalizeStagedTagUpdateRequest(
       "sourceFlow",
       "Synthesis staged Tag update sourceFlow",
     ),
-    parentBindings: Array.from(new Set(parentBindings)).sort(
-      (left, right) => left - right,
-    ),
+    parentBindings,
   };
 }
 

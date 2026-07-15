@@ -3,17 +3,16 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common";
+import {
+  rebuildSynthesisHostItemRef,
+  type SynthesisHostItemRef,
+} from "./itemRef";
 
 export const SYNTHESIS_HOST_RELATED_ITEMS_EFFECT_BATCH_MAX = 50 as const;
 export const SYNTHESIS_HOST_RELATED_ITEMS_EFFECT_DIAGNOSTICS_MAX = 20 as const;
 
 const SYNTHESIS_HOST_RELATED_ITEMS_EFFECT_ID_MAX = 256;
-const SYNTHESIS_HOST_RELATED_ITEMS_ITEM_KEY_MAX = 128;
-
-export type SynthesisHostRelatedItemRef = {
-  libraryId: number;
-  itemKey: string;
-};
+export type SynthesisHostRelatedItemRef = SynthesisHostItemRef;
 
 export type SynthesisHostRelatedItemsEffectAction =
   | "ensure_present"
@@ -68,21 +67,7 @@ function rebuildItemRef(
   value: unknown,
   location: string,
 ): SynthesisHostRelatedItemRef {
-  if (!value || Array.isArray(value) || typeof value !== "object") {
-    invalidRequest(`${location} must be an object`);
-  }
-  const record = value as Record<string, unknown>;
-  const libraryId = Number(record.libraryId);
-  const itemKey = cleanString(record.itemKey);
-  if (
-    !Number.isInteger(libraryId) ||
-    libraryId <= 0 ||
-    !itemKey ||
-    itemKey.length > SYNTHESIS_HOST_RELATED_ITEMS_ITEM_KEY_MAX
-  ) {
-    invalidRequest(`${location} is invalid`);
-  }
-  return { libraryId, itemKey };
+  return rebuildSynthesisHostItemRef(value, location);
 }
 
 function rebuildAction(value: unknown): SynthesisHostRelatedItemsEffectAction {

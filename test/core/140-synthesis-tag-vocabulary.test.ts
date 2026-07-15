@@ -7,6 +7,11 @@ import { createSynthesisRepository } from "../../src/modules/synthesis/repositor
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
 import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
+import {
+  createZoteroSynthesisStagedTagBindingMigrationPort,
+  createZoteroSynthesisTagEffectPort,
+} from "../../src/modules/synthesis/tagEffectAdapter";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import { handlers } from "../../src/handlers";
 import {
   readRuntimeTextFile,
@@ -15,6 +20,10 @@ import {
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-tag-vocabulary-"));
+}
+
+function parentRef(value: number) {
+  return { libraryId: 1, itemKey: `ITEM${String(value).padStart(4, "0")}` };
 }
 
 function canonicalStoreText(root: string, kind: string) {
@@ -452,12 +461,12 @@ describe("Synthesis tag vocabulary", function () {
           facet: "topic",
           note: "suggested note",
           source_flow: "tag-regulator-suggest",
-          parent_bindings: [10],
+          parent_bindings: [parentRef(10)],
         },
         {
           tag: "topic:suggested",
           facet: "topic",
-          parent_bindings: [11, 10],
+          parent_bindings: [parentRef(11), parentRef(10)],
         },
         {
           tag: "topic:discard-me",
@@ -473,7 +482,7 @@ describe("Synthesis tag vocabulary", function () {
     );
     assert.deepEqual(
       staged.find((entry) => entry.tag === "topic:suggested")?.parent_bindings,
-      [10, 11],
+      [parentRef(10), parentRef(11)],
     );
 
     await service.discardStagedTagSuggestions({ tags: ["topic:discard-me"] });
@@ -508,14 +517,14 @@ describe("Synthesis tag vocabulary", function () {
           facet: "topic",
           note: "existing note",
           source_flow: "original-flow",
-          parent_bindings: [7],
+          parent_bindings: [parentRef(7)],
         },
         {
           tag: "topic:rename-old",
           facet: "topic",
           note: "must not be inherited",
           source_flow: "old-flow",
-          parent_bindings: [99],
+          parent_bindings: [parentRef(99)],
         },
       ],
     });
@@ -527,7 +536,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "method",
       note: "",
       sourceFlow: "manual-edit",
-      parentBindings: [8, 7],
+      parentBindings: [parentRef(8), parentRef(7)],
     });
     await service.updateStagedTagSuggestion({
       originalTag: "topic:missing",
@@ -543,7 +552,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "topic",
       note: "",
       sourceFlow: "manual-edit",
-      parentBindings: [3],
+      parentBindings: [parentRef(3)],
     });
 
     const staged = await service.listStagedTagSuggestions();
@@ -554,7 +563,7 @@ describe("Synthesis tag vocabulary", function () {
         facet: "method",
         note: "existing note",
         source_flow: "manual-edit",
-        parent_bindings: [7, 8],
+        parent_bindings: [parentRef(7), parentRef(8)],
         created_at: "2026-07-16T00:00:00.000Z",
         updated_at: "2026-07-16T01:00:00.000Z",
       },
@@ -574,7 +583,7 @@ describe("Synthesis tag vocabulary", function () {
       {
         facet: "topic",
         source_flow: "manual-edit",
-        parent_bindings: [3],
+        parent_bindings: [parentRef(3)],
         created_at: "2026-07-16T01:00:00.000Z",
         updated_at: "2026-07-16T01:00:00.000Z",
       },
@@ -606,25 +615,25 @@ describe("Synthesis tag vocabulary", function () {
           tag: "topic:old",
           facet: "topic",
           note: "old note",
-          parent_bindings: [1],
+          parent_bindings: [parentRef(1)],
         },
         {
           tag: "topic:target",
           facet: "topic",
           note: "target note",
           source_flow: "target-flow",
-          parent_bindings: [2],
+          parent_bindings: [parentRef(2)],
         },
         {
           tag: "topic:case-old",
           facet: "topic",
-          parent_bindings: [10],
+          parent_bindings: [parentRef(10)],
         },
         {
           tag: "Topic:CaseTarget",
           facet: "topic",
           note: "case target note",
-          parent_bindings: [11],
+          parent_bindings: [parentRef(11)],
         },
       ],
     });
@@ -633,7 +642,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "topic",
       note: "variant note",
       sourceFlow: "variant-flow",
-      parentBindingsJson: "[20]",
+      parentBindingsJson: JSON.stringify([parentRef(20)]),
       createdAt: "2026-07-16T00:30:00.000Z",
       updatedAt: "2026-07-16T00:30:00.000Z",
     });
@@ -645,7 +654,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "method",
       note: "",
       sourceFlow: "manual-edit",
-      parentBindings: [3, 2],
+      parentBindings: [parentRef(3), parentRef(2)],
     });
     await service.updateStagedTagSuggestion({
       originalTag: "topic:case-old",
@@ -653,7 +662,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "topic",
       note: "replacement",
       sourceFlow: "manual-edit",
-      parentBindings: [12],
+      parentBindings: [parentRef(12)],
     });
 
     const staged = await service.listStagedTagSuggestions();
@@ -666,7 +675,7 @@ describe("Synthesis tag vocabulary", function () {
       facet: "method",
       note: "target note",
       source_flow: "manual-edit",
-      parent_bindings: [2, 3],
+      parent_bindings: [parentRef(2), parentRef(3)],
       created_at: "2026-07-16T00:00:00.000Z",
       updated_at: "2026-07-16T02:00:00.000Z",
     });
@@ -677,7 +686,7 @@ describe("Synthesis tag vocabulary", function () {
         facet: "topic",
         note: "replacement",
         source_flow: "manual-edit",
-        parent_bindings: [11, 12],
+        parent_bindings: [parentRef(11), parentRef(12)],
         created_at: "2026-07-16T00:00:00.000Z",
         updated_at: "2026-07-16T02:00:00.000Z",
       },
@@ -694,12 +703,17 @@ describe("Synthesis tag vocabulary", function () {
     const service = createSynthesisTagVocabularyService({ root, repository });
     await service.stageTagSuggestions({
       entries: [
-        { tag: "topic:old", facet: "topic", note: "old", parent_bindings: [1] },
+        {
+          tag: "topic:old",
+          facet: "topic",
+          note: "old",
+          parent_bindings: [parentRef(1)],
+        },
         {
           tag: "topic:target",
           facet: "topic",
           note: "target",
-          parent_bindings: [2],
+          parent_bindings: [parentRef(2)],
         },
       ],
     });
@@ -720,7 +734,7 @@ describe("Synthesis tag vocabulary", function () {
         facet: "topic",
         note: "replacement",
         sourceFlow: "manual-edit",
-        parentBindings: [3],
+        parentBindings: [parentRef(3)],
       });
       assert.fail("expected the atomic staged Tag update to fail");
     } catch (error) {
@@ -738,6 +752,9 @@ describe("Synthesis tag vocabulary", function () {
       root,
       libraryId: 1,
       now: () => "2026-05-24T00:00:00.000Z",
+      hostTagEffectPort: createZoteroSynthesisTagEffectPort({
+        now: () => "2026-05-24T00:00:01.000Z",
+      }),
     });
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -754,13 +771,17 @@ describe("Synthesis tag vocabulary", function () {
           facet: "topic",
           note: "bound note",
           source_flow: "tag-regulator-suggest",
-          parent_bindings: [parent.id],
+          parent_bindings: [
+            { libraryId: parent.libraryID, itemKey: parent.key },
+          ],
         },
         {
           tag: "topic:existing",
           facet: "topic",
           note: "duplicate",
-          parent_bindings: [parent.id],
+          parent_bindings: [
+            { libraryId: parent.libraryID, itemKey: parent.key },
+          ],
         },
       ],
     });
@@ -772,7 +793,10 @@ describe("Synthesis tag vocabulary", function () {
     assert.deepEqual(promoted.promoted, ["topic:bound"]);
     assert.deepEqual(promoted.skipped, ["topic:existing"]);
     assert.deepEqual(promoted.applied_parent_tags, [
-      { tag: "topic:bound", parent_item_id: parent.id },
+      {
+        tag: "topic:bound",
+        parent_ref: { libraryId: parent.libraryID, itemKey: parent.key },
+      },
     ]);
     assert.deepEqual(
       parent.getTags().map((entry) => entry.tag),
@@ -782,6 +806,166 @@ describe("Synthesis tag vocabulary", function () {
       (await service.listStagedTagSuggestions()).map((entry) => entry.tag),
       ["topic:existing"],
     );
+  });
+
+  it("migrates legacy numeric bindings atomically and blocks on resolver failure", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Legacy staged parent" },
+    });
+    repository.upsertTagStagedSuggestion({
+      tag: "topic:legacy",
+      facet: "topic",
+      parentBindingsJson: JSON.stringify([parent.id, 999999]),
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      hostStagedTagBindingMigrationPort:
+        createZoteroSynthesisStagedTagBindingMigrationPort(),
+    });
+
+    assert.deepEqual(
+      (await service.listStagedTagSuggestions())[0]?.parent_bindings,
+      [{ libraryId: parent.libraryID, itemKey: parent.key }],
+    );
+    assert.equal(
+      repository.getOperation("staged-tag-binding-migration")?.status,
+      "completed",
+    );
+
+    const failedRoot = await makeRuntimeRoot();
+    const failedRepository = createSynthesisRepository({
+      runtimeRoot: failedRoot,
+    });
+    failedRepository.upsertTagStagedSuggestion({
+      tag: "topic:blocked",
+      facet: "topic",
+      parentBindingsJson: "[42]",
+    });
+    const blocked = createSynthesisService({
+      root: failedRoot,
+      libraryId: 1,
+      synthesisRepository: failedRepository,
+      hostStagedTagBindingMigrationPort: {
+        async resolve() {
+          throw new Error("private resolver failure");
+        },
+      },
+    });
+    let failure: unknown;
+    try {
+      await blocked.listStagedTagSuggestions();
+    } catch (error) {
+      failure = error;
+    }
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    assert.equal(
+      failedRepository.listTagStagedSuggestions()[0]?.parentBindingsJson,
+      "[42]",
+    );
+    assert.notInclude(String(failure), "private resolver failure");
+  });
+
+  it("keeps promotion committed when Tag effects are absent, failed, or malformed", async function () {
+    const cases = [
+      {
+        name: "absent",
+        port: undefined,
+      },
+      {
+        name: "failed",
+        port: {
+          async applyBatch() {
+            throw new Error("private transport failure");
+          },
+        },
+      },
+      {
+        name: "malformed",
+        port: {
+          async applyBatch() {
+            return { receipts: [] };
+          },
+        },
+      },
+    ];
+    for (const testCase of cases) {
+      const root = await makeRuntimeRoot();
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        ...(testCase.port ? { hostTagEffectPort: testCase.port } : {}),
+      });
+      await service.stageTagSuggestions({
+        entries: [
+          {
+            tag: `topic:${testCase.name}`,
+            facet: "topic",
+            parent_bindings: [parentRef(1)],
+          },
+        ],
+      });
+
+      const result = await service.promoteStagedTagSuggestions({
+        tags: [`topic:${testCase.name}`],
+      });
+
+      assert.deepEqual(result.promoted, [`topic:${testCase.name}`]);
+      assert.deepInclude(result.diagnostics, {
+        code: "staged_tag_host_effect_unavailable",
+        severity: "error",
+      });
+      assert.notInclude(JSON.stringify(result), "private transport failure");
+      assert.include(
+        await service.exportTagVocabularyForRegulator(),
+        `topic:${testCase.name}`,
+      );
+    }
+  });
+
+  it("projects already-satisfied Tag receipts with stable parent refs", async function () {
+    const root = await makeRuntimeRoot();
+    const stableParent = parentRef(5);
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostTagEffectPort: {
+        async applyBatch(request) {
+          return {
+            receipts: request.effects.map((entry) => ({
+              effectId: entry.effectId,
+              action: entry.action,
+              status: "already_satisfied" as const,
+              occurredAt: "2026-07-16T00:00:00.000Z",
+              diagnostics: [],
+            })),
+          };
+        },
+      },
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "topic:satisfied",
+          facet: "topic",
+          parent_bindings: [stableParent],
+        },
+      ],
+    });
+
+    const result = await service.promoteStagedTagSuggestions({
+      tags: ["topic:satisfied"],
+    });
+
+    assert.deepEqual(result.applied_parent_tags, [
+      { tag: "topic:satisfied", parent_ref: stableParent },
+    ]);
+    assert.deepEqual(result.diagnostics, []);
   });
 
   it("exports TagVocab JSON only through an explicit checkpoint", async function () {

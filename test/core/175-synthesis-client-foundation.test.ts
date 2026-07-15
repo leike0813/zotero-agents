@@ -15,6 +15,10 @@ import {
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
+function parentRef(value: number) {
+  return { libraryId: 1, itemKey: `ITEM${String(value).padStart(4, "0")}` };
+}
+
 describe("Synthesis client foundation", function () {
   it("keeps the contracts package environment-neutral and independently checked", function () {
     const packageRoot = path.join(ROOT, "packages/synthesis-contracts");
@@ -1131,7 +1135,7 @@ describe("Synthesis client foundation", function () {
         facet: " topic ",
         note: " replacement note ",
         sourceFlow: " tag-regulator-suggest ",
-        parentBindings: [9, 2, 9],
+        parentBindings: [parentRef(9), parentRef(2), parentRef(9)],
         unexpected: "discard",
       } as never),
       {
@@ -1145,7 +1149,7 @@ describe("Synthesis client foundation", function () {
       facet: "topic",
       note: "replacement note",
       sourceFlow: "tag-regulator-suggest",
-      parentBindings: [2, 9],
+      parentBindings: [parentRef(2), parentRef(9)],
     });
   });
 

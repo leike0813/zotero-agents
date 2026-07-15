@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject, SynthesisJsonValue } from "./common";
+import type { SynthesisHostItemRef } from "./itemRef";
 
 export type SynthesisTagVocabularySnapshot = SynthesisJsonObject;
 
@@ -16,7 +17,7 @@ export type SynthesisStagedTagUpdateRequest = {
   facet: string;
   note: string;
   sourceFlow: string;
-  parentBindings: number[];
+  parentBindings: SynthesisHostItemRef[];
 };
 
 export type SynthesisTagVocabularyEntryUpdateRequest = {
