@@ -18141,6 +18141,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.stageTagSuggestions(args);
   }
 
+  async function updateStagedTagSuggestion(
+    args: Parameters<typeof tagVocabulary.updateStagedTagSuggestion>[0],
+  ) {
+    return tagVocabulary.updateStagedTagSuggestion(args);
+  }
+
   async function promoteStagedTagSuggestions(
     args: Parameters<typeof tagVocabulary.promoteStagedTagSuggestions>[0],
   ) {
@@ -20944,6 +20950,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     validateTagVocabulary,
     listStagedTagSuggestions,
     stageTagSuggestions,
+    updateStagedTagSuggestion,
     promoteStagedTagSuggestions,
     discardStagedTagSuggestions,
     clearStagedTagSuggestions,

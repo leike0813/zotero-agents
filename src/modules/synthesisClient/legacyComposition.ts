@@ -87,6 +87,9 @@ function createLegacyPort(
         request as Parameters<typeof service.stageTagSuggestions>[0],
       );
     },
+    async updateStagedTagSuggestion(request) {
+      return resolveService().updateStagedTagSuggestion(request);
+    },
     async promoteStagedTagSuggestions(request) {
       return resolveService().promoteStagedTagSuggestions(request);
     },

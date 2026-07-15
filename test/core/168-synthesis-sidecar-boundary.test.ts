@@ -36,7 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.lengthOf(report.publicMethods, 125);
+    assert.lengthOf(report.publicMethods, 126);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
     assert.notInclude(
@@ -168,6 +168,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.tags\s*\.promoteStagedTagSuggestions/);
     assert.match(workbench, /client\.tags\s*\.discardStagedTagSuggestions/);
     assert.match(workbench, /client\.tags\s*\.clearStagedTagSuggestions/);
+    assert.match(workbench, /client\.tags\s*\.updateStagedTagSuggestion/);
     assert.match(workbench, /client\.tags\s*\.previewTagVocabularyImport/);
     assert.match(workbench, /client\.tags\s*\.applyTagVocabularyImport/);
     for (const method of [
@@ -270,6 +271,18 @@ describe("Synthesis sidecar migration boundary", function () {
         ),
       );
     }
+    const stagedUpdateRegion = workbench.slice(
+      workbench.indexOf(
+        'result.hostCommand?.command === "updateStagedTagSuggestion"',
+      ),
+      workbench.indexOf(
+        'result.hostCommand?.command === "updateTagVocabularyEntry"',
+      ),
+    );
+    assert.notMatch(
+      stagedUpdateRegion,
+      /(?:getDefaultSynthesisService\(\)\s*\.|\bservice\.)(?:stageTagSuggestions|discardStagedTagSuggestions)/,
+    );
     assert.notMatch(
       workbench,
       /getDefaultSynthesisService\(\)\.getTopicReport/,
@@ -385,6 +398,8 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(tagsContract, "exportTagVocabularyForRegulator()");
     assert.include(tagsContract, "SynthesisTagSelectionRequest");
     assert.include(tagsContract, "SynthesisTagCommandResult");
+    assert.include(tagsContract, "SynthesisStagedTagUpdateRequest");
+    assert.include(tagsContract, "updateStagedTagSuggestion(");
     assert.include(tagsContract, "promoteStagedTagSuggestions(");
     assert.include(tagsContract, "discardStagedTagSuggestions(");
     assert.include(tagsContract, "clearStagedTagSuggestions()");

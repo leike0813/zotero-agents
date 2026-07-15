@@ -235,6 +235,7 @@ method_groups:
       - saveTagVocabulary
       - exportTagVocabularyCheckpoint
       - stageTagSuggestions
+      - updateStagedTagSuggestion
       - promoteStagedTagSuggestions
       - discardStagedTagSuggestions
       - clearStagedTagSuggestions

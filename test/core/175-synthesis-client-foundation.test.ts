@@ -905,6 +905,169 @@ describe("Synthesis client foundation", function () {
     ]);
   });
 
+  it("routes strict staged Tag updates through a canonical normalized port", async function () {
+    let captured: unknown;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateStagedTagSuggestion(request) {
+        captured = request;
+        return {
+          staged: { tag: request.tag },
+          updated_at: new Date("2026-07-16T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+    });
+
+    assert.deepEqual(
+      await client.tags.updateStagedTagSuggestion({
+        originalTag: " topic:old ",
+        tag: " topic:new ",
+        facet: " topic ",
+        note: " replacement note ",
+        sourceFlow: " tag-regulator-suggest ",
+        parentBindings: [9, 2, 9],
+        unexpected: "discard",
+      } as never),
+      {
+        staged: { tag: "topic:new" },
+        updated_at: "2026-07-16T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(captured, {
+      originalTag: "topic:old",
+      tag: "topic:new",
+      facet: "topic",
+      note: "replacement note",
+      sourceFlow: "tag-regulator-suggest",
+      parentBindings: [2, 9],
+    });
+  });
+
+  it("rejects invalid staged Tag updates before resolving the legacy port", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateStagedTagSuggestion() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const valid = {
+      originalTag: "topic:old",
+      tag: "topic:new",
+      facet: "topic",
+      note: "",
+      sourceFlow: "tag-regulator-suggest",
+      parentBindings: [],
+    };
+    const invalidRequests: unknown[] = [
+      undefined,
+      { ...valid, originalTag: " " },
+      { ...valid, tag: "" },
+      { ...valid, facet: false },
+      { ...valid, note: null },
+      { ...valid, sourceFlow: " " },
+      { ...valid, parentBindings: "1" },
+      { ...valid, parentBindings: [1, 0] },
+      { ...valid, parentBindings: [1, 1.5] },
+      { ...valid, parentBindings: [1, "2"] },
+      { ...valid, callback: () => undefined },
+    ];
+
+    for (const [index, request] of invalidRequests.entries()) {
+      const target = index === 1 ? missingPortClient : client;
+      try {
+        await target.tags.updateStagedTagSuggestion(request as never);
+        assert.fail("expected the staged Tag update to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed staged Tag update ports", async function () {
+    const request = {
+      originalTag: "topic:old",
+      tag: "topic:new",
+      facet: "topic",
+      note: "",
+      sourceFlow: "tag-regulator-suggest",
+      parentBindings: [],
+    };
+    const preserved = new SynthesisClientError("conflict", "tag conflict");
+    const clients = {
+      missing: createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+      }),
+      preserved: createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+        async updateStagedTagSuggestion() {
+          throw preserved;
+        },
+      }),
+      busy: createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+        async updateStagedTagSuggestion() {
+          throw Object.assign(new Error("database is locked"), {
+            code: "SQLITE_BUSY",
+          });
+        },
+      }),
+      ordinary: createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+        async updateStagedTagSuggestion() {
+          throw new Error("update exploded");
+        },
+      }),
+      invalidResult: createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+        async updateStagedTagSuggestion() {
+          return [];
+        },
+      }),
+    };
+    const cases = [
+      { client: clients.missing, code: "unavailable" },
+      { client: clients.preserved, code: "conflict", expected: preserved },
+      { client: clients.busy, code: "storage_busy" },
+      { client: clients.ordinary, code: "internal" },
+      { client: clients.invalidResult, code: "internal" },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.client.tags.updateStagedTagSuggestion(request);
+        assert.fail("expected the staged Tag update to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("rejects invalid staged Tag selections before resolving legacy ports", async function () {
     let invocations = 0;
     const missingPortClient = createInProcessSynthesisClient({

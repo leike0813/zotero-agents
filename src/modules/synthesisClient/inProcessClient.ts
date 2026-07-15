@@ -42,6 +42,7 @@ import {
   type SynthesisTagImportApplyRequest,
   type SynthesisTagImportPreviewRequest,
   type SynthesisTagSelectionRequest,
+  type SynthesisStagedTagUpdateRequest,
   type SynthesisTagStagedSuggestion,
   type SynthesisTagVocabularySnapshot,
   type SynthesisTopicApplyRequest,
@@ -116,6 +117,9 @@ export interface LegacySynthesisPort {
   exportTagVocabularyForRegulator?(): Promise<unknown>;
   listStagedTagSuggestions?(): Promise<unknown>;
   stageTagSuggestions?(request: Record<string, unknown>): Promise<unknown>;
+  updateStagedTagSuggestion?(
+    request: SynthesisStagedTagUpdateRequest,
+  ): Promise<unknown>;
   promoteStagedTagSuggestions?(
     request: SynthesisTagSelectionRequest,
   ): Promise<unknown>;
@@ -412,6 +416,66 @@ function normalizeTagSelectionRequest(
         `tags[${index}]`,
         "Synthesis staged Tag selection tag",
       ),
+    ),
+  };
+}
+
+function normalizeStagedTagUpdateRequest(
+  value: unknown,
+): SynthesisStagedTagUpdateRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (typeof request.note !== "string") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis staged Tag update note must be a string",
+      { field: "note" },
+    );
+  }
+  if (!Array.isArray(request.parentBindings)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis staged Tag update parentBindings must be an array",
+      { field: "parentBindings" },
+    );
+  }
+  const parentBindings = request.parentBindings.map((binding, index) => {
+    if (
+      typeof binding !== "number" ||
+      !Number.isInteger(binding) ||
+      binding <= 0
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis staged Tag update parent binding must be a positive integer",
+        { field: `parentBindings[${index}]` },
+      );
+    }
+    return binding;
+  });
+  return {
+    originalTag: normalizeRequiredString(
+      request.originalTag,
+      "originalTag",
+      "Synthesis staged Tag update originalTag",
+    ),
+    tag: normalizeRequiredString(
+      request.tag,
+      "tag",
+      "Synthesis staged Tag update tag",
+    ),
+    facet: normalizeRequiredString(
+      request.facet,
+      "facet",
+      "Synthesis staged Tag update facet",
+    ),
+    note: request.note.trim(),
+    sourceFlow: normalizeRequiredString(
+      request.sourceFlow,
+      "sourceFlow",
+      "Synthesis staged Tag update sourceFlow",
+    ),
+    parentBindings: Array.from(new Set(parentBindings)).sort(
+      (left, right) => left - right,
     ),
   };
 }
@@ -1439,6 +1503,19 @@ export function createInProcessSynthesisClient(
             )(request),
           ),
         );
+      },
+      async updateStagedTagSuggestion(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeStagedTagUpdateRequest(request);
+          const port = requireLegacyPort(
+            legacy.updateStagedTagSuggestion,
+            "tags.updateStagedTagSuggestion",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Staged Tag update",
+          ) as SynthesisTagCommandResult;
+        });
       },
       async promoteStagedTagSuggestions(request) {
         return runLegacy(async () => {

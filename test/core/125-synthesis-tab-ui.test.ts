@@ -2787,6 +2787,69 @@ describe("Synthesis tab UI model", function () {
     assert.include(tagInvalidation, 'return ["tags"]');
   });
 
+  it("routes staged Tag updates through the strict atomic Tag client command", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const updateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateStagedTagSuggestion"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateTagVocabularyEntry"',
+      ),
+    );
+
+    assert.include(
+      updateRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.include(updateRegion, 'String(commandArgs.tag || "").trim()');
+    assert.include(
+      updateRegion,
+      'commandArgs.facet || tag.split(":")[0] || "topic"',
+    );
+    assert.include(updateRegion, 'const note = String(commandArgs.note || "")');
+    assert.include(
+      updateRegion,
+      'commandArgs.source_flow || "tag-regulator-suggest"',
+    );
+    assert.include(updateRegion, "Array.isArray(commandArgs.parent_bindings)");
+    assert.match(
+      updateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"updateStagedTagSuggestion",\s*\{ tag \}/,
+    );
+    assert.match(
+      updateRegion,
+      /client\.tags\s*\.updateStagedTagSuggestion\(\{[\s\S]*originalTag,[\s\S]*tag,[\s\S]*facet,[\s\S]*note,[\s\S]*sourceFlow,[\s\S]*parentBindings/,
+    );
+    assert.include(updateRegion, "await getDefaultSynthesisClient()");
+    assert.include(
+      updateRegion,
+      "sendActiveSurface(runtime, { refreshFromService: false })",
+    );
+    assert.notInclude(updateRegion, "getDefaultSynthesisService");
+    assert.notInclude(updateRegion, "stageTagSuggestions");
+    assert.notInclude(updateRegion, "discardStagedTagSuggestions");
+    assert.notInclude(updateRegion, "deferStart");
+    assert.notInclude(updateRegion, "onProgress");
+    assert.notInclude(updateRegion, "failOnDiagnostic");
+    assert.notInclude(updateRegion, "confirm");
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "updateStagedTagSuggestion"');
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

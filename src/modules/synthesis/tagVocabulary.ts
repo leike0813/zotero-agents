@@ -19,6 +19,7 @@ import {
   type SynthesisTagValidationWarningRecord,
   type SynthesisTagVocabularyEntryRecord,
 } from "./repository";
+import type { SynthesisStagedTagUpdateRequest } from "../../../packages/synthesis-contracts/src/index";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
 export const SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID = "synthesis.tag_vocabulary";
@@ -1186,6 +1187,41 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     };
   }
 
+  async function updateStagedTagSuggestion(
+    args: SynthesisStagedTagUpdateRequest,
+  ) {
+    await initializeIfMissing();
+    const timestamp = now();
+    return repository.transaction(() => {
+      const staged = repository
+        .listTagStagedSuggestions()
+        .map(stagedSuggestionFromRecord);
+      const requestedTag = cleanString(args.tag);
+      const requestedLower = requestedTag.toLowerCase();
+      const targetCandidates = staged.filter(
+        (entry) => entry.tag.toLowerCase() === requestedLower,
+      );
+      const target =
+        targetCandidates.find((entry) => entry.tag === requestedTag) ||
+        targetCandidates[0] ||
+        null;
+      const merged = mergeStagedSuggestion(
+        target,
+        {
+          tag: requestedTag,
+          facet: cleanString(args.facet),
+          note: cleanString(args.note) || undefined,
+          source_flow: cleanString(args.sourceFlow),
+          parent_bindings: normalizeParentBindings(args.parentBindings),
+        },
+        timestamp,
+      );
+      repository.removeTagStagedSuggestions([args.originalTag, requestedTag]);
+      repository.upsertTagStagedSuggestion(stagedSuggestionToRecord(merged));
+      return { staged: merged };
+    });
+  }
+
   async function promoteStagedTagSuggestions(args: { tags: string[] }) {
     await initializeIfMissing();
     const requested = normalizeStringList(args.tags);
@@ -1360,6 +1396,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     validateTagVocabulary,
     listStagedTagSuggestions,
     stageTagSuggestions,
+    updateStagedTagSuggestion,
     promoteStagedTagSuggestions,
     discardStagedTagSuggestions,
     clearStagedTagSuggestions,

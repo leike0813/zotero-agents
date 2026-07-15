@@ -2830,32 +2830,27 @@ function handleAction(
     ).trim();
     const tag = String(commandArgs.tag || "").trim();
     if (tag) {
+      const facet = String(commandArgs.facet || tag.split(":")[0] || "topic");
+      const note = String(commandArgs.note || "");
+      const sourceFlow = String(
+        commandArgs.source_flow || "tag-regulator-suggest",
+      );
+      const parentBindings = Array.isArray(commandArgs.parent_bindings)
+        ? commandArgs.parent_bindings
+        : [];
       runWorkbenchCommandOnce(
         runtime,
         "updateStagedTagSuggestion",
         { tag },
         async () => {
-          if (originalTag && originalTag !== tag) {
-            await getDefaultSynthesisService().discardStagedTagSuggestions({
-              tags: [originalTag],
-            });
-          }
-          return getDefaultSynthesisService().stageTagSuggestions({
-            entries: [
-              {
-                tag,
-                facet: String(
-                  commandArgs.facet || tag.split(":")[0] || "topic",
-                ),
-                note: String(commandArgs.note || ""),
-                source_flow: String(
-                  commandArgs.source_flow || "tag-regulator-suggest",
-                ),
-                parent_bindings: Array.isArray(commandArgs.parent_bindings)
-                  ? commandArgs.parent_bindings
-                  : [],
-              },
-            ],
+          const client = await getDefaultSynthesisClient();
+          return client.tags.updateStagedTagSuggestion({
+            originalTag,
+            tag,
+            facet,
+            note,
+            sourceFlow,
+            parentBindings,
           });
         },
       );

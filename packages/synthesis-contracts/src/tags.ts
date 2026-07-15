@@ -10,6 +10,15 @@ export type SynthesisTagSelectionRequest = {
   tags: string[];
 };
 
+export type SynthesisStagedTagUpdateRequest = {
+  originalTag: string;
+  tag: string;
+  facet: string;
+  note: string;
+  sourceFlow: string;
+  parentBindings: number[];
+};
+
 export type SynthesisTagCommandResult = SynthesisJsonObject;
 
 export const SYNTHESIS_TAG_IMPORT_ACTIONS = [
@@ -48,6 +57,9 @@ export interface SynthesisTagsClient {
   stageTagSuggestions(
     request: SynthesisJsonObject,
   ): Promise<SynthesisJsonValue>;
+  updateStagedTagSuggestion(
+    request: SynthesisStagedTagUpdateRequest,
+  ): Promise<SynthesisTagCommandResult>;
   promoteStagedTagSuggestions(
     request: SynthesisTagSelectionRequest,
   ): Promise<SynthesisTagCommandResult>;

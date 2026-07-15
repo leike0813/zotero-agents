@@ -199,6 +199,249 @@ describe("Synthesis tag vocabulary", function () {
     ]);
   });
 
+  it("atomically updates, upserts, and renames staged Tag suggestions", async function () {
+    const root = await makeRuntimeRoot();
+    let currentTime = "2026-07-16T00:00:00.000Z";
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => currentTime,
+    });
+    const service = createSynthesisTagVocabularyService({
+      root,
+      repository,
+      now: () => currentTime,
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "topic:same",
+          facet: "topic",
+          note: "existing note",
+          source_flow: "original-flow",
+          parent_bindings: [7],
+        },
+        {
+          tag: "topic:rename-old",
+          facet: "topic",
+          note: "must not be inherited",
+          source_flow: "old-flow",
+          parent_bindings: [99],
+        },
+      ],
+    });
+
+    currentTime = "2026-07-16T01:00:00.000Z";
+    await service.updateStagedTagSuggestion({
+      originalTag: "topic:same",
+      tag: "topic:same",
+      facet: "method",
+      note: "",
+      sourceFlow: "manual-edit",
+      parentBindings: [8, 7],
+    });
+    await service.updateStagedTagSuggestion({
+      originalTag: "topic:missing",
+      tag: "Unvalidated Tag",
+      facet: "custom facet",
+      note: "new note",
+      sourceFlow: "manual-edit",
+      parentBindings: [],
+    });
+    await service.updateStagedTagSuggestion({
+      originalTag: "topic:rename-old",
+      tag: "topic:rename-new",
+      facet: "topic",
+      note: "",
+      sourceFlow: "manual-edit",
+      parentBindings: [3],
+    });
+
+    const staged = await service.listStagedTagSuggestions();
+    assert.deepInclude(
+      staged.find((entry) => entry.tag === "topic:same"),
+      {
+        tag: "topic:same",
+        facet: "method",
+        note: "existing note",
+        source_flow: "manual-edit",
+        parent_bindings: [7, 8],
+        created_at: "2026-07-16T00:00:00.000Z",
+        updated_at: "2026-07-16T01:00:00.000Z",
+      },
+    );
+    assert.deepInclude(
+      staged.find((entry) => entry.tag === "Unvalidated Tag"),
+      {
+        facet: "custom facet",
+        note: "new note",
+        parent_bindings: [],
+        created_at: "2026-07-16T01:00:00.000Z",
+        updated_at: "2026-07-16T01:00:00.000Z",
+      },
+    );
+    assert.deepInclude(
+      staged.find((entry) => entry.tag === "topic:rename-new"),
+      {
+        facet: "topic",
+        source_flow: "manual-edit",
+        parent_bindings: [3],
+        created_at: "2026-07-16T01:00:00.000Z",
+        updated_at: "2026-07-16T01:00:00.000Z",
+      },
+    );
+    assert.isUndefined(
+      staged.find((entry) => entry.tag === "topic:rename-new")?.note,
+    );
+    assert.notInclude(
+      staged.map((entry) => entry.tag),
+      "topic:rename-old",
+    );
+  });
+
+  it("merges staged Tag rename collisions and removes every casing variant", async function () {
+    const root = await makeRuntimeRoot();
+    let currentTime = "2026-07-16T00:00:00.000Z";
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => currentTime,
+    });
+    const service = createSynthesisTagVocabularyService({
+      root,
+      repository,
+      now: () => currentTime,
+    });
+    await service.stageTagSuggestions({
+      entries: [
+        {
+          tag: "topic:old",
+          facet: "topic",
+          note: "old note",
+          parent_bindings: [1],
+        },
+        {
+          tag: "topic:target",
+          facet: "topic",
+          note: "target note",
+          source_flow: "target-flow",
+          parent_bindings: [2],
+        },
+        {
+          tag: "topic:case-old",
+          facet: "topic",
+          parent_bindings: [10],
+        },
+        {
+          tag: "Topic:CaseTarget",
+          facet: "topic",
+          note: "case target note",
+          parent_bindings: [11],
+        },
+      ],
+    });
+    repository.upsertTagStagedSuggestion({
+      tag: "TOPIC:TARGET",
+      facet: "topic",
+      note: "variant note",
+      sourceFlow: "variant-flow",
+      parentBindingsJson: "[20]",
+      createdAt: "2026-07-16T00:30:00.000Z",
+      updatedAt: "2026-07-16T00:30:00.000Z",
+    });
+
+    currentTime = "2026-07-16T02:00:00.000Z";
+    await service.updateStagedTagSuggestion({
+      originalTag: "topic:old",
+      tag: "topic:target",
+      facet: "method",
+      note: "",
+      sourceFlow: "manual-edit",
+      parentBindings: [3, 2],
+    });
+    await service.updateStagedTagSuggestion({
+      originalTag: "topic:case-old",
+      tag: "topic:casetarget",
+      facet: "topic",
+      note: "replacement",
+      sourceFlow: "manual-edit",
+      parentBindings: [12],
+    });
+
+    const staged = await service.listStagedTagSuggestions();
+    const targetRows = staged.filter(
+      (entry) => entry.tag.toLowerCase() === "topic:target",
+    );
+    assert.lengthOf(targetRows, 1);
+    assert.deepEqual(targetRows[0], {
+      tag: "topic:target",
+      facet: "method",
+      note: "target note",
+      source_flow: "manual-edit",
+      parent_bindings: [2, 3],
+      created_at: "2026-07-16T00:00:00.000Z",
+      updated_at: "2026-07-16T02:00:00.000Z",
+    });
+    assert.deepEqual(
+      staged.find((entry) => entry.tag === "topic:casetarget"),
+      {
+        tag: "topic:casetarget",
+        facet: "topic",
+        note: "replacement",
+        source_flow: "manual-edit",
+        parent_bindings: [11, 12],
+        created_at: "2026-07-16T00:00:00.000Z",
+        updated_at: "2026-07-16T02:00:00.000Z",
+      },
+    );
+    assert.notIncludeMembers(
+      staged.map((entry) => entry.tag),
+      ["topic:old", "topic:case-old", "Topic:CaseTarget", "TOPIC:TARGET"],
+    );
+  });
+
+  it("rolls back both staged Tag rows when the atomic replacement write fails", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisTagVocabularyService({ root, repository });
+    await service.stageTagSuggestions({
+      entries: [
+        { tag: "topic:old", facet: "topic", note: "old", parent_bindings: [1] },
+        {
+          tag: "topic:target",
+          facet: "topic",
+          note: "target",
+          parent_bindings: [2],
+        },
+      ],
+    });
+    const before = await service.listStagedTagSuggestions();
+    const originalUpsert =
+      repository.upsertTagStagedSuggestion.bind(repository);
+    repository.upsertTagStagedSuggestion = (record) => {
+      originalUpsert(record);
+      if (record.tag === "topic:target") {
+        throw new Error("fault-injected staged Tag write");
+      }
+    };
+
+    try {
+      await service.updateStagedTagSuggestion({
+        originalTag: "topic:old",
+        tag: "topic:target",
+        facet: "topic",
+        note: "replacement",
+        sourceFlow: "manual-edit",
+        parentBindings: [3],
+      });
+      assert.fail("expected the atomic staged Tag update to fail");
+    } catch (error) {
+      assert.match(String(error), /fault-injected staged Tag write/);
+    } finally {
+      repository.upsertTagStagedSuggestion = originalUpsert;
+    }
+
+    assert.deepEqual(await service.listStagedTagSuggestions(), before);
+  });
+
   it("promotes staged suggestions through Synthesis service and applies bound parent tags", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisService({
