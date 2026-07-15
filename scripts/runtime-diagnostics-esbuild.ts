@@ -7,7 +7,7 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
     build.onResolve(
       {
         filter:
-          /(?:^|\/)(?:acpRuntimePerformanceProfiler|acpRuntimePerformanceBaseline|acpRuntimeDiagnosticsMode|acpRuntimeSemanticTrace|acpRuntimeSemanticTraceRecorder|acpRuntimeReplayProfiler|acpRuntimeReplayTargets|acpRuntimeReplayProductionPorts|acpRuntimeReplayProfileContext|acpRuntimeReplayController|skillRunnerConnectionAudit|skillRunnerConnectionAuditStore)$/,
+          /(?:^|\/)(?:acpRuntimePerformanceProfiler|acpRuntimePerformanceBaseline|acpRuntimeDiagnosticsMode|acpRuntimeSemanticTrace|acpRuntimeSemanticTraceRecorder|acpRuntimeReplayProfiler|acpRuntimeReplayLogicalTime|acpRuntimeReplayTargets|acpRuntimeReplayProductionPorts|acpRuntimeReplayProfileContext|acpRuntimeReplayController|skillRunnerConnectionAudit|skillRunnerConnectionAuditStore)$/,
       },
       (args) => ({
         path: path.resolve(args.resolveDir, `${args.path}.ts`),

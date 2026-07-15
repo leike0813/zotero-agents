@@ -17,6 +17,7 @@ import {
 } from "./acpRuntimeSemanticTrace";
 import { isAcpRuntimeReplayProfilerAvailable } from "./debugMode";
 import { buildAcpRuntimeReplayArtifactStem } from "./acpRuntimeReplayIdentity";
+import type { AcpRuntimeReplayLogicalTimePort } from "./acpRuntimeReplayLogicalTime";
 import type {
   AcpRuntimeMetricName,
   AcpRuntimeProfileSnapshot,
@@ -34,7 +35,7 @@ export const ACP_RUNTIME_REPLAY_MATRIX_SCHEMA =
 export const ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1 =
   "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1" as const;
 
-export type AcpRuntimeReplayCadence = "recorded" | "burst";
+export type AcpRuntimeReplayCadence = "recorded" | "logical" | "burst";
 export type AcpRuntimeReplaySurface =
   | "closed"
   | "open-inactive"
@@ -94,10 +95,28 @@ export type AcpRuntimeReplayCancellationSignal = {
   removeEventListener: (type: "abort", listener: () => void) => void;
 };
 
+export type AcpRuntimeReplayLogicalRunPort = AcpRuntimeReplayLogicalTimePort & {
+  registerOwner: (owner: AcpRuntimeTraceOwner) => void;
+};
+
+export function parseAcpRuntimeReplayCadence(
+  value: unknown,
+  fallback: AcpRuntimeReplayCadence = "recorded",
+): AcpRuntimeReplayCadence {
+  if (typeof value === "undefined" || value === null || value === "") {
+    return fallback;
+  }
+  if (value === "recorded" || value === "logical" || value === "burst") {
+    return value;
+  }
+  throw new Error(`Unsupported ACP replay cadence: ${String(value)}`);
+}
+
 type ReplayOptions = {
   trace: AcpRuntimeSemanticTraceDocument;
   target: AcpRuntimeReplayTarget;
   cadence: AcpRuntimeReplayCadence;
+  logicalTime?: AcpRuntimeReplayLogicalRunPort;
   sleep?: (delayMs: number) => Promise<void>;
   now?: () => number;
   signal?: AcpRuntimeReplayCancellationSignal;
@@ -257,7 +276,14 @@ export async function replayAcpRuntimeSemanticTrace(
     }
     previousOffset = event.monotonicOffsetMs;
     try {
+      if (options.cadence === "logical") {
+        if (!options.logicalTime) {
+          throw new Error("Logical replay requires a logical-time port");
+        }
+        await options.logicalTime.advanceTo(event.monotonicOffsetMs);
+      }
       const owner = mapOwner(event.owner);
+      options.logicalTime?.registerOwner(owner);
       try {
         options.onOwnerMapped?.(owner);
       } catch {
@@ -269,6 +295,9 @@ export async function replayAcpRuntimeSemanticTrace(
         owner,
         transcriptBoundary: notificationBoundary(event),
       });
+      if (options.cadence === "logical") {
+        await options.logicalTime?.captureAt(event.monotonicOffsetMs);
+      }
       const normalizedDisposition =
         disposition === "applied" ? "projected" : disposition;
       const bytes = payloadBytes(event.payload);
@@ -320,6 +349,18 @@ export async function replayAcpRuntimeSemanticTrace(
       break;
     }
   }
+  if (options.cadence === "logical" && options.logicalTime) {
+    try {
+      const released =
+        await options.logicalTime.releaseToNative(previousOffset);
+      result.warnings.push(...released.warnings);
+    } catch (error) {
+      result.completion = "incomplete";
+      result.warnings.push(
+        `logical-release-failed:${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   try {
     result.drain = await options.target.drain();
   } catch (error) {
@@ -331,6 +372,10 @@ export async function replayAcpRuntimeSemanticTrace(
   if (!result.drain.ok) {
     result.completion = "incomplete";
     result.warnings.push(`drain-failed:${result.drain.detail || "unknown"}`);
+    if (options.cadence === "logical" && options.logicalTime) {
+      const fallback = await options.logicalTime.flushWriteBearing();
+      result.warnings.push(...fallback.warnings);
+    }
   }
   return result;
 }
@@ -468,6 +513,7 @@ export type AcpRuntimeReplayMeasurementState =
 
 export type AcpRuntimeReplayMeasurement = {
   elapsedMs: number;
+  timing: "wall-clock" | "synthetic-logical";
   families: Record<
     "transport" | "r1" | "r2" | "r3",
     { state: AcpRuntimeReplayMeasurementState; detail: string }
@@ -597,8 +643,14 @@ function evaluateReplayMeasurement(args: {
   replay: AcpRuntimeReplayResult;
   r2: AcpRuntimeR2WorkloadResult;
   surface: AcpRuntimeReplaySurface;
+  cadence: AcpRuntimeReplayCadence;
 }) {
   const warnings: string[] = [];
+  for (const warning of args.replay.warnings) {
+    if (warning.startsWith("logical-timer-contamination:")) {
+      warnings.push(`logical-measurement-incomplete:${warning}`);
+    }
+  }
   const semanticEvents = metricValue(args.profile, "semantic_event");
   const r1 =
     semanticEvents === args.replay.appliedEvents
@@ -673,6 +725,7 @@ function evaluateReplayMeasurement(args: {
       0,
       (args.profile?.finishedAtMs || 0) - (args.profile?.startedAtMs || 0),
     ),
+    timing: args.cadence === "logical" ? "synthetic-logical" : "wall-clock",
     families: {
       transport: {
         state: "not-applicable",
@@ -699,6 +752,14 @@ export async function runAcpRuntimeReplayMatrix(args: {
     sourceKind: AcpRuntimeTraceSourceKind;
     syntheticRootId: string;
   }) => Promise<AcpRuntimeReplayTarget>;
+  createLogicalTime?: (args: {
+    surface: AcpRuntimeReplaySurface;
+    sourceKind: AcpRuntimeTraceSourceKind;
+    syntheticRootId: string;
+    signal?: AcpRuntimeReplayCancellationSignal;
+  }) =>
+    | Promise<AcpRuntimeReplayLogicalRunPort>
+    | AcpRuntimeReplayLogicalRunPort;
   workspace: AcpRuntimeReplayWorkspacePort;
   profiler: AcpRuntimeReplayProfilerPort;
   r2Port: AcpRuntimeR2InputPort;
@@ -793,6 +854,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
         let profile: AcpRuntimeProfileSnapshot | undefined;
         let profilerStarted = false;
         let profilerFinished = false;
+        let logicalTime: AcpRuntimeReplayLogicalRunPort | undefined;
         try {
           target = await args.createTarget({
             sourceKind: args.trace.header.sourceKind,
@@ -816,11 +878,24 @@ export async function runAcpRuntimeReplayMatrix(args: {
               syntheticRootId,
             });
             profilerStarted = true;
+            if (args.cadence === "logical") {
+              if (!args.createLogicalTime) {
+                throw new Error("Logical replay factory is unavailable");
+              }
+              logicalTime = await args.createLogicalTime({
+                surface,
+                sourceKind: args.trace.header.sourceKind,
+                syntheticRootId,
+                signal: args.signal,
+              });
+              await logicalTime.captureAt(0);
+            }
             const [replayResult, r2Result] = await Promise.allSettled([
               replayAcpRuntimeSemanticTrace({
                 trace: args.trace,
                 target,
                 cadence: args.cadence,
+                logicalTime,
                 sleep: args.sleep,
                 now: args.now,
                 signal: args.signal,
@@ -889,6 +964,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
               );
             }
           }
+          logicalTime?.dispose();
         }
         const executionCompletion =
           replay.completion === "complete" && replay.drain.ok
@@ -899,6 +975,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
           replay,
           r2,
           surface,
+          cadence: args.cadence,
         });
         const measurementCompletion =
           measurement.warnings.length === 0 ? "complete" : "incomplete";
@@ -963,7 +1040,12 @@ export async function runAcpRuntimeReplayMatrix(args: {
     },
     cadence: args.cadence,
     r2WorkloadVersion: ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1,
-    replayConfig: { ...(args.replayConfig || {}) },
+    replayConfig: {
+      ...(args.replayConfig || {}),
+      ...(args.cadence === "logical"
+        ? { syntheticTiming: true, logicalSchedulerVersion: 1 }
+        : {}),
+    },
     environment: { ...args.environment },
     completion:
       records.length === 9 &&
@@ -1108,13 +1190,14 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     `- Stage: \`${String(matrix.replayConfig.phase || "")}\``,
     `- Source: \`${matrix.trace.sourceKind}\``,
     `- Cadence: \`${matrix.cadence}\``,
+    `- Timing classification: \`${matrix.cadence === "logical" ? "synthetic-logical (non-comparable with recorded wall-clock timing)" : "wall-clock"}\``,
     `- R2 workload: \`${matrix.r2WorkloadVersion}\``,
     `- Execution completion: \`${matrix.executionCompletion}\``,
     `- Measurement completion: \`${matrix.measurementCompletion}\``,
     "",
     "## Run coverage",
     "",
-    "| Surface | Role | Run | Execution | Measurement | Wall ms | Projected | No-op | Unknown | Transport | R1 | R2 | R3 |",
+    `| Surface | Role | Run | Execution | Measurement | ${matrix.cadence === "logical" ? "Synthetic wall ms" : "Wall ms"} | Projected | No-op | Unknown | Transport | R1 | R2 | R3 |`,
     "| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
     ...matrix.records.map(
       (record) =>
@@ -1123,9 +1206,11 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     "",
     "## Formal descriptive summary",
     "",
-    "> Each surface has two formal observations. These values are descriptive; they are not significance estimates.",
+    matrix.cadence === "logical"
+      ? "> Logical cadence preserves replay-owned timer semantics, but wall time, throughput, scheduler lag, event-loop drift, and wall-clock-dependent request duration are synthetic and non-comparable with recorded cadence."
+      : "> Each surface has two formal observations. These values are descriptive; they are not significance estimates.",
     "",
-    "| Surface | n | Wall ms mean | Range ms | Events/s | MiB/s | Delta vs closed |",
+    `| Surface | n | ${matrix.cadence === "logical" ? "Synthetic wall ms mean" : "Wall ms mean"} | Range ms | ${matrix.cadence === "logical" ? "Synthetic events/s" : "Events/s"} | ${matrix.cadence === "logical" ? "Synthetic MiB/s" : "MiB/s"} | Delta vs closed |`,
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...surfaceSummary.map(
       (entry) =>

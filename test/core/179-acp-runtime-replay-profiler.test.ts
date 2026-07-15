@@ -7,6 +7,7 @@ import {
   ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1,
   assertAcpRuntimeReplayMatricesComparable,
   inspectAcpRuntimeReplayMatrixCompatibility,
+  parseAcpRuntimeReplayCadence,
   replayAcpRuntimeSemanticTrace,
   renderAcpRuntimeReplayMatrixMarkdown,
   runAcpRuntimeR2SyntheticWorkloadV1,
@@ -267,6 +268,51 @@ describe("ACP runtime replay profiler", function () {
       sleep: async (delay) => void burstWaits.push(delay),
     });
     assert.deepEqual(burstWaits, []);
+
+    const logicalOrder: string[] = [];
+    const logical = await replayAcpRuntimeSemanticTrace({
+      trace: fixtureTrace(),
+      target: {
+        ...target(),
+        apply: async ({ event }) => {
+          logicalOrder.push(`apply-${event.seq}`);
+          return "applied";
+        },
+        drain: async () => {
+          logicalOrder.push("drain");
+          return { ok: true };
+        },
+      },
+      cadence: "logical",
+      logicalTime: {
+        registerOwner: () => undefined,
+        advanceTo: async (offset) =>
+          void logicalOrder.push(`advance-${offset}`),
+        captureAt: async (offset) =>
+          void logicalOrder.push(`capture-${offset}`),
+        releaseToNative: async (offset) => {
+          logicalOrder.push(`release-${offset}`);
+          return { ok: true, warnings: [] };
+        },
+        flushWriteBearing: async () => ({ ok: true, warnings: [] }),
+        dispose: () => undefined,
+        pendingCount: () => 0,
+        warnings: () => [],
+      },
+    });
+    assert.deepEqual(logicalOrder, [
+      "advance-0",
+      "apply-1",
+      "capture-0",
+      "advance-5",
+      "apply-2",
+      "capture-5",
+      "release-5",
+      "drain",
+    ]);
+    assert.equal(logical.completion, "complete");
+    assert.equal(parseAcpRuntimeReplayCadence("logical"), "logical");
+    assert.throws(() => parseAcpRuntimeReplayCadence("fast"), /Unsupported/);
   });
 
   it("maps the first Workflow request to the target-active synthetic owner", async function () {
@@ -616,6 +662,27 @@ describe("ACP runtime replay profiler", function () {
     renamed.trace.sampleName = "another alias";
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, renamed),
+    );
+
+    const logicalMatrix = structuredClone(matrix);
+    logicalMatrix.cadence = "logical";
+    logicalMatrix.replayConfig = {
+      ...logicalMatrix.replayConfig,
+      syntheticTiming: true,
+      logicalSchedulerVersion: 1,
+    };
+    const logicalMarkdown = renderAcpRuntimeReplayMatrixMarkdown(logicalMatrix);
+    assert.include(logicalMarkdown, "synthetic-logical");
+    assert.include(logicalMarkdown, "non-comparable with recorded cadence");
+    const schedulerMismatch = structuredClone(logicalMatrix);
+    schedulerMismatch.replayConfig.logicalSchedulerVersion = 2;
+    assert.throws(
+      () =>
+        assertAcpRuntimeReplayMatricesComparable(
+          logicalMatrix,
+          schedulerMismatch,
+        ),
+      /incompatible provenance/,
     );
   });
 

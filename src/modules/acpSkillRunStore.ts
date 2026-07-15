@@ -62,6 +62,10 @@ import {
 } from "./acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
 import type {
+  AcpRuntimeReplayLogicalTimerDescriptor,
+  AcpRuntimeReplayLogicalTimerInspection,
+} from "./acpRuntimeReplayLogicalTime";
+import type {
   AcpSessionConfigCategory,
   AcpToolCall,
   RequestPermissionOutcome,
@@ -3073,6 +3077,136 @@ function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
     }
     emitChanged(pendingChangedEmit || undefined);
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
+}
+
+export function inspectSyntheticAcpSkillRunReplayTimers(args: {
+  requestIds: readonly string[];
+}): AcpRuntimeReplayLogicalTimerInspection {
+  if (
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) ||
+    !__acp_runtime_replay_profiler_enabled__
+  ) {
+    return { timers: [], warnings: [] };
+  }
+  const requestIds = Array.from(
+    new Set(
+      args.requestIds.map((entry) => normalizeString(entry)).filter(Boolean),
+    ),
+  ).sort();
+  const allowed = new Set(requestIds);
+  const timers: AcpRuntimeReplayLogicalTimerDescriptor[] = [];
+  const warnings: string[] = [];
+  const foreignOwnerKeys = Array.from(softRunPersistTimers.keys()).filter(
+    (requestId) => !allowed.has(requestId),
+  );
+  if (foreignOwnerKeys.length > 0) {
+    warnings.push(
+      `logical-timer-contamination:acp-skill-run-soft-persist:${foreignOwnerKeys.sort().join(",")}`,
+    );
+  }
+
+  if (changedEmitTimer) {
+    const pending = normalizeAcpSkillRunSnapshotChange(pendingChangedEmit);
+    const pendingRequestIds = pending.requestIds || [];
+    const owned =
+      !pending.global &&
+      pendingRequestIds.length > 0 &&
+      pendingRequestIds.every((requestId) => allowed.has(requestId));
+    if (!owned) {
+      warnings.push("logical-timer-contamination:acp-skill-run-change");
+    } else {
+      const nativeToken = changedEmitTimer;
+      let currentToken = nativeToken;
+      timers.push({
+        domain: "acp-skill-run-change",
+        ownerKey: requestIds.join("\n"),
+        delayMs: ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
+        nativeToken,
+        detachNative: () => {
+          if (changedEmitTimer !== currentToken) return false;
+          clearTimeout(currentToken);
+          return true;
+        },
+        fireIfCurrent: () => {
+          if (changedEmitTimer !== currentToken) return false;
+          changedEmitTimer = null;
+          if (canPublishAssistantWorkspaceLiveUpdates()) {
+            publishPendingAcpSkillRunTranscripts();
+          }
+          emitChanged(pendingChangedEmit || undefined);
+          return true;
+        },
+        resumeNative: (remainingMs) => {
+          if (changedEmitTimer !== currentToken) return false;
+          currentToken = setTimeout(
+            () => {
+              changedEmitTimer = null;
+              if (canPublishAssistantWorkspaceLiveUpdates()) {
+                publishPendingAcpSkillRunTranscripts();
+              }
+              emitChanged(pendingChangedEmit || undefined);
+            },
+            Math.max(0, remainingMs),
+          );
+          changedEmitTimer = currentToken;
+          return true;
+        },
+      });
+    }
+  }
+
+  for (const requestId of requestIds) {
+    const nativeToken = softRunPersistTimers.get(requestId);
+    if (!nativeToken) continue;
+    let currentToken = nativeToken;
+    timers.push({
+      domain: "acp-skill-run-soft-persist",
+      ownerKey: requestId,
+      delayMs: SOFT_RUN_PERSIST_DELAY_MS,
+      nativeToken,
+      detachNative: () => {
+        if (softRunPersistTimers.get(requestId) !== currentToken) return false;
+        clearTimeout(currentToken);
+        return true;
+      },
+      fireIfCurrent: () => {
+        if (softRunPersistTimers.get(requestId) !== currentToken) return false;
+        softRunPersistTimers.delete(requestId);
+        const pending = softRunPersistRecords.get(requestId);
+        if (pending) {
+          softRunPersistRecords.delete(requestId);
+          persistRun(pending);
+        }
+        return true;
+      },
+      resumeNative: (remainingMs) => {
+        if (softRunPersistTimers.get(requestId) !== currentToken) return false;
+        currentToken = setTimeout(
+          () => {
+            softRunPersistTimers.delete(requestId);
+            const pending = softRunPersistRecords.get(requestId);
+            if (pending) {
+              softRunPersistRecords.delete(requestId);
+              persistRun(pending);
+            }
+          },
+          Math.max(0, remainingMs),
+        );
+        softRunPersistTimers.set(requestId, currentToken);
+        return true;
+      },
+      fallbackFlush: () => {
+        if (softRunPersistTimers.get(requestId) !== currentToken) return false;
+        const pending = softRunPersistRecords.get(requestId);
+        if (pending) persistRun(pending);
+        return true;
+      },
+    });
+  }
+
+  return { timers, warnings };
 }
 
 function isAllowedNonTerminalAcpSkillRunTransition(args: {

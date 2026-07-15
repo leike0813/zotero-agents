@@ -64,7 +64,17 @@ selection, preflight, cancellation, and retry.
 
 - `recorded` waits each original monotonic gap after the previous event has
   finished consuming; it does not catch up with a burst.
+- `logical` advances trace time without sleeping through idle gaps. It executes
+  replay-owned 16 ms Workspace publication, 160 ms live publication, and
+  2000 ms persistence timers at their logical deadlines, with equal deadlines
+  ordered by registration. It is the routine regression cadence for timer
+  grouping, persistence, and publication behavior.
 - `burst` applies the next event immediately after the prior consumer finishes.
+
+Logical cadence does not reproduce recorded wall time, throughput, scheduler
+lag, event-loop drift, or wall-clock-dependent request duration. Reports retain
+those values as synthetic diagnostics and mark them non-comparable with
+recorded timing. Recorded remains the low-frequency wall-clock reference.
 
 One action normally runs surfaces in `closed`, `open-inactive`, `target-active`
 order. Each surface has one warm-up and two formal runs. Every run uses fresh
@@ -96,7 +106,7 @@ matrix position, and start time outside the profile window. A browser-local
 timer updates without requesting host snapshots. The 3×3 matrix then marks each
 record complete only after the profile has finished and the target has cleaned
 up. Cancel interrupts a
-recorded cadence wait, prevents future runs, saves the completed prefix as an
+recorded cadence wait or logical timer batch, prevents future runs, saves the completed prefix as an
 incomplete matrix, restores Workspace state, and leaves the selected trace and
 options ready for retry.
 
@@ -135,6 +145,9 @@ per-metric R1/R2/R3 totals. Dashboard defaults to the same per-surface summary;
 raw metadata, paths, per-run measurement families, drain status, and warnings
 remain available in expandable evidence. Two formal observations are
 descriptive only.
+For logical cadence, semantic disposition, persistence, change, publication,
+and payload evidence remain valid. Timing headings and provenance explicitly
+identify scheduler version 1 and synthetic timing.
 
 Governance comparison requires identical trace digest, source kind, cadence,
 R2 workload version, and replay configuration, with both completion dimensions
@@ -156,7 +169,11 @@ npm run check:runtime-diagnostics-release-elision
 ```
 
 It independently verifies zero bytes for non-debug, Recorder-disabled,
-Replay-disabled, and SkillRunner-connection-audit-disabled builds.
+Replay-disabled, and SkillRunner-connection-audit-disabled builds. Logical
+timer control exports are removed with Replay. When Replay is compiled but no
+logical run is active, the five Chat, Skills, and Workspace scheduling paths
+remain direct native `setTimeout` calls with no replay lookup, branch,
+allocation, or module initialization.
 
 ## Manual Zotero Acceptance
 

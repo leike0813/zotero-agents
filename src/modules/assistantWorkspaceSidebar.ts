@@ -2176,6 +2176,125 @@ function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
   }, 16);
 }
 
+export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
+  window?: _ZoteroTypes.MainWindow;
+  expectedTab: "acp-chat" | "acp-skills";
+  expectedChatOwner?: { backendId: string; conversationId: string };
+  expectedSkillRequestIds?: readonly string[];
+}): import("./acpRuntimeReplayLogicalTime").AcpRuntimeReplayLogicalTimerInspection {
+  if (
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) ||
+    !__acp_runtime_replay_profiler_enabled__
+  ) {
+    return { timers: [], warnings: [] };
+  }
+  const win =
+    args.window ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  const host = win ? hosts.get(win) : undefined;
+  if (!host) {
+    return {
+      timers: [],
+      warnings: ["logical-timer-contamination:workspace-host-missing"],
+    };
+  }
+  if (!host.activeTarget || host.activeTab !== args.expectedTab) {
+    return {
+      timers: [],
+      warnings: ["logical-timer-contamination:workspace-target"],
+    };
+  }
+  let ownerKey = "";
+  if (args.expectedChatOwner) {
+    const chat = getAcpFrontendSnapshot({ itemMode: "structural" });
+    if (
+      chat.activeBackendId !== args.expectedChatOwner.backendId ||
+      chat.activeConversationId !== args.expectedChatOwner.conversationId
+    ) {
+      return {
+        timers: [],
+        warnings: ["logical-timer-contamination:workspace-chat-owner"],
+      };
+    }
+    ownerKey = `${args.expectedChatOwner.backendId}\n${args.expectedChatOwner.conversationId}`;
+  } else {
+    const requestIds = Array.from(
+      new Set(args.expectedSkillRequestIds || []),
+    ).sort();
+    if (!requestIds.includes(getSelectedAcpSkillRunRequestId())) {
+      return {
+        timers: [],
+        warnings: ["logical-timer-contamination:workspace-skill-owner"],
+      };
+    }
+    ownerKey = requestIds.join("\n");
+  }
+  const nativeToken = host.postSnapshotTimer;
+  if (!nativeToken) return { timers: [], warnings: [] };
+  let currentToken = nativeToken;
+  return {
+    warnings: [],
+    timers: [
+      {
+        domain: "assistant-workspace-post-snapshot",
+        ownerKey,
+        delayMs: 16,
+        nativeToken,
+        detachNative: () => {
+          if (
+            hosts.get(host.win) !== host ||
+            host.postSnapshotTimer !== currentToken
+          ) {
+            return false;
+          }
+          clearTimeout(currentToken);
+          return true;
+        },
+        fireIfCurrent: () => {
+          if (
+            hosts.get(host.win) !== host ||
+            host.postSnapshotTimer !== currentToken
+          ) {
+            return false;
+          }
+          host.postSnapshotTimer = null;
+          logAssistantWorkspaceDebug(
+            host,
+            "snapshot-post-fired",
+            "Assistant Workspace scheduled snapshot post fired.",
+          );
+          postAllSnapshots(host);
+          return true;
+        },
+        resumeNative: (remainingMs) => {
+          if (
+            hosts.get(host.win) !== host ||
+            host.postSnapshotTimer !== currentToken
+          ) {
+            return false;
+          }
+          currentToken = setTimeout(
+            () => {
+              host.postSnapshotTimer = null;
+              logAssistantWorkspaceDebug(
+                host,
+                "snapshot-post-fired",
+                "Assistant Workspace scheduled snapshot post fired.",
+              );
+              postAllSnapshots(host);
+            },
+            Math.max(0, remainingMs),
+          );
+          host.postSnapshotTimer = currentToken;
+          return true;
+        },
+      },
+    ],
+  };
+}
+
 function setAssistantWorkspaceExecutionDisplayMode(
   host: AssistantWorkspaceHostRuntime,
   mode: unknown,

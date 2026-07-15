@@ -1593,6 +1593,18 @@ async function buildDashboardSnapshot(args: {
       "Trace and run evidence",
     ),
     acpReplayCadence: localize("task-dashboard-acp-replay-cadence", "Cadence"),
+    acpReplayCadenceRecorded: localize(
+      "task-dashboard-acp-replay-cadence-recorded",
+      "Recorded time",
+    ),
+    acpReplayCadenceLogical: localize(
+      "task-dashboard-acp-replay-cadence-logical",
+      "Logical time",
+    ),
+    acpReplayCadenceBurst: localize(
+      "task-dashboard-acp-replay-cadence-burst",
+      "Burst",
+    ),
     acpReplayRun: localize(
       "task-dashboard-acp-replay-run",
       "Run Nine-Replay Matrix",
@@ -3144,7 +3156,7 @@ export async function openTaskManagerDialog(args?: {
         if (action === "acp-replay-trace-browse") {
           replay.setAcpRuntimeReplayDraft({
             phase: String(payload.phase || ""),
-            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
           });
           const selected = await openRuntimeFilePicker({
             title: localize(
@@ -3170,7 +3182,7 @@ export async function openTaskManagerDialog(args?: {
         } else if (action === "acp-replay-trace-preflight") {
           replay.setAcpRuntimeReplayDraft({
             phase: String(payload.phase || ""),
-            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
           });
           await replay.preflightAcpRuntimeReplayTrace({
             tracePath: String(payload.tracePath || ""),
@@ -3178,14 +3190,14 @@ export async function openTaskManagerDialog(args?: {
         } else if (action === "acp-replay-profiler-set-draft") {
           replay.setAcpRuntimeReplayDraft({
             phase: String(payload.phase || ""),
-            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
           });
         } else if (action === "acp-replay-profiler-start") {
           const environment = resolveAcpRuntimeCaptureEnvironment();
           await replay.startAcpRuntimeReplayController({
             tracePath: String(payload.tracePath || ""),
             phase: String(payload.phase || ""),
-            cadence: payload.cadence === "burst" ? "burst" : "recorded",
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
             environment: {
               pluginVersion: environment.pluginVersion,
               zoteroVersion: environment.zoteroVersion,

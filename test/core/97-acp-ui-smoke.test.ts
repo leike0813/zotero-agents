@@ -9289,6 +9289,9 @@ describe("acp ui smoke", function () {
     assert.notInclude(recorderRenderSource, "clipboard");
     assert.include(recorderRenderSource, "sensitive data");
     assert.include(replayRenderSource, "Run Nine-Replay Matrix");
+    assert.include(replayRenderSource, '["recorded", "logical", "burst"]');
+    assert.include(replayRenderSource, 'view.cadence || "logical"');
+    assert.include(replayRenderSource, "acpReplayCadenceLogical");
     assert.include(replayRenderSource, 'tracePath.addEventListener("input"');
     assert.include(replayRenderSource, "syncReplayStartAvailability");
     assert.include(
@@ -9309,6 +9312,11 @@ describe("acp ui smoke", function () {
       "await replay.startAcpRuntimeReplayController({",
     );
     assert.include(taskManagerDialog, 'phase: String(payload.phase || "")');
+    assert.include(taskManagerDialog, "parseAcpRuntimeReplayCadence");
+    assert.notInclude(
+      taskManagerDialog,
+      'payload.cadence === "burst" ? "burst" : "recorded"',
+    );
     assert.notInclude(
       taskManagerDialog,
       "void replay.startAcpRuntimeReplayController({",

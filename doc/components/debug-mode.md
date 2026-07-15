@@ -35,6 +35,13 @@ Replay matrix v2 exposes execution and measurement completion independently;
 missing R1/R2/R3 evidence cannot be mistaken for a successful comparable
 baseline, even when all nine replay executions finish.
 
+Replay supports recorded, logical, and burst cadence. Logical time is created
+only inside an active replay run and takes ownership only of explicitly scoped
+synthetic timers. It never patches global timers. Non-debug and Replay-source
+disabled bundles remove the logical scheduler and timer control bodies. When
+Replay is present but logical cadence is idle, normal Chat, Skills, and
+Workspace timer hot paths execute the same direct native calls as before.
+
 Production hot-path call sites use the injected `__debug_mode__` constant.
 The build marks the profiler module as side-effect free and enables syntax
 folding, so non-debug bundles eliminate both the guarded calls and the module.

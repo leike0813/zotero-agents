@@ -5,6 +5,7 @@ import {
 } from "./acpRuntimeSemanticTrace";
 import {
   runAcpRuntimeReplayMatrix,
+  parseAcpRuntimeReplayCadence,
   saveAcpRuntimeReplayMatrix,
   projectAcpRuntimeReplaySurfaceSummaries,
   type AcpRuntimeR2InputPort,
@@ -12,6 +13,7 @@ import {
   type AcpRuntimeReplayCancellationSignal,
   type AcpRuntimeReplayCurrentRun,
   type AcpRuntimeReplayMatrix,
+  type AcpRuntimeReplayLogicalRunPort,
   type AcpRuntimeReplayProfileRecord,
   type AcpRuntimeReplayProfilerPort,
   type AcpRuntimeReplayTarget,
@@ -21,6 +23,7 @@ import {
 import { createAcpRuntimeReplayTarget } from "./acpRuntimeReplayTargets";
 import {
   createAcpRuntimeR2ProductionNoopPort,
+  createAcpRuntimeReplayProductionLogicalTimePort,
   createAcpRuntimeReplayProductionProfilerPort,
   createAcpRuntimeReplayProductionWorkspacePort,
 } from "./acpRuntimeReplayProductionPorts";
@@ -29,6 +32,8 @@ import {
   normalizeAcpRuntimeReplayPhase,
   type AcpRuntimeReplayPhaseValidation,
 } from "./acpRuntimeReplayIdentity";
+
+export { parseAcpRuntimeReplayCadence };
 
 export type AcpRuntimeReplayTraceMetadata = {
   schema: string;
@@ -83,6 +88,14 @@ type ControllerRuntime = {
     sourceKind: AcpRuntimeTraceSourceKind;
     syntheticRootId: string;
   }) => Promise<AcpRuntimeReplayTarget>;
+  createLogicalTime: (args: {
+    surface: "closed" | "open-inactive" | "target-active";
+    sourceKind: AcpRuntimeTraceSourceKind;
+    syntheticRootId: string;
+    signal?: AcpRuntimeReplayCancellationSignal;
+  }) =>
+    | Promise<AcpRuntimeReplayLogicalRunPort>
+    | AcpRuntimeReplayLogicalRunPort;
   workspace: AcpRuntimeReplayWorkspacePort;
   profiler: AcpRuntimeReplayProfilerPort;
   r2Port: AcpRuntimeR2InputPort;
@@ -99,7 +112,7 @@ let view: AcpRuntimeReplayControllerView = {
   traceValidation: "empty",
   phase: "",
   phaseValidation: "empty",
-  cadence: "recorded",
+  cadence: "logical",
   progress: { completed: 0, total: 9 },
   records: [],
   surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
@@ -149,6 +162,7 @@ function createAcpRuntimeReplayCancellationController(): AcpRuntimeReplayCancell
 function runtime(): ControllerRuntime {
   return {
     createTarget: createAcpRuntimeReplayTarget,
+    createLogicalTime: createAcpRuntimeReplayProductionLogicalTimePort,
     workspace: createAcpRuntimeReplayProductionWorkspacePort(),
     profiler: createAcpRuntimeReplayProductionProfilerPort(),
     r2Port: createAcpRuntimeR2ProductionNoopPort(),
@@ -228,7 +242,10 @@ export function setAcpRuntimeReplayDraft(args: {
     phaseErrorCode: phaseValidation.valid
       ? undefined
       : phaseValidation.errorCode,
-    cadence: args.cadence || view.cadence,
+    cadence:
+      args.cadence === undefined
+        ? view.cadence
+        : parseAcpRuntimeReplayCadence(args.cadence),
     ...(pathChanged
       ? {
           traceValidation: tracePath
@@ -293,6 +310,7 @@ export async function startAcpRuntimeReplayController(args: {
     throw new Error("ACP replay profiler is already running");
   }
   const tracePath = String(args.tracePath || "").trim();
+  const cadence = parseAcpRuntimeReplayCadence(args.cadence);
   const phaseValidation = normalizeAcpRuntimeReplayPhase(args.phase);
   if (!phaseValidation.valid) {
     view = {
@@ -320,7 +338,7 @@ export async function startAcpRuntimeReplayController(args: {
     traceValidation: tracePath ? "validating" : "empty",
     phase: phaseValidation.value,
     phaseValidation: "ready",
-    cadence: args.cadence,
+    cadence,
     progress: { completed: 0, total: 9 },
     records: [],
     surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),
@@ -338,10 +356,11 @@ export async function startAcpRuntimeReplayController(args: {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace,
       sampleName: deriveAcpRuntimeReplaySampleName(tracePath),
-      cadence: args.cadence,
+      cadence,
       replayConfig: { phase: phaseValidation.value },
       environment: args.environment,
       createTarget: currentRuntime.createTarget,
+      createLogicalTime: currentRuntime.createLogicalTime,
       workspace: currentRuntime.workspace,
       profiler: currentRuntime.profiler,
       r2Port: currentRuntime.r2Port,
@@ -445,7 +464,7 @@ export function resetAcpRuntimeReplayControllerForTests() {
     traceValidation: "empty",
     phase: "",
     phaseValidation: "empty",
-    cadence: "recorded",
+    cadence: "logical",
     progress: { completed: 0, total: 9 },
     records: [],
     surfaceSummaries: projectAcpRuntimeReplaySurfaceSummaries([]),

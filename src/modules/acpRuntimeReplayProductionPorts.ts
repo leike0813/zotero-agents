@@ -14,24 +14,117 @@ import {
 import { setAcpRuntimeReplayProfileContext } from "./acpRuntimeReplayProfileContext";
 import type {
   AcpRuntimeR2InputPort,
+  AcpRuntimeReplayLogicalRunPort,
   AcpRuntimeReplayProfilerPort,
   AcpRuntimeReplayWorkspacePort,
 } from "./acpRuntimeReplayProfiler";
+import { createAcpRuntimeReplayLogicalTime } from "./acpRuntimeReplayLogicalTime";
+import type { AcpRuntimeTraceOwner } from "./acpRuntimeSemanticTrace";
 import {
   closeAssistantWorkspaceSidebar,
   drainAssistantWorkspaceReplayPublication,
   getAssistantWorkspaceReplayState,
+  inspectAssistantWorkspaceReplayPostSnapshotTimer,
   openAssistantWorkspaceSidebar,
 } from "./assistantWorkspaceSidebar";
 import {
   getAcpFrontendSnapshot,
+  inspectSyntheticAcpChatReplayTimers,
   setActiveAcpConversation,
 } from "./acpSessionManager";
 import {
   getSelectedAcpSkillRunRequestId,
+  inspectSyntheticAcpSkillRunReplayTimers,
   prepareSyntheticAcpSkillRunReplay,
   selectAcpSkillRun,
 } from "./acpSkillRunStore";
+
+export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
+  surface: "closed" | "open-inactive" | "target-active";
+  sourceKind: "acp-chat-conversation" | "acp-workflow-execution";
+  syntheticRootId: string;
+  signal?: { readonly aborted: boolean };
+}): AcpRuntimeReplayLogicalRunPort {
+  const requestIds = new Set<string>();
+  if (args.sourceKind === "acp-workflow-execution") {
+    requestIds.add(`${args.syntheticRootId}-request`);
+  }
+  const baselineTokens = new Set<ReturnType<typeof setTimeout>>();
+  const baselineWarnings: string[] = [];
+
+  const inspectOwnedTimers = () => {
+    const inspections =
+      args.sourceKind === "acp-chat-conversation"
+        ? [
+            inspectSyntheticAcpChatReplayTimers({
+              backendId: "acp-replay",
+              conversationId: `${args.syntheticRootId}-conversation`,
+            }),
+          ]
+        : [
+            inspectSyntheticAcpSkillRunReplayTimers({
+              requestIds: [...requestIds],
+            }),
+          ];
+    if (args.surface === "target-active") {
+      inspections.push(
+        inspectAssistantWorkspaceReplayPostSnapshotTimer({
+          expectedTab:
+            args.sourceKind === "acp-chat-conversation"
+              ? "acp-chat"
+              : "acp-skills",
+          ...(args.sourceKind === "acp-chat-conversation"
+            ? {
+                expectedChatOwner: {
+                  backendId: "acp-replay",
+                  conversationId: `${args.syntheticRootId}-conversation`,
+                },
+              }
+            : { expectedSkillRequestIds: [...requestIds] }),
+        }),
+      );
+    }
+    return {
+      timers: inspections.flatMap((entry) => entry.timers),
+      warnings: inspections.flatMap((entry) => entry.warnings),
+    };
+  };
+
+  const baseline = inspectOwnedTimers();
+  for (const timer of baseline.timers) {
+    baselineTokens.add(timer.nativeToken);
+    baselineWarnings.push(
+      `logical-timer-contamination:baseline:${timer.domain}`,
+    );
+  }
+  baselineWarnings.push(...baseline.warnings);
+
+  const logical = createAcpRuntimeReplayLogicalTime({
+    signal: args.signal,
+    inspect: () => {
+      const inspection = inspectOwnedTimers();
+      const currentTokens = new Set(
+        inspection.timers.map((entry) => entry.nativeToken),
+      );
+      for (const token of [...baselineTokens]) {
+        if (!currentTokens.has(token)) baselineTokens.delete(token);
+      }
+      return {
+        timers: inspection.timers.filter(
+          (entry) => !baselineTokens.has(entry.nativeToken),
+        ),
+        warnings: [...baselineWarnings, ...inspection.warnings],
+      };
+    },
+  });
+
+  return {
+    ...logical,
+    registerOwner: (owner: AcpRuntimeTraceOwner) => {
+      if (owner.requestId) requestIds.add(owner.requestId);
+    },
+  };
+}
 
 export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplayProfilerPort {
   let activeRequestId = "";

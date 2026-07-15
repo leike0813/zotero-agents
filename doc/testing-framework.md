@@ -392,7 +392,7 @@ ACP runtime profiling has two complementary validation layers:
 - `test/core/178-acp-runtime-semantic-trace.test.ts` locks lossless payloads,
   source ownership, NDJSON sequence/hash/footer integrity, partial recovery,
   quotas, and incomplete trace rejection.
-- `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/burst
+- `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/logical/burst
   scheduling, backend-free target ports, fixed R2 v1 work, three warm-ups plus
   six formal profiles, interruptible cadence, progress after cleanup, early
   abort, fresh owners, drain failures, provenance, Workspace restoration,
@@ -404,6 +404,10 @@ ACP runtime profiling has two complementary validation layers:
   metadata, required free-text stage validation, live current/completed
   nine-record progress, shared surface summaries, canceled matrix persistence,
   retained options, and retry with fresh owners.
+- `test/core/181-acp-runtime-replay-logical-time.test.ts` locks logical deadline
+  and registration ordering, callback batching, cancellation, tail resumption,
+  synthetic Chat/Skills timer ownership, Workspace fail-closed contamination,
+  and production logical replay without recorded gap sleeps.
 - ACP connection, Host Bridge, runtime diagnostic bundle, and performance
   digest tests verify request attribution and export through real module entry
   points.
@@ -414,6 +418,8 @@ ACP runtime profiling has two complementary validation layers:
   entry in debug, non-debug, independently source-disabled ACP modes, and
   SkillRunner-audit-disabled mode. Each disabled diagnostic subsystem must
   retain zero bytes and no stable markers.
+  It also locks non-debug Replay on/off output equivalence and verifies that
+  inactive production scheduling remains independent from replay context.
 
 The automated surface matrix is a mechanism smoke baseline. Comparable
 real-workload evidence comes from complete source-specific replay matrices.

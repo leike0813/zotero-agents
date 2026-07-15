@@ -3113,13 +3113,18 @@
     );
     phase.value = view.phase || "";
     const cadence = el("select", "select-input profiler-input");
-    ["recorded", "burst"].forEach(function (value) {
+    const cadenceLabels = {
+      recorded: labelText(labels, "acpReplayCadenceRecorded", "Recorded time"),
+      logical: labelText(labels, "acpReplayCadenceLogical", "Logical time"),
+      burst: labelText(labels, "acpReplayCadenceBurst", "Burst"),
+    };
+    ["recorded", "logical", "burst"].forEach(function (value) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = value;
+      option.textContent = cadenceLabels[value];
       cadence.appendChild(option);
     });
-    cadence.value = view.cadence || "recorded";
+    cadence.value = view.cadence || "logical";
     const running = view.state === "running" || view.state === "canceling";
     [tracePath, phase, cadence].forEach(function (control) {
       control.disabled = running;

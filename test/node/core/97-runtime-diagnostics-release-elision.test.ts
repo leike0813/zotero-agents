@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { promises as fs } from "node:fs";
 import { checkRuntimeDiagnosticsReleaseElision } from "../../../scripts/check-runtime-diagnostics-release-elision";
 
 describe("runtime diagnostics release elision", function () {
@@ -15,6 +16,46 @@ describe("runtime diagnostics release elision", function () {
       assert.equal(result.releaseBytes[name], 0);
       assert.equal(result.sourceDisabledBytes[name], 0);
       assert.isAbove(result.debugBytes[name], 0);
+    }
+    assert.isTrue(result.releaseReplayOutputEqual);
+  });
+
+  it("keeps production timer scheduling independent from replay context", async function () {
+    const sources = await Promise.all(
+      [
+        "src/modules/acpSkillRunStore.ts",
+        "src/modules/acpSessionManager.ts",
+        "src/modules/assistantWorkspaceSidebar.ts",
+      ].map((path) => fs.readFile(path, "utf8")),
+    );
+    const scheduleBodies = [
+      /function scheduleSoftRunPersist[\s\S]*?function flushSoftRunPersists/.exec(
+        sources[0],
+      )?.[0],
+      /function scheduleChangedEmit[\s\S]*?export function inspectSyntheticAcpSkillRunReplayTimers/.exec(
+        sources[0],
+      )?.[0],
+      /function schedulePersistenceFlush[\s\S]*?function scheduleUiEmit/.exec(
+        sources[1],
+      )?.[0],
+      /function scheduleUiEmit[\s\S]*?export function inspectSyntheticAcpChatReplayTimers/.exec(
+        sources[1],
+      )?.[0],
+      /function schedulePostSnapshot[\s\S]*?export function inspectAssistantWorkspaceReplayPostSnapshotTimer/.exec(
+        sources[2],
+      )?.[0],
+    ];
+    for (const body of scheduleBodies) {
+      assert.isString(body);
+      assert.include(body || "", "setTimeout(");
+      assert.notInclude(body || "", "getAcpRuntimeReplayProfileContext");
+      assert.notInclude(body || "", "logicalTime");
+    }
+    for (const source of sources) {
+      assert.notMatch(
+        source,
+        /import\s+\{[^}]*\}\s+from\s+["']\.\/acpRuntimeReplayLogicalTime["']/,
+      );
     }
   });
 });

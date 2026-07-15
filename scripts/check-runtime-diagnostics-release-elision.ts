@@ -21,6 +21,7 @@ const GROUPS = {
   replay: {
     paths: [
       "src/modules/acpRuntimeReplayProfiler.ts",
+      "src/modules/acpRuntimeReplayLogicalTime.ts",
       "src/modules/acpRuntimeReplayTargets.ts",
       "src/modules/acpRuntimeReplayProductionPorts.ts",
       "src/modules/acpRuntimeReplayProfileContext.ts",
@@ -29,6 +30,10 @@ const GROUPS = {
     markers: [
       "zotero-agents.acp-runtime-replay-matrix.v1",
       "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
+      "ACP_RUNTIME_LOGICAL_TIME_V1",
+      "logical-timer-contamination:acp-chat-owner-missing",
+      "logical-timer-contamination:acp-skill-run-change",
+      "logical-timer-contamination:workspace-host-missing",
     ],
   },
   skillRunnerAudit: {
@@ -124,6 +129,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
   };
   const [
     release,
+    releaseReplayDisabled,
     debug,
     profilerDisabled,
     recorderDisabled,
@@ -131,6 +137,7 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     skillRunnerAuditDisabled,
   ] = await Promise.all([
     bundle({ ...enabled, debug: false }),
+    bundle({ ...enabled, debug: false, replay: false }),
     bundle(enabled),
     bundle({ ...enabled, profiler: false, replay: false }),
     bundle({ ...enabled, recorder: false }),
@@ -161,7 +168,13 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
   for (const [name, bytes] of Object.entries(debugBytes)) {
     if (bytes <= 0) throw new Error(`Debug bundle did not retain ${name}`);
   }
-  return { releaseBytes, debugBytes, sourceDisabledBytes };
+  return {
+    releaseBytes,
+    debugBytes,
+    sourceDisabledBytes,
+    releaseReplayOutputEqual:
+      outputText(release) === outputText(releaseReplayDisabled),
+  };
 }
 
 if (

@@ -91,3 +91,16 @@ The repository SHALL provide deterministic automated fixtures for R1 JSON-RPC an
 - **WHEN** no Zotero 7 or Zotero 9 timing artifact is available
 - **THEN** the automated mechanism baseline SHALL still satisfy this change's completion gate
 - **AND** no claim about real-host latency or performance improvement SHALL be made.
+
+### Requirement: Measurement coverage identifies synthetic timing
+
+Profiler coverage SHALL distinguish captured semantic/runtime evidence from timing evidence produced under a logical clock. Logical replay SHALL retain measured values for diagnostics but SHALL mark wall-clock-dependent timing families synthetic and non-comparable without downgrading correctly captured semantic counters.
+
+#### Scenario: Logical replay completes without contamination
+- **WHEN** logical replay processes every event and captures all replay-owned timers
+- **THEN** execution and semantic measurement SHALL be complete
+- **AND** wall-clock-dependent timing SHALL be reported as synthetic rather than as recorded-equivalent evidence.
+
+#### Scenario: Logical timer ownership is contaminated
+- **WHEN** Replay cannot prove exclusive ownership of a timer
+- **THEN** execution MAY remain complete, measurement SHALL be incomplete, and the structured contamination reason SHALL appear in JSON and Markdown.

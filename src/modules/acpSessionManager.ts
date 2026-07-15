@@ -65,6 +65,10 @@ import {
   getAcpRuntimeSemanticTraceRecorderView,
   recordAcpRuntimeSemanticTraceEvent,
 } from "./acpRuntimeSemanticTraceRecorder";
+import type {
+  AcpRuntimeReplayLogicalTimerDescriptor,
+  AcpRuntimeReplayLogicalTimerInspection,
+} from "./acpRuntimeReplayLogicalTime";
 import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
   buildAcpRuntimeOptionsStateFromConfigOptions,
@@ -1187,6 +1191,166 @@ function scheduleUiEmit(
       ),
     );
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
+}
+
+export function inspectSyntheticAcpChatReplayTimers(args: {
+  backendId: string;
+  conversationId: string;
+}): AcpRuntimeReplayLogicalTimerInspection {
+  if (
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) ||
+    !__acp_runtime_replay_profiler_enabled__
+  ) {
+    return { timers: [], warnings: [] };
+  }
+  const key = acpChatSessionKey(args.backendId, args.conversationId);
+  const sessionRuntime = sessionRuntimes.get(key);
+  if (!sessionRuntime) {
+    return {
+      timers: [],
+      warnings: ["logical-timer-contamination:acp-chat-owner-missing"],
+    };
+  }
+  const ownerKey = `${args.backendId}\n${args.conversationId}`;
+  const timers: AcpRuntimeReplayLogicalTimerDescriptor[] = [];
+
+  if (sessionRuntime.uiEmitTimer) {
+    const nativeToken = sessionRuntime.uiEmitTimer;
+    let currentToken = nativeToken;
+    timers.push({
+      domain: "acp-chat-ui-emit",
+      ownerKey,
+      delayMs: ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
+      nativeToken,
+      detachNative: () => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.uiEmitTimer !== currentToken
+        ) {
+          return false;
+        }
+        clearTimeout(currentToken);
+        return true;
+      },
+      fireIfCurrent: () => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.uiEmitTimer !== currentToken
+        ) {
+          return false;
+        }
+        sessionRuntime.uiEmitTimer = null;
+        const mode = sessionRuntime.uiPendingPublishMode || "metadata";
+        sessionRuntime.uiPendingPublishMode = null;
+        updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
+        notifyConversationListenersNow(sessionRuntime);
+        notifyFrontendListenersNow(
+          buildAcpChatPanelSnapshotChange(
+            sessionRuntime,
+            resolveAcpChatPanelChangeKindsForPublish(
+              "live",
+              mode,
+              sessionRuntime,
+            ),
+          ),
+        );
+        return true;
+      },
+      resumeNative: (remainingMs) => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.uiEmitTimer !== currentToken
+        ) {
+          return false;
+        }
+        currentToken = setTimeout(
+          () => {
+            sessionRuntime.uiEmitTimer = null;
+            const mode = sessionRuntime.uiPendingPublishMode || "metadata";
+            sessionRuntime.uiPendingPublishMode = null;
+            updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
+            notifyConversationListenersNow(sessionRuntime);
+            notifyFrontendListenersNow(
+              buildAcpChatPanelSnapshotChange(
+                sessionRuntime,
+                resolveAcpChatPanelChangeKindsForPublish(
+                  "live",
+                  mode,
+                  sessionRuntime,
+                ),
+              ),
+            );
+          },
+          Math.max(0, remainingMs),
+        );
+        sessionRuntime.uiEmitTimer = currentToken;
+        return true;
+      },
+    });
+  }
+
+  if (sessionRuntime.persistTimer) {
+    const nativeToken = sessionRuntime.persistTimer;
+    let currentToken = nativeToken;
+    timers.push({
+      domain: "acp-chat-persist",
+      ownerKey,
+      delayMs: STREAMING_PERSIST_THROTTLE_MS,
+      nativeToken,
+      detachNative: () => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.persistTimer !== currentToken
+        ) {
+          return false;
+        }
+        clearTimeout(currentToken);
+        return true;
+      },
+      fireIfCurrent: () => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.persistTimer !== currentToken
+        ) {
+          return false;
+        }
+        sessionRuntime.persistTimer = null;
+        persistSessionRuntimeSnapshotNow(sessionRuntime);
+        return true;
+      },
+      resumeNative: (remainingMs) => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.persistTimer !== currentToken
+        ) {
+          return false;
+        }
+        currentToken = setTimeout(
+          () => {
+            sessionRuntime.persistTimer = null;
+            persistSessionRuntimeSnapshotNow(sessionRuntime);
+          },
+          Math.max(0, remainingMs),
+        );
+        sessionRuntime.persistTimer = currentToken;
+        return true;
+      },
+      fallbackFlush: () => {
+        if (
+          sessionRuntimes.get(key) !== sessionRuntime ||
+          sessionRuntime.persistTimer !== currentToken
+        ) {
+          return false;
+        }
+        flushPendingPersistence(sessionRuntime);
+        return true;
+      },
+    });
+  }
+
+  return { timers, warnings: [] };
 }
 
 function publishSessionRuntimeUiSnapshot(

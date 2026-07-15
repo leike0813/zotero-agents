@@ -43,6 +43,10 @@ describe("ACP runtime replay controller", function () {
     await fs.rm(tempRoot, { recursive: true, force: true });
   });
 
+  it("defaults new replay drafts to logical cadence", function () {
+    assert.equal(getAcpRuntimeReplayControllerView().cadence, "logical");
+  });
+
   async function createTrace(args?: { cancel?: boolean }) {
     await armAcpRuntimeSemanticTraceRecorder({
       sourceKind: "acp-chat-conversation",
@@ -71,7 +75,7 @@ describe("ACP runtime replay controller", function () {
     return (await saveFrozenAcpRuntimeSemanticTrace()).path;
   }
 
-  function installRuntime(ownerIds: string[]) {
+  function installRuntime(ownerIds: string[], logicalStarts: string[] = []) {
     let active:
       | {
           requestId: string;
@@ -87,6 +91,19 @@ describe("ACP runtime replay controller", function () {
           apply: async () => "applied",
           drain: async () => ({ ok: true }),
           cleanup: async () => undefined,
+        };
+      },
+      createLogicalTime: ({ syntheticRootId }) => {
+        logicalStarts.push(syntheticRootId);
+        return {
+          registerOwner: () => undefined,
+          advanceTo: async () => undefined,
+          captureAt: async () => undefined,
+          releaseToNative: async () => ({ ok: true, warnings: [] }),
+          flushWriteBearing: async () => ({ ok: true, warnings: [] }),
+          dispose: () => undefined,
+          pendingCount: () => 0,
+          warnings: () => [],
         };
       },
       workspace: {
@@ -235,6 +252,31 @@ describe("ACP runtime replay controller", function () {
     assert.equal(result.progress.completed, 9);
     assert.includeMembers(completed, [0, 1, 9]);
     assert.lengthOf(ownerIds, 9);
+  });
+
+  it("runs logical cadence in nine isolated scopes and preserves it for retry", async function () {
+    const tracePath = await createTrace();
+    const ownerIds: string[] = [];
+    const logicalStarts: string[] = [];
+    installRuntime(ownerIds, logicalStarts);
+    assert.equal(
+      setAcpRuntimeReplayDraft({ cadence: "logical" }).cadence,
+      "logical",
+    );
+
+    const result = await startAcpRuntimeReplayController({
+      tracePath,
+      phase: "logical-regression",
+      cadence: "logical",
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+    });
+
+    assert.equal(result.state, "complete");
+    assert.equal(result.cadence, "logical");
+    assert.lengthOf(logicalStarts, 9);
+    assert.equal(new Set(logicalStarts).size, 9);
+    assert.equal(result.matrix?.replayConfig.logicalSchedulerVersion, 1);
+    assert.equal(result.matrix?.replayConfig.syntheticTiming, true);
   });
 
   it("cancels after one record, saves an incomplete matrix, and retries with fresh owners", async function () {

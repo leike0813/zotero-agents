@@ -210,3 +210,6 @@ before target preparation and completed-record refreshes after cleanup, always
 outside replay profile windows. Neither view enters an Assistant Workspace
 snapshot or render key. See
 `doc/components/acp-runtime-performance-profiler.md`.
+Replay cadence selection exposes recorded wall-clock, logical-time regression,
+and burst stress modes. Unknown cadence values are rejected by the host rather
+than silently normalized.

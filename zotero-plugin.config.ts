@@ -86,7 +86,8 @@ async function resolveGitBranch(): Promise<string> {
   }
 }
 
-const DEBUG_MODE = (await resolveGitBranch()) === "dev";
+const branch = await resolveGitBranch();
+const DEBUG_MODE = branch === "dev" || branch.startsWith("dev-");
 
 export default defineConfig({
   source: ["src", "addon"],
