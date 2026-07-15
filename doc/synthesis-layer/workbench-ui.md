@@ -80,6 +80,8 @@ Canonical revision Accept/Reject, single proposal actions, batch proposal decisi
 
 Concept KB rebuild, display-text update, review actions, and deletion route through strict `SynthesisClient.concepts` commands. The Workbench owns identifier trimming, review action selection, optional merge targets, and single/batch deletion aliases; the client boundary accepts only the four Concept display fields, strict review actions, and non-empty deletion batches. Rebuild keeps its protected confirmation and deferred start but carries no UI progress callback; persisted Workbench progress polling remains the progress source. Only review actions use singular `diagnostic` failure handling, and all four commands refresh Concepts/Review. Concept queries and checkpoint export remain on their current paths.
 
+Topic artifact deletion and purge plus discovery-hint rejection and restoration route through strict `SynthesisClient.topics` commands. Delete and purge retain their destructive confirmations and immediate single-flight execution; deletion still surfaces a returned domain reason when the Topic is not found. Discovery-hint actions retain trimmed identifiers, empty-ID skipping, singular `diagnostic` handling, and selected-surface refresh, so plural domain diagnostics remain reviewable results. Delete and purge refresh Home/Topics. These commands add no progress callback, streaming state, deferred start, or identifier aliases; Topic queries, Topic Graph, and mirror operations remain on their current paths.
+
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
 ## Sync Status and Conflict Review

@@ -2291,14 +2291,15 @@ function handleAction(
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const hintId = String(commandArgs.hintId || "").trim();
     if (hintId) {
-      const service = getDefaultSynthesisService();
       const command = result.hostCommand.command;
-      runWorkbenchCommandOnce(runtime, command, { hintId }, () =>
-        (command === "rejectTopicDiscoveryHint"
-          ? service.rejectTopicDiscoveryHint({ hintId })
-          : service.restoreTopicDiscoveryHint({ hintId })
-        ).then(failOnDiagnostic),
-      );
+      runWorkbenchCommandOnce(runtime, command, { hintId }, async () => {
+        const client = await getDefaultSynthesisClient();
+        return (
+          command === "rejectTopicDiscoveryHint"
+            ? client.topics.rejectTopicDiscoveryHint({ hintId })
+            : client.topics.restoreTopicDiscoveryHint({ hintId })
+        ).then(failOnDiagnostic);
+      });
       return;
     }
     void sendActiveSurface(runtime, { refreshFromService: false });
@@ -3081,14 +3082,22 @@ function handleAction(
       void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
-    runWorkbenchCommandOnce(runtime, "deleteTopicArtifact", { topicId }, () =>
-      getDefaultSynthesisService()
-        .deleteTopicArtifact({ topicId })
-        .then((deleteResult) => {
-          if (!deleteResult.ok) {
-            throw new Error(deleteResult.reason);
-          }
-        }),
+    runWorkbenchCommandOnce(
+      runtime,
+      "deleteTopicArtifact",
+      { topicId },
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topics
+          .deleteTopicArtifact({ topicId })
+          .then((deleteResult) => {
+            if (!deleteResult.ok) {
+              throw new Error(
+                String(deleteResult.reason || "Topic artifact deletion failed"),
+              );
+            }
+          });
+      },
     );
     return;
   }
@@ -3107,8 +3116,14 @@ function handleAction(
       void sendActiveSurface(runtime, { refreshFromService: false });
       return;
     }
-    runWorkbenchCommandOnce(runtime, "purgeDeletedTopicArtifacts", {}, () =>
-      getDefaultSynthesisService().purgeDeletedTopicArtifacts(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "purgeDeletedTopicArtifacts",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topics.purgeDeletedTopicArtifacts();
+      },
     );
     return;
   }

@@ -99,6 +99,10 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.workbench\s*\.readPaperDigest/);
     assert.match(workbench, /client\.workbench\s*\.readProgress/);
     assert.match(workbench, /client\.topics\s*\.getTopicReport/);
+    assert.match(workbench, /client\.topics\s*\.deleteTopicArtifact/);
+    assert.match(workbench, /client\.topics\s*\.purgeDeletedTopicArtifacts/);
+    assert.match(workbench, /client\.topics\s*\.rejectTopicDiscoveryHint/);
+    assert.match(workbench, /client\.topics\s*\.restoreTopicDiscoveryHint/);
     assert.match(workbench, /client\.graph\s*\.recomputeCitationGraphLayout/);
     assert.match(workbench, /client\.graph\s*\.rebuildCitationGraphCacheNow/);
     assert.match(
@@ -191,6 +195,19 @@ describe("Synthesis sidecar migration boundary", function () {
         new RegExp(`getDefaultSynthesisService\\(\\)\\.${method}`),
       );
     }
+    for (const method of [
+      "deleteTopicArtifact",
+      "purgeDeletedTopicArtifacts",
+      "rejectTopicDiscoveryHint",
+      "restoreTopicDiscoveryHint",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(
+          `(?:getDefaultSynthesisService\\(\\)\\s*\\.|\\bservice\\.)${method}`,
+        ),
+      );
+    }
     assert.notMatch(
       workbench,
       /getDefaultSynthesisService\(\)\.getTopicReport/,
@@ -227,6 +244,16 @@ describe("Synthesis sidecar migration boundary", function () {
       "utf8",
     );
     assert.include(topicsContract, "getTopicReport(");
+    assert.include(topicsContract, "deleteTopicArtifact(");
+    assert.include(topicsContract, "purgeDeletedTopicArtifacts()");
+    assert.include(topicsContract, "rejectTopicDiscoveryHint(");
+    assert.include(topicsContract, "restoreTopicDiscoveryHint(");
+    assert.include(topicsContract, "SynthesisTopicArtifactDeleteRequest");
+    assert.include(topicsContract, "SynthesisTopicDiscoveryHintRequest");
+    assert.notMatch(
+      topicsContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
     assert.notInclude(workbenchContract, "getTopicReport(");
     assert.include(workbenchContract, "readProgress()");
     assert.include(clientContract, "graph: SynthesisGraphClient");

@@ -40,6 +40,9 @@ import {
   type SynthesisTagVocabularySnapshot,
   type SynthesisTopicApplyRequest,
   type SynthesisTopicApplyResult,
+  type SynthesisTopicArtifactDeleteRequest,
+  type SynthesisTopicCommandResult,
+  type SynthesisTopicDiscoveryHintRequest,
   type SynthesisTopicReportRequest,
   type SynthesisTopicReportResult,
   type SynthesisWorkflowTopicOptionsRequest,
@@ -74,6 +77,16 @@ export interface LegacySynthesisPort {
     },
   ): Promise<unknown>;
   getTopicReport?(request: SynthesisTopicReportRequest): Promise<unknown>;
+  deleteTopicArtifact?(
+    request: SynthesisTopicArtifactDeleteRequest,
+  ): Promise<unknown>;
+  purgeDeletedTopicArtifacts?(): Promise<unknown>;
+  rejectTopicDiscoveryHint?(
+    request: SynthesisTopicDiscoveryHintRequest,
+  ): Promise<unknown>;
+  restoreTopicDiscoveryHint?(
+    request: SynthesisTopicDiscoveryHintRequest,
+  ): Promise<unknown>;
   readPaperArtifacts?(
     request: SynthesisPaperArtifactsRequest,
   ): Promise<unknown>;
@@ -231,6 +244,32 @@ function normalizeTopicId(value: unknown) {
     );
   }
   return value.trim();
+}
+
+function normalizeTopicArtifactDeleteRequest(
+  value: unknown,
+): SynthesisTopicArtifactDeleteRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    topicId: normalizeRequiredString(
+      request.topicId,
+      "topicId",
+      "Synthesis Topic topicId",
+    ),
+  };
+}
+
+function normalizeTopicDiscoveryHintRequest(
+  value: unknown,
+): SynthesisTopicDiscoveryHintRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    hintId: normalizeRequiredString(
+      request.hintId,
+      "hintId",
+      "Synthesis Topic discovery hintId",
+    ),
+  };
 }
 
 function normalizeCitationGraphLayoutRequest(
@@ -976,6 +1015,54 @@ export function createInProcessSynthesisClient(
               )(request),
             ) as SynthesisTopicReportResult,
         );
+      },
+      async deleteTopicArtifact(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeTopicArtifactDeleteRequest(request);
+          const port = requireLegacyPort(
+            legacy.deleteTopicArtifact,
+            "topics.deleteTopicArtifact",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicCommandResult;
+        });
+      },
+      async purgeDeletedTopicArtifacts() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.purgeDeletedTopicArtifacts,
+                "topics.purgeDeletedTopicArtifacts",
+              )(),
+            ) as SynthesisTopicCommandResult,
+        );
+      },
+      async rejectTopicDiscoveryHint(request) {
+        return runLegacy(async () => {
+          const normalizedRequest = normalizeTopicDiscoveryHintRequest(request);
+          const port = requireLegacyPort(
+            legacy.rejectTopicDiscoveryHint,
+            "topics.rejectTopicDiscoveryHint",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicCommandResult;
+        });
+      },
+      async restoreTopicDiscoveryHint(request) {
+        return runLegacy(async () => {
+          const normalizedRequest = normalizeTopicDiscoveryHintRequest(request);
+          const port = requireLegacyPort(
+            legacy.restoreTopicDiscoveryHint,
+            "topics.restoreTopicDiscoveryHint",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicCommandResult;
+        });
       },
     },
     system: {

@@ -2319,6 +2319,95 @@ describe("Synthesis tab UI model", function () {
     });
   });
 
+  it("routes Topic commands through the strict Topics client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const hintRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rejectTopicDiscoveryHint"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateConceptDisplayText"',
+      ),
+    );
+    const deleteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTopicArtifact"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "purgeDeletedTopicArtifacts"',
+      ),
+    );
+    const purgeRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "purgeDeletedTopicArtifacts"',
+      ),
+      handleActionBlock.indexOf("shouldRefreshGraphLayoutForAction"),
+    );
+
+    assert.include(hintRegion, 'String(commandArgs.hintId || "").trim()');
+    assert.match(hintRegion, /client\.topics\s*\.rejectTopicDiscoveryHint\(/);
+    assert.match(hintRegion, /client\.topics\s*\.restoreTopicDiscoveryHint\(/);
+    assert.match(
+      hintRegion,
+      /runWorkbenchCommandOnce\(runtime, command, \{ hintId \}/,
+    );
+    assert.match(hintRegion, /\.then\(failOnDiagnostic\)/);
+    assert.include(hintRegion, "refreshFromService: false");
+
+    assert.include(deleteRegion, 'String(commandArgs.topicId || "").trim()');
+    assert.include(deleteRegion, "synthesis-confirm-delete-topic-artifact");
+    assert.match(deleteRegion, /client\.topics\s*\.deleteTopicArtifact\(/);
+    assert.match(deleteRegion, /"deleteTopicArtifact",\s*\{ topicId \}/);
+    assert.include(deleteRegion, "if (!deleteResult.ok)");
+    assert.include(deleteRegion, "deleteResult.reason");
+
+    assert.include(
+      purgeRegion,
+      "synthesis-confirm-purge-deleted-topic-artifacts",
+    );
+    assert.match(
+      purgeRegion,
+      /client\.topics\s*\.purgeDeletedTopicArtifacts\(\)/,
+    );
+    assert.match(purgeRegion, /"purgeDeletedTopicArtifacts",\s*\{\},/);
+
+    for (const region of [hintRegion, deleteRegion, purgeRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const artifactInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "deleteTopicArtifact"'),
+    );
+    assert.include(
+      artifactInvalidation,
+      'command === "purgeDeletedTopicArtifacts"',
+    );
+    assert.include(artifactInvalidation, 'return ["home", "topics"]');
+    assert.notInclude(
+      invalidationBlock,
+      'command === "rejectTopicDiscoveryHint"',
+    );
+    assert.notInclude(
+      invalidationBlock,
+      'command === "restoreTopicDiscoveryHint"',
+    );
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

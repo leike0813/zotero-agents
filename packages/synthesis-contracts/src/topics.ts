@@ -25,6 +25,16 @@ export type SynthesisWorkflowTopicOptionsResult = {
   }>;
 };
 
+export type SynthesisTopicArtifactDeleteRequest = {
+  topicId: string;
+};
+
+export type SynthesisTopicDiscoveryHintRequest = {
+  hintId: string;
+};
+
+export type SynthesisTopicCommandResult = SynthesisJsonObject;
+
 export interface SynthesisTopicsClient {
   listWorkflowOptions(
     request?: SynthesisWorkflowTopicOptionsRequest,
@@ -32,4 +42,14 @@ export interface SynthesisTopicsClient {
   getTopicReport(
     request: SynthesisTopicReportRequest,
   ): Promise<SynthesisTopicReportResult>;
+  deleteTopicArtifact(
+    request: SynthesisTopicArtifactDeleteRequest,
+  ): Promise<SynthesisTopicCommandResult>;
+  purgeDeletedTopicArtifacts(): Promise<SynthesisTopicCommandResult>;
+  rejectTopicDiscoveryHint(
+    request: SynthesisTopicDiscoveryHintRequest,
+  ): Promise<SynthesisTopicCommandResult>;
+  restoreTopicDiscoveryHint(
+    request: SynthesisTopicDiscoveryHintRequest,
+  ): Promise<SynthesisTopicCommandResult>;
 }

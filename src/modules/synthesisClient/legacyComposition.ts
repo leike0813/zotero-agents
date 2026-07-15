@@ -33,6 +33,18 @@ function createLegacyPort(
     async getTopicReport(request) {
       return resolveService().getTopicReport(request);
     },
+    async deleteTopicArtifact(request) {
+      return resolveService().deleteTopicArtifact(request);
+    },
+    async purgeDeletedTopicArtifacts() {
+      return resolveService().purgeDeletedTopicArtifacts();
+    },
+    async rejectTopicDiscoveryHint(request) {
+      return resolveService().rejectTopicDiscoveryHint(request);
+    },
+    async restoreTopicDiscoveryHint(request) {
+      return resolveService().restoreTopicDiscoveryHint(request);
+    },
     async readPaperArtifacts(request) {
       return resolveService().readPaperArtifacts(request);
     },

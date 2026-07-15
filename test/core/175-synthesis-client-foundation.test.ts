@@ -105,6 +105,184 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Topic commands through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request?: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async deleteTopicArtifact(request) {
+        calls.push({ operation: "delete", request });
+        return {
+          ok: true,
+          topic_id: request.topicId,
+          deleted_at: new Date("2026-07-15T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async purgeDeletedTopicArtifacts() {
+        calls.push({ operation: "purge" });
+        return { ok: true, status: "purged", purged_count: 2 };
+      },
+      async rejectTopicDiscoveryHint(request) {
+        calls.push({ operation: "reject", request });
+        return {
+          ok: false,
+          status: "not_found",
+          diagnostics: [{ code: "topic_discovery_hint_not_found" }],
+        };
+      },
+      async restoreTopicDiscoveryHint(request) {
+        calls.push({ operation: "restore", request });
+        return { ok: true, status: "open" };
+      },
+    });
+
+    assert.deepEqual(
+      await client.topics.deleteTopicArtifact({
+        topicId: " topic-alpha ",
+        unexpected: "discard",
+      } as never),
+      {
+        ok: true,
+        topic_id: "topic-alpha",
+        deleted_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(await client.topics.purgeDeletedTopicArtifacts(), {
+      ok: true,
+      status: "purged",
+      purged_count: 2,
+    });
+    assert.deepEqual(
+      await client.topics.rejectTopicDiscoveryHint({
+        hintId: " hint-1 ",
+        unexpected: "discard",
+      } as never),
+      {
+        ok: false,
+        status: "not_found",
+        diagnostics: [{ code: "topic_discovery_hint_not_found" }],
+      },
+    );
+    assert.deepEqual(
+      await client.topics.restoreTopicDiscoveryHint({ hintId: " hint-2 " }),
+      { ok: true, status: "open" },
+    );
+    assert.deepEqual(calls, [
+      { operation: "delete", request: { topicId: "topic-alpha" } },
+      { operation: "purge" },
+      { operation: "reject", request: { hintId: "hint-1" } },
+      { operation: "restore", request: { hintId: "hint-2" } },
+    ]);
+  });
+
+  it("rejects invalid Topic commands before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async deleteTopicArtifact() {
+        invocations += 1;
+        return {};
+      },
+      async rejectTopicDiscoveryHint() {
+        invocations += 1;
+        return {};
+      },
+      async restoreTopicDiscoveryHint() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () => missingPortClient.topics.deleteTopicArtifact({ topicId: " " }),
+      () => missingPortClient.topics.rejectTopicDiscoveryHint({ hintId: " " }),
+      () => client.topics.deleteTopicArtifact(undefined as never),
+      () => client.topics.deleteTopicArtifact({ topicId: 1 } as never),
+      () =>
+        client.topics.deleteTopicArtifact({
+          topicId: "topic-alpha",
+          callback: (() => undefined) as never,
+        } as never),
+      () => client.topics.rejectTopicDiscoveryHint({ hintId: false } as never),
+      () => client.topics.restoreTopicDiscoveryHint({ hintId: "" }),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Topic request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Topic command ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "restore conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async deleteTopicArtifact() {
+        throw new Error("delete exploded");
+      },
+      async rejectTopicDiscoveryHint() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async restoreTopicDiscoveryHint() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () => client.topics.purgeDeletedTopicArtifacts(),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          client.topics.deleteTopicArtifact({ topicId: "topic-alpha" }),
+        code: "internal",
+      },
+      {
+        run: () => client.topics.rejectTopicDiscoveryHint({ hintId: "hint-1" }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          client.topics.restoreTopicDiscoveryHint({ hintId: "hint-2" }),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Topic command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the four Citation Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({
