@@ -1,53 +1,16 @@
 import { build } from "esbuild";
+import { promises as fs } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { runtimeDiagnosticsSideEffectsPlugin } from "./runtime-diagnostics-esbuild";
-
-const GROUPS = {
-  profiler: {
-    paths: [
-      "src/modules/acpRuntimePerformanceProfiler.ts",
-      "src/modules/acpRuntimePerformanceBaseline.ts",
-    ],
-    markers: [
-      "zotero-agents.acp-runtime-performance-profile.v1",
-      "panel_signature_duration",
-      "buffered_write_duration",
-    ],
-  },
-  recorder: {
-    paths: ["src/modules/acpRuntimeSemanticTraceRecorder.ts"],
-    markers: ["single-event-limit", "acp-traces"],
-  },
-  replay: {
-    paths: [
-      "src/modules/acpRuntimeReplayProfiler.ts",
-      "src/modules/acpRuntimeReplayLogicalTime.ts",
-      "src/modules/acpRuntimeReplayTargets.ts",
-      "src/modules/acpRuntimeReplayProductionPorts.ts",
-      "src/modules/acpRuntimeReplayProfileContext.ts",
-      "src/modules/acpRuntimeReplayController.ts",
-    ],
-    markers: [
-      "zotero-agents.acp-runtime-replay-matrix.v1",
-      "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
-      "ACP_RUNTIME_LOGICAL_TIME_V1",
-      "logical-timer-contamination:acp-chat-owner-missing",
-      "logical-timer-contamination:acp-skill-run-change",
-      "logical-timer-contamination:workspace-host-missing",
-    ],
-  },
-  skillRunnerAudit: {
-    paths: [
-      "src/modules/skillRunnerConnectionAudit.ts",
-      "src/modules/skillRunnerConnectionAuditStore.ts",
-    ],
-    markers: [
-      "host_bridge.debug.skillrunner.connections.snapshot.v1",
-      "duplicate_stream_rejected",
-      "late_resolve_after_timeout",
-    ],
-  },
-} as const;
+import {
+  forbiddenProductionRuntimeMarkers,
+  forbiddenRuntimeMarkers,
+  runtimeDiagnosticsExclusiveModules,
+  runtimeDiagnosticsFeatureGroups,
+  runtimeDiagnosticsStaticAllowanceMarkers,
+  runtimeDiagnosticsStaticAllowances,
+  type RuntimeDiagnosticsFeatureName,
+} from "./runtime-diagnostics-production-manifest";
 
 type Switches = {
   debug: boolean;
@@ -103,17 +66,31 @@ function outputText(result: Awaited<ReturnType<typeof bundle>>) {
   return result.outputFiles?.map((file) => file.text).join("\n") || "";
 }
 
+function markerContext(text: string, marker: string) {
+  const index = text.indexOf(marker);
+  if (index < 0) return "";
+  return text
+    .slice(
+      Math.max(0, index - 80),
+      Math.min(text.length, index + marker.length + 80),
+    )
+    .replace(/\s+/g, " ");
+}
+
 function assertAbsent(
-  name: keyof typeof GROUPS,
+  name: RuntimeDiagnosticsFeatureName,
   result: Awaited<ReturnType<typeof bundle>>,
 ) {
-  const group = GROUPS[name];
-  const bytes = groupBytes(result, group.paths);
+  const group = runtimeDiagnosticsFeatureGroups[name];
+  const bytes = groupBytes(result, group.exclusiveModules);
   const text = outputText(result);
-  const retained = group.markers.filter((marker) => text.includes(marker));
+  const retained = forbiddenRuntimeMarkers[name].filter((marker) =>
+    text.includes(marker),
+  );
   if (bytes !== 0 || retained.length > 0) {
+    const contexts = retained.map((marker) => markerContext(text, marker));
     throw new Error(
-      `${name} disabled bundle retained ${bytes} bytes; markers=${retained.join(",") || "none"}`,
+      `${name} disabled bundle retained ${bytes} bytes; markers=${retained.join(",") || "none"}; contexts=${contexts.join(" | ") || "none"}`,
     );
   }
   return bytes;
@@ -150,6 +127,24 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     replay: assertAbsent("replay", release),
     skillRunnerAudit: assertAbsent("skillRunnerAudit", release),
   };
+  const releaseExclusiveBytes = groupBytes(
+    release,
+    runtimeDiagnosticsExclusiveModules,
+  );
+  if (releaseExclusiveBytes !== 0) {
+    throw new Error(
+      `release bundle retained ${releaseExclusiveBytes} runtime diagnostic bytes`,
+    );
+  }
+  const releaseOutput = outputText(release);
+  const retainedProductionMarkers = forbiddenProductionRuntimeMarkers.filter(
+    (marker) => releaseOutput.includes(marker),
+  );
+  if (retainedProductionMarkers.length > 0) {
+    throw new Error(
+      `release bundle retained runtime diagnostic markers: ${retainedProductionMarkers.join(",")}`,
+    );
+  }
   const sourceDisabledBytes = {
     profiler: assertAbsent("profiler", profilerDisabled),
     recorder: assertAbsent("recorder", recorderDisabled),
@@ -160,18 +155,47 @@ export async function checkRuntimeDiagnosticsReleaseElision() {
     ),
   };
   const debugBytes = {
-    profiler: groupBytes(debug, GROUPS.profiler.paths),
-    recorder: groupBytes(debug, GROUPS.recorder.paths),
-    replay: groupBytes(debug, GROUPS.replay.paths),
-    skillRunnerAudit: groupBytes(debug, GROUPS.skillRunnerAudit.paths),
+    profiler: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.profiler.exclusiveModules,
+    ),
+    recorder: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.recorder.exclusiveModules,
+    ),
+    replay: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.replay.exclusiveModules,
+    ),
+    skillRunnerAudit: groupBytes(
+      debug,
+      runtimeDiagnosticsFeatureGroups.skillRunnerAudit.exclusiveModules,
+    ),
   };
   for (const [name, bytes] of Object.entries(debugBytes)) {
     if (bytes <= 0) throw new Error(`Debug bundle did not retain ${name}`);
   }
+  const staticDashboardSources = await Promise.all(
+    runtimeDiagnosticsStaticAllowances.dashboardRoutesAndTemplates.map(
+      (filePath) => fs.readFile(filePath, "utf8"),
+    ),
+  );
+  const staticDashboardText = staticDashboardSources.join("\n");
+  const retainedStaticMarkers = runtimeDiagnosticsStaticAllowanceMarkers.filter(
+    (marker) => staticDashboardText.includes(marker),
+  );
+  if (
+    retainedStaticMarkers.length !==
+    runtimeDiagnosticsStaticAllowanceMarkers.length
+  ) {
+    throw new Error("allowlisted static diagnostic Dashboard markers missing");
+  }
   return {
     releaseBytes,
+    releaseExclusiveBytes,
     debugBytes,
     sourceDisabledBytes,
+    retainedStaticMarkers,
     releaseReplayOutputEqual:
       outputText(release) === outputText(releaseReplayDisabled),
   };

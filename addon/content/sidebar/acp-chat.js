@@ -1157,10 +1157,6 @@
       const nextSnapshot = state.pendingRenderSnapshot || {};
       state.pendingRenderSnapshot = null;
       render(nextSnapshot);
-      const drainId = safeText(nextSnapshot.replayPublicationDrainId);
-      if (drainId) {
-        sendAction("replay-publication-applied", { drainId: drainId });
-      }
     });
   }
 

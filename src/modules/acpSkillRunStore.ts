@@ -101,6 +101,11 @@ import {
   writeAcpSkillRunContextPayload,
   type AcpSkillRunPayloadRefs,
 } from "./acpSkillRunPayloadStore";
+import {
+  registerAcpSkillRunPermissionRequestHandler,
+  type AcpSkillRunPermissionRequestWithResolver,
+} from "./acpSkillRunPermissionFacade";
+import { registerAcpSkillRunAutoApprovalResolver } from "./hostBridgeWriteAutoApprovalRegistry";
 
 export type AcpSkillRunStatus =
   | "queued"
@@ -4563,10 +4568,6 @@ export function setAcpSkillRunRuntimeOptions(
   );
 }
 
-type AcpSkillRunPermissionRequestWithResolver = AcpPendingPermissionRequest & {
-  resolve: (outcome: RequestPermissionOutcome) => void;
-};
-
 function normalizeAcpSkillRunPermissionRequestDetails(
   request: AcpSkillRunPermissionRequestWithResolver,
   permissionRequestId: string,
@@ -4642,6 +4643,8 @@ export function setAcpSkillRunPermissionRequest(
     },
   });
 }
+
+registerAcpSkillRunPermissionRequestHandler(setAcpSkillRunPermissionRequest);
 
 export function autoApproveAcpSkillRunPermissionRequest(args: {
   runRequestId: string;
@@ -5920,6 +5923,11 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
   }
   return projectAcpSkillRunMetadataRecord(entry);
 }
+
+registerAcpSkillRunAutoApprovalResolver(
+  (requestId) =>
+    getAcpSkillRunRecord(requestId)?.hostBridgeCli?.autoApproveWrites === true,
+);
 
 function findTaskForRun(run: AcpSkillRunRecord) {
   const requestId = normalizeString(run.requestId);

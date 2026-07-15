@@ -3378,15 +3378,21 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       sessionCwd: sessionRuntime.snapshot.sessionCwd,
       workspaceDir: sessionRuntime.snapshot.workspaceDir,
       runtimeDir: sessionRuntime.snapshot.runtimeDir,
-      semanticTraceContext: sessionRuntime.snapshot.conversationId
+      ...(__acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      sessionRuntime.snapshot.conversationId
         ? {
-            sourceKind: "acp-chat-conversation",
-            owner: {
-              rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
-              conversationId: sessionRuntime.snapshot.conversationId,
+            semanticTraceContext: {
+              sourceKind: "acp-chat-conversation" as const,
+              owner: {
+                rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
+                conversationId: sessionRuntime.snapshot.conversationId,
+              },
             },
           }
-        : undefined,
+        : {}),
     });
     bindAdapter(sessionRuntime, nextAdapter);
     touchLiveAcpChatSessionRuntime(sessionRuntime);
@@ -4487,16 +4493,23 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSessionRuntimeSnapshot(sessionRuntime);
   const promptToken = nextOpaqueId("acp-prompt-turn");
-  const semanticTraceOwner = {
-    rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
-    conversationId: sessionRuntime.snapshot.conversationId,
-    turnId: promptToken,
-  };
+  const semanticTraceOwner =
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+      ? {
+          rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
+          conversationId: sessionRuntime.snapshot.conversationId,
+          turnId: promptToken,
+        }
+      : undefined;
   if (
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__) &&
     __acp_runtime_semantic_trace_recorder_enabled__ &&
+    semanticTraceOwner &&
     !getAcpRuntimeSemanticTraceRecorderView().rootId
   ) {
     await recordAcpRuntimeSemanticTraceEvent({
@@ -4513,7 +4526,8 @@ export async function sendAcpConversationPrompt(args: {
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__) &&
-    __acp_runtime_semantic_trace_recorder_enabled__
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    semanticTraceOwner
   ) {
     await recordAcpRuntimeSemanticTraceEvent({
       kind: "turn-start",
@@ -4582,7 +4596,8 @@ export async function sendAcpConversationPrompt(args: {
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
         : __debug_mode__) &&
-      __acp_runtime_semantic_trace_recorder_enabled__
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      semanticTraceOwner
     ) {
       await recordAcpRuntimeSemanticTraceEvent({
         kind: "turn-end",
@@ -4650,7 +4665,8 @@ export async function sendAcpConversationPrompt(args: {
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
         : __debug_mode__) &&
-      __acp_runtime_semantic_trace_recorder_enabled__
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      semanticTraceOwner
     ) {
       await recordAcpRuntimeSemanticTraceEvent({
         kind: "turn-end",

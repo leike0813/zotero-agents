@@ -84,14 +84,24 @@ publication remain attributed to the run. The prior Workspace state is restored
 in a `finally` path.
 For an open surface, setup waits for the Workspace shell handshake, the active
 child panel handshake, and the expected synthetic owner instead of treating
-frame creation as readiness. The host then publishes a drain marker and waits
-for the child panel to acknowledge it after that panel's render frame. For
-`target-active`, the same render acknowledgement runs after trace and R2
+frame creation as readiness. A debug-exclusive publication sidecar captures the
+target child `Window` and current revision, registers a temporary listener, and
+then asks a cold Workspace diagnostics port to publish that tab. It accepts
+only a matching snapshot with a newer revision and resolves in the child's next
+animation frame, after the child's normal message/render listener. Zotero may
+omit `MessageEvent.source` or expose the shell through a direct/Xray-wrapped
+`Window`; an absent source is therefore treated as unverifiable, while a
+non-null source is rejected only when it is not direct/`wrappedJSObject`
+equivalent to the captured shell. Timeout,
+cancellation, unload, and frame replacement share one cleanup path. The normal
+Workspace host snapshot protocol and Chat, ACP Skills, and SkillRunner child
+render queues contain no Replay marker, property read, action, or hook. For
+`target-active`, the same rendered publication wait runs after trace and R2
 consumption and before the profiler window closes. `open-inactive` does not
 force an opposite-tab snapshot during measurement: target R3 is expected to
 remain zero. `closed` marks R3 not applicable. Readiness, owner, or render
-acknowledgement timeouts make the affected record incomplete; cancellation
-interrupts these waits.
+timeouts make the affected record incomplete; cancellation interrupts these
+waits.
 Workflow `target-active` selects the first replay request, whose stable
 synthetic id is `<root>-request`; later requests receive distinct ids.
 Child readiness is retained while the same Workspace shell document remains
@@ -168,10 +178,14 @@ The source-elision gate is:
 npm run check:runtime-diagnostics-release-elision
 ```
 
-It independently verifies zero bytes for non-debug, Recorder-disabled,
-Replay-disabled, and SkillRunner-connection-audit-disabled builds. Logical
-timer control exports are removed with Replay. When Replay is compiled but no
-logical run is active, the five Chat, Skills, and Workspace scheduling paths
+It reads the same production-isolation manifest as esbuild and verifies the
+real entry's exclusive-module byte contribution plus forbidden executable
+markers for non-debug, Recorder-disabled, Replay-disabled, and
+SkillRunner-connection-audit-disabled builds. Non-debug Replay on/off equality
+is auxiliary evidence. Static Dashboard templates, locale labels, hidden route
+keys, and type-only DTOs remain narrowly allowlisted. Logical timer and
+publication-sidecar exports are removed with Replay. When Replay is compiled
+but no logical run is active, the Chat, Skills, and Workspace scheduling paths
 remain direct native `setTimeout` calls with no replay lookup, branch,
 allocation, or module initialization.
 

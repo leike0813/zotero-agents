@@ -1323,7 +1323,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const [activeTasks, acpSkillRuns, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
-          import("./modules/acpSkillRunStore"),
+          import("./modules/acpSkillRunDashboardFacade"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);

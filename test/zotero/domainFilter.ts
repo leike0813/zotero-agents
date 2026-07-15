@@ -29,6 +29,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
     /(^|\/)test\/ui\/40-gui-preferences-menu-scan\.test\.ts$/,
     /(^|\/)test\/ui\/50-workflow-settings-dialog-model\.test\.ts$/,
     /(^|\/)test\/ui\/99-acp-runtime-dependency-probe\.zotero\.test\.ts$/,
+    /(^|\/)test\/ui\/183-acp-runtime-replay-publication-zotero-runtime\.test\.ts$/,
   ],
   workflow: [
     /(^|\/)test\/workflow-literature-analysis\/21-workflow-literature-analysis\.test\.ts$/,
@@ -90,6 +91,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "workflow settings dialog model keeps provider_id field for provider-scoped qwen engine and hides it for gemini",
     "workflow settings dialog model enables effort choices for codex models that advertise supported_effort",
     "ACP runtime dependency probe in Zotero ",
+    "ACP Replay publication in the Zotero runtime ",
   ],
   workflow: [
     "workflow: literature-analysis builds request from selected markdown attachment",

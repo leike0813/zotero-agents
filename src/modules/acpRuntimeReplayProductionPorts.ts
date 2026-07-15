@@ -22,11 +22,14 @@ import { createAcpRuntimeReplayLogicalTime } from "./acpRuntimeReplayLogicalTime
 import type { AcpRuntimeTraceOwner } from "./acpRuntimeSemanticTrace";
 import {
   closeAssistantWorkspaceSidebar,
-  drainAssistantWorkspaceReplayPublication,
+  forceAssistantWorkspaceDiagnosticsPublication,
   getAssistantWorkspaceReplayState,
+  inspectAssistantWorkspaceDiagnosticsPublication,
   inspectAssistantWorkspaceReplayPostSnapshotTimer,
   openAssistantWorkspaceSidebar,
+  type AssistantWorkspaceDiagnosticsPublicationOptions,
 } from "./assistantWorkspaceSidebar";
+import { drainAcpRuntimeReplayPublication } from "./acpRuntimeReplayPublicationSidecar";
 import {
   getAcpFrontendSnapshot,
   inspectSyntheticAcpChatReplayTimers,
@@ -332,13 +335,26 @@ export function createAcpRuntimeR2ProductionNoopPort(): AcpRuntimeR2InputPort {
 }
 
 export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeReplayWorkspacePort {
+  const drainTab = (
+    options: AssistantWorkspaceDiagnosticsPublicationOptions & {
+      signal?: Parameters<typeof drainAcpRuntimeReplayPublication>[0]["signal"];
+    },
+  ) => {
+    const { signal, ...publicationOptions } = options;
+    return drainAcpRuntimeReplayPublication({
+      tab: publicationOptions.tab,
+      signal,
+      inspect: () =>
+        inspectAssistantWorkspaceDiagnosticsPublication(publicationOptions),
+      forcePublish: () =>
+        forceAssistantWorkspaceDiagnosticsPublication(publicationOptions),
+    });
+  };
   const drainSurface = (args: {
     surface: "closed" | "open-inactive" | "target-active";
     sourceKind: "acp-chat-conversation" | "acp-workflow-execution";
     syntheticRootId: string;
-    signal?: Parameters<
-      typeof drainAssistantWorkspaceReplayPublication
-    >[0]["signal"];
+    signal?: Parameters<typeof drainAcpRuntimeReplayPublication>[0]["signal"];
     phase: "prepare" | "profile";
   }) => {
     if (args.surface === "closed") {
@@ -361,7 +377,7 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
       : args.sourceKind === "acp-chat-conversation"
         ? ("acp-skills" as const)
         : ("acp-chat" as const);
-    return drainAssistantWorkspaceReplayPublication({
+    return drainTab({
       tab,
       signal: args.signal,
       ...(targetActive && args.sourceKind === "acp-chat-conversation"
@@ -468,7 +484,7 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
           snapshot.tab === "acp-skills" ? snapshot.skillRequestId : undefined,
       });
       if (!opened) throw new Error("workspace-restore-open-failed");
-      const drained = await drainAssistantWorkspaceReplayPublication({
+      const drained = await drainTab({
         tab: snapshot.tab || "acp-chat",
         ...(snapshot.tab === "acp-chat" &&
         snapshot.chatBackendId &&

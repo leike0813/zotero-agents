@@ -1,7 +1,8 @@
 import type { HostBridgePermissionScope } from "./hostBridgePermissionManager";
-import { getAcpSkillRunRecord } from "./acpSkillRunStore";
 
 const writeAutoApprovalRunIds = new Set<string>();
+let acpSkillRunAutoApprovalResolver: (requestId: string) => boolean = () =>
+  false;
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
@@ -21,6 +22,12 @@ export function registerHostBridgeWriteAutoApprovalScope(args: {
   }
 }
 
+export function registerAcpSkillRunAutoApprovalResolver(
+  resolver: (requestId: string) => boolean,
+) {
+  acpSkillRunAutoApprovalResolver = resolver;
+}
+
 export function isHostBridgeWriteAutoApprovalScope(
   scope: HostBridgePermissionScope | null | undefined,
 ) {
@@ -34,10 +41,11 @@ export function isHostBridgeWriteAutoApprovalScope(
   const runId = normalizeString(scope.runId);
   if (
     (requestId &&
-      getAcpSkillRunRecord(requestId)?.hostBridgeCli?.autoApproveWrites ===
-        true) ||
+      (writeAutoApprovalRunIds.has(requestId) ||
+        acpSkillRunAutoApprovalResolver(requestId))) ||
     (runId &&
-      getAcpSkillRunRecord(runId)?.hostBridgeCli?.autoApproveWrites === true)
+      (writeAutoApprovalRunIds.has(runId) ||
+        acpSkillRunAutoApprovalResolver(runId)))
   ) {
     return true;
   }

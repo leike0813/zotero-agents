@@ -247,15 +247,57 @@ Logical replay SHALL take ownership only of timers attributable to the current s
 
 ### Requirement: Disabled and inactive replay adds no business hot-path work
 
-The production Chat, Skills, and Workspace timer schedule paths SHALL retain direct native timer calls without scheduler lookup, profile-context lookup, conditional dispatch, additional allocation, or logical module initialization. Logical replay modules and synthetic control bodies SHALL be elided when Debug or Replay Profiler source is disabled.
+The production Chat, Skills, and Workspace snapshot, render, publication, and timer paths SHALL retain their direct business behavior without Replay state, scheduler lookup, profile-context computation, Map lookup, synthetic helper, acknowledgement branch, additional allocation, or logical module initialization. Logical replay modules, synthetic control bodies, Replay production ports, and publication acknowledgement sidecars SHALL be elided when Debug or Replay Profiler source is disabled.
 
 #### Scenario: Replay Profiler source is disabled
+
 - **WHEN** a diagnostic bundle is built with Replay Profiler source disabled
-- **THEN** logical scheduler code and replay-only timer control markers SHALL contribute zero output bytes.
+- **THEN** logical scheduler code, synthetic helpers, Replay publication sidecars, and replay-only timer or acknowledgement markers SHALL contribute zero output bytes.
+
+#### Scenario: Production plugin entry is bundled
+
+- **WHEN** the real plugin entry is built with `__debug_mode__` set to false
+- **THEN** Chat, Skills, and Workspace executable output SHALL contain no Replay state, profile-context lookup, synthetic seam, publication-drain identity, or rendered-acknowledgement branch
+- **AND** Replay-exclusive modules SHALL contribute zero output bytes.
 
 #### Scenario: Logical replay is inactive
+
 - **WHEN** Replay Profiler is available but no logical run is active
 - **THEN** business scheduling SHALL issue the same native timer calls and delays as before and SHALL invoke no logical port operation.
+
+### Requirement: Replay publication acknowledgement is debug-exclusive
+
+Replay SHALL publish target snapshots through a debug-exclusive sidecar and a narrow Workspace diagnostics port. The production Workspace core SHALL expose only an entirely elidable cold-path operation that obtains readiness, target child window, current revision, and forces publication for a specified tab; normal snapshot injection and child action handling SHALL contain no Replay acknowledgement state. The sidecar SHALL treat a missing message source as unverifiable rather than mismatched in Zotero privileged nested frames, and SHALL compare non-null publisher identities across direct and `wrappedJSObject` window representations before rejecting them as unrelated.
+
+#### Scenario: Matching rendered publication completes
+
+- **WHEN** the sidecar requests publication for a ready target tab and receives a message for that target snapshot with a newer revision
+- **THEN** it SHALL wait until the target child's normal render listener has run and the next animation frame is reached before completing.
+
+#### Scenario: Zotero omits the publisher source
+
+- **WHEN** a target child in Zotero receives the matching newer snapshot but its `MessageEvent.source` is absent across the privileged nested-frame boundary
+- **THEN** the sidecar SHALL accept the tab, revision, and captured child-window evidence and complete after render confirmation.
+
+#### Scenario: Zotero exposes an equivalent wrapped publisher
+
+- **WHEN** the observed publisher and expected shell window refer to the same browsing context through direct and `wrappedJSObject` representations
+- **THEN** the sidecar SHALL treat them as the same publisher.
+
+#### Scenario: Publication evidence does not match
+
+- **WHEN** a message has a verifiably unrelated non-null publisher, wrong tab, stale revision, replaced frame window, or unrelated snapshot
+- **THEN** the sidecar SHALL NOT acknowledge the publication.
+
+#### Scenario: Publication wait terminates early
+
+- **WHEN** timeout, abort, frame replacement, or child unload occurs before matching render confirmation
+- **THEN** the sidecar SHALL reject with structured failure evidence and SHALL remove its listener and pending frame or timer work.
+
+#### Scenario: Normal child rendering runs
+
+- **WHEN** Chat, Skills, or SkillRunner child sidebars process ordinary snapshots
+- **THEN** their render paths SHALL read no Replay drain property and SHALL send no Replay-specific child action.
 
 ### Requirement: Replay reports classify logical evidence
 

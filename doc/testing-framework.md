@@ -408,18 +408,30 @@ ACP runtime profiling has two complementary validation layers:
   and registration ordering, callback batching, cancellation, tail resumption,
   synthetic Chat/Skills timer ownership, Workspace fail-closed contamination,
   and production logical replay without recorded gap sleeps.
+- `test/core/182-acp-runtime-replay-publication-sidecar.test.ts` is a Node-only
+  protocol test for newer-revision/tab filtering, absent/direct/Xray-wrapped
+  publisher sources, render-frame completion, and listener cleanup on timeout,
+  cancellation, unload, or child replacement.
+- `test/ui/183-acp-runtime-replay-publication-zotero-runtime.test.ts` exercises
+  the real privileged host-to-shell-to-child frame chain for rendered ACP Chat
+  and ACP Skills publication in Zotero.
+- `test/core/97-acp-ui-smoke.test.ts` locks the complementary source protocol:
+  ordinary Chat, ACP Skills, and SkillRunner child render paths contain no
+  Replay drain property or acknowledgement action.
 - ACP connection, Host Bridge, runtime diagnostic bundle, and performance
   digest tests verify request attribution and export through real module entry
   points.
 - `npm run record:acp-runtime-before-baseline` runs the complete normalized
   three-surface matrix twice and writes three per-surface JSON records plus one
   consolidated Markdown report only when both matrices match.
-- `npm run check:runtime-diagnostics-release-elision` bundles the real plugin
-  entry in debug, non-debug, independently source-disabled ACP modes, and
-  SkillRunner-audit-disabled mode. Each disabled diagnostic subsystem must
-  retain zero bytes and no stable markers.
-  It also locks non-debug Replay on/off output equivalence and verifies that
-  inactive production scheduling remains independent from replay context.
+- `npm run check:runtime-diagnostics-release-elision` and esbuild consume
+  `scripts/runtime-diagnostics-production-manifest.ts`. The check bundles the
+  real plugin entry in debug, non-debug, independently source-disabled ACP
+  modes, and SkillRunner-audit-disabled mode. It requires zero bytes from every
+  exclusive production input, rejects forbidden executable markers, and
+  verifies that the allowlisted static Dashboard route remains packaged.
+  Non-debug Replay on/off equality is auxiliary; inactive production
+  scheduling and normal child rendering must remain independent from Replay.
 
 The automated surface matrix is a mechanism smoke baseline. Comparable
 real-workload evidence comes from complete source-specific replay matrices.

@@ -6649,24 +6649,18 @@ describe("acp ui smoke", function () {
     assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
   });
 
-  it("acknowledges ACP Chat replay publication only after its render frame", async function () {
-    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-    sidebar.postSnapshot({
-      activeBackendId: "acp-replay",
-      backendId: "acp-replay",
-      activeConversationId: "synthetic-conversation",
-      conversationId: "synthetic-conversation",
-      backendAvailability: "available",
-      conversationAvailability: "available",
-      replayPublicationDrainId: "chat-drain-1",
-      labels: {},
-      items: [],
-    });
-    assert.deepInclude(sidebar.actions, {
-      action: "replay-publication-applied",
-      payload: { drainId: "chat-drain-1" },
-    });
+  it("keeps replay publication protocol out of normal child render paths", async function () {
+    const sources = await Promise.all(
+      [
+        "addon/content/sidebar/acp-chat.js",
+        "addon/content/sidebar/acp-skill-run.js",
+        "addon/content/sidebar/run-dialog.js",
+      ].map(readProjectFile),
+    );
+    for (const source of sources) {
+      assert.notInclude(source, "replayPublicationDrainId");
+      assert.notInclude(source, "replay-publication-applied");
+    }
   });
 
   it("lets ACP Chat and ACP Skills redeclare readiness when the shell probes", async function () {
@@ -7535,24 +7529,6 @@ describe("acp ui smoke", function () {
 
     assert.include(collectFakeText(transcript), "run B transcript");
     assert.equal(transcript.scrollTop, 12000);
-  });
-
-  it("acknowledges ACP Skills replay publication only after its render frame", async function () {
-    const harness = createAcpSkillRunSidebarHarnessDocument();
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document);
-    sidebar.postSnapshot({
-      selectedRequestId: "synthetic-request",
-      selectedRun: {
-        requestId: "synthetic-request",
-        status: "running",
-      },
-      replayPublicationDrainId: "skills-drain-1",
-      labels: {},
-    });
-    assert.deepInclude(sidebar.actions, {
-      action: "replay-publication-applied",
-      payload: { drainId: "skills-drain-1" },
-    });
   });
 
   it("does not let ACP Skills loading snapshots revive the previous virtual transcript", async function () {

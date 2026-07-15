@@ -1118,18 +1118,6 @@
         summary: envelopeSummary(payload || {}),
       });
       render(payload || {});
-      const drainId = safeText(payload && payload.replayPublicationDrainId);
-      if (drainId) {
-        const schedule =
-          typeof window.requestAnimationFrame === "function"
-            ? window.requestAnimationFrame.bind(window)
-            : function (callback) {
-                return setTimeout(callback, 0);
-              };
-        schedule(function () {
-          sendAction("replay-publication-applied", { drainId: drainId });
-        });
-      }
     }
   });
 

@@ -43,10 +43,21 @@ Replay is present but logical cadence is idle, normal Chat, Skills, and
 Workspace timer hot paths execute the same direct native calls as before.
 
 Production hot-path call sites use the injected `__debug_mode__` constant.
-The build marks the profiler module as side-effect free and enables syntax
-folding, so non-debug bundles eliminate both the guarded calls and the module.
-`npm run check:runtime-diagnostics-release-elision` verifies non-debug plus
-independent Recorder-disabled and Replay-disabled zero-byte elimination.
+`scripts/runtime-diagnostics-production-manifest.ts` is the build SSOT for
+debug-exclusive modules, side-effect classification, forbidden executable
+markers, and the narrow static Dashboard/locale/type allowance. Both esbuild
+and `npm run check:runtime-diagnostics-release-elision` consume this manifest.
+The check compiles the real plugin entry and requires every exclusive input to
+contribute zero release bytes, rather than inferring isolation from source
+switch output equality. It also verifies independently disabled source modules
+and keeps source equality only as an auxiliary assertion.
+
+Trace gates enclose owner/context construction, update access, and recorder
+calls together. Replay publication acknowledgement lives in a debug-exclusive
+sidecar; ordinary Workspace host state, snapshots, child actions, and the three
+child render queues contain no Replay drain protocol. Replay-only Skills
+exports remain tree-shakeable because production dynamic imports target narrow
+facades instead of the full store namespace.
 
 The switches are not preferences. Debug builds expose one **ACP Trace & Replay**
 Dashboard tab with independently gated Recorder and Replay steps. Raw traces
@@ -67,10 +78,11 @@ debug mode. The switch is not a preference and cannot be enabled at runtime.
 
 Audit storage and snapshot projection live outside the connection governor.
 Governor event points guard before constructing audit inputs, and diagnostic
-readers use dynamic imports. The runtime-diagnostics elision check verifies
-that non-debug and audit-source-disabled bundles retain zero audit module bytes
-or event markers. When both gates are enabled, the existing bounded event
-ledger and read-only snapshot contract are preserved.
+readers use dynamic imports. The shared runtime-diagnostics production
+isolation gate verifies that non-debug and audit-source-disabled bundles retain
+zero audit module bytes or event markers. When both gates are enabled, the
+existing bounded event ledger, 22 guarded event points, and read-only snapshot
+contract are preserved.
 
 ## Consumers
 

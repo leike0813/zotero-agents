@@ -94,6 +94,26 @@ describe("domain filter path inference", function () {
     );
   });
 
+  it("allows the ACP Replay nested-frame regression in Zotero UI lite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/ui/183-acp-runtime-replay-publication-zotero-runtime.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "ui",
+        testDomain: "ui",
+        fullTitle:
+          "ACP Replay publication in the Zotero runtime confirms ACP Chat and ACP Skills snapshots through the real nested Workspace frames",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
   it("allows full-only core parity files only in Zotero full", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(

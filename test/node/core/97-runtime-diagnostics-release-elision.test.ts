@@ -17,7 +17,25 @@ describe("runtime diagnostics release elision", function () {
       assert.equal(result.sourceDisabledBytes[name], 0);
       assert.isAbove(result.debugBytes[name], 0);
     }
+    assert.equal(result.releaseExclusiveBytes, 0);
+    assert.include(result.retainedStaticMarkers, "acp-trace-replay");
     assert.isTrue(result.releaseReplayOutputEqual);
+  });
+
+  it("uses one manifest for build classification and real-entry marker checks", async function () {
+    const [esbuildSource, checkerSource, dashboardSource] = await Promise.all([
+      fs.readFile("scripts/runtime-diagnostics-esbuild.ts", "utf8"),
+      fs.readFile(
+        "scripts/check-runtime-diagnostics-release-elision.ts",
+        "utf8",
+      ),
+      fs.readFile("addon/content/dashboard/app.js", "utf8"),
+    ]);
+    assert.include(esbuildSource, "runtime-diagnostics-production-manifest");
+    assert.include(checkerSource, "runtime-diagnostics-production-manifest");
+    assert.notInclude(checkerSource, "const GROUPS =");
+    assert.include(checkerSource, "forbiddenRuntimeMarkers");
+    assert.include(dashboardSource, "acp-trace-replay");
   });
 
   it("keeps production timer scheduling independent from replay context", async function () {
