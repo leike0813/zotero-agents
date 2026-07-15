@@ -32,8 +32,13 @@ export type SynthesisConceptDeleteRequest = {
 };
 
 export type SynthesisConceptCommandResult = SynthesisJsonObject;
+export type SynthesisConceptQueryRequest = SynthesisJsonObject;
+export type SynthesisConceptQueryResult = SynthesisJsonObject;
 
 export interface SynthesisConceptsClient {
+  query(
+    request?: SynthesisConceptQueryRequest,
+  ): Promise<SynthesisConceptQueryResult>;
   rebuildConceptKbIndex(): Promise<SynthesisConceptCommandResult>;
   updateConceptDisplayText(
     request: SynthesisConceptDisplayTextUpdateRequest,

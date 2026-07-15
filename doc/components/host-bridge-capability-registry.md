@@ -24,14 +24,16 @@ type HostBridgeCapabilityDefinition =
 
 type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
-  resolveSynthesisService?: () => SynthesisMcpService;
+  connectionMode: "local" | "remote";
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
 };
 ```
 
 Each capability pairs a manifest entry (name, category, summary, approval
 requirement, input schema) with a callable handler function. The handler
 receives the caller's `input` and a `context` object providing access to the
-Host Bridge status snapshot and (optionally) the Synthesis MCP service.
+Host Bridge status snapshot, connection mode, and an optional Synthesis client
+resolver used by tests. Production resolution uses the cached default client.
 
 ---
 
@@ -55,11 +57,16 @@ Category is fixed to `"debug"`, input mode is `{ type: "object", required: false
 The handler wrapper calls `assertDebugModeEnabled()` before execution, throwing
 when debug mode is off.
 
-### `synthesisCapability(name, category, summary, methodName)` — Synthesis-backed
+### `synthesisCapability(name, category, summary, invoke)` — Synthesis-backed
 
-The handler resolves the Synthesis service from `context.resolveSynthesisService()`
-(or falls back to `getDefaultSynthesisService()`), then calls `methodName` on
-the resolved service with the input.
+The handler resolves a grouped `SynthesisClient` from
+`context.resolveSynthesisClient()` or `getDefaultSynthesisClient()`, rebuilds
+the input as a JSON object, and invokes an explicit domain lambda. Topic
+Context and filtered artifact export also receive an environment-neutral
+delivery context derived from the Host Bridge connection mode. The embedded
+MCP server derives both its tool list and dispatch handlers from this same
+capability registry; it has no separate tool registry or Synthesis service
+dispatcher.
 
 ---
 

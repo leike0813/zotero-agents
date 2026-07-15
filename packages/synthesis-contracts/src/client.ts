@@ -15,6 +15,9 @@ import type { SynthesisWorkbenchClient } from "./workbench";
 import type { SynthesisGraphClient } from "./graph";
 import type { SynthesisReferencesClient } from "./references";
 import type { SynthesisSyncClient } from "./sync";
+import type { SynthesisDebugClient } from "./debug";
+import type { SynthesisLibraryIndexClient } from "./libraryIndex";
+import type { SynthesisWorkflowReviewClient } from "./workflowReview";
 
 export interface SynthesisClient {
   readonly concepts: SynthesisConceptsClient;
@@ -30,4 +33,7 @@ export interface SynthesisClient {
   readonly artifacts: SynthesisArtifactsClient;
   readonly tags: SynthesisTagsClient;
   readonly workbench: SynthesisWorkbenchClient;
+  readonly libraryIndex: SynthesisLibraryIndexClient;
+  readonly workflowReview: SynthesisWorkflowReviewClient;
+  readonly debug: SynthesisDebugClient;
 }

@@ -1,5 +1,6 @@
 import { joinPath } from "../../utils/path";
 import type {
+  SynthesisDeliveryContext,
   SynthesisWorkflowTopicOption,
   SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -24,7 +25,6 @@ import {
 import { appendRuntimeLog, type RuntimeLogInput } from "../runtimeLogManager";
 import { registerHostBridgeExportFile } from "../hostBridgeFileRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "../zipStore";
-import type { SynthesisMcpServiceContext } from "./mcpService";
 import { clearPluginTaskRowEntries } from "../pluginStateStore";
 import {
   buildMirrorManifest,
@@ -1108,8 +1108,8 @@ function validateAcpSkillRunRoot(runRoot: string) {
   return root;
 }
 
-function isRemoteHostBridgeContext(context?: SynthesisMcpServiceContext) {
-  return context?.hostBridge?.connectionMode === "remote";
+function isRemoteDelivery(context?: SynthesisDeliveryContext) {
+  return context?.mode === "remote";
 }
 
 function normalizeZipEntryPath(pathRaw: unknown, fallback: string) {
@@ -19479,7 +19479,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function getTopicContext(
     args: Record<string, unknown> = {},
-    context?: SynthesisMcpServiceContext,
+    context?: SynthesisDeliveryContext,
   ) {
     const topicId = cleanString(args.topicId || args.topic_id);
     if (!topicId) {
@@ -19805,7 +19805,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               ? { ...v2Base, audit }
               : { ...v2Base, digest, semantic, audit };
       if (outputPath) {
-        if (isRemoteHostBridgeContext(context)) {
+        if (isRemoteDelivery(context)) {
           return createRemoteTopicContextOutput({
             topicId: resolvedTopicId,
             view,
@@ -20714,9 +20714,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function exportFilteredPaperArtifacts(
     args: Record<string, unknown> = {},
-    context?: SynthesisMcpServiceContext,
+    context?: SynthesisDeliveryContext,
   ) {
-    const remote = isRemoteHostBridgeContext(context);
+    const remote = isRemoteDelivery(context);
     const runRoot = remote
       ? remoteExportRoot("paper-artifacts")
       : validateAcpSkillRunRoot(cleanString(args.run_root || args.runRoot));

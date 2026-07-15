@@ -12,6 +12,7 @@ import {
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisDeliveryContext,
   type SynthesisConceptCommandResult,
   type SynthesisConceptDeleteRequest,
   type SynthesisConceptDisplayFields,
@@ -64,6 +65,7 @@ import {
   type SynthesisWorkflowTopicOptionsRequest,
   type SynthesisWorkflowTopicOptionsResult,
   type SynthesisGraphCommandResult,
+  type SynthesisJsonObject,
   type SynthesisEffectiveCanonicalReferenceMergeRequest,
   type SynthesisWorkbenchPaperDigestResult,
   type SynthesisWorkbenchProjection,
@@ -72,7 +74,40 @@ import {
 } from "../../../packages/synthesis-contracts/src/index";
 import { isTransientStorageBusyError } from "../guardedSqlite";
 
+type LegacySynthesisJsonPort = (
+  request: SynthesisJsonObject,
+  delivery?: SynthesisDeliveryContext,
+) => Promise<unknown>;
+
 export interface LegacySynthesisPort {
+  listTopics?: LegacySynthesisJsonPort;
+  findTopicsByPaperRef?: LegacySynthesisJsonPort;
+  getTopicContext?: LegacySynthesisJsonPort;
+  resolveResolver?: LegacySynthesisJsonPort;
+  queryCitationGraphCluster?: LegacySynthesisJsonPort;
+  queryCitationGraph?: LegacySynthesisJsonPort;
+  getCitationGraphSlice?: LegacySynthesisJsonPort;
+  getCitationGraphLayout?: LegacySynthesisJsonPort;
+  getCitationGraphMetrics?: LegacySynthesisJsonPort;
+  rankLibraryPapers?: LegacySynthesisJsonPort;
+  refreshCitationGraphMetricsNow?: LegacySynthesisJsonPort;
+  getReferenceSidecarIndex?: LegacySynthesisJsonPort;
+  rankExternalReferences?: LegacySynthesisJsonPort;
+  getAttentionQueue?: LegacySynthesisJsonPort;
+  getPaperArtifactManifest?: LegacySynthesisJsonPort;
+  exportFilteredPaperArtifacts?: LegacySynthesisJsonPort;
+  queryConceptKb?: LegacySynthesisJsonPort;
+  getSchemas?: LegacySynthesisJsonPort;
+  getLibraryIndex?: LegacySynthesisJsonPort;
+  getReviewInput?: LegacySynthesisJsonPort;
+  debugSynthesisSnapshot?: LegacySynthesisJsonPort;
+  debugSynthesisCacheList?: LegacySynthesisJsonPort;
+  debugSynthesisOperationsList?: LegacySynthesisJsonPort;
+  debugSynthesisProfilerList?: LegacySynthesisJsonPort;
+  debugSynthesisPaperInspect?: LegacySynthesisJsonPort;
+  debugSynthesisTopicInspect?: LegacySynthesisJsonPort;
+  debugSynthesisDiff?: LegacySynthesisJsonPort;
+  debugSynthesisCleanInstallReset?: LegacySynthesisJsonPort;
   listWorkflowTopicOptions(
     request?: SynthesisWorkflowTopicOptionsRequest,
   ): Promise<SynthesisWorkflowTopicOptionsResult>;
@@ -161,7 +196,7 @@ export interface LegacySynthesisPort {
   ): Promise<unknown>;
   getSynthesisBackgroundJobRows?(): Promise<unknown>;
   readTopicDetail?(request: { topicId: string }): Promise<unknown>;
-  resolveTopicPaperDigest?(request: Record<string, unknown>): Promise<unknown>;
+  resolveTopicPaperDigest?: LegacySynthesisJsonPort;
   recomputeCitationGraphLayout?(
     request: SynthesisCitationGraphLayoutRequest,
   ): Promise<unknown>;
@@ -283,6 +318,38 @@ async function runLegacy<T>(operation: () => Promise<T>): Promise<T> {
   } catch (error) {
     throw normalizeClientError(error);
   }
+}
+
+function normalizeDeliveryContext(
+  value: SynthesisDeliveryContext | undefined,
+): SynthesisDeliveryContext | undefined {
+  if (value === undefined) return undefined;
+  const context = toSynthesisJsonObject(value, "$.delivery");
+  if (context.mode !== "local" && context.mode !== "remote") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis delivery mode is invalid",
+      { mode: typeof context.mode === "string" ? context.mode : "invalid" },
+    );
+  }
+  return { mode: context.mode };
+}
+
+function runLegacyJsonPort(
+  port: LegacySynthesisJsonPort | undefined,
+  operation: string,
+  request: unknown = {},
+  delivery?: SynthesisDeliveryContext,
+) {
+  return runLegacy(async () => {
+    const normalizedRequest = toSynthesisJsonObject(request, "$.request");
+    const normalizedDelivery = normalizeDeliveryContext(delivery);
+    const invoke = requireLegacyPort(port, operation);
+    return normalizeLegacyResultObject(
+      await invoke(normalizedRequest, normalizedDelivery),
+      operation,
+    );
+  });
 }
 
 function normalizeWorkbenchState(value: unknown) {
@@ -1042,9 +1109,9 @@ function normalizeConceptDeleteRequest(
   };
 }
 
-function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
+function mapPaperDigestRequest(value: unknown): SynthesisJsonObject {
   const request = toSynthesisJsonObject(value, "$.request");
-  const mapped: Record<string, unknown> = {};
+  const mapped: SynthesisJsonObject = {};
   const optionalStringFields = [
     ["topicId", "topicId"],
     ["paperRef", "paper_ref"],
@@ -1085,6 +1152,13 @@ export function createInProcessSynthesisClient(
 ): SynthesisClient {
   return {
     concepts: {
+      async query(request = {}) {
+        return runLegacyJsonPort(
+          legacy.queryConceptKb,
+          "concepts.query",
+          request,
+        );
+      },
       async rebuildConceptKbIndex() {
         return runLegacy(
           async () =>
@@ -1136,6 +1210,55 @@ export function createInProcessSynthesisClient(
       },
     },
     graph: {
+      async queryCluster(request = {}) {
+        return runLegacyJsonPort(
+          legacy.queryCitationGraphCluster,
+          "graph.queryCluster",
+          request,
+        );
+      },
+      async getOverview(request = {}) {
+        return runLegacyJsonPort(
+          legacy.queryCitationGraph,
+          "graph.getOverview",
+          request,
+        );
+      },
+      async getSlice(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getCitationGraphSlice,
+          "graph.getSlice",
+          request,
+        );
+      },
+      async getPersistedLayout(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getCitationGraphLayout,
+          "graph.getPersistedLayout",
+          request,
+        );
+      },
+      async getMetrics(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getCitationGraphMetrics,
+          "graph.getMetrics",
+          request,
+        );
+      },
+      async rankLibraryPapers(request = {}) {
+        return runLegacyJsonPort(
+          legacy.rankLibraryPapers,
+          "graph.rankLibraryPapers",
+          request,
+        );
+      },
+      async refreshMetricsNow(request = {}) {
+        return runLegacyJsonPort(
+          legacy.refreshCitationGraphMetricsNow,
+          "graph.refreshMetricsNow",
+          request,
+        );
+      },
       async recomputeCitationGraphLayout(request) {
         return runLegacy(
           async () =>
@@ -1256,6 +1379,27 @@ export function createInProcessSynthesisClient(
       },
     },
     references: {
+      async getSidecarIndex(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getReferenceSidecarIndex,
+          "references.getSidecarIndex",
+          request,
+        );
+      },
+      async rankExternalReferences(request = {}) {
+        return runLegacyJsonPort(
+          legacy.rankExternalReferences,
+          "references.rankExternalReferences",
+          request,
+        );
+      },
+      async getAttentionQueue(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getAttentionQueue,
+          "references.getAttentionQueue",
+          request,
+        );
+      },
       async refreshReferenceSidecarNow() {
         return runLegacy(
           async () =>
@@ -1393,6 +1537,31 @@ export function createInProcessSynthesisClient(
       },
     },
     topics: {
+      async list(request = {}) {
+        return runLegacyJsonPort(legacy.listTopics, "topics.list", request);
+      },
+      async findByPaperRef(request = {}) {
+        return runLegacyJsonPort(
+          legacy.findTopicsByPaperRef,
+          "topics.findByPaperRef",
+          request,
+        );
+      },
+      async getContext(request, delivery) {
+        return runLegacyJsonPort(
+          legacy.getTopicContext,
+          "topics.getContext",
+          request,
+          delivery,
+        );
+      },
+      async resolveResolver(request) {
+        return runLegacyJsonPort(
+          legacy.resolveResolver,
+          "topics.resolveResolver",
+          request,
+        );
+      },
       async listWorkflowOptions(request) {
         try {
           return await legacy.listWorkflowTopicOptions(request);
@@ -1476,6 +1645,13 @@ export function createInProcessSynthesisClient(
       },
     },
     maintenance: {
+      async getSchemas(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getSchemas,
+          "maintenance.getSchemas",
+          request,
+        );
+      },
       async resetDatabase(request) {
         try {
           if (!legacy.resetSynthesisDatabase) {
@@ -1554,6 +1730,13 @@ export function createInProcessSynthesisClient(
       },
     },
     artifacts: {
+      async getManifest(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getPaperArtifactManifest,
+          "artifacts.getManifest",
+          request,
+        );
+      },
       async readPaperArtifacts(request) {
         return runLegacy(
           async () =>
@@ -1563,6 +1746,21 @@ export function createInProcessSynthesisClient(
                 "artifacts.readPaperArtifacts",
               )(request),
             ) as SynthesisPaperArtifactsResult,
+        );
+      },
+      async exportFiltered(request, delivery) {
+        return runLegacyJsonPort(
+          legacy.exportFilteredPaperArtifacts,
+          "artifacts.exportFiltered",
+          request,
+          delivery,
+        );
+      },
+      async resolveTopicPaperDigest(request) {
+        return runLegacyJsonPort(
+          legacy.resolveTopicPaperDigest,
+          "artifacts.resolveTopicPaperDigest",
+          request,
         );
       },
     },
@@ -1777,6 +1975,82 @@ export function createInProcessSynthesisClient(
           )(request);
           return { ok: true as const };
         });
+      },
+    },
+    libraryIndex: {
+      async getPage(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getLibraryIndex,
+          "libraryIndex.getPage",
+          request,
+        );
+      },
+    },
+    workflowReview: {
+      async getInput(request = {}) {
+        return runLegacyJsonPort(
+          legacy.getReviewInput,
+          "workflowReview.getInput",
+          request,
+        );
+      },
+    },
+    debug: {
+      async snapshot(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisSnapshot,
+          "debug.snapshot",
+          request,
+        );
+      },
+      async listCache(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisCacheList,
+          "debug.listCache",
+          request,
+        );
+      },
+      async listOperations(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisOperationsList,
+          "debug.listOperations",
+          request,
+        );
+      },
+      async listProfiler(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisProfilerList,
+          "debug.listProfiler",
+          request,
+        );
+      },
+      async inspectPaper(request) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisPaperInspect,
+          "debug.inspectPaper",
+          request,
+        );
+      },
+      async inspectTopic(request) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisTopicInspect,
+          "debug.inspectTopic",
+          request,
+        );
+      },
+      async diff(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisDiff,
+          "debug.diff",
+          request,
+        );
+      },
+      async cleanInstallReset(request = {}) {
+        return runLegacyJsonPort(
+          legacy.debugSynthesisCleanInstallReset,
+          "debug.cleanInstallReset",
+          request,
+        );
       },
     },
     workbench: {

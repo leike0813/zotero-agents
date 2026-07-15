@@ -1,4 +1,5 @@
 import type { SynthesisJsonObject } from "./common";
+import type { SynthesisDeliveryContext } from "./common";
 import type {
   SynthesisTopicReportRequest,
   SynthesisTopicReportResult,
@@ -34,8 +35,23 @@ export type SynthesisTopicDiscoveryHintRequest = {
 };
 
 export type SynthesisTopicCommandResult = SynthesisJsonObject;
+export type SynthesisTopicQueryRequest = SynthesisJsonObject;
+export type SynthesisTopicQueryResult = SynthesisJsonObject;
 
 export interface SynthesisTopicsClient {
+  list(
+    request?: SynthesisTopicQueryRequest,
+  ): Promise<SynthesisTopicQueryResult>;
+  findByPaperRef(
+    request?: SynthesisTopicQueryRequest,
+  ): Promise<SynthesisTopicQueryResult>;
+  getContext(
+    request: SynthesisTopicQueryRequest,
+    delivery?: SynthesisDeliveryContext,
+  ): Promise<SynthesisTopicQueryResult>;
+  resolveResolver(
+    request: SynthesisTopicQueryRequest,
+  ): Promise<SynthesisTopicQueryResult>;
   listWorkflowOptions(
     request?: SynthesisWorkflowTopicOptionsRequest,
   ): Promise<SynthesisWorkflowTopicOptionsResult>;

@@ -1,7 +1,9 @@
 export * from "./client";
 export * from "./common";
 export * from "./concepts";
+export * from "./debug";
 export * from "./graph";
+export * from "./libraryIndex";
 export * from "./lifecycle";
 export * from "./references";
 export * from "./sync";
@@ -9,4 +11,5 @@ export * from "./tags";
 export * from "./topics";
 export * from "./topicGraph";
 export * from "./workflow";
+export * from "./workflowReview";
 export * from "./workbench";

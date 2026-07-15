@@ -47,17 +47,20 @@ import {
   type ZoteroHostNotePayloadDetailArgs,
   type ZoteroHostAttachmentDto,
 } from "./zoteroHostCapabilityBroker";
-import { getDefaultSynthesisService } from "./synthesis/service";
 import type {
-  SynthesisMcpService,
-  SynthesisMcpServiceMethod,
-} from "./synthesis/mcpService";
+  SynthesisClient,
+  SynthesisDeliveryContext,
+  SynthesisJsonObject,
+  SynthesisPaperArtifactsRequest,
+  SynthesisTopicReportRequest,
+} from "../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 
 export type HostBridgeCapabilityContext = {
   getStatus: () => HostBridgeStatusSnapshot;
   connectionMode: HostBridgeConnectionMode;
   resolveHostBridgeApis?: () => ZoteroHostCapabilityBrokerApis;
-  resolveSynthesisService?: () => SynthesisMcpService;
+  resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
 };
 
 export type ZoteroHostCapabilityBrokerApis = ReturnType<
@@ -839,40 +842,65 @@ function synthesisCapability(
   name: string,
   category: HostBridgeCapabilityCategory,
   summary: string,
-  methodName: SynthesisMcpServiceMethod,
+  invoke: (
+    client: SynthesisClient,
+    input: SynthesisJsonObject,
+    delivery: SynthesisDeliveryContext,
+  ) => unknown | Promise<unknown>,
   input: HostBridgeCapabilityManifestEntry["input"] = {
     type: "object",
     required: false,
   },
 ): HostBridgeCapabilityDefinition {
   return capability(name, category, summary, input, async (input, context) => {
-    const service =
-      context.resolveSynthesisService?.() ||
-      (getDefaultSynthesisService() as unknown as SynthesisMcpService);
-    const method = service?.[methodName];
-    if (typeof method !== "function") {
-      throw new Error(
-        `Synthesis service method is unavailable: ${String(methodName)}`,
-      );
-    }
-    return method(asObject(input), {
-      hostBridge: {
-        connectionMode: context.connectionMode,
-      },
+    const client = await (context.resolveSynthesisClient?.() ||
+      getDefaultSynthesisClient());
+    return invoke(client, asObject(input) as SynthesisJsonObject, {
+      mode: context.connectionMode,
     });
   });
 }
 
-async function callSynthesisDebugService(methodName: string, input: unknown) {
-  const service = getDefaultSynthesisService() as unknown as Record<
-    string,
-    unknown
-  >;
-  const method = service[methodName];
-  if (typeof method !== "function") {
-    throw new Error(`Synthesis debug method is unavailable: ${methodName}`);
-  }
-  return method(asObject(input));
+async function callSynthesisDebugClient(
+  context: HostBridgeCapabilityContext,
+  invoke: (client: SynthesisClient) => Promise<SynthesisJsonObject>,
+) {
+  const client = await (context.resolveSynthesisClient?.() ||
+    getDefaultSynthesisClient());
+  return invoke(client);
+}
+
+function topicReportRequest(
+  input: SynthesisJsonObject,
+): SynthesisTopicReportRequest {
+  return {
+    topicId: String(input.topicId || input.topic_id || "").trim(),
+  };
+}
+
+function paperArtifactsRequest(
+  input: SynthesisJsonObject,
+): SynthesisPaperArtifactsRequest {
+  const refs = [
+    ...(Array.isArray(input.paper_refs) ? input.paper_refs : []),
+    ...(Array.isArray(input.paperRefs) ? input.paperRefs : []),
+    input.paper_ref,
+    input.paperRef,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const artifactTypes = [
+    ...(Array.isArray(input.artifact_types) ? input.artifact_types : []),
+    ...(Array.isArray(input.artifactTypes) ? input.artifactTypes : []),
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  return {
+    paper_refs: Array.from(new Set(refs)),
+    ...(artifactTypes.length
+      ? { artifact_types: Array.from(new Set(artifactTypes)) }
+      : {}),
+  };
 }
 
 const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
@@ -1261,49 +1289,72 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability(
     "debug.synthesis.snapshot",
     "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
-    (input) => callSynthesisDebugService("debugSynthesisSnapshot", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.snapshot(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.operations.list",
     "List debug-only Synthesis explicit operations and background job rows.",
-    (input) => callSynthesisDebugService("debugSynthesisOperationsList", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.listOperations(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.profiler.list",
     "List debug-only Synthesis profiler runs and phase timings.",
-    (input) => callSynthesisDebugService("debugSynthesisProfilerList", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.listProfiler(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.paper.inspect",
     "Inspect one paper across Zotero payloads and Synthesis repository caches.",
-    (input) => callSynthesisDebugService("debugSynthesisPaperInspect", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.inspectPaper(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.topic.inspect",
     "Inspect one topic across artifacts, graph, freshness, and discovery state.",
-    (input) => callSynthesisDebugService("debugSynthesisTopicInspect", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.inspectTopic(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.diff",
     "Compare Zotero payload availability against Synthesis repository caches.",
-    (input) => callSynthesisDebugService("debugSynthesisDiff", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.diff(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.cache.list",
     "List debug-only Synthesis sidecar cache basis rows.",
-    (input) => callSynthesisDebugService("debugSynthesisCacheList", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.listCache(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   debugCapability(
     "debug.synthesis.cleanInstallReset",
     "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
-    (input) =>
-      callSynthesisDebugService("debugSynthesisCleanInstallReset", input),
+    (input, context) =>
+      callSynthesisDebugClient(context, (client) =>
+        client.debug.cleanInstallReset(asObject(input) as SynthesisJsonObject),
+      ),
   ),
   synthesisCapability(
     "topics.list",
     "topics",
     "List paged Zotero Synthesis Layer topics for duplicate checks and topic selection.",
-    "listTopics",
+    (client, input) => client.topics.list(input),
     {
       type: "object",
       required: false,
@@ -1317,13 +1368,13 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "topics.find_by_paper_ref",
     "topics",
     "Return active Synthesis topics associated with selected paper references from artifact dependency state.",
-    "findTopicsByPaperRef",
+    (client, input) => client.topics.findByPaperRef(input),
   ),
   synthesisCapability(
     "topics.get_context",
     "topics",
     "Return one topic context as digest, semantic, audit, or full view; large view results may be written to outputPath.",
-    "getTopicContext",
+    (client, input, delivery) => client.topics.getContext(input, delivery),
     {
       type: "object",
       required: false,
@@ -1360,25 +1411,25 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "topics.get_report",
     "topics",
     "Return one topic synthesis report markdown body from runtime synthesis_report.body.",
-    "getTopicReport",
+    (client, input) => client.topics.getTopicReport(topicReportRequest(input)),
   ),
   synthesisCapability(
     "schemas.get",
     "schemas",
     "Return Synthesis Layer schema metadata for diagnostic and validation workflows.",
-    "getSchemas",
+    (client, input) => client.maintenance.getSchemas(input),
   ),
   synthesisCapability(
     "concepts.query",
     "concepts",
     "Return bounded read-only Concept KB and alias-index candidates for topic synthesis KG enrichment.",
-    "queryConceptKb",
+    (client, input) => client.concepts.query(input),
   ),
   synthesisCapability(
     "citation_graph.query_cluster",
     "citation_graph",
     "Return bounded read-only topic-scoped citation graph cluster data for synthesis statistics.",
-    "queryCitationGraphCluster",
+    (client, input) => client.graph.queryCluster(input),
     {
       type: "object",
       required: false,
@@ -1404,7 +1455,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library_index.get",
     "library_index",
     "Return paginated compact Synthesis library index pages derived from Zotero library facts.",
-    "getLibraryIndex",
+    (client, input) => client.libraryIndex.getPage(input),
     {
       type: "object",
       required: false,
@@ -1430,19 +1481,19 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "resolvers.resolve",
     "resolvers",
     "Resolve a topic resolver into a deterministic paper workset and diagnostics.",
-    "resolveResolver",
+    (client, input) => client.topics.resolveResolver(input),
   ),
   synthesisCapability(
     "reference_index.get",
     "reference_index",
     "Return bounded read-only reference index metadata and diagnostics for selected source references.",
-    "getReferenceSidecarIndex",
+    (client, input) => client.references.getSidecarIndex(input),
   ),
   synthesisCapability(
     "citation_graph.get_overview",
     "citation_graph",
     "Return paged read-only Synthesis citation graph overview arrays with summary counts.",
-    "queryCitationGraph",
+    (client, input) => client.graph.getOverview(input),
     {
       type: "object",
       required: false,
@@ -1472,19 +1523,19 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph.get_slice",
     "citation_graph",
     "Return a bounded read-only citation graph slice with freshness diagnostics for selected paper references.",
-    "getCitationGraphSlice",
+    (client, input) => client.graph.getSlice(input),
   ),
   synthesisCapability(
     "citation_graph.get_layout",
     "citation_graph",
     "Return persisted citation graph layout coordinates for an explicit full graph or bounded subgraph query without recomputing layout.",
-    "getCitationGraphLayout",
+    (client, input) => client.graph.getPersistedLayout(input),
   ),
   synthesisCapability(
     "citation_graph.get_metrics",
     "citation_graph",
     "Return bounded read-only citation graph metrics, freshness diagnostics, and recommended maintenance commands for selected paper references.",
-    "getCitationGraphMetrics",
+    (client, input) => client.graph.getMetrics(input),
     {
       type: "object",
       required: false,
@@ -1502,7 +1553,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph.rank_external_references",
     "citation_graph",
     "Return ranked external references from the persisted citation graph without refreshing graph state.",
-    "rankExternalReferences",
+    (client, input) => client.references.rankExternalReferences(input),
     {
       type: "object",
       required: false,
@@ -1518,7 +1569,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph.rank_library_papers",
     "citation_graph",
     "Return ranked library papers from persisted citation graph metrics without refreshing graph state.",
-    "rankLibraryPapers",
+    (client, input) => client.graph.rankLibraryPapers(input),
     {
       type: "object",
       required: false,
@@ -1536,43 +1587,45 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph.refresh_metrics",
     "citation_graph",
     "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
-    "refreshCitationGraphMetricsNow",
+    (client, input) => client.graph.refreshMetricsNow(input),
   ),
   synthesisCapability(
     "paper_artifacts.get_manifest",
     "paper_artifacts",
     "Return available Synthesis paper artifact descriptors for selected paper references.",
-    "getPaperArtifactManifest",
+    (client, input) => client.artifacts.getManifest(input),
   ),
   synthesisCapability(
     "paper_artifacts.read",
     "paper_artifacts",
     "Read bounded Synthesis paper artifacts for selected paper references.",
-    "readPaperArtifacts",
+    (client, input) =>
+      client.artifacts.readPaperArtifacts(paperArtifactsRequest(input)),
   ),
   synthesisCapability(
     "paper_artifacts.export_filtered",
     "paper_artifacts",
     "Export bounded filtered paper artifacts into the ACP run workspace.",
-    "exportFilteredPaperArtifacts",
+    (client, input, delivery) =>
+      client.artifacts.exportFiltered(input, delivery),
   ),
   synthesisCapability(
     "paper_artifacts.resolve_topic_digest",
     "paper_artifacts",
     "Resolve one topic paper digest artifact for reading or diagnostics.",
-    "resolveTopicPaperDigest",
+    (client, input) => client.artifacts.resolveTopicPaperDigest(input),
   ),
   synthesisCapability(
     "topics.get_review_input",
     "topics",
     "Return structured Synthesis review workflow input.",
-    "getReviewInput",
+    (client, input) => client.workflowReview.getInput(input),
   ),
   synthesisCapability(
     "insights.get_attention_queue",
     "insights",
     "Return read-only attention items for graph metrics, reference index, and paper artifact readiness.",
-    "getAttentionQueue",
+    (client, input) => client.references.getAttentionQueue(input),
   ),
 ];
 

@@ -12,6 +12,94 @@ function createLegacyPort(
   resolveService: () => LegacyServiceInstance,
 ): LegacySynthesisPort {
   return {
+    async listTopics(request) {
+      return resolveService().listTopics(request);
+    },
+    async findTopicsByPaperRef(request) {
+      return resolveService().findTopicsByPaperRef(request);
+    },
+    async getTopicContext(request, delivery) {
+      return resolveService().getTopicContext(request, delivery);
+    },
+    async resolveResolver(request) {
+      return resolveService().resolveResolver(request);
+    },
+    async queryCitationGraphCluster(request) {
+      return resolveService().queryCitationGraphCluster(request);
+    },
+    async queryCitationGraph(request) {
+      return resolveService().queryCitationGraph(request);
+    },
+    async getCitationGraphSlice(request) {
+      return resolveService().getCitationGraphSlice(request);
+    },
+    async getCitationGraphLayout(request) {
+      return resolveService().getCitationGraphLayout(request);
+    },
+    async getCitationGraphMetrics(request) {
+      return resolveService().getCitationGraphMetrics(request);
+    },
+    async rankLibraryPapers(request) {
+      return resolveService().rankLibraryPapers(request);
+    },
+    async refreshCitationGraphMetricsNow(request) {
+      const service = resolveService();
+      return service.refreshCitationGraphMetricsNow(
+        request as Parameters<typeof service.refreshCitationGraphMetricsNow>[0],
+      );
+    },
+    async getReferenceSidecarIndex(request) {
+      return resolveService().getReferenceSidecarIndex(request);
+    },
+    async rankExternalReferences(request) {
+      return resolveService().rankExternalReferences(request);
+    },
+    async getAttentionQueue(request) {
+      return resolveService().getAttentionQueue(request);
+    },
+    async getPaperArtifactManifest(request) {
+      return resolveService().getPaperArtifactManifest(request);
+    },
+    async exportFilteredPaperArtifacts(request, delivery) {
+      return resolveService().exportFilteredPaperArtifacts(request, delivery);
+    },
+    async queryConceptKb(request) {
+      return resolveService().queryConceptKb(request);
+    },
+    async getSchemas(request) {
+      void request;
+      return resolveService().getSchemas();
+    },
+    async getLibraryIndex(request) {
+      return resolveService().getLibraryIndex(request);
+    },
+    async getReviewInput(request) {
+      return resolveService().getReviewInput(request);
+    },
+    async debugSynthesisSnapshot(request) {
+      return resolveService().debugSynthesisSnapshot(request);
+    },
+    async debugSynthesisCacheList(request) {
+      return resolveService().debugSynthesisCacheList(request);
+    },
+    async debugSynthesisOperationsList(request) {
+      return resolveService().debugSynthesisOperationsList(request);
+    },
+    async debugSynthesisProfilerList(request) {
+      return resolveService().debugSynthesisProfilerList(request);
+    },
+    async debugSynthesisPaperInspect(request) {
+      return resolveService().debugSynthesisPaperInspect(request);
+    },
+    async debugSynthesisTopicInspect(request) {
+      return resolveService().debugSynthesisTopicInspect(request);
+    },
+    async debugSynthesisDiff(request) {
+      return resolveService().debugSynthesisDiff(request);
+    },
+    async debugSynthesisCleanInstallReset(request) {
+      return resolveService().debugSynthesisCleanInstallReset(request);
+    },
     async listWorkflowTopicOptions(request) {
       return resolveService().listWorkflowTopicOptions(request);
     },

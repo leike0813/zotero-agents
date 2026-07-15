@@ -1,6 +1,18 @@
 import { assert } from "chai";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
-import type { SynthesisMcpService } from "../../src/modules/synthesis/mcpService";
+import {
+  createInProcessSynthesisClient,
+  type LegacySynthesisPort,
+} from "../../src/modules/synthesisClient/inProcessClient";
+
+type SynthesisClientPorts = Record<string, (...args: any[]) => any>;
+
+function resolveClientFromPorts(ports: SynthesisClientPorts) {
+  const client = createInProcessSynthesisClient(
+    ports as unknown as LegacySynthesisPort,
+  );
+  return () => client;
+}
 
 function request(id: number, name: string, args: Record<string, unknown> = {}) {
   return {
@@ -26,7 +38,7 @@ describe("Synthesis review input MCP tool", function () {
     assert.notInclude(names, "synthesis.write_review_input");
 
     const calls: unknown[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getReviewInput(args) {
         calls.push(args);
         return {
@@ -51,7 +63,7 @@ describe("Synthesis review input MCP tool", function () {
         topicId: "topic-alpha",
         maxGraphNodes: 120,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [{ topicId: "topic-alpha", maxGraphNodes: 120 }]);

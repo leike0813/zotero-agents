@@ -92,8 +92,19 @@ export type SynthesisCanonicalReferenceArchiveRequest = {
 };
 
 export type SynthesisReferenceCommandResult = SynthesisJsonObject;
+export type SynthesisReferenceQueryRequest = SynthesisJsonObject;
+export type SynthesisReferenceQueryResult = SynthesisJsonObject;
 
 export interface SynthesisReferencesClient {
+  getSidecarIndex(
+    request?: SynthesisReferenceQueryRequest,
+  ): Promise<SynthesisReferenceQueryResult>;
+  rankExternalReferences(
+    request?: SynthesisReferenceQueryRequest,
+  ): Promise<SynthesisReferenceQueryResult>;
+  getAttentionQueue(
+    request?: SynthesisReferenceQueryRequest,
+  ): Promise<SynthesisReferenceQueryResult>;
   refreshReferenceSidecarNow(): Promise<SynthesisReferenceCommandResult>;
   retryReferenceSidecarRefresh(): Promise<SynthesisReferenceCommandResult>;
   runAdvancedReferenceMatchingNow(): Promise<SynthesisReferenceCommandResult>;

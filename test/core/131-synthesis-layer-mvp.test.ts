@@ -6,6 +6,10 @@ import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  createInProcessSynthesisClient,
+  type LegacySynthesisPort,
+} from "../../src/modules/synthesisClient/inProcessClient";
 
 async function makeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-synthesis-mvp-"));
@@ -523,7 +527,12 @@ describe("Synthesis Layer MVP real-data closure", function () {
     });
     const mcpResponse: any = await handleZoteroMcpRequestForTests(
       mcpRequest(1, "reference_index.get"),
-      { resolveSynthesisService: () => service },
+      {
+        resolveSynthesisClient: () =>
+          createInProcessSynthesisClient(
+            service as unknown as LegacySynthesisPort,
+          ),
+      },
     );
     assert.equal(snapshot.artifacts.rows[0].id, "topic-alpha");
     assert.equal(snapshot.registry.rows[0].paper_ref, paperRef);

@@ -4,7 +4,19 @@ import os from "os";
 import path from "path";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
-import type { SynthesisMcpService } from "../../src/modules/synthesis/mcpService";
+import {
+  createInProcessSynthesisClient,
+  type LegacySynthesisPort,
+} from "../../src/modules/synthesisClient/inProcessClient";
+
+type SynthesisClientPorts = Record<string, (...args: any[]) => any>;
+
+function resolveClientFromPorts(ports: SynthesisClientPorts) {
+  const client = createInProcessSynthesisClient(
+    ports as unknown as LegacySynthesisPort,
+  );
+  return () => client;
+}
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
@@ -39,6 +51,18 @@ async function makeAcpRunRoot() {
 }
 
 describe("Synthesis MCP tools", function () {
+  it("uses the Host Bridge catalog as the only MCP tool registry", async function () {
+    const source = await fs.readFile(
+      path.join(process.cwd(), "src/modules/zoteroMcpProtocol.ts"),
+      "utf8",
+    );
+    assert.include(source, "listHostBridgeMcpToolDefinitions");
+    assert.include(source, "listHostBridgeCapabilities");
+    assert.notMatch(source, /\bTOOL_REGISTRY\b/);
+    assert.notMatch(source, /\bcallSynthesisService\b/);
+    assert.notMatch(source, /synthesis\/service["']/);
+  });
+
   it("lists synthesis job-time tools", async function () {
     const response: any = await handleZoteroMcpRequestForTests({
       jsonrpc: "2.0",
@@ -82,7 +106,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes topic inventory, schema, and resolver calls through the injected synthesis service", async function () {
     const calls: string[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       listTopics() {
         calls.push("list_topics");
         return {
@@ -155,25 +179,25 @@ describe("Synthesis MCP tools", function () {
 
     const listResponse: any = await handleZoteroMcpRequestForTests(
       request(0, "topics.list"),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const topicsByPaperResponse: any = await handleZoteroMcpRequestForTests(
       request(4, "topics.find_by_paper_ref", { paper_ref: "1:ABCD1234" }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const schemaResponse: any = await handleZoteroMcpRequestForTests(
       request(1, "schemas.get", { kind: "resolver" }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const indexResponse: any = await handleZoteroMcpRequestForTests(
       request(3, "library_index.get", { cursor: "0", limit: 1 }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const resolveResponse: any = await handleZoteroMcpRequestForTests(
       request(2, "resolvers.resolve", {
         tag: "topic:test",
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [
@@ -226,7 +250,7 @@ describe("Synthesis MCP tools", function () {
   });
 
   it("routes reference sidecar index and graph slice reads through the injected service", async function () {
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getReferenceSidecarIndex() {
         return { rows: [{ paper_ref: "1:ABCD1234" }], total: 1 };
       },
@@ -349,16 +373,16 @@ describe("Synthesis MCP tools", function () {
     ] as const) {
       const response: any = await handleZoteroMcpRequestForTests(
         request(id, name, args),
-        { resolveSynthesisService: () => service },
+        { resolveSynthesisClient: resolveClientFromPorts(service) },
       );
       assert.equal(response.result.structuredContent.tool, name);
       assert.include(response.result.content[0].text, "Host Bridge capability");
     }
   });
 
-  it("routes synthesis paper artifact manifest and bounded reads through the injected service", async function () {
+  it("routes synthesis paper artifact manifest and bounded reads through the injected client", async function () {
     const calls: Array<{ method: string; args: Record<string, unknown> }> = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getPaperArtifactManifest(args) {
         calls.push({ method: "manifest", args });
         return {
@@ -401,16 +425,16 @@ describe("Synthesis MCP tools", function () {
       request(1, "paper_artifacts.get_manifest", {
         paper_refs: ["1:ABCD1234"],
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const readResponse: any = await handleZoteroMcpRequestForTests(
       request(2, "paper_artifacts.read", { paper_ref: "1:ABCD1234" }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [
       { method: "manifest", args: { paper_refs: ["1:ABCD1234"] } },
-      { method: "read", args: { paper_ref: "1:ABCD1234" } },
+      { method: "read", args: { paper_refs: ["1:ABCD1234"] } },
     ]);
     assert.equal(
       manifestResponse.result.structuredContent.tool,
@@ -424,7 +448,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes filtered paper artifact export without returning hashes to the LLM", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       exportFilteredPaperArtifacts(args) {
         calls.push(args);
         return {
@@ -449,7 +473,7 @@ describe("Synthesis MCP tools", function () {
         run_root: ".",
         paper_ref: "1:ABCD1234",
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [{ run_root: ".", paper_ref: "1:ABCD1234" }]);
@@ -466,7 +490,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes batched filtered paper artifact export without returning payload bodies or hashes", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       exportFilteredPaperArtifacts(args) {
         calls.push(args);
         return {
@@ -490,7 +514,7 @@ describe("Synthesis MCP tools", function () {
         run_root: ".",
         paper_refs: ["1:AAAA1111", "1:BBBB2222"],
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [
@@ -600,7 +624,7 @@ describe("Synthesis MCP tools", function () {
           paper_refs: ["1:ABCD1234", "1:EMPTY000"],
           artifact_types: ["digest", "references", "citation_analysis"],
         }),
-        { resolveSynthesisService: () => service },
+        { resolveSynthesisClient: resolveClientFromPorts(service) },
       );
       const result = response.result.structuredContent.result;
       assert.equal(
@@ -682,7 +706,7 @@ describe("Synthesis MCP tools", function () {
           paper_refs: ["1:ABCD1234"],
           artifact_types: ["digest", "references"],
         },
-        { hostBridge: { connectionMode: "remote" } },
+        { mode: "remote" },
       );
       assert.equal(
         remoteResult.manifest_file,
@@ -715,7 +739,7 @@ describe("Synthesis MCP tools", function () {
     const response: any = await handleZoteroMcpRequestForTests(
       request(1, "schemas.get", { kind: "resolver", extra: true }),
       {
-        resolveSynthesisService: () => ({
+        resolveSynthesisClient: resolveClientFromPorts({
           getSchemas() {
             return {};
           },
@@ -729,7 +753,7 @@ describe("Synthesis MCP tools", function () {
 
   it("returns recommended_update from get_topic_context for prefilled update jobs", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getTopicContext(args) {
         calls.push(args);
         return {
@@ -762,7 +786,7 @@ describe("Synthesis MCP tools", function () {
         topicId: "object-detection",
         mode: "update",
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [{ topicId: "object-detection", mode: "update" }]);
@@ -809,7 +833,7 @@ describe("Synthesis MCP tools", function () {
 
   it("returns a compact topic context file-output envelope through MCP", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getTopicContext(args) {
         calls.push(args);
         return {
@@ -835,7 +859,7 @@ describe("Synthesis MCP tools", function () {
         outputPath: "runtime/topic-context.semantic.json",
         overwrite: true,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [
@@ -861,7 +885,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes topic report markdown reads through the injected synthesis service", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getTopicReport(args) {
         calls.push(args);
         return {
@@ -885,7 +909,7 @@ describe("Synthesis MCP tools", function () {
       request(11, "topics.get_report", {
         topicId: "object-detection",
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [{ topicId: "object-detection" }]);
@@ -901,7 +925,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes topic paper digest resolution through the injected synthesis service", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       resolveTopicPaperDigest(args) {
         calls.push(args);
         return {
@@ -926,7 +950,7 @@ describe("Synthesis MCP tools", function () {
           payload_hash: "sha256:old",
         },
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.equal(calls.length, 1);
@@ -959,7 +983,7 @@ describe("Synthesis MCP tools", function () {
         cursor: "1",
         limit: 1,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const result = response.result.structuredContent.result;
 
@@ -983,7 +1007,7 @@ describe("Synthesis MCP tools", function () {
 
     const response: any = await handleZoteroMcpRequestForTests(
       request(24, "citation_graph.get_metrics", { limit: 5 }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const result = response.result.structuredContent.result;
 
@@ -1027,7 +1051,7 @@ describe("Synthesis MCP tools", function () {
         cursor: "1",
         limit: 1,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const result = response.result.structuredContent.result;
 
@@ -1058,7 +1082,7 @@ describe("Synthesis MCP tools", function () {
 
     const compact: any = await handleZoteroMcpRequestForTests(
       request(22, "library_index.get", { limit: 1 }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const expanded: any = await handleZoteroMcpRequestForTests(
       request(23, "library_index.get", {
@@ -1066,7 +1090,7 @@ describe("Synthesis MCP tools", function () {
         includeTags: true,
         includeItems: true,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     const compactResult = compact.result.structuredContent.result;
@@ -1116,7 +1140,7 @@ describe("Synthesis MCP tools", function () {
 
     const first: any = await handleZoteroMcpRequestForTests(
       request(25, "citation_graph.get_overview", { limit: 2 }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const firstResult = first.result.structuredContent.result;
 
@@ -1131,7 +1155,7 @@ describe("Synthesis MCP tools", function () {
         nodeCursor: firstResult.pagination.nodes.nextCursor,
         limit: 2,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
     const secondResult = second.result.structuredContent.result;
 
@@ -1144,7 +1168,7 @@ describe("Synthesis MCP tools", function () {
 
   it("routes bounded review input arguments through the synthesis MCP service", async function () {
     const calls: Record<string, unknown>[] = [];
-    const service: SynthesisMcpService = {
+    const service: SynthesisClientPorts = {
       getReviewInput(args) {
         calls.push(args);
         return {
@@ -1164,7 +1188,7 @@ describe("Synthesis MCP tools", function () {
         maxChars: 120,
         includePaperArtifacts: false,
       }),
-      { resolveSynthesisService: () => service },
+      { resolveSynthesisClient: resolveClientFromPorts(service) },
     );
 
     assert.deepEqual(calls, [

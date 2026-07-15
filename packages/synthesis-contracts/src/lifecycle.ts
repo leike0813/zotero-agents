@@ -19,6 +19,7 @@ export type SynthesisDatabaseResetResult = {
 };
 
 export interface SynthesisMaintenanceClient {
+  getSchemas(request?: SynthesisJsonObject): Promise<SynthesisJsonObject>;
   resetDatabase(
     request: SynthesisDatabaseResetRequest,
   ): Promise<SynthesisDatabaseResetResult>;
@@ -39,3 +40,4 @@ export interface SynthesisNotificationsClient {
     request: SynthesisRelatedItemsEchoRequest,
   ): Promise<SynthesisRelatedItemsEchoReceipt>;
 }
+import type { SynthesisJsonObject } from "./common";

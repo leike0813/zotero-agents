@@ -12,7 +12,7 @@ import {
   HostBridgeWorkflowProductError,
   listHostBridgeCapabilities,
 } from "./hostBridgeCapabilityRegistry";
-import type { SynthesisMcpService } from "./synthesis/mcpService";
+import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
 import {
   describeHostBridgeWorkflow,
   requirementsForHostBridgeWorkflow,
@@ -173,8 +173,9 @@ let serverSocketFactory: (port: number, bindMode: HostBridgeBindMode) => any =
   createServerSocket;
 let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
-let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
-  undefined;
+let synthesisClientResolverForTests:
+  | (() => SynthesisClient | Promise<SynthesisClient>)
+  | undefined = undefined;
 
 function nowIso() {
   return new Date().toISOString();
@@ -1348,8 +1349,8 @@ async function callCapability(request: HttpRequest) {
     const data = await capability.handler(payload.input, {
       getStatus: getHostBridgeServerStatus,
       connectionMode: parseConnectionModeHeader(request),
-      ...(synthesisServiceResolverForTests
-        ? { resolveSynthesisService: synthesisServiceResolverForTests }
+      ...(synthesisClientResolverForTests
+        ? { resolveSynthesisClient: synthesisClientResolverForTests }
         : {}),
     });
     return response(
@@ -3583,7 +3584,7 @@ export function resetHostBridgeServerForTests() {
   state = createEmptyState("idle");
   startingPromise = null;
   serverSocketFactory = createServerSocket;
-  synthesisServiceResolverForTests = undefined;
+  synthesisClientResolverForTests = undefined;
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
 }
@@ -3594,7 +3595,7 @@ export function configureHostBridgeServerForTests(
     endpoint?: string;
     lanEnabled?: boolean;
     portMode?: HostBridgePortMode;
-    resolveSynthesisService?: () => SynthesisMcpService;
+    resolveSynthesisClient?: () => SynthesisClient | Promise<SynthesisClient>;
   } = {},
 ) {
   const lanEnabled = args.lanEnabled === true;
@@ -3614,7 +3615,7 @@ export function configureHostBridgeServerForTests(
     pinnedPort: getPinnedPort(),
     lastError: "",
   });
-  synthesisServiceResolverForTests = args.resolveSynthesisService;
+  synthesisClientResolverForTests = args.resolveSynthesisClient;
   return token;
 }
 

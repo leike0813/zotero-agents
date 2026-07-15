@@ -3100,4 +3100,162 @@ describe("Synthesis client foundation", function () {
     assert.notInclude(consumer, "./synthesis/service");
     assert.include(consumer, "getDefaultSynthesisClient");
   });
+
+  it("routes Host Bridge Synthesis operations through grouped client capabilities", async function () {
+    const calls: Array<{ port: string; args: unknown[] }> = [];
+    const portNames = [
+      "listTopics",
+      "findTopicsByPaperRef",
+      "getTopicContext",
+      "resolveResolver",
+      "queryCitationGraphCluster",
+      "queryCitationGraph",
+      "getCitationGraphSlice",
+      "getCitationGraphLayout",
+      "getCitationGraphMetrics",
+      "rankLibraryPapers",
+      "refreshCitationGraphMetricsNow",
+      "getReferenceSidecarIndex",
+      "rankExternalReferences",
+      "getAttentionQueue",
+      "getPaperArtifactManifest",
+      "exportFilteredPaperArtifacts",
+      "resolveTopicPaperDigest",
+      "queryConceptKb",
+      "getSchemas",
+      "getLibraryIndex",
+      "getReviewInput",
+      "debugSynthesisSnapshot",
+      "debugSynthesisCacheList",
+      "debugSynthesisOperationsList",
+      "debugSynthesisProfilerList",
+      "debugSynthesisPaperInspect",
+      "debugSynthesisTopicInspect",
+      "debugSynthesisDiff",
+      "debugSynthesisCleanInstallReset",
+    ] as const;
+    const ports = Object.fromEntries(
+      portNames.map((port) => [
+        port,
+        async (...args: unknown[]) => {
+          calls.push({ port, args });
+          return { ok: true, port, nested: { value: "rebuilt" } };
+        },
+      ]),
+    );
+    const client: any = createInProcessSynthesisClient(ports as any);
+    const request = { probe: "value", extension: { retained: true } };
+    const delivery = { mode: "remote" as const };
+    const invocations: Array<[string, () => Promise<unknown>]> = [
+      ["listTopics", () => client.topics.list(request)],
+      ["findTopicsByPaperRef", () => client.topics.findByPaperRef(request)],
+      ["getTopicContext", () => client.topics.getContext(request, delivery)],
+      ["resolveResolver", () => client.topics.resolveResolver(request)],
+      ["queryCitationGraphCluster", () => client.graph.queryCluster(request)],
+      ["queryCitationGraph", () => client.graph.getOverview(request)],
+      ["getCitationGraphSlice", () => client.graph.getSlice(request)],
+      [
+        "getCitationGraphLayout",
+        () => client.graph.getPersistedLayout(request),
+      ],
+      ["getCitationGraphMetrics", () => client.graph.getMetrics(request)],
+      ["rankLibraryPapers", () => client.graph.rankLibraryPapers(request)],
+      [
+        "refreshCitationGraphMetricsNow",
+        () => client.graph.refreshMetricsNow(request),
+      ],
+      [
+        "getReferenceSidecarIndex",
+        () => client.references.getSidecarIndex(request),
+      ],
+      [
+        "rankExternalReferences",
+        () => client.references.rankExternalReferences(request),
+      ],
+      ["getAttentionQueue", () => client.references.getAttentionQueue(request)],
+      ["getPaperArtifactManifest", () => client.artifacts.getManifest(request)],
+      [
+        "exportFilteredPaperArtifacts",
+        () => client.artifacts.exportFiltered(request, delivery),
+      ],
+      [
+        "resolveTopicPaperDigest",
+        () => client.artifacts.resolveTopicPaperDigest(request),
+      ],
+      ["queryConceptKb", () => client.concepts.query(request)],
+      ["getSchemas", () => client.maintenance.getSchemas(request)],
+      ["getLibraryIndex", () => client.libraryIndex.getPage(request)],
+      ["getReviewInput", () => client.workflowReview.getInput(request)],
+      ["debugSynthesisSnapshot", () => client.debug.snapshot(request)],
+      ["debugSynthesisCacheList", () => client.debug.listCache(request)],
+      [
+        "debugSynthesisOperationsList",
+        () => client.debug.listOperations(request),
+      ],
+      ["debugSynthesisProfilerList", () => client.debug.listProfiler(request)],
+      ["debugSynthesisPaperInspect", () => client.debug.inspectPaper(request)],
+      ["debugSynthesisTopicInspect", () => client.debug.inspectTopic(request)],
+      ["debugSynthesisDiff", () => client.debug.diff(request)],
+      [
+        "debugSynthesisCleanInstallReset",
+        () => client.debug.cleanInstallReset(request),
+      ],
+    ];
+
+    for (const [port, invoke] of invocations) {
+      const result = (await invoke()) as Record<string, unknown>;
+      assert.equal(result.port, port);
+      assert.notStrictEqual(result, ports);
+    }
+    assert.deepEqual(
+      calls.map((entry) => entry.port),
+      portNames,
+    );
+    assert.deepEqual(calls[2].args, [request, delivery]);
+    assert.deepEqual(calls[15].args, [request, delivery]);
+    assert.deepEqual(calls[0].args[0], request);
+    assert.notStrictEqual(calls[0].args[0], request);
+  });
+
+  it("classifies Host Bridge client boundary failures", async function () {
+    const missing: any = createInProcessSynthesisClient({} as any);
+    try {
+      await missing.debug.snapshot({});
+      assert.fail("expected unavailable");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "unavailable");
+    }
+
+    let invoked = false;
+    const invalidRequest: any = createInProcessSynthesisClient({
+      async debugSynthesisSnapshot() {
+        invoked = true;
+        return {};
+      },
+    } as any);
+    try {
+      await invalidRequest.debug.snapshot({
+        callback: (() => undefined) as never,
+      });
+      assert.fail("expected invalid_request");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "invalid_request");
+      assert.isFalse(invoked);
+    }
+
+    const invalidResult: any = createInProcessSynthesisClient({
+      async debugSynthesisSnapshot() {
+        return [];
+      },
+    } as any);
+    try {
+      await invalidResult.debug.snapshot({});
+      assert.fail("expected internal");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "internal");
+    }
+  });
 });

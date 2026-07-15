@@ -5027,7 +5027,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
           view: "semantic",
           outputPath: remotePath,
         },
-        { hostBridge: { connectionMode: "remote" } },
+        { mode: "remote" },
       )) as any;
 
       assert.equal(envelope.omitted_inline_result, true);

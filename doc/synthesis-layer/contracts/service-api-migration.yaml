@@ -4,12 +4,8 @@ service_source: src/modules/synthesis/service.ts
 service_factory: createSynthesisService
 
 direct_consumers:
-  - path: src/modules/hostBridgeCapabilityRegistry.ts
-    role: host_bridge_proxy
   - path: src/modules/synthesisClient/legacyComposition.ts
     role: client_composition
-  - path: src/modules/zoteroMcpProtocol.ts
-    role: mcp_proxy
 
 method_groups:
   - id: debug
@@ -95,7 +91,6 @@ method_groups:
       - listWorkflowTopicOptions
       - getTopicContext
       - getTopicReport
-      - resolveTopicPaperDigest
       - resolveResolver
 
   - id: topic_commands
@@ -128,7 +123,7 @@ method_groups:
 
   - id: review_input
     category: query
-    target_capability: workflow_apply.review
+    target_capability: workflow_review
     disposition: client_capability
     consumer_groups: [workflow, host_bridge, mcp]
     methods:
@@ -164,10 +159,11 @@ method_groups:
     category: query
     target_capability: artifacts
     disposition: client_capability
-    consumer_groups: [workflow, host_bridge, mcp]
+    consumer_groups: [workbench, workflow, host_bridge, mcp]
     methods:
       - getPaperArtifactManifest
       - readPaperArtifacts
+      - resolveTopicPaperDigest
 
   - id: artifact_export
     category: command
@@ -177,10 +173,10 @@ method_groups:
     methods:
       - exportFilteredPaperArtifacts
 
-  - id: legacy_library_index
+  - id: library_index
     category: query
-    target_capability: workbench.index
-    disposition: remove
+    target_capability: library_index
+    disposition: client_capability
     consumer_groups: [host_bridge, mcp]
     methods:
       - getLibraryIndex

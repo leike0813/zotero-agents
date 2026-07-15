@@ -1,4 +1,8 @@
-import type { SynthesisJsonObject, SynthesisJsonValue } from "./common";
+import type {
+  SynthesisDeliveryContext,
+  SynthesisJsonObject,
+  SynthesisJsonValue,
+} from "./common";
 
 export type SynthesisWorkflowItemSnapshot = {
   libraryId: number;
@@ -74,8 +78,21 @@ export type SynthesisPaperArtifactsResult = SynthesisJsonObject & {
   total: number;
 };
 
+export type SynthesisArtifactQueryRequest = SynthesisJsonObject;
+export type SynthesisArtifactQueryResult = SynthesisJsonObject;
+
 export interface SynthesisArtifactsClient {
+  getManifest(
+    request?: SynthesisArtifactQueryRequest,
+  ): Promise<SynthesisArtifactQueryResult>;
   readPaperArtifacts(
     request: SynthesisPaperArtifactsRequest,
   ): Promise<SynthesisPaperArtifactsResult>;
+  exportFiltered(
+    request: SynthesisArtifactQueryRequest,
+    delivery?: SynthesisDeliveryContext,
+  ): Promise<SynthesisArtifactQueryResult>;
+  resolveTopicPaperDigest(
+    request: SynthesisArtifactQueryRequest,
+  ): Promise<SynthesisArtifactQueryResult>;
 }

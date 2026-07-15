@@ -22,6 +22,7 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
+import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -351,13 +352,14 @@ describe("host bridge capability calls", function () {
   it("passes connection mode headers into synthesis capability context", async function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",
-      resolveSynthesisService: () => ({
-        getTopicContext(_args, context) {
-          return {
-            connectionMode: context?.hostBridge?.connectionMode,
-          };
-        },
-      }),
+      resolveSynthesisClient: () =>
+        createInProcessSynthesisClient({
+          getTopicContext(_args, context) {
+            return {
+              connectionMode: context?.mode,
+            };
+          },
+        }),
     });
 
     const parsed = await callBridgeCapability({

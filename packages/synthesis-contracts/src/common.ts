@@ -9,6 +9,10 @@ export type SynthesisJsonObject = {
   [key: string]: SynthesisJsonValue;
 };
 
+export type SynthesisDeliveryContext = {
+  mode: "local" | "remote";
+};
+
 export const SYNTHESIS_PROTOCOL_VERSION = "1" as const;
 
 export type SynthesisRequestScope = {

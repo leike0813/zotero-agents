@@ -76,14 +76,17 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(report.missingConsumers, []);
     assert.deepEqual(report.unknownConsumers, []);
     assert.deepEqual(report.directConsumers, [
-      "src/modules/hostBridgeCapabilityRegistry.ts",
       "src/modules/synthesisClient/legacyComposition.ts",
-      "src/modules/zoteroMcpProtocol.ts",
     ]);
     assert.deepEqual(
       report.inventory.direct_consumers.map((consumer) => consumer.path).sort(),
       report.directConsumers,
     );
+    const libraryIndex = report.inventory.methods.find(
+      (method) => method.name === "getLibraryIndex",
+    );
+    assert.equal(libraryIndex?.disposition, "client_capability");
+    assert.equal(libraryIndex?.target_capability, "library_index");
 
     const workbench = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisWorkbenchTab.ts"),
@@ -98,6 +101,25 @@ describe("Synthesis sidecar migration boundary", function () {
       "utf8",
     );
     assert.notMatch(workbench, /synthesis\/service["']/);
+
+    const hostBridge = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/hostBridgeCapabilityRegistry.ts"),
+      "utf8",
+    );
+    const mcpProtocol = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/zoteroMcpProtocol.ts"),
+      "utf8",
+    );
+    assert.notMatch(hostBridge, /synthesis\/service["']/);
+    assert.notMatch(hostBridge, /\bresolveSynthesisService\b/);
+    assert.include(hostBridge, "getDefaultSynthesisClient");
+    assert.notMatch(mcpProtocol, /synthesis\/service["']/);
+    assert.notMatch(mcpProtocol, /\bTOOL_REGISTRY\b/);
+    assert.notMatch(mcpProtocol, /\bcallSynthesisService\b/);
+    assert.notMatch(mcpProtocol, /\bsynthesisTool\b/);
+    assert.isFalse(
+      fs.existsSync(path.join(ROOT_DIR, "src/modules/synthesis/mcpService.ts")),
+    );
     assert.notMatch(
       workbench,
       /\b(?:getDefaultSynthesisService|invalidateDefaultSynthesisService)\b/,
@@ -107,6 +129,9 @@ describe("Synthesis sidecar migration boundary", function () {
       "readonly sync: SynthesisSyncClient",
     );
     assert.include(contractIndex, 'export * from "./sync"');
+    assert.include(contractIndex, 'export * from "./debug"');
+    assert.include(contractIndex, 'export * from "./libraryIndex"');
+    assert.include(contractIndex, 'export * from "./workflowReview"');
     assert.notInclude(workbench, ".getSynthesisWorkbenchChromeInput");
     assert.notInclude(workbench, ".getSynthesisWorkbenchSurfaceInput");
     assert.notInclude(workbench, ".resolveTopicPaperDigest");
