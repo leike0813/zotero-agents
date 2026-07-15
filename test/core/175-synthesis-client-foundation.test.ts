@@ -629,6 +629,208 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict staged Tag bulk commands through normalized ports", async function () {
+    const calls: Array<{ operation: string; request?: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async promoteStagedTagSuggestions(request) {
+        calls.push({ operation: "promote", request });
+        return {
+          promoted: request.tags,
+          diagnostics: [{ code: "tag_parent_apply_failed" }],
+          completed_at: new Date("2026-07-15T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async discardStagedTagSuggestions(request) {
+        calls.push({ operation: "discard", request });
+        return { discarded: request.tags };
+      },
+      async clearStagedTagSuggestions() {
+        calls.push({ operation: "clear" });
+        return { discarded: ["topic:remaining"] };
+      },
+    });
+
+    assert.deepEqual(
+      await client.tags.promoteStagedTagSuggestions({
+        tags: [" topic:candidate ", "topic:candidate"],
+        unexpected: "discard",
+      } as never),
+      {
+        promoted: ["topic:candidate", "topic:candidate"],
+        diagnostics: [{ code: "tag_parent_apply_failed" }],
+        completed_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      await client.tags.discardStagedTagSuggestions({ tags: [] }),
+      {
+        discarded: [],
+      },
+    );
+    assert.deepEqual(await client.tags.clearStagedTagSuggestions(), {
+      discarded: ["topic:remaining"],
+    });
+    assert.deepEqual(calls, [
+      {
+        operation: "promote",
+        request: { tags: ["topic:candidate", "topic:candidate"] },
+      },
+      { operation: "discard", request: { tags: [] } },
+      { operation: "clear" },
+    ]);
+  });
+
+  it("rejects invalid staged Tag selections before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async promoteStagedTagSuggestions() {
+        invocations += 1;
+        return {};
+      },
+      async discardStagedTagSuggestions() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () => missingPortClient.tags.promoteStagedTagSuggestions({ tags: [" "] }),
+      () => client.tags.promoteStagedTagSuggestions(undefined as never),
+      () => client.tags.promoteStagedTagSuggestions({} as never),
+      () =>
+        client.tags.promoteStagedTagSuggestions({ tags: "topic:a" } as never),
+      () =>
+        client.tags.promoteStagedTagSuggestions({
+          tags: ["topic:a", 7],
+        } as never),
+      () => client.tags.discardStagedTagSuggestions({ tags: ["topic:a", ""] }),
+      () =>
+        client.tags.discardStagedTagSuggestions({
+          tags: ["topic:a"],
+          callback: (() => undefined) as never,
+        } as never),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the staged Tag selection to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed staged Tag bulk ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "tag conflict");
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async promoteStagedTagSuggestions() {
+        throw preserved;
+      },
+      async discardStagedTagSuggestions() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async clearStagedTagSuggestions() {
+        throw new Error("clear exploded");
+      },
+    });
+    const invalidResultClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async promoteStagedTagSuggestions() {
+        return [];
+      },
+      async discardStagedTagSuggestions() {
+        return undefined;
+      },
+      async clearStagedTagSuggestions() {
+        return "discarded";
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () =>
+          missingPortClient.tags.promoteStagedTagSuggestions({ tags: [] }),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          missingPortClient.tags.discardStagedTagSuggestions({ tags: [] }),
+        code: "unavailable",
+      },
+      {
+        run: () => missingPortClient.tags.clearStagedTagSuggestions(),
+        code: "unavailable",
+      },
+      {
+        run: () => client.tags.promoteStagedTagSuggestions({ tags: [] }),
+        code: "conflict",
+        expected: preserved,
+      },
+      {
+        run: () => client.tags.discardStagedTagSuggestions({ tags: [] }),
+        code: "storage_busy",
+      },
+      {
+        run: () => client.tags.clearStagedTagSuggestions(),
+        code: "internal",
+      },
+      {
+        run: () =>
+          invalidResultClient.tags.promoteStagedTagSuggestions({ tags: [] }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          invalidResultClient.tags.discardStagedTagSuggestions({ tags: [] }),
+        code: "internal",
+      },
+      {
+        run: () => invalidResultClient.tags.clearStagedTagSuggestions(),
+        code: "internal",
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the staged Tag operation to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the four Citation Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({

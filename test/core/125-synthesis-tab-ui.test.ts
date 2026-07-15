@@ -2621,6 +2621,95 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(invalidationBlock, 'command === "exportTagVocabulary"');
   });
 
+  it("routes staged Tag bulk commands through the strict Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const promoteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "promoteStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "discardStagedTagSuggestions"',
+      ),
+    );
+    const discardRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "discardStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "clearStagedTagSuggestions"',
+      ),
+    );
+    const clearRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "clearStagedTagSuggestions"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTagVocabularyImport"',
+      ),
+    );
+
+    for (const [region, method] of [
+      [promoteRegion, "promoteStagedTagSuggestions"],
+      [discardRegion, "discardStagedTagSuggestions"],
+    ]) {
+      assert.include(region, "Array.isArray(commandArgs.tags)");
+      assert.include(
+        region,
+        'commandArgs.tags.map((tag) => String(tag || "").trim()).filter(Boolean)',
+      );
+      assert.include(
+        region,
+        '[String(commandArgs.tag || "").trim()].filter(Boolean)',
+      );
+      assert.include(region, "if (tags.length)");
+      assert.include(region, "{ tag: tags[0], tags }");
+      assert.match(
+        region,
+        new RegExp(`client\\.tags\\s*\\.${method}\\(\\{ tags \\}\\)`),
+      );
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+    }
+
+    assert.match(clearRegion, /client\.tags\s*\.clearStagedTagSuggestions\(\)/);
+    assert.match(
+      clearRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"clearStagedTagSuggestions",\s*\{\}/,
+    );
+    assert.include(clearRegion, "await getDefaultSynthesisClient()");
+
+    for (const region of [promoteRegion, discardRegion, clearRegion]) {
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "failOnDiagnostic");
+    }
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    for (const command of [
+      "promoteStagedTagSuggestions",
+      "discardStagedTagSuggestions",
+      "clearStagedTagSuggestions",
+    ]) {
+      assert.include(tagInvalidation, `command === "${command}"`);
+    }
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

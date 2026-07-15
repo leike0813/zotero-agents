@@ -87,11 +87,14 @@ function createLegacyPort(
         request as Parameters<typeof service.stageTagSuggestions>[0],
       );
     },
+    async promoteStagedTagSuggestions(request) {
+      return resolveService().promoteStagedTagSuggestions(request);
+    },
     async discardStagedTagSuggestions(request) {
-      const service = resolveService();
-      return service.discardStagedTagSuggestions(
-        request as Parameters<typeof service.discardStagedTagSuggestions>[0],
-      );
+      return resolveService().discardStagedTagSuggestions(request);
+    },
+    async clearStagedTagSuggestions() {
+      return resolveService().clearStagedTagSuggestions();
     },
     async replaceTagAuditRecords(request) {
       return resolveService().replaceTagAuditRecords(request);

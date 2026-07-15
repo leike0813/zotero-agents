@@ -165,6 +165,9 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.tags\s*\.validateTagVocabulary/);
     assert.match(workbench, /client\.tags\s*\.rebuildTagVocabularyIndex/);
     assert.match(workbench, /client\.tags\s*\.exportTagVocabularyForRegulator/);
+    assert.match(workbench, /client\.tags\s*\.promoteStagedTagSuggestions/);
+    assert.match(workbench, /client\.tags\s*\.discardStagedTagSuggestions/);
+    assert.match(workbench, /client\.tags\s*\.clearStagedTagSuggestions/);
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -238,6 +241,26 @@ describe("Synthesis sidecar migration boundary", function () {
     ]) {
       assert.notMatch(
         workbench,
+        new RegExp(
+          `(?:getDefaultSynthesisService\\(\\)\\s*\\.|\\bservice\\.)${method}`,
+        ),
+      );
+    }
+    const stagedBulkRegion = workbench.slice(
+      workbench.indexOf(
+        'result.hostCommand?.command === "promoteStagedTagSuggestions"',
+      ),
+      workbench.indexOf(
+        'result.hostCommand?.command === "applyTagVocabularyImport"',
+      ),
+    );
+    for (const method of [
+      "promoteStagedTagSuggestions",
+      "discardStagedTagSuggestions",
+      "clearStagedTagSuggestions",
+    ]) {
+      assert.notMatch(
+        stagedBulkRegion,
         new RegExp(
           `(?:getDefaultSynthesisService\\(\\)\\s*\\.|\\bservice\\.)${method}`,
         ),
@@ -356,6 +379,11 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(tagsContract, "validateTagVocabulary()");
     assert.include(tagsContract, "rebuildTagVocabularyIndex()");
     assert.include(tagsContract, "exportTagVocabularyForRegulator()");
+    assert.include(tagsContract, "SynthesisTagSelectionRequest");
+    assert.include(tagsContract, "SynthesisTagCommandResult");
+    assert.include(tagsContract, "promoteStagedTagSuggestions(");
+    assert.include(tagsContract, "discardStagedTagSuggestions(");
+    assert.include(tagsContract, "clearStagedTagSuggestions()");
     assert.notMatch(
       tagsContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions|clipboard/,

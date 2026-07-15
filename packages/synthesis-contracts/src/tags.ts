@@ -6,6 +6,12 @@ export type SynthesisTagStagedSuggestion = SynthesisJsonObject & {
   tag: string;
 };
 
+export type SynthesisTagSelectionRequest = {
+  tags: string[];
+};
+
+export type SynthesisTagCommandResult = SynthesisJsonObject;
+
 export type SynthesisTagAuditReplaceRequest = {
   libraryId: number;
   entries: Array<{
@@ -25,9 +31,13 @@ export interface SynthesisTagsClient {
   stageTagSuggestions(
     request: SynthesisJsonObject,
   ): Promise<SynthesisJsonValue>;
+  promoteStagedTagSuggestions(
+    request: SynthesisTagSelectionRequest,
+  ): Promise<SynthesisTagCommandResult>;
   discardStagedTagSuggestions(
-    request: SynthesisJsonObject,
-  ): Promise<SynthesisJsonValue>;
+    request: SynthesisTagSelectionRequest,
+  ): Promise<SynthesisTagCommandResult>;
+  clearStagedTagSuggestions(): Promise<SynthesisTagCommandResult>;
   replaceTagAuditRecords(
     request: SynthesisTagAuditReplaceRequest,
   ): Promise<SynthesisJsonObject>;

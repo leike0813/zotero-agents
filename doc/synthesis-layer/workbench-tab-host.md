@@ -221,7 +221,7 @@ Topic artifact delete/purge 与 discovery-hint reject/restore 在各自命令闭
 
 Topic Graph projection rebuild、edge accept/reject 与 review action 使用独立的 `client.topicGraph`，不并入 Citation Graph 的 `client.graph`。Rebuild 保留 protected confirmation、deferred start 与 Home-only 默认失效，但调用无参数 client method，进度只来自 `workbench.readProgress()`；edge/review 请求只传递 trim 后的 canonical ID 和严格 review action。三个 mutation 保留原 single-flight、singular `failOnDiagnostic`、立即启动及 Home/Topics/Graph/Review 失效。Topic Graph query/checkpoint export、Host Bridge 和 MCP 保持当前边界。
 
-Tag Vocabulary validation、projection rebuild 与 regulator export 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.tags`。三路均使用空 single-flight args；validation 与 export 立即启动并保持 Home-only 默认失效，rebuild 保留 protected confirmation、deferred start 与 Tags 失效。Rebuild 不再传递 progress callback，进度只来自 `workbench.readProgress()`；export 返回 string array 后仍由 host 写入 clipboard，格式为每个 tag 一行并保留尾随换行。Staged suggestions、import、vocabulary edit/delete、bootstrap 与 audit command 保持现有直连边界。
+Tag Vocabulary validation、projection rebuild、regulator export 与 staged bulk promote/discard/clear 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.tags`。Maintenance 三路均使用空 single-flight args；validation 与 export 立即启动并保持 Home-only 默认失效，rebuild 保留 protected confirmation、deferred start 与 Tags 失效。Rebuild 不再传递 progress callback，进度只来自 `workbench.readProgress()`；export 返回 string array 后仍由 host 写入 clipboard，格式为每个 tag 一行并保留尾随换行。Promote/discard 保留 `tags` array 与 singular `tag` 输入、String/trim/空值过滤、首 tag single-flight key 和空选择跳过；client 使用允许空数组的严格 selection DTO，供 Workflow Host 保持 no-op 兼容。Clear 保留空参数全局 single-flight key。三路 staged bulk 均立即启动、不使用 singular diagnostic failure，并只失效 Tags。Staged edit、import、vocabulary edit/delete 与 bootstrap 保持当前路径；audit 继续由 Workflow Host 经 `client.tags` 执行。
 
 ### 受保护命令
 

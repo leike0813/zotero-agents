@@ -37,6 +37,8 @@ import {
   type SynthesisRelatedItemsEchoRequest,
   type SynthesisStartupReconcileResult,
   type SynthesisTagAuditReplaceRequest,
+  type SynthesisTagCommandResult,
+  type SynthesisTagSelectionRequest,
   type SynthesisTagStagedSuggestion,
   type SynthesisTagVocabularySnapshot,
   type SynthesisTopicApplyRequest,
@@ -111,9 +113,13 @@ export interface LegacySynthesisPort {
   exportTagVocabularyForRegulator?(): Promise<unknown>;
   listStagedTagSuggestions?(): Promise<unknown>;
   stageTagSuggestions?(request: Record<string, unknown>): Promise<unknown>;
-  discardStagedTagSuggestions?(
-    request: Record<string, unknown>,
+  promoteStagedTagSuggestions?(
+    request: SynthesisTagSelectionRequest,
   ): Promise<unknown>;
+  discardStagedTagSuggestions?(
+    request: SynthesisTagSelectionRequest,
+  ): Promise<unknown>;
+  clearStagedTagSuggestions?(): Promise<unknown>;
   replaceTagAuditRecords?(
     request: SynthesisTagAuditReplaceRequest,
   ): Promise<unknown>;
@@ -222,6 +228,14 @@ function normalizeLegacyJson(value: unknown) {
 
 function normalizeLegacyObject(value: unknown) {
   return toSynthesisJsonObject(normalizeLegacyJson(value), "$.response");
+}
+
+function normalizeLegacyResultObject(value: unknown, label: string) {
+  const result = normalizeLegacyJson(value);
+  if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    throw new SynthesisClientError("internal", `${label} response is invalid`);
+  }
+  return result;
 }
 
 async function runLegacy<T>(operation: () => Promise<T>): Promise<T> {
@@ -369,6 +383,28 @@ function normalizeRequiredString(
     });
   }
   return value.trim();
+}
+
+function normalizeTagSelectionRequest(
+  value: unknown,
+): SynthesisTagSelectionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (!Array.isArray(request.tags)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis staged Tag selection tags must be an array",
+      { field: "tags" },
+    );
+  }
+  return {
+    tags: request.tags.map((tag, index) =>
+      normalizeRequiredString(
+        tag,
+        `tags[${index}]`,
+        "Synthesis staged Tag selection tag",
+      ),
+    ),
+  };
 }
 
 function normalizeStringEnum<T extends string>(
@@ -1305,22 +1341,13 @@ export function createInProcessSynthesisClient(
       },
       async rebuildTagVocabularyIndex() {
         return runLegacy(async () => {
-          const result = normalizeLegacyJson(
+          const result = normalizeLegacyResultObject(
             await requireLegacyPort(
               legacy.rebuildTagVocabularyIndex,
               "tags.rebuildTagVocabularyIndex",
             )(),
+            "Tag vocabulary rebuild",
           );
-          if (
-            result === null ||
-            typeof result !== "object" ||
-            Array.isArray(result)
-          ) {
-            throw new SynthesisClientError(
-              "internal",
-              "Tag vocabulary rebuild response is invalid",
-            );
-          }
           return result;
         });
       },
@@ -1371,13 +1398,40 @@ export function createInProcessSynthesisClient(
           ),
         );
       },
+      async promoteStagedTagSuggestions(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagSelectionRequest(request);
+          const port = requireLegacyPort(
+            legacy.promoteStagedTagSuggestions,
+            "tags.promoteStagedTagSuggestions",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Staged Tag promotion",
+          ) as SynthesisTagCommandResult;
+        });
+      },
       async discardStagedTagSuggestions(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagSelectionRequest(request);
+          const port = requireLegacyPort(
+            legacy.discardStagedTagSuggestions,
+            "tags.discardStagedTagSuggestions",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Staged Tag discard",
+          ) as SynthesisTagCommandResult;
+        });
+      },
+      async clearStagedTagSuggestions() {
         return runLegacy(async () =>
-          normalizeLegacyJson(
+          normalizeLegacyResultObject(
             await requireLegacyPort(
-              legacy.discardStagedTagSuggestions,
-              "tags.discardStagedTagSuggestions",
-            )(request),
+              legacy.clearStagedTagSuggestions,
+              "tags.clearStagedTagSuggestions",
+            )(),
+            "Staged Tag clear",
           ),
         );
       },

@@ -2944,8 +2944,10 @@ function handleAction(
         runtime,
         "promoteStagedTagSuggestions",
         { tag: tags[0], tags },
-        () =>
-          getDefaultSynthesisService().promoteStagedTagSuggestions({ tags }),
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.promoteStagedTagSuggestions({ tags });
+        },
       );
       return;
     }
@@ -2962,8 +2964,10 @@ function handleAction(
         runtime,
         "discardStagedTagSuggestions",
         { tag: tags[0], tags },
-        () =>
-          getDefaultSynthesisService().discardStagedTagSuggestions({ tags }),
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.tags.discardStagedTagSuggestions({ tags });
+        },
       );
       return;
     }
@@ -2971,8 +2975,14 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "clearStagedTagSuggestions") {
-    runWorkbenchCommandOnce(runtime, "clearStagedTagSuggestions", {}, () =>
-      getDefaultSynthesisService().clearStagedTagSuggestions(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "clearStagedTagSuggestions",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.tags.clearStagedTagSuggestions();
+      },
     );
     return;
   }

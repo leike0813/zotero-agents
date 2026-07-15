@@ -28,6 +28,8 @@ import type {
   SynthesisPaperArtifactsRequest,
   SynthesisPaperArtifactsResult,
   SynthesisTagAuditReplaceRequest,
+  SynthesisTagCommandResult,
+  SynthesisTagSelectionRequest,
   SynthesisTagStagedSuggestion,
   SynthesisTagVocabularySnapshot,
   SynthesisTopicReportRequest,
@@ -567,8 +569,8 @@ export interface WorkflowSynthesisApi {
   listStagedTagSuggestions(): Promise<SynthesisTagStagedSuggestion[]>;
   stageTagSuggestions(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
   discardStagedTagSuggestions(
-    request: SynthesisJsonObject,
-  ): Promise<SynthesisJsonValue>;
+    request: SynthesisTagSelectionRequest,
+  ): Promise<SynthesisTagCommandResult>;
   replaceTagAuditRecords(
     request: SynthesisTagAuditReplaceRequest,
   ): Promise<SynthesisJsonObject>;
