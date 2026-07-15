@@ -905,16 +905,11 @@ async function refreshWorkbenchCommandProgress(
       return;
     }
     if (!runtime.snapshotInputLocked) {
-      const base = runtime.snapshotInput || buildDefaultSnapshotInput();
-      runtime.snapshotInput = {
-        ...base,
-        maintenance: {
-          ...(base.maintenance || {}),
-          backgroundJobs:
-            getDefaultSynthesisService().getSynthesisBackgroundJobRows(),
-        },
-      };
-      prewarmedSynthesisSnapshotInput = runtime.snapshotInput;
+      const client = await getDefaultSynthesisClient();
+      mergeRuntimeSnapshotInput(
+        runtime,
+        toSynthesisUiSnapshotInput(await client.workbench.readProgress()),
+      );
     }
     await sendChrome(runtime, {
       refreshFromService: false,

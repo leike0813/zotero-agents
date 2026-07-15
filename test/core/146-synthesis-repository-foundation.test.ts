@@ -581,9 +581,27 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
-  it("cancels running operations during startup reconciliation", function () {
+  it("keeps progress reads pure and cancels all running operations only at startup", async function () {
     const repository = createSynthesisRepository({
       now: () => "2026-05-28T00:00:00.000Z",
+    });
+    repository.upsertOperation({
+      operationId: "operation:old-running",
+      operationType: "reference_sidecar_refresh",
+      label: "Old running operation",
+      status: "running",
+      phase: "scan",
+      phaseLabel: "Scanning",
+      updatedAt: "2026-05-27T00:00:00.000Z",
+    });
+    repository.upsertOperation({
+      operationId: "operation:fresh-running",
+      operationType: "citation_graph_cache_rebuild",
+      label: "Fresh running operation",
+      status: "running",
+      phase: "write",
+      phaseLabel: "Writing",
+      updatedAt: "2026-05-28T00:00:00.000Z",
     });
     const service = createSynthesisService({
       root: "C:/synthesis-startup-reconcile",
@@ -592,25 +610,55 @@ describe("Synthesis repository foundation", function () {
       now: () => "2026-05-28T00:00:00.000Z",
       synthesisRepository: repository,
     });
-    repository.upsertOperation({
-      operationId: "operation:stale-running",
-      operationType: "reference_sidecar_refresh",
-      label: "Stale operation",
-      status: "running",
-      phase: "scan",
-      phaseLabel: "Scanning",
-      updatedAt: "2026-05-28T00:00:00.000Z",
+
+    assert.deepEqual(
+      repository
+        .listOperations({ statuses: ["running"] })
+        .map((row) => row.operationId)
+        .sort(),
+      ["operation:fresh-running", "operation:old-running"],
+    );
+    assert.sameMembers(
+      service
+        .getSynthesisBackgroundJobRows()
+        .filter((row) => row.status === "running")
+        .map((row) => row.job_id),
+      ["operation:fresh-running", "operation:old-running"],
+    );
+    const debugResult = await service.debugSynthesisOperationsList({
+      includeRawRows: true,
     });
+    assert.sameMembers(
+      (debugResult.operations || [])
+        .filter((row) => row.status === "running")
+        .map((row) => row.operationId),
+      ["operation:fresh-running", "operation:old-running"],
+    );
+    for (let index = 0; index < 100; index += 1) {
+      repository.upsertOperation({
+        operationId: `operation:bulk-${String(index).padStart(3, "0")}`,
+        operationType: "reference_sidecar_refresh",
+        label: `Bulk running operation ${index}`,
+        status: "running",
+      });
+    }
 
     const result = service.reconcileSynthesisRuntimeWorkStateOnStartup();
 
-    assert.deepEqual(result.canceledOperationIds, ["operation:stale-running"]);
-    const operation = repository.getOperation("operation:stale-running");
-    assert.equal(operation?.status, "canceled");
-    assert.include(
-      operation?.diagnosticsJson || "",
-      "synthesis_operation_stale_after_restart",
-    );
+    assert.lengthOf(result.canceledOperationIds, 102);
+    assert.includeMembers(result.canceledOperationIds, [
+      "operation:fresh-running",
+      "operation:old-running",
+    ]);
+    for (const operationId of result.canceledOperationIds) {
+      const operation = repository.getOperation(operationId);
+      assert.equal(operation?.status, "canceled");
+      assert.include(
+        operation?.diagnosticsJson || "",
+        "synthesis_operation_stale_after_restart",
+      );
+    }
+    assert.deepEqual(repository.listOperations({ statuses: ["running"] }), []);
     assert.deepEqual(
       service
         .getSynthesisBackgroundJobRows()

@@ -4950,7 +4950,15 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "ensureCommandProgressPolling");
     assert.include(host, "notifyWorkbenchCommandProgress");
     assert.include(host, "refreshWorkbenchCommandProgress");
-    assert.include(host, "getSynthesisBackgroundJobRows");
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
+    assert.include(progressBlock, "toSynthesisUiSnapshotInput");
+    assert.include(progressBlock, "mergeRuntimeSnapshotInput");
+    assert.notInclude(progressBlock, "getDefaultSynthesisService");
+    assert.notInclude(progressBlock, "getSynthesisBackgroundJobRows");
     assert.include(host, "refreshFromService: false");
     assert.notMatch(
       host,

@@ -10,6 +10,7 @@ Workbench UI is a read model over Zotero Library, workflow artifacts, and commit
 - Legacy JSON, canonical projections, and archived files must not appear as implicit fallback rows.
 - Debug file inspection belongs in debug tools, not normal Workbench UI.
 - Normal Workbench reads must not start library-wide reconciliation or cache refresh.
+- Progress, chrome, client, and debug reads are pure queries: they must not cancel or update a `running` operation. Explicit startup reconciliation is the only lifecycle path that cancels persisted `running` rows as restart orphans.
 
 ## Surface-Scoped Refresh Architecture
 
@@ -23,7 +24,7 @@ Active Workbench hot paths must use surface-scoped messages:
 
 - `ready` initializes shell/chrome and requests the active surface only.
 - `selectTab` switches the shell state and requests only the selected surface when it is missing or dirty; switching back to an already loaded clean surface must serve the cached read model.
-- operation progress updates chrome only.
+- operation progress is read through the narrow `SynthesisClient.workbench.readProgress()` projection and updates chrome only.
 - local review pending, selection, and drawer state updates only the review/index surface and chrome.
 - Review Center filter changes may reload only the Review surface, using the active review tab and filters as query bounds.
 - explicit refresh or completed operations invalidate only declared surfaces; hidden invalidated surfaces are marked dirty and are not reloaded until viewed or explicitly refreshed.

@@ -838,7 +838,6 @@ const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT = 500;
 const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX = 2000;
 const SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT = 20;
 const SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT = 50;
-const SYNTHESIS_RUNNING_OPERATION_STALE_MS = 30 * 60 * 1000;
 const ACP_SKILL_RUN_ID_RE = /^acp-skill-[A-Za-z0-9._-]+$/;
 export const SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT =
   "RESET SYNTHESIS DATABASE";
@@ -6979,22 +6978,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return Boolean(operationUpdatedAt && operationUpdatedAt > basisUpdatedAt);
   }
 
-  function isStaleRunningOperation(row: SynthesisOperationRecord) {
-    if (cleanString(row.status) !== "running") {
-      return false;
-    }
-    const updatedAt = Date.parse(
-      cleanString(row.updatedAt || row.startedAt || row.createdAt),
-    );
-    const current = Date.parse(now());
-    return (
-      Number.isFinite(updatedAt) &&
-      Number.isFinite(current) &&
-      current - updatedAt > SYNTHESIS_RUNNING_OPERATION_STALE_MS
-    );
-  }
-
-  function cancelStaleRunningOperation(row: SynthesisOperationRecord) {
+  function cancelRestartOrphanedOperation(row: SynthesisOperationRecord) {
     const diagnostic = referenceSidecarDiagnostic({
       code: "synthesis_operation_stale_after_restart",
       severity: "warning",
@@ -7011,20 +6995,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
   }
 
-  function reconcileRuntimeWorkState(args?: { startup?: boolean }) {
+  function reconcileRestartOrphanedRuntimeWorkState() {
     const canceledOperationIds: string[] = [];
     try {
       for (const row of synthesisRepository.listOperations({
         statuses: ["running"],
-        limit: 100,
       })) {
-        if (args?.startup || isStaleRunningOperation(row)) {
-          cancelStaleRunningOperation(row);
-          canceledOperationIds.push(row.operationId);
-        }
+        cancelRestartOrphanedOperation(row);
+        canceledOperationIds.push(row.operationId);
       }
     } catch {
-      // Runtime reconciliation must not block UI snapshots or debug reads.
+      // Runtime reconciliation must not block plugin startup.
     }
     return {
       canceledCount: canceledOperationIds.length,
@@ -7033,12 +7014,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function reconcileSynthesisRuntimeWorkStateOnStartup() {
-    return reconcileRuntimeWorkState({ startup: true });
+    return reconcileRestartOrphanedRuntimeWorkState();
   }
 
   function activeJobProgressRows() {
     try {
-      reconcileRuntimeWorkState();
       const running = synthesisRepository.listOperations({
         statuses: ["running"],
         limit: 50,
@@ -17674,7 +17654,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function synthesisDebugProgressRows(input: Record<string, unknown> = {}) {
-    reconcileRuntimeWorkState();
     const limit = debugLimit(input);
     const includeCompleted =
       input.includeCompleted === true || input.include_completed === true;
@@ -20903,8 +20882,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       resetAt: result.resetAt,
     };
   }
-
-  reconcileRuntimeWorkState();
 
   return {
     resetSynthesisDatabase,

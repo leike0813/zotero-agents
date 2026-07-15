@@ -84,6 +84,9 @@ function createLegacyPort(
         >[1],
       );
     },
+    async getSynthesisBackgroundJobRows() {
+      return resolveService().getSynthesisBackgroundJobRows();
+    },
     async readTopicDetail(request) {
       return resolveService().readTopicDetail(request);
     },

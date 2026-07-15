@@ -73,6 +73,7 @@ export interface LegacySynthesisPort {
     surface: SynthesisWorkbenchSurfaceName,
     state: Record<string, unknown>,
   ): Promise<unknown>;
+  getSynthesisBackgroundJobRows?(): Promise<unknown>;
   readTopicDetail?(request: { topicId: string }): Promise<unknown>;
   resolveTopicPaperDigest?(request: Record<string, unknown>): Promise<unknown>;
 }
@@ -433,6 +434,19 @@ export function createInProcessSynthesisClient(
       },
     },
     workbench: {
+      async readProgress() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject({
+              maintenance: {
+                backgroundJobs: await requireLegacyPort(
+                  legacy.getSynthesisBackgroundJobRows,
+                  "workbench.readProgress",
+                )(),
+              },
+            }) as SynthesisWorkbenchProjection,
+        );
+      },
       async readChrome(request) {
         return runLegacy(
           async () =>

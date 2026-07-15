@@ -255,7 +255,7 @@ runtime.commandProgressTimer = setInterval(() => {
 }, SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS);
 ```
 
-`refreshWorkbenchCommandProgress()` 读取 synthesis service 的 background job rows，合并到 snapshotInput 后发送 chrome 更新。带 `commandProgressSnapshotRunning` 锁防并发。
+`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；持久化 `running` operation 只由显式 startup reconciliation 作为 restart orphan 取消。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
 
 ### surfacesInvalidatedByCommand
 
@@ -289,6 +289,7 @@ runtime.commandProgressTimer = setInterval(() => {
 
 - **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`
 - **`sendChrome(runtime, options)`** — 刷新 chrome：通过 `SynthesisClient.workbench.readChrome()` 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
+- **`refreshWorkbenchCommandProgress(runtime)`** — 通过 `SynthesisClient.workbench.readProgress()` 获取仅包含 maintenance progress 的 projection，merge 到现有 snapshotInput，只发送 `synthesis:chrome`
 - **`sendSurface(runtime, surface, options)`** — 刷新 surface：通过 `SynthesisClient.workbench.readSurface()` 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`
 - **`sendSnapshot(runtime, messageType)`** — 发送完整 snapshot（用于 init）
 

@@ -60,6 +60,7 @@ export type SynthesisWorkbenchPaperDigestResult = SynthesisJsonObject & {
 };
 
 export interface SynthesisWorkbenchClient {
+  readProgress(): Promise<SynthesisWorkbenchProjection>;
   readChrome(
     request: SynthesisWorkbenchChromeReadRequest,
   ): Promise<SynthesisWorkbenchProjection>;

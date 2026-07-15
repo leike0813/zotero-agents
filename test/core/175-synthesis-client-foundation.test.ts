@@ -105,7 +105,7 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("routes the four region-scoped Workbench reads through narrow ports", async function () {
+  it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({
       async listWorkflowTopicOptions() {
@@ -118,6 +118,16 @@ describe("Synthesis client foundation", function () {
       async getSynthesisWorkbenchSurfaceInput(surface, state) {
         calls.push({ operation: "surface", args: [surface, state] });
         return { libraryId: 1, registry: { rows: [] } };
+      },
+      async getSynthesisBackgroundJobRows() {
+        calls.push({ operation: "progress", args: [] });
+        return [
+          {
+            job_id: "operation:refresh",
+            status: "running",
+            optional_field: undefined,
+          },
+        ];
       },
       async readTopicDetail(request) {
         calls.push({ operation: "topic-detail", args: [request] });
@@ -154,6 +164,16 @@ describe("Synthesis client foundation", function () {
       await client.workbench.readSurface({ surface: "index", state }),
       { libraryId: 1, registry: { rows: [] } },
     );
+    assert.deepEqual(await client.workbench.readProgress(), {
+      maintenance: {
+        backgroundJobs: [
+          {
+            job_id: "operation:refresh",
+            status: "running",
+          },
+        ],
+      },
+    });
     assert.deepEqual(
       await client.workbench.readTopicDetail({ topicId: "topic-alpha" }),
       {
@@ -185,6 +205,7 @@ describe("Synthesis client foundation", function () {
     assert.deepEqual(calls, [
       { operation: "chrome", args: [state] },
       { operation: "surface", args: ["index", state] },
+      { operation: "progress", args: [] },
       {
         operation: "topic-detail",
         args: [{ topicId: "topic-alpha" }],
@@ -234,14 +255,14 @@ describe("Synthesis client foundation", function () {
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
-      async readTopicDetail() {
+      async getSynthesisBackgroundJobRows() {
         attempts += 1;
-        throw new Error("topic detail exploded");
+        throw new Error("progress exploded");
       },
     });
 
     try {
-      await client.workbench.readTopicDetail({ topicId: "topic-alpha" });
+      await client.workbench.readProgress();
       assert.fail("expected the Workbench request to reject");
     } catch (error) {
       assert.instanceOf(error, SynthesisClientError);
