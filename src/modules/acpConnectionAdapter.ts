@@ -8,6 +8,7 @@ import type {
 } from "./acpTypes";
 import {
   AcpClientConnection,
+  type AcpClientConnectionCloseResult,
   type AcpClientTraceEvent,
   type AcpClientHandler,
 } from "./acpClientConnection";
@@ -17,6 +18,10 @@ import {
   type AcpTransportDiagnosticCaptureOptions,
   type AcpTransportLifecycle,
 } from "./acpTransport";
+import {
+  acquireAcpNpxLaunchCacheLease,
+  classifyAcpNpxCacheRenameConflict,
+} from "./acpNpxLaunchCache";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import {
   ACP_PROTOCOL_VERSION,
@@ -416,6 +421,8 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
   private transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
     null;
   private closePromise: Promise<void> | null = null;
+  private initializePromise: Promise<AcpConnectionInitializeResult> | null =
+    null;
   private initialized = false;
   private commandLabel = "";
   private commandLine = "";
@@ -1217,183 +1224,322 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
     };
   }
 
-  async initialize() {
+  private initializeResult(): AcpConnectionInitializeResult {
+    return {
+      authMethods: this.authMethods.map((entry) => ({ ...entry })),
+      agentName: this.agentName,
+      agentVersion: this.agentVersion,
+      commandLabel: this.commandLabel,
+      commandLine: this.commandLine,
+      canLoadSession: this.canLoadSession,
+      canResumeSession: this.canResumeSession,
+      canUseHttpMcp: this.canUseHttpMcp,
+      canUseSseMcp: this.canUseSseMcp,
+    };
+  }
+
+  private snapshotTransport(
+    transport: Awaited<ReturnType<typeof launchAcpTransport>>,
+  ): AcpConnectionTransportSnapshot {
+    return {
+      commandLabel: transport.getCommandLabel(),
+      commandLine: transport.getCommandLine(),
+      exitCode: transport.getExitCode(),
+      stdoutText: transport.getStdoutText(),
+      stderrText: transport.getStderrText(),
+      transportLifecycle: transport.getLifecycle(),
+    };
+  }
+
+  private async cleanupInitializeAttempt(args: {
+    connection: AcpClientConnection | null;
+    transport: Awaited<ReturnType<typeof launchAcpTransport>> | null;
+  }) {
+    await args.connection?.close().catch(() => undefined);
+    await args.transport?.close({ graceMs: 1_000 }).catch(() => undefined);
+    await args.transport?.waitForExit(2_000).catch(() => false);
+    if (this.connection === args.connection) {
+      this.connection = null;
+    }
+    if (this.transport === args.transport) {
+      this.transport = null;
+    }
+  }
+
+  private selectInitializeFailure(args: {
+    error: unknown;
+    closeResult?: AcpClientConnectionCloseResult | null;
+    snapshot: AcpConnectionTransportSnapshot | null;
+  }) {
+    const originalMessage = compactError(args.error);
+    let selected: unknown = args.error;
+    if (args.closeResult?.origin === "receive-error") {
+      selected =
+        args.closeResult.reason instanceof Error
+          ? args.closeResult.reason
+          : new Error(compactError(args.closeResult.reason));
+    } else if (/^ACP connection closed$/i.test(originalMessage)) {
+      const stderrText = normalizeString(args.snapshot?.stderrText);
+      if (stderrText) {
+        selected = new Error(stderrText);
+      } else if (
+        args.snapshot?.exitCode !== null &&
+        args.snapshot?.exitCode !== undefined &&
+        args.snapshot.exitCode !== 0
+      ) {
+        selected = new Error(
+          `ACP backend exited with code ${String(args.snapshot.exitCode)}`,
+        );
+      } else {
+        selected = new Error("ACP connection closed");
+      }
+    } else if (!(selected instanceof Error)) {
+      selected = new Error(originalMessage || "ACP connection closed");
+    }
+    attachTransportSnapshotToError(selected, args.snapshot);
+    return selected as Error;
+  }
+
+  private observeActiveConnection(args: {
+    connection: AcpClientConnection;
+    transport: Awaited<ReturnType<typeof launchAcpTransport>>;
+  }) {
+    void args.connection.closed.then(async (closeResult) => {
+      if (this.closing || this.connection !== args.connection) {
+        return;
+      }
+      await args.transport.closed.catch(() => undefined);
+      if (this.closing || this.connection !== args.connection) {
+        return;
+      }
+      const snapshot = this.snapshotTransport(args.transport);
+      const failure = this.selectInitializeFailure({
+        error: new Error("ACP connection closed"),
+        closeResult,
+        snapshot,
+      });
+      this.emitDiagnostic({
+        kind: "exited",
+        level:
+          snapshot.stderrText ||
+          snapshot.stdoutText ||
+          snapshot.exitCode !== null
+            ? "warn"
+            : "info",
+        message: "ACP connection closed",
+        detail: JSON.stringify(snapshot),
+        raw: snapshot,
+      });
+      this.emitClose({
+        message: failure.message,
+        stderrText: snapshot.stderrText,
+        stdoutText: snapshot.stdoutText,
+        exitCode: snapshot.exitCode,
+        transportLifecycle: snapshot.transportLifecycle,
+      });
+    });
+  }
+
+  initialize(): Promise<AcpConnectionInitializeResult> {
     if (this.initialized && this.connection) {
-      return {
-        authMethods: this.authMethods.map((entry) => ({ ...entry })),
-        agentName: this.agentName,
-        agentVersion: this.agentVersion,
-        commandLabel: this.commandLabel,
-        commandLine: this.commandLine,
-        canLoadSession: this.canLoadSession,
-        canResumeSession: this.canResumeSession,
-        canUseHttpMcp: this.canUseHttpMcp,
-        canUseSseMcp: this.canUseSseMcp,
-      };
+      return Promise.resolve(this.initializeResult());
     }
     if (this.closePromise) {
-      throw new Error("ACP connection adapter is closed");
+      return Promise.reject(new Error("ACP connection adapter is closed"));
     }
+    if (!this.initializePromise) {
+      this.initializePromise = this.initializeOnce().finally(() => {
+        this.initializePromise = null;
+      });
+    }
+    return this.initializePromise;
+  }
+
+  private async initializeOnce(): Promise<AcpConnectionInitializeResult> {
     this.emitDiagnostic({
       kind: "command_check",
-      message: "Checking OpenCode command availability",
+      message: "Checking ACP command availability",
       detail: [this.args.backend.command, ...(this.args.backend.args || [])]
         .filter(Boolean)
         .join(" "),
     });
+    let cacheLease: Awaited<ReturnType<typeof acquireAcpNpxLaunchCacheLease>> =
+      null;
     try {
-      this.transport = await launchAcpTransport({
-        backend: this.args.backend,
-        cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
-        diagnosticCapture: this.args.diagnosticCapture,
-        performanceProfileRequestId: this.args.performanceProfileRequestId,
+      cacheLease = await acquireAcpNpxLaunchCacheLease({
+        backendId: this.args.backend.id,
+        command: this.args.backend.command,
+        args: this.args.backend.args,
+        env: this.args.backend.env,
       });
-      this.commandLabel = this.transport.getCommandLabel();
-      this.commandLine = this.transport.getCommandLine();
-      this.emitDiagnostic({
-        kind: "spawned",
-        message: "Spawned ACP backend process",
-        detail: this.commandLine,
-      });
-      const stream = createAcpNdJsonMessageStream(
-        this.transport.stdin,
-        this.transport.stdout,
-      );
-      this.connection = new AcpClientConnection(
-        () => this.buildClient(),
-        stream,
-        {
-          onTrace: (event) => this.emitTrace(event),
-          performanceProfileRequestId: this.args.performanceProfileRequestId,
-        },
-      );
-      void this.connection.closed
-        .then(async () => {
-          if (this.closing) {
-            return;
-          }
-          await this.transport?.closed.catch(() => undefined);
-          const stderrText = this.transport?.getStderrText() || "";
-          const stdoutText = this.transport?.getStdoutText() || "";
-          const exitCode = this.transport?.getExitCode() ?? null;
-          const transportLifecycle = this.transport?.getLifecycle();
-          this.emitDiagnostic({
-            kind: "exited",
-            level:
-              stderrText || stdoutText || exitCode !== null ? "warn" : "info",
-            message: "ACP connection closed",
-            detail: JSON.stringify({
-              exitCode,
-              stderrText,
-              stdoutText,
-              transportLifecycle,
-            }),
-            raw: {
-              exitCode,
-              stderrText,
-              stdoutText,
-              transportLifecycle,
-            },
-          });
-          this.emitClose({
-            message: "ACP connection closed",
-            stderrText,
-            stdoutText,
-            exitCode,
-            transportLifecycle,
-          });
-        })
-        .catch(async (error) => {
-          if (this.closing) {
-            return;
-          }
-          await this.transport?.closed.catch(() => undefined);
-          const detail = compactError(error);
-          this.emitErrorDiagnostic({
-            kind: "exited",
-            message: "ACP connection failed",
-            error,
-            stage: "connection_closed",
-          });
-          this.emitClose({
-            message: detail,
-            stderrText: this.transport?.getStderrText() || "",
-            stdoutText: this.transport?.getStdoutText() || "",
-            exitCode: this.transport?.getExitCode() ?? null,
-            transportLifecycle: this.transport?.getLifecycle(),
-          });
+      if (cacheLease) {
+        const selectionDiagnostic = {
+          cacheKey: cacheLease.cacheKey,
+          generation: cacheLease.generation,
+        };
+        this.emitDiagnostic({
+          kind: "npx_cache_selected",
+          message: "Selected managed npx cache generation",
+          detail: JSON.stringify(selectionDiagnostic),
+          stage: "initialize",
+          raw: selectionDiagnostic,
         });
-      const response = await this.connection.initialize({
-        protocolVersion: ACP_PROTOCOL_VERSION,
-        clientCapabilities: {},
-      });
-      const normalizedAuthMethods = normalizeAuthMethods(response.authMethods);
-      this.authMethods.splice(
-        0,
-        this.authMethods.length,
-        ...normalizedAuthMethods,
-      );
-      this.agentName =
-        String(response.agentInfo?.title || "").trim() ||
-        String(response.agentInfo?.name || "").trim();
-      this.agentVersion = String(response.agentInfo?.version || "").trim();
-      this.canLoadSession = response.agentCapabilities?.loadSession === true;
-      this.canResumeSession =
-        !!response.agentCapabilities?.sessionCapabilities?.resume;
-      this.canUseHttpMcp =
-        response.agentCapabilities?.mcpCapabilities?.http === true;
-      this.canUseSseMcp =
-        response.agentCapabilities?.mcpCapabilities?.sse === true;
-      this.initialized = true;
-      this.emitDiagnostic({
-        kind: "initialized",
-        message: "ACP initialize completed",
-        detail: [
-          this.agentName,
-          this.agentVersion,
-          this.canResumeSession ? "resume" : "",
-          this.canLoadSession ? "load" : "",
-          this.canUseHttpMcp ? "mcp-http" : "",
-          this.canUseSseMcp ? "mcp-sse" : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-        raw: {
-          agentCapabilities: response.agentCapabilities || null,
-        },
-      });
-      return {
-        authMethods: this.authMethods.map((entry) => ({ ...entry })),
-        agentName: this.agentName,
-        agentVersion: this.agentVersion,
-        commandLabel: this.commandLabel,
-        commandLine: this.commandLine,
-        canLoadSession: this.canLoadSession,
-        canResumeSession: this.canResumeSession,
-        canUseHttpMcp: this.canUseHttpMcp,
-        canUseSseMcp: this.canUseSseMcp,
-      };
+      }
     } catch (error) {
-      const transportSnapshot = this.getTransportSnapshot();
-      attachTransportSnapshotToError(error, transportSnapshot);
       this.emitErrorDiagnostic({
         kind: "initialized",
-        message: "Failed to initialize ACP connection",
+        message: "Failed to prepare ACP launch cache",
         error,
         stage: "initialize",
       });
-      if (transportSnapshot) {
-        this.emitDiagnostic({
-          kind: "initialize_transport_snapshot",
-          level: "error",
-          message: "ACP transport state after initialize failure",
-          detail: JSON.stringify(transportSnapshot),
-          stage: "initialize",
-          raw: transportSnapshot,
-        });
-      }
-      await this.close().catch(() => undefined);
       throw error;
+    }
+    try {
+      for (let attemptIndex = 0; attemptIndex < 2; attemptIndex += 1) {
+        let transport: Awaited<ReturnType<typeof launchAcpTransport>> | null =
+          null;
+        let connection: AcpClientConnection | null = null;
+        try {
+          const backend = cacheLease
+            ? { ...this.args.backend, env: cacheLease.environment }
+            : this.args.backend;
+          transport = await launchAcpTransport({
+            backend,
+            cwd: this.args.agentWorkspaceDir || this.args.sessionCwd,
+            diagnosticCapture: this.args.diagnosticCapture,
+            performanceProfileRequestId: this.args.performanceProfileRequestId,
+          });
+          this.transport = transport;
+          this.emitDiagnostic({
+            kind: "spawned",
+            message: "Spawned ACP backend process",
+            detail: transport.getCommandLine(),
+          });
+          const stream = createAcpNdJsonMessageStream(
+            transport.stdin,
+            transport.stdout,
+          );
+          connection = new AcpClientConnection(
+            () => this.buildClient(),
+            stream,
+            {
+              onTrace: (event) => this.emitTrace(event),
+              performanceProfileRequestId:
+                this.args.performanceProfileRequestId,
+            },
+          );
+          this.connection = connection;
+          const response = await connection.initialize({
+            protocolVersion: ACP_PROTOCOL_VERSION,
+            clientCapabilities: {},
+          });
+          this.commandLabel = transport.getCommandLabel();
+          this.commandLine = transport.getCommandLine();
+          const normalizedAuthMethods = normalizeAuthMethods(
+            response.authMethods,
+          );
+          this.authMethods.splice(
+            0,
+            this.authMethods.length,
+            ...normalizedAuthMethods,
+          );
+          this.agentName =
+            String(response.agentInfo?.title || "").trim() ||
+            String(response.agentInfo?.name || "").trim();
+          this.agentVersion = String(response.agentInfo?.version || "").trim();
+          this.canLoadSession =
+            response.agentCapabilities?.loadSession === true;
+          this.canResumeSession =
+            !!response.agentCapabilities?.sessionCapabilities?.resume;
+          this.canUseHttpMcp =
+            response.agentCapabilities?.mcpCapabilities?.http === true;
+          this.canUseSseMcp =
+            response.agentCapabilities?.mcpCapabilities?.sse === true;
+          this.initialized = true;
+          this.observeActiveConnection({ connection, transport });
+          this.emitDiagnostic({
+            kind: "initialized",
+            message: "ACP initialize completed",
+            detail: [
+              this.agentName,
+              this.agentVersion,
+              this.canResumeSession ? "resume" : "",
+              this.canLoadSession ? "load" : "",
+              this.canUseHttpMcp ? "mcp-http" : "",
+              this.canUseSseMcp ? "mcp-sse" : "",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            raw: {
+              agentCapabilities: response.agentCapabilities || null,
+            },
+          });
+          return this.initializeResult();
+        } catch (error) {
+          await this.cleanupInitializeAttempt({ connection, transport });
+          const closeResult = connection
+            ? await connection.closed.catch(() => null)
+            : null;
+          const transportSnapshot = transport
+            ? this.snapshotTransport(transport)
+            : null;
+          const failure = this.selectInitializeFailure({
+            error,
+            closeResult,
+            snapshot: transportSnapshot,
+          });
+          const conflictCode = cacheLease
+            ? classifyAcpNpxCacheRenameConflict(failure)
+            : null;
+          if (
+            cacheLease &&
+            conflictCode &&
+            attemptIndex === 0 &&
+            !this.closePromise
+          ) {
+            const previousGeneration = cacheLease.generation;
+            await cacheLease.rotate();
+            const retryDiagnostic = {
+              cacheKey: cacheLease.cacheKey,
+              conflictCode,
+              attempt: 2,
+              previousGeneration,
+              generation: cacheLease.generation,
+            };
+            this.emitDiagnostic({
+              kind: "npx_cache_retry",
+              level: "warn",
+              message:
+                "Retrying ACP initialize with a fresh managed npx cache generation",
+              detail: JSON.stringify(retryDiagnostic),
+              stage: "initialize",
+              code: conflictCode,
+              raw: retryDiagnostic,
+            });
+            continue;
+          }
+          this.emitErrorDiagnostic({
+            kind: "initialized",
+            message: "Failed to initialize ACP connection",
+            error: failure,
+            stage: "initialize",
+          });
+          if (transportSnapshot) {
+            this.emitDiagnostic({
+              kind: "initialize_transport_snapshot",
+              level: "error",
+              message: "ACP transport state after initialize failure",
+              detail: JSON.stringify(transportSnapshot),
+              stage: "initialize",
+              raw: transportSnapshot,
+            });
+          }
+          throw failure;
+        }
+      }
+      throw new Error("ACP initialize retry budget exhausted");
+    } finally {
+      cacheLease?.release();
     }
   }
 

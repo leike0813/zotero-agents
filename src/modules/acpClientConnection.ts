@@ -66,6 +66,11 @@ export type AcpClientHandler = {
   providerNotification?: (notification: JsonRpcNotification) => Promise<void>;
 };
 
+export type AcpClientConnectionCloseResult = {
+  origin: "local" | "remote-eof" | "receive-error";
+  reason?: unknown;
+};
+
 export class AcpClientConnection {
   private readonly pendingResponses = new Map<JsonRpcId, PendingResponse>();
   private readonly client: AcpClientHandler;
@@ -74,8 +79,8 @@ export class AcpClientConnection {
   private acceptingWrites = true;
   private closePromise: Promise<void> | null = null;
   private closedResolved = false;
-  private closedResolver!: () => void;
-  readonly closed: Promise<void>;
+  private closedResolver!: (result: AcpClientConnectionCloseResult) => void;
+  readonly closed: Promise<AcpClientConnectionCloseResult>;
 
   constructor(
     toClient: (connection: AcpClientConnection) => AcpClientHandler,
@@ -86,17 +91,18 @@ export class AcpClientConnection {
     },
   ) {
     this.client = toClient(this);
-    this.closed = new Promise<void>((resolve) => {
+    this.closed = new Promise<AcpClientConnectionCloseResult>((resolve) => {
       this.closedResolver = resolve;
     });
     void this.receiveLoop();
   }
 
-  private resolveClosed(reason?: unknown) {
+  private resolveClosed(result: AcpClientConnectionCloseResult) {
     if (this.closedResolved) {
       return;
     }
     this.closedResolved = true;
+    const reason = result.reason;
     const closeError =
       reason instanceof Error
         ? reason
@@ -109,7 +115,7 @@ export class AcpClientConnection {
       pending.reject(closeError);
     }
     this.pendingResponses.clear();
-    this.closedResolver();
+    this.closedResolver(result);
   }
 
   private async receiveLoop() {
@@ -130,7 +136,11 @@ export class AcpClientConnection {
       failure = error;
     } finally {
       reader.releaseLock();
-      this.resolveClosed(failure || undefined);
+      this.resolveClosed(
+        failure
+          ? { origin: "receive-error", reason: failure }
+          : { origin: "remote-eof" },
+      );
     }
   }
 
@@ -235,7 +245,10 @@ export class AcpClientConnection {
       return this.closePromise;
     }
     this.acceptingWrites = false;
-    this.resolveClosed(new Error("ACP connection closed by client"));
+    this.resolveClosed({
+      origin: "local",
+      reason: "ACP connection closed by client",
+    });
     this.closePromise = (async () => {
       await Promise.race([
         this.writeQueue.catch(() => undefined),

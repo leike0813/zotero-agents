@@ -78,6 +78,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "workflow runtime scope diagnostics ",
     "workflow debug probe ",
     "embedded Zotero MCP server in Zotero runtime ",
+    "deterministic ACP integration fixture in Zotero runtime ",
     "real OpenCode ACP against Zotero MCP server in Zotero runtime ",
     "runtime platform services in Zotero ",
   ],

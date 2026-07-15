@@ -629,6 +629,170 @@ describe("acp transport", function () {
     }
   });
 
+  it("starts Mozilla stderr capture before process identity discovery settles", async function () {
+    let releaseIdentityQuery!: () => void;
+    const identityQueryGate = new Promise<void>((resolve) => {
+      releaseIdentityQuery = resolve;
+    });
+    let stderrCaptureStarted = false;
+    let identityQueryStarted = false;
+    const callCommands: string[] = [];
+    seedRuntimeCommandRegistryForTests({
+      initialized: true,
+      initializedAt: "2026-07-15T00:00:00.000Z",
+      commands: {
+        agent: {
+          command: "agent",
+          available: true,
+          resolvedPath: "/usr/bin/agent",
+          checkedCandidates: [],
+        },
+        ps: {
+          command: "ps",
+          available: true,
+          resolvedPath: "/bin/ps",
+          checkedCandidates: [],
+        },
+      },
+    });
+    seedRuntimeProcessControlSnapshotForTests({
+      initialized: true,
+      initializedAt: "2026-07-15T00:00:00.000Z",
+      platform: "linux",
+      preferredCleanupStrategy: "direct-kill-only",
+      supportsProcessTreeCleanup: false,
+      supportsProcessGroupLaunch: false,
+      supportsNegativePidSignal: false,
+      supportsPidFileSupervisor: false,
+      supportsProcessIdentityQuery: true,
+    });
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: false,
+      isLinux: true,
+    });
+    const previousIOUtils = redefineGlobalProperty("IOUtils", {
+      exists: async () => true,
+    });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async (command: string) =>
+            command === "ps" ? "/bin/ps" : "/usr/bin/agent",
+          call: async (invocation: { command: string }) => {
+            callCommands.push(invocation.command);
+            if (/(^|[\\/])ps(?:\.exe)?$/i.test(invocation.command)) {
+              identityQueryStarted = true;
+              await identityQueryGate;
+              return {
+                stdout: { readString: async () => "4242 4242 4242\n" },
+                stderr: { readString: async () => "" },
+                wait: async () => 0,
+              };
+            }
+            let stderrReads = 0;
+            return {
+              pid: 4242,
+              stdin: {
+                write: async () => undefined,
+                close: async () => undefined,
+              },
+              stdout: { readString: async () => "" },
+              stderr: {
+                readString: async () => {
+                  stderrCaptureStarted = true;
+                  stderrReads += 1;
+                  return stderrReads === 1 ? "npm rename ENOTEMPTY _npx\n" : "";
+                },
+              },
+              wait: async () => ({ exitCode: 217 }),
+              kill: () => undefined,
+            };
+          },
+        },
+      }),
+    });
+
+    try {
+      const transportPromise = launchAcpTransport({
+        backend: {
+          id: "acp-fast-exit",
+          displayName: "ACP fast exit",
+          type: "acp",
+          baseUrl: "local://acp-fast-exit",
+          command: "agent",
+          args: ["acp"],
+        } as BackendInstance,
+        cwd: "/tmp/acp-fast-exit",
+      });
+      const deadline = Date.now() + 1_000;
+      while (!identityQueryStarted && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      assert.isTrue(identityQueryStarted, JSON.stringify(callCommands));
+      assert.isTrue(
+        stderrCaptureStarted,
+        "stderr capture must begin while process identity discovery is pending",
+      );
+      releaseIdentityQuery();
+      const transport = await transportPromise;
+      await transport.closed;
+      assert.include(transport.getStderrText(), "ENOTEMPTY");
+      assert.equal(transport.getExitCode(), 217);
+    } finally {
+      releaseIdentityQuery();
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("IOUtils", previousIOUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
+  it("marks a finalized Mozilla close snapshot when pipe drain is bounded", async function () {
+    this.timeout(5_000);
+    const previousZotero = redefineGlobalProperty("Zotero", {
+      isWin: true,
+    });
+    const previousChromeUtils = redefineGlobalProperty("ChromeUtils", {
+      import: () => ({
+        Subprocess: {
+          pathSearch: async () => "C:\\Tools\\agent.exe",
+          call: async () => ({
+            stdin: {
+              write: async () => undefined,
+              close: async () => undefined,
+            },
+            stdout: { readString: async () => "" },
+            stderr: { readString: async () => new Promise(() => undefined) },
+            wait: async () => ({ exitCode: 9 }),
+            kill: () => undefined,
+          }),
+        },
+      }),
+    });
+
+    try {
+      const transport = await launchAcpTransport({
+        backend: {
+          id: "acp-hung-stderr",
+          displayName: "ACP hung stderr",
+          type: "acp",
+          baseUrl: "local://acp-hung-stderr",
+          command: "agent",
+          args: ["acp"],
+        } as BackendInstance,
+        cwd: "D:\\ZoteroData",
+      });
+      await transport.closed;
+      assert.include(transport.getLifecycle(), {
+        exitCode: 9,
+        pipeDrainCompleted: false,
+        pipeDrainTimedOut: true,
+      });
+    } finally {
+      restoreGlobalProperty("ChromeUtils", previousChromeUtils);
+      restoreGlobalProperty("Zotero", previousZotero);
+    }
+  });
+
   it("waits for natural Mozilla subprocess exit before cleanup kill", async function () {
     let killCount = 0;
     let stdinCloseCount = 0;

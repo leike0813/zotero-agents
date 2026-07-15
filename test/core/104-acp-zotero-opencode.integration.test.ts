@@ -66,6 +66,74 @@ function createOpenCodeBackend(): BackendInstance {
   };
 }
 
+function createDeterministicAcpFixtureStream() {
+  const queued: unknown[] = [];
+  const waiting: Array<(result: { done: boolean; value?: unknown }) => void> =
+    [];
+  const publish = (value: unknown) => {
+    const reader = waiting.shift();
+    if (reader) {
+      reader({ done: false, value });
+    } else {
+      queued.push(value);
+    }
+  };
+  return {
+    readable: {
+      getReader() {
+        return {
+          async read() {
+            if (queued.length > 0) {
+              return { done: false, value: queued.shift() };
+            }
+            return await new Promise<{ done: boolean; value?: unknown }>(
+              (resolve) => {
+                waiting.push(resolve);
+              },
+            );
+          },
+          releaseLock() {
+            return;
+          },
+        };
+      },
+    },
+    writable: {
+      getWriter() {
+        return {
+          async write(value: unknown) {
+            const request = value as {
+              id?: number | string;
+              method?: string;
+            };
+            if (request.method === "initialize") {
+              publish({
+                jsonrpc: "2.0",
+                id: request.id,
+                result: {
+                  protocolVersion: ACP_PROTOCOL_VERSION,
+                  agentInfo: {
+                    name: "deterministic-zotero-fixture",
+                    version: "1",
+                  },
+                  agentCapabilities: {},
+                  authMethods: [],
+                },
+              });
+            }
+          },
+          async close() {
+            return;
+          },
+          releaseLock() {
+            return;
+          },
+        };
+      },
+    },
+  };
+}
+
 async function waitForMcpMethod(method: string, timeoutMs = 10000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
@@ -77,6 +145,27 @@ async function waitForMcpMethod(method: string, timeoutMs = 10000) {
   }
   return false;
 }
+
+describe("deterministic ACP integration fixture in Zotero runtime", function () {
+  // Regression: the Zotero core gate must execute a real test from this file;
+  // a grep that loads no suite must not masquerade as ACP coverage.
+  it("initializes through the Zotero core suite entrypoint", async function () {
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      createDeterministicAcpFixtureStream(),
+    );
+    const initialized = await connection.initialize({
+      protocolVersion: ACP_PROTOCOL_VERSION,
+      clientCapabilities: {},
+    });
+    assert.equal(initialized.agentInfo?.name, "deterministic-zotero-fixture");
+    await connection.close();
+    assert.equal((await connection.closed).origin, "local");
+  });
+});
 
 describe("real OpenCode ACP against Zotero MCP server in Zotero runtime", function () {
   this.timeout(120000);

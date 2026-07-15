@@ -174,6 +174,8 @@ export type AcpTransportLifecycle = {
   processGroupSignalOperandDelimited?: boolean;
   directSubprocessFallback?: boolean;
   possibleWrapperDescendants?: boolean;
+  pipeDrainCompleted?: boolean;
+  pipeDrainTimedOut?: boolean;
 };
 
 export type AcpProcessOwnershipRejectionReason =
@@ -814,6 +816,104 @@ function createReadableStreamFromMozillaPipe(
   } satisfies AcpReadableLike<Uint8Array>;
 }
 
+function createPumpedReadableStreamFromMozillaPipe(
+  pipe: {
+    readString?: () => Promise<string>;
+  },
+  onChunk: (chunk: string) => void,
+) {
+  const TextEncoderCtor = resolveTextEncoderCtor();
+  const encoder = new TextEncoderCtor();
+  const queued: Uint8Array[] = [];
+  const waiting: Array<{
+    resolve: (result: AcpReadResult<Uint8Array>) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  let done = typeof pipe.readString !== "function";
+  let failure: unknown = null;
+
+  const flush = () => {
+    while (waiting.length > 0) {
+      const pending = waiting.shift();
+      if (!pending) {
+        continue;
+      }
+      const value = queued.shift();
+      if (value) {
+        pending.resolve({ done: false, value });
+        continue;
+      }
+      if (failure) {
+        pending.reject(failure);
+        continue;
+      }
+      if (done) {
+        pending.resolve({ done: true, value: undefined });
+        continue;
+      }
+      waiting.unshift(pending);
+      break;
+    }
+  };
+
+  const capture = (async () => {
+    if (typeof pipe.readString !== "function") {
+      return;
+    }
+    try {
+      while (true) {
+        const chunk = await pipe.readString();
+        if (!chunk) {
+          break;
+        }
+        onChunk(chunk);
+        queued.push(encoder.encode(chunk));
+        flush();
+      }
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      done = true;
+      flush();
+    }
+  })();
+  void capture.catch(() => undefined);
+
+  const readable = {
+    getReader() {
+      let released = false;
+      return {
+        async read(): Promise<AcpReadResult<Uint8Array>> {
+          if (released) {
+            return { done: true, value: undefined };
+          }
+          const value = queued.shift();
+          if (value) {
+            return { done: false, value };
+          }
+          if (failure) {
+            throw failure;
+          }
+          if (done) {
+            return { done: true, value: undefined };
+          }
+          return await new Promise<AcpReadResult<Uint8Array>>(
+            (resolve, reject) => {
+              waiting.push({ resolve, reject });
+            },
+          );
+        },
+        releaseLock() {
+          released = true;
+        },
+      };
+    },
+  } satisfies AcpReadableLike<Uint8Array>;
+
+  return { readable, capture };
+}
+
 function createWritableStreamFromMozillaPipe(pipe: {
   write?: (data: string) => Promise<void>;
   close?: () => Promise<void>;
@@ -1188,6 +1288,35 @@ async function launchMozillaAcpTransport(
   const lifecycle = createLifecycleState();
   lifecycle.transportKind = "mozilla-subprocess";
   lifecycle.childPid = toPositiveProcessId(proc.pid);
+  const stderrCapture = captureMozillaPipeTail(proc.stderr, (chunk) => {
+    stderrText = appendTail(stderrText, chunk);
+    lifecycle.stderrChars += String(chunk || "").length;
+    args.diagnosticCapture?.onStderrChunk?.(String(chunk || ""));
+  }).catch((error) => {
+    stderrText = appendTail(
+      stderrText,
+      `\n[stderr capture failed] ${String((error as Error)?.message || error)}`,
+    );
+  });
+  const pumpedStdout = args.diagnosticCapture?.captureStdout
+    ? null
+    : createPumpedReadableStreamFromMozillaPipe(proc.stdout || {}, (chunk) => {
+        stdoutText = appendTail(stdoutText, chunk);
+        lifecycle.stdoutChars += String(chunk || "").length;
+        args.diagnosticCapture?.onStdoutChunk?.(String(chunk || ""));
+      });
+  const stdoutCapture = args.diagnosticCapture?.captureStdout
+    ? captureMozillaPipeTail(proc.stdout, (chunk) => {
+        stdoutText = appendTail(stdoutText, chunk);
+        lifecycle.stdoutChars += String(chunk || "").length;
+        args.diagnosticCapture?.onStdoutChunk?.(String(chunk || ""));
+      }).catch((error) => {
+        stdoutText = appendTail(
+          stdoutText,
+          `\n[stdout capture failed] ${String((error as Error)?.message || error)}`,
+        );
+      })
+    : pumpedStdout?.capture || Promise.resolve();
   const identityQuerySupported =
     getRuntimeProcessControlSnapshot().supportsProcessIdentityQuery === true;
   lifecycle.processIdentityQuerySupported = identityQuerySupported;
@@ -1204,39 +1333,18 @@ async function launchMozillaAcpTransport(
     strategy: processLaunch.strategy,
     supported: processLaunch.supported,
   });
-  const stderrCapture = captureMozillaPipeTail(proc.stderr, (chunk) => {
-    stderrText = appendTail(stderrText, chunk);
-    lifecycle.stderrChars += String(chunk || "").length;
-    args.diagnosticCapture?.onStderrChunk?.(String(chunk || ""));
-  }).catch((error) => {
-    stderrText = appendTail(
-      stderrText,
-      `\n[stderr capture failed] ${String((error as Error)?.message || error)}`,
-    );
-  });
-  const stdoutCapture = args.diagnosticCapture?.captureStdout
-    ? captureMozillaPipeTail(proc.stdout, (chunk) => {
-        stdoutText = appendTail(stdoutText, chunk);
-        lifecycle.stdoutChars += String(chunk || "").length;
-        args.diagnosticCapture?.onStdoutChunk?.(String(chunk || ""));
-      }).catch((error) => {
-        stdoutText = appendTail(
-          stdoutText,
-          `\n[stdout capture failed] ${String((error as Error)?.message || error)}`,
-        );
-      })
-    : Promise.resolve();
   const closed = (async () => {
     let waited: unknown = undefined;
     if (typeof proc.wait === "function") {
       waited = await proc.wait();
     }
-    await Promise.race([
-      Promise.allSettled([stderrCapture, stdoutCapture]).then(() => undefined),
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, ACP_PIPE_DRAIN_TIMEOUT_MS);
+    lifecycle.pipeDrainCompleted = await Promise.race([
+      Promise.allSettled([stderrCapture, stdoutCapture]).then(() => true),
+      new Promise<false>((resolve) => {
+        setTimeout(() => resolve(false), ACP_PIPE_DRAIN_TIMEOUT_MS);
       }),
     ]);
+    lifecycle.pipeDrainTimedOut = !lifecycle.pipeDrainCompleted;
     lifecycle.closedAt = nowIso();
     lifecycle.exitCode = extractExitCode(waited) ?? extractExitCode(proc);
     lifecycle.exitSource = lifecycle.killedByClose
@@ -1251,11 +1359,7 @@ async function launchMozillaAcpTransport(
     stdin: createWritableStreamFromMozillaPipe(proc.stdin || {}),
     stdout: args.diagnosticCapture?.captureStdout
       ? createReadableStreamFromMozillaPipe({})
-      : createReadableStreamFromMozillaPipe(proc.stdout || {}, (chunk) => {
-          stdoutText = appendTail(stdoutText, chunk);
-          lifecycle.stdoutChars += String(chunk || "").length;
-          args.diagnosticCapture?.onStdoutChunk?.(String(chunk || ""));
-        }),
+      : pumpedStdout!.readable,
     close: async (options?: AcpTransportCloseOptions) => {
       lifecycle.closeRequestedAt ||= nowIso();
       const graceMs = options?.graceMs ?? ACP_TRANSPORT_CLOSE_GRACE_MS;

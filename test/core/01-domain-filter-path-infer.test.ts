@@ -94,6 +94,26 @@ describe("domain filter path inference", function () {
     );
   });
 
+  it("allows the deterministic ACP fixture loaded by the Zotero core suite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/core/104-acp-zotero-opencode.integration.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "core",
+        testDomain: "core",
+        fullTitle:
+          "deterministic ACP integration fixture in Zotero runtime initializes through the Zotero core suite entrypoint",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
   it("allows the ACP Replay nested-frame regression in Zotero UI lite", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(
