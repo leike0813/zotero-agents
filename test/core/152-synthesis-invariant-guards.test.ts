@@ -31,7 +31,7 @@ const VALID_SEVERITIES = new Set(["fatal", "high", "medium", "low"]);
 const VALID_TEST_KINDS = new Set(["behavior", "static_guard"]);
 const STATIC_ONLY_ALLOWED = new Set([
   "inv.discovery.no_global_llm_nxm",
-  "inv.runtime.local_async_only",
+  "inv.runtime.single_production_owner",
 ]);
 
 function repoPath(relativePath: string): string {
@@ -176,6 +176,11 @@ describe("Synthesis invariant guards", function () {
     const contract = readInvariantContract();
     const refs = new Set<string>();
     const ids = new Set(contract.invariants.map((invariant) => invariant.id));
+    const idsWithDeclaredRefs = new Set(
+      contract.invariants
+        .filter((invariant) => (invariant.test_refs?.length ?? 0) > 0)
+        .map((invariant) => invariant.id),
+    );
     let activeMarkerCount = 0;
 
     for (const invariant of contract.invariants) {
@@ -192,7 +197,7 @@ describe("Synthesis invariant guards", function () {
           continue;
         }
         activeMarkerCount += 1;
-        if (refs.size > 0) {
+        if (idsWithDeclaredRefs.has(id)) {
           assert.isTrue(
             refs.has(`${file}::${marker}`),
             `${marker} in ${file} must be listed as a test_ref`,
@@ -228,7 +233,7 @@ describe("Synthesis invariant guards", function () {
     assert.notMatch(discoveryRepositorySlice, forbidden);
   });
 
-  it("keeps runtime coordination local async only [inv.runtime.local_async_only]", function () {
+  it("keeps current in-process runtime coordination queue-free", function () {
     assert.isFalse(
       fs.existsSync(repoPath("src/modules/synthesis/updateEvents.ts")),
     );

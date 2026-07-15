@@ -1,6 +1,10 @@
 # Runtime and Cache Refresh
 
-Synthesis runs inside a single Zotero plugin process on a single JavaScript event loop. The target runtime model is therefore explicit, bounded cache maintenance rather than automatic library-wide synchronization.
+The current implementation runs inside a single Zotero plugin process on a single JavaScript event loop. Its active runtime model is explicit, bounded cache maintenance rather than automatic library-wide synchronization.
+
+Workflow Topic option queries, startup runtime reconciliation, protected database reset, default-client invalidation, and related-items notifier echo classification now enter through grouped `SynthesisClient` capabilities. The default client is still an in-process adapter over the current service; it does not change process, database, canonical file, mirror, or Zotero ownership.
+
+The approved Stage 1 sidecar direction is documented in `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md` and the active `define-synthesis-sidecar-service-boundary` and `introduce-synthesis-client-foundation` OpenSpec changes. Those documents govern future migration work; they do not mean that a Node service currently owns production execution, `synthesis.db`, or Topic canonical files.
 
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 

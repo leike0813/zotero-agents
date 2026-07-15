@@ -28,6 +28,7 @@ Machine-readable contracts are intentionally small:
 
 - [states-and-events.yaml](./contracts/states-and-events.yaml) contains stable state machine, sequence, and event IDs.
 - [invariants.yaml](./contracts/invariants.yaml) contains invariant IDs that tests/debug output may reference.
+- [service-api-migration.yaml](./contracts/service-api-migration.yaml) is the current public-service disposition and direct-consumer inventory for the staged sidecar migration.
 
 ## Context Map
 
@@ -96,7 +97,8 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 ## Target Rules
 
 - Zotero Library is the SSOT for library facts.
-- Derived artifact notes and embedded payload attachments are the SSOT for workflow artifacts.
+- Derived artifact notes and embedded payload attachments are the SSOT for literature workflow artifacts.
+- Topic canonical current files are the SSOT for applied Topic content; Zotero Topic note shards are a mirror and are not the ordinary runtime read source.
 - Synthesis sidecar storage is a cache projection unless the row is an explicit user-approved reference/binding/dedupe decision.
 - Artifact sidecar rows record artifact existence/hash/locator only; they do not copy Zotero item metadata.
 - Raw references are keyed by `source_ref` and `references_artifact_hash`; canonical references and bindings are Synthesis sidecar facts.
@@ -127,3 +129,5 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 | Reference Resolution | hard-cut target | Matcher output becomes graph-affecting only through deterministic safe apply or explicit decisions. |
 | Explicit Operations | hard-cut target | User/debug-triggered operations replace dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry rebuild. |
 | Workbench UI | hard-cut target | UI presents cache status, explicit operations, and Review & Overrides management. |
+| Client boundary | migration slices active | Workflow Topic options, startup/maintenance lifecycle, default invalidation, and related-items notifier echo classification use grouped `SynthesisClient` capabilities; the default adapter still delegates to the in-process service. Other consumers remain on the recorded migration allowlist. |
+| Process topology | current in-process state | The plugin currently owns Synthesis application execution, `synthesis.db`, and Topic canonical writes. The approved sidecar migration has not cut over production ownership. |

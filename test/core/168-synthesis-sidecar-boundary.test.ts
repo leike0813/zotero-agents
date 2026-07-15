@@ -1,0 +1,148 @@
+import { assert } from "chai";
+import fs from "fs";
+import path from "path";
+import { parse as parseYaml } from "yaml";
+
+const ROOT_DIR = process.cwd();
+const INVENTORY_FILE = path.join(
+  ROOT_DIR,
+  "doc/synthesis-layer/contracts/service-api-migration.yaml",
+);
+const CHECKER_FILE = path.join(
+  ROOT_DIR,
+  "scripts/check-synthesis-service-boundary.ts",
+);
+const FIXTURE_ROOT = path.join(
+  ROOT_DIR,
+  "test/fixtures/synthesis-sidecar-migration",
+);
+
+async function loadBoundaryChecker() {
+  assert.isTrue(
+    fs.existsSync(INVENTORY_FILE),
+    "the service API migration inventory must exist",
+  );
+  assert.isTrue(
+    fs.existsSync(CHECKER_FILE),
+    "the reusable synthesis boundary checker must exist",
+  );
+  return import("../../scripts/check-synthesis-service-boundary");
+}
+
+describe("Synthesis sidecar migration boundary", function () {
+  it("keeps the service API inventory synchronized with the public return surface", async function () {
+    const checker = await loadBoundaryChecker();
+    const report = checker.inspectSynthesisServiceBoundary();
+
+    assert.deepEqual(report.missingMethods, []);
+    assert.deepEqual(report.unknownMethods, []);
+    assert.isAbove(report.publicMethods.length, 0);
+    assert.equal(report.publicMethods.length, report.inventory.methods.length);
+  });
+
+  it("assigns every public method a valid category, capability, and disposition", async function () {
+    const checker = await loadBoundaryChecker();
+    const report = checker.inspectSynthesisServiceBoundary();
+
+    assert.deepEqual(report.invalidMethods, []);
+    assert.deepEqual(report.contractViolations, []);
+    for (const method of report.inventory.methods) {
+      assert.match(method.name, /^[A-Za-z][A-Za-z0-9]*$/);
+      assert.match(method.category, /^(query|command|host_effect|debug)$/);
+      assert.match(
+        method.disposition,
+        /^(client_capability|host_capability|internal|remove)$/,
+      );
+      assert.isNotEmpty(method.target_capability);
+    }
+  });
+
+  it("prevents direct full-service consumer growth outside migration composition", async function () {
+    const checker = await loadBoundaryChecker();
+    const report = checker.inspectSynthesisServiceBoundary();
+
+    assert.deepEqual(report.missingConsumers, []);
+    assert.deepEqual(report.unknownConsumers, []);
+    assert.isAbove(report.directConsumers.length, 0);
+  });
+
+  it("records reviewable schema, canonical ownership, and bounded DTO fixtures [inv.runtime.single_production_owner]", function () {
+    const schemaPath = path.join(FIXTURE_ROOT, "schema-baseline.json");
+    const canonicalPath = path.join(FIXTURE_ROOT, "canonical-topic-tree.json");
+    const dtoPath = path.join(FIXTURE_ROOT, "bounded-dto-baseline.json");
+    for (const fixturePath of [schemaPath, canonicalPath, dtoPath]) {
+      assert.isTrue(fs.existsSync(fixturePath), `${fixturePath} must exist`);
+    }
+
+    const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+    const canonical = JSON.parse(fs.readFileSync(canonicalPath, "utf8"));
+    const dto = JSON.parse(fs.readFileSync(dtoPath, "utf8"));
+    assert.equal(schema.database, "state/synthesis.db");
+    assert.includeMembers(schema.tables, [
+      "synt_operation",
+      "synt_cache_basis",
+      "synt_canonical_reference",
+    ]);
+    assert.equal(canonical.canonical_source, "topic_current_files");
+    assert.equal(canonical.zotero_note_role, "mirror");
+    assert.isAtMost(dto.reference_artifact_page.items.length, 50);
+    assert.equal(dto.reference_artifact_page.page.limit, 50);
+  });
+
+  it("keeps active docs explicit about current process and Topic ownership", function () {
+    const readme = fs.readFileSync(
+      path.join(ROOT_DIR, "doc/synthesis-layer/README.md"),
+      "utf8",
+    );
+    const storage = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "doc/synthesis-layer/library-ssot-and-sidecar-cache.md",
+      ),
+      "utf8",
+    );
+    const runtime = fs.readFileSync(
+      path.join(ROOT_DIR, "doc/synthesis-layer/runtime-and-rebuild.md"),
+      "utf8",
+    );
+
+    assert.include(readme, "Topic canonical current files are the SSOT");
+    assert.include(
+      storage,
+      "| Topic canonical current files and source manifests |",
+    );
+    assert.include(storage, "| Zotero Topic note shards |");
+    assert.notInclude(
+      storage,
+      "No external process requirement just to keep a local index current.",
+    );
+    assert.include(runtime, "The current implementation runs inside");
+    assert.include(
+      runtime,
+      "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
+    );
+  });
+
+  it("registers the migration-safe single-owner invariant", function () {
+    const contract = parseYaml(
+      fs.readFileSync(
+        path.join(ROOT_DIR, "doc/synthesis-layer/contracts/invariants.yaml"),
+        "utf8",
+      ),
+    ) as {
+      invariants: Array<{
+        id: string;
+        test_refs?: Array<{ file: string; marker: string }>;
+      }>;
+    };
+    const invariant = contract.invariants.find(
+      (entry) => entry.id === "inv.runtime.single_production_owner",
+    );
+    assert.exists(invariant);
+    assert.deepInclude(invariant?.test_refs || [], {
+      file: "test/core/168-synthesis-sidecar-boundary.test.ts",
+      marker: "[inv.runtime.single_production_owner]",
+      kind: "static_guard",
+    });
+  });
+});

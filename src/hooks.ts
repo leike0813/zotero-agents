@@ -148,9 +148,9 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./modules/hostBridgeProfileStore";
 import { delay } from "./utils/runtimeCompatibility";
 import {
-  getDefaultSynthesisService,
-  invalidateDefaultSynthesisService,
-} from "./modules/synthesis/service";
+  getDefaultSynthesisClient,
+  invalidateDefaultSynthesisClient,
+} from "./modules/synthesisClient/defaultClient";
 import {
   clearGitSyncToken,
   getGitSyncPrefsStatus,
@@ -692,13 +692,16 @@ function prewarmSynthesisWorkbenchAfterStartup() {
 }
 
 function reconcileRecoveredRuntimeTasksOnStartup() {
-  try {
-    getDefaultSynthesisService().reconcileSynthesisRuntimeWorkStateOnStartup();
-  } catch (error) {
-    if (typeof console !== "undefined") {
-      console.warn("[startup-reconcile] synthesis runtime work failed", error);
-    }
-  }
+  void getDefaultSynthesisClient()
+    .then((client) => client.system.reconcileRuntimeWorkOnStartup())
+    .catch((error) => {
+      if (typeof console !== "undefined") {
+        console.warn(
+          "[startup-reconcile] synthesis runtime work failed",
+          error,
+        );
+      }
+    });
   try {
     reconcileAcpSkillRunWorkflowTasksOnStartup();
     reconcileWorkflowTaskProjectionsOnStartup();
@@ -1460,8 +1463,8 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       return { cleanup, usage, integrity };
     }
     case "resetSynthesisDatabase":
-      return getDefaultSynthesisService().resetSynthesisDatabase({
-        confirmationText: data.confirmationText,
+      return (await getDefaultSynthesisClient()).maintenance.resetDatabase({
+        confirmationText: String(data.confirmationText || ""),
       });
     case "getGitSyncPrefsStatus":
       return getGitSyncPrefsStatus();
@@ -1474,18 +1477,18 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         autoRetryEnabled: data.autoRetryEnabled,
       });
       if (result.ok) {
-        invalidateDefaultSynthesisService();
+        invalidateDefaultSynthesisClient();
       }
       return result;
     }
     case "saveGitSyncToken": {
       const result = await saveGitSyncToken(String(data.token || ""));
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "clearGitSyncToken": {
       const result = await clearGitSyncToken();
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "testGitSyncConfiguration":
@@ -1504,7 +1507,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
         autoRetryEnabled: data.autoRetryEnabled,
       });
       if (result.ok) {
-        invalidateDefaultSynthesisService();
+        invalidateDefaultSynthesisClient();
       }
       return result;
     }
@@ -1512,12 +1515,12 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const result = await saveWebDavSyncCredential(
         String(data.credential || ""),
       );
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "clearWebDavSyncCredential": {
       const result = await clearWebDavSyncCredential();
-      invalidateDefaultSynthesisService();
+      invalidateDefaultSynthesisClient();
       return result;
     }
     case "testWebDavSyncConfiguration":

@@ -32,6 +32,15 @@ invariants:
     statement: Explicit operation records do not support owner-worker claiming, global queue drain, startup replay, queue pause/resume, or hidden retry scheduling.
     evidence: Static guard tests and Host Bridge debug tests.
 
+  - id: inv.runtime.single_production_owner
+    severity: fatal
+    statement: During the sidecar migration, synthesis.db and Topic canonical current files have exactly one production owner; before cutover that owner is the Zotero plugin process, shadow service storage is isolated, and after cutover automatic in-process fallback is forbidden.
+    evidence: Migration ownership fixture and boundary guard.
+    test_refs:
+      - file: test/core/168-synthesis-sidecar-boundary.test.ts
+        marker: "[inv.runtime.single_production_owner]"
+        kind: static_guard
+
   - id: inv.workflow.apply_direct_sidecar
     severity: fatal
     statement: Literature digest and reference matching apply hooks write bounded artifact sidecar, raw-reference, canonical-reference, and binding candidate state directly for the affected source_ref and do not record Synthesis update events.

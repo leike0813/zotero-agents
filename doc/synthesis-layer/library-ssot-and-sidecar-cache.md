@@ -1,6 +1,6 @@
 # Library SSOT and Sidecar Cache
 
-This document defines the target Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin.
+This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The implementation is currently in-process; the approved sidecar migration changes process ownership in later, independently verified changes without changing the data truth defined here.
 
 ## Decision
 
@@ -10,7 +10,7 @@ Synthesis persistence is a sidecar cache and a store for user-approved derived d
 
 ## Why
 
-Zotero plugins run in one process on one JavaScript event loop. A background event model inside that runtime is still foreground work from the UI's perspective. Long index rebuilds, startup reconcile, dirty queues, and graph maintenance caused UI stalls and conflicting status projections; this hard cut removes that model.
+The current Zotero plugin implementation runs in one process on one JavaScript event loop. A background event model inside that runtime is still foreground work from the UI's perspective. Long index rebuilds, startup reconcile, dirty queues, and graph maintenance caused UI stalls and conflicting status projections; this hard cut removes that model. The sidecar migration is tracked separately and must preserve the same explicit-operation and stale-tolerant semantics.
 
 The core product workflows do not require a fully synchronized library index:
 
@@ -27,7 +27,8 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 | --- | --- | --- |
 | Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through Host Library APIs. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
 | Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability. |
-| Topic artifacts and source manifests | Topic artifact notes / workflow output | Store summaries, source-check diagnostics, and UI projection. |
+| Topic canonical current files and source manifests | `data/synthesis/topics/<topicId>/current/**` | Canonical source for applied Topic content; store/read the complete current artifact, manifest, metadata, sections, and managed assets. |
+| Zotero Topic note shards | Topic canonical current files | Mirror selected canonical current state for Zotero visibility and explicit recovery workflows; mirror failure does not replace or roll back canonical current. |
 | Raw reference entries extracted by digest/apply | Source references artifact payload | Store rows keyed by `source_ref`, `references_artifact_hash`, and reference index/hash for graph/query speed. Old rows become `stale` when their artifact hash is replaced. |
 | Canonical reference dedupe and redirects | Synthesis sidecar facts plus user-approved decisions | Store canonical representatives and redirects between canonical references. Ambiguous merges require review. |
 | Reference binding decisions | User-approved or deterministic Synthesis sidecar facts | Store canonical-reference-to-Zotero binding status, provenance, confidence, and evidence. |
@@ -40,7 +41,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 - No startup reconcile that fans out Zotero library changes into sidecar work.
 - No dirty-event queue whose purpose is to keep Synthesis in lockstep with Zotero.
 - No full Registry rebuild on normal startup, snapshot read, or topic workflow read.
-- No external process requirement just to keep a local index current.
+- The current implementation does not require an external process. This is a current topology fact, not a constraint on the approved sidecar migration.
 
 ## Allowed Update Paths
 

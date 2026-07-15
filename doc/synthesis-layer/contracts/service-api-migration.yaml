@@ -1,0 +1,371 @@
+schema: synthesis.service_api_migration.v1
+description: Current public Synthesis service migration inventory and direct-consumer allowlist.
+service_source: src/modules/synthesis/service.ts
+service_factory: createSynthesisService
+
+direct_consumers:
+  - path: src/modules/harness/synthesisReadonlyService.ts
+    role: readonly_harness_composition
+  - path: src/modules/hostBridgeCapabilityRegistry.ts
+    role: host_bridge_proxy
+  - path: src/modules/synthesisWorkbenchTab.ts
+    role: workbench
+  - path: src/modules/synthesisClient/defaultClient.ts
+    role: client_composition
+  - path: src/modules/zoteroMcpProtocol.ts
+    role: mcp_proxy
+  - path: src/workflows/hostApi.ts
+    role: workflow_host
+  - path: src/workflows/types.ts
+    role: workflow_contract
+
+method_groups:
+  - id: debug
+    category: debug
+    target_capability: debug
+    disposition: client_capability
+    consumer_groups: [host_bridge, mcp]
+    methods:
+      - resetSynthesisDatabase
+      - debugSynthesisSnapshot
+      - debugSynthesisCacheList
+      - debugSynthesisOperationsList
+      - debugSynthesisProfilerList
+      - debugSynthesisPaperInspect
+      - debugSynthesisTopicInspect
+      - debugSynthesisDiff
+      - debugSynthesisCleanInstallReset
+      - getDebugSynthesisSnapshotInput
+
+  - id: operation_lifecycle
+    category: command
+    target_capability: operations
+    disposition: client_capability
+    consumer_groups: [lifecycle, workbench, host_bridge]
+    methods:
+      - reconcileSynthesisRuntimeWorkStateOnStartup
+
+  - id: workflow_apply
+    category: command
+    target_capability: workflow_apply
+    disposition: client_capability
+    consumer_groups: [workflow, host_bridge, mcp]
+    methods:
+      - applyLiteratureDigestSidecar
+      - applyReferenceMatchingSidecar
+      - applyTopicSynthesisResult
+
+  - id: workbench_queries
+    category: query
+    target_capability: workbench
+    disposition: client_capability
+    consumer_groups: [workbench]
+    methods:
+      - getSynthesisBackgroundJobRows
+      - getSynthesisWorkbenchChromeInput
+      - getSynthesisWorkbenchSurfaceInput
+
+  - id: workbench_warmup
+    category: command
+    target_capability: workbench
+    disposition: internal
+    consumer_groups: [workbench]
+    methods:
+      - warmSynthesisWorkbenchSurfaces
+
+  - id: legacy_full_snapshot
+    category: query
+    target_capability: debug
+    disposition: remove
+    consumer_groups: [workbench]
+    methods:
+      - getSynthesisSnapshot
+
+  - id: host_notifications
+    category: command
+    target_capability: notifications.related_items
+    disposition: client_capability
+    consumer_groups: [observer]
+    methods:
+      - consumeRelatedItemsSyncEcho
+
+  - id: related_items
+    category: host_effect
+    target_capability: references.related_items
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - syncRelatedItemsNow
+
+  - id: topic_queries
+    category: query
+    target_capability: topics
+    disposition: client_capability
+    consumer_groups: [workbench, workflow, host_bridge, mcp]
+    methods:
+      - listDeletedTopicArtifacts
+      - readTopicArtifact
+      - readTopicDetail
+      - listTopics
+      - findTopicsByPaperRef
+      - listWorkflowTopicOptions
+      - getTopicContext
+      - getTopicReport
+      - resolveTopicPaperDigest
+      - resolveResolver
+
+  - id: topic_commands
+    category: command
+    target_capability: topics
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - deleteTopicArtifact
+      - purgeDeletedTopicArtifacts
+      - rejectTopicDiscoveryHint
+      - restoreTopicDiscoveryHint
+
+  - id: topic_mirror_commands
+    category: host_effect
+    target_capability: topics.mirror
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - refreshMirror
+      - rebuildMirrorFromCanonical
+
+  - id: legacy_mirror_recovery
+    category: command
+    target_capability: maintenance.migration
+    disposition: remove
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - recoverCanonicalFromMirror
+
+  - id: review_input
+    category: query
+    target_capability: workflow_apply.review
+    disposition: client_capability
+    consumer_groups: [workflow, host_bridge, mcp]
+    methods:
+      - getReviewInput
+
+  - id: graph_queries
+    category: query
+    target_capability: graph
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - queryCitationGraphCluster
+      - getCitationGraphSlice
+      - getCitationGraphLayout
+      - getCitationGraphMetrics
+      - rankLibraryPapers
+      - queryCitationGraph
+      - readCitationGraphSnapshot
+
+  - id: graph_commands
+    category: command
+    target_capability: graph
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - recomputeCitationGraphLayout
+      - refreshCitationGraphCacheIncrementalNow
+      - refreshCitationGraphMetricsNow
+      - rebuildCitationGraphCacheNow
+      - retryCitationGraphCacheRebuild
+
+  - id: artifact_queries
+    category: query
+    target_capability: artifacts
+    disposition: client_capability
+    consumer_groups: [workflow, host_bridge, mcp]
+    methods:
+      - getPaperArtifactManifest
+      - readPaperArtifacts
+
+  - id: artifact_export
+    category: command
+    target_capability: artifacts
+    disposition: client_capability
+    consumer_groups: [workflow, host_bridge, mcp]
+    methods:
+      - exportFilteredPaperArtifacts
+
+  - id: legacy_library_index
+    category: query
+    target_capability: workbench.index
+    disposition: remove
+    consumer_groups: [host_bridge, mcp]
+    methods:
+      - getLibraryIndex
+
+  - id: reference_queries
+    category: query
+    target_capability: references
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - getReferenceSidecarIndex
+      - rankExternalReferences
+      - getAttentionQueue
+      - loadReferenceSidecarCacheStatus
+
+  - id: reference_commands
+    category: command
+    target_capability: references
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - refreshReferenceSidecarNow
+      - retryReferenceSidecarRefresh
+      - runAdvancedReferenceMatchingNow
+      - retryAdvancedReferenceMatching
+      - applyReferenceMatchProposalAction
+      - applyReferenceMatchProposalActions
+      - applyCanonicalRevisionReviewAction
+      - mergeEffectiveCanonicalReference
+      - applyCanonicalRevisionMergeRequests
+      - updateCanonicalReferenceMetadata
+      - archiveCanonicalReference
+
+  - id: tag_queries
+    category: query
+    target_capability: knowledge.tags
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - loadTagVocabulary
+      - validateTagVocabulary
+      - listStagedTagSuggestions
+
+  - id: tag_commands
+    category: command
+    target_capability: knowledge.tags
+    disposition: client_capability
+    consumer_groups: [workbench, workflow, host_bridge, mcp]
+    methods:
+      - saveTagVocabulary
+      - exportTagVocabularyCheckpoint
+      - stageTagSuggestions
+      - promoteStagedTagSuggestions
+      - discardStagedTagSuggestions
+      - clearStagedTagSuggestions
+      - previewTagVocabularyImport
+      - applyTagVocabularyImport
+      - rebuildTagVocabularyIndex
+      - exportTagVocabularyForRegulator
+      - replaceTagAuditRecords
+      - clearTagAuditRecord
+
+  - id: concept_queries
+    category: query
+    target_capability: knowledge.concepts
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - queryConceptKb
+      - loadConceptKb
+
+  - id: concept_commands
+    category: command
+    target_capability: knowledge.concepts
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - updateConceptDisplayText
+      - applyConceptReviewAction
+      - deleteConceptEntries
+      - exportConceptKbCheckpoint
+      - rebuildConceptKbIndex
+
+  - id: topic_graph_queries
+    category: query
+    target_capability: knowledge.topic_graph
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - loadTopicGraph
+
+  - id: topic_graph_commands
+    category: command
+    target_capability: knowledge.topic_graph
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - exportTopicGraphCheckpoint
+      - rebuildTopicGraphIndex
+      - acceptTopicGraphRelation
+      - rejectTopicGraphRelation
+      - applyTopicGraphReviewAction
+
+  - id: maintenance_queries
+    category: query
+    target_capability: maintenance
+    disposition: client_capability
+    consumer_groups: [host_bridge, mcp]
+    methods:
+      - getSchemas
+
+  - id: maintenance_commands
+    category: command
+    target_capability: maintenance
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - previewSynthesisJsonImport
+      - applySynthesisJsonImport
+      - exportSynthesisCheckpoint
+      - verifySynthesisCheckpoint
+
+  - id: git_sync_queries
+    category: query
+    target_capability: sync.git
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - loadGitSyncState
+      - readGitSyncDiagnostics
+      - getGitSyncPrefsConfigurationStatus
+
+  - id: git_sync_commands
+    category: command
+    target_capability: sync.git
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - syncNow
+      - pauseGitSync
+      - resumeGitSync
+      - retryGitSync
+      - resolveGitSyncConflict
+      - saveGitSyncPrefsConfiguration
+      - saveGitSyncAccessToken
+      - clearGitSyncAccessToken
+      - testGitSyncPrefsConfiguration
+
+  - id: webdav_sync_queries
+    category: query
+    target_capability: sync.webdav
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - loadWebDavSyncState
+      - getWebDavSyncPrefsConfigurationStatus
+
+  - id: webdav_sync_commands
+    category: command
+    target_capability: sync.webdav
+    disposition: client_capability
+    consumer_groups: [workbench, host_bridge, mcp]
+    methods:
+      - syncWebDavNow
+      - pauseWebDavSync
+      - resumeWebDavSync
+      - retryWebDavSync
+      - resolveWebDavSyncConflict
+      - saveWebDavSyncPrefsConfiguration
+      - saveWebDavSyncAccessCredential
+      - clearWebDavSyncAccessCredential
+      - testWebDavSyncPrefsConfiguration

@@ -1,5 +1,5 @@
 {
   "extends": "zotero-types/entries/sandbox/",
-  "include": ["src", "typings"],
+  "include": ["src", "typings", "packages/*/src"],
   "exclude": ["build", "addon", "src/**/*-safeBackup-*", ".agents"]
 }

@@ -1,4 +1,12 @@
 import { joinPath } from "../../utils/path";
+import type {
+  SynthesisWorkflowTopicOption,
+  SynthesisWorkflowTopicOptionsResult,
+} from "../../../packages/synthesis-contracts/src/index";
+export type {
+  SynthesisWorkflowTopicOption,
+  SynthesisWorkflowTopicOptionsResult,
+} from "../../../packages/synthesis-contracts/src/index";
 import { yieldToEventLoop } from "../../utils/runtimeCompatibility";
 import { handlers } from "../../handlers";
 import {
@@ -280,21 +288,6 @@ export type SynthesisTopicPurgeResult = {
   mirror?: SynthesisMirrorRefreshResult;
   mirrorError?: string;
   warnings?: string[];
-};
-
-export type SynthesisWorkflowTopicOption = {
-  value: string;
-  label: string;
-  description: string;
-  meta: Record<string, unknown>;
-};
-
-export type SynthesisWorkflowTopicOptionsResult = {
-  options: SynthesisWorkflowTopicOption[];
-  diagnostics: Array<{
-    code: string;
-    message: string;
-  }>;
 };
 
 export type SynthesisReadHint = {
@@ -19491,8 +19484,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             topicId,
             title,
             actionLabel: intent.actionLabel,
-            freshness: freshness || undefined,
-            sourceMaterialsStatus: sourceMaterialsStatus || undefined,
+            ...(freshness ? { freshness } : {}),
+            ...(sourceMaterialsStatus ? { sourceMaterialsStatus } : {}),
           },
         });
       }
@@ -19525,8 +19518,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             kind: "synthesis.topic",
             topicId,
             title,
-            status: status || undefined,
-            updatedAt: updatedAt || undefined,
+            ...(status ? { status } : {}),
+            ...(updatedAt ? { updatedAt } : {}),
           },
         };
       }),

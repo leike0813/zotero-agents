@@ -140,7 +140,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(resolved.diagnostics[0]?.code, "unsupported_options_source");
   });
 
-  it("resolves synthesis topic options through the bounded service facade", async function () {
+  it("resolves synthesis topic options through the grouped client", async function () {
     let requestedFilter = "";
     const resolved = await resolveWorkflowParameterOptionsSource(
       {
@@ -148,23 +148,25 @@ describe("Literature Search Ingest workflow contract", function () {
         filter: "updatable",
       },
       {
-        synthesisService: {
-          async listWorkflowTopicOptions(args) {
-            requestedFilter = String(args?.filter || "");
-            return {
-              options: [
-                {
-                  value: "topic-alpha",
-                  label: "Alpha",
-                  description: "Update · freshness stale · topic-alpha",
-                  meta: {
-                    kind: "synthesis.topic",
-                    topicId: "topic-alpha",
+        synthesisClient: {
+          topics: {
+            async listWorkflowOptions(args) {
+              requestedFilter = String(args?.filter || "");
+              return {
+                options: [
+                  {
+                    value: "topic-alpha",
+                    label: "Alpha",
+                    description: "Update · freshness stale · topic-alpha",
+                    meta: {
+                      kind: "synthesis.topic",
+                      topicId: "topic-alpha",
+                    },
                   },
-                },
-              ],
-              diagnostics: [],
-            };
+                ],
+                diagnostics: [],
+              };
+            },
           },
         },
       },

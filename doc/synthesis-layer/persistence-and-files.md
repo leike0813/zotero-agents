@@ -1,6 +1,6 @@
 # Persistence and Files
 
-Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal sidecar store for cache projections, review state, and user-approved derived decisions. Zotero Library and artifact notes remain the SSOT for library and workflow artifact facts.
+Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal sidecar store for cache projections, review state, and user-approved derived decisions. Zotero Library and literature artifact notes remain the SSOT for library and literature workflow facts. Topic canonical current files are the SSOT for applied Topic content; Zotero Topic note shards are a mirror.
 
 Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not the normal Workbench read/write path.
 
@@ -9,12 +9,13 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Class | Location | Role |
 | --- | --- | --- |
 | Synthesis runtime DB | `state/synthesis.db` | Synthesis `synt_*` artifact sidecar rows, raw/canonical references, graph cache, review/override state, user-approved reference/binding decisions |
-| Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Current topic source artifacts and section JSON files that are not stored in SQLite |
+| Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | Git durable exchange store | Git Sync worktree `synthesis/` root | Deterministic durable-state assets used for cross-device sync and recovery; see [Git Sync Durable State](./git-sync-durable-state.md) |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
-| Source artifact notes | Zotero notes/items | SSOT for workflow artifacts consumed by Synthesis |
+| Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
+| Zotero Topic note shards | Zotero notes | Mirror of selected Topic canonical current state, not the ordinary Topic runtime read source |
 | Explicit exports/checkpoints | User-selected path or explicit export directory | Portable output, not UI hot path |
 | Debug dumps | Debug/runtime path | Diagnostics only |
 | Legacy `data/synthesis/state` tree | Historical cleanup residue only | Former sidecar/projection location. Current code must not create new files there; remaining files are old backups or rebuildable projection/cache artifacts. |

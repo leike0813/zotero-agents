@@ -89,7 +89,7 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { invalidateDefaultSynthesisService } from "./synthesis/service";
+import { invalidateDefaultSynthesisClient } from "./synthesisClient/defaultClient";
 import { getPref, setPref } from "../utils/prefs";
 
 export { redactHostBridgeToken };
@@ -2970,7 +2970,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
       source: "host-bridge-cli",
       scope: parsePermissionScopeHeader(request),
     });
-    invalidateDefaultSynthesisService();
+    invalidateDefaultSynthesisClient();
     return response(
       200,
       "OK",

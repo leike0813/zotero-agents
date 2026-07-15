@@ -1,4 +1,5 @@
-import { getDefaultSynthesisService, type SynthesisService } from "./service";
+import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
+import { getDefaultSynthesisClient } from "../synthesisClient/defaultClient";
 
 function cleanString(value: unknown) {
   return String(value || "").trim();
@@ -101,7 +102,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   type: string;
   ids: Array<string | number>;
   extraData?: Record<string, unknown>;
-  service?: SynthesisService;
+  client?: Pick<SynthesisClient, "notifications">;
 }) {
   if (cleanString(args.type) !== "item") {
     return { recorded: 0 };
@@ -109,7 +110,7 @@ export async function recordSynthesisZoteroItemNotifications(args: {
   if (!shouldInspectNotifierEcho(args.event)) {
     return { recorded: 0 };
   }
-  const service = args.service || getDefaultSynthesisService();
+  const client = args.client || (await getDefaultSynthesisClient());
   const recorded = 0;
   for (const id of args.ids || []) {
     const item = resolveItem(id);
@@ -123,12 +124,12 @@ export async function recordSynthesisZoteroItemNotifications(args: {
       normalizeLibraryId(item?.libraryID) ||
       normalizeLibraryId(extraRow.libraryID);
     if (libraryId) {
-      const echo = await service.consumeRelatedItemsSyncEcho({
+      const echo = await client.notifications.consumeRelatedItemsSyncEcho({
         libraryId,
         itemKey,
         relatedItemKey: relatedItemKeyFromExtra(extraRow) || undefined,
       });
-      if (echo) {
+      if (echo.consumed) {
         continue;
       }
     }
