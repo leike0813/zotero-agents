@@ -1,4 +1,5 @@
 import {
+  SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   toSynthesisJsonObject,
   toSynthesisJsonValue,
@@ -19,6 +20,10 @@ import {
   type SynthesisTopicReportResult,
   type SynthesisWorkflowTopicOptionsRequest,
   type SynthesisWorkflowTopicOptionsResult,
+  type SynthesisWorkbenchPaperDigestResult,
+  type SynthesisWorkbenchProjection,
+  type SynthesisWorkbenchSurfaceName,
+  type SynthesisWorkbenchTopicDetailResult,
 } from "../../../packages/synthesis-contracts/src/index";
 
 export interface LegacySynthesisPort {
@@ -60,6 +65,15 @@ export interface LegacySynthesisPort {
     libraryId: number;
     itemKey: string;
   }): Promise<unknown>;
+  getSynthesisWorkbenchChromeInput?(
+    state: Record<string, unknown>,
+  ): Promise<unknown>;
+  getSynthesisWorkbenchSurfaceInput?(
+    surface: SynthesisWorkbenchSurfaceName,
+    state: Record<string, unknown>,
+  ): Promise<unknown>;
+  readTopicDetail?(request: { topicId: string }): Promise<unknown>;
+  resolveTopicPaperDigest?(request: Record<string, unknown>): Promise<unknown>;
 }
 
 function normalizeClientError(error: unknown): SynthesisClientError {
@@ -107,6 +121,74 @@ async function runLegacy<T>(operation: () => Promise<T>): Promise<T> {
   } catch (error) {
     throw normalizeClientError(error);
   }
+}
+
+function normalizeWorkbenchState(value: unknown) {
+  return toSynthesisJsonObject(value, "$.request.state");
+}
+
+function normalizeWorkbenchSurface(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !SYNTHESIS_WORKBENCH_SURFACES.includes(
+      value as SynthesisWorkbenchSurfaceName,
+    )
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Workbench surface is invalid",
+      { surface: typeof value === "string" ? value : typeof value },
+    );
+  }
+  return value as SynthesisWorkbenchSurfaceName;
+}
+
+function normalizeTopicId(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Workbench topicId is required",
+    );
+  }
+  return value.trim();
+}
+
+function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
+  const request = toSynthesisJsonObject(value, "$.request");
+  const mapped: Record<string, unknown> = {};
+  const optionalStringFields = [
+    ["topicId", "topicId"],
+    ["paperRef", "paper_ref"],
+  ] as const;
+  for (const [source, target] of optionalStringFields) {
+    const field = request[source];
+    if (field === undefined) continue;
+    if (typeof field !== "string") {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `Synthesis Workbench ${source} must be a string`,
+        { field: source },
+      );
+    }
+    mapped[target] = field;
+  }
+  if (request.digestRef !== undefined) {
+    mapped.digest_ref = toSynthesisJsonObject(
+      request.digestRef,
+      "$.request.digestRef",
+    );
+  }
+  if (request.includeRepresentativeImage !== undefined) {
+    if (typeof request.includeRepresentativeImage !== "boolean") {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis Workbench includeRepresentativeImage must be a boolean",
+        { field: "includeRepresentativeImage" },
+      );
+    }
+    mapped.include_representative_image = request.includeRepresentativeImage;
+  }
+  return mapped;
 }
 
 export function createInProcessSynthesisClient(
@@ -336,6 +418,55 @@ export function createInProcessSynthesisClient(
           )(request);
           return { ok: true as const };
         });
+      },
+    },
+    workbench: {
+      async readChrome(request) {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.getSynthesisWorkbenchChromeInput,
+                "workbench.readChrome",
+              )(normalizeWorkbenchState(request.state)),
+            ) as SynthesisWorkbenchProjection,
+        );
+      },
+      async readSurface(request) {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.getSynthesisWorkbenchSurfaceInput,
+                "workbench.readSurface",
+              )(
+                normalizeWorkbenchSurface(request.surface),
+                normalizeWorkbenchState(request.state),
+              ),
+            ) as SynthesisWorkbenchProjection,
+        );
+      },
+      async readTopicDetail(request) {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.readTopicDetail,
+                "workbench.readTopicDetail",
+              )({ topicId: normalizeTopicId(request.topicId) }),
+            ) as SynthesisWorkbenchTopicDetailResult,
+        );
+      },
+      async readPaperDigest(request) {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.resolveTopicPaperDigest,
+                "workbench.readPaperDigest",
+              )(mapPaperDigestRequest(request)),
+            ) as SynthesisWorkbenchPaperDigestResult,
+        );
       },
     },
   };

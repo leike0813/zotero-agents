@@ -63,7 +63,16 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingConsumers, []);
     assert.deepEqual(report.unknownConsumers, []);
-    assert.isAbove(report.directConsumers.length, 0);
+    assert.deepEqual(report.directConsumers, [
+      "src/modules/hostBridgeCapabilityRegistry.ts",
+      "src/modules/synthesisClient/legacyComposition.ts",
+      "src/modules/synthesisWorkbenchTab.ts",
+      "src/modules/zoteroMcpProtocol.ts",
+    ]);
+    assert.deepEqual(
+      report.inventory.direct_consumers.map((consumer) => consumer.path).sort(),
+      report.directConsumers,
+    );
   });
 
   it("records reviewable schema, canonical ownership, and bounded DTO fixtures [inv.runtime.single_production_owner]", function () {

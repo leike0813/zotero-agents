@@ -714,9 +714,20 @@ describe("UI readonly harness", function () {
 
   it("keeps Synthesis harness bridge aligned with structured topic detail and readonly review actions", async function () {
     const source = await readFile("scripts/ui-harness-serve.ts", "utf8");
+    const composition = await readFile(
+      "src/modules/harness/synthesisReadonlyClient.ts",
+      "utf8",
+    );
 
     assert.ok(source.includes('command === "openTopicArtifact"'));
-    assert.ok(source.includes("runtime.service.readTopicDetail"));
+    assert.ok(source.includes("runtime.client.workbench.readChrome"));
+    assert.ok(source.includes("runtime.client.workbench.readSurface"));
+    assert.ok(source.includes("runtime.client.workbench.readTopicDetail"));
+    assert.ok(source.includes("runtime.client.workbench.readPaperDigest"));
+    assert.equal(source.includes("runtime.service"), false);
+    assert.equal(source.includes("getSynthesisSnapshot"), false);
+    assert.ok(composition.includes("createLegacyInProcessSynthesisClient"));
+    assert.equal(composition.includes("synthesis/service"), false);
     assert.ok(source.includes('refreshSynthesisInput(runtime, "concepts")'));
     assert.ok(source.includes('type: "synthesis:topic-detail"'));
     assert.equal(source.includes('type: "synthesis:artifact"'), false);

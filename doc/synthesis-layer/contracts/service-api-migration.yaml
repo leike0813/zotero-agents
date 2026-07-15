@@ -4,14 +4,12 @@ service_source: src/modules/synthesis/service.ts
 service_factory: createSynthesisService
 
 direct_consumers:
-  - path: src/modules/harness/synthesisReadonlyService.ts
-    role: readonly_harness_composition
   - path: src/modules/hostBridgeCapabilityRegistry.ts
     role: host_bridge_proxy
+  - path: src/modules/synthesisClient/legacyComposition.ts
+    role: client_composition
   - path: src/modules/synthesisWorkbenchTab.ts
     role: workbench
-  - path: src/modules/synthesisClient/defaultClient.ts
-    role: client_composition
   - path: src/modules/zoteroMcpProtocol.ts
     role: mcp_proxy
 

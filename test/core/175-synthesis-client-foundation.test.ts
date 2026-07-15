@@ -100,8 +100,157 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes the four region-scoped Workbench reads through narrow ports", async function () {
+    const calls: Array<{ operation: string; args: unknown[] }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getSynthesisWorkbenchChromeInput(state) {
+        calls.push({ operation: "chrome", args: [state] });
+        return { libraryId: 1, storage: { rootState: "ready" } };
+      },
+      async getSynthesisWorkbenchSurfaceInput(surface, state) {
+        calls.push({ operation: "surface", args: [surface, state] });
+        return { libraryId: 1, registry: { rows: [] } };
+      },
+      async readTopicDetail(request) {
+        calls.push({ operation: "topic-detail", args: [request] });
+        return {
+          ok: true,
+          status: "ready",
+          topicId: request.topicId,
+          title: "Topic Alpha",
+          source_papers: [],
+        };
+      },
+      async resolveTopicPaperDigest(request) {
+        calls.push({ operation: "paper-digest", args: [request] });
+        return {
+          ok: true,
+          status: "available",
+          paper_ref: String(request.paper_ref || ""),
+          digest_markdown: "# Digest",
+          recorded_hash: "old",
+          current_hash: "new",
+          source_changed: true,
+          diagnostics: [],
+          optional_field: undefined,
+        };
+      },
+    });
+    const state = { selectedTab: "registry" };
+
+    assert.deepEqual(await client.workbench.readChrome({ state }), {
+      libraryId: 1,
+      storage: { rootState: "ready" },
+    });
+    assert.deepEqual(
+      await client.workbench.readSurface({ surface: "index", state }),
+      { libraryId: 1, registry: { rows: [] } },
+    );
+    assert.deepEqual(
+      await client.workbench.readTopicDetail({ topicId: "topic-alpha" }),
+      {
+        ok: true,
+        status: "ready",
+        topicId: "topic-alpha",
+        title: "Topic Alpha",
+        source_papers: [],
+      },
+    );
+    assert.deepEqual(
+      await client.workbench.readPaperDigest({
+        topicId: "topic-alpha",
+        paperRef: "1:ABCD1234",
+        digestRef: { note_key: "NOTE1234" },
+        includeRepresentativeImage: true,
+      }),
+      {
+        ok: true,
+        status: "available",
+        paper_ref: "1:ABCD1234",
+        digest_markdown: "# Digest",
+        recorded_hash: "old",
+        current_hash: "new",
+        source_changed: true,
+        diagnostics: [],
+      },
+    );
+    assert.deepEqual(calls, [
+      { operation: "chrome", args: [state] },
+      { operation: "surface", args: ["index", state] },
+      {
+        operation: "topic-detail",
+        args: [{ topicId: "topic-alpha" }],
+      },
+      {
+        operation: "paper-digest",
+        args: [
+          {
+            topicId: "topic-alpha",
+            paper_ref: "1:ABCD1234",
+            digest_ref: { note_key: "NOTE1234" },
+            include_representative_image: true,
+          },
+        ],
+      },
+    ]);
+    assert.notProperty(client.workbench, "getSynthesisSnapshot");
+  });
+
+  it("rejects non-JSON Workbench state before invoking the legacy port", async function () {
+    let invoked = false;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async getSynthesisWorkbenchChromeInput() {
+        invoked = true;
+        return {};
+      },
+    });
+
+    try {
+      await client.workbench.readChrome({
+        state: { callback: (() => undefined) as never },
+      });
+      assert.fail("expected the Workbench request to reject");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "invalid_request");
+      assert.equal(invoked, false);
+    }
+  });
+
+  it("normalizes Workbench legacy failures without retrying", async function () {
+    let attempts = 0;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async readTopicDetail() {
+        attempts += 1;
+        throw new Error("topic detail exploded");
+      },
+    });
+
+    try {
+      await client.workbench.readTopicDetail({ topicId: "topic-alpha" });
+      assert.fail("expected the Workbench request to reject");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "internal");
+      assert.equal(attempts, 1);
+    }
+  });
+
   it("isolates legacy default-service resolution in client composition", function () {
     const composition = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
+      "utf8",
+    );
+    const defaultClient = fs.readFileSync(
       path.join(ROOT, "src/modules/synthesisClient/defaultClient.ts"),
       "utf8",
     );
@@ -112,6 +261,8 @@ describe("Synthesis client foundation", function () {
 
     assert.include(composition, "getDefaultSynthesisService");
     assert.notMatch(composition, /\btype\s+SynthesisService\b/);
+    assert.notInclude(defaultClient, "getDefaultSynthesisService");
+    assert.notInclude(defaultClient, "../synthesis/service");
     assert.notInclude(consumer, "getDefaultSynthesisService");
     assert.notInclude(consumer, "./synthesis/service");
     assert.include(consumer, "getDefaultSynthesisClient");

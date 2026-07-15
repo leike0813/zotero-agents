@@ -9,6 +9,7 @@ import type {
   SynthesisTagsClient,
   SynthesisWorkflowApplyClient,
 } from "./workflow";
+import type { SynthesisWorkbenchClient } from "./workbench";
 
 export interface SynthesisClient {
   readonly topics: SynthesisTopicsClient;
@@ -18,4 +19,5 @@ export interface SynthesisClient {
   readonly workflowApply: SynthesisWorkflowApplyClient;
   readonly artifacts: SynthesisArtifactsClient;
   readonly tags: SynthesisTagsClient;
+  readonly workbench: SynthesisWorkbenchClient;
 }

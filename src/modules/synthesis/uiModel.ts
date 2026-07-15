@@ -1,3 +1,7 @@
+import type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
+
+export type { SynthesisWorkbenchSurfaceName } from "../../../packages/synthesis-contracts/src/index";
+
 export type SynthesisUiTab =
   | "overview"
   | "artifacts"
@@ -6,16 +10,6 @@ export type SynthesisUiTab =
   | "tags"
   | "concepts"
   | "graph"
-  | "reader";
-
-export type SynthesisWorkbenchSurfaceName =
-  | "home"
-  | "topics"
-  | "index"
-  | "review"
-  | "graph"
-  | "tags"
-  | "concepts"
   | "reader";
 
 export type SynthesisUiCoverage = "complete" | "partial" | "missing";
