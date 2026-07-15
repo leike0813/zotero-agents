@@ -90,6 +90,12 @@ function createLegacyPort(
     async updateStagedTagSuggestion(request) {
       return resolveService().updateStagedTagSuggestion(request);
     },
+    async updateTagVocabularyEntry(request) {
+      return resolveService().updateTagVocabularyEntry(request);
+    },
+    async deleteTagVocabularyEntry(request) {
+      return resolveService().deleteTagVocabularyEntry(request);
+    },
     async promoteStagedTagSuggestions(request) {
       return resolveService().promoteStagedTagSuggestions(request);
     },

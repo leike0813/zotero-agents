@@ -2866,39 +2866,17 @@ function handleAction(
     ).trim();
     const tag = String(commandArgs.tag || "").trim();
     if (originalTag && tag) {
+      const facet = String(commandArgs.facet || tag.split(":")[0] || "topic");
+      const note = String(commandArgs.note || "");
       runWorkbenchCommandOnce(
         runtime,
         "updateTagVocabularyEntry",
         { originalTag },
         async () => {
-          const service = getDefaultSynthesisService();
-          const snapshot = await service.loadTagVocabulary();
-          const nextEntries = snapshot.entries.map((entry) =>
-            entry.tag === originalTag
-              ? {
-                  ...entry,
-                  tag,
-                  facet: String(
-                    commandArgs.facet || tag.split(":")[0] || entry.facet,
-                  ),
-                  note: String(commandArgs.note || ""),
-                }
-              : entry,
-          );
-          if (!nextEntries.some((entry) => entry.tag === tag)) {
-            nextEntries.push({
-              tag,
-              facet: String(commandArgs.facet || tag.split(":")[0] || "topic"),
-              note: String(commandArgs.note || ""),
-            });
-          }
-          return service.saveTagVocabulary({
-            entries: nextEntries,
-            aliases: snapshot.aliases,
-            abbrev: snapshot.abbrev,
-            protocol: snapshot.protocol,
-            transactionId: `tag-vocabulary-update-${Date.now()}`,
-          });
+          const client = await getDefaultSynthesisClient();
+          return client.tags
+            .updateTagVocabularyEntry({ originalTag, tag, facet, note })
+            .then(failOnDiagnostic);
         },
       );
       return;
@@ -2917,17 +2895,10 @@ function handleAction(
         "deleteTagVocabularyEntry",
         { originalTag },
         async () => {
-          const service = getDefaultSynthesisService();
-          const snapshot = await service.loadTagVocabulary();
-          return service.saveTagVocabulary({
-            entries: snapshot.entries.filter(
-              (entry) => entry.tag !== originalTag,
-            ),
-            aliases: snapshot.aliases,
-            abbrev: snapshot.abbrev,
-            protocol: snapshot.protocol,
-            transactionId: `tag-vocabulary-delete-${Date.now()}`,
-          });
+          const client = await getDefaultSynthesisClient();
+          return client.tags
+            .deleteTagVocabularyEntry({ originalTag })
+            .then(failOnDiagnostic);
         },
       );
       return;

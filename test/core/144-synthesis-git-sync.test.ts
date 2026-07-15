@@ -1211,6 +1211,95 @@ describe("Synthesis git sync", function () {
     assert.equal(mergeCount, 1);
   });
 
+  it("autosyncs only committed Tag Vocabulary entry mutations and never rolls them back on notification failure", async function () {
+    this.timeout(30000);
+    const root = await makeRuntimeRoot();
+    let mergeCount = 0;
+    let failMerge = false;
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      gitSyncAutoSyncEnabled: true,
+      gitSyncDebounceMs: 10,
+      gitSyncAdapter: {
+        merge: () => {
+          mergeCount += 1;
+          if (failMerge) {
+            throw new Error("fault-injected autosync notification failure");
+          }
+          return { status: "clean" };
+        },
+      },
+    });
+    await service.saveTagVocabulary({
+      entries: [
+        { tag: "topic:old", facet: "topic" },
+        { tag: "topic:target", facet: "topic" },
+      ],
+    });
+    await waitFor(async () => mergeCount === 1);
+    await waitFor(async () => {
+      const state = await service.loadGitSyncState();
+      return state.queue_state === "idle";
+    });
+
+    await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "topic:old",
+      facet: "topic",
+      note: "committed",
+    });
+    await waitFor(async () => mergeCount === 2);
+    await waitFor(async () => {
+      const state = await service.loadGitSyncState();
+      return state.queue_state === "idle";
+    });
+
+    await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "topic:target",
+      facet: "topic",
+      note: "conflict",
+    });
+    await service.updateTagVocabularyEntry({
+      originalTag: "topic:missing",
+      tag: "topic:new",
+      facet: "topic",
+      note: "missing",
+    });
+    await service.deleteTagVocabularyEntry({
+      originalTag: "topic:missing",
+    });
+    await delay(50);
+    assert.equal(mergeCount, 2);
+
+    await service.deleteTagVocabularyEntry({
+      originalTag: "topic:target",
+    });
+    await waitFor(async () => mergeCount === 3);
+    await waitFor(async () => {
+      const state = await service.loadGitSyncState();
+      return state.queue_state === "idle";
+    });
+
+    failMerge = true;
+    await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "topic:old",
+      facet: "topic",
+      note: "survives autosync failure",
+    });
+    await waitFor(async () => mergeCount === 4);
+    await delay(30);
+
+    const snapshot = await service.loadTagVocabulary();
+    assert.equal(
+      snapshot.entries.find((entry) => entry.tag === "topic:old")?.note,
+      "survives autosync failure",
+    );
+    assert.equal(mergeCount, 4);
+  });
+
   it("does not autosync service-level canonical writes by default", async function () {
     const root = await makeRuntimeRoot();
     let mergeCount = 0;

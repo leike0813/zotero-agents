@@ -45,6 +45,8 @@ import {
   type SynthesisStagedTagUpdateRequest,
   type SynthesisTagStagedSuggestion,
   type SynthesisTagVocabularySnapshot,
+  type SynthesisTagVocabularyEntryDeleteRequest,
+  type SynthesisTagVocabularyEntryUpdateRequest,
   type SynthesisTopicApplyRequest,
   type SynthesisTopicApplyResult,
   type SynthesisTopicArtifactDeleteRequest,
@@ -119,6 +121,12 @@ export interface LegacySynthesisPort {
   stageTagSuggestions?(request: Record<string, unknown>): Promise<unknown>;
   updateStagedTagSuggestion?(
     request: SynthesisStagedTagUpdateRequest,
+  ): Promise<unknown>;
+  updateTagVocabularyEntry?(
+    request: SynthesisTagVocabularyEntryUpdateRequest,
+  ): Promise<unknown>;
+  deleteTagVocabularyEntry?(
+    request: SynthesisTagVocabularyEntryDeleteRequest,
   ): Promise<unknown>;
   promoteStagedTagSuggestions?(
     request: SynthesisTagSelectionRequest,
@@ -476,6 +484,50 @@ function normalizeStagedTagUpdateRequest(
     ),
     parentBindings: Array.from(new Set(parentBindings)).sort(
       (left, right) => left - right,
+    ),
+  };
+}
+
+function normalizeTagVocabularyEntryUpdateRequest(
+  value: unknown,
+): SynthesisTagVocabularyEntryUpdateRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (typeof request.note !== "string") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis Tag Vocabulary entry update note must be a string",
+      { field: "note" },
+    );
+  }
+  return {
+    originalTag: normalizeRequiredString(
+      request.originalTag,
+      "originalTag",
+      "Synthesis Tag Vocabulary entry update originalTag",
+    ),
+    tag: normalizeRequiredString(
+      request.tag,
+      "tag",
+      "Synthesis Tag Vocabulary entry update tag",
+    ),
+    facet: normalizeRequiredString(
+      request.facet,
+      "facet",
+      "Synthesis Tag Vocabulary entry update facet",
+    ),
+    note: request.note.trim(),
+  };
+}
+
+function normalizeTagVocabularyEntryDeleteRequest(
+  value: unknown,
+): SynthesisTagVocabularyEntryDeleteRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    originalTag: normalizeRequiredString(
+      request.originalTag,
+      "originalTag",
+      "Synthesis Tag Vocabulary entry delete originalTag",
     ),
   };
 }
@@ -1514,6 +1566,32 @@ export function createInProcessSynthesisClient(
           return normalizeLegacyResultObject(
             await port(normalized),
             "Staged Tag update",
+          ) as SynthesisTagCommandResult;
+        });
+      },
+      async updateTagVocabularyEntry(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagVocabularyEntryUpdateRequest(request);
+          const port = requireLegacyPort(
+            legacy.updateTagVocabularyEntry,
+            "tags.updateTagVocabularyEntry",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Tag Vocabulary entry update",
+          ) as SynthesisTagCommandResult;
+        });
+      },
+      async deleteTagVocabularyEntry(request) {
+        return runLegacy(async () => {
+          const normalized = normalizeTagVocabularyEntryDeleteRequest(request);
+          const port = requireLegacyPort(
+            legacy.deleteTagVocabularyEntry,
+            "tags.deleteTagVocabularyEntry",
+          );
+          return normalizeLegacyResultObject(
+            await port(normalized),
+            "Tag Vocabulary entry delete",
           ) as SynthesisTagCommandResult;
         });
       },

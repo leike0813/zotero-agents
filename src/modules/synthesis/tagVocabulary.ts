@@ -19,7 +19,11 @@ import {
   type SynthesisTagValidationWarningRecord,
   type SynthesisTagVocabularyEntryRecord,
 } from "./repository";
-import type { SynthesisStagedTagUpdateRequest } from "../../../packages/synthesis-contracts/src/index";
+import type {
+  SynthesisStagedTagUpdateRequest,
+  SynthesisTagVocabularyEntryDeleteRequest,
+  SynthesisTagVocabularyEntryUpdateRequest,
+} from "../../../packages/synthesis-contracts/src/index";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
 export const SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID = "synthesis.tag_vocabulary";
@@ -1222,6 +1226,155 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     });
   }
 
+  function replaceValidatedTagVocabularyState(args: {
+    entries: SynthesisTagVocabularyEntryRecord[];
+    aliases: SynthesisTagAliasRecord[];
+    abbrevs: SynthesisTagAbbrevRecord[];
+    protocol: SynthesisTagProtocolRecord;
+  }) {
+    const entries = args.entries.map(tagEntryFromRecord);
+    const aliases = tagAliasesFromRecords(args.aliases);
+    const abbrev = tagAbbrevFromRecords(args.abbrevs);
+    const protocol = tagProtocolFromRecord(args.protocol);
+    const warnings = validateVocabulary({ entries, aliases, abbrev, protocol });
+    const errors = warnings.filter((entry) => entry.severity === "error");
+    if (errors.length) {
+      throw new Error(
+        `tag vocabulary validation failed: ${errors
+          .map((entry) => entry.code)
+          .join(", ")}`,
+      );
+    }
+    repository.replaceTagVocabularyStateInCurrentTransaction({
+      entries: args.entries,
+      aliases: args.aliases,
+      abbrevs: args.abbrevs,
+      protocol: args.protocol,
+      validationWarnings: warnings.map(tagWarningToRecord),
+    });
+  }
+
+  async function updateTagVocabularyEntry(
+    args: SynthesisTagVocabularyEntryUpdateRequest,
+  ) {
+    await initializeIfMissing();
+    const originalTag = cleanString(args.originalTag);
+    const targetTag = cleanString(args.tag);
+    const facet = cleanString(args.facet);
+    const note = cleanString(args.note) || undefined;
+    const timestamp = now();
+    return repository.transaction(() => {
+      const entries = repository.listTagVocabularyEntries();
+      const original = entries.find((entry) => entry.tag === originalTag);
+      if (!original) {
+        return {
+          mutated: false as const,
+          diagnostic: {
+            code: "tag_vocabulary_entry_not_found",
+            message: "The Tag Vocabulary entry to update was not found.",
+            details: { originalTag },
+          },
+        };
+      }
+      const targetLower = targetTag.toLowerCase();
+      const conflict = entries.find(
+        (entry) =>
+          entry.tag !== original.tag && entry.tag.toLowerCase() === targetLower,
+      );
+      if (conflict) {
+        return {
+          mutated: false as const,
+          diagnostic: {
+            code: "tag_vocabulary_entry_conflict",
+            message: "Another Tag Vocabulary entry already uses that tag.",
+            details: { originalTag, targetTag, conflictingTag: conflict.tag },
+          },
+        };
+      }
+
+      const renamed = targetTag !== original.tag;
+      const nextEntries = entries.map((entry) => {
+        if (entry.tag === original.tag) {
+          return {
+            ...entry,
+            tag: targetTag,
+            facet,
+            note,
+            updatedAt: timestamp,
+          };
+        }
+        if (renamed && entry.replacement === original.tag) {
+          return {
+            ...entry,
+            replacement: targetTag,
+            updatedAt: timestamp,
+          };
+        }
+        return entry;
+      });
+      const nextAliases = repository
+        .listTagAliases()
+        .map((entry) =>
+          renamed && entry.tag === original.tag
+            ? { ...entry, tag: targetTag, updatedAt: timestamp }
+            : entry,
+        );
+      const abbrevs = repository.listTagAbbrevs();
+      const protocol = repository.getTagProtocol();
+      if (!protocol) {
+        throw new Error("Tag Vocabulary protocol is unavailable");
+      }
+      replaceValidatedTagVocabularyState({
+        entries: nextEntries,
+        aliases: nextAliases,
+        abbrevs,
+        protocol,
+      });
+      return {
+        mutated: true as const,
+        updated: tagEntryFromRecord(
+          nextEntries.find((entry) => entry.tag === targetTag)!,
+        ),
+      };
+    });
+  }
+
+  async function deleteTagVocabularyEntry(
+    args: SynthesisTagVocabularyEntryDeleteRequest,
+  ) {
+    await initializeIfMissing();
+    const originalTag = cleanString(args.originalTag);
+    const timestamp = now();
+    return repository.transaction(() => {
+      const entries = repository.listTagVocabularyEntries();
+      if (!entries.some((entry) => entry.tag === originalTag)) {
+        return { mutated: false as const, deleted: [] as string[] };
+      }
+      const nextEntries = entries
+        .filter((entry) => entry.tag !== originalTag)
+        .map((entry) =>
+          entry.replacement === originalTag
+            ? { ...entry, replacement: undefined, updatedAt: timestamp }
+            : entry,
+        );
+      const nextAliases = repository
+        .listTagAliases()
+        .filter((entry) => entry.tag !== originalTag);
+      const abbrevs = repository.listTagAbbrevs();
+      const protocol = repository.getTagProtocol();
+      if (!protocol) {
+        throw new Error("Tag Vocabulary protocol is unavailable");
+      }
+      replaceValidatedTagVocabularyState({
+        entries: nextEntries,
+        aliases: nextAliases,
+        abbrevs,
+        protocol,
+      });
+      return { mutated: true as const, deleted: [originalTag] };
+    });
+  }
+
   async function promoteStagedTagSuggestions(args: { tags: string[] }) {
     await initializeIfMissing();
     const requested = normalizeStringList(args.tags);
@@ -1397,6 +1550,8 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     listStagedTagSuggestions,
     stageTagSuggestions,
     updateStagedTagSuggestion,
+    updateTagVocabularyEntry,
+    deleteTagVocabularyEntry,
     promoteStagedTagSuggestions,
     discardStagedTagSuggestions,
     clearStagedTagSuggestions,

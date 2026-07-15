@@ -603,6 +603,14 @@ export type SynthesisTagValidationWarningRecord = {
   updatedAt?: string;
 };
 
+export type SynthesisTagVocabularyStateRecords = {
+  entries: SynthesisTagVocabularyEntryRecord[];
+  aliases: SynthesisTagAliasRecord[];
+  abbrevs: SynthesisTagAbbrevRecord[];
+  protocol: SynthesisTagProtocolRecord;
+  validationWarnings: SynthesisTagValidationWarningRecord[];
+};
+
 export type SynthesisTagStagedSuggestionRecord = {
   tag: string;
   facet: string;
@@ -8782,33 +8790,34 @@ export class SynthesisRepository {
     );
   }
 
-  replaceTagVocabularyState(args: {
-    entries: SynthesisTagVocabularyEntryRecord[];
-    aliases: SynthesisTagAliasRecord[];
-    abbrevs: SynthesisTagAbbrevRecord[];
-    protocol: SynthesisTagProtocolRecord;
-    validationWarnings: SynthesisTagValidationWarningRecord[];
-  }) {
-    this.transaction(() => {
-      this.db.run("DELETE FROM synt_tag_validation_warning");
-      this.db.run("DELETE FROM synt_tag_protocol");
-      this.db.run("DELETE FROM synt_tag_abbrev");
-      this.db.run("DELETE FROM synt_tag_alias");
-      this.db.run("DELETE FROM synt_tag_vocabulary_entry");
-      for (const entry of args.entries) {
-        this.upsertTagVocabularyEntry(entry);
-      }
-      for (const alias of args.aliases) {
-        this.upsertTagAlias(alias);
-      }
-      for (const abbrev of args.abbrevs) {
-        this.upsertTagAbbrev(abbrev);
-      }
-      this.upsertTagProtocol(args.protocol);
-      for (const warning of args.validationWarnings) {
-        this.upsertTagValidationWarning(warning);
-      }
-    });
+  replaceTagVocabularyStateInCurrentTransaction(
+    args: SynthesisTagVocabularyStateRecords,
+  ) {
+    this.initialize();
+    this.db.run("DELETE FROM synt_tag_validation_warning");
+    this.db.run("DELETE FROM synt_tag_protocol");
+    this.db.run("DELETE FROM synt_tag_abbrev");
+    this.db.run("DELETE FROM synt_tag_alias");
+    this.db.run("DELETE FROM synt_tag_vocabulary_entry");
+    for (const entry of args.entries) {
+      this.upsertTagVocabularyEntry(entry);
+    }
+    for (const alias of args.aliases) {
+      this.upsertTagAlias(alias);
+    }
+    for (const abbrev of args.abbrevs) {
+      this.upsertTagAbbrev(abbrev);
+    }
+    this.upsertTagProtocol(args.protocol);
+    for (const warning of args.validationWarnings) {
+      this.upsertTagValidationWarning(warning);
+    }
+  }
+
+  replaceTagVocabularyState(args: SynthesisTagVocabularyStateRecords) {
+    this.transaction(() =>
+      this.replaceTagVocabularyStateInCurrentTransaction(args),
+    );
   }
 
   listTagVocabularyEntries(args: { tags?: string[] } = {}) {

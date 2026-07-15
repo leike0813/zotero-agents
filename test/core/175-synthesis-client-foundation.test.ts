@@ -1068,6 +1068,205 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Tag Vocabulary entry mutations through canonical normalized ports", async function () {
+    const captured: unknown[] = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateTagVocabularyEntry(request) {
+        captured.push({ operation: "update", request });
+        return {
+          mutated: true,
+          updated: { tag: request.tag },
+          updated_at: new Date("2026-07-16T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async deleteTagVocabularyEntry(request) {
+        captured.push({ operation: "delete", request });
+        return { mutated: true, deleted: request.originalTag };
+      },
+    });
+
+    assert.deepEqual(
+      await client.tags.updateTagVocabularyEntry({
+        originalTag: " topic:old ",
+        tag: " topic:new ",
+        facet: " topic ",
+        note: "   ",
+        unexpected: "discard",
+      } as never),
+      {
+        mutated: true,
+        updated: { tag: "topic:new" },
+        updated_at: "2026-07-16T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      await client.tags.deleteTagVocabularyEntry({
+        originalTag: " topic:new ",
+        unexpected: "discard",
+      } as never),
+      { mutated: true, deleted: "topic:new" },
+    );
+    assert.deepEqual(captured, [
+      {
+        operation: "update",
+        request: {
+          originalTag: "topic:old",
+          tag: "topic:new",
+          facet: "topic",
+          note: "",
+        },
+      },
+      {
+        operation: "delete",
+        request: { originalTag: "topic:new" },
+      },
+    ]);
+  });
+
+  it("validates Tag Vocabulary entry mutations before ports and preserves stable failures", async function () {
+    let invocations = 0;
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async updateTagVocabularyEntry() {
+        invocations += 1;
+        return {};
+      },
+      async deleteTagVocabularyEntry() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const invalidRequests: Array<{
+      operation: "update" | "delete";
+      request: unknown;
+    }> = [
+      { operation: "update", request: undefined },
+      {
+        operation: "update",
+        request: {
+          originalTag: " ",
+          tag: "topic:new",
+          facet: "topic",
+          note: "",
+        },
+      },
+      {
+        operation: "update",
+        request: {
+          originalTag: "topic:old",
+          tag: "",
+          facet: "topic",
+          note: "",
+        },
+      },
+      {
+        operation: "update",
+        request: {
+          originalTag: "topic:old",
+          tag: "topic:new",
+          facet: false,
+          note: "",
+        },
+      },
+      {
+        operation: "update",
+        request: {
+          originalTag: "topic:old",
+          tag: "topic:new",
+          facet: "topic",
+          note: null,
+        },
+      },
+      { operation: "delete", request: undefined },
+      { operation: "delete", request: { originalTag: " " } },
+    ];
+    for (const { operation, request } of invalidRequests) {
+      try {
+        if (operation === "update") {
+          await client.tags.updateTagVocabularyEntry(request as never);
+        } else {
+          await client.tags.deleteTagVocabularyEntry(request as never);
+        }
+        assert.fail("expected invalid Tag Vocabulary entry mutation");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    try {
+      await missingPortClient.tags.updateTagVocabularyEntry({
+        originalTag: "topic:old",
+        tag: "topic:new",
+        facet: "topic",
+        note: "",
+      });
+      assert.fail("expected missing update port");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "unavailable");
+    }
+    assert.equal(invocations, 0);
+
+    const request = {
+      originalTag: "topic:old",
+      tag: "topic:new",
+      facet: "topic",
+      note: "",
+    };
+    const preserved = new SynthesisClientError("conflict", "tag conflict");
+    const cases = [
+      {
+        code: "conflict",
+        expected: preserved,
+        port: async () => {
+          throw preserved;
+        },
+      },
+      {
+        code: "storage_busy",
+        port: async () => {
+          throw Object.assign(new Error("database is locked"), {
+            code: "SQLITE_BUSY",
+          });
+        },
+      },
+      {
+        code: "internal",
+        port: async () => {
+          throw new Error("update exploded");
+        },
+      },
+      { code: "internal", port: async () => [] },
+    ];
+    for (const testCase of cases) {
+      const target = createInProcessSynthesisClient({
+        async listWorkflowTopicOptions() {
+          return { options: [], diagnostics: [] };
+        },
+        updateTagVocabularyEntry: testCase.port,
+      });
+      try {
+        await target.tags.updateTagVocabularyEntry(request);
+        assert.fail("expected failed Tag Vocabulary update port");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("rejects invalid staged Tag selections before resolving legacy ports", async function () {
     let invocations = 0;
     const missingPortClient = createInProcessSynthesisClient({

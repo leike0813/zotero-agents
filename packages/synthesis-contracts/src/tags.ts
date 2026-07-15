@@ -19,6 +19,17 @@ export type SynthesisStagedTagUpdateRequest = {
   parentBindings: number[];
 };
 
+export type SynthesisTagVocabularyEntryUpdateRequest = {
+  originalTag: string;
+  tag: string;
+  facet: string;
+  note: string;
+};
+
+export type SynthesisTagVocabularyEntryDeleteRequest = {
+  originalTag: string;
+};
+
 export type SynthesisTagCommandResult = SynthesisJsonObject;
 
 export const SYNTHESIS_TAG_IMPORT_ACTIONS = [
@@ -59,6 +70,12 @@ export interface SynthesisTagsClient {
   ): Promise<SynthesisJsonValue>;
   updateStagedTagSuggestion(
     request: SynthesisStagedTagUpdateRequest,
+  ): Promise<SynthesisTagCommandResult>;
+  updateTagVocabularyEntry(
+    request: SynthesisTagVocabularyEntryUpdateRequest,
+  ): Promise<SynthesisTagCommandResult>;
+  deleteTagVocabularyEntry(
+    request: SynthesisTagVocabularyEntryDeleteRequest,
   ): Promise<SynthesisTagCommandResult>;
   promoteStagedTagSuggestions(
     request: SynthesisTagSelectionRequest,

@@ -2850,6 +2850,101 @@ describe("Synthesis tab UI model", function () {
     assert.include(tagInvalidation, 'return ["tags"]');
   });
 
+  it("routes Tag Vocabulary entry mutations through strict atomic Tag client commands", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const appSource = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const updateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "updateTagVocabularyEntry"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTagVocabularyEntry"',
+      ),
+    );
+    const deleteRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "deleteTagVocabularyEntry"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "promoteStagedTagSuggestions"',
+      ),
+    );
+
+    assert.include(
+      updateRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.include(updateRegion, 'String(commandArgs.tag || "").trim()');
+    assert.include(
+      updateRegion,
+      'commandArgs.facet || tag.split(":")[0] || "topic"',
+    );
+    assert.include(updateRegion, 'const note = String(commandArgs.note || "")');
+    assert.match(
+      updateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"updateTagVocabularyEntry",\s*\{ originalTag \}/,
+    );
+    assert.match(
+      updateRegion,
+      /client\.tags\s*\.updateTagVocabularyEntry\(\{[\s\S]*originalTag,[\s\S]*tag,[\s\S]*facet,[\s\S]*note/,
+    );
+    assert.include(updateRegion, ".then(failOnDiagnostic)");
+
+    assert.include(
+      deleteRegion,
+      'commandArgs.originalTag || commandArgs.tag || ""',
+    );
+    assert.match(
+      deleteRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"deleteTagVocabularyEntry",\s*\{ originalTag \}/,
+    );
+    assert.match(
+      deleteRegion,
+      /client\.tags\s*\.deleteTagVocabularyEntry\(\{ originalTag \}\)/,
+    );
+    assert.include(deleteRegion, ".then(failOnDiagnostic)");
+
+    for (const region of [updateRegion, deleteRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.include(
+        region,
+        "sendActiveSurface(runtime, { refreshFromService: false })",
+      );
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "loadTagVocabulary");
+      assert.notInclude(region, "saveTagVocabulary");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "confirm");
+    }
+
+    const vocabularyRegion = extractFunctionBlock(
+      appSource,
+      "renderVocabularySubview",
+    );
+    assert.include(
+      vocabularyRegion,
+      'window.confirm(`Delete vocabulary tag "${tag}"?`)',
+    );
+    assert.include(vocabularyRegion, 'command: "deleteTagVocabularyEntry"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'command === "updateTagVocabularyEntry"');
+    assert.include(tagInvalidation, 'command === "deleteTagVocabularyEntry"');
+    assert.include(tagInvalidation, 'return ["tags"]');
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

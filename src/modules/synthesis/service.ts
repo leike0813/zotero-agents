@@ -18147,6 +18147,24 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.updateStagedTagSuggestion(args);
   }
 
+  async function updateTagVocabularyEntry(
+    args: Parameters<typeof tagVocabulary.updateTagVocabularyEntry>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(
+      () => tagVocabulary.updateTagVocabularyEntry(args),
+      (result) => result.mutated,
+    );
+  }
+
+  async function deleteTagVocabularyEntry(
+    args: Parameters<typeof tagVocabulary.deleteTagVocabularyEntry>[0],
+  ) {
+    return runCanonicalWriteWithAutosync(
+      () => tagVocabulary.deleteTagVocabularyEntry(args),
+      (result) => result.mutated,
+    );
+  }
+
   async function promoteStagedTagSuggestions(
     args: Parameters<typeof tagVocabulary.promoteStagedTagSuggestions>[0],
   ) {
@@ -20951,6 +20969,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     listStagedTagSuggestions,
     stageTagSuggestions,
     updateStagedTagSuggestion,
+    updateTagVocabularyEntry,
+    deleteTagVocabularyEntry,
     promoteStagedTagSuggestions,
     discardStagedTagSuggestions,
     clearStagedTagSuggestions,

@@ -145,6 +145,291 @@ describe("Synthesis tag vocabulary", function () {
     );
   });
 
+  it("atomically updates and renames canonical Tag Vocabulary entries while preserving metadata", async function () {
+    const root = await makeRuntimeRoot();
+    let currentTime = "2026-07-16T00:00:00.000Z";
+    const repository = createSynthesisRepository({
+      runtimeRoot: root,
+      now: () => currentTime,
+    });
+    const service = createSynthesisTagVocabularyService({
+      root,
+      repository,
+      now: () => currentTime,
+    });
+    await service.saveTagVocabulary({
+      entries: [
+        {
+          tag: "topic:same",
+          facet: "topic",
+          note: "clear me",
+          source: "manual",
+          aliases: ["same-entry-alias"],
+          abbrev: ["SAME"],
+          usage_count: 7,
+          last_synced_at: "2026-07-15T00:00:00.000Z",
+        },
+        {
+          tag: "topic:old",
+          facet: "topic",
+          note: "old note",
+          source: "import",
+          deprecated: true,
+          replacement: "topic:replacement",
+          aliases: ["old-entry-alias"],
+          abbrev: ["OLD"],
+          usage_count: 3,
+          last_synced_at: "2026-07-14T00:00:00.000Z",
+        },
+        { tag: "topic:replacement", facet: "topic" },
+        {
+          tag: "topic:dependent",
+          facet: "topic",
+          deprecated: true,
+          replacement: "topic:old",
+        },
+        { tag: "topic:CaseOnly", facet: "topic", source: "manual" },
+      ],
+      aliases: {
+        "old-global-alias": "topic:old",
+        "stable-global-alias": "topic:replacement",
+      },
+      abbrev: { detr: "DETR" },
+    });
+    const initialAliases = repository.listTagAliases();
+    const initialAbbrev = repository.listTagAbbrevs();
+    const initialProtocol = repository.getTagProtocol();
+
+    currentTime = "2026-07-16T01:00:00.000Z";
+    const sameResult = await service.updateTagVocabularyEntry({
+      originalTag: "topic:same",
+      tag: "topic:same",
+      facet: "topic",
+      note: "",
+    });
+    assert.isTrue(sameResult.mutated);
+    const same = repository
+      .listTagVocabularyEntries()
+      .find((entry) => entry.tag === "topic:same")!;
+    assert.deepInclude(same, {
+      tag: "topic:same",
+      facet: "topic",
+      source: "manual",
+      aliasesJson: '["same-entry-alias"]',
+      abbrevJson: '["SAME"]',
+      usageCount: 7,
+      lastSyncedAt: "2026-07-15T00:00:00.000Z",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T01:00:00.000Z",
+    });
+    assert.isUndefined(same.note);
+
+    currentTime = "2026-07-16T02:00:00.000Z";
+    const renameResult = await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "topic:new",
+      facet: "topic",
+      note: "new note",
+    });
+    assert.isTrue(renameResult.mutated);
+    const renamed = repository
+      .listTagVocabularyEntries()
+      .find((entry) => entry.tag === "topic:new")!;
+    assert.deepInclude(renamed, {
+      facet: "topic",
+      note: "new note",
+      source: "import",
+      deprecated: true,
+      replacement: "topic:replacement",
+      aliasesJson: '["old-entry-alias"]',
+      abbrevJson: '["OLD"]',
+      usageCount: 3,
+      lastSyncedAt: "2026-07-14T00:00:00.000Z",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T02:00:00.000Z",
+    });
+    assert.notInclude(
+      repository.listTagVocabularyEntries().map((entry) => entry.tag),
+      "topic:old",
+    );
+    assert.deepInclude(
+      repository
+        .listTagVocabularyEntries()
+        .find((entry) => entry.tag === "topic:dependent")!,
+      {
+        replacement: "topic:new",
+        createdAt: "2026-07-16T00:00:00.000Z",
+        updatedAt: "2026-07-16T02:00:00.000Z",
+      },
+    );
+    const aliasesAfterRename = repository.listTagAliases();
+    assert.deepInclude(
+      aliasesAfterRename.find((entry) => entry.alias === "old-global-alias")!,
+      {
+        tag: "topic:new",
+        createdAt: initialAliases[0].createdAt,
+        updatedAt: "2026-07-16T02:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      aliasesAfterRename.find((entry) => entry.alias === "stable-global-alias"),
+      initialAliases.find((entry) => entry.alias === "stable-global-alias"),
+    );
+    assert.deepEqual(repository.listTagAbbrevs(), initialAbbrev);
+    assert.deepEqual(repository.getTagProtocol(), initialProtocol);
+
+    currentTime = "2026-07-16T03:00:00.000Z";
+    const caseRename = await service.updateTagVocabularyEntry({
+      originalTag: "topic:CaseOnly",
+      tag: "topic:caseonly",
+      facet: "topic",
+      note: "case only",
+    });
+    assert.isTrue(caseRename.mutated);
+    assert.deepInclude(
+      repository
+        .listTagVocabularyEntries()
+        .find((entry) => entry.tag === "topic:caseonly")!,
+      {
+        source: "manual",
+        createdAt: "2026-07-16T00:00:00.000Z",
+        updatedAt: "2026-07-16T03:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      (await service.loadTagVocabulary()).validation_warnings,
+      [],
+    );
+  });
+
+  it("returns singular diagnostics for Tag rename conflicts and missing updates, with delete missing as a no-op", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTagVocabularyService({
+      root,
+      now: () => "2026-07-16T00:00:00.000Z",
+    });
+    await service.saveTagVocabulary({
+      entries: [
+        { tag: "topic:old", facet: "topic" },
+        { tag: "topic:target", facet: "topic" },
+      ],
+    });
+    const before = await service.loadTagVocabulary();
+
+    const exactConflict = await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "topic:target",
+      facet: "topic",
+      note: "",
+    });
+    const caseConflict = await service.updateTagVocabularyEntry({
+      originalTag: "topic:old",
+      tag: "TOPIC:TARGET",
+      facet: "topic",
+      note: "",
+    });
+    const missing = await service.updateTagVocabularyEntry({
+      originalTag: "topic:missing",
+      tag: "topic:new",
+      facet: "topic",
+      note: "",
+    });
+    const deleteMissing = await service.deleteTagVocabularyEntry({
+      originalTag: "topic:missing",
+    });
+
+    assert.isFalse(exactConflict.mutated);
+    assert.equal(
+      exactConflict.diagnostic.code,
+      "tag_vocabulary_entry_conflict",
+    );
+    assert.isFalse(caseConflict.mutated);
+    assert.equal(caseConflict.diagnostic.code, "tag_vocabulary_entry_conflict");
+    assert.isFalse(missing.mutated);
+    assert.equal(missing.diagnostic.code, "tag_vocabulary_entry_not_found");
+    assert.deepEqual(deleteMissing, { mutated: false, deleted: [] });
+    assert.deepEqual(await service.loadTagVocabulary(), before);
+  });
+
+  it("deletes Tag Vocabulary entries with reference cleanup and rolls back invalid or failed mutations", async function () {
+    const root = await makeRuntimeRoot();
+    const now = () => "2026-07-16T00:00:00.000Z";
+    const repository = createSynthesisRepository({ runtimeRoot: root, now });
+    const service = createSynthesisTagVocabularyService({
+      root,
+      repository,
+      now,
+    });
+    await service.saveTagVocabulary({
+      entries: [
+        { tag: "topic:old", facet: "topic" },
+        {
+          tag: "topic:dependent",
+          facet: "topic",
+          deprecated: true,
+          replacement: "topic:old",
+        },
+        { tag: "topic:stable", facet: "topic" },
+      ],
+      aliases: {
+        remove: "topic:old",
+        stable: "topic:stable",
+      },
+    });
+
+    const beforeInvalid = await service.loadTagVocabulary();
+    try {
+      await service.updateTagVocabularyEntry({
+        originalTag: "topic:old",
+        tag: "invalid tag",
+        facet: "topic",
+        note: "",
+      });
+      assert.fail("expected protocol validation failure");
+    } catch (error) {
+      assert.match(String(error), /tag vocabulary validation failed/i);
+    }
+    assert.deepEqual(await service.loadTagVocabulary(), beforeInvalid);
+
+    const originalReplace =
+      repository.replaceTagVocabularyStateInCurrentTransaction.bind(repository);
+    repository.replaceTagVocabularyStateInCurrentTransaction = (args) => {
+      originalReplace(args);
+      throw new Error("fault-injected Tag Vocabulary write");
+    };
+    try {
+      await service.updateTagVocabularyEntry({
+        originalTag: "topic:old",
+        tag: "topic:new",
+        facet: "topic",
+        note: "",
+      });
+      assert.fail("expected atomic Tag Vocabulary update failure");
+    } catch (error) {
+      assert.match(String(error), /fault-injected Tag Vocabulary write/);
+    } finally {
+      repository.replaceTagVocabularyStateInCurrentTransaction =
+        originalReplace;
+    }
+    assert.deepEqual(await service.loadTagVocabulary(), beforeInvalid);
+
+    const deleted = await service.deleteTagVocabularyEntry({
+      originalTag: "topic:old",
+    });
+    assert.deepEqual(deleted, { mutated: true, deleted: ["topic:old"] });
+    const afterDelete = await service.loadTagVocabulary();
+    assert.notInclude(
+      afterDelete.entries.map((entry) => entry.tag),
+      "topic:old",
+    );
+    assert.deepEqual(afterDelete.aliases, { stable: "topic:stable" });
+    assert.isUndefined(
+      afterDelete.entries.find((entry) => entry.tag === "topic:dependent")
+        ?.replacement,
+    );
+    assert.deepEqual(afterDelete.validation_warnings, []);
+  });
+
   it("stages, promotes, and discards tag-regulator suggestions in Synthesis state", async function () {
     const root = await makeRuntimeRoot();
     const service = createSynthesisTagVocabularyService({
