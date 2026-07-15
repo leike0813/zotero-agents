@@ -109,6 +109,7 @@ describe("ACP runtime replay controller", function () {
         return {
           sourceKind,
           syntheticRootId,
+          activate: async () => undefined,
           apply: async () => "applied",
           drain: async () => ({ ok: true }),
           cleanup: async () => undefined,

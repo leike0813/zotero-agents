@@ -58,6 +58,8 @@ export const runtimeDiagnosticsFeatureGroups = {
       "inspectSyntheticAcpChatReplayTimers",
       "inspectSyntheticAcpSkillRunReplayTimers",
       "inspectAssistantWorkspaceReplayPostSnapshotTimer",
+      "activateSyntheticAcpChatReplay",
+      "SyntheticAcpChatReplayActivationLease",
       "prepareSyntheticAcpSkillRunReplay",
       "inspectAssistantWorkspaceDiagnosticsPublication",
       "forceAssistantWorkspaceDiagnosticsPublication",

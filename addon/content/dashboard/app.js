@@ -3438,11 +3438,17 @@
     if ((view.records || []).length) {
       const runList = el("ul", "profiler-warning-list acp-replay-run-evidence");
       view.records.forEach(function (record) {
+        const drainState =
+          record.replay.drain.state ||
+          (record.replay.drain.ok ? "ok" : "failed");
+        const failure = record.failure
+          ? `, failure ${record.failure.phase}: ${record.failure.detail}`
+          : "";
         runList.appendChild(
           el(
             "li",
             "mono",
-            `${record.surface} / ${record.role} ${record.runIndex + 1}: R1 ${record.measurement.families.r1.state}, R2 ${record.measurement.families.r2.state}, R3 ${record.measurement.families.r3.state}, drain ${record.replay.drain.ok ? "ok" : "failed"}`,
+            `${record.surface} / ${record.role} ${record.runIndex + 1}: R1 ${record.measurement.families.r1.state}, R2 ${record.measurement.families.r2.state}, R3 ${record.measurement.families.r3.state}, drain ${drainState}${failure}`,
           ),
         );
       });

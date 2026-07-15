@@ -6,6 +6,7 @@ import {
   PLUGIN_TASK_DOMAIN_ACP,
   acpChatTranscriptPageKey,
   archiveAcpConversation,
+  activateSyntheticAcpChatReplay,
   assert,
   authenticateAcpConversation,
   buildAcpDiagnosticsBundle,
@@ -35,6 +36,8 @@ import {
   readActiveTranscriptItems,
   readAcpConversationTranscriptPage,
   readTranscriptItemsForConversation,
+  prepareSyntheticAcpChatReplay,
+  pruneAcpChatSessionRuntimesForBackends,
   reconnectAcpConversation,
   refreshAcpConversationBackends,
   resetAcpSessionManagerForTests,
@@ -80,6 +83,152 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+
+  it("activates a prepared synthetic Replay conversation without weakening the ordinary selector", async function () {
+    configureNoAcpBackendForTests();
+    resetAcpSessionManagerForTests();
+    prepareSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-conversation",
+    });
+
+    const lease = await activateSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-conversation",
+    });
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-conversation",
+    });
+    assert.isNull(harness.lastFactoryArgs);
+
+    await refreshAcpConversationBackends();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-conversation",
+    });
+    assert.isNull(harness.lastFactoryArgs);
+    const panel = await prepareAcpChatPanelSnapshot({ target: "library" });
+    assert.deepInclude(panel, {
+      backendAvailability: "selected",
+      conversationAvailability: "selected",
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-conversation",
+    });
+    assert.include(
+      panel.backendOptions.map((entry) => entry.backendId),
+      "acp-replay",
+    );
+
+    pruneAcpChatSessionRuntimesForBackends([]);
+    const afterPrune = getAcpFrontendSnapshot();
+    assert.deepInclude(afterPrune, {
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-conversation",
+    });
+    assert.equal(afterPrune.activeSnapshot.status, "connected");
+
+    for (const select of [
+      () => setActiveAcpBackend({ backendId: "acp-replay" }),
+      () =>
+        setActiveAcpConversation({
+          backendId: "acp-replay",
+          conversationId: "synthetic-conversation",
+        }),
+    ]) {
+      let exactOwnerSelectorError: unknown;
+      try {
+        await select();
+      } catch (error) {
+        exactOwnerSelectorError = error;
+      }
+      assert.match(String(exactOwnerSelectorError), /not available/);
+    }
+
+    let selectorError: unknown;
+    try {
+      await setActiveAcpConversation({
+        backendId: "missing-backend",
+        conversationId: "missing-conversation",
+      });
+    } catch (error) {
+      selectorError = error;
+    }
+    assert.match(String(selectorError), /not available/);
+    await lease.release();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "",
+      activeConversationId: "",
+    });
+  });
+
+  it("restores synthetic Replay selection idempotently without allowing a stale lease to overwrite a newer owner", async function () {
+    await startNewAcpConversation();
+    const original = getAcpFrontendSnapshot();
+    prepareSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-one",
+    });
+    const first = await activateSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-one",
+    });
+    prepareSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-two",
+    });
+    const second = await activateSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-two",
+    });
+
+    await refreshAcpConversationBackends();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-two",
+    });
+    const panelWithRealRegistry = await prepareAcpChatPanelSnapshot({
+      target: "library",
+    });
+    assert.deepInclude(panelWithRealRegistry, {
+      backendAvailability: "selected",
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-two",
+    });
+    assert.include(
+      panelWithRealRegistry.backendOptions.map((entry) => entry.backendId),
+      original.activeBackendId,
+    );
+
+    await first.release();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "acp-replay",
+      activeConversationId: "synthetic-two",
+    });
+    await second.release();
+    await second.release();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: original.activeBackendId,
+      activeConversationId: original.activeConversationId,
+    });
+
+    configureNoAcpBackendForTests();
+    resetPluginStateStoreForTests();
+    resetAcpSessionManagerForTests();
+    prepareSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-empty-prior",
+    });
+    const emptyPrior = await activateSyntheticAcpChatReplay({
+      backendId: "acp-replay",
+      conversationId: "synthetic-empty-prior",
+    });
+    await emptyPrior.release();
+    assert.deepInclude(getAcpFrontendSnapshot(), {
+      activeBackendId: "",
+      activeConversationId: "",
+    });
+  });
 
   it("connects and disconnects the active ACP conversation explicitly", async function () {
     await connectAcpConversation();

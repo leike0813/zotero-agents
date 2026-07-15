@@ -131,16 +131,19 @@ function fixtureTrace(
 
 function target(args?: {
   sourceKind?: "acp-chat-conversation" | "acp-workflow-execution";
+  activate?: AcpRuntimeReplayTarget["activate"];
   apply?: AcpRuntimeReplayTarget["apply"];
+  cleanup?: AcpRuntimeReplayTarget["cleanup"];
   drainOk?: boolean;
   syntheticRootId?: string;
 }) {
   return {
     sourceKind: args?.sourceKind || "acp-chat-conversation",
     syntheticRootId: args?.syntheticRootId || "synthetic-root",
+    activate: args?.activate || (async () => undefined),
     apply: args?.apply || (async () => "applied" as const),
     drain: async () => ({ ok: args?.drainOk !== false }),
-    cleanup: async () => undefined,
+    cleanup: args?.cleanup || (async () => undefined),
   } satisfies AcpRuntimeReplayTarget;
 }
 
@@ -229,6 +232,18 @@ describe("ACP runtime replay profiler", function () {
         "C:\\traces\\acp-trace-复杂 Sample.ndjson.partial",
       ),
       "复杂 Sample",
+    );
+    assert.equal(
+      deriveAcpRuntimeReplaySampleName(
+        "/traces/acp-trace-chat-2026-07-15T10-41-23-627Z-1.ndjson",
+      ),
+      "chat-2026-07-15T10-41-23-627Z-1",
+    );
+    assert.equal(
+      deriveAcpRuntimeReplaySampleName(
+        "/traces/acp-trace-skills-2026-07-13T10-08-16-777Z-1.ndjson",
+      ),
+      "skills-2026-07-13T10-08-16-777Z-1",
     );
     assert.equal(
       slugAcpRuntimeReplayArtifactSegment(" 复杂__Sample / A ", 64, "trace"),
@@ -578,16 +593,22 @@ describe("ACP runtime replay profiler", function () {
         zoteroVersion: "9.0.1",
         platform: "linux",
       },
-      createTarget: async ({ sourceKind, syntheticRootId }) =>
-        (starts.push(`target:${syntheticRootId}`),
-        target({
+      createTarget: async ({ sourceKind, syntheticRootId }) => {
+        starts.push(`target:${syntheticRootId}`);
+        const replayTarget = target({
           sourceKind,
           syntheticRootId,
           apply: async () => "applied",
-        })) && {
-          ...target({ sourceKind, syntheticRootId }),
-          cleanup: async () => void cleaned.push(syntheticRootId),
-        },
+        });
+        return {
+          ...replayTarget,
+          activate: async () => void starts.push(`activate:${syntheticRootId}`),
+          cleanup: async () => {
+            starts.push(`cleanup:${syntheticRootId}`);
+            cleaned.push(syntheticRootId);
+          },
+        };
+      },
       workspace: {
         snapshot: async () => {
           workspaceCalls.push("snapshot");
@@ -595,6 +616,7 @@ describe("ACP runtime replay profiler", function () {
         },
         prepare: async ({ surface, syntheticRootId }) => {
           workspaceCalls.push(`prepare:${surface}:${syntheticRootId}`);
+          starts.push(`prepare:${syntheticRootId}`);
           return { ok: true };
         },
         drain: async ({ surface, syntheticRootId }) => {
@@ -608,6 +630,7 @@ describe("ACP runtime replay profiler", function () {
         start: async ({ syntheticRootId, surface }) => {
           activeProfile = { requestId: syntheticRootId, surface };
           profileWindows.push(`start:${syntheticRootId}`);
+          starts.push(`profile:${syntheticRootId}`);
         },
         finish: async () => {
           profileWindows.push("finish");
@@ -680,10 +703,26 @@ describe("ACP runtime replay profiler", function () {
     assert.equal(matrix.measurementCompletion, "complete");
     assert.equal(matrix.trace.sampleName, "复杂 Sample");
     for (const record of matrix.records) {
+      const targetIndex = starts.indexOf(`target:${record.syntheticRootId}`);
+      const prepareIndex = starts.indexOf(`prepare:${record.syntheticRootId}`);
+      const profileIndex = starts.indexOf(`profile:${record.syntheticRootId}`);
+      const cleanupIndex = starts.indexOf(`cleanup:${record.syntheticRootId}`);
       assert.isBelow(
         starts.indexOf(`publish:${record.syntheticRootId}`),
-        starts.indexOf(`target:${record.syntheticRootId}`),
+        targetIndex,
       );
+      assert.isBelow(targetIndex, prepareIndex);
+      assert.isBelow(prepareIndex, profileIndex);
+      assert.isBelow(profileIndex, cleanupIndex);
+      const activateIndex = starts.indexOf(
+        `activate:${record.syntheticRootId}`,
+      );
+      if (record.surface === "target-active") {
+        assert.isBelow(targetIndex, activateIndex);
+        assert.isBelow(activateIndex, prepareIndex);
+      } else {
+        assert.equal(activateIndex, -1);
+      }
     }
 
     const saved = await saveAcpRuntimeReplayMatrix({
@@ -777,6 +816,77 @@ describe("ACP runtime replay profiler", function () {
       () => assertAcpRuntimeReplayMatricesComparable(matrix, matrix),
       /Incomplete ACP replay matrices/,
     );
+  });
+
+  it("reports target setup failures without running profile, replay, R2, or drain and rejects zero-event R1 evidence", async function () {
+    let profileStarts = 0;
+    let replayApplications = 0;
+    let r2Fragments = 0;
+    let workspaceDrains = 0;
+    const matrix = await runAcpRuntimeReplayMatrix({
+      trace: fixtureTrace(),
+      cadence: "burst",
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+      createTarget: async ({ sourceKind, syntheticRootId }) =>
+        target({
+          sourceKind,
+          syntheticRootId,
+          activate: async () => {
+            throw new Error("activation sentinel");
+          },
+          apply: async () => {
+            replayApplications += 1;
+            return "applied";
+          },
+          cleanup: async () => {
+            throw new Error("cleanup sentinel");
+          },
+        }),
+      workspace: {
+        snapshot: async () => ({}),
+        prepare: async () => ({ ok: true }),
+        drain: async () => {
+          workspaceDrains += 1;
+          return { ok: true };
+        },
+        restore: async () => undefined,
+      },
+      profiler: {
+        start: async () => void (profileStarts += 1),
+        finish: async () =>
+          measuredProfile({
+            requestId: "profile",
+            surface: "closed",
+          }),
+      },
+      r2Port: {
+        consumeFragment: async () => void (r2Fragments += 1),
+      },
+      sleep: async () => undefined,
+    });
+    const failed = matrix.records.find(
+      (record) => record.surface === "target-active",
+    );
+    assert.deepEqual(failed?.failure, {
+      phase: "target-activation",
+      detail: "activation sentinel",
+    });
+    assert.equal(failed?.replay.drain.state, "not-run");
+    assert.equal(failed?.measurement.families.r1.state, "not-run");
+    assert.equal(failed?.measurement.families.r2.state, "not-run");
+    assert.equal(failed?.measurement.families.r3.state, "not-run");
+    assert.include(
+      failed?.replay.warnings || [],
+      "cleanup-failed:cleanup sentinel",
+    );
+    assert.include(
+      renderAcpRuntimeReplayMatrixMarkdown(matrix),
+      "target-activation: activation sentinel",
+    );
+    assert.equal(profileStarts, 6);
+    assert.equal(replayApplications, 30);
+    assert.equal(r2Fragments, 6 * 33);
+    assert.equal(workspaceDrains, 6);
   });
 
   it("reads v1 matrices as legacy execution artifacts but rejects them for governance", function () {

@@ -286,12 +286,16 @@ describe("ACP runtime semantic trace", function () {
   });
 
   it("preserves complete multi-turn Chat payloads and recomputes boundaries", async function () {
-    await armAcpRuntimeSemanticTraceRecorder({
+    const armed = await armAcpRuntimeSemanticTraceRecorder({
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
       nowMs: 1_750_000_000_000,
       monotonicNow: () => monotonic,
     });
+    assert.match(
+      path.basename(armed.partialPath || ""),
+      /^acp-trace-chat-.*\.ndjson\.partial$/,
+    );
     const owner = {
       rootId: "backend-is-semantic-not-authorization\nconversation-a",
       conversationId: "conversation-a",
@@ -333,6 +337,7 @@ describe("ACP runtime semantic trace", function () {
     const frozen = await finishAcpRuntimeSemanticTraceRoot({ context });
     assert.equal(frozen.completion, "complete");
     const saved = await saveFrozenAcpRuntimeSemanticTrace();
+    assert.match(path.basename(saved.path), /^acp-trace-chat-.*\.ndjson$/);
     const trace = await loadAcpRuntimeSemanticTrace(saved.path);
     assert.equal(trace.header.schema, ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA);
     assert.equal(trace.header.sourceKind, "acp-chat-conversation");
@@ -355,11 +360,15 @@ describe("ACP runtime semantic trace", function () {
   });
 
   it("retains interleaved Workflow request hierarchy and ignores other roots", async function () {
-    await armAcpRuntimeSemanticTraceRecorder({
+    const armed = await armAcpRuntimeSemanticTraceRecorder({
       sourceKind: "acp-workflow-execution",
       root: tempRoot,
       monotonicNow: () => monotonic,
     });
+    assert.match(
+      path.basename(armed.partialPath || ""),
+      /^acp-trace-skills-.*\.ndjson\.partial$/,
+    );
     const root = {
       rootId: "workflow-root",
       workflowId: "workflow-a",
@@ -394,6 +403,8 @@ describe("ACP runtime semantic trace", function () {
     const frozen = await finishAcpRuntimeSemanticTraceRoot({ context });
     assert.equal(frozen.completion, "complete");
     assert.equal(frozen.eventCount, 6);
+    const saved = await saveFrozenAcpRuntimeSemanticTrace();
+    assert.match(path.basename(saved.path), /^acp-trace-skills-.*\.ndjson$/);
   });
 
   it("freezes incomplete instead of dropping quota failures", async function () {

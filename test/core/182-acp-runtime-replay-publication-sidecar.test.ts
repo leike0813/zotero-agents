@@ -199,6 +199,73 @@ describe("ACP runtime replay publication sidecar", function () {
     assert.equal(child.listenerCount("unload"), 0);
   });
 
+  it("retries an idempotent forced publication when the cold first build is superseded", async function () {
+    const child = new FakePublicationWindow();
+    const publisherWindow = {};
+    let revision = 4;
+    let forceCalls = 0;
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-skills",
+      timeoutMs: 500,
+      inspect: () => ({ childWindow: child, publisherWindow, revision }),
+      forcePublish: async () => {
+        forceCalls += 1;
+        if (forceCalls === 1) return;
+        revision = 5;
+        child.dispatch(
+          "message",
+          snapshotMessage("acp-skills", revision),
+          publisherWindow,
+        );
+      },
+    });
+
+    const deadline = Date.now() + 500;
+    while (child.frames.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.lengthOf(child.frames, 1);
+    child.flushFrame();
+    assert.deepEqual(await pending, { ok: true });
+    assert.isAtLeast(forceCalls, 2);
+  });
+
+  it("keeps forced publication retries single-flight", async function () {
+    const child = new FakePublicationWindow();
+    let revision = 1;
+    let forceCalls = 0;
+    let releaseFirst!: () => void;
+    const firstPublication = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-chat",
+      timeoutMs: 750,
+      inspect: () => ({ childWindow: child, revision }),
+      forcePublish: async () => {
+        forceCalls += 1;
+        if (forceCalls === 1) {
+          await firstPublication;
+          return;
+        }
+        revision = 2;
+        child.dispatch("message", snapshotMessage("acp-chat", revision));
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(forceCalls, 1);
+    releaseFirst();
+    const deadline = Date.now() + 500;
+    while (child.frames.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.lengthOf(child.frames, 1);
+    child.flushFrame();
+    assert.deepEqual(await pending, { ok: true });
+    assert.equal(forceCalls, 2);
+  });
+
   it("cleans up on abort, frame replacement, and unload", async function () {
     for (const terminal of ["abort", "replacement", "unload"] as const) {
       const child = new FakePublicationWindow();

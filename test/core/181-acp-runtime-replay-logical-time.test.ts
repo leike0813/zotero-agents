@@ -10,7 +10,9 @@ import {
 import {
   appendAcpSkillRunUserReply,
   cleanupSyntheticAcpSkillRunReplay,
+  getSelectedAcpSkillRunRequestId,
   inspectSyntheticAcpSkillRunReplayTimers,
+  selectAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
   createAcpChatRuntimeReplayTarget,
@@ -346,6 +348,24 @@ describe("ACP runtime replay logical time", function () {
     await chat.cleanup();
     await skill.drain();
     await skill.cleanup();
+  });
+
+  it("activates and restores the Workflow synthetic request idempotently", async function () {
+    await selectAcpSkillRun("real-request");
+    const target = await createAcpWorkflowRuntimeReplayTarget({
+      syntheticRootId: "workflow-selection",
+    });
+
+    await target.activate();
+    await target.activate();
+    assert.equal(
+      getSelectedAcpSkillRunRequestId(),
+      "workflow-selection-request",
+    );
+    await target.cleanup();
+    await target.cleanup();
+    assert.equal(getSelectedAcpSkillRunRequestId(), "real-request");
+    await selectAcpSkillRun("");
   });
 
   it("runs the production Chat logical port without recorded gap sleeps", async function () {

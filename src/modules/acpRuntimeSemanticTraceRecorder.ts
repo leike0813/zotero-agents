@@ -246,7 +246,9 @@ export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
     folder = joinPath(paths.runtimeRoot, "profiles", "acp-traces");
     await ensureRuntimeDirectory(folder);
     recorderNonce += 1;
-    const stem = `acp-trace-${safeTimestamp(options.nowMs ?? Date.now())}-${recorderNonce}`;
+    const stem = `acp-trace-${acpRuntimeSemanticTraceFilenameSourceToken(
+      options.sourceKind,
+    )}-${safeTimestamp(options.nowMs ?? Date.now())}-${recorderNonce}`;
     partialPath = joinPath(folder, `${stem}.ndjson.partial`);
     const header: AcpRuntimeSemanticTraceHeader = {
       record: "header",
@@ -271,6 +273,12 @@ export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
 
 function ownerActivityKey(owner: AcpRuntimeTraceOwner) {
   return owner.turnId || owner.requestId;
+}
+
+function acpRuntimeSemanticTraceFilenameSourceToken(
+  value: AcpRuntimeTraceSourceKind,
+) {
+  return value === "acp-chat-conversation" ? "chat" : "skills";
 }
 
 function isLiveContext(

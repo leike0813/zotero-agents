@@ -16,7 +16,10 @@ import {
   type AcpRuntimeTraceSourceKind,
 } from "./acpRuntimeSemanticTrace";
 import { isAcpRuntimeReplayProfilerAvailable } from "./debugMode";
-import { buildAcpRuntimeReplayArtifactStem } from "./acpRuntimeReplayIdentity";
+import {
+  buildAcpRuntimeReplayArtifactStem,
+  createAcpRuntimeReplayOwnerIdentity,
+} from "./acpRuntimeReplayIdentity";
 import type { AcpRuntimeReplayLogicalTimePort } from "./acpRuntimeReplayLogicalTime";
 import type {
   AcpRuntimeMetricName,
@@ -51,6 +54,7 @@ export type AcpRuntimeReplayApplyContext = {
 export type AcpRuntimeReplayTarget = {
   sourceKind: AcpRuntimeTraceSourceKind;
   syntheticRootId: string;
+  activate: () => Promise<void>;
   apply: (
     context: AcpRuntimeReplayApplyContext,
   ) => Promise<
@@ -81,7 +85,11 @@ export type AcpRuntimeReplayResult = {
     }
   >;
   schedulerLagMs: number;
-  drain: { ok: boolean; detail?: string };
+  drain: {
+    ok: boolean;
+    state: "ok" | "failed" | "not-run";
+    detail?: string;
+  };
   warnings: string[];
 };
 
@@ -151,8 +159,10 @@ function eventOwnerKey(owner: AcpRuntimeTraceOwner) {
 }
 
 function createOwnerMapper(syntheticRootId: string) {
+  const identity = createAcpRuntimeReplayOwnerIdentity(syntheticRootId);
   const owners = new Map<string, AcpRuntimeTraceOwner>();
   let nonce = 0;
+  let conversationNonce = 0;
   let requestNonce = 0;
   return (owner: AcpRuntimeTraceOwner) => {
     const key = eventOwnerKey(owner);
@@ -160,11 +170,17 @@ function createOwnerMapper(syntheticRootId: string) {
     if (existing) return existing;
     nonce += 1;
     const prefix = `${syntheticRootId}-${nonce}`;
+    if (owner.conversationId) conversationNonce += 1;
     if (owner.requestId) requestNonce += 1;
     const mapped: AcpRuntimeTraceOwner = {
       rootId: syntheticRootId,
       ...(owner.conversationId
-        ? { conversationId: `${prefix}-conversation` }
+        ? {
+            conversationId:
+              conversationNonce === 1
+                ? identity.chat.conversationId
+                : `${syntheticRootId}-${conversationNonce}-conversation`,
+          }
         : {}),
       ...(owner.workflowId ? { workflowId: `${prefix}-workflow` } : {}),
       ...(owner.workflowRunId
@@ -176,7 +192,7 @@ function createOwnerMapper(syntheticRootId: string) {
         ? {
             requestId:
               requestNonce === 1
-                ? `${syntheticRootId}-request`
+                ? identity.workflow.requestId
                 : `${syntheticRootId}-${requestNonce}-request`,
           }
         : {}),
@@ -249,7 +265,7 @@ export async function replayAcpRuntimeSemanticTrace(
     consumedNoopBytes: 0,
     eventKinds: {},
     schedulerLagMs: 0,
-    drain: { ok: false, detail: "not-drained" },
+    drain: { ok: false, state: "not-run", detail: "not-run" },
     warnings: [],
   };
   let previousOffset = 0;
@@ -362,10 +378,15 @@ export async function replayAcpRuntimeSemanticTrace(
     }
   }
   try {
-    result.drain = await options.target.drain();
+    const drained = await options.target.drain();
+    result.drain = {
+      ...drained,
+      state: drained.ok ? "ok" : "failed",
+    };
   } catch (error) {
     result.drain = {
       ok: false,
+      state: "failed",
       detail: error instanceof Error ? error.message : String(error),
     };
   }
@@ -482,6 +503,18 @@ export type AcpRuntimeReplayProfileRecord = {
   replay: AcpRuntimeReplayResult;
   r2: AcpRuntimeR2WorkloadResult;
   profile?: AcpRuntimeProfileSnapshot;
+  failure?: AcpRuntimeReplayFailure;
+};
+
+export type AcpRuntimeReplayFailure = {
+  phase:
+    | "target-activation"
+    | "workspace-prepare"
+    | "profile"
+    | "replay"
+    | "drain"
+    | "cleanup";
+  detail: string;
 };
 
 export type AcpRuntimeReplayCurrentRun = {
@@ -509,6 +542,7 @@ export type AcpRuntimeReplayMeasurementState =
   | "captured"
   | "expected-zero"
   | "not-applicable"
+  | "not-run"
   | "missing";
 
 export type AcpRuntimeReplayMeasurement = {
@@ -644,6 +678,12 @@ function evaluateReplayMeasurement(args: {
   r2: AcpRuntimeR2WorkloadResult;
   surface: AcpRuntimeReplaySurface;
   cadence: AcpRuntimeReplayCadence;
+  stages: {
+    workspacePrepared: boolean;
+    profileStarted: boolean;
+    replayRan: boolean;
+    r2Ran: boolean;
+  };
 }) {
   const warnings: string[] = [];
   for (const warning of args.replay.warnings) {
@@ -652,8 +692,14 @@ function evaluateReplayMeasurement(args: {
     }
   }
   const semanticEvents = metricValue(args.profile, "semantic_event");
-  const r1 =
-    semanticEvents === args.replay.appliedEvents
+  const r1 = !args.stages.replayRan
+    ? {
+        state: "not-run" as const,
+        detail: "semantic replay did not run",
+      }
+    : args.replay.completion === "complete" &&
+        args.replay.appliedEvents > 0 &&
+        semanticEvents === args.replay.appliedEvents
       ? {
           state: "captured" as const,
           detail: `${semanticEvents} semantic events measured`,
@@ -671,54 +717,67 @@ function evaluateReplayMeasurement(args: {
     metricValue(args.profile, "host_input_bytes") === 536 &&
     metricValue(args.profile, "host_request_duration") === 10 &&
     metricValue(args.profile, "host_request_inflight") === 8;
-  const r2 = r2Complete
+  const r2 = !args.stages.r2Ran
     ? {
-        state: "captured" as const,
-        detail: "10 requests, 33 fragments, 536 input bytes, max concurrency 8",
+        state: "not-run" as const,
+        detail: "synthetic R2 workload did not run",
       }
-    : {
-        state: "missing" as const,
-        detail: "synthetic parser/input/response metrics are incomplete",
-      };
+    : r2Complete
+      ? {
+          state: "captured" as const,
+          detail:
+            "10 requests, 33 fragments, 536 input bytes, max concurrency 8",
+        }
+      : {
+          state: "missing" as const,
+          detail: "synthetic parser/input/response metrics are incomplete",
+        };
   const r3MetricCount =
     metricValue(args.profile, "panel_prepare") +
     metricValue(args.profile, "panel_signature") +
     metricValue(args.profile, "panel_post");
   const r3 =
-    args.surface === "closed"
+    !args.stages.workspacePrepared || !args.stages.profileStarted
       ? {
-          state:
-            r3MetricCount === 0
-              ? ("not-applicable" as const)
-              : ("missing" as const),
-          detail:
-            r3MetricCount === 0
-              ? "Workspace closed"
-              : "unexpected R3 activity while Workspace closed",
+          state: "not-run" as const,
+          detail: "Workspace publication measurement did not run",
         }
-      : args.surface === "open-inactive"
+      : args.surface === "closed"
         ? {
             state:
               r3MetricCount === 0
-                ? ("expected-zero" as const)
+                ? ("not-applicable" as const)
                 : ("missing" as const),
             detail:
               r3MetricCount === 0
-                ? "target surface inactive"
-                : "target R3 activity leaked into inactive surface",
+                ? "Workspace closed"
+                : "unexpected R3 activity while Workspace closed",
           }
-        : r3MetricCount >= 3
+        : args.surface === "open-inactive"
           ? {
-              state: "captured" as const,
-              detail: `${r3MetricCount} target-surface operations measured`,
+              state:
+                r3MetricCount === 0
+                  ? ("expected-zero" as const)
+                  : ("missing" as const),
+              detail:
+                r3MetricCount === 0
+                  ? "target surface inactive"
+                  : "target R3 activity leaked into inactive surface",
             }
-          : {
-              state: "missing" as const,
-              detail: `${r3MetricCount}/3 target-surface operations measured`,
-            };
+          : r3MetricCount >= 3
+            ? {
+                state: "captured" as const,
+                detail: `${r3MetricCount} target-surface operations measured`,
+              }
+            : {
+                state: "missing" as const,
+                detail: `${r3MetricCount}/3 target-surface operations measured`,
+              };
   for (const [family, coverage] of Object.entries({ r1, r2, r3 })) {
     if (coverage.state === "missing")
       warnings.push(`${family}-measurement-missing:${coverage.detail}`);
+    if (coverage.state === "not-run")
+      warnings.push(`${family}-measurement-not-run:${coverage.detail}`);
   }
   return {
     elapsedMs: Math.max(
@@ -806,7 +865,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
     consumedNoopBytes: 0,
     eventKinds: {},
     schedulerLagMs: 0,
-    drain: { ok: false, detail: warning },
+    drain: { ok: false, state: "not-run", detail: "not-run" },
     warnings: [warning],
   });
   const emptyR2 = (): AcpRuntimeR2WorkloadResult => ({
@@ -855,11 +914,34 @@ export async function runAcpRuntimeReplayMatrix(args: {
         let profilerStarted = false;
         let profilerFinished = false;
         let logicalTime: AcpRuntimeReplayLogicalRunPort | undefined;
+        let workspacePrepared = false;
+        let replayRan = false;
+        let r2Ran = false;
+        let currentPhase: AcpRuntimeReplayFailure["phase"] =
+          "target-activation";
+        let failure: AcpRuntimeReplayFailure | undefined;
+        const recordFailure = (
+          phase: AcpRuntimeReplayFailure["phase"],
+          error: unknown,
+        ) => {
+          const detail =
+            error instanceof Error ? error.message : String(error || "unknown");
+          replay.completion = "incomplete";
+          if (!failure) {
+            failure = { phase, detail };
+          }
+          replay.warnings.push(`${phase}-failed:${detail}`);
+        };
         try {
+          currentPhase = "target-activation";
           target = await args.createTarget({
             sourceKind: args.trace.header.sourceKind,
             syntheticRootId,
           });
+          if (surface === "target-active") {
+            await target.activate();
+          }
+          currentPhase = "workspace-prepare";
           const prepared = await args.workspace.prepare({
             surface,
             sourceKind: args.trace.header.sourceKind,
@@ -867,11 +949,13 @@ export async function runAcpRuntimeReplayMatrix(args: {
             signal: args.signal,
           });
           if (!prepared.ok) {
-            replay = emptyReplay(
-              `prepare-drain-failed:${prepared.detail || "unknown"}`,
+            recordFailure(
+              "workspace-prepare",
+              prepared.detail || "workspace-prepare-failed",
             );
-            replay.drain = prepared;
           } else {
+            workspacePrepared = true;
+            currentPhase = "profile";
             await args.profiler.start({
               surface,
               sourceKind: args.trace.header.sourceKind,
@@ -890,6 +974,9 @@ export async function runAcpRuntimeReplayMatrix(args: {
               });
               await logicalTime.captureAt(0);
             }
+            currentPhase = "replay";
+            replayRan = true;
+            r2Ran = true;
             const [replayResult, r2Result] = await Promise.allSettled([
               replayAcpRuntimeSemanticTrace({
                 trace: args.trace,
@@ -914,14 +1001,25 @@ export async function runAcpRuntimeReplayMatrix(args: {
                 : emptyReplay(
                     `replay-failed:${replayResult.reason instanceof Error ? replayResult.reason.message : String(replayResult.reason)}`,
                   );
+            if (replayResult.status === "rejected") {
+              recordFailure("replay", replayResult.reason);
+            } else if (replay.drain.state === "failed") {
+              recordFailure(
+                "drain",
+                replay.drain.detail || "target-drain-failed",
+              );
+            } else if (replay.completion === "incomplete") {
+              recordFailure(
+                "replay",
+                replay.warnings[0] || "semantic-replay-incomplete",
+              );
+            }
             if (r2Result.status === "fulfilled") {
               r2 = r2Result.value;
             } else {
-              replay.completion = "incomplete";
-              replay.warnings.push(
-                `r2-failed:${r2Result.reason instanceof Error ? r2Result.reason.message : String(r2Result.reason)}`,
-              );
+              recordFailure("replay", r2Result.reason);
             }
+            currentPhase = "drain";
             const workspaceDrain = await args.workspace.drain({
               surface,
               sourceKind: args.trace.header.sourceKind,
@@ -929,17 +1027,18 @@ export async function runAcpRuntimeReplayMatrix(args: {
               signal: args.signal,
             });
             if (!workspaceDrain.ok) {
-              replay.completion = "incomplete";
-              replay.drain = workspaceDrain;
-              replay.warnings.push(
-                `workspace-drain-failed:${workspaceDrain.detail || "unknown"}`,
+              replay.drain = {
+                ...workspaceDrain,
+                state: "failed",
+              };
+              recordFailure(
+                "drain",
+                workspaceDrain.detail || "workspace-drain-failed",
               );
             }
           }
         } catch (error) {
-          replay = emptyReplay(
-            `run-failed:${error instanceof Error ? error.message : String(error)}`,
-          );
+          recordFailure(currentPhase, error);
         } finally {
           if (profilerStarted && !profilerFinished) {
             try {
@@ -948,20 +1047,14 @@ export async function runAcpRuntimeReplayMatrix(args: {
                 | undefined;
               profilerFinished = true;
             } catch (error) {
-              replay.completion = "incomplete";
-              replay.warnings.push(
-                `profile-finish-failed:${error instanceof Error ? error.message : String(error)}`,
-              );
+              recordFailure("profile", error);
             }
           }
           if (target) {
             try {
               await target.cleanup();
             } catch (error) {
-              replay.completion = "incomplete";
-              replay.warnings.push(
-                `cleanup-failed:${error instanceof Error ? error.message : String(error)}`,
-              );
+              recordFailure("cleanup", error);
             }
           }
           logicalTime?.dispose();
@@ -976,6 +1069,12 @@ export async function runAcpRuntimeReplayMatrix(args: {
           r2,
           surface,
           cadence: args.cadence,
+          stages: {
+            workspacePrepared,
+            profileStarted: profilerStarted,
+            replayRan,
+            r2Ran,
+          },
         });
         const measurementCompletion =
           measurement.warnings.length === 0 ? "complete" : "incomplete";
@@ -991,6 +1090,7 @@ export async function runAcpRuntimeReplayMatrix(args: {
           replay,
           r2,
           profile,
+          ...(failure ? { failure } : {}),
         };
         records.push(record);
         warnings.push(
@@ -1175,6 +1275,7 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
   const closedMean = surfaceSummary[0].elapsedMeanMs;
   const format = (value: number, digits = 1) =>
     Number.isFinite(value) ? value.toFixed(digits) : "n/a";
+  const cell = (value: unknown) => String(value ?? "").replace(/\|/g, "\\|");
   const metricNames = Array.from(
     new Set(
       formal.flatMap((record) =>
@@ -1197,11 +1298,11 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     "",
     "## Run coverage",
     "",
-    `| Surface | Role | Run | Execution | Measurement | ${matrix.cadence === "logical" ? "Synthetic wall ms" : "Wall ms"} | Projected | No-op | Unknown | Transport | R1 | R2 | R3 |`,
-    "| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |",
+    `| Surface | Role | Run | Execution | Measurement | ${matrix.cadence === "logical" ? "Synthetic wall ms" : "Wall ms"} | Projected | No-op | Unknown | Drain | Transport | R1 | R2 | R3 | Failure |`,
+    "| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
     ...matrix.records.map(
       (record) =>
-        `| ${record.surface} | ${record.role} | ${record.runIndex} | ${record.executionCompletion} | ${record.measurementCompletion} | ${format(record.measurement.elapsedMs)} | ${record.replay.projectedEvents} | ${record.replay.consumedNoopEvents} | ${record.replay.unknownEvents} | ${record.measurement.families.transport.state} | ${record.measurement.families.r1.state} | ${record.measurement.families.r2.state} | ${record.measurement.families.r3.state} |`,
+        `| ${record.surface} | ${record.role} | ${record.runIndex} | ${record.executionCompletion} | ${record.measurementCompletion} | ${format(record.measurement.elapsedMs)} | ${record.replay.projectedEvents} | ${record.replay.consumedNoopEvents} | ${record.replay.unknownEvents} | ${record.replay.drain.state || (record.replay.drain.ok ? "ok" : "failed")} | ${record.measurement.families.transport.state} | ${record.measurement.families.r1.state} | ${record.measurement.families.r2.state} | ${record.measurement.families.r3.state} | ${record.failure ? `${record.failure.phase}: ${cell(record.failure.detail)}` : "—"} |`,
     ),
     "",
     "## Formal descriptive summary",

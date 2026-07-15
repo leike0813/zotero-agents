@@ -100,10 +100,30 @@ recorded timing. Recorded remains the low-frequency wall-clock reference.
 
 One action normally runs surfaces in `closed`, `open-inactive`, `target-active`
 order. Each surface has one warm-up and two formal runs. Every run uses fresh
-synthetic owners. Workspace setup, cleanup, and restoration are outside the
-profile window; the final target drain is inside it so delayed persistence and
-publication remain attributed to the run. The prior Workspace state is restored
-in a `finally` path.
+synthetic owners. The lifecycle order is target creation, target activation for
+`target-active`, Workspace preparation, profiler start, trace and R2 replay,
+publication drain, profiler finish, and target cleanup. `closed` and
+`open-inactive` never activate the synthetic owner. Workspace owns only shell,
+tab, and readiness state; the source target owns Chat or Workflow selection and
+restores it independently. Workspace setup, cleanup, and restoration are
+outside the profile window; the final target drain is inside it so delayed
+persistence and publication remain attributed to the run. Both prior selection
+and prior Workspace state are restored through idempotent owner-scoped cleanup.
+
+Chat activation uses an in-memory Replay lease for an already prepared
+synthetic conversation. It does not consult or update the backend registry,
+create an adapter or transport, or persist `acp-replay` as the active backend.
+The lease restores the previous backend/conversation only while its token still
+owns the selected synthetic owner, so stale cleanup cannot overwrite a later
+user or Replay selection. Backend cache refresh and backend settings pruning
+continue to maintain real backend data while preserving the runtime and
+foreground owned by that exact lease; neither can persist a replacement over
+the saved selection. Public Chat selectors still validate the backend even
+when the requested owner equals the effective synthetic selection. The prepared
+runtime contributes an in-memory backend descriptor to the Chat panel options,
+so availability and transcript scope project the synthetic owner without a
+registry entry. Workflow activation applies the same owner check to the
+selected `<root>-request`.
 For an open surface, setup waits for the Workspace shell handshake, the active
 child panel handshake, and the expected synthetic owner instead of treating
 frame creation as readiness. A debug-exclusive publication sidecar captures the
@@ -114,7 +134,10 @@ animation frame, after the child's normal message/render listener. Zotero may
 omit `MessageEvent.source` or expose the shell through a direct/Xray-wrapped
 `Window`; an absent source is therefore treated as unverifiable, while a
 non-null source is rejected only when it is not direct/`wrappedJSObject`
-equivalent to the captured shell. Timeout,
+equivalent to the captured shell. If a concurrent cold init or page-first build
+supersedes a forced build before it publishes a revision, the sidecar retries
+the idempotent request at a bounded interval without overlapping builds.
+Timeout,
 cancellation, unload, and frame replacement share one cleanup path. The normal
 Workspace host snapshot protocol and Chat, ACP Skills, and SkillRunner child
 render queues contain no Replay marker, property read, action, or hook. For
@@ -169,9 +192,15 @@ artifacts. Their exact sample display name, stage, and cadence are also recorded
 in matrix provenance; sample aliases do not replace the trace digest as
 comparison identity. Each run has independent execution and measurement
 completion. Measurement coverage reports R1 semantic/projection work, measured
-R2, and surface-specific R3 as captured, expected-zero, not-applicable, or
-missing. Diagnostics and lifecycle markers consumed without projection are
-counted separately from projected events. The report includes both formal runs'
+R2, and surface-specific R3 as captured, expected-zero, not-applicable,
+not-run, or missing. R1 is captured only after complete replay with at least one
+applied semantic event and an exact measured counter match; zero-valued setup
+defaults are never evidence. Each record may contain a structured primary
+failure phase for target activation, Workspace preparation, profiling, replay,
+drain, or cleanup. The first failure remains primary, later cleanup failures are
+warnings, and stages never reached remain `not-run`. Diagnostics and lifecycle
+markers consumed without projection are counted separately from projected
+events. The report includes both formal runs'
 wall-time range and mean, event and byte throughput, delta from `closed`, and
 per-metric R1/R2/R3 totals. Dashboard defaults to the same per-surface summary;
 raw metadata, paths, per-run measurement families, drain status, and warnings

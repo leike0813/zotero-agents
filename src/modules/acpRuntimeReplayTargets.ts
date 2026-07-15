@@ -15,18 +15,23 @@ import {
   applySyntheticAcpChatReplayPermission,
   applySyntheticAcpChatReplayPrompt,
   applySyntheticAcpChatReplaySessionUpdate,
+  activateSyntheticAcpChatReplay,
   cleanupSyntheticAcpChatReplay,
   drainSyntheticAcpChatReplay,
   prepareSyntheticAcpChatReplay,
 } from "./acpSessionManager";
+import type { SyntheticAcpChatReplayActivationLease } from "./acpSessionManager";
 import {
   applySyntheticAcpSkillRunReplayPermission,
   cleanupSyntheticAcpSkillRunReplay,
   flushAcpSkillRunRuntimeFileWrites,
+  getSelectedAcpSkillRunRequestId,
   prepareSyntheticAcpSkillRunReplay,
   recordAcpSkillRunSessionUpdate,
+  selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
+import { createAcpRuntimeReplayOwnerIdentity } from "./acpRuntimeReplayIdentity";
 
 function pendingPermission(payload: unknown): AcpPendingPermissionRequest {
   const request = payload as AcpPendingPermissionRequest;
@@ -55,12 +60,20 @@ function workflowRequestId(owner: AcpRuntimeTraceOwner) {
 export async function createAcpChatRuntimeReplayTarget(args: {
   syntheticRootId: string;
 }): Promise<AcpRuntimeReplayTarget> {
-  const backendId = "acp-replay";
-  const conversationId = `${args.syntheticRootId}-conversation`;
+  const identity = createAcpRuntimeReplayOwnerIdentity(args.syntheticRootId);
+  const { backendId, conversationId } = identity.chat;
+  let activationLease: SyntheticAcpChatReplayActivationLease | undefined;
+  let cleaned = false;
   prepareSyntheticAcpChatReplay({ backendId, conversationId });
   return {
     sourceKind: "acp-chat-conversation",
     syntheticRootId: args.syntheticRootId,
+    activate: async () => {
+      activationLease ||= await activateSyntheticAcpChatReplay({
+        backendId,
+        conversationId,
+      });
+    },
     apply: async (context) => {
       switch (context.event.kind) {
         case "root-start":
@@ -116,15 +129,33 @@ export async function createAcpChatRuntimeReplayTarget(args: {
       await drainSyntheticAcpChatReplay({ backendId, conversationId });
       return { ok: true };
     },
-    cleanup: async () =>
-      cleanupSyntheticAcpChatReplay({ backendId, conversationId }),
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      let firstError: unknown;
+      try {
+        await activationLease?.release();
+      } catch (error) {
+        firstError = error;
+      }
+      try {
+        await cleanupSyntheticAcpChatReplay({ backendId, conversationId });
+      } catch (error) {
+        firstError ||= error;
+      }
+      if (firstError) throw firstError;
+    },
   };
 }
 
 export async function createAcpWorkflowRuntimeReplayTarget(args: {
   syntheticRootId: string;
 }): Promise<AcpRuntimeReplayTarget> {
+  const identity = createAcpRuntimeReplayOwnerIdentity(args.syntheticRootId);
   const requestIds = new Set<string>();
+  let previousRequestId: string | undefined;
+  let activated = false;
+  let cleaned = false;
   const ensureRequest = (owner: AcpRuntimeTraceOwner) => {
     const requestId = workflowRequestId(owner);
     if (!requestIds.has(requestId)) {
@@ -142,6 +173,16 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
   return {
     sourceKind: "acp-workflow-execution",
     syntheticRootId: args.syntheticRootId,
+    activate: async () => {
+      if (activated) return;
+      previousRequestId = getSelectedAcpSkillRunRequestId();
+      prepareSyntheticAcpSkillRunReplay({
+        requestId: identity.workflow.requestId,
+      });
+      requestIds.add(identity.workflow.requestId);
+      await selectAcpSkillRun(identity.workflow.requestId);
+      activated = true;
+    },
     apply: async (context) => {
       switch (context.event.kind) {
         case "root-start":
@@ -204,8 +245,27 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
       await flushAcpSkillRunRuntimeFileWrites();
       return { ok: true };
     },
-    cleanup: async () =>
-      cleanupSyntheticAcpSkillRunReplay(Array.from(requestIds)),
+    cleanup: async () => {
+      if (cleaned) return;
+      cleaned = true;
+      let firstError: unknown;
+      try {
+        if (
+          activated &&
+          getSelectedAcpSkillRunRequestId() === identity.workflow.requestId
+        ) {
+          await selectAcpSkillRun(previousRequestId || "");
+        }
+      } catch (error) {
+        firstError = error;
+      }
+      try {
+        await cleanupSyntheticAcpSkillRunReplay(Array.from(requestIds));
+      } catch (error) {
+        firstError ||= error;
+      }
+      if (firstError) throw firstError;
+    },
   };
 }
 

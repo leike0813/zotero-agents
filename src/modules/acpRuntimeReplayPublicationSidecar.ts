@@ -29,6 +29,7 @@ type PublicationResult = { ok: boolean; detail?: string };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const INSPECTION_INTERVAL_MS = 16;
+const PUBLICATION_RETRY_INTERVAL_MS = 100;
 
 function snapshotMessageType(tab: AcpRuntimeReplayPublicationTab) {
   if (tab === "acp-chat") return "acp:snapshot";
@@ -121,6 +122,8 @@ export function drainAcpRuntimeReplayPublication(args: {
     let frameToken: number | null = null;
     let frameTimeoutToken: ReturnType<typeof setTimeout> | null = null;
     let lastReadinessDetail = "workspace-child-not-ready";
+    let forcePublishInFlight = false;
+    let nextForcePublishAt = 0;
 
     const cleanup = () => {
       if (timeoutToken) clearTimeout(timeoutToken);
@@ -177,12 +180,32 @@ export function drainAcpRuntimeReplayPublication(args: {
         frameToken = -1;
       }
     };
+    const forcePublication = async () => {
+      if (settled || forcePublishInFlight) return;
+      forcePublishInFlight = true;
+      try {
+        await args.forcePublish();
+      } catch (error) {
+        settle({
+          ok: false,
+          detail: `workspace-publication-failed:${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        });
+      } finally {
+        forcePublishInFlight = false;
+        nextForcePublishAt = Date.now() + PUBLICATION_RETRY_INTERVAL_MS;
+      }
+    };
     const scheduleInspection = () => {
       if (settled) return;
       inspectionToken = setTimeout(
         () => {
           inspectionToken = null;
           if (childWindow && !verifyWindow()) return;
+          if (Date.now() >= nextForcePublishAt) {
+            void forcePublication();
+          }
           scheduleInspection();
         },
         Math.min(INSPECTION_INTERVAL_MS, Math.max(1, deadline - Date.now())),
@@ -197,16 +220,7 @@ export function drainAcpRuntimeReplayPublication(args: {
       childWindow?.addEventListener("message", onMessage);
       childWindow?.addEventListener("unload", onUnload);
       scheduleInspection();
-      try {
-        await args.forcePublish();
-      } catch (error) {
-        settle({
-          ok: false,
-          detail: `workspace-publication-failed:${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        });
-      }
+      await forcePublication();
     };
     const inspectReadiness = () => {
       if (settled) return;

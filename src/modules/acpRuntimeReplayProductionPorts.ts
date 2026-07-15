@@ -19,6 +19,7 @@ import type {
   AcpRuntimeReplayWorkspacePort,
 } from "./acpRuntimeReplayProfiler";
 import { createAcpRuntimeReplayLogicalTime } from "./acpRuntimeReplayLogicalTime";
+import { createAcpRuntimeReplayOwnerIdentity } from "./acpRuntimeReplayIdentity";
 import type { AcpRuntimeTraceOwner } from "./acpRuntimeSemanticTrace";
 import {
   closeAssistantWorkspaceSidebar,
@@ -33,13 +34,10 @@ import { drainAcpRuntimeReplayPublication } from "./acpRuntimeReplayPublicationS
 import {
   getAcpFrontendSnapshot,
   inspectSyntheticAcpChatReplayTimers,
-  setActiveAcpConversation,
 } from "./acpSessionManager";
 import {
   getSelectedAcpSkillRunRequestId,
   inspectSyntheticAcpSkillRunReplayTimers,
-  prepareSyntheticAcpSkillRunReplay,
-  selectAcpSkillRun,
 } from "./acpSkillRunStore";
 
 export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
@@ -48,9 +46,10 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
   syntheticRootId: string;
   signal?: { readonly aborted: boolean };
 }): AcpRuntimeReplayLogicalRunPort {
+  const identity = createAcpRuntimeReplayOwnerIdentity(args.syntheticRootId);
   const requestIds = new Set<string>();
   if (args.sourceKind === "acp-workflow-execution") {
-    requestIds.add(`${args.syntheticRootId}-request`);
+    requestIds.add(identity.workflow.requestId);
   }
   const baselineTokens = new Set<ReturnType<typeof setTimeout>>();
   const baselineWarnings: string[] = [];
@@ -60,8 +59,8 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
       args.sourceKind === "acp-chat-conversation"
         ? [
             inspectSyntheticAcpChatReplayTimers({
-              backendId: "acp-replay",
-              conversationId: `${args.syntheticRootId}-conversation`,
+              backendId: identity.chat.backendId,
+              conversationId: identity.chat.conversationId,
             }),
           ]
         : [
@@ -79,8 +78,8 @@ export function createAcpRuntimeReplayProductionLogicalTimePort(args: {
           ...(args.sourceKind === "acp-chat-conversation"
             ? {
                 expectedChatOwner: {
-                  backendId: "acp-replay",
-                  conversationId: `${args.syntheticRootId}-conversation`,
+                  backendId: identity.chat.backendId,
+                  conversationId: identity.chat.conversationId,
                 },
               }
             : { expectedSkillRequestIds: [...requestIds] }),
@@ -357,6 +356,7 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
     signal?: Parameters<typeof drainAcpRuntimeReplayPublication>[0]["signal"];
     phase: "prepare" | "profile";
   }) => {
+    const identity = createAcpRuntimeReplayOwnerIdentity(args.syntheticRootId);
     if (args.surface === "closed") {
       return Promise.resolve({
         ok: true,
@@ -383,13 +383,13 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
       ...(targetActive && args.sourceKind === "acp-chat-conversation"
         ? {
             expectedChatOwner: {
-              backendId: "acp-replay",
-              conversationId: `${args.syntheticRootId}-conversation`,
+              backendId: identity.chat.backendId,
+              conversationId: identity.chat.conversationId,
             },
           }
         : {}),
       ...(targetActive && args.sourceKind === "acp-workflow-execution"
-        ? { expectedSkillRequestId: `${args.syntheticRootId}-request` }
+        ? { expectedSkillRequestId: identity.workflow.requestId }
         : {}),
     }).then((result) => ({
       ...result,
@@ -427,16 +427,12 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
         });
       }
       if (sourceKind === "acp-chat-conversation") {
-        await setActiveAcpConversation({
-          backendId: "acp-replay",
-          conversationId: `${syntheticRootId}-conversation`,
-        });
         const opened = await openAssistantWorkspaceSidebar({ tab: "acp-chat" });
         if (!opened) return { ok: false, detail: "workspace-open-failed" };
       } else {
-        const requestId = `${syntheticRootId}-request`;
-        prepareSyntheticAcpSkillRunReplay({ requestId });
-        await selectAcpSkillRun(requestId);
+        const requestId =
+          createAcpRuntimeReplayOwnerIdentity(syntheticRootId).workflow
+            .requestId;
         const opened = await openAssistantWorkspaceSidebar({
           tab: "acp-skills",
           requestId,
@@ -464,18 +460,6 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
       if (!snapshot.open) {
         closeAssistantWorkspaceSidebar();
         return;
-      }
-      if (
-        snapshot.tab === "acp-chat" &&
-        snapshot.chatBackendId &&
-        snapshot.chatConversationId
-      ) {
-        await setActiveAcpConversation({
-          backendId: snapshot.chatBackendId,
-          conversationId: snapshot.chatConversationId,
-        });
-      } else if (snapshot.tab === "acp-skills" && snapshot.skillRequestId) {
-        await selectAcpSkillRun(snapshot.skillRequestId);
       }
       const opened = await openAssistantWorkspaceSidebar({
         tab: snapshot.tab,

@@ -2,6 +2,24 @@ export const ACP_RUNTIME_REPLAY_PHASE_MAX_LENGTH = 80;
 export const ACP_RUNTIME_REPLAY_SAMPLE_SLUG_MAX_LENGTH = 64;
 export const ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH = 48;
 export const ACP_RUNTIME_REPLAY_CADENCE_SLUG_MAX_LENGTH = 16;
+export const ACP_RUNTIME_REPLAY_BACKEND_ID = "acp-replay";
+
+export function createAcpRuntimeReplayOwnerIdentity(syntheticRootId: string) {
+  const chat = {
+    backendId: ACP_RUNTIME_REPLAY_BACKEND_ID,
+    conversationId: `${syntheticRootId}-conversation`,
+  };
+  return {
+    syntheticRootId,
+    chat: {
+      ...chat,
+      ownerKey: `${chat.backendId}\n${chat.conversationId}`,
+    },
+    workflow: {
+      requestId: `${syntheticRootId}-request`,
+    },
+  };
+}
 
 export type AcpRuntimeReplayPhaseValidation =
   | { value: string; valid: true }
