@@ -14,11 +14,13 @@ import type {
 import type { SynthesisWorkbenchClient } from "./workbench";
 import type { SynthesisGraphClient } from "./graph";
 import type { SynthesisReferencesClient } from "./references";
+import type { SynthesisSyncClient } from "./sync";
 
 export interface SynthesisClient {
   readonly concepts: SynthesisConceptsClient;
   readonly graph: SynthesisGraphClient;
   readonly references: SynthesisReferencesClient;
+  readonly sync: SynthesisSyncClient;
   readonly topics: SynthesisTopicsClient;
   readonly topicGraph: SynthesisTopicGraphClient;
   readonly system: SynthesisSystemClient;

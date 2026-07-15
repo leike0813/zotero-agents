@@ -426,6 +426,17 @@ export function hashCanonicalJson(value: unknown) {
   return sha256(canonicalizeJson(value));
 }
 
+export function topicPathId(topicId: string) {
+  const slug = topicId
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return (
+    slug || hashCanonicalJson({ topic_id: topicId }).slice("sha256:".length, 16)
+  );
+}
+
 export function hashMarkdown(value: unknown) {
   return sha256(normalizeMarkdown(value));
 }

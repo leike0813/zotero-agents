@@ -2154,6 +2154,104 @@ describe("Synthesis tab UI model", function () {
     assert.include(metadataInvalidation, 'return ["index", "review"]');
   });
 
+  it("routes all Workbench Sync commands through fresh bounded clients", async function () {
+    const host = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleAction = extractFunctionBlock(host, "handleAction");
+    const syncRegion = handleAction.slice(
+      handleAction.indexOf('result.hostCommand?.command === "syncNow"'),
+      handleAction.indexOf(
+        'result.hostCommand?.command === "exportTagVocabulary"',
+      ),
+    );
+    const routes = [
+      ["syncNow", "git", "runNow"],
+      ["syncWebDavNow", "webDav", "runNow"],
+      ["pauseGitSync", "git", "pause"],
+      ["resumeGitSync", "git", "resume"],
+      ["retryGitSync", "git", "retry"],
+      ["resolveGitSyncConflict", "git", "resolveConflict"],
+      ["pauseWebDavSync", "webDav", "pause"],
+      ["resumeWebDavSync", "webDav", "resume"],
+      ["retryWebDavSync", "webDav", "retry"],
+      ["resolveWebDavSyncConflict", "webDav", "resolveConflict"],
+    ] as const;
+
+    assert.notMatch(host, /synthesis\/service["']/);
+    assert.notInclude(host, "getFreshSynthesisServiceForGitSyncCommand");
+    for (const [command, transport, method] of routes) {
+      const start = syncRegion.indexOf(
+        `result.hostCommand?.command === "${command}"`,
+      );
+      assert.isAtLeast(start, 0, `${command} route should exist`);
+      const laterStarts = routes
+        .map(([next]) =>
+          syncRegion.indexOf(
+            `result.hostCommand?.command === "${next}"`,
+            start + 1,
+          ),
+        )
+        .filter((index) => index > start);
+      const end = laterStarts.length
+        ? Math.min(...laterStarts)
+        : syncRegion.length;
+      const commandRegion = syncRegion.slice(start, end);
+      assert.include(commandRegion, "await getFreshDefaultSynthesisClient()");
+      assert.match(
+        commandRegion,
+        new RegExp(`client\\.sync\\s*\\.${transport}\\s*\\.${method}`),
+      );
+      if (command !== "syncWebDavNow") {
+        assert.notInclude(commandRegion, "deferStart");
+      }
+    }
+
+    const webDavRunStart = syncRegion.indexOf(
+      'result.hostCommand?.command === "syncWebDavNow"',
+    );
+    const webDavRunEnd = syncRegion.indexOf(
+      'result.hostCommand?.command === "pauseGitSync"',
+      webDavRunStart,
+    );
+    assert.include(
+      syncRegion.slice(webDavRunStart, webDavRunEnd),
+      "deferStart: true",
+    );
+    for (const command of [
+      "syncNow",
+      "syncWebDavNow",
+      "retryGitSync",
+      "retryWebDavSync",
+    ]) {
+      const start = syncRegion.indexOf(`command === "${command}"`);
+      assert.isAtLeast(start, 0);
+      assert.include(
+        syncRegion.slice(start, start + 700),
+        "failOnSyncFailureState",
+      );
+    }
+    assert.match(
+      syncRegion,
+      /String\(commandArgs\.action \|\| ""\)\.trim\(\) \|\|\s*"keep_local"/,
+    );
+
+    const syncCommandClassifier = extractFunctionBlock(
+      host,
+      "isGitSyncRuntimeCommand",
+    );
+    for (const [command] of routes) {
+      assert.include(syncCommandClassifier, `command === "${command}"`);
+    }
+    const progressBlock = extractFunctionBlock(
+      host,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.include(progressBlock, "hasInFlightGitSyncCommand(runtime)");
+    assert.include(progressBlock, "refreshFromService: true");
+  });
+
   it("routes Concept commands through the strict Concepts client", async function () {
     const tabSource = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

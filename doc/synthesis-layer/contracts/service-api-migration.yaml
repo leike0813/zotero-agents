@@ -8,8 +8,6 @@ direct_consumers:
     role: host_bridge_proxy
   - path: src/modules/synthesisClient/legacyComposition.ts
     role: client_composition
-  - path: src/modules/synthesisWorkbenchTab.ts
-    role: workbench
   - path: src/modules/zoteroMcpProtocol.ts
     role: mcp_proxy
 

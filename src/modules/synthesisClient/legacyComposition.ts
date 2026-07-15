@@ -198,7 +198,42 @@ function createLegacyPort(
     async deleteConceptEntries(request) {
       return resolveService().deleteConceptEntries(request);
     },
+    async syncNow() {
+      return resolveService().syncNow();
+    },
+    async pauseGitSync() {
+      return resolveService().pauseGitSync();
+    },
+    async resumeGitSync() {
+      return resolveService().resumeGitSync();
+    },
+    async retryGitSync() {
+      return resolveService().retryGitSync();
+    },
+    async resolveGitSyncConflict(request) {
+      return resolveService().resolveGitSyncConflict(request);
+    },
+    async syncWebDavNow() {
+      return resolveService().syncWebDavNow();
+    },
+    async pauseWebDavSync() {
+      return resolveService().pauseWebDavSync();
+    },
+    async resumeWebDavSync() {
+      return resolveService().resumeWebDavSync();
+    },
+    async retryWebDavSync() {
+      return resolveService().retryWebDavSync();
+    },
+    async resolveWebDavSyncConflict(request) {
+      return resolveService().resolveWebDavSyncConflict(request);
+    },
   };
+}
+
+export async function invalidateDefaultLegacySynthesisService() {
+  const legacy = await import("../synthesis/service");
+  legacy.invalidateDefaultSynthesisService();
 }
 
 export async function createDefaultLegacySynthesisClientComposition(): Promise<{

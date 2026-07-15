@@ -1,5 +1,8 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
-import { createDefaultLegacySynthesisClientComposition } from "./legacyComposition";
+import {
+  createDefaultLegacySynthesisClientComposition,
+  invalidateDefaultLegacySynthesisService,
+} from "./legacyComposition";
 
 let defaultClient: SynthesisClient | undefined;
 let legacyInvalidator: (() => void) | undefined;
@@ -11,6 +14,12 @@ export async function getDefaultSynthesisClient(): Promise<SynthesisClient> {
     legacyInvalidator = composition.invalidate;
   }
   return defaultClient;
+}
+
+export async function getFreshDefaultSynthesisClient(): Promise<SynthesisClient> {
+  invalidateDefaultSynthesisClient();
+  await invalidateDefaultLegacySynthesisService();
+  return getDefaultSynthesisClient();
 }
 
 export function resetDefaultSynthesisClientForTests() {

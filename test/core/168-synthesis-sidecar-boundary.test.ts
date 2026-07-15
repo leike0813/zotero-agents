@@ -78,7 +78,6 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(report.directConsumers, [
       "src/modules/hostBridgeCapabilityRegistry.ts",
       "src/modules/synthesisClient/legacyComposition.ts",
-      "src/modules/synthesisWorkbenchTab.ts",
       "src/modules/zoteroMcpProtocol.ts",
     ]);
     assert.deepEqual(
@@ -90,6 +89,24 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesisWorkbenchTab.ts"),
       "utf8",
     );
+    const synthesisClientContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/client.ts"),
+      "utf8",
+    );
+    const contractIndex = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/index.ts"),
+      "utf8",
+    );
+    assert.notMatch(workbench, /synthesis\/service["']/);
+    assert.notMatch(
+      workbench,
+      /\b(?:getDefaultSynthesisService|invalidateDefaultSynthesisService)\b/,
+    );
+    assert.include(
+      synthesisClientContract,
+      "readonly sync: SynthesisSyncClient",
+    );
+    assert.include(contractIndex, 'export * from "./sync"');
     assert.notInclude(workbench, ".getSynthesisWorkbenchChromeInput");
     assert.notInclude(workbench, ".getSynthesisWorkbenchSurfaceInput");
     assert.notInclude(workbench, ".resolveTopicPaperDigest");
@@ -162,6 +179,23 @@ describe("Synthesis sidecar migration boundary", function () {
       workbench,
       /client\.topicGraph\s*\.applyTopicGraphReviewAction/,
     );
+    for (const [transport, method] of [
+      ["git", "runNow"],
+      ["git", "pause"],
+      ["git", "resume"],
+      ["git", "retry"],
+      ["git", "resolveConflict"],
+      ["webDav", "runNow"],
+      ["webDav", "pause"],
+      ["webDav", "resume"],
+      ["webDav", "retry"],
+      ["webDav", "resolveConflict"],
+    ]) {
+      assert.match(
+        workbench,
+        new RegExp(`client\\.sync\\s*\\.${transport}\\s*\\.${method}`),
+      );
+    }
     assert.match(workbench, /client\.tags\s*\.validateTagVocabulary/);
     assert.match(workbench, /client\.tags\s*\.rebuildTagVocabularyIndex/);
     assert.match(workbench, /client\.tags\s*\.exportTagVocabularyForRegulator/);

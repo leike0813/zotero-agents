@@ -36,6 +36,7 @@ import {
   hashCanonicalJson,
   hashMarkdown,
   sha256,
+  topicPathId,
   LibraryWriteLock,
   resolveSynthesisRuntimeFileRoot,
   SYNTHESIS_ANCHOR_TITLE,
@@ -2009,17 +2010,6 @@ function topicIdFromBundle(bundle: SynthesisResultBundle) {
     );
   }
   return topicId;
-}
-
-export function topicPathId(topicId: string) {
-  const slug = topicId
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  return (
-    slug || hashCanonicalJson({ topic_id: topicId }).slice("sha256:".length, 16)
-  );
 }
 
 function deletedPathId(topicId: string, deletedAt: string) {

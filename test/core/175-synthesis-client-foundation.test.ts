@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "fs";
 import path from "path";
 import {
+  SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
   SynthesisClientError,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../packages/synthesis-contracts/src/index";
@@ -476,6 +477,208 @@ describe("Synthesis client foundation", function () {
       try {
         await testCase.run();
         assert.fail("expected the Topic Graph command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
+  it("routes both Sync transports through ten narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request?: unknown }> = [];
+    const result = (operation: string) => ({
+      ok: true,
+      operation,
+      completed_at: new Date("2026-07-16T00:00:00.000Z"),
+      optional_field: undefined,
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async syncNow() {
+        calls.push({ operation: "git.run" });
+        return result("git.run");
+      },
+      async pauseGitSync() {
+        calls.push({ operation: "git.pause" });
+        return result("git.pause");
+      },
+      async resumeGitSync() {
+        calls.push({ operation: "git.resume" });
+        return result("git.resume");
+      },
+      async retryGitSync() {
+        calls.push({ operation: "git.retry" });
+        return result("git.retry");
+      },
+      async resolveGitSyncConflict(request) {
+        calls.push({ operation: "git.resolve", request });
+        return result("git.resolve");
+      },
+      async syncWebDavNow() {
+        calls.push({ operation: "webdav.run" });
+        return result("webdav.run");
+      },
+      async pauseWebDavSync() {
+        calls.push({ operation: "webdav.pause" });
+        return result("webdav.pause");
+      },
+      async resumeWebDavSync() {
+        calls.push({ operation: "webdav.resume" });
+        return result("webdav.resume");
+      },
+      async retryWebDavSync() {
+        calls.push({ operation: "webdav.retry" });
+        return result("webdav.retry");
+      },
+      async resolveWebDavSyncConflict(request) {
+        calls.push({ operation: "webdav.resolve", request });
+        return result("webdav.resolve");
+      },
+    });
+
+    const actual = [
+      await client.sync.git.runNow(),
+      await client.sync.git.pause(),
+      await client.sync.git.resume(),
+      await client.sync.git.retry(),
+      await client.sync.git.resolveConflict({
+        action: "resolved",
+        unknown: "discard",
+      } as never),
+      await client.sync.webDav.runNow(),
+      await client.sync.webDav.pause(),
+      await client.sync.webDav.resume(),
+      await client.sync.webDav.retry(),
+      await client.sync.webDav.resolveConflict({
+        action: "clear_after_manual_edit",
+        unknown: "discard",
+      } as never),
+    ];
+
+    assert.lengthOf(actual, 10);
+    for (const entry of actual) {
+      assert.equal(entry.completed_at, "2026-07-16T00:00:00.000Z");
+      assert.notProperty(entry, "optional_field");
+    }
+    assert.deepEqual(calls, [
+      { operation: "git.run" },
+      { operation: "git.pause" },
+      { operation: "git.resume" },
+      { operation: "git.retry" },
+      { operation: "git.resolve", request: { action: "resolved" } },
+      { operation: "webdav.run" },
+      { operation: "webdav.pause" },
+      { operation: "webdav.resume" },
+      { operation: "webdav.retry" },
+      {
+        operation: "webdav.resolve",
+        request: { action: "clear_after_manual_edit" },
+      },
+    ]);
+    assert.deepEqual(SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS, [
+      "keep_local",
+      "use_remote",
+      "save_remote_copy",
+      "mark_needs_attention",
+      "clear_after_manual_edit",
+      "skip",
+      "resolved",
+    ]);
+  });
+
+  it("rejects invalid Sync conflict requests before resolving ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async resolveGitSyncConflict() {
+        invocations += 1;
+        return {};
+      },
+      async resolveWebDavSyncConflict() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () => missingPortClient.sync.git.resolveConflict({ action: "" } as never),
+      () => client.sync.git.resolveConflict(undefined as never),
+      () => client.sync.git.resolveConflict({ action: "approve" } as never),
+      () =>
+        client.sync.webDav.resolveConflict({
+          action: "keep_local",
+          callback: (() => undefined) as never,
+        } as never),
+      () => client.sync.webDav.resolveConflict([] as never),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Sync request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing, failed, busy, preserved, and invalid Sync results", async function () {
+    const preserved = new SynthesisClientError("conflict", "sync conflict");
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async syncNow() {
+        return undefined;
+      },
+      async pauseGitSync() {
+        throw new Error("pause exploded");
+      },
+      async resumeGitSync() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async retryGitSync() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      { run: () => missingPortClient.sync.webDav.pause(), code: "unavailable" },
+      { run: () => client.sync.git.runNow(), code: "internal" },
+      { run: () => client.sync.git.pause(), code: "internal" },
+      { run: () => client.sync.git.resume(), code: "storage_busy" },
+      {
+        run: () => client.sync.git.retry(),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Sync command to reject");
       } catch (error) {
         assert.instanceOf(error, SynthesisClientError);
         assert.equal((error as SynthesisClientError).code, testCase.code);

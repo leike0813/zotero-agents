@@ -3,9 +3,14 @@ import fs from "fs";
 import path from "path";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
 import {
+  getFreshDefaultSynthesisClient,
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
 } from "../../src/modules/synthesisClient/defaultClient";
+import {
+  getDefaultSynthesisService,
+  invalidateDefaultSynthesisService,
+} from "../../src/modules/synthesis/service";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -77,6 +82,32 @@ describe("Synthesis lifecycle client consumers", function () {
     const second = await getDefaultSynthesisClient();
 
     assert.notStrictEqual(second, first);
+    invalidateDefaultSynthesisClient();
+  });
+
+  it("fresh acquisition rebuilds a cached client and legacy service", async function () {
+    invalidateDefaultSynthesisClient();
+    invalidateDefaultSynthesisService();
+    const firstService = getDefaultSynthesisService();
+    const firstClient = await getDefaultSynthesisClient();
+
+    const secondClient = await getFreshDefaultSynthesisClient();
+    const secondService = getDefaultSynthesisService();
+
+    assert.notStrictEqual(secondClient, firstClient);
+    assert.notStrictEqual(secondService, firstService);
+    invalidateDefaultSynthesisClient();
+  });
+
+  it("fresh acquisition rebuilds the legacy service without a cached client", async function () {
+    invalidateDefaultSynthesisClient();
+    invalidateDefaultSynthesisService();
+    const firstService = getDefaultSynthesisService();
+
+    await getFreshDefaultSynthesisClient();
+    const secondService = getDefaultSynthesisService();
+
+    assert.notStrictEqual(secondService, firstService);
     invalidateDefaultSynthesisClient();
   });
 

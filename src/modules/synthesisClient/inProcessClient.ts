@@ -4,6 +4,7 @@ import {
   SYNTHESIS_CONCEPT_REVIEW_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
+  SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
   SYNTHESIS_TAG_IMPORT_ACTIONS,
   SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
@@ -37,6 +38,9 @@ import {
   type SynthesisReferenceMatchProposalManualTarget,
   type SynthesisRelatedItemsEchoRequest,
   type SynthesisStartupReconcileResult,
+  type SynthesisSyncCommandResult,
+  type SynthesisSyncConflictResolutionRequest,
+  type SynthesisSyncTransportClient,
   type SynthesisTagAuditReplaceRequest,
   type SynthesisTagCommandResult,
   type SynthesisTagImportApplyRequest,
@@ -199,6 +203,20 @@ export interface LegacySynthesisPort {
   deleteConceptEntries?(
     request: SynthesisConceptDeleteRequest,
   ): Promise<unknown>;
+  syncNow?(): Promise<unknown>;
+  pauseGitSync?(): Promise<unknown>;
+  resumeGitSync?(): Promise<unknown>;
+  retryGitSync?(): Promise<unknown>;
+  resolveGitSyncConflict?(
+    request: SynthesisSyncConflictResolutionRequest,
+  ): Promise<unknown>;
+  syncWebDavNow?(): Promise<unknown>;
+  pauseWebDavSync?(): Promise<unknown>;
+  resumeWebDavSync?(): Promise<unknown>;
+  retryWebDavSync?(): Promise<unknown>;
+  resolveWebDavSyncConflict?(
+    request: SynthesisSyncConflictResolutionRequest,
+  ): Promise<unknown>;
 }
 
 function normalizeClientError(error: unknown): SynthesisClientError {
@@ -352,6 +370,67 @@ function normalizeTopicGraphReviewActionRequest(
       "action",
       "Synthesis Topic Graph review action",
     ),
+  };
+}
+
+function normalizeSyncConflictResolutionRequest(
+  value: unknown,
+): SynthesisSyncConflictResolutionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_SYNC_CONFLICT_RESOLUTION_ACTIONS,
+      "action",
+      "Synthesis Sync conflict resolution action",
+    ),
+  };
+}
+
+type LegacySyncTransportPorts = {
+  runNow?: () => Promise<unknown>;
+  pause?: () => Promise<unknown>;
+  resume?: () => Promise<unknown>;
+  retry?: () => Promise<unknown>;
+  resolveConflict?: (
+    request: SynthesisSyncConflictResolutionRequest,
+  ) => Promise<unknown>;
+};
+
+function createSyncTransportClient(
+  ports: LegacySyncTransportPorts,
+  operationPrefix: string,
+): SynthesisSyncTransportClient {
+  const runCommand = (
+    port: (() => Promise<unknown>) | undefined,
+    operation: string,
+  ) =>
+    runLegacy(
+      async () =>
+        normalizeLegacyResultObject(
+          await requireLegacyPort(port, operation)(),
+          "Synthesis Sync command",
+        ) as SynthesisSyncCommandResult,
+    );
+  return {
+    runNow: () => runCommand(ports.runNow, `${operationPrefix}.runNow`),
+    pause: () => runCommand(ports.pause, `${operationPrefix}.pause`),
+    resume: () => runCommand(ports.resume, `${operationPrefix}.resume`),
+    retry: () => runCommand(ports.retry, `${operationPrefix}.retry`),
+    resolveConflict(request) {
+      return runLegacy(async () => {
+        const normalizedRequest =
+          normalizeSyncConflictResolutionRequest(request);
+        const port = requireLegacyPort(
+          ports.resolveConflict,
+          `${operationPrefix}.resolveConflict`,
+        );
+        return normalizeLegacyResultObject(
+          await port(normalizedRequest),
+          "Synthesis Sync command",
+        ) as SynthesisSyncCommandResult;
+      });
+    },
   };
 }
 
@@ -1101,6 +1180,28 @@ export function createInProcessSynthesisClient(
             ) as SynthesisGraphCommandResult,
         );
       },
+    },
+    sync: {
+      git: createSyncTransportClient(
+        {
+          runNow: legacy.syncNow,
+          pause: legacy.pauseGitSync,
+          resume: legacy.resumeGitSync,
+          retry: legacy.retryGitSync,
+          resolveConflict: legacy.resolveGitSyncConflict,
+        },
+        "sync.git",
+      ),
+      webDav: createSyncTransportClient(
+        {
+          runNow: legacy.syncWebDavNow,
+          pause: legacy.pauseWebDavSync,
+          resume: legacy.resumeWebDavSync,
+          retry: legacy.retryWebDavSync,
+          resolveConflict: legacy.resolveWebDavSyncConflict,
+        },
+        "sync.webDav",
+      ),
     },
     topicGraph: {
       async rebuildTopicGraphIndex() {
