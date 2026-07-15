@@ -91,6 +91,8 @@ import {
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
   prepareAcpChatPanelSnapshot,
+  prepareAcpChatPanelPublicationDto,
+  resolveAcpChatPublicationKindsForChange,
   shouldRefreshAcpChatSnapshotForChange,
 } from "../../src/modules/acpChatPanelReadModel";
 
@@ -158,6 +160,8 @@ export {
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
   prepareAcpChatPanelSnapshot,
+  prepareAcpChatPanelPublicationDto,
+  resolveAcpChatPublicationKindsForChange,
   shouldRefreshAcpChatSnapshotForChange,
 };
 export type {

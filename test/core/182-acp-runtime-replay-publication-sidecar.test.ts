@@ -1,12 +1,12 @@
 import { assert } from "chai";
 import {
   drainAcpRuntimeReplayPublication,
+  type AcpRuntimeReplayPublicationInspection,
   type AcpRuntimeReplayPublicationWindow,
 } from "../../src/modules/acpRuntimeReplayPublicationSidecar";
 
 class FakePublicationWindow implements AcpRuntimeReplayPublicationWindow {
   private readonly listeners = new Map<string, Set<(event: any) => void>>();
-  readonly frames: Array<() => void> = [];
 
   addEventListener(type: string, listener: (event: any) => void) {
     const entries = this.listeners.get(type) || new Set();
@@ -18,41 +18,15 @@ class FakePublicationWindow implements AcpRuntimeReplayPublicationWindow {
     this.listeners.get(type)?.delete(listener);
   }
 
-  requestAnimationFrame(callback: () => void) {
-    this.frames.push(callback);
-    return this.frames.length;
-  }
-
-  cancelAnimationFrame() {
-    return;
-  }
-
-  dispatch(type: string, data?: unknown, source?: unknown) {
+  dispatch(type: string) {
     for (const listener of [...(this.listeners.get(type) || [])]) {
-      listener(type === "message" ? { data, source } : {});
+      listener({});
     }
-  }
-
-  flushFrame() {
-    this.frames.shift()?.();
   }
 
   listenerCount(type: string) {
     return this.listeners.get(type)?.size || 0;
   }
-}
-
-function snapshotMessage(tab: "acp-chat" | "acp-skills", revision: number) {
-  return {
-    type: tab === "acp-chat" ? "acp:snapshot" : "acp-skill-run:snapshot",
-    payload: {
-      sidebar: {
-        panes: {
-          [tab]: { revision },
-        },
-      },
-    },
-  };
 }
 
 function cancellationSignal() {
@@ -75,164 +49,200 @@ function cancellationSignal() {
   };
 }
 
-describe("ACP runtime replay publication sidecar", function () {
-  it("accepts absent, direct, and wrapped-equivalent Zotero publishers after render", async function () {
-    const canonicalPublisher = {};
-    const cases: Array<{
-      label: string;
-      publisherWindow: unknown;
-      source: unknown;
-    }> = [
-      {
-        label: "absent source",
-        publisherWindow: canonicalPublisher,
-        source: undefined,
-      },
-      {
-        label: "direct source",
-        publisherWindow: canonicalPublisher,
-        source: canonicalPublisher,
-      },
-      {
-        label: "expected wrapped source",
-        publisherWindow: { wrappedJSObject: canonicalPublisher },
-        source: canonicalPublisher,
-      },
-      {
-        label: "observed wrapped source",
-        publisherWindow: canonicalPublisher,
-        source: { wrappedJSObject: canonicalPublisher },
-      },
-    ];
-    for (const entry of cases) {
-      const child = new FakePublicationWindow();
-      let revision = 4;
-      const pending = drainAcpRuntimeReplayPublication({
-        tab: "acp-chat",
-        timeoutMs: 100,
-        inspect: () => ({
-          childWindow: child,
-          publisherWindow: entry.publisherWindow,
-          revision,
-        }),
-        forcePublish: async () => {
-          revision = 5;
-          child.dispatch(
-            "message",
-            snapshotMessage("acp-chat", revision),
-            entry.source,
-          );
-        },
-      });
-      await Promise.resolve();
-      let settled = false;
-      void pending.then(() => {
-        settled = true;
-      });
-      await Promise.resolve();
-      assert.isFalse(settled, entry.label);
-      child.flushFrame();
-      assert.deepEqual(await pending, { ok: true }, entry.label);
-      assert.equal(child.listenerCount("message"), 0, entry.label);
-      assert.equal(child.listenerCount("unload"), 0, entry.label);
-    }
-  });
+function inspection(
+  childWindow: AcpRuntimeReplayPublicationWindow | null,
+  publications: AcpRuntimeReplayPublicationInspection["publications"] = [],
+  detail = "",
+): AcpRuntimeReplayPublicationInspection {
+  return { childWindow, publications, detail };
+}
 
-  it("ignores a verifiably unrelated non-null publisher", async function () {
+describe("ACP runtime replay publication sidecar", function () {
+  it("waits for the exact forced publication render acknowledgement", async function () {
     const child = new FakePublicationWindow();
-    const publisherWindow = {};
-    const unrelatedPublisher = Object.defineProperty({}, "wrappedJSObject", {
-      get() {
-        throw new Error("Xray wrapper is not accessible");
-      },
-    });
-    let revision = 4;
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+      [];
+    let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
-      tab: "acp-chat",
-      timeoutMs: 100,
-      inspect: () => ({ childWindow: child, publisherWindow, revision }),
+      tab: "acp-skills",
+      timeoutMs: 250,
+      inspect: () => inspection(child, publications),
       forcePublish: async () => {
-        revision = 5;
-        child.dispatch(
-          "message",
-          snapshotMessage("acp-chat", revision),
-          unrelatedPublisher,
-        );
-        child.dispatch(
-          "message",
-          snapshotMessage("acp-chat", revision),
-          publisherWindow,
-        );
+        publications = [{ publicationId: "publication-1", state: "pending" }];
+        return { publicationId: "publication-1" };
       },
     });
-    await Promise.resolve();
-    assert.lengthOf(child.frames, 1);
-    child.flushFrame();
+    void pending.then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(settled, "delivery without host render ack must not drain");
+
+    publications = [
+      { publicationId: "publication-1", state: "render-complete" },
+    ];
     assert.deepEqual(await pending, { ok: true });
   });
 
-  it("ignores stale revisions and the wrong tab", async function () {
+  it("does not accept another publication's render acknowledgement", async function () {
     const child = new FakePublicationWindow();
-    const publisherWindow = {};
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
+      { publicationId: "publication-other", state: "render-complete" },
+    ];
+    let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-chat",
-      timeoutMs: 25,
-      inspect: () => ({ childWindow: child, publisherWindow, revision: 7 }),
-      forcePublish: async () => {
-        child.dispatch(
-          "message",
-          snapshotMessage("acp-chat", 7),
-          publisherWindow,
-        );
-        child.dispatch(
-          "message",
-          snapshotMessage("acp-skills", 8),
-          publisherWindow,
-        );
-      },
+      timeoutMs: 250,
+      inspect: () => inspection(child, publications),
+      forcePublish: async () => ({ publicationId: "publication-target" }),
     });
-    assert.deepEqual(await pending, {
-      ok: false,
-      detail: "workspace-publication-timeout:acp-chat",
+    void pending.then(() => {
+      settled = true;
     });
-    assert.equal(child.listenerCount("message"), 0);
-    assert.equal(child.listenerCount("unload"), 0);
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(settled);
+    publications = [
+      { publicationId: "publication-target", state: "render-complete" },
+    ];
+    assert.deepEqual(await pending, { ok: true });
   });
 
-  it("retries an idempotent forced publication when the cold first build is superseded", async function () {
+  it("waits for older pending publications before closing the measurement boundary", async function () {
     const child = new FakePublicationWindow();
-    const publisherWindow = {};
-    let revision = 4;
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
+      { publicationId: "publication-before", state: "pending" },
+    ];
+    let settled = false;
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-skills",
+      timeoutMs: 250,
+      inspect: () => inspection(child, publications),
+      forcePublish: async () => {
+        publications = [
+          { publicationId: "publication-before", state: "pending" },
+          { publicationId: "publication-target", state: "pending" },
+        ];
+        return { publicationId: "publication-target" };
+      },
+    });
+    void pending.then(() => {
+      settled = true;
+    });
+
+    publications = [
+      { publicationId: "publication-before", state: "pending" },
+      { publicationId: "publication-target", state: "render-complete" },
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(
+      settled,
+      "a prior late ack could otherwise leak into profile",
+    );
+
+    publications = [
+      { publicationId: "publication-before", state: "render-complete" },
+      { publicationId: "publication-target", state: "render-complete" },
+    ];
+    assert.deepEqual(await pending, { ok: true });
+  });
+
+  it("reports an explicit rejection for the forced publication", async function () {
+    const child = new FakePublicationWindow();
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+      [];
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-chat",
+      timeoutMs: 100,
+      inspect: () => inspection(child, publications),
+      forcePublish: async () => {
+        publications = [
+          {
+            publicationId: "publication-rejected",
+            state: "rejected",
+            reason: "stale-revision",
+          },
+        ];
+        return { publicationId: "publication-rejected" };
+      },
+    });
+
+    assert.deepEqual(await pending, {
+      ok: false,
+      detail:
+        "workspace-publication-rejected:acp-chat:publication-rejected:stale-revision",
+    });
+  });
+
+  it("retries an idempotent forced publication when no publication was produced", async function () {
+    const child = new FakePublicationWindow();
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+      [];
     let forceCalls = 0;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-skills",
       timeoutMs: 500,
-      inspect: () => ({ childWindow: child, publisherWindow, revision }),
+      inspect: () => inspection(child, publications),
       forcePublish: async () => {
         forceCalls += 1;
-        if (forceCalls === 1) return;
-        revision = 5;
-        child.dispatch(
-          "message",
-          snapshotMessage("acp-skills", revision),
-          publisherWindow,
-        );
+        if (forceCalls === 1) return undefined;
+        publications = [
+          { publicationId: "publication-retry", state: "render-complete" },
+        ];
+        return { publicationId: "publication-retry" };
       },
     });
 
-    const deadline = Date.now() + 500;
-    while (child.frames.length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.lengthOf(child.frames, 1);
-    child.flushFrame();
     assert.deepEqual(await pending, { ok: true });
     assert.isAtLeast(forceCalls, 2);
   });
 
+  it("retries transient superseded and old-owner publications", async function () {
+    for (const reason of ["superseded", "old-owner"] as const) {
+      const child = new FakePublicationWindow();
+      let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+        [];
+      let forceCalls = 0;
+      const pending = drainAcpRuntimeReplayPublication({
+        tab: "acp-chat",
+        timeoutMs: 500,
+        inspect: () => inspection(child, publications),
+        forcePublish: async () => {
+          forceCalls += 1;
+          const publicationId = `publication-${forceCalls}`;
+          publications = [
+            ...(forceCalls > 1
+              ? [
+                  {
+                    publicationId: "publication-1",
+                    state: "rejected" as const,
+                    reason,
+                  },
+                ]
+              : []),
+            {
+              publicationId,
+              state:
+                forceCalls === 1
+                  ? ("rejected" as const)
+                  : ("render-complete" as const),
+              ...(forceCalls === 1 ? { reason } : {}),
+            },
+          ];
+          return { publicationId };
+        },
+      });
+
+      assert.deepEqual(await pending, { ok: true }, reason);
+      assert.equal(forceCalls, 2, reason);
+    }
+  });
+
   it("keeps forced publication retries single-flight", async function () {
     const child = new FakePublicationWindow();
-    let revision = 1;
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+      [];
     let forceCalls = 0;
     let releaseFirst!: () => void;
     const firstPublication = new Promise<void>((resolve) => {
@@ -241,27 +251,23 @@ describe("ACP runtime replay publication sidecar", function () {
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-chat",
       timeoutMs: 750,
-      inspect: () => ({ childWindow: child, revision }),
+      inspect: () => inspection(child, publications),
       forcePublish: async () => {
         forceCalls += 1;
         if (forceCalls === 1) {
           await firstPublication;
-          return;
+          return undefined;
         }
-        revision = 2;
-        child.dispatch("message", snapshotMessage("acp-chat", revision));
+        publications = [
+          { publicationId: "publication-2", state: "render-complete" },
+        ];
+        return { publicationId: "publication-2" };
       },
     });
 
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(forceCalls, 1);
     releaseFirst();
-    const deadline = Date.now() + 500;
-    while (child.frames.length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.lengthOf(child.frames, 1);
-    child.flushFrame();
     assert.deepEqual(await pending, { ok: true });
     assert.equal(forceCalls, 2);
   });
@@ -276,19 +282,15 @@ describe("ACP runtime replay publication sidecar", function () {
         tab: "acp-skills",
         timeoutMs: 100,
         signal: cancellation.signal,
-        inspect: () => ({ childWindow: current, revision: 2 }),
+        inspect: () => inspection(current),
         forcePublish: async () => undefined,
       });
       await Promise.resolve();
       if (terminal === "abort") cancellation.abort();
-      if (terminal === "replacement") {
-        current = replacement;
-        child.dispatch("message", snapshotMessage("acp-skills", 3));
-      }
+      if (terminal === "replacement") current = replacement;
       if (terminal === "unload") child.dispatch("unload");
       const result = await pending;
       assert.isFalse(result.ok);
-      assert.equal(child.listenerCount("message"), 0);
       assert.equal(child.listenerCount("unload"), 0);
       assert.equal(cancellation.listenerCount(), 0);
     }

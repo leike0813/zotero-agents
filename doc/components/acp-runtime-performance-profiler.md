@@ -126,17 +126,18 @@ registry entry. Workflow activation applies the same owner check to the
 selected `<root>-request`.
 For an open surface, setup waits for the Workspace shell handshake, the active
 child panel handshake, and the expected synthetic owner instead of treating
-frame creation as readiness. A debug-exclusive publication sidecar captures the
-target child `Window` and current revision, registers a temporary listener, and
-then asks a cold Workspace diagnostics port to publish that tab. It accepts
-only a matching snapshot with a newer revision and resolves in the child's next
-animation frame, after the child's normal message/render listener. Zotero may
-omit `MessageEvent.source` or expose the shell through a direct/Xray-wrapped
-`Window`; an absent source is therefore treated as unverifiable, while a
-non-null source is rejected only when it is not direct/`wrappedJSObject`
-equivalent to the captured shell. If a concurrent cold init or page-first build
-supersedes a forced build before it publishes a revision, the sidecar retries
-the idempotent request at a bounded interval without overlapping builds.
+frame creation as readiness. The Workspace host keeps a bounded lifecycle
+ledger keyed by publication identity. A debug-exclusive publication sidecar
+captures the target child `Window`, asks the diagnostics port to force one
+publication, and waits for that exact publication ID to reach
+`render-complete applied` at the host. It also waits for earlier same-tab
+publications to leave the pending state, so setup acknowledgements cannot leak
+into the profile and a prior replay acknowledgement cannot satisfy the next
+round. The shell gives an identified cache generation an explicit superseded
+terminal state when a newer generation replaces it. If owner-first activation
+temporarily returns old-owner, or a concurrent cold build supersedes a forced
+publication, the sidecar retries the idempotent request at a bounded interval
+without overlapping builds.
 Timeout,
 cancellation, unload, and frame replacement share one cleanup path. The normal
 Workspace host snapshot protocol and Chat, ACP Skills, and SkillRunner child
@@ -202,7 +203,16 @@ warnings, and stages never reached remain `not-run`. Diagnostics and lifecycle
 markers consumed without projection are counted separately from projected
 events. The report includes both formal runs'
 wall-time range and mean, event and byte throughput, delta from `closed`, and
-per-metric R1/R2/R3 totals. Dashboard defaults to the same per-surface summary;
+per-metric R1/R2/R3 totals.
+R3 separates requested, dropped-before-build, prepare, signature-skip, post,
+actual posted bytes, shell-forward, child-apply, and render-ack by publication
+kind and causality. A posted target publication is captured only when the
+required host, shell, child, and render acknowledgement stages match by
+publication identity. Identity is retained in a bounded lifecycle sidecar;
+ordinary metric series remain aggregated by stable region labels.
+Duration evidence is reported as count, total milliseconds, and maximum
+milliseconds rather than treating a call count as elapsed time. Dashboard
+defaults to the same per-surface summary;
 raw metadata, paths, per-run measurement families, drain status, and warnings
 remain available in expandable evidence. Two formal observations are
 descriptive only.
@@ -211,8 +221,10 @@ and payload evidence remain valid. Timing headings and provenance explicitly
 identify scheduler version 1 and synthetic timing.
 
 Governance comparison requires identical trace digest, source kind, cadence,
-R2 workload version, and replay configuration, with both completion dimensions
-complete. Unknown events, consumer failure, abort, failed drain, or missing
+R2 workload version, and execution-affecting replay configuration, with both
+completion dimensions complete. The governance stage is an evidence label and
+may differ between before and after matrices. Unknown events, consumer failure,
+abort, failed drain, or missing
 required measurements prevent comparison. Matrix v1 files remain readable as
 legacy execution artifacts, but are measurement-incomplete and cannot be
 compared with v2 evidence.

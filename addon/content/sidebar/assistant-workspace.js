@@ -375,6 +375,17 @@
     delivered.add(frameWindow);
   }
 
+  function rejectCachedPublication(cached) {
+    if (!cached || !cached.generation || !cached.payload) return;
+    const publication =
+      cached.payload.workspacePublication &&
+      typeof cached.payload.workspacePublication === "object"
+        ? cached.payload.workspacePublication
+        : null;
+    if (!publication) return;
+    void publicationAck(publication, "shell-forward", "rejected", "superseded");
+  }
+
   function postToChild(tab, phase, payload, generation) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
@@ -410,7 +421,61 @@
       },
       "*",
     );
+    const snapshotPublication =
+      normalizedPayload.workspacePublication &&
+      typeof normalizedPayload.workspacePublication === "object"
+        ? normalizedPayload.workspacePublication
+        : null;
+    if (snapshotPublication) {
+      void publicationAck(snapshotPublication, "shell-forward", "applied");
+    }
     markDeliveredChildPayload(tab, phase, generation, frameWindow);
+    state.loadedFrames.add(tab);
+    updateLoadingState();
+    return true;
+  }
+
+  function publicationAck(publication, stage, outcome, reason) {
+    const owner =
+      publication && publication.owner && typeof publication.owner === "object"
+        ? publication.owner
+        : {};
+    return postToHost("assistant-workspace:publication-ack", {
+      publicationId: String((publication && publication.id) || ""),
+      tab: String((publication && publication.tab) || ""),
+      kind: String((publication && publication.kind) || ""),
+      ownerKey: String(owner.key || ""),
+      revision: Number((publication && publication.revision) || 0),
+      signature: String((publication && publication.signature) || ""),
+      initialization: publication && publication.initialization === true,
+      stage,
+      outcome,
+      reason: reason || undefined,
+    });
+  }
+
+  function postPublicationToChild(tab, publication) {
+    const frame = frameForTab(tab);
+    const frameWindow = frame && frame.contentWindow;
+    void publicationAck(
+      publication,
+      "shell-receive",
+      frameWindow ? "applied" : "rejected",
+      frameWindow ? undefined : "invalid-publication",
+    );
+    if (!frameWindow) return false;
+    installChildBridge(tab);
+    frameWindow.postMessage(
+      {
+        type:
+          tab === "acp-skills"
+            ? "acp-skill-run:publication"
+            : "acp:publication",
+        payload: publication || {},
+      },
+      "*",
+    );
+    void publicationAck(publication, "shell-forward", "applied");
     state.loadedFrames.add(tab);
     updateLoadingState();
     return true;
@@ -451,6 +516,24 @@
     const generation = state.childPayloadGeneration;
     const current = state.latestChildPayloads.get(tab) || {};
     const phaseKey = phase || "snapshot";
+    const nextPublicationId = String(
+      (payload &&
+        payload.workspacePublication &&
+        payload.workspacePublication.id) ||
+        "",
+    );
+    Object.values(current).forEach(function (cached) {
+      const cachedPublicationId = String(
+        (cached &&
+          cached.payload &&
+          cached.payload.workspacePublication &&
+          cached.payload.workspacePublication.id) ||
+          "",
+      );
+      if (!nextPublicationId || cachedPublicationId !== nextPublicationId) {
+        rejectCachedPublication(cached);
+      }
+    });
     current[phaseKey] = {
       generation,
       payload:
@@ -487,6 +570,14 @@
   }
 
   function clearChildPayloadState(reason) {
+    state.latestChildPayloads.forEach(function (cached) {
+      if (cached.init) {
+        rejectCachedPublication(cached.init);
+      }
+      if (cached.snapshot) {
+        rejectCachedPublication(cached.snapshot);
+      }
+    });
     state.latestChildPayloads.clear();
     state.latestChildRevisions.clear();
     state.deliveredChildPayloads.clear();
@@ -747,6 +838,14 @@
       const tab = normalizeTab(payload.tab, state.activeTab);
       const phase = payload.phase || "snapshot";
       const snapshot = payload.snapshot || {};
+      const snapshotPublication =
+        snapshot.workspacePublication &&
+        typeof snapshot.workspacePublication === "object"
+          ? snapshot.workspacePublication
+          : null;
+      if (snapshotPublication) {
+        void publicationAck(snapshotPublication, "shell-receive", "applied");
+      }
       traceAction("child-snapshot-received", {
         tab,
         phase,
@@ -758,6 +857,19 @@
           queueChildReplay(tab, "child-snapshot:" + tab);
         }
       }
+      return;
+    }
+    if (data.type === "assistant-workspace:child-publication") {
+      ensureHostReady("host-child-publication");
+      const payload = data.payload || {};
+      const publication = payload.publication || {};
+      const tab = normalizeTab(payload.tab || publication.tab, state.activeTab);
+      traceAction("child-publication-received", {
+        tab,
+        kind: publication.kind,
+        publicationId: publication.id,
+      });
+      postPublicationToChild(tab, publication);
       return;
     }
   });

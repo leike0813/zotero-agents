@@ -17,6 +17,7 @@ import {
 } from "./acpSessionManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import { appendRuntimeLog } from "./runtimeLogManager";
+import type { AssistantWorkspacePublicationKind } from "./assistantWorkspacePublication";
 
 export type AcpChatTranscriptPageRequest = {
   backendId?: string;
@@ -40,6 +41,10 @@ export type AcpChatPanelSnapshotArgs = {
   transcriptReadMode?: AcpChatTranscriptReadMode;
   transcriptPage?: AcpChatTranscriptPageRequest;
   readTranscriptPage?: AcpChatPanelSnapshotReadTranscriptPage;
+};
+
+export type AcpChatPanelPublicationArgs = AcpChatPanelSnapshotArgs & {
+  kind: AssistantWorkspacePublicationKind;
 };
 
 export type AcpChatSnapshotRefreshState = {
@@ -412,6 +417,159 @@ export async function prepareAcpChatPanelSnapshot(
   return payload;
 }
 
+const ACP_CHAT_TRANSCRIPT_PUBLICATION_FIELDS = [
+  "activeBackendId",
+  "backendId",
+  "activeConversationId",
+  "conversationId",
+  "backendAvailability",
+  "conversationAvailability",
+  "chatDisplayMode",
+  "executionDisplayMode",
+  "transcriptPaginationVirtualizationEnabled",
+  "selectedTranscriptPage",
+  "transcriptState",
+  "transcriptRevision",
+  "transcriptEventSeq",
+  "transcriptItemCount",
+  "items",
+  "labels",
+] as const;
+
+const ACP_CHAT_BASELINE_EXCLUDED_FIELDS = new Set([
+  "selectedTranscriptPage",
+  "transcriptState",
+  "transcriptRevision",
+  "transcriptEventSeq",
+  "transcriptItemCount",
+  "transcriptPreview",
+  "items",
+  "diagnostics",
+  "stderrTail",
+  "messageCounts",
+]);
+
+function pickAcpChatPublicationFields(
+  snapshot: Record<string, unknown>,
+  fields: readonly string[],
+) {
+  const dto: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(snapshot, field)) {
+      dto[field] = snapshot[field];
+    }
+  }
+  return dto;
+}
+
+function acpChatBaselinePublicationDto(snapshot: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(
+      ([field]) => !ACP_CHAT_BASELINE_EXCLUDED_FIELDS.has(field),
+    ),
+  );
+}
+
+export async function prepareAcpChatPanelPublicationDto(
+  args: AcpChatPanelPublicationArgs,
+) {
+  if (args.kind === "message-counts") {
+    const frontend = getAcpFrontendSnapshot({ itemMode: "structural" });
+    const backendId = String(frontend.activeBackendId || "").trim();
+    const conversationId = String(frontend.activeConversationId || "").trim();
+    const progress = getAcpChatExecutionProgress(backendId, conversationId);
+    return {
+      activeBackendId: backendId,
+      backendId,
+      activeConversationId: conversationId,
+      conversationId,
+      messageCounts: progress
+        ? {
+            scopeKey: progress.scopeKey,
+            executionKey: progress.executionKey,
+            active: progress.active,
+            current: { ...progress.current },
+            cumulative: { ...progress.cumulative },
+            revision: progress.revision,
+            completeness: progress.completeness,
+          }
+        : undefined,
+    };
+  }
+
+  const snapshot = await prepareAcpChatPanelSnapshot({
+    ...args,
+    transcriptReadMode:
+      args.kind === "transcript" ? args.transcriptReadMode : "loading-first",
+  });
+  if (args.kind === "transcript") {
+    return pickAcpChatPublicationFields(
+      snapshot,
+      ACP_CHAT_TRANSCRIPT_PUBLICATION_FIELDS,
+    );
+  }
+  if (args.kind === "plan") {
+    return pickAcpChatPublicationFields(snapshot, [
+      "activeBackendId",
+      "backendId",
+      "activeConversationId",
+      "conversationId",
+      "status",
+      "busy",
+      "items",
+      "labels",
+    ]);
+  }
+  if (args.kind === "permission") {
+    return pickAcpChatPublicationFields(snapshot, [
+      "activeBackendId",
+      "backendId",
+      "activeConversationId",
+      "conversationId",
+      "status",
+      "busy",
+      "pendingPermissionRequest",
+      "lastError",
+      "labels",
+    ]);
+  }
+  if (args.kind === "reply-hint") {
+    return pickAcpChatPublicationFields(snapshot, [
+      "activeBackendId",
+      "backendId",
+      "activeConversationId",
+      "conversationId",
+      "status",
+      "busy",
+      "currentMode",
+      "modeOptions",
+      "currentModel",
+      "modelOptions",
+      "displayModelOptions",
+      "currentReasoningEffort",
+      "reasoningEffortOptions",
+      "availableCommands",
+      "usage",
+      "labels",
+    ]);
+  }
+  if (args.kind === "context-details") {
+    return pickAcpChatPublicationFields(snapshot, [
+      "activeBackendId",
+      "backendId",
+      "activeConversationId",
+      "conversationId",
+      "chatSessions",
+      "backendChatSessions",
+      "diagnostics",
+      "sessionTitle",
+      "sessionUpdatedAt",
+      "labels",
+    ]);
+  }
+  return acpChatBaselinePublicationDto(snapshot);
+}
+
 function normalizedAcpChatPanelChangeKinds(change: AcpChatPanelSnapshotChange) {
   return (change.kinds || []).filter(Boolean);
 }
@@ -461,6 +619,10 @@ export function shouldRefreshAcpChatSnapshotForChange(
       "runtime-options",
       "session-list",
       "status",
+      "message-counts",
+      "plan",
+      "reply-hint",
+      "context-details",
       "transcript-boundary",
       "transcript-progress",
     ])
@@ -471,4 +633,39 @@ export function shouldRefreshAcpChatSnapshotForChange(
     return state.executionDisplayMode === "live";
   }
   return false;
+}
+
+export function resolveAcpChatPublicationKindsForChange(
+  state: AcpChatSnapshotRefreshState,
+  change: AcpChatPanelSnapshotChange,
+): AssistantWorkspacePublicationKind[] {
+  if (!shouldRefreshAcpChatSnapshotForChange(state, change)) {
+    return [];
+  }
+  const kinds = new Set(normalizedAcpChatPanelChangeKinds(change));
+  const publications = new Set<AssistantWorkspacePublicationKind>();
+  if (kinds.has("message-counts")) publications.add("message-counts");
+  if (
+    kinds.has("transcript-append") ||
+    kinds.has("transcript-boundary") ||
+    kinds.has("transcript-progress")
+  ) {
+    publications.add("transcript");
+  }
+  if (kinds.has("plan")) publications.add("plan");
+  if (kinds.has("permission")) publications.add("permission");
+  if (kinds.has("reply-hint") || kinds.has("runtime-options")) {
+    publications.add("reply-hint");
+  }
+  if (kinds.has("context-details")) publications.add("context-details");
+  if (
+    kinds.has("active-scope") ||
+    kinds.has("backend") ||
+    kinds.has("global") ||
+    kinds.has("session-list") ||
+    kinds.has("status")
+  ) {
+    publications.add("baseline-status");
+  }
+  return Array.from(publications);
 }

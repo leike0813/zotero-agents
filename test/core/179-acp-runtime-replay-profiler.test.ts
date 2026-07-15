@@ -150,10 +150,15 @@ function target(args?: {
 function measuredProfile(args: {
   requestId: string;
   surface: "closed" | "open-inactive" | "target-active";
+  mismatchedR3Publication?: boolean;
 }) {
-  const counter = (name: any, total: number) => ({
+  const counter = (
+    name: any,
+    total: number,
+    labels: Record<string, string> = {},
+  ) => ({
     name,
-    labels: {},
+    labels,
     counter: { total },
   });
   return {
@@ -163,6 +168,35 @@ function measuredProfile(args: {
     zoteroMajor: 9 as const,
     startedAtMs: 100,
     finishedAtMs: 110,
+    publicationLifecycles:
+      args.surface === "target-active"
+        ? args.mismatchedR3Publication
+          ? [
+              {
+                publicationId: "publication-1",
+                post: 1,
+                shellForward: 1,
+                childApply: 1,
+                renderAck: 0,
+              },
+              {
+                publicationId: "publication-from-prior-run",
+                post: 0,
+                shellForward: 0,
+                childApply: 0,
+                renderAck: 1,
+              },
+            ]
+          : [
+              {
+                publicationId: "publication-1",
+                post: 1,
+                shellForward: 1,
+                childApply: 1,
+                renderAck: 1,
+              },
+            ]
+        : [],
     metrics: [
       counter("semantic_event", 5),
       counter("host_input_fragment", 33),
@@ -181,7 +215,18 @@ function measuredProfile(args: {
         ? [
             counter("panel_prepare", 1),
             counter("panel_signature", 1),
-            counter("panel_post", 1),
+            counter("panel_post", 1, { publicationId: "publication-1" }),
+            counter("panel_shell_forward", 1, {
+              publicationId: "publication-1",
+            }),
+            counter("panel_child_apply", 1, {
+              publicationId: "publication-1",
+            }),
+            counter("panel_render_ack", 1, {
+              publicationId: args.mismatchedR3Publication
+                ? "publication-from-prior-run"
+                : "publication-1",
+            }),
           ]
         : []),
     ],
@@ -743,6 +788,14 @@ describe("ACP runtime replay profiler", function () {
       "## Formal descriptive summary",
     );
     assert.include(renderAcpRuntimeReplayMatrixMarkdown(matrix), "Events/s");
+    assert.include(
+      renderAcpRuntimeReplayMatrixMarkdown(matrix),
+      "## Formal duration summaries",
+    );
+    assert.include(
+      renderAcpRuntimeReplayMatrixMarkdown(matrix),
+      "Count mean | Total ms mean | Max ms",
+    );
     assert.include(renderAcpRuntimeReplayMatrixMarkdown(matrix), "复杂 Sample");
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, structuredClone(matrix)),
@@ -757,6 +810,11 @@ describe("ACP runtime replay profiler", function () {
     renamed.trace.sampleName = "another alias";
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, renamed),
+    );
+    const nextStage = structuredClone(matrix);
+    nextStage.replayConfig.phase = "post-governance";
+    assert.doesNotThrow(() =>
+      assertAcpRuntimeReplayMatricesComparable(matrix, nextStage),
     );
 
     const logicalMatrix = structuredClone(matrix);
@@ -815,6 +873,49 @@ describe("ACP runtime replay profiler", function () {
     assert.throws(
       () => assertAcpRuntimeReplayMatricesComparable(matrix, matrix),
       /Incomplete ACP replay matrices/,
+    );
+  });
+
+  it("rejects equal aggregate R3 counts when publication identities do not match", async function () {
+    let activeProfile:
+      | {
+          requestId: string;
+          surface: "closed" | "open-inactive" | "target-active";
+        }
+      | undefined;
+    const matrix = await runAcpRuntimeReplayMatrix({
+      trace: fixtureTrace(),
+      cadence: "burst",
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+      createTarget: async ({ sourceKind, syntheticRootId }) =>
+        target({ sourceKind, syntheticRootId }),
+      workspace: {
+        snapshot: async () => ({}),
+        prepare: async () => ({ ok: true }),
+        drain: async () => ({ ok: true }),
+        restore: async () => undefined,
+      },
+      profiler: {
+        start: async ({ syntheticRootId, surface }) => {
+          activeProfile = { requestId: syntheticRootId, surface };
+        },
+        finish: async () =>
+          measuredProfile({
+            ...activeProfile!,
+            mismatchedR3Publication: activeProfile?.surface === "target-active",
+          }),
+      },
+      r2Port: { consumeFragment: async () => undefined },
+      sleep: async () => undefined,
+    });
+
+    const targetActive = matrix.records.find(
+      (record) => record.surface === "target-active",
+    );
+    assert.equal(targetActive?.measurement.families.r3.state, "missing");
+    assert.include(
+      targetActive?.measurement.families.r3.detail || "",
+      "publication identity mismatch",
     );
   });
 

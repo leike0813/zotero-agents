@@ -23,8 +23,9 @@ import {
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
   prepareAcpChatPanelSnapshot,
+  prepareAcpChatPanelPublicationDto,
+  resolveAcpChatPublicationKindsForChange,
   resolveActiveAcpChatTranscriptPageRequest,
-  shouldRefreshAcpChatSnapshotForChange,
   type AcpChatTranscriptReadMode,
   type AcpChatTranscriptPageRequest,
 } from "./acpChatPanelReadModel";
@@ -53,6 +54,7 @@ import {
   subscribeAcpFrontendSnapshots,
   toggleAcpConversationDiagnostics,
   toggleAcpConversationStatusDetails,
+  type AcpChatPanelSnapshotChange,
 } from "./acpSessionManager";
 import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
@@ -112,6 +114,14 @@ import {
   createAssistantSidebarScopeKey,
   decorateAssistantSidebarChildSnapshot,
 } from "./assistantSidebarViewModel";
+import {
+  ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  createAcpChatPublicationOwner,
+  type AssistantWorkspacePublication,
+  type AssistantWorkspacePublicationKind,
+  type WorkspacePublicationAck,
+  type WorkspacePublicationLifecycle,
+} from "./assistantWorkspacePublication";
 
 type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type AssistantWorkspaceLogTab = AssistantWorkspaceTab | "shell";
@@ -167,6 +177,22 @@ type AssistantWorkspaceHostRuntime = {
   streamingRenderPreferenceInitialized: boolean;
   streamingRenderPreferenceLocalWriteDepth: number;
   lastAcpSkillRunSnapshotSignature?: string | null;
+  pendingAcpChatPublication?: {
+    target: AcpSidebarTarget;
+    ownerKey: string;
+    kinds: Set<AssistantWorkspacePublicationKind>;
+  };
+  pendingSnapshotTab?: AssistantWorkspaceTab;
+  acpChatPublicationSignatures: Map<string, string>;
+  acpChatPublicationRevisions: Map<string, number>;
+  publicationSeq: number;
+  publicationLifecycles: Map<
+    string,
+    WorkspacePublicationLifecycle & {
+      tab: "acp-chat" | "acp-skills";
+      acknowledgements: Set<string>;
+    }
+  >;
   lastAcpSkillWaitingToastKeys: Set<string>;
   readyTabs: Set<AssistantWorkspaceTab>;
 };
@@ -198,6 +224,8 @@ type AssistantWorkspaceBridge = {
   ) => Promise<AssistantWorkspaceBridgeResult>;
 };
 type AcpChatSnapshotPostOptions = {
+  force?: boolean;
+  requestRecorded?: boolean;
   transcriptReadMode?: AcpChatTranscriptReadMode;
   transcriptPage?: AcpChatTranscriptPageRequest;
 };
@@ -224,6 +252,7 @@ const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
   "skillrunner",
 ];
 const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
+const MAX_WORKSPACE_PUBLICATION_LIFECYCLES = 256;
 const localize = getStringOrFallback;
 
 function countArray(value: unknown) {
@@ -866,7 +895,7 @@ function postShellMessage(
       "Assistant Workspace shell message dropped because the shell frame window is unavailable.",
       { type },
     );
-    return;
+    return false;
   }
   installShellBridge(host);
   const messagePayload = payload || {};
@@ -888,45 +917,77 @@ function postShellMessage(
     typeof messagePayload.snapshot === "object"
       ? (messagePayload.snapshot as Record<string, unknown>)
       : null;
-  const requestId =
-    messagePayload.tab === "acp-skills"
+  const profilerPublication =
+    type === "assistant-workspace:child-publication" &&
+    messagePayload.publication &&
+    typeof messagePayload.publication === "object"
+      ? (messagePayload.publication as unknown as AssistantWorkspacePublication)
+      : null;
+  const profilerSnapshotPublication =
+    profilerPayload?.workspacePublication &&
+    typeof profilerPayload.workspacePublication === "object"
+      ? (profilerPayload.workspacePublication as { id?: unknown })
+      : null;
+  const profilerPublicationId = String(
+    profilerPublication?.id || profilerSnapshotPublication?.id || "",
+  ).trim();
+  const requestId = profilerPublication
+    ? profilerPublication.owner.key
+    : messagePayload.tab === "acp-skills"
       ? String(profilerPayload?.selectedRequestId || "").trim()
       : [
           String(profilerPayload?.activeBackendId || "").trim(),
           String(profilerPayload?.activeConversationId || "").trim(),
         ].join("\n");
+  const profilerLabels = {
+    ...(profilerPublication
+      ? acpChatPublicationMetricLabels(profilerPublication.kind)
+      : {
+          operationClass: "panel" as const,
+          publicationKind: "baseline-status" as const,
+          publicationCausality:
+            messagePayload.tab === host.activeTab
+              ? ("matching-target" as const)
+              : ("opposite-active" as const),
+          publicationPhase:
+            messagePayload.phase === "init"
+              ? ("initialization" as const)
+              : ("steady-state" as const),
+        }),
+    ...(profilerPublicationId ? { publicationId: profilerPublicationId } : {}),
+  };
   const startedAt =
-    profilerPayload &&
+    (profilerPayload || profilerPublication) &&
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
       ? readAcpRuntimePerformanceClockMs()
       : 0;
-  frameWindow.postMessage(
-    {
-      type,
-      payload: messagePayload,
-    },
-    "*",
-  );
+  const message = { type, payload: messagePayload };
+  frameWindow.postMessage(message, "*");
   if (
-    profilerPayload &&
+    (profilerPayload || profilerPublication) &&
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    incrementAcpRuntimeMetric(requestId, "panel_post", {
-      operationClass: "panel",
-    });
+    incrementAcpRuntimeMetric(requestId, "panel_post", profilerLabels);
+    incrementAcpRuntimeMetric(
+      requestId,
+      "panel_post_bytes",
+      profilerLabels,
+      new TextEncoder().encode(JSON.stringify(message)).byteLength,
+    );
     observeAcpRuntimeDuration(
       requestId,
       "panel_post_duration",
-      { operationClass: "panel" },
+      profilerLabels,
       readAcpRuntimePerformanceClockMs() - startedAt,
     );
   }
+  return true;
 }
 
 function writeAssistantWorkspaceBridgeTarget(
@@ -1326,6 +1387,36 @@ function clearShellBridge(shell: AssistantWorkspaceShell) {
   shell.bridgeWindow = null;
 }
 
+function trimWorkspacePublicationLifecycles(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  if (!host.publicationLifecycles) return;
+  while (
+    host.publicationLifecycles.size > MAX_WORKSPACE_PUBLICATION_LIFECYCLES
+  ) {
+    const completed = [...host.publicationLifecycles.values()].find(
+      (entry) => entry.state !== "pending",
+    );
+    if (!completed) return;
+    host.publicationLifecycles.delete(completed.publicationId);
+  }
+}
+
+function registerWorkspacePublication(
+  host: AssistantWorkspaceHostRuntime,
+  tab: "acp-chat" | "acp-skills",
+  publicationId: string,
+) {
+  host.publicationLifecycles ||= new Map();
+  host.publicationLifecycles.set(publicationId, {
+    publicationId,
+    tab,
+    state: "pending",
+    acknowledgements: new Set<string>(),
+  });
+  trimWorkspacePublicationLifecycles(host);
+}
+
 function postChildSnapshot(
   host: AssistantWorkspaceHostRuntime,
   tab: AssistantWorkspaceTab,
@@ -1354,11 +1445,295 @@ function postChildSnapshot(
     full: tab === host.activeTab,
     snapshot,
   });
-  postShellMessage(host, "assistant-workspace:child-snapshot", {
+  let publicationId = "";
+  if (tab === "acp-chat" || tab === "acp-skills") {
+    const ownerKey =
+      tab === "acp-skills"
+        ? String(snapshot.selectedRequestId || "").trim()
+        : [
+            String(snapshot.activeBackendId || snapshot.backendId || "").trim(),
+            String(
+              snapshot.activeConversationId || snapshot.conversationId || "",
+            ).trim(),
+          ].join("\n");
+    host.publicationSeq += 1;
+    publicationId = `${host.scopeKey}-snapshot-publication-${host.publicationSeq}`;
+    (payload as Record<string, unknown>).workspacePublication = {
+      id: publicationId,
+      tab,
+      kind: "baseline-status",
+      owner: { key: ownerKey },
+      revision: host.snapshotRevision,
+      deliveryRevision: host.snapshotRevision,
+      signature: `snapshot-${host.snapshotRevision}`,
+      initialization: phase === "init",
+    };
+  }
+  const posted = postShellMessage(host, "assistant-workspace:child-snapshot", {
     tab,
     phase,
     snapshot: payload,
   });
+  if (posted && publicationId && (tab === "acp-chat" || tab === "acp-skills")) {
+    registerWorkspacePublication(host, tab, publicationId);
+  }
+  return posted && publicationId ? publicationId : undefined;
+}
+
+function acpChatPublicationMetricLabels(
+  kind: AssistantWorkspacePublicationKind,
+  causality:
+    | "matching-target"
+    | "opposite-active"
+    | "inactive-source"
+    | "owner-mismatch" = "matching-target",
+  phase: "initialization" | "steady-state" = "steady-state",
+) {
+  return {
+    operationClass: "panel" as const,
+    publicationKind: kind,
+    publicationCausality: causality,
+    publicationPhase: phase,
+  };
+}
+
+function nextAcpChatPublicationRevision(
+  host: AssistantWorkspaceHostRuntime,
+  ownerKey: string,
+  kind: AssistantWorkspacePublicationKind,
+) {
+  const key = `${ownerKey}\n${kind}`;
+  const revision = (host.acpChatPublicationRevisions.get(key) || 0) + 1;
+  host.acpChatPublicationRevisions.set(key, revision);
+  return revision;
+}
+
+function compactPublicationSignature(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${value.length.toString(36)}-${(hash >>> 0).toString(36)}`;
+}
+
+async function postAcpChatPanelPublication(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  ownerKey: string,
+  kind: AssistantWorkspacePublicationKind,
+  options?: AcpChatSnapshotPostOptions,
+) {
+  const profilingEnabled =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__);
+  if (profilingEnabled && options?.requestRecorded !== true) {
+    incrementAcpRuntimeMetric(
+      ownerKey,
+      "panel_requested",
+      acpChatPublicationMetricLabels(kind),
+    );
+  }
+  if (
+    hosts.get(host.win) !== host ||
+    host.activeTarget !== target ||
+    host.activeTab !== "acp-chat" ||
+    getActiveAcpChatOwnerKey() !== ownerKey
+  ) {
+    if (profilingEnabled) {
+      incrementAcpRuntimeMetric(
+        ownerKey,
+        "panel_dropped_before_build",
+        acpChatPublicationMetricLabels(
+          kind,
+          getActiveAcpChatOwnerKey() === ownerKey
+            ? "inactive-source"
+            : "owner-mismatch",
+        ),
+      );
+    }
+    return;
+  }
+
+  const prepareStartedAt = profilingEnabled
+    ? readAcpRuntimePerformanceClockMs()
+    : 0;
+  const dto = await prepareAcpChatPanelPublicationDto({
+    target,
+    kind,
+    transcriptReadMode: options?.transcriptReadMode,
+    transcriptPage: options?.transcriptPage,
+  });
+  if (profilingEnabled) {
+    incrementAcpRuntimeMetric(
+      ownerKey,
+      "panel_prepare",
+      acpChatPublicationMetricLabels(kind),
+    );
+    observeAcpRuntimeDuration(
+      ownerKey,
+      "panel_prepare_duration",
+      acpChatPublicationMetricLabels(kind),
+      readAcpRuntimePerformanceClockMs() - prepareStartedAt,
+    );
+  }
+  if (
+    hosts.get(host.win) !== host ||
+    host.activeTarget !== target ||
+    host.activeTab !== "acp-chat" ||
+    getActiveAcpChatOwnerKey() !== ownerKey
+  ) {
+    return;
+  }
+
+  const signatureStartedAt = profilingEnabled
+    ? readAcpRuntimePerformanceClockMs()
+    : 0;
+  const signature = JSON.stringify(dto);
+  if (profilingEnabled) {
+    incrementAcpRuntimeMetric(
+      ownerKey,
+      "panel_signature",
+      acpChatPublicationMetricLabels(kind),
+    );
+    incrementAcpRuntimeMetric(
+      ownerKey,
+      "panel_signature_bytes",
+      acpChatPublicationMetricLabels(kind),
+      new TextEncoder().encode(signature).byteLength,
+    );
+    observeAcpRuntimeDuration(
+      ownerKey,
+      "panel_signature_duration",
+      acpChatPublicationMetricLabels(kind),
+      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
+    );
+  }
+  const signatureKey = `${ownerKey}\n${kind}`;
+  if (
+    options?.force !== true &&
+    host.acpChatPublicationSignatures.get(signatureKey) === signature
+  ) {
+    if (profilingEnabled) {
+      incrementAcpRuntimeMetric(
+        ownerKey,
+        "panel_signature_skip",
+        acpChatPublicationMetricLabels(kind),
+      );
+    }
+    return;
+  }
+  host.acpChatPublicationSignatures.set(signatureKey, signature);
+
+  const [backendId, conversationId] = ownerKey.split("\n", 2);
+  host.publicationSeq += 1;
+  host.snapshotRevision += 1;
+  const publication: AssistantWorkspacePublication = {
+    schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+    id: `${host.scopeKey}-publication-${host.publicationSeq}`,
+    tab: "acp-chat",
+    kind,
+    owner: createAcpChatPublicationOwner(backendId, conversationId),
+    revision: nextAcpChatPublicationRevision(host, ownerKey, kind),
+    deliveryRevision: host.snapshotRevision,
+    signature: compactPublicationSignature(signature),
+    initialization: false,
+    dto,
+  };
+  const posted = postShellMessage(
+    host,
+    "assistant-workspace:child-publication",
+    {
+      tab: "acp-chat",
+      publication,
+    },
+  );
+  if (posted) registerWorkspacePublication(host, "acp-chat", publication.id);
+  return posted ? publication.id : undefined;
+}
+
+function scheduleAcpChatPublications(
+  host: AssistantWorkspaceHostRuntime,
+  change: AcpChatPanelSnapshotChange,
+) {
+  const profilingEnabled =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__);
+  const refreshState = {
+    activeTab: host.activeTab,
+    hasActiveTarget: !!host.activeTarget,
+    transcriptPaginationVirtualizationEnabled:
+      isAssistantTranscriptPaginationVirtualizationEnabled(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+  };
+  const requestedKinds = resolveAcpChatPublicationKindsForChange(
+    {
+      ...refreshState,
+      activeTab: "acp-chat",
+      hasActiveTarget: true,
+    },
+    { ...change, active: true },
+  );
+  const owner = createAcpChatPublicationOwner(
+    change.backendId,
+    change.conversationId,
+  );
+  const causality = !host.activeTarget
+    ? "inactive-source"
+    : host.activeTab !== "acp-chat"
+      ? "opposite-active"
+      : change.active !== true
+        ? "owner-mismatch"
+        : "matching-target";
+  if (profilingEnabled) {
+    for (const kind of requestedKinds) {
+      incrementAcpRuntimeMetric(
+        owner.key,
+        "panel_requested",
+        acpChatPublicationMetricLabels(kind, causality),
+      );
+    }
+  }
+  const kinds = resolveAcpChatPublicationKindsForChange(refreshState, change);
+  if (
+    kinds.length === 0 ||
+    !host.activeTarget ||
+    owner.key !== getActiveAcpChatOwnerKey()
+  ) {
+    if (profilingEnabled) {
+      for (const kind of requestedKinds) {
+        incrementAcpRuntimeMetric(
+          owner.key,
+          "panel_dropped_before_build",
+          acpChatPublicationMetricLabels(
+            kind,
+            kinds.length === 0 ? causality : "owner-mismatch",
+          ),
+        );
+      }
+    }
+    return;
+  }
+
+  const existing = host.pendingAcpChatPublication;
+  if (existing && existing.ownerKey === owner.key) {
+    for (const kind of kinds) existing.kinds.add(kind);
+  } else {
+    host.pendingAcpChatPublication = {
+      target: host.activeTarget,
+      ownerKey: owner.key,
+      kinds: new Set(kinds),
+    };
+  }
+  if (host.postSnapshotTimer) return;
+  host.postSnapshotTimer = setTimeout(() => {
+    host.postSnapshotTimer = null;
+    flushScheduledWorkspacePost(host);
+  }, 16);
 }
 
 async function postAcpChatPanelSnapshot(
@@ -1382,6 +1757,21 @@ async function postAcpChatPanelSnapshot(
     },
   );
   const profileRequestId = getActiveAcpChatOwnerKey();
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    incrementAcpRuntimeMetric(profileRequestId, "panel_requested", {
+      surfaceState:
+        host.activeTab === "acp-chat" ? "acp-active" : "open-inactive",
+      publicationKind: "baseline-status",
+      publicationCausality:
+        host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
+      publicationPhase: phase === "init" ? "initialization" : "steady-state",
+    });
+  }
   const prepareStartedAt =
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -1404,11 +1794,21 @@ async function postAcpChatPanelSnapshot(
       host.activeTab === "acp-chat" ? "acp-active" : "open-inactive";
     incrementAcpRuntimeMetric(profileRequestId, "panel_prepare", {
       surfaceState,
+      publicationKind: "baseline-status",
+      publicationCausality:
+        host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
+      publicationPhase: phase === "init" ? "initialization" : "steady-state",
     });
     observeAcpRuntimeDuration(
       profileRequestId,
       "panel_prepare_duration",
-      { surfaceState },
+      {
+        surfaceState,
+        publicationKind: "baseline-status",
+        publicationCausality:
+          host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
+        publicationPhase: phase === "init" ? "initialization" : "steady-state",
+      },
       readAcpRuntimePerformanceClockMs() - prepareStartedAt,
     );
   }
@@ -1438,36 +1838,7 @@ async function postAcpChatPanelSnapshot(
       summary: summarizeAcpChatPanelSnapshot(snapshot),
     },
   );
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    const signatureStartedAt = readAcpRuntimePerformanceClockMs();
-    const signatureSource = {
-      ...snapshot,
-      transcript: undefined,
-      transcriptPage: undefined,
-      transcriptRevision: undefined,
-      transcriptPageSignature: undefined,
-    };
-    const signature = JSON.stringify(signatureSource);
-    incrementAcpRuntimeMetric(profileRequestId, "panel_signature");
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_signature_bytes",
-      {},
-      new TextEncoder().encode(signature).byteLength,
-    );
-    observeAcpRuntimeDuration(
-      profileRequestId,
-      "panel_signature_duration",
-      {},
-      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
-    );
-  }
-  postChildSnapshot(host, "acp-chat", phase, snapshot);
+  return postChildSnapshot(host, "acp-chat", phase, snapshot);
 }
 
 function getActiveAcpChatOwnerKey() {
@@ -1496,7 +1867,11 @@ function queueAcpChatPageFirstSnapshot(
     return;
   }
   setTimeout(() => {
-    if (hosts.get(host.win) !== host || host.activeTarget !== target) {
+    if (
+      hosts.get(host.win) !== host ||
+      host.activeTarget !== target ||
+      host.activeTab !== "acp-chat"
+    ) {
       return;
     }
     if (getActiveAcpChatOwnerKey() !== ownerKey) {
@@ -1508,7 +1883,7 @@ function queueAcpChatPageFirstSnapshot(
       );
       return;
     }
-    void postAcpChatPanelSnapshot(host, target, phase, {
+    void postAcpChatPanelPublication(host, target, ownerKey, "transcript", {
       transcriptReadMode: "page-first",
     });
   }, 0);
@@ -1519,10 +1894,11 @@ async function postAcpChatLoadingFirstSnapshot(
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "snapshot",
 ) {
-  await postAcpChatPanelSnapshot(host, target, phase, {
+  const publicationId = await postAcpChatPanelSnapshot(host, target, phase, {
     transcriptReadMode: "loading-first",
   });
   queueAcpChatPageFirstSnapshot(host, target, "snapshot");
+  return publicationId;
 }
 
 function canonicalizeAcpSkillRunSummaryForSignature(
@@ -1620,6 +1996,33 @@ async function postAcpSkillRunSnapshot(
   );
   const selectedBeforeBuild = getSelectedAcpSkillRunRequestId();
   const profileRequestId = selectedBeforeBuild;
+  const skillPublicationLabels = {
+    surfaceState:
+      host.activeTab === "acp-skills"
+        ? ("acp-active" as const)
+        : ("open-inactive" as const),
+    publicationKind: "baseline-status" as const,
+    publicationCausality:
+      host.activeTab === "acp-skills"
+        ? ("matching-target" as const)
+        : ("opposite-active" as const),
+    publicationPhase:
+      phase === "init"
+        ? ("initialization" as const)
+        : ("steady-state" as const),
+  };
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    incrementAcpRuntimeMetric(
+      profileRequestId,
+      "panel_requested",
+      skillPublicationLabels,
+    );
+  }
   const prepareStartedAt =
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -1637,17 +2040,15 @@ async function postAcpSkillRunSnapshot(
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    incrementAcpRuntimeMetric(profileRequestId, "panel_prepare", {
-      surfaceState:
-        host.activeTab === "acp-skills" ? "acp-active" : "open-inactive",
-    });
+    incrementAcpRuntimeMetric(
+      profileRequestId,
+      "panel_prepare",
+      skillPublicationLabels,
+    );
     observeAcpRuntimeDuration(
       profileRequestId,
       "panel_prepare_duration",
-      {
-        surfaceState:
-          host.activeTab === "acp-skills" ? "acp-active" : "open-inactive",
-      },
+      skillPublicationLabels,
       readAcpRuntimePerformanceClockMs() - prepareStartedAt,
     );
   }
@@ -1703,17 +2104,21 @@ async function postAcpSkillRunSnapshot(
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    incrementAcpRuntimeMetric(profileRequestId, "panel_signature");
+    incrementAcpRuntimeMetric(
+      profileRequestId,
+      "panel_signature",
+      skillPublicationLabels,
+    );
     incrementAcpRuntimeMetric(
       profileRequestId,
       "panel_signature_bytes",
-      {},
+      skillPublicationLabels,
       new TextEncoder().encode(signature).byteLength,
     );
     observeAcpRuntimeDuration(
       profileRequestId,
       "panel_signature_duration",
-      {},
+      skillPublicationLabels,
       readAcpRuntimePerformanceClockMs() - signatureStartedAt,
     );
   }
@@ -1723,6 +2128,18 @@ async function postAcpSkillRunSnapshot(
     host.lastAcpSkillRunSnapshotSignature &&
     host.lastAcpSkillRunSnapshotSignature === signature
   ) {
+    if (
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      incrementAcpRuntimeMetric(
+        profileRequestId,
+        "panel_signature_skip",
+        skillPublicationLabels,
+      );
+    }
     logAssistantWorkspaceDebug(
       host,
       "acp-skills-snapshot-signature-skip",
@@ -1748,7 +2165,7 @@ async function postAcpSkillRunSnapshot(
       summary: summarizeChildSnapshot("acp-skills", payload),
     },
   );
-  postChildSnapshot(host, "acp-skills", phase, payload);
+  return postChildSnapshot(host, "acp-skills", phase, payload);
 }
 
 /**
@@ -1776,6 +2193,9 @@ function queueAcpSkillRunPageFirstSnapshot(
     return;
   }
   setTimeout(() => {
+    if (host.activeTab !== "acp-skills" || !host.activeTarget) {
+      return;
+    }
     if (getSelectedAcpSkillRunRequestId() !== selectedRequestId) {
       logAssistantWorkspaceDebug(
         host,
@@ -1849,7 +2269,15 @@ async function runAcpChatBackendRefreshBoundary(
       hosts.get(host.win) === host &&
       host.activeTarget === target
     ) {
-      void postAcpChatPanelSnapshot(host, target, "snapshot");
+      const ownerKey = getActiveAcpChatOwnerKey();
+      if (ownerKey && host.activeTab === "acp-chat") {
+        void postAcpChatPanelPublication(
+          host,
+          target,
+          ownerKey,
+          "baseline-status",
+        );
+      }
     }
   }
 }
@@ -1973,7 +2401,16 @@ function postSnapshotForTab(
       void postAcpChatLoadingFirstSnapshot(host, target, phase);
       return;
     }
-    void postAcpChatPanelSnapshot(host, target, phase);
+    const ownerKey = getActiveAcpChatOwnerKey();
+    if (ownerKey) {
+      void postAcpChatPanelPublication(
+        host,
+        target,
+        ownerKey,
+        "baseline-status",
+      );
+      void postAcpChatPanelPublication(host, target, ownerKey, "transcript");
+    }
     return;
   }
   if (tab === "acp-skills") {
@@ -2082,16 +2519,27 @@ function publishAssistantWorkspaceStatePulse(
   return true;
 }
 
-function postAllSnapshots(host: AssistantWorkspaceHostRuntime) {
-  publishAssistantWorkspaceStatePulse(
-    host,
-    "store-change",
-    undefined,
-    "snapshot",
-  );
+function flushScheduledWorkspacePost(host: AssistantWorkspaceHostRuntime) {
+  const chat = host.pendingAcpChatPublication;
+  host.pendingAcpChatPublication = undefined;
+  if (chat) {
+    for (const kind of chat.kinds) {
+      void postAcpChatPanelPublication(host, chat.target, chat.ownerKey, kind, {
+        requestRecorded: true,
+      });
+    }
+    return;
+  }
+  const tab = host.pendingSnapshotTab;
+  host.pendingSnapshotTab = undefined;
+  if (!tab || host.activeTab !== tab || !host.activeTarget) return;
+  postSnapshotForTab(host, host.activeTarget, tab, "snapshot");
 }
 
-function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
+function schedulePostSnapshot(
+  host: AssistantWorkspaceHostRuntime,
+  tab: AssistantWorkspaceTab = host.activeTab,
+) {
   if (host.postSnapshotTimer) {
     logAssistantWorkspaceDebug(
       host,
@@ -2100,6 +2548,7 @@ function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
     );
     return;
   }
+  host.pendingSnapshotTab = tab;
   logAssistantWorkspaceDebug(
     host,
     "snapshot-post-scheduled",
@@ -2112,7 +2561,7 @@ function schedulePostSnapshot(host: AssistantWorkspaceHostRuntime) {
       "snapshot-post-fired",
       "Assistant Workspace scheduled snapshot post fired.",
     );
-    postAllSnapshots(host);
+    flushScheduledWorkspacePost(host);
   }, 16);
 }
 
@@ -2205,7 +2654,7 @@ export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
             "snapshot-post-fired",
             "Assistant Workspace scheduled snapshot post fired.",
           );
-          postAllSnapshots(host);
+          flushScheduledWorkspacePost(host);
           return true;
         },
         resumeNative: (remainingMs) => {
@@ -2223,7 +2672,7 @@ export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
                 "snapshot-post-fired",
                 "Assistant Workspace scheduled snapshot post fired.",
               );
-              postAllSnapshots(host);
+              flushScheduledWorkspacePost(host);
             },
             Math.max(0, remainingMs),
           );
@@ -2355,6 +2804,10 @@ async function handleAssistantWorkspaceMessage(
     action === "ready" &&
     host.readyTabs.has(tab);
   try {
+    if (data.type === "assistant-workspace:publication-ack") {
+      recordWorkspacePublicationAck(host, actionPayload);
+      return { ok: true, actionId };
+    }
     if (data.type === "assistant-workspace:action") {
       await handleShellAction(host, target, data.payload || {});
       if (!duplicateShellReady) {
@@ -2600,6 +3053,10 @@ async function handleChildAction(
       payloadKeys: Object.keys(childPayload),
     },
   );
+  if (action === "publication-ack") {
+    recordWorkspacePublicationAck(host, childPayload);
+    return;
+  }
   if (action === "ready") {
     if (host.readyTabs.has(tab)) {
       logAssistantWorkspaceDebug(
@@ -2696,9 +3153,13 @@ async function handleChildAction(
         );
         return;
       }
-      await postAcpChatPanelSnapshot(host, target, "snapshot", {
-        transcriptPage,
-      });
+      await postAcpChatPanelPublication(
+        host,
+        target,
+        getActiveAcpChatOwnerKey(),
+        "transcript",
+        { transcriptPage },
+      );
       return;
     }
     if (
@@ -2712,7 +3173,67 @@ async function handleChildAction(
     }
   }
   await handleAcpChatAction(host, target, action, childPayload);
-  await postAcpChatPanelSnapshot(host, target);
+  const ownerKey = getActiveAcpChatOwnerKey();
+  if (ownerKey) {
+    await postAcpChatPanelPublication(
+      host,
+      target,
+      ownerKey,
+      "baseline-status",
+      { force: true },
+    );
+  }
+}
+
+function recordWorkspacePublicationAck(
+  host: AssistantWorkspaceHostRuntime,
+  payload: Record<string, unknown>,
+) {
+  const ack = payload as unknown as WorkspacePublicationAck;
+  const publicationId = String(ack.publicationId || "").trim();
+  const lifecycle = host.publicationLifecycles.get(publicationId);
+  const acknowledgementKey = [ack.stage, ack.outcome, ack.reason || ""].join(
+    ":",
+  );
+  if (!lifecycle || lifecycle.acknowledgements.has(acknowledgementKey)) return;
+  lifecycle.acknowledgements.add(acknowledgementKey);
+  if (ack.outcome === "rejected" && lifecycle.state === "pending") {
+    lifecycle.state = "rejected";
+    lifecycle.reason = String(ack.reason || "unknown");
+  } else if (ack.stage === "render-complete" && ack.outcome === "applied") {
+    lifecycle.state = "render-complete";
+  }
+  trimWorkspacePublicationLifecycles(host);
+
+  if (
+    !__acp_runtime_performance_profiler_enabled__ ||
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    return;
+  }
+  const ownerKey = String(ack.ownerKey || "").trim();
+  if (!ownerKey || ack.outcome !== "applied") return;
+  const labels = {
+    ...acpChatPublicationMetricLabels(
+      ack.kind,
+      "matching-target",
+      ack.initialization ? "initialization" : "steady-state",
+    ),
+    publicationId,
+  };
+  if (ack.stage === "shell-forward") {
+    incrementAcpRuntimeMetric(ownerKey, "panel_shell_forward", labels);
+    return;
+  }
+  if (ack.stage === "child-apply") {
+    incrementAcpRuntimeMetric(ownerKey, "panel_child_apply", labels);
+    return;
+  }
+  if (ack.stage === "render-complete") {
+    incrementAcpRuntimeMetric(ownerKey, "panel_render_ack", labels);
+  }
 }
 
 async function handleAcpSkillRunAction(
@@ -3419,6 +3940,10 @@ export function installAssistantWorkspaceSidebarShell(
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
+    acpChatPublicationSignatures: new Map<string, string>(),
+    acpChatPublicationRevisions: new Map<string, number>(),
+    publicationSeq: 0,
+    publicationLifecycles: new Map(),
     publishedWorkspaceInitScopeKey: null,
     publishedChildInitScopeKeys: new Set<string>(),
     streamingRenderPreferenceInitialized: false,
@@ -3459,20 +3984,7 @@ export function installAssistantWorkspaceSidebarShell(
         host.acpChatBackendRefreshRepostQueued = true;
         return;
       }
-      if (
-        shouldRefreshAcpChatSnapshotForChange(
-          {
-            activeTab: host.activeTab,
-            hasActiveTarget: !!host.activeTarget,
-            transcriptPaginationVirtualizationEnabled:
-              isAssistantTranscriptPaginationVirtualizationEnabled(),
-            executionDisplayMode: getAssistantExecutionDisplayMode(),
-          },
-          change,
-        )
-      ) {
-        schedulePostSnapshot(host);
-      }
+      scheduleAcpChatPublications(host, change);
     },
   );
   host.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(
@@ -3483,7 +3995,7 @@ export function installAssistantWorkspaceSidebarShell(
         updateAssistantAttentionIndicator(host);
       }
       if (shouldRefreshAcpSkillRunSnapshotForChange(host, change)) {
-        schedulePostSnapshot(host);
+        schedulePostSnapshot(host, "acp-skills");
       }
     },
   );
@@ -3512,6 +4024,19 @@ export function installAssistantWorkspaceSidebarShell(
       if (host.activeTab === "skillrunner" && host.activeTarget) {
         scheduleSkillRunnerSidebarRefresh(host, host.activeTarget, {
           selectionChanged: false,
+        });
+        return;
+      }
+      if (host.activeTab === "acp-chat" && host.activeTarget) {
+        const [backendId, conversationId] = getActiveAcpChatOwnerKey().split(
+          "\n",
+          2,
+        );
+        scheduleAcpChatPublications(host, {
+          backendId,
+          conversationId,
+          active: true,
+          kinds: ["runtime-options", "transcript-boundary"],
         });
         return;
       }
@@ -3678,7 +4203,7 @@ export function inspectAssistantWorkspaceDiagnosticsPublication(
   if (!host) {
     return {
       childWindow: null,
-      revision: 0,
+      publications: [],
       detail: "workspace-host-not-ready",
     };
   }
@@ -3690,8 +4215,13 @@ export function inspectAssistantWorkspaceDiagnosticsPublication(
   const childWindow = resolveSidebarFrameWindow(childFrame || null);
   return {
     childWindow,
-    publisherWindow: shellWindow,
-    revision: host.snapshotRevision,
+    publications: [...host.publicationLifecycles.values()]
+      .filter((entry) => entry.tab === args.tab)
+      .map(({ publicationId, state, reason }) => ({
+        publicationId,
+        state,
+        ...(reason ? { reason } : {}),
+      })),
     detail: detail || (childWindow ? "" : "workspace-child-not-ready"),
   };
 }
@@ -3716,13 +4246,33 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
     throw new Error("workspace-target-not-ready");
   }
   if (args.tab === "acp-chat") {
-    await postAcpChatPanelSnapshot(host, activeTarget, "snapshot");
+    const ownerKey = getActiveAcpChatOwnerKey();
+    if (!ownerKey) {
+      const publicationId = await postAcpChatLoadingFirstSnapshot(
+        host,
+        activeTarget,
+        "snapshot",
+      );
+      return publicationId ? { publicationId } : undefined;
+    }
+    const publicationId = await postAcpChatPanelPublication(
+      host,
+      activeTarget,
+      ownerKey,
+      "transcript",
+      { force: true },
+    );
+    return publicationId ? { publicationId } : undefined;
   } else if (args.tab === "acp-skills") {
-    await postAcpSkillRunSnapshot(host, "snapshot", { force: true });
+    const publicationId = await postAcpSkillRunSnapshot(host, "snapshot", {
+      force: true,
+    });
+    return publicationId ? { publicationId } : undefined;
   } else {
     postSnapshotForTab(host, activeTarget, args.tab, "snapshot", {
       force: true,
     });
+    return undefined;
   }
 }
 

@@ -235,6 +235,8 @@ async function exerciseR3ProductionSeam(
     snapshotRevision: 0,
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
+    publicationSeq: 0,
+    publicationLifecycles: new Map(),
     acpChatBackendRefreshInFlight: false,
     acpChatBackendRefreshRepostQueued: false,
     shell: {

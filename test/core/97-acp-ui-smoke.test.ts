@@ -296,6 +296,7 @@ async function loadAcpSkillRunSidebarForSmoke(
     panelModel?: any;
     panelRenderer?: any;
     useActualTranscriptRenderer?: boolean;
+    deferAnimationFrame?: boolean;
   } = {},
 ) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
@@ -312,12 +313,17 @@ async function loadAcpSkillRunSidebarForSmoke(
     document.addEventListener = () => undefined;
   }
   const bridgeKey = "__zsAcpSkillRunSidebarBridge";
+  const animationFrames: Array<() => void> = [];
   const windowRef: any = {
     parent: null,
     top: null,
     opener: null,
     wrappedJSObject: null,
     requestAnimationFrame(callback: any) {
+      if (options.deferAnimationFrame) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      }
       callback();
       return 0;
     },
@@ -380,6 +386,9 @@ async function loadAcpSkillRunSidebarForSmoke(
   vm.runInNewContext(code, context);
   return {
     actions,
+    flushAnimationFrames() {
+      while (animationFrames.length > 0) animationFrames.shift()?.();
+    },
     postMessage(data: Record<string, unknown>) {
       for (const handler of listeners.get("message") || []) {
         handler({ data });
@@ -521,6 +530,16 @@ async function loadAcpChatSidebarForSmoke(document: any) {
           data: {
             type: "acp:snapshot",
             payload: snapshot,
+          },
+        });
+      }
+    },
+    postPublication(publication: Record<string, unknown>) {
+      for (const handler of listeners.get("message") || []) {
+        handler({
+          data: {
+            type: "acp:publication",
+            payload: publication,
           },
         });
       }
@@ -3704,7 +3723,8 @@ describe("acp ui smoke", function () {
       'commitAssistantWorkspaceTarget(host, "reader");',
     );
     assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
-    assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
+    assert.include(assistantSidebar, "resolveAcpChatPublicationKindsForChange");
+    assert.include(assistantSidebar, "scheduleAcpChatPublications");
     assert.include(
       assistantSidebar,
       "void postAcpChatLoadingFirstSnapshot(host, target, phase);",
@@ -3870,7 +3890,7 @@ describe("acp ui smoke", function () {
     );
     const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
     assert.include(chatBranch, 'action === "load-transcript-page"');
-    assert.include(chatBranch, "postAcpChatPanelSnapshot");
+    assert.include(chatBranch, "postAcpChatPanelPublication");
     assert.include(chatBranch, "postAcpChatLoadingFirstSnapshot");
     assert.notInclude(chatBranch, "refreshAcpConversationBackends");
 
@@ -3885,7 +3905,7 @@ describe("acp ui smoke", function () {
       ordinaryPostStart,
       ordinaryPostEnd,
     );
-    assert.include(ordinaryPost, "postAcpChatPanelSnapshot");
+    assert.include(ordinaryPost, "postAcpChatPanelPublication");
     assert.include(ordinaryPost, "postAcpChatLoadingFirstSnapshot");
     assert.notInclude(ordinaryPost, "refreshAcpConversationBackends");
     assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
@@ -4064,7 +4084,7 @@ describe("acp ui smoke", function () {
       "function publishAssistantWorkspaceStatePulse",
     );
     const pulseEnd = assistantSidebar.indexOf(
-      "function postAllSnapshots",
+      "function flushScheduledWorkspacePost",
       pulseStart,
     );
     const pulseBody = assistantSidebar.slice(pulseStart, pulseEnd);
@@ -4390,6 +4410,59 @@ describe("acp ui smoke", function () {
     );
   });
 
+  it("forwards typed publications without replacing the cached child snapshot", async function () {
+    const bridgeCalls: any[] = [];
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage(type: string, payload: Record<string, unknown>) {
+          bridgeCalls.push({ type, payload });
+          return Promise.resolve({ ok: true });
+        },
+      },
+    });
+    const child = shell.elements.get("assistant-frame-acp-chat").contentWindow;
+    const publication = {
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      id: "publication-shell-1",
+      tab: "acp-chat",
+      kind: "transcript",
+      owner: {
+        source: "acp-chat",
+        key: "backend-a\nconversation-a",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+      },
+      revision: 1,
+      signature: "transcript-1",
+      initialization: false,
+      dto: { transcriptRevision: 1 },
+    };
+
+    shell.dispatchWindowMessage("assistant-workspace:child-publication", {
+      tab: "acp-chat",
+      publication,
+    });
+    await flushMicrotasks();
+
+    assert.deepInclude(child.messages.at(-1), {
+      type: "acp:publication",
+      payload: publication,
+    });
+    const ackStages = bridgeCalls
+      .filter((entry) => entry.type === "assistant-workspace:publication-ack")
+      .map((entry) => entry.payload.stage);
+    assert.includeMembers(ackStages, ["shell-receive", "shell-forward"]);
+    assert.isFalse(
+      shell
+        .trace()
+        .some(
+          (entry: any) =>
+            entry.stage === "cache-child-payload" &&
+            entry.publicationId === "publication-shell-1",
+        ),
+    );
+  });
+
   it("replays cached Assistant Workspace child payloads when the child frame becomes available", async function () {
     const bridgeCalls: any[] = [];
     const shell = await loadAssistantWorkspaceShellForSmoke({
@@ -4462,6 +4535,61 @@ describe("acp ui smoke", function () {
         .classList.contains("hidden"),
       "successful replay should clear active tab loading",
     );
+  });
+
+  it("rejects an identified cached snapshot when a newer generation supersedes it", async function () {
+    const bridgeCalls: any[] = [];
+    const timers = createManualTimers();
+    const shell = await loadAssistantWorkspaceShellForSmoke({
+      hostBridge: {
+        postMessage(type: string, payload: Record<string, unknown>) {
+          bridgeCalls.push({ type, payload });
+          return Promise.resolve({ ok: true });
+        },
+      },
+      childWindows: { "acp-chat": null },
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+    });
+    const snapshot = (revision: number) => ({
+      sidebar: {
+        scopeKey: "scope-a",
+        activeTab: "acp-chat",
+        panes: { "acp-chat": { revision } },
+      },
+      activeBackendId: "backend-a",
+      activeConversationId: "conversation-a",
+      workspacePublication: {
+        id: `publication-${revision}`,
+        tab: "acp-chat",
+        kind: "baseline-status",
+        owner: { key: "backend-a\nconversation-a" },
+        revision,
+        signature: `snapshot-${revision}`,
+        initialization: false,
+      },
+    });
+
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "acp-chat",
+      phase: "init",
+      snapshot: snapshot(1),
+    });
+    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
+      tab: "acp-chat",
+      phase: "snapshot",
+      snapshot: snapshot(2),
+    });
+    await flushMicrotasks();
+
+    const superseded = bridgeCalls.find(
+      (entry) =>
+        entry.type === "assistant-workspace:publication-ack" &&
+        entry.payload.publicationId === "publication-1" &&
+        entry.payload.outcome === "rejected",
+    );
+    assert.equal(superseded?.payload.stage, "shell-forward");
+    assert.equal(superseded?.payload.reason, "superseded");
   });
 
   it("delivers an available SkillRunner child snapshot once per cached generation", async function () {
@@ -8968,6 +9096,96 @@ describe("acp ui smoke", function () {
     assert.isAbove(sidebar.counterRenderCalls.length, initialRenderCount);
   });
 
+  it("applies ACP Chat count publications without rendering panel or transcript", async function () {
+    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
+    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
+    const snapshot = {
+      activeBackendId: "backend-a",
+      backendId: "backend-a",
+      activeConversationId: "conversation-a",
+      conversationId: "conversation-a",
+      status: "prompting",
+      busy: true,
+      items: [],
+      labels: {},
+      messageCounts: {
+        scopeKey: "backend-a\nconversation-a",
+        active: true,
+        current: { assistant: 0, thought: 0, tool: 0 },
+        cumulative: { assistant: 0, thought: 0, tool: 0 },
+        completeness: "complete",
+        revision: 1,
+      },
+    };
+    sidebar.postSnapshot(snapshot);
+    const panelRenderCount = sidebar.panelRenderCalls.length;
+    const transcriptRenderCount = sidebar.transcriptRenderCalls.length;
+    const counterRenderCount = sidebar.counterRenderCalls.length;
+
+    sidebar.postPublication({
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      id: "publication-1",
+      tab: "acp-chat",
+      kind: "message-counts",
+      owner: {
+        source: "acp-chat",
+        key: "backend-a\nconversation-a",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+      },
+      revision: 1,
+      signature: "counts-2",
+      initialization: false,
+      dto: {
+        messageCounts: {
+          ...snapshot.messageCounts,
+          current: { assistant: 1, thought: 0, tool: 0 },
+          cumulative: { assistant: 1, thought: 0, tool: 0 },
+          revision: 2,
+        },
+      },
+    });
+
+    assert.isAbove(sidebar.counterRenderCalls.length, counterRenderCount);
+    assert.equal(sidebar.panelRenderCalls.length, panelRenderCount);
+    assert.equal(sidebar.transcriptRenderCalls.length, transcriptRenderCount);
+    const renderAck = sidebar.actions.find(
+      (entry) =>
+        entry.action === "publication-ack" &&
+        entry.payload.stage === "render-complete",
+    );
+    assert.equal(renderAck?.payload.publicationId, "publication-1");
+    assert.equal(renderAck?.payload.kind, "message-counts");
+    assert.equal(renderAck?.payload.ownerKey, "backend-a\nconversation-a");
+    assert.equal(renderAck?.payload.revision, 1);
+    assert.equal(renderAck?.payload.signature, "counts-2");
+    assert.equal(renderAck?.payload.outcome, "applied");
+
+    const renderedCounterCount = sidebar.counterRenderCalls.length;
+    sidebar.postPublication({
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      id: "publication-stale",
+      tab: "acp-chat",
+      kind: "message-counts",
+      owner: {
+        source: "acp-chat",
+        key: "backend-a\nconversation-a",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+      },
+      revision: 0,
+      signature: "counts-stale",
+      initialization: false,
+      dto: { messageCounts: snapshot.messageCounts },
+    });
+    assert.equal(sidebar.counterRenderCalls.length, renderedCounterCount);
+    const staleAck = sidebar.actions.at(-1)?.payload;
+    assert.equal(staleAck?.publicationId, "publication-stale");
+    assert.equal(staleAck?.stage, "child-apply");
+    assert.equal(staleAck?.outcome, "rejected");
+    assert.equal(staleAck?.reason, "stale-revision");
+  });
+
   it("delivers ACP Skills count-only snapshots to the shared region guards", async function () {
     const harness = createAcpSkillRunSidebarHarnessDocument();
     const panelRenderCalls: any[] = [];
@@ -9018,6 +9236,48 @@ describe("acp ui smoke", function () {
     });
 
     assert.isAbove(counterRenderCalls.length, initialRenderCount);
+  });
+
+  it("acknowledges every queued ACP Skills snapshot in the same animation frame", async function () {
+    const harness = createAcpSkillRunSidebarHarnessDocument();
+    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
+      deferAnimationFrame: true,
+    });
+    const snapshot = (revision: number) => ({
+      sidebar: {
+        scopeKey: "scope-a",
+        panes: { "acp-skills": { revision } },
+      },
+      selectedRequestId: "run-a",
+      selectedRun: { requestId: "run-a", status: "running" },
+      runs: [],
+      labels: {},
+      workspacePublication: {
+        id: `publication-${revision}`,
+        tab: "acp-skills",
+        kind: "baseline-status",
+        owner: { key: "run-a" },
+        revision,
+        signature: `snapshot-${revision}`,
+        initialization: false,
+      },
+    });
+
+    sidebar.postSnapshot(snapshot(1));
+    sidebar.postSnapshot(snapshot(2));
+    sidebar.flushAnimationFrames();
+
+    const renderedPublicationIds = sidebar.actions
+      .filter(
+        (entry) =>
+          entry.action === "publication-ack" &&
+          entry.payload.stage === "render-complete",
+      )
+      .map((entry) => entry.payload.publicationId);
+    assert.deepEqual(renderedPublicationIds, [
+      "publication-1",
+      "publication-2",
+    ]);
   });
 
   it("renders the Assistant transcript role through shared localization", async function () {

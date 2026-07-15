@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -21,6 +21,38 @@
 - **待实测**：需要 profiler、埋点、队列深度或真实数据规模才能确定影响。
 
 2026-07-12 的审计采集本身没有修改代码，也没有运行测试或性能基准。2026-07-13 的后续 change `profile-acp-runtime-hot-paths` 实现了 debug-only profiler 与 R1/R2/R3 埋点；change `capture-acp-runtime-governance-baselines` 又把直接 recorder 模拟替换为 production-seam 自动化基线，并增加实际 Zotero 宿主采集机制；change `matrix-acp-runtime-governance-baselines` 将自动化记录扩展为 closed、open-inactive、acp-active 三个 surface 的固定矩阵。本文相应章节已按当前实现更新。
+
+### 1.1 2026-07-15 R3 区域发布治理更新
+
+OpenSpec change `govern-acp-workspace-region-publications` 仅治理 R3，不包含 R1 diagnostic/persistence 或 R2 Host socket reader。治理基线使用 ACP Chat `displayMode=live` trace，不是 silent replay；本文文件名保留原审计主题，不代表新增 replay 的展示模式。
+
+同一份 Zotero 9 logical matrix 的 provenance 为：
+
+- trace：`acp-trace-chat-2026-07-15T10-41-23-627Z-1.ndjson`
+- digest：`3574453d612938112bd3cb257e89a53037ea84548afb3c1b980327b3b781a78b`
+- source：`acp-chat-conversation`
+- cadence：`logical`
+- stage：`pre-governance`
+- plugin/Zotero：`0.6.1` / `9.0.4`
+
+两个 target-active formal run 都记录了 109 次 `panel_prepare`、109 次 `panel_signature` 和 109 次 `panel_post`，`panel_signature_bytes` 都是 6,265,747。prepare duration 分别为 `count=109, totalMs=3384, maxMs=63` 与 `count=109, totalMs=4399, maxMs=144`；signature duration 分别为 `109/53/9` 与 `109/38/1`；post duration 分别为 `109/26/1` 与 `109/24/1`。这些 duration 来自 logical cadence，只能用于机制诊断，不能解释为真实 Zotero 卡顿时间。
+
+旧 profiler 的 `panel_signature_bytes` 来自额外构造的 full-snapshot signature input，且错误排除了 `transcriptPage` 而没有排除真实字段 `selectedTranscriptPage`。旧 matrix 没有记录实际 posted envelope bytes、shell forward、child apply 或 render acknowledgement。因此 109 次生命周期计数是可信的旧行为证据，但“corrected pre-governance actual posted bytes”在现有 artifact 中不可恢复；按新覆盖规则，该 bytes/ack 基线必须标记为 `measurement incomplete`，不能把 6,265,747 bytes 改称实际 payload。
+
+当前实现把数据流改为：
+
+```text
+domain change → source/owner guard → region DTO → region signature guard
+→ shell forward → child region apply → render acknowledgement
+```
+
+ACP Chat message-counts 直接构建 bounded DTO；baseline/chrome DTO 不含 selected transcript page、transcript revision/loading/streaming/event count 或 message-count revision；transcript-only publication 只调用 transcript renderer，message-count-only publication 只调用 shared message-counter managed region。shell 不缓存或合并 region publication，Chat/Skills child 按 owner 和 publication revision 拒绝旧数据。R3 profiler 现分别记录 requested、dropped-before-build、prepare、signature-skip、post、actual posted bytes、shell-forward、child-apply 与 render-ack，并保留 publication kind、causality 和 initialization/steady-state 标签。
+
+Node 测试验证了调用边界、bytes 归属、ack 完整性和 DOM identity。`npm run test:zotero:ui -- --no-watch` 又在当前 Zotero 9.0.4 宿主通过 4 个 UI lite 用例，其中包括 production Chat target-active 的完整 R3 publication lifecycle，以及 Chat/Skills 真实嵌套 Workspace frame 的发布确认。这是机制验收，不是相同 provenance 的治理后性能矩阵，也不构成真实宿主延迟改善声明。
+
+后续旧 Skills trace 回放暴露了 measurement window 竞态：warm-up 出现 `post=8, shell=8, child=7, render=7`，而相邻 formal 轮又出现 `child/render=9` 或 `shell=9`。这证明旧 drain 以 child delivery revision 加一个 animation frame 结束时，最后的异步 host acknowledgement 可能跨轮计数；聚合 `ack >= post` 还会让迟到 acknowledgement 掩盖 identity 缺口。当前实现改为由 host 维护有界 publication lifecycle ledger，强制诊断发布返回准确 ID，drain 等待该 ID 的 `render-complete applied` 以及同 tab 较早 pending publication 收敛；Replay 按 ID 集合匹配 post、shell-forward、child-apply、render-ack。shell cache 中被新 generation 取代的 identified snapshot 会获得显式 `superseded` 终态，owner-first 期间的瞬时 `old-owner` probe 会单飞重试；Chat/Skills child 同一 frame 前收到的 identified snapshots 也按序 apply/ack，不再被单槽 pending snapshot 静默覆盖。旧报告中的 formal `captured` 因而不再作为 R3 完整性证据，必须用修复后的矩阵重采。
+
+相同 provenance 的治理后 live Chat matrix、Zotero 7 formal run，以及 Zotero 9 recorded-cadence formal run 仍未生成；在这些结果产生前，只能确认 R3 区域发布实现与当前 Zotero 9 机制验收完成，不能声明 baseline 次数、实际 posted bytes 或 `>100ms` drift bucket 已在正式 before/after 矩阵中改善。R1、R2 风险保持本文原结论，未在本 change 中顺带修改。
 
 ## 2. 总结结论
 

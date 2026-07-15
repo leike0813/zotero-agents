@@ -40,6 +40,12 @@ describe("ACP silent runtime performance baseline", function () {
       assert.equal(baseline.record.capture.surfaceState, baseline.surfaceState);
       assert.equal(baseline.record.capture.measurement, "mechanism");
       assert.notProperty(baseline.record, "profilerSnapshot");
+      const persistedDuration = baseline.record.summary.groups
+        .find((group) => group.key === "R1")!
+        .metrics.find((entry) => entry.name === "run_persist_duration");
+      assert.equal(persistedDuration?.durationCount, 51);
+      assert.isAtLeast(persistedDuration?.durationTotalMs || 0, 0);
+      assert.isAtLeast(persistedDuration?.durationMaxMs || 0, 0);
     }
 
     const bySurface = new Map(
@@ -58,6 +64,7 @@ describe("ACP silent runtime performance baseline", function () {
     });
     assert.deepEqual(r3("closed").metrics, []);
     for (const surface of ["open-inactive", "acp-active"] as const) {
+      const profile = bySurface.get(surface)!.snapshot.completed[0];
       assert.equal(
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
           ?.counter,
@@ -67,6 +74,29 @@ describe("ACP silent runtime performance baseline", function () {
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
           ?.labels.surfaceState,
         surface,
+      );
+      assert.isAbove(
+        r3(surface).metrics.find((metric) => metric.name === "panel_post_bytes")
+          ?.bytes || 0,
+        0,
+      );
+      assert.lengthOf(
+        profile.metrics.filter((metric) => metric.name === "panel_post"),
+        1,
+        "publication identity must not create high-cardinality metric series",
+      );
+      assert.notProperty(
+        profile.metrics.find((metric) => metric.name === "panel_post")!.labels,
+        "publicationId",
+      );
+      assert.deepEqual(
+        profile.publicationLifecycles?.map((entry) => ({
+          post: entry.post,
+          shellForward: entry.shellForward,
+          childApply: entry.childApply,
+          renderAck: entry.renderAck,
+        })),
+        [{ post: 1, shellForward: 0, childApply: 0, renderAck: 0 }],
       );
     }
   });

@@ -39,6 +39,8 @@ export type AcpRuntimeGovernanceMetricSummary = {
   gaugeCurrent?: number;
   gaugeMax?: number;
   durationCount?: number;
+  durationTotalMs?: number;
+  durationMaxMs?: number;
 };
 
 export type AcpRuntimeGovernanceGroupSummary = {
@@ -106,15 +108,22 @@ export const ACP_RUNTIME_METRIC_RISK_GROUP: Readonly<
   host_request_duration: "R2",
   host_response_bytes: "R2",
   panel_prepare: "R3",
+  panel_requested: "R3",
+  panel_dropped_before_build: "R3",
   panel_prepare_duration: "R3",
   transcript_page_read: "R3",
   transcript_page_scan_items: "R3",
   transcript_page_read_duration: "R3",
   panel_signature: "R3",
+  panel_signature_skip: "R3",
   panel_signature_bytes: "R3",
   panel_signature_duration: "R3",
   panel_post: "R3",
+  panel_post_bytes: "R3",
   panel_post_duration: "R3",
+  panel_shell_forward: "R3",
+  panel_child_apply: "R3",
+  panel_render_ack: "R3",
   transport_queue_entries: "R1",
   transport_queue_bytes: "R1",
   transport_message_queue_entries: "R1",
@@ -136,6 +145,7 @@ const BYTE_METRICS = new Set<AcpRuntimeMetricName>([
   "host_input_bytes",
   "host_response_bytes",
   "panel_signature_bytes",
+  "panel_post_bytes",
   "transport_queue_bytes",
   "assistant_accumulator_bytes",
   "buffered_write_bytes",
@@ -212,6 +222,11 @@ function sanitizeLabels(labels: AcpRuntimeMetricLabels) {
     "surfaceState",
     "operationClass",
     "persistenceChannel",
+    "semanticKind",
+    "disposition",
+    "publicationKind",
+    "publicationCausality",
+    "publicationPhase",
   ] as const) {
     const value = labels[key];
     if (value) {
@@ -298,7 +313,7 @@ function sanitizeSnapshot(
 }
 
 function metricKey(metric: Pick<AcpRuntimeMetricSnapshot, "name" | "labels">) {
-  return `${metric.name}|${Object.entries(metric.labels)
+  return `${metric.name}|${Object.entries(sanitizeLabels(metric.labels))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join("|")}`;
@@ -328,6 +343,12 @@ export function summarizeAcpRuntimePerformanceSnapshot(
       if (metric.duration) {
         existing.durationCount =
           (existing.durationCount || 0) + metric.duration.count;
+        existing.durationTotalMs =
+          (existing.durationTotalMs || 0) + metric.duration.totalMs;
+        existing.durationMaxMs = Math.max(
+          existing.durationMaxMs || 0,
+          metric.duration.maxMs,
+        );
       }
       if (metric.gauge) {
         existing.gaugeCurrent = metric.gauge.current;

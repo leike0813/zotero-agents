@@ -145,6 +145,18 @@ describe("ACP runtime replay controller", function () {
           zoteroMajor: 9 as const,
           startedAtMs: 1,
           finishedAtMs: 2,
+          publicationLifecycles:
+            active?.surface === "target-active"
+              ? [
+                  {
+                    publicationId: "publication-1",
+                    post: 1,
+                    shellForward: 1,
+                    childApply: 1,
+                    renderAck: 1,
+                  },
+                ]
+              : [],
           metrics: [
             {
               name: "semantic_event" as const,
@@ -173,8 +185,23 @@ describe("ACP runtime replay controller", function () {
             },
             ...(active?.surface === "target-active"
               ? (
-                  ["panel_prepare", "panel_signature", "panel_post"] as const
-                ).map((name) => ({ name, labels: {}, counter: { total: 1 } }))
+                  [
+                    "panel_prepare",
+                    "panel_signature",
+                    "panel_post",
+                    "panel_shell_forward",
+                    "panel_child_apply",
+                    "panel_render_ack",
+                  ] as const
+                ).map((name) => ({
+                  name,
+                  labels:
+                    name.startsWith("panel_") &&
+                    !["panel_prepare", "panel_signature"].includes(name)
+                      ? { publicationId: "publication-1" }
+                      : {},
+                  counter: { total: 1 },
+                }))
               : []),
           ],
         }),

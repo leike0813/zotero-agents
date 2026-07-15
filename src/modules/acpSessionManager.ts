@@ -145,6 +145,10 @@ export type AcpChatPanelSnapshotChangeKind =
   | "transcript-boundary"
   | "transcript-append"
   | "transcript-progress"
+  | "message-counts"
+  | "plan"
+  | "reply-hint"
+  | "context-details"
   | "runtime-options"
   | "backend"
   | "global";
@@ -178,6 +182,7 @@ export type AcpChatSessionRuntime = {
   uiTranscriptRevision: number;
   uiHasUnpublishedTranscript: boolean;
   uiPendingPublishMode: AcpUiPublishMode | null;
+  uiPendingChangeKinds: Set<AcpChatPanelSnapshotChangeKind>;
   unsubscribeUpdate: (() => void) | null;
   unsubscribeClose: (() => void) | null;
   unsubscribeDiagnostics: (() => void) | null;
@@ -234,6 +239,7 @@ type AcpEmitOptions = {
   uiReason?: AssistantWorkspacePublishReason;
   publishTranscript?: boolean;
   publishMode?: AcpUiPublishMode;
+  changeKinds?: AcpChatPanelSnapshotChangeKind[];
 };
 
 let adapterFactory: (
@@ -578,6 +584,7 @@ function getOrCreateSessionRuntime(
     uiTranscriptRevision: 0,
     uiHasUnpublishedTranscript: false,
     uiPendingPublishMode: null,
+    uiPendingChangeKinds: new Set<AcpChatPanelSnapshotChangeKind>(),
     unsubscribeUpdate: null,
     unsubscribeClose: null,
     unsubscribeDiagnostics: null,
@@ -785,7 +792,11 @@ function resolveAcpChatPanelChangeKindsForPublish(
   reason: AssistantWorkspacePublishReason,
   publishMode: AcpUiPublishMode,
   sessionRuntime: AcpChatSessionRuntime,
+  explicitKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
 ): AcpChatPanelSnapshotChangeKind[] {
+  if (explicitKinds.length > 0) {
+    return Array.from(new Set(explicitKinds));
+  }
   if (publishMode === "metadata") {
     if (sessionRuntime.snapshot.pendingPermissionRequest) {
       return ["permission"];
@@ -1151,6 +1162,17 @@ function notifyFrontendListenersNow(change?: AcpChatPanelSnapshotChange) {
   notifyAcpChatPanelSnapshotListeners(change);
 }
 
+function consumePendingAcpChatPanelChangeKinds(
+  sessionRuntime: AcpChatSessionRuntime,
+  additional: readonly AcpChatPanelSnapshotChangeKind[] = [],
+) {
+  const kinds = Array.from(
+    new Set([...sessionRuntime.uiPendingChangeKinds, ...additional]),
+  );
+  sessionRuntime.uiPendingChangeKinds.clear();
+  return kinds;
+}
+
 function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
   if (sessionRuntime.persistTimer) {
     clearTimeout(sessionRuntime.persistTimer);
@@ -1163,6 +1185,7 @@ function flushPendingUiEmit(
   sessionRuntime: AcpChatSessionRuntime,
   publishMode: AcpUiPublishMode = "full",
   reason: AssistantWorkspacePublishReason = "critical",
+  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
 ) {
   if (sessionRuntime.uiEmitTimer) {
     clearTimeout(sessionRuntime.uiEmitTimer);
@@ -1173,12 +1196,21 @@ function flushPendingUiEmit(
     publishMode,
   );
   sessionRuntime.uiPendingPublishMode = null;
+  const pendingChangeKinds = consumePendingAcpChatPanelChangeKinds(
+    sessionRuntime,
+    changeKinds,
+  );
   updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
   notifyConversationListenersNow(sessionRuntime);
   notifyFrontendListenersNow(
     buildAcpChatPanelSnapshotChange(
       sessionRuntime,
-      resolveAcpChatPanelChangeKindsForPublish(reason, mode, sessionRuntime),
+      resolveAcpChatPanelChangeKindsForPublish(
+        reason,
+        mode,
+        sessionRuntime,
+        pendingChangeKinds,
+      ),
     ),
   );
 }
@@ -1197,11 +1229,15 @@ function scheduleUiEmit(
   sessionRuntime: AcpChatSessionRuntime,
   publishMode: AcpUiPublishMode = "metadata",
   reason: AssistantWorkspacePublishReason = "live",
+  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
 ) {
   sessionRuntime.uiPendingPublishMode = mergeAcpUiPublishMode(
     sessionRuntime.uiPendingPublishMode,
     publishMode,
   );
+  for (const kind of changeKinds) {
+    sessionRuntime.uiPendingChangeKinds.add(kind);
+  }
   if (sessionRuntime.uiEmitTimer) {
     return;
   }
@@ -1209,12 +1245,19 @@ function scheduleUiEmit(
     sessionRuntime.uiEmitTimer = null;
     const mode = sessionRuntime.uiPendingPublishMode || "metadata";
     sessionRuntime.uiPendingPublishMode = null;
+    const pendingChangeKinds =
+      consumePendingAcpChatPanelChangeKinds(sessionRuntime);
     updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
     notifyConversationListenersNow(sessionRuntime);
     notifyFrontendListenersNow(
       buildAcpChatPanelSnapshotChange(
         sessionRuntime,
-        resolveAcpChatPanelChangeKindsForPublish(reason, mode, sessionRuntime),
+        resolveAcpChatPanelChangeKindsForPublish(
+          reason,
+          mode,
+          sessionRuntime,
+          pendingChangeKinds,
+        ),
       ),
     );
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
@@ -1271,6 +1314,8 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
         sessionRuntime.uiEmitTimer = null;
         const mode = sessionRuntime.uiPendingPublishMode || "metadata";
         sessionRuntime.uiPendingPublishMode = null;
+        const pendingChangeKinds =
+          consumePendingAcpChatPanelChangeKinds(sessionRuntime);
         updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
         notifyConversationListenersNow(sessionRuntime);
         notifyFrontendListenersNow(
@@ -1280,6 +1325,7 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
               "live",
               mode,
               sessionRuntime,
+              pendingChangeKinds,
             ),
           ),
         );
@@ -1297,6 +1343,8 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
             sessionRuntime.uiEmitTimer = null;
             const mode = sessionRuntime.uiPendingPublishMode || "metadata";
             sessionRuntime.uiPendingPublishMode = null;
+            const pendingChangeKinds =
+              consumePendingAcpChatPanelChangeKinds(sessionRuntime);
             updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
             notifyConversationListenersNow(sessionRuntime);
             notifyFrontendListenersNow(
@@ -1306,6 +1354,7 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
                   "live",
                   mode,
                   sessionRuntime,
+                  pendingChangeKinds,
                 ),
               ),
             );
@@ -1384,6 +1433,7 @@ function publishSessionRuntimeUiSnapshot(
   sessionRuntime: AcpChatSessionRuntime,
   reason: AssistantWorkspacePublishReason,
   publishMode: AcpUiPublishMode,
+  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
 ) {
   if (reason === "background") {
     return;
@@ -1393,13 +1443,13 @@ function publishSessionRuntimeUiSnapshot(
       return;
     }
     if (publishMode === "full") {
-      flushPendingUiEmit(sessionRuntime, publishMode, reason);
+      flushPendingUiEmit(sessionRuntime, publishMode, reason, changeKinds);
       return;
     }
-    scheduleUiEmit(sessionRuntime, publishMode, reason);
+    scheduleUiEmit(sessionRuntime, publishMode, reason, changeKinds);
     return;
   }
-  flushPendingUiEmit(sessionRuntime, publishMode, reason);
+  flushPendingUiEmit(sessionRuntime, publishMode, reason, changeKinds);
 }
 
 function emitSessionRuntimeSnapshot(
@@ -1428,7 +1478,12 @@ function emitSessionRuntimeSnapshot(
       publishTranscript:
         options.publishTranscript ?? !sessionRuntime.uiHasUnpublishedTranscript,
     });
-    publishSessionRuntimeUiSnapshot(sessionRuntime, reason, publishMode);
+    publishSessionRuntimeUiSnapshot(
+      sessionRuntime,
+      reason,
+      publishMode,
+      options.changeKinds,
+    );
   }
 }
 
@@ -2873,6 +2928,7 @@ function handleSessionUpdate(
           touchUpdatedAt: false,
           uiReason: "critical",
           publishMode: "metadata",
+          changeKinds: ["message-counts"],
         });
       }
       return;
@@ -2902,6 +2958,9 @@ function handleSessionUpdate(
         touchUpdatedAt: false,
         uiReason: "live",
         publishMode: "full",
+        changeKinds: progressChange.countChanged
+          ? ["message-counts", "transcript-append"]
+          : ["transcript-append"],
       });
       return;
     }
@@ -2927,6 +2986,9 @@ function handleSessionUpdate(
         touchUpdatedAt: false,
         uiReason: "live",
         publishMode: "full",
+        changeKinds: progressChange.countChanged
+          ? ["message-counts", "transcript-append"]
+          : ["transcript-append"],
       });
       return;
     }
@@ -2939,6 +3001,9 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
+        changeKinds: progressChange.countChanged
+          ? ["message-counts", "transcript-boundary"]
+          : ["transcript-boundary"],
       });
       return;
     }
@@ -2950,6 +3015,7 @@ function handleSessionUpdate(
         uiReason:
           transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
         publishMode: "structural",
+        changeKinds: ["transcript-boundary"],
       });
       return;
     }
@@ -2984,6 +3050,7 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
+        changeKinds: ["plan", "transcript-boundary"],
       });
       return;
     }
@@ -3004,6 +3071,7 @@ function handleSessionUpdate(
         throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
+        changeKinds: ["reply-hint"],
       });
       return;
     }
@@ -3016,6 +3084,7 @@ function handleSessionUpdate(
         throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
+        changeKinds: ["reply-hint"],
       });
       return;
     }
@@ -3039,6 +3108,12 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
+        changeKinds:
+          applied.modeApplied ||
+          applied.modelApplied ||
+          applied.reasoningApplied
+            ? ["reply-hint"]
+            : ["reply-hint", "transcript-boundary"],
       });
       return;
     }
@@ -3052,6 +3127,7 @@ function handleSessionUpdate(
         throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
+        changeKinds: ["context-details"],
       });
       return;
     }
@@ -3069,6 +3145,7 @@ function handleSessionUpdate(
         throttlePersist: true,
         uiReason: "live",
         publishMode: "metadata",
+        changeKinds: ["reply-hint"],
       });
       return;
     }
@@ -3141,6 +3218,7 @@ function bindAdapter(
       persist: false,
       uiReason: "live",
       publishMode: "metadata",
+      changeKinds: ["context-details"],
     });
   });
   sessionRuntime.unsubscribePermission = nextAdapter.onPermissionRequest(

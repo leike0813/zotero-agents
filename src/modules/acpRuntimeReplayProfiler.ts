@@ -672,6 +672,48 @@ function metricValue(
     );
 }
 
+function metricDuration(
+  profile: AcpRuntimeProfileSnapshot | undefined,
+  name: AcpRuntimeMetricName,
+) {
+  return (profile?.metrics || [])
+    .filter((entry) => entry.name === name && entry.duration)
+    .reduce(
+      (summary, entry) => ({
+        count: summary.count + (entry.duration?.count || 0),
+        totalMs: summary.totalMs + (entry.duration?.totalMs || 0),
+        maxMs: Math.max(summary.maxMs, entry.duration?.maxMs || 0),
+      }),
+      { count: 0, totalMs: 0, maxMs: 0 },
+    );
+}
+
+function metricPublicationCounts(
+  profile: AcpRuntimeProfileSnapshot | undefined,
+  stage: "post" | "shellForward" | "childApply" | "renderAck",
+) {
+  const counts = new Map<string, number>();
+  for (const entry of profile?.publicationLifecycles || []) {
+    const publicationId = String(entry.publicationId || "").trim();
+    if (!publicationId) continue;
+    const count = Number(entry[stage] || 0);
+    if (count > 0) counts.set(publicationId, count);
+  }
+  return counts;
+}
+
+function publicationCountsEqual(
+  expected: ReadonlyMap<string, number>,
+  actual: ReadonlyMap<string, number>,
+) {
+  return (
+    expected.size === actual.size &&
+    [...expected].every(
+      ([publicationId, count]) => actual.get(publicationId) === count,
+    )
+  );
+}
+
 function evaluateReplayMeasurement(args: {
   profile?: AcpRuntimeProfileSnapshot;
   replay: AcpRuntimeReplayResult;
@@ -732,10 +774,50 @@ function evaluateReplayMeasurement(args: {
           state: "missing" as const,
           detail: "synthetic parser/input/response metrics are incomplete",
         };
-  const r3MetricCount =
-    metricValue(args.profile, "panel_prepare") +
-    metricValue(args.profile, "panel_signature") +
-    metricValue(args.profile, "panel_post");
+  const r3Lifecycle = {
+    prepare: metricValue(args.profile, "panel_prepare"),
+    signature: metricValue(args.profile, "panel_signature"),
+    post: metricValue(args.profile, "panel_post"),
+    shellForward: metricValue(args.profile, "panel_shell_forward"),
+    childApply: metricValue(args.profile, "panel_child_apply"),
+    renderAck: metricValue(args.profile, "panel_render_ack"),
+  };
+  const r3MetricCount = Object.values(r3Lifecycle).reduce(
+    (total, value) => total + value,
+    0,
+  );
+  const r3PublicationCounts = {
+    post: metricPublicationCounts(args.profile, "post"),
+    shellForward: metricPublicationCounts(args.profile, "shellForward"),
+    childApply: metricPublicationCounts(args.profile, "childApply"),
+    renderAck: metricPublicationCounts(args.profile, "renderAck"),
+  };
+  const r3PublicationIdentityComplete =
+    r3PublicationCounts.post.size > 0 &&
+    [...r3PublicationCounts.post.values()].reduce(
+      (total, count) => total + count,
+      0,
+    ) === r3Lifecycle.post &&
+    publicationCountsEqual(
+      r3PublicationCounts.post,
+      r3PublicationCounts.shellForward,
+    ) &&
+    publicationCountsEqual(
+      r3PublicationCounts.post,
+      r3PublicationCounts.childApply,
+    ) &&
+    publicationCountsEqual(
+      r3PublicationCounts.post,
+      r3PublicationCounts.renderAck,
+    );
+  const r3Complete =
+    r3Lifecycle.post > 0 &&
+    r3Lifecycle.prepare >= r3Lifecycle.post &&
+    r3Lifecycle.signature >= r3Lifecycle.post &&
+    r3Lifecycle.shellForward === r3Lifecycle.post &&
+    r3Lifecycle.childApply === r3Lifecycle.post &&
+    r3Lifecycle.renderAck === r3Lifecycle.post &&
+    r3PublicationIdentityComplete;
   const r3 =
     !args.stages.workspacePrepared || !args.stages.profileStarted
       ? {
@@ -764,14 +846,18 @@ function evaluateReplayMeasurement(args: {
                   ? "target surface inactive"
                   : "target R3 activity leaked into inactive surface",
             }
-          : r3MetricCount >= 3
+          : r3Complete
             ? {
                 state: "captured" as const,
-                detail: `${r3MetricCount} target-surface operations measured`,
+                detail: `${r3Lifecycle.post} publications completed host/shell/child/render acknowledgement`,
               }
             : {
                 state: "missing" as const,
-                detail: `${r3MetricCount}/3 target-surface operations measured`,
+                detail: `${
+                  !r3PublicationIdentityComplete && r3Lifecycle.post > 0
+                    ? "publication identity mismatch"
+                    : "incomplete publication lifecycle"
+                } prepare=${r3Lifecycle.prepare} signature=${r3Lifecycle.signature} post=${r3Lifecycle.post} shell=${r3Lifecycle.shellForward} child=${r3Lifecycle.childApply} render=${r3Lifecycle.renderAck}`,
               };
   for (const [family, coverage] of Object.entries({ r1, r2, r3 })) {
     if (coverage.state === "missing")
@@ -1226,19 +1312,25 @@ export function assertAcpRuntimeReplayMatricesComparable(
   left: AcpRuntimeReplayMatrix,
   right: AcpRuntimeReplayMatrix,
 ) {
+  const comparableReplayConfig = (
+    config: AcpRuntimeReplayMatrix["replayConfig"],
+  ) => {
+    const { phase: _governanceStage, ...executionConfig } = config;
+    return executionConfig;
+  };
   const leftKey = JSON.stringify([
     left.trace.digest,
     left.trace.sourceKind,
     left.cadence,
     left.r2WorkloadVersion,
-    left.replayConfig,
+    comparableReplayConfig(left.replayConfig),
   ]);
   const rightKey = JSON.stringify([
     right.trace.digest,
     right.trace.sourceKind,
     right.cadence,
     right.r2WorkloadVersion,
-    right.replayConfig,
+    comparableReplayConfig(right.replayConfig),
   ]);
   if (leftKey !== rightKey) {
     throw new Error("ACP replay matrices have incompatible provenance");
@@ -1283,6 +1375,13 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
       ),
     ),
   ).sort();
+  const durationMetricNames = metricNames.filter((name) =>
+    formal.some((record) =>
+      (record.profile?.metrics || []).some(
+        (metric) => metric.name === name && metric.duration,
+      ),
+    ),
+  );
   const lines = [
     "# ACP Runtime Replay Matrix",
     "",
@@ -1337,6 +1436,23 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
       });
       return `| ${name} | ${format(values[0])} | ${format(values[1])} | ${format(values[2])} |`;
     }),
+    "",
+    "## Formal duration summaries",
+    "",
+    "| Metric | Surface | Count mean | Total ms mean | Max ms |",
+    "| --- | --- | ---: | ---: | ---: |",
+    ...durationMetricNames.flatMap((name) =>
+      surfaceSummary.map((entry) => {
+        const records = formal.filter(
+          (record) => record.surface === entry.surface,
+        );
+        const summaries = records.map((record) =>
+          metricDuration(record.profile, name as AcpRuntimeMetricName),
+        );
+        const divisor = Math.max(1, summaries.length);
+        return `| ${name} | ${entry.surface} | ${format(summaries.reduce((sum, value) => sum + value.count, 0) / divisor)} | ${format(summaries.reduce((sum, value) => sum + value.totalMs, 0) / divisor)} | ${format(summaries.reduce((maximum, value) => Math.max(maximum, value.maxMs), 0))} |`;
+      }),
+    ),
   ];
   if (matrix.warnings.length > 0) {
     lines.push(

@@ -14,15 +14,22 @@ export type AcpRuntimeReplayPublicationWindow = {
     type: string,
     listener: (event: { data?: unknown; source?: unknown }) => void,
   ) => void;
-  requestAnimationFrame?: (callback: () => void) => number;
-  cancelAnimationFrame?: (token: number) => void;
+};
+
+export type AcpRuntimeReplayPublicationLifecycle = {
+  publicationId: string;
+  state: "pending" | "render-complete" | "rejected";
+  reason?: string;
 };
 
 export type AcpRuntimeReplayPublicationInspection = {
   childWindow: AcpRuntimeReplayPublicationWindow | null;
-  publisherWindow?: unknown;
-  revision: number;
+  publications: readonly AcpRuntimeReplayPublicationLifecycle[];
   detail?: string;
+};
+
+export type AcpRuntimeReplayForcedPublication = {
+  publicationId: string;
 };
 
 type PublicationResult = { ok: boolean; detail?: string };
@@ -30,58 +37,6 @@ type PublicationResult = { ok: boolean; detail?: string };
 const DEFAULT_TIMEOUT_MS = 10_000;
 const INSPECTION_INTERVAL_MS = 16;
 const PUBLICATION_RETRY_INTERVAL_MS = 100;
-
-function snapshotMessageType(tab: AcpRuntimeReplayPublicationTab) {
-  if (tab === "acp-chat") return "acp:snapshot";
-  if (tab === "acp-skills") return "acp-skill-run:snapshot";
-  return "skillrunner-sidebar:snapshot";
-}
-
-function snapshotRevision(data: unknown, tab: AcpRuntimeReplayPublicationTab) {
-  if (!data || typeof data !== "object") return 0;
-  const envelope = data as { type?: unknown; payload?: unknown };
-  if (envelope.type !== snapshotMessageType(tab)) return 0;
-  const payload =
-    envelope.payload && typeof envelope.payload === "object"
-      ? (envelope.payload as Record<string, unknown>)
-      : null;
-  const sidebar =
-    payload?.sidebar && typeof payload.sidebar === "object"
-      ? (payload.sidebar as Record<string, unknown>)
-      : null;
-  const panes =
-    sidebar?.panes && typeof sidebar.panes === "object"
-      ? (sidebar.panes as Record<string, unknown>)
-      : null;
-  const pane =
-    panes?.[tab] && typeof panes[tab] === "object"
-      ? (panes[tab] as Record<string, unknown>)
-      : null;
-  const revision = Number(pane?.revision || 0);
-  return Number.isFinite(revision) ? Math.max(0, Math.floor(revision)) : 0;
-}
-
-function wrappedPublicationWindow(value: unknown) {
-  if (!value || (typeof value !== "object" && typeof value !== "function")) {
-    return undefined;
-  }
-  try {
-    return (value as { wrappedJSObject?: unknown }).wrappedJSObject;
-  } catch {
-    return undefined;
-  }
-}
-
-function isSamePublicationWindow(observed: unknown, expected: unknown) {
-  if (observed === expected) return true;
-  const observedWrapped = wrappedPublicationWindow(observed);
-  const expectedWrapped = wrappedPublicationWindow(expected);
-  return Boolean(
-    (observedWrapped &&
-      (observedWrapped === expected || observedWrapped === expectedWrapped)) ||
-    (expectedWrapped && expectedWrapped === observed),
-  );
-}
 
 function readinessTimeoutDetail(
   detail: string,
@@ -107,7 +62,7 @@ export function drainAcpRuntimeReplayPublication(args: {
   signal?: AcpRuntimeReplayCancellationSignal;
   timeoutMs?: number;
   inspect: () => AcpRuntimeReplayPublicationInspection;
-  forcePublish: () => Promise<void>;
+  forcePublish: () => Promise<AcpRuntimeReplayForcedPublication | undefined>;
 }): Promise<PublicationResult> {
   const timeoutMs = Math.max(1, Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS);
   const deadline = Date.now() + timeoutMs;
@@ -115,28 +70,21 @@ export function drainAcpRuntimeReplayPublication(args: {
   return new Promise((resolve) => {
     let settled = false;
     let childWindow: AcpRuntimeReplayPublicationWindow | null = null;
-    let publisherWindow: unknown;
-    let baselineRevision = 0;
+    let targetPublicationId = "";
     let timeoutToken: ReturnType<typeof setTimeout> | null = null;
     let inspectionToken: ReturnType<typeof setTimeout> | null = null;
-    let frameToken: number | null = null;
-    let frameTimeoutToken: ReturnType<typeof setTimeout> | null = null;
     let lastReadinessDetail = "workspace-child-not-ready";
+    let lastPublicationDetail = "target=unassigned,pending=none";
     let forcePublishInFlight = false;
     let nextForcePublishAt = 0;
 
     const cleanup = () => {
       if (timeoutToken) clearTimeout(timeoutToken);
       if (inspectionToken) clearTimeout(inspectionToken);
-      if (frameToken !== null) childWindow?.cancelAnimationFrame?.(frameToken);
-      if (frameTimeoutToken) clearTimeout(frameTimeoutToken);
-      childWindow?.removeEventListener("message", onMessage);
       childWindow?.removeEventListener("unload", onUnload);
       args.signal?.removeEventListener("abort", onAbort);
       timeoutToken = null;
       inspectionToken = null;
-      frameToken = null;
-      frameTimeoutToken = null;
     };
     const settle = (result: PublicationResult) => {
       if (settled) return;
@@ -148,43 +96,57 @@ export function drainAcpRuntimeReplayPublication(args: {
       settle({ ok: false, detail: "workspace-publication-aborted" });
     const onUnload = () =>
       settle({ ok: false, detail: `workspace-child-unloaded:${args.tab}` });
-    const verifyWindow = () => {
-      if (args.inspect().childWindow === childWindow) return true;
-      settle({
-        ok: false,
-        detail: `workspace-child-frame-replaced:${args.tab}`,
-      });
-      return false;
-    };
-    const onMessage = (event: { data?: unknown; source?: unknown }) => {
-      if (!verifyWindow()) return;
-      if (
-        event.source &&
-        publisherWindow &&
-        !isSamePublicationWindow(event.source, publisherWindow)
-      ) {
+    const inspectCurrent = () => {
+      const inspection = args.inspect();
+      if (inspection.childWindow !== childWindow) {
+        settle({
+          ok: false,
+          detail: `workspace-child-frame-replaced:${args.tab}`,
+        });
         return;
       }
-      const revision = snapshotRevision(event.data, args.tab);
-      if (revision <= baselineRevision || frameToken !== null) return;
-      const confirmRendered = () => {
-        frameToken = null;
-        frameTimeoutToken = null;
-        if (!verifyWindow()) return;
+      const pendingPublicationIds = inspection.publications
+        .filter((entry) => entry.state === "pending")
+        .map((entry) => entry.publicationId);
+      if (!targetPublicationId) {
+        lastPublicationDetail = `target=unassigned,pending=${
+          pendingPublicationIds.slice(0, 3).join(",") || "none"
+        }`;
+        return;
+      }
+      const target = inspection.publications.find(
+        (entry) => entry.publicationId === targetPublicationId,
+      );
+      lastPublicationDetail = `target=${targetPublicationId}:${
+        target?.state || "missing"
+      },pending=${pendingPublicationIds.slice(0, 3).join(",") || "none"}`;
+      if (target?.state === "rejected") {
+        if (target.reason === "superseded" || target.reason === "old-owner") {
+          targetPublicationId = "";
+          nextForcePublishAt = 0;
+          return;
+        }
+        settle({
+          ok: false,
+          detail: `workspace-publication-rejected:${args.tab}:${targetPublicationId}:${target.reason || "unknown"}`,
+        });
+        return;
+      }
+      const hasPendingPublication = inspection.publications.some(
+        (entry) => entry.state === "pending",
+      );
+      if (target?.state === "render-complete" && !hasPendingPublication) {
         settle({ ok: true });
-      };
-      if (childWindow?.requestAnimationFrame) {
-        frameToken = childWindow.requestAnimationFrame(confirmRendered);
-      } else {
-        frameTimeoutToken = setTimeout(confirmRendered, 0);
-        frameToken = -1;
       }
     };
     const forcePublication = async () => {
-      if (settled || forcePublishInFlight) return;
+      if (settled || forcePublishInFlight || targetPublicationId) return;
       forcePublishInFlight = true;
       try {
-        await args.forcePublish();
+        const forced = await args.forcePublish();
+        const publicationId = String(forced?.publicationId || "").trim();
+        if (publicationId) targetPublicationId = publicationId;
+        inspectCurrent();
       } catch (error) {
         settle({
           ok: false,
@@ -202,8 +164,9 @@ export function drainAcpRuntimeReplayPublication(args: {
       inspectionToken = setTimeout(
         () => {
           inspectionToken = null;
-          if (childWindow && !verifyWindow()) return;
-          if (Date.now() >= nextForcePublishAt) {
+          inspectCurrent();
+          if (settled) return;
+          if (!targetPublicationId && Date.now() >= nextForcePublishAt) {
             void forcePublication();
           }
           scheduleInspection();
@@ -211,16 +174,13 @@ export function drainAcpRuntimeReplayPublication(args: {
         Math.min(INSPECTION_INTERVAL_MS, Math.max(1, deadline - Date.now())),
       );
     };
-    const beginPublication = async (
+    const beginPublication = (
       inspection: AcpRuntimeReplayPublicationInspection,
     ) => {
       childWindow = inspection.childWindow;
-      publisherWindow = inspection.publisherWindow;
-      baselineRevision = inspection.revision;
-      childWindow?.addEventListener("message", onMessage);
       childWindow?.addEventListener("unload", onUnload);
       scheduleInspection();
-      await forcePublication();
+      void forcePublication();
     };
     const inspectReadiness = () => {
       if (settled) return;
@@ -233,7 +193,7 @@ export function drainAcpRuntimeReplayPublication(args: {
         inspection.detail ||
         (inspection.childWindow ? "" : "workspace-child-not-ready");
       if (!lastReadinessDetail && inspection.childWindow) {
-        void beginPublication(inspection);
+        beginPublication(inspection);
         return;
       }
       if (Date.now() >= deadline) {
@@ -254,7 +214,7 @@ export function drainAcpRuntimeReplayPublication(args: {
       settle({
         ok: false,
         detail: childWindow
-          ? `workspace-publication-timeout:${args.tab}`
+          ? `workspace-publication-timeout:${args.tab}:${lastPublicationDetail}`
           : readinessTimeoutDetail(lastReadinessDetail, args.tab),
       });
     }, timeoutMs);

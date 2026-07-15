@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
   createAcpRuntimeR2ProductionNoopPort,
   createAcpRuntimeReplayProductionProfilerPort,
@@ -26,6 +27,14 @@ function hasRealZoteroRuntime() {
 }
 
 describe("ACP Replay publication in the Zotero runtime", function () {
+  beforeEach(function () {
+    setDebugModeOverrideForTests(true);
+  });
+
+  afterEach(function () {
+    setDebugModeOverrideForTests(undefined);
+  });
+
   it("runs the production Chat target-active path without a synthetic backend registry entry", async function () {
     if (!hasRealZoteroRuntime()) {
       this.skip();
@@ -102,8 +111,30 @@ describe("ACP Replay publication in the Zotero runtime", function () {
     );
     assert.lengthOf(openInactive, 3);
     for (const record of openInactive) {
+      if (record.executionCompletion !== "complete") {
+        throw new Error(
+          `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(
+            {
+              failure: record.failure,
+              drain: record.replay.drain,
+              warnings: record.replay.warnings,
+            },
+          )}`,
+        );
+      }
       assert.equal(record.executionCompletion, "complete");
-      assert.equal(record.measurementCompletion, "complete");
+      if (record.measurementCompletion !== "complete") {
+        throw new Error(
+          `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(
+            record.measurement.families,
+          )}`,
+        );
+      }
+      assert.equal(
+        record.measurementCompletion,
+        "complete",
+        `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(record.measurement.families)}`,
+      );
       assert.isUndefined(record.failure);
       assert.equal(record.replay.drain.state, "ok");
       assert.equal(record.measurement.families.r1.state, "captured");
@@ -116,8 +147,30 @@ describe("ACP Replay publication in the Zotero runtime", function () {
     );
     assert.lengthOf(targetActive, 3);
     for (const record of targetActive) {
+      if (record.executionCompletion !== "complete") {
+        throw new Error(
+          `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(
+            {
+              failure: record.failure,
+              drain: record.replay.drain,
+              warnings: record.replay.warnings,
+            },
+          )}`,
+        );
+      }
       assert.equal(record.executionCompletion, "complete");
-      assert.equal(record.measurementCompletion, "complete");
+      if (record.measurementCompletion !== "complete") {
+        throw new Error(
+          `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(
+            record.measurement.families,
+          )}`,
+        );
+      }
+      assert.equal(
+        record.measurementCompletion,
+        "complete",
+        `${record.surface}/${record.role}-${record.runIndex + 1}: ${JSON.stringify(record.measurement.families)}`,
+      );
       assert.isUndefined(record.failure);
       assert.equal(record.replay.drain.state, "ok");
       assert.equal(record.measurement.families.r1.state, "captured");

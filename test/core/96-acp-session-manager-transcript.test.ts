@@ -33,6 +33,8 @@ import {
   os,
   path,
   prepareAcpChatPanelSnapshot,
+  prepareAcpChatPanelPublicationDto,
+  resolveAcpChatPublicationKindsForChange,
   readActiveTranscriptItems,
   readAcpConversationTranscriptPage,
   readTranscriptItemsForConversation,
@@ -1855,6 +1857,85 @@ describe("acp session manager", function () {
     );
   });
 
+  it("routes ACP chat changes to bounded owner-scoped publications", function () {
+    const base = {
+      activeTab: "acp-chat" as const,
+      hasActiveTarget: true,
+      transcriptPaginationVirtualizationEnabled: true,
+      executionDisplayMode: "live" as const,
+    };
+
+    assert.deepEqual(
+      resolveAcpChatPublicationKindsForChange(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["message-counts"],
+      }),
+      ["message-counts"],
+    );
+    assert.deepEqual(
+      resolveAcpChatPublicationKindsForChange(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["transcript-append"],
+      }),
+      ["transcript"],
+    );
+    assert.deepEqual(
+      resolveAcpChatPublicationKindsForChange(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["status"],
+      }),
+      ["baseline-status"],
+    );
+    assert.deepEqual(
+      resolveAcpChatPublicationKindsForChange(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: false,
+        kinds: ["transcript-append"],
+      }),
+      [],
+    );
+  });
+
+  it("builds bounded count and baseline DTOs without transcript page state", async function () {
+    await startNewAcpConversation();
+    const counts = await prepareAcpChatPanelPublicationDto({
+      target: "library",
+      kind: "message-counts",
+    });
+    assert.hasAllKeys(counts, [
+      "activeBackendId",
+      "backendId",
+      "activeConversationId",
+      "conversationId",
+      "messageCounts",
+    ]);
+    assert.notProperty(counts, "selectedTranscriptPage");
+    assert.notProperty(counts, "transcriptRevision");
+
+    const baseline = await prepareAcpChatPanelPublicationDto({
+      target: "library",
+      kind: "baseline-status",
+    });
+    for (const field of [
+      "selectedTranscriptPage",
+      "transcriptState",
+      "transcriptRevision",
+      "transcriptEventSeq",
+      "transcriptItemCount",
+      "messageCounts",
+      "items",
+    ]) {
+      assert.notProperty(baseline, field);
+    }
+  });
+
   it("emits typed ACP chat panel snapshot changes from existing publish boundaries", async function () {
     const changes: AcpChatPanelSnapshotChange[] = [];
     const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
@@ -1873,6 +1954,7 @@ describe("acp session manager", function () {
     assert.isTrue(hasKind("backend"));
     assert.isTrue(hasKind("transcript-append"));
     assert.isTrue(hasKind("transcript-boundary"));
+    assert.isTrue(hasKind("message-counts"));
     assert.isTrue(changes.some((change) => change.active === true));
   });
 

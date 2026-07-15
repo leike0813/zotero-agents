@@ -9,6 +9,7 @@ export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA =
 const MAX_ACTIVE_PROFILES = 8;
 const MAX_COMPLETED_PROFILES = 8;
 const MAX_METRIC_SERIES = 128;
+const MAX_PUBLICATION_LIFECYCLES = 512;
 const DRIFT_INTERVAL_MS = 100;
 const DURATION_BUCKETS_MS = [
   1, 4, 8, 16, 33, 50, 100, 250, 500, 1000, 5000,
@@ -39,15 +40,22 @@ export type AcpRuntimeMetricName =
   | "host_request_duration"
   | "host_response_bytes"
   | "panel_prepare"
+  | "panel_requested"
+  | "panel_dropped_before_build"
   | "panel_prepare_duration"
   | "transcript_page_read"
   | "transcript_page_scan_items"
   | "transcript_page_read_duration"
   | "panel_signature"
+  | "panel_signature_skip"
   | "panel_signature_bytes"
   | "panel_signature_duration"
   | "panel_post"
+  | "panel_post_bytes"
   | "panel_post_duration"
+  | "panel_shell_forward"
+  | "panel_child_apply"
+  | "panel_render_ack"
   | "transport_queue_entries"
   | "transport_queue_bytes"
   | "transport_message_queue_entries"
@@ -103,6 +111,21 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "other";
   semanticKind: string;
   disposition: "projected" | "consumed-noop" | "skipped" | "unknown";
+  publicationKind:
+    | "baseline-status"
+    | "message-counts"
+    | "transcript"
+    | "plan"
+    | "permission"
+    | "reply-hint"
+    | "context-details";
+  publicationCausality:
+    | "matching-target"
+    | "opposite-active"
+    | "inactive-source"
+    | "owner-mismatch";
+  publicationPhase: "initialization" | "steady-state";
+  publicationId: string;
 }>;
 
 export type AcpRuntimeProfileContext = {
@@ -129,6 +152,15 @@ export type AcpRuntimeProfileSnapshot = AcpRuntimeProfileContext & {
   startedAtMs: number;
   finishedAtMs?: number;
   metrics: readonly AcpRuntimeMetricSnapshot[];
+  publicationLifecycles?: readonly AcpRuntimePublicationLifecycleSnapshot[];
+};
+
+export type AcpRuntimePublicationLifecycleSnapshot = {
+  publicationId: string;
+  post: number;
+  shellForward: number;
+  childApply: number;
+  renderAck: number;
 };
 
 export type AcpRuntimePerformanceSnapshot = {
@@ -159,6 +191,7 @@ type ProfileState = AcpRuntimeProfileContext & {
   startedAtMs: number;
   finishedAtMs?: number;
   metrics: Map<string, MetricSeries>;
+  publicationLifecycles: Map<string, AcpRuntimePublicationLifecycleSnapshot>;
 };
 
 type TimerHandle = unknown;
@@ -236,6 +269,7 @@ function createProfile(
     requestId: String(context.requestId || "").trim(),
     startedAtMs,
     metrics: new Map(),
+    publicationLifecycles: new Map(),
   };
 }
 
@@ -265,6 +299,9 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     "persistenceChannel",
     "semanticKind",
     "disposition",
+    "publicationKind",
+    "publicationCausality",
+    "publicationPhase",
   ] as const) {
     const value = labels[key];
     if (value) {
@@ -272,6 +309,41 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     }
   }
   return result;
+}
+
+function recordPublicationLifecycle(
+  profile: ProfileState,
+  name: AcpRuntimeMetricName,
+  labels: AcpRuntimeMetricLabels,
+  delta: number,
+) {
+  const stage =
+    name === "panel_post"
+      ? "post"
+      : name === "panel_shell_forward"
+        ? "shellForward"
+        : name === "panel_child_apply"
+          ? "childApply"
+          : name === "panel_render_ack"
+            ? "renderAck"
+            : null;
+  const publicationId = String(labels.publicationId || "").trim();
+  if (!stage || !publicationId) return;
+  let lifecycle = profile.publicationLifecycles.get(publicationId);
+  if (!lifecycle) {
+    if (profile.publicationLifecycles.size >= MAX_PUBLICATION_LIFECYCLES) {
+      return;
+    }
+    lifecycle = {
+      publicationId,
+      post: 0,
+      shellForward: 0,
+      childApply: 0,
+      renderAck: 0,
+    };
+    profile.publicationLifecycles.set(publicationId, lifecycle);
+  }
+  lifecycle[stage] += delta;
 }
 
 function seriesKey(name: AcpRuntimeMetricName, labels: AcpRuntimeMetricLabels) {
@@ -466,6 +538,12 @@ export function incrementAcpRuntimeMetric(
     if (!profile) {
       return;
     }
+    recordPublicationLifecycle(
+      profile,
+      name,
+      labels,
+      Number.isFinite(delta) ? delta : 0,
+    );
     const series = getOrCreateSeries(profile, name, labels, "counter");
     if (series) {
       series.total += Number.isFinite(delta) ? delta : 0;
@@ -558,6 +636,10 @@ function profileSnapshot(profile: ProfileState): AcpRuntimeProfileSnapshot {
       ? { finishedAtMs: profile.finishedAtMs }
       : {}),
     metrics: Array.from(profile.metrics.values(), metricSnapshot),
+    publicationLifecycles: Array.from(
+      profile.publicationLifecycles.values(),
+      (entry) => ({ ...entry }),
+    ),
   };
 }
 

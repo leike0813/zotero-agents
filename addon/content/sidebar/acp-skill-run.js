@@ -27,9 +27,10 @@
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
     panelRenderKey: "",
-    pendingRenderSnapshot: null,
+    pendingRenderSnapshots: [],
     renderScheduled: false,
     drawerGroupCollapsed: new Map(),
+    publicationRevisions: new Map(),
   };
   function bridge() {
     return [
@@ -1020,6 +1021,65 @@
     renderSelectedRun(state.snapshot);
     $("acp-skill-run-drawer").classList.toggle("hidden", !state.runDrawerOpen);
     $("acp-skill-run-details").classList.toggle("hidden", !state.detailsOpen);
+    const publication = state.snapshot.workspacePublication;
+    if (publication && typeof publication === "object") {
+      publicationAck(publication, "child-apply", "applied");
+      publicationAck(publication, "render-complete", "applied");
+      delete state.snapshot.workspacePublication;
+    }
+  }
+
+  function publicationAck(publication, stage, outcome, reason) {
+    sendAction("publication-ack", {
+      publicationId: safeText(publication && publication.id),
+      kind: safeText(publication && publication.kind),
+      ownerKey: safeText(
+        publication && publication.owner && publication.owner.key,
+      ),
+      revision: Number(publication && publication.revision) || 0,
+      signature: safeText(publication && publication.signature),
+      initialization: publication && publication.initialization === true,
+      stage,
+      outcome,
+      reason: reason || undefined,
+    });
+  }
+
+  function applyPublication(publication) {
+    const ownerKey = safeText(
+      publication && publication.owner && publication.owner.key,
+    );
+    const kind = safeText(publication && publication.kind);
+    const revision = Number(publication && publication.revision) || 0;
+    const currentOwnerKey = snapshotSelectedRequestId(state.snapshot || {});
+    const revisionKey = ownerKey + "\n" + kind;
+    const lastRevision = state.publicationRevisions.get(revisionKey) || 0;
+    if (!ownerKey || !kind || !publication || !publication.dto) {
+      publicationAck(
+        publication || {},
+        "child-apply",
+        "rejected",
+        "invalid-publication",
+      );
+      return;
+    }
+    if (currentOwnerKey && ownerKey !== currentOwnerKey) {
+      publicationAck(publication, "child-apply", "rejected", "old-owner");
+      return;
+    }
+    if (revision <= lastRevision && lastRevision > 0) {
+      publicationAck(publication, "child-apply", "rejected", "stale-revision");
+      return;
+    }
+    state.publicationRevisions.set(revisionKey, revision);
+    state.snapshot = Object.assign({}, state.snapshot || {}, publication.dto);
+    publicationAck(publication, "child-apply", "applied");
+    if (kind === "transcript") {
+      renderSelectedRun(state.snapshot);
+    } else {
+      renderAssistantPanelRuntime(state.snapshot);
+    }
+    publicationAck(publication, "render-complete", "applied");
   }
 
   function queueRender(snapshot) {
@@ -1031,7 +1091,7 @@
       });
       return;
     }
-    state.pendingRenderSnapshot = nextSnapshot;
+    state.pendingRenderSnapshots.push(nextSnapshot);
     trace("queue-render", { summary: snapshotSummary(nextSnapshot) });
     if (state.renderScheduled) return;
     state.renderScheduled = true;
@@ -1043,9 +1103,10 @@
           };
     schedule(function () {
       state.renderScheduled = false;
-      const nextSnapshot = state.pendingRenderSnapshot || {};
-      state.pendingRenderSnapshot = null;
-      render(nextSnapshot);
+      const pendingSnapshots = state.pendingRenderSnapshots.splice(0);
+      pendingSnapshots.forEach(function (pendingSnapshot) {
+        render(pendingSnapshot);
+      });
     });
   }
 
@@ -1066,6 +1127,10 @@
     }
     if (data.type === "assistant-panel:close-drawers") {
       closeAllDrawers();
+      return;
+    }
+    if (data.type === "acp-skill-run:publication") {
+      applyPublication(data.payload || {});
       return;
     }
     if (

@@ -20,13 +20,14 @@
     toolActivityExpandedSignature: "",
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
-    pendingRenderSnapshot: null,
+    pendingRenderSnapshots: [],
     renderScheduled: false,
     panelRenderKey: "",
     drawerGroupCollapsed: new Map(),
     pendingTranscriptOwnerKey: "",
     pendingTranscriptBackendId: "",
     pendingTranscriptPreviousOwnerKey: "",
+    publicationRevisions: new Map(),
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -936,6 +937,26 @@
     syncDrawerVisibility();
   }
 
+  function renderMessageCounter(snapshot) {
+    const renderer = assistantPanelRenderer();
+    if (
+      !renderer ||
+      typeof renderer.renderAssistantPanelSnapshot !== "function"
+    )
+      return;
+    renderer.renderAssistantPanelSnapshot(
+      projectPanelSnapshot(snapshot || {}),
+      {
+        managed: true,
+        managedRegions: { messageCounter: true },
+        root: rootEl,
+        regions: {
+          messageCounter: document.getElementById("acp-chat-message-counter"),
+        },
+      },
+    );
+  }
+
   function syncDrawerVisibility() {
     document
       .getElementById("acp-chat-drawer")
@@ -1136,13 +1157,82 @@
     }
     renderPanel(state.snapshot);
     renderTranscript(state.snapshot);
+    const publication = state.snapshot.workspacePublication;
+    if (publication && typeof publication === "object") {
+      publicationAck(publication, "child-apply", "applied");
+      publicationAck(publication, "render-complete", "applied");
+      delete state.snapshot.workspacePublication;
+    }
+  }
+
+  function publicationRevisionKey(publication) {
+    return [
+      safeText(publication && publication.owner && publication.owner.key),
+      safeText(publication && publication.kind),
+    ].join("\n");
+  }
+
+  function publicationAck(publication, stage, outcome, reason) {
+    sendAction("publication-ack", {
+      publicationId: safeText(publication && publication.id),
+      kind: safeText(publication && publication.kind),
+      ownerKey: safeText(
+        publication && publication.owner && publication.owner.key,
+      ),
+      revision: Number(publication && publication.revision) || 0,
+      signature: safeText(publication && publication.signature),
+      initialization: publication && publication.initialization === true,
+      stage,
+      outcome,
+      reason: reason || undefined,
+    });
+  }
+
+  function applyPublication(publication) {
+    const ownerKey = safeText(
+      publication && publication.owner && publication.owner.key,
+    );
+    const currentOwnerKey = snapshotTranscriptOwnerKey(state.snapshot || {});
+    const kind = safeText(publication && publication.kind);
+    const revision = Number(publication && publication.revision) || 0;
+    const key = publicationRevisionKey(publication || {});
+    const lastRevision = state.publicationRevisions.get(key) || 0;
+    if (!ownerKey || !kind || !publication || !publication.dto) {
+      publicationAck(
+        publication || {},
+        "child-apply",
+        "rejected",
+        "invalid-publication",
+      );
+      return;
+    }
+    if (currentOwnerKey && ownerKey !== currentOwnerKey) {
+      publicationAck(publication, "child-apply", "rejected", "old-owner");
+      return;
+    }
+    if (revision <= lastRevision && lastRevision > 0) {
+      publicationAck(publication, "child-apply", "rejected", "stale-revision");
+      return;
+    }
+    state.publicationRevisions.set(key, revision);
+    state.snapshot = Object.assign({}, state.snapshot || {}, publication.dto);
+    publicationAck(publication, "child-apply", "applied");
+    if (kind === "message-counts") {
+      renderMessageCounter(state.snapshot);
+    } else if (kind === "transcript") {
+      renderTranscript(state.snapshot);
+    } else {
+      renderPanel(state.snapshot);
+    }
+    publicationAck(publication, "render-complete", "applied");
   }
 
   function queueRender(snapshot) {
-    state.pendingRenderSnapshot =
+    const nextSnapshot =
       snapshot && typeof snapshot === "object" ? snapshot : {};
+    state.pendingRenderSnapshots.push(nextSnapshot);
     trace("queue-render", {
-      summary: snapshotSummary(state.pendingRenderSnapshot),
+      summary: snapshotSummary(nextSnapshot),
     });
     if (state.renderScheduled) return;
     state.renderScheduled = true;
@@ -1154,9 +1244,10 @@
           };
     schedule(function () {
       state.renderScheduled = false;
-      const nextSnapshot = state.pendingRenderSnapshot || {};
-      state.pendingRenderSnapshot = null;
-      render(nextSnapshot);
+      const pendingSnapshots = state.pendingRenderSnapshots.splice(0);
+      pendingSnapshots.forEach(function (pendingSnapshot) {
+        render(pendingSnapshot);
+      });
     });
   }
 
@@ -1192,6 +1283,10 @@
     if (!data) return;
     const payload =
       data.payload && typeof data.payload === "object" ? data.payload : {};
+    if (data.type === "acp:publication") {
+      applyPublication(payload);
+      return;
+    }
     if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
       return;
     trace("message-received", {
