@@ -242,6 +242,114 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes the four Reference maintenance commands through narrow normalized ports", async function () {
+    const calls: string[] = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async refreshReferenceSidecarNow() {
+        calls.push("refresh");
+        return {
+          ok: true,
+          status: "ready",
+          optional_field: undefined,
+          updated_at: new Date("2026-07-15T00:00:00.000Z"),
+        };
+      },
+      async retryReferenceSidecarRefresh() {
+        calls.push("retry-refresh");
+        return { ok: true, status: "retried" };
+      },
+      async runAdvancedReferenceMatchingNow() {
+        calls.push("advanced");
+        return { ok: true, status: "completed" };
+      },
+      async retryAdvancedReferenceMatching() {
+        calls.push("retry-advanced");
+        return { ok: true, status: "retried" };
+      },
+    });
+
+    assert.deepEqual(await client.references.refreshReferenceSidecarNow(), {
+      ok: true,
+      status: "ready",
+      updated_at: "2026-07-15T00:00:00.000Z",
+    });
+    assert.deepEqual(await client.references.retryReferenceSidecarRefresh(), {
+      ok: true,
+      status: "retried",
+    });
+    assert.deepEqual(
+      await client.references.runAdvancedReferenceMatchingNow(),
+      { ok: true, status: "completed" },
+    );
+    assert.deepEqual(await client.references.retryAdvancedReferenceMatching(), {
+      ok: true,
+      status: "retried",
+    });
+    assert.deepEqual(calls, [
+      "refresh",
+      "retry-refresh",
+      "advanced",
+      "retry-advanced",
+    ]);
+  });
+
+  it("normalizes missing and failed Reference maintenance ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "retry conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async retryReferenceSidecarRefresh() {
+        throw new Error("refresh retry exploded");
+      },
+      async runAdvancedReferenceMatchingNow() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async retryAdvancedReferenceMatching() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () => client.references.refreshReferenceSidecarNow(),
+        code: "unavailable",
+      },
+      {
+        run: () => client.references.retryReferenceSidecarRefresh(),
+        code: "internal",
+      },
+      {
+        run: () => client.references.runAdvancedReferenceMatchingNow(),
+        code: "storage_busy",
+      },
+      {
+        run: () => client.references.retryAdvancedReferenceMatching(),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Reference command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({

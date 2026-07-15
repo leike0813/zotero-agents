@@ -105,6 +105,18 @@ function createLegacyPort(
     async retryCitationGraphCacheRebuild() {
       return resolveService().retryCitationGraphCacheRebuild();
     },
+    async refreshReferenceSidecarNow() {
+      return resolveService().refreshReferenceSidecarNow();
+    },
+    async retryReferenceSidecarRefresh() {
+      return resolveService().retryReferenceSidecarRefresh();
+    },
+    async runAdvancedReferenceMatchingNow() {
+      return resolveService().runAdvancedReferenceMatchingNow();
+    },
+    async retryAdvancedReferenceMatching() {
+      return resolveService().retryAdvancedReferenceMatching();
+    },
   };
 }
 

@@ -2382,17 +2382,23 @@ function handleAction(
       runtime,
       "refreshReferenceSidecarNow",
       {},
-      () =>
-        getDefaultSynthesisService().refreshReferenceSidecarNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.references.refreshReferenceSidecarNow();
+      },
       { deferStart: true },
     );
     return;
   }
   if (result.hostCommand?.command === "retryReferenceSidecarRefresh") {
-    runWorkbenchCommandOnce(runtime, "retryReferenceSidecarRefresh", {}, () =>
-      getDefaultSynthesisService().retryReferenceSidecarRefresh(),
+    runWorkbenchCommandOnce(
+      runtime,
+      "retryReferenceSidecarRefresh",
+      {},
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.references.retryReferenceSidecarRefresh();
+      },
     );
     return;
   }
@@ -2401,10 +2407,10 @@ function handleAction(
       runtime,
       "runAdvancedReferenceMatchingNow",
       {},
-      () =>
-        getDefaultSynthesisService().runAdvancedReferenceMatchingNow({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.references.runAdvancedReferenceMatchingNow();
+      },
       { deferStart: true },
     );
     return;
@@ -2414,10 +2420,10 @@ function handleAction(
       runtime,
       "retryAdvancedReferenceMatching",
       {},
-      () =>
-        getDefaultSynthesisService().retryAdvancedReferenceMatching({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.references.retryAdvancedReferenceMatching();
+      },
       { deferStart: true },
     );
     return;

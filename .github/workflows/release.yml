@@ -76,6 +76,9 @@ jobs:
       - name: Verify content package release
         run: npm run check:content-package-release
 
+      - name: Build help docs
+        run: npm run build:help-docs
+
       - name: Build plugin
         run: npm run build
 

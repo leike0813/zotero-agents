@@ -106,11 +106,38 @@ describe("Synthesis sidecar migration boundary", function () {
       /client\.graph\s*\.refreshCitationGraphCacheIncrementalNow/,
     );
     assert.match(workbench, /client\.graph\s*\.retryCitationGraphCacheRebuild/);
+    assert.match(
+      workbench,
+      /client\.references\s*\.refreshReferenceSidecarNow/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.retryReferenceSidecarRefresh/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.runAdvancedReferenceMatchingNow/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.retryAdvancedReferenceMatching/,
+    );
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
       "refreshCitationGraphCacheIncrementalNow",
       "retryCitationGraphCacheRebuild",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(`getDefaultSynthesisService\\(\\)\\.${method}`),
+      );
+    }
+    for (const method of [
+      "refreshReferenceSidecarNow",
+      "retryReferenceSidecarRefresh",
+      "runAdvancedReferenceMatchingNow",
+      "retryAdvancedReferenceMatching",
     ]) {
       assert.notMatch(
         workbench,
@@ -140,6 +167,10 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/graph.ts"),
       "utf8",
     );
+    const referencesContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/references.ts"),
+      "utf8",
+    );
     const topicsContract = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/topics.ts"),
       "utf8",
@@ -154,6 +185,15 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(graphContract, "retryCitationGraphCacheRebuild()");
     assert.notMatch(
       graphContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
+    assert.include(clientContract, "references: SynthesisReferencesClient");
+    assert.include(referencesContract, "refreshReferenceSidecarNow()");
+    assert.include(referencesContract, "retryReferenceSidecarRefresh()");
+    assert.include(referencesContract, "runAdvancedReferenceMatchingNow()");
+    assert.include(referencesContract, "retryAdvancedReferenceMatching()");
+    assert.notMatch(
+      referencesContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
     );
     assert.notMatch(

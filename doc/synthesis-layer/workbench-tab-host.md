@@ -210,6 +210,8 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 
 四个 Citation Graph host 命令动态解析默认 `SynthesisClient` 并调用 `client.graph`。手动 layout 请求传入 `force: true`；Graph surface 的自动 layout refresh 复用同一个 client 完成 surface read 和非强制 recompute。Full rebuild、incremental refresh 和 retry 均使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract。
 
+四个 Reference Sidecar/advanced matching 维护命令动态解析默认 `SynthesisClient` 并调用 `client.references`。它们使用无参数 client command，不把 `onProgress` 或其它 UI callback 带入 contract；refresh 与 advanced matching 保留确认，三个长命令保留 deferred start，而 Reference Sidecar retry 保持立即启动。
+
 ### 受保护命令
 
 6 个重建命令在确认前弹出自定义确认对话框：
@@ -257,7 +259,7 @@ runtime.commandProgressTimer = setInterval(() => {
 }, SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS);
 ```
 
-`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；持久化 `running` operation 只由显式 startup reconciliation 作为 restart orphan 取消。Citation Graph cache command 不再主动回调 UI，进度完全由这条持久化状态轮询路径发布。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
+`refreshWorkbenchCommandProgress()` 动态解析默认 `SynthesisClient`，通过无参数 `client.workbench.readProgress()` 读取 opaque maintenance projection，经共享 UI adapter 转换后使用现有 runtime merge 合并到 `snapshotInput`，再发送 chrome 更新。该查询不修改 operation lifecycle；持久化 `running` operation 只由显式 startup reconciliation 作为 restart orphan 取消。Citation Graph cache 与 Reference maintenance command 不再主动回调 UI，进度完全由这条持久化状态轮询路径发布。轮询保留 `commandProgressSnapshotRunning` 并发锁、`snapshotInputLocked` 保护、Git/WebDAV Sync chrome fast path、错误 fallback 和 500ms cadence。
 
 ### surfacesInvalidatedByCommand
 

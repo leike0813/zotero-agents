@@ -1842,6 +1842,72 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("routes Reference maintenance through the callback-free References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    const referenceRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "refreshReferenceSidecarNow"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionReviewAction"',
+      ),
+    );
+    const retryRefreshRegion = referenceRegion.slice(
+      referenceRegion.indexOf(
+        'result.hostCommand?.command === "retryReferenceSidecarRefresh"',
+      ),
+      referenceRegion.indexOf(
+        'result.hostCommand?.command === "runAdvancedReferenceMatchingNow"',
+      ),
+    );
+
+    for (const [command, method] of [
+      ["refreshReferenceSidecarNow", "refreshReferenceSidecarNow"],
+      ["retryReferenceSidecarRefresh", "retryReferenceSidecarRefresh"],
+      ["runAdvancedReferenceMatchingNow", "runAdvancedReferenceMatchingNow"],
+      ["retryAdvancedReferenceMatching", "retryAdvancedReferenceMatching"],
+    ]) {
+      assert.match(
+        referenceRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,420}client\\.references\\s*\\.${method}\\(\\)`,
+        ),
+      );
+    }
+    for (const command of [
+      "refreshReferenceSidecarNow",
+      "runAdvancedReferenceMatchingNow",
+      "retryAdvancedReferenceMatching",
+    ]) {
+      assert.match(
+        referenceRegion,
+        new RegExp(`${command}[\\s\\S]{0,500}deferStart: true`),
+      );
+    }
+    assert.notInclude(retryRefreshRegion, "deferStart");
+    assert.notInclude(referenceRegion, "onProgress");
+    assert.notInclude(referenceRegion, "notifyWorkbenchCommandProgress");
+    assert.include(protectedBlock, 'command === "refreshReferenceSidecarNow"');
+    assert.include(
+      protectedBlock,
+      'command === "runAdvancedReferenceMatchingNow"',
+    );
+    assert.notInclude(protectedBlock, "retryReferenceSidecarRefresh");
+    assert.notInclude(protectedBlock, "retryAdvancedReferenceMatching");
+    assert.notMatch(
+      tabSource,
+      /getDefaultSynthesisService\(\)\.(?:refreshReferenceSidecarNow|retryReferenceSidecarRefresh|runAdvancedReferenceMatchingNow|retryAdvancedReferenceMatching)/,
+    );
+  });
+
   it("routes Workbench artifact delete and purge host commands", function () {
     const deleteResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),

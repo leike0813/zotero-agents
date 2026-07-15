@@ -29,7 +29,7 @@
     "start:direct": "tsx scripts/run-zotero-direct.ts",
     "start:direct:build": "tsx scripts/run-zotero-direct.ts --build",
     "start:raw": "zotero-plugin serve",
-    "build": "npm run build:help-docs && npm run check:synthesis-contracts && zotero-plugin build && tsc --noEmit",
+    "build": "npm run check:synthesis-contracts && zotero-plugin build && tsc --noEmit",
     "build:help-docs": "tsx scripts/build-help-docs.ts",
     "check:help-docs": "tsx scripts/build-help-docs.ts --check",
     "harness:ui": "tsx scripts/ui-harness-serve.ts",

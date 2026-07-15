@@ -11,9 +11,11 @@ import type {
 } from "./workflow";
 import type { SynthesisWorkbenchClient } from "./workbench";
 import type { SynthesisGraphClient } from "./graph";
+import type { SynthesisReferencesClient } from "./references";
 
 export interface SynthesisClient {
   readonly graph: SynthesisGraphClient;
+  readonly references: SynthesisReferencesClient;
   readonly topics: SynthesisTopicsClient;
   readonly system: SynthesisSystemClient;
   readonly maintenance: SynthesisMaintenanceClient;

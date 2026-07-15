@@ -11,6 +11,7 @@ import {
   type SynthesisLiteratureDigestApplyRequest,
   type SynthesisPaperArtifactsRequest,
   type SynthesisPaperArtifactsResult,
+  type SynthesisReferenceCommandResult,
   type SynthesisRelatedItemsEchoRequest,
   type SynthesisStartupReconcileResult,
   type SynthesisTagAuditReplaceRequest,
@@ -85,6 +86,10 @@ export interface LegacySynthesisPort {
   rebuildCitationGraphCacheNow?(): Promise<unknown>;
   refreshCitationGraphCacheIncrementalNow?(): Promise<unknown>;
   retryCitationGraphCacheRebuild?(): Promise<unknown>;
+  refreshReferenceSidecarNow?(): Promise<unknown>;
+  retryReferenceSidecarRefresh?(): Promise<unknown>;
+  runAdvancedReferenceMatchingNow?(): Promise<unknown>;
+  retryAdvancedReferenceMatching?(): Promise<unknown>;
 }
 
 function normalizeClientError(error: unknown): SynthesisClientError {
@@ -298,6 +303,52 @@ export function createInProcessSynthesisClient(
                 "graph.retryCitationGraphCacheRebuild",
               )(),
             ) as SynthesisGraphCommandResult,
+        );
+      },
+    },
+    references: {
+      async refreshReferenceSidecarNow() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.refreshReferenceSidecarNow,
+                "references.refreshReferenceSidecarNow",
+              )(),
+            ) as SynthesisReferenceCommandResult,
+        );
+      },
+      async retryReferenceSidecarRefresh() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.retryReferenceSidecarRefresh,
+                "references.retryReferenceSidecarRefresh",
+              )(),
+            ) as SynthesisReferenceCommandResult,
+        );
+      },
+      async runAdvancedReferenceMatchingNow() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.runAdvancedReferenceMatchingNow,
+                "references.runAdvancedReferenceMatchingNow",
+              )(),
+            ) as SynthesisReferenceCommandResult,
+        );
+      },
+      async retryAdvancedReferenceMatching() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.retryAdvancedReferenceMatching,
+                "references.retryAdvancedReferenceMatching",
+              )(),
+            ) as SynthesisReferenceCommandResult,
         );
       },
     },

@@ -74,6 +74,8 @@ Queue aggregates and debug work listings are not part of the active UI contract.
 
 Advanced Reference Matching appears under Index and Review as an explicit review workflow. The Index fact tables continue to show accepted binding facts and unbound derived state; open proposals are displayed in the review drawer and Review Center with Accept/Reject actions. The Review Center also lets users manage prior decisions: accepted proposals can be reopened, rejected, or deleted, and rejected proposals can be reopened, accepted, or deleted. Changing an accepted proposal must revoke the binding or redirect fact created from that proposal. Running advanced matching must require confirmation because it may run heavier binding and canonical dedupe logic than refresh.
 
+Reference Sidecar refresh/retry and advanced matching run/retry route through no-argument `SynthesisClient.references` commands. These commands do not carry UI progress callbacks; the existing 500 ms `workbench.readProgress()` poll remains the progress source. Refresh and advanced matching keep their confirmations, while both retry actions remain confirmation-free.
+
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
 ## Sync Status and Conflict Review
