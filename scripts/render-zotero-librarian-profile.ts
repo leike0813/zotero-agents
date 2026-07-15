@@ -43,9 +43,15 @@ const PROFILE_EXAMPLE_SOURCE =
   "skills_builtin/zotero-bridge-cli/assets/profile.template.json";
 const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
+const SHARED_CONTROL_INVARIANTS_SOURCE =
+  "skills_src/host-bridge-shared/control-invariants.md";
 const PROFILE_TERMINOLOGY_TARGET = join(
   PROFILE_ROOT,
   "skills/zotero-librarian/references/terminology.md",
+);
+const PROFILE_CONTROL_INVARIANTS_TARGET = join(
+  PROFILE_ROOT,
+  "skills/zotero-librarian/references/control-invariants.md",
 );
 const PROFILE_EXAMPLE_TARGET = join(
   PROFILE_ROOT,
@@ -353,6 +359,7 @@ function renderManifestSource(
           join(PROFILE_SEMANTIC_ROOT, path).replace(/\\/g, "/"),
         ),
         SHARED_TERMINOLOGY_SOURCE,
+        SHARED_CONTROL_INVARIANTS_SOURCE,
       ],
       profileScripts: PROFILE_SCRIPT_SOURCES,
       profileCron: PROFILE_CRON_SOURCES,
@@ -374,6 +381,7 @@ function renderManifestSource(
             read(join(PROFILE_SEMANTIC_ROOT, path)),
           ),
           read(SHARED_TERMINOLOGY_SOURCE),
+          read(SHARED_CONTROL_INVARIANTS_SOURCE),
         ].join("\n---\n"),
       ),
       serviceSourceChecksum: sha256(
@@ -421,6 +429,13 @@ function render(check = false) {
   writeOrCheck(
     PROFILE_TERMINOLOGY_TARGET,
     read(SHARED_TERMINOLOGY_SOURCE),
+    check,
+    diffs,
+  );
+
+  writeOrCheck(
+    PROFILE_CONTROL_INVARIANTS_TARGET,
+    read(SHARED_CONTROL_INVARIANTS_SOURCE),
     check,
     diffs,
   );

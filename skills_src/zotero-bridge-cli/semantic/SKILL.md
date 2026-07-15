@@ -8,7 +8,7 @@ license: AGPL-3.0-or-later
 
 Use this skill when the task needs Zotero library data, current Zotero UI context, synthesis context, Host Bridge diagnostics, workflow execution, run monitoring, mutation preview/apply, note or item writeback, annotation export, or file-handle transfer through the `zotero-bridge` command.
 
-The CLI is the contract boundary. Prefer commands documented in `references/host-bridge-cli.md` over raw capabilities. Use `call` only for diagnostics or for a capability that is explicitly raw-only.
+The CLI is the contract boundary. Read `references/control-invariants.md` before using handles, approvals, files, workflows, or writeback. Prefer commands documented in `references/host-bridge-cli.md` over raw capabilities. Use `call` only for diagnostics or for a capability that is explicitly raw-only.
 
 When the user uses Chinese shorthand, artifact names, run handles, graph terms, writeback terms, or domain abbreviations that could map to more than one Host Bridge concept, read `references/terminology.md` before choosing commands.
 
@@ -82,6 +82,7 @@ For library writeback, prefer mutation-backed commands such as `mutation tag add
 ## References
 
 - `references/host-bridge-cli.md`: command groups, endpoints, capabilities, and examples generated from the Host Bridge surface catalog.
+- `references/control-invariants.md`: shared handle, authority, workflow ownership, file-transfer, privacy, and writeback rules.
 - `references/agent-guidance.md`: command selection rules, workflow handoff rules, and failure-handling guidance for agents.
 - `references/terminology.md`: shared Host Bridge and Zotero Librarian terminology for graph, artifact, handle, readiness, and writeback concepts.
 

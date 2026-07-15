@@ -8,6 +8,7 @@ export type HostBridgeSemanticReviewContext = {
   specLayerChanges: string[];
   semanticSourceChanges: string[];
   profileReleaseMetadataChanges: string[];
+  bundleReleaseMetadataChanges: string[];
   generatedTargetChanges: string[];
   unclassifiedChanges: string[];
   reviewRequired: boolean;
@@ -46,6 +47,8 @@ export function collectChangedFiles() {
 function isSemanticSource(path: string) {
   return (
     path.startsWith("skills_src/zotero-bridge-cli/semantic/") ||
+    path.startsWith("skills_src/zotero-library-agent/semantic/") ||
+    path.startsWith("skills_src/host-bridge-shared/") ||
     path.startsWith("profiles_src/hermes/zotero-librarian/")
   );
 }
@@ -54,10 +57,15 @@ function isProfileReleaseMetadata(path: string) {
   return path === "profiles_src/hermes/zotero-librarian/profile-version.json";
 }
 
+function isBundleReleaseMetadata(path: string) {
+  return path === "skills_src/zotero-library-agent/bundle-version.json";
+}
+
 function isGeneratedTarget(path: string) {
   return (
     path === "doc/host-bridge-cli.md" ||
     path.startsWith("skills_builtin/zotero-bridge-cli/") ||
+    path.startsWith("skills_builtin/zotero-library-agent/") ||
     path.startsWith("profiles/hermes/zotero-librarian/") ||
     path ===
       "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2" ||
@@ -75,7 +83,8 @@ function isHostBridgeOpenSpec(path: string) {
     path.startsWith("openspec/specs/workflow-execution-runtime/") ||
     path.startsWith("openspec/specs/workflow-execution-seams/") ||
     path.startsWith("openspec/specs/workflow-runtime/") ||
-    path.startsWith("openspec/specs/host-bridge-release-pipeline/")
+    path.startsWith("openspec/specs/host-bridge-release-pipeline/") ||
+    path.includes("/specs/zotero-library-agent-bundle/")
   );
 }
 
@@ -113,6 +122,7 @@ function focusFor(
   specLayerChanges: string[],
   semanticSourceChanges: string[],
   profileReleaseMetadataChanges: string[],
+  bundleReleaseMetadataChanges: string[],
   generatedTargetChanges: string[],
 ) {
   const focus: string[] = [];
@@ -132,6 +142,11 @@ function focusFor(
   if (profileReleaseMetadataChanges.length) {
     focus.push(
       "Review Zotero Librarian profile version governance; semantic-source review is not required for version metadata alone.",
+    );
+  }
+  if (bundleReleaseMetadataChanges.length) {
+    focus.push(
+      "Review Zotero Library Agent bundle version governance; semantic-source review is not required for version metadata alone.",
     );
   }
   if (
@@ -158,12 +173,15 @@ export function classifyChangedFiles(
   const specLayerChanges: string[] = [];
   const semanticSourceChanges: string[] = [];
   const profileReleaseMetadataChanges: string[] = [];
+  const bundleReleaseMetadataChanges: string[] = [];
   const generatedTargetChanges: string[] = [];
   const unclassifiedChanges: string[] = [];
 
   for (const path of normalized) {
     if (isProfileReleaseMetadata(path)) {
       profileReleaseMetadataChanges.push(path);
+    } else if (isBundleReleaseMetadata(path)) {
+      bundleReleaseMetadataChanges.push(path);
     } else if (isSemanticSource(path)) {
       semanticSourceChanges.push(path);
     } else if (isGeneratedTarget(path)) {
@@ -181,6 +199,7 @@ export function classifyChangedFiles(
     specLayerChanges,
     semanticSourceChanges,
     profileReleaseMetadataChanges,
+    bundleReleaseMetadataChanges,
     generatedTargetChanges,
     unclassifiedChanges,
     reviewRequired:
@@ -189,6 +208,7 @@ export function classifyChangedFiles(
       specLayerChanges,
       semanticSourceChanges,
       profileReleaseMetadataChanges,
+      bundleReleaseMetadataChanges,
       generatedTargetChanges,
     ),
   };

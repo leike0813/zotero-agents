@@ -1,0 +1,36 @@
+{
+  "producer": {
+    "surfaceVersion": "0.2.0",
+    "cliVersion": "0.2.1"
+  },
+  "operation": {
+    "kind": "library-read",
+    "command": [
+      "zotero-bridge",
+      "library",
+      "item",
+      "get",
+      "--item",
+      "1:ABCD1234"
+    ]
+  },
+  "subjects": [
+    {
+      "kind": "zotero-item",
+      "ref": {
+        "libraryId": 1,
+        "key": "ABCD1234"
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "artifacts/item.json",
+      "role": "library-record",
+      "mediaType": "application/json"
+    }
+  ],
+  "writeback": {
+    "state": "not-requested"
+  }
+}

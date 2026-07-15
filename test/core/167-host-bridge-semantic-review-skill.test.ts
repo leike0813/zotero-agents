@@ -69,6 +69,23 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.isEmpty(context.semanticSourceChanges);
   });
 
+  it("classifies Zotero Library Agent semantic and version inputs", function () {
+    const semantic = classifyChangedFiles([
+      "skills_src/zotero-library-agent/semantic/SKILL.md",
+      "skills_src/host-bridge-shared/control-invariants.md",
+    ]);
+    assert.isTrue(semantic.reviewRequired);
+    assert.lengthOf(semantic.semanticSourceChanges, 2);
+
+    const version = classifyChangedFiles([
+      "skills_src/zotero-library-agent/bundle-version.json",
+    ]);
+    assert.isFalse(version.reviewRequired);
+    assert.sameMembers(version.bundleReleaseMetadataChanges, [
+      "skills_src/zotero-library-agent/bundle-version.json",
+    ]);
+  });
+
   it("defines a runnable meta skill with direct references", async function () {
     const skill = await fs.readFile(
       projectPath(
@@ -115,6 +132,8 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.include(releaseSkill, "semantic source files changed");
     assert.include(releaseSkill, "inspect:zotero-librarian-profile-version");
     assert.include(releaseSkill, "bump:zotero-librarian-profile");
+    assert.include(releaseSkill, "inspect:zotero-library-agent-bundle-version");
+    assert.include(releaseSkill, "bump:zotero-library-agent-bundle");
     assert.include(releaseSkill, "references/profile-versioning.md");
   });
 });

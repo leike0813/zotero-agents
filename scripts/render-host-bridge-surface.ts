@@ -18,6 +18,8 @@ const WRAPPER_AGENT_GUIDANCE_SOURCE =
   "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md";
 const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
+const SHARED_CONTROL_INVARIANTS_SOURCE =
+  "skills_src/host-bridge-shared/control-invariants.md";
 
 type RenderTarget = {
   path: string;
@@ -492,6 +494,10 @@ const COPY_TARGETS: CopyTarget[] = [
   {
     path: "skills_builtin/zotero-bridge-cli/references/terminology.md",
     sourcePath: SHARED_TERMINOLOGY_SOURCE,
+  },
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
+    sourcePath: SHARED_CONTROL_INVARIANTS_SOURCE,
   },
 ];
 

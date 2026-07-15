@@ -1773,6 +1773,88 @@ describe("host bridge cli packaging and install", function () {
     assert.strictEqual(profileTemplate.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
   });
 
+  it("declares the standalone Zotero Library Agent bundle surface", async function () {
+    const packageJson = JSON.parse(await fs.readFile("package.json", "utf8"));
+    const buildWorkflow = await fs.readFile(
+      ".github/workflows/build-zotero-bridge-cli.yml",
+      "utf8",
+    );
+    const surfaceWorkflow = await fs.readFile(
+      ".github/workflows/publish-host-bridge-surfaces.yml",
+      "utf8",
+    );
+    const publisher = await fs.readFile(
+      "scripts/publish-zotero-library-agent-bundle.ps1",
+      "utf8",
+    );
+    const versionSource = JSON.parse(
+      await fs.readFile(
+        "skills_src/zotero-library-agent/bundle-version.json",
+        "utf8",
+      ),
+    );
+    const skill = await fs.readFile(
+      "skills_builtin/zotero-library-agent/SKILL.md",
+      "utf8",
+    );
+    const controlSource = await fs.readFile(
+      "skills_src/host-bridge-shared/control-invariants.md",
+      "utf8",
+    );
+    const agentControl = await fs.readFile(
+      "skills_builtin/zotero-library-agent/references/control-invariants.md",
+      "utf8",
+    );
+    const wrapperControl = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
+      "utf8",
+    );
+    const profileControl = await fs.readFile(
+      "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/control-invariants.md",
+      "utf8",
+    );
+
+    assert.strictEqual(
+      versionSource.schema,
+      "zotero-library-agent.bundle.version.v1",
+    );
+    assert.strictEqual(versionSource.cliMajorMinor, "0.2");
+    assert.strictEqual(versionSource.patch, 0);
+    assert.include(skill, "references/task-routing.md");
+    assert.include(skill, "references/workflow-execution.md");
+    assert.include(skill, "references/evidence-handoff.md");
+    assert.notMatch(skill, /HERMES_HOME|cron|SQLite|run-register/);
+    assert.strictEqual(agentControl, controlSource);
+    assert.strictEqual(wrapperControl, controlSource);
+    assert.strictEqual(profileControl, controlSource);
+
+    for (const workflow of [buildWorkflow, surfaceWorkflow]) {
+      assert.include(workflow, "npm run check:zotero-library-agent-bundle");
+      assert.include(
+        workflow,
+        "Publish Zotero Library Agent bundle repository",
+      );
+      assert.include(workflow, "publish-zotero-library-agent-bundle.ps1");
+      assert.include(workflow, "leike0813/zotero-library-agent-bundle.git");
+    }
+    assert.include(
+      publisher,
+      "zotero-library-agent.bundle.release-manifest.v1",
+    );
+    assert.include(publisher, "skills/zotero-library-agent");
+    assert.include(publisher, "skills/zotero-bridge-cli");
+    assert.include(publisher, "cli/zotero-bridge/release.json");
+    assert.notMatch(publisher, /profiles\/hermes|zotero_librarian_index/);
+    assert.strictEqual(
+      packageJson.scripts["check:zotero-library-agent-bundle"],
+      "tsx scripts/check-zotero-library-agent-bundle.ts",
+    );
+    assert.strictEqual(
+      packageJson.scripts["inspect:zotero-library-agent-bundle-version"],
+      "tsx scripts/zotero-library-agent-bundle-version.ts",
+    );
+  });
+
   it("documents agent-friendly bundle installers without platform override", async function () {
     const installPs1 = await fs.readFile(
       "cli/zotero-bridge/scripts/install.ps1",
