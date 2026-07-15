@@ -8,10 +8,8 @@ import {
 } from "../../src/workflows/hostApi";
 import { readRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import { buildSynthesisStoragePaths } from "../../src/modules/synthesis/foundation";
-import {
-  createSynthesisService,
-  resetDefaultSynthesisServiceForTests,
-} from "../../src/modules/synthesis/service";
+import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { resetDefaultLegacySynthesisServiceForTests } from "../../src/modules/synthesisClient/legacyComposition";
 
 function validBundle(
   base_hashes: Record<string, string> = {
@@ -72,7 +70,7 @@ describe("Synthesis Zotero runtime smoke", function () {
     if (!hasZoteroItemRuntime()) {
       this.skip();
     }
-    resetDefaultSynthesisServiceForTests();
+    resetDefaultLegacySynthesisServiceForTests();
     resetWorkflowHostApiForTests();
   });
 

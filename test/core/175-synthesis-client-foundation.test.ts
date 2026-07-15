@@ -3092,7 +3092,8 @@ describe("Synthesis client foundation", function () {
       "utf8",
     );
 
-    assert.include(composition, "getDefaultSynthesisService");
+    assert.include(composition, "createDefaultLegacyService");
+    assert.include(composition, "createZoteroSynthesisHostReadPort");
     assert.notMatch(composition, /\btype\s+SynthesisService\b/);
     assert.notInclude(defaultClient, "getDefaultSynthesisService");
     assert.notInclude(defaultClient, "../synthesis/service");

@@ -6,7 +6,7 @@ import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/f
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
-import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
+import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { handlers } from "../../src/handlers";
 import {
   readRuntimeTextFile,
@@ -56,9 +56,14 @@ describe("Synthesis tag vocabulary", function () {
     groupItem.addTag(ignoredTag);
     await groupItem.saveTx();
 
-    const adapter = createZoteroSynthesisLibraryAdapter({ libraryId });
-    const counts = await adapter.getTagUsageCounts?.({ libraryId });
-    const byTag = new Map((counts || []).map((row) => [row.tag, row.count]));
+    const port = createZoteroSynthesisHostReadPort({ libraryId });
+    const page = await port.library.listItemsPage({ libraryId, limit: 100 });
+    const byTag = new Map<string, number>();
+    for (const item of page.items) {
+      for (const tag of item.tags) {
+        byTag.set(tag, (byTag.get(tag) || 0) + 1);
+      }
+    }
 
     assert.equal(byTag.get(countedTag), 1);
     assert.isUndefined(byTag.get(ignoredTag));

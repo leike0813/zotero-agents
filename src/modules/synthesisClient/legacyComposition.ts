@@ -1,4 +1,6 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
+import { getRuntimePersistencePaths } from "../runtimePersistence";
+import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import {
   createInProcessSynthesisClient,
   type LegacySynthesisPort,
@@ -7,6 +9,33 @@ import {
 type LegacyServiceInstance = ReturnType<
   (typeof import("../synthesis/service"))["createSynthesisService"]
 >;
+
+let defaultLegacyService: LegacyServiceInstance | undefined;
+
+function configuredLibraryId() {
+  const value = Number(
+    (globalThis as { Zotero?: any }).Zotero?.Libraries?.userLibraryID || 1,
+  );
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
+}
+
+function createDefaultLegacyService(
+  legacy: typeof import("../synthesis/service"),
+) {
+  if (defaultLegacyService) {
+    return defaultLegacyService;
+  }
+  const libraryId = configuredLibraryId();
+  const paths = getRuntimePersistencePaths();
+  defaultLegacyService = legacy.createSynthesisService({
+    root: paths.dataDir,
+    runtimeRoot: paths.root,
+    libraryId,
+    hostReadPort: createZoteroSynthesisHostReadPort({ libraryId }),
+    onConfigurationChanged: invalidateDefaultLegacySynthesisService,
+  });
+  return defaultLegacyService;
+}
 
 function createLegacyPort(
   resolveService: () => LegacyServiceInstance,
@@ -319,9 +348,8 @@ function createLegacyPort(
   };
 }
 
-export async function invalidateDefaultLegacySynthesisService() {
-  const legacy = await import("../synthesis/service");
-  legacy.invalidateDefaultSynthesisService();
+export function invalidateDefaultLegacySynthesisService() {
+  defaultLegacyService = undefined;
 }
 
 export async function createDefaultLegacySynthesisClientComposition(): Promise<{
@@ -329,11 +357,10 @@ export async function createDefaultLegacySynthesisClientComposition(): Promise<{
   invalidate: () => void;
 }> {
   const legacy = await import("../synthesis/service");
+  const resolveService = () => createDefaultLegacyService(legacy);
   return {
-    client: createInProcessSynthesisClient(
-      createLegacyPort(legacy.getDefaultSynthesisService),
-    ),
-    invalidate: legacy.invalidateDefaultSynthesisService,
+    client: createInProcessSynthesisClient(createLegacyPort(resolveService)),
+    invalidate: invalidateDefaultLegacySynthesisService,
   };
 }
 
@@ -343,4 +370,13 @@ export async function createLegacyInProcessSynthesisClient(
   const legacy = await import("../synthesis/service");
   const service = legacy.createSynthesisService(options);
   return createInProcessSynthesisClient(createLegacyPort(() => service));
+}
+
+export async function getDefaultLegacySynthesisServiceForTests() {
+  const legacy = await import("../synthesis/service");
+  return createDefaultLegacyService(legacy);
+}
+
+export function resetDefaultLegacySynthesisServiceForTests() {
+  invalidateDefaultLegacySynthesisService();
 }

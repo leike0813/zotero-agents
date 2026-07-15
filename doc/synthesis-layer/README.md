@@ -36,6 +36,7 @@ Machine-readable contracts are intentionally small:
 flowchart LR
   platform["Workflow / Skill Provider / Host Bridge"]
   zotero["Zotero Library"]
+  hostRead["Bounded Host Read Port"]
   artifacts["Derived Artifact Notes"]
   artifactSidecar["Artifact Sidecar"]
   refs["Raw / Canonical References"]
@@ -47,14 +48,15 @@ flowchart LR
   ui["Synthesis Workbench"]
 
   platform --> zotero
-  zotero --> artifacts
+  zotero --> hostRead
+  hostRead --> artifacts
   artifacts --> artifactSidecar
   artifacts --> refs
   refs --> bindings
   refs --> graph
   bindings --> graph
-  zotero -. direct read / SSOT .-> topics
-  artifacts -. direct read .-> topics
+  hostRead -. metadata / SSOT .-> topics
+  artifacts -. locator + hash read .-> topics
   artifacts --> topics
   tags --> topics
   graph -. optional metrics .-> topics
@@ -75,6 +77,7 @@ flowchart LR
 sequenceDiagram
   participant W as Workflow Apply
   participant Z as Zotero Library
+  participant H as Host Read Port
   participant A as Artifact Notes
   participant S as Sidecar Repository
   participant U as Workbench
@@ -83,7 +86,8 @@ sequenceDiagram
   W->>Z: read/write Zotero-owned facts through host APIs
   W->>A: write digest/topic artifacts
   W->>S: update artifact sidecar and changed references for source_ref
-  U->>Z: direct read for correctness-sensitive library facts
+  U->>H: request bounded metadata or artifact descriptors
+  H->>Z: resolve stable refs and opaque locators
   U->>S: read cache projection for speed
   U->>R: user requests reference sidecar refresh, graph refresh, or binding review
   R->>A: scan artifact state and read changed references artifacts
@@ -98,6 +102,7 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 
 - Zotero Library is the SSOT for library facts.
 - Derived artifact notes and embedded payload attachments are the SSOT for literature workflow artifacts.
+- Synthesis application reads cross the JSON-safe `SynthesisHostReadPort`: metadata is paged or looked up by at most 100 stable refs, artifact scans return descriptors only, and one payload read is guarded by the scanned hash.
 - Topic canonical current files are the SSOT for applied Topic content; Zotero Topic note shards are a mirror and are not the ordinary runtime read source.
 - Synthesis sidecar storage is a cache projection unless the row is an explicit user-approved reference/binding/dedupe decision.
 - Artifact sidecar rows record artifact existence/hash/locator only; they do not copy Zotero item metadata.
@@ -129,5 +134,5 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 | Reference Resolution | hard-cut target | Matcher output becomes graph-affecting only through deterministic safe apply or explicit decisions. |
 | Explicit Operations | hard-cut target | User/debug-triggered operations replace dirty events, WorkItems, WorkRuns, sidecar startup replay, queue drain, and Registry rebuild. Explicit startup lifecycle cancels persisted `running` rows left by a prior process; ordinary reads never mutate operation state. |
 | Workbench UI | hard-cut target | UI presents cache status, explicit operations, and Review & Overrides management. |
-| Client boundary | migration slices active | Workflow Topic options, startup/maintenance lifecycle, default invalidation, related-items notifier echo classification, the twelve-method Workflow Host facade, production plus read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync, and all Host Bridge Synthesis capabilities use grouped `SynthesisClient` capabilities. Host Bridge routes twenty-three normal and eight debug capabilities through Topics, Graph, References, Artifacts, Concepts, Maintenance, Library Index, Workflow Review, and Debug clients; MCP mirrors the Host Bridge catalog and has no separate registry. Topic Context and filtered artifact export carry local/remote delivery mode outside request JSON. Sync commands alone acquire a fresh default client after invalidating the legacy service; ordinary Host/debug calls retain cached-client composition. Strict request DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside the boundary. Default and read-only adapters share one legacy composition root and still delegate to the in-process service. That composition root is the only production direct consumer of the complete service. |
+| Client boundary | migration slices active | Workflow Topic options, startup/maintenance lifecycle, default invalidation, related-items notifier echo classification, the twelve-method Workflow Host facade, production plus read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync, and all Host Bridge Synthesis capabilities use grouped `SynthesisClient` capabilities. Host Bridge routes twenty-three normal and eight debug capabilities through Topics, Graph, References, Artifacts, Concepts, Maintenance, Library Index, Workflow Review, and Debug clients; MCP mirrors the Host Bridge catalog and has no separate registry. Topic Context and filtered artifact export carry local/remote delivery mode outside request JSON. Sync commands alone acquire a fresh default client after invalidating the legacy service; ordinary Host/debug calls retain cached-client composition. Strict request DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside the boundary. The reverse library/artifact seam is `SynthesisHostReadPort`: pages default to 50 and cap at 100, ref lookups cap at 100, scans are payload-free, and reads require the scanned hash. The legacy composition root owns the production adapter, default service cache, and invalidation; the readonly harness supplies the same contract. That composition root is the only production direct consumer of the complete 128-method service. |
 | Process topology | current in-process state | The plugin currently owns Synthesis application execution, `synthesis.db`, and Topic canonical writes. The approved sidecar migration has not cut over production ownership. |

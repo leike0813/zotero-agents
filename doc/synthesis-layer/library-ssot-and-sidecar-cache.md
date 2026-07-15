@@ -25,7 +25,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 
 | Data | SSOT | Synthesis Sidecar Role |
 | --- | --- | --- |
-| Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through Host Library APIs. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
+| Zotero item metadata, existence, tags, collections, relations | Zotero Library | Read on demand through bounded, JSON-safe Host library pages or stable-ref lookup. Do not persist an independent item metadata or library-membership copy in Synthesis sidecar tables. |
 | Literature digest artifact, reference notes, embedded payload attachments | Zotero notes/attachments | Read on demand; cache only parseable embedded-payload existence, locator, fingerprint/hash, and diagnostics keyed by `source_ref`. Note existence and legacy hidden payload blocks are migration diagnostics only, not artifact availability. |
 | Topic canonical current files and source manifests | `data/synthesis/topics/<topicId>/current/**` | Canonical source for applied Topic content; store/read the complete current artifact, manifest, metadata, sections, and managed assets. |
 | Zotero Topic note shards | Topic canonical current files | Mirror selected canonical current state for Zotero visibility and explicit recovery workflows; mirror failure does not replace or roll back canonical current. |

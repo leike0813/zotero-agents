@@ -17,6 +17,7 @@ import {
   resetSynthesisJobProfilerForTests,
 } from "../../src/modules/synthesis/jobProfiler";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import { createTestSynthesisHostReadPort } from "../helpers/synthesisHostReadPort";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-sidecar-cache-"));
@@ -27,7 +28,7 @@ function makeService(args: {
   repository?: ReturnType<typeof createSynthesisRepository>;
   registryInputs?: any[] | null;
   citationGraphPapers?: any[];
-  libraryAdapter?: any;
+  hostReadPort?: any;
   relatedItemsSyncHost?: any;
 }) {
   const repository =
@@ -40,7 +41,7 @@ function makeService(args: {
     registryInputs:
       args.registryInputs === null ? undefined : args.registryInputs || [],
     citationGraphPapers: args.citationGraphPapers,
-    libraryAdapter: args.libraryAdapter,
+    hostReadPort: args.hostReadPort,
     relatedItemsSyncHost: args.relatedItemsSyncHost,
   });
   return { service, repository };
@@ -392,38 +393,23 @@ describe("Synthesis sidecar cache hard cut", function () {
     const root = await makeRuntimeRoot();
     const { service, repository } = makeService({
       root,
-      libraryAdapter: {
-        async getRegistryInputs() {
-          throw new Error("full registry scan must not be used");
-        },
-        async getRegistryInputsPage() {
-          return [
+      hostReadPort: createTestSynthesisHostReadPort([
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Current Paper",
+          notes: [
             {
-              libraryId: 1,
-              itemKey: "AAA",
-              title: "Current Paper",
-              notes: [],
+              key: "REFS",
+              title: "References",
+              ...embeddedPayloadBlocks({
+                payloadType: "references-json",
+                payload: { references: [{ title: "Actual Reference" }] },
+              }),
             },
-          ];
+          ],
         },
-        async getRegistryInputForItem() {
-          return {
-            libraryId: 1,
-            itemKey: "AAA",
-            title: "Current Paper",
-            notes: [
-              {
-                key: "REFS",
-                title: "References",
-                ...embeddedPayloadBlocks({
-                  payloadType: "references-json",
-                  payload: { references: [{ title: "Actual Reference" }] },
-                }),
-              },
-            ],
-          };
-        },
-      },
+      ]),
     });
     repository.upsertArtifactSidecar({
       sourceRef: "1:AAA",
@@ -452,21 +438,14 @@ describe("Synthesis sidecar cache hard cut", function () {
     const { service } = makeService({
       root,
       repository,
-      libraryAdapter: {
-        async getRegistryInputsPage() {
-          return [
-            {
-              libraryId: 1,
-              itemKey: "AAA",
-              title: "Current Paper",
-              notes: [],
-            },
-          ];
+      hostReadPort: createTestSynthesisHostReadPort([
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Current Paper",
+          notes: [],
         },
-        async getRegistryInputForItem() {
-          return null;
-        },
-      },
+      ]),
     });
     repository.upsertArtifactSidecar({
       sourceRef: "1:AAA",
@@ -787,20 +766,15 @@ describe("Synthesis sidecar cache hard cut", function () {
     const { service } = makeService({
       root,
       repository,
-      libraryAdapter: {
-        async getRegistryInputs() {
-          return [];
+      hostReadPort: createTestSynthesisHostReadPort([
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Zotero Library Title",
+          year: "2024",
+          notes: [],
         },
-        async getRegistryInputForItem() {
-          return {
-            libraryId: 1,
-            itemKey: "AAA",
-            title: "Zotero Library Title",
-            year: "2024",
-            notes: [],
-          };
-        },
-      },
+      ]),
     });
 
     const index = await service.getReferenceSidecarIndex({
@@ -877,21 +851,9 @@ describe("Synthesis sidecar cache hard cut", function () {
     const failing = makeService({
       root,
       repository,
-      libraryAdapter: {
-        getRegistryInputs: async () => [],
-        getLibraryIndex: async () => ({
-          libraryId: 1,
-          papers: [],
-          tags: [],
-          collections: [],
-          diagnostics: [],
-        }),
-        getCitationGraphInputs: async () => [],
-        readPaperArtifacts: async () => ({ artifacts: [], diagnostics: [] }),
-        scanArtifactSidecars: async () => {
-          throw new Error("forced scan failure");
-        },
-      },
+      hostReadPort: createTestSynthesisHostReadPort(async () => {
+        throw new Error("forced scan failure");
+      }),
     }).service;
     const failed = await failing.refreshReferenceSidecarNow();
 
@@ -1284,30 +1246,10 @@ describe("Synthesis sidecar cache hard cut", function () {
       runtimeRoot: root,
       libraryId: 1,
       synthesisRepository: repository,
-      libraryAdapter: {
-        getRegistryInputs: async () => {
-          scans += 1;
-          return [];
-        },
-        getLibraryIndex: async () => {
-          scans += 1;
-          return {
-            libraryId: 1,
-            papers: [],
-            tags: [],
-            collections: [],
-            diagnostics: [],
-          };
-        },
-        getCitationGraphInputs: async () => {
-          scans += 1;
-          return [];
-        },
-        readPaperArtifacts: async () => {
-          scans += 1;
-          return { artifacts: [], diagnostics: [] };
-        },
-      },
+      hostReadPort: createTestSynthesisHostReadPort(() => {
+        scans += 1;
+        return [];
+      }),
     });
 
     assert.equal(scans, 0);

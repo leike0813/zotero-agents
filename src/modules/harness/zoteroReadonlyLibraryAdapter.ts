@@ -1,14 +1,19 @@
 import { listNotePayloadBlocks } from "../notePayloadCodec";
-import {
-  buildCitationGraphInputsFromRegistryInputs,
-  readArtifactsFromRegistryInputs,
-  type SynthesisLibraryAdapter,
-  type SynthesisLibraryIndex,
-  type SynthesisRegistryMetadataFingerprint,
-} from "../synthesis/libraryAdapter";
+import { readArtifactsFromRegistryInputs } from "../synthesis/libraryAdapter";
 import { buildReferenceSidecarMetadataFingerprintPayload } from "../synthesis/registry";
 import type { ReferenceSidecarInput } from "../synthesis/registry";
 import { hashCanonicalJson } from "../synthesis/foundation";
+import {
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+  SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
+  SynthesisClientError,
+  toSynthesisJsonValue,
+  type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactType,
+  type SynthesisHostLibraryItemSummary,
+  type SynthesisHostReadPort,
+} from "../../../packages/synthesis-contracts/src/index";
 import {
   createReadonlySqliteDatabase,
   type ReadonlySqliteDatabase,
@@ -234,69 +239,9 @@ async function loadRegistryInputs(
   });
 }
 
-function buildLibraryIndex(
-  libraryId: number,
-  inputs: ReferenceSidecarInput[],
-  db: ReadonlySqliteDatabase,
-): SynthesisLibraryIndex {
-  const tagCounts = new Map<string, number>();
-  const collectionCounts = new Map<string, number>();
-  const papers = inputs.map((input) => {
-    for (const tag of input.tags || []) {
-      tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-    }
-    for (const collection of input.collections || []) {
-      collectionCounts.set(
-        collection,
-        (collectionCounts.get(collection) || 0) + 1,
-      );
-    }
-    return {
-      paper_ref: `${input.libraryId}:${input.itemKey}`,
-      library_id: input.libraryId,
-      item_key: input.itemKey,
-      title: input.title,
-      year: cleanString(input.year),
-      item_type: cleanString(input.itemType),
-      creators: [...(input.creators || [])],
-      tags: [...(input.tags || [])],
-      collections: [...(input.collections || [])],
-    };
-  });
-  const collectionNames = new Map(
-    safeRows(
-      db,
-      `
-        SELECT key, collectionName
-        FROM collections
-        WHERE libraryID = @libraryId
-      `,
-      { libraryId },
-    ).map((row) => [cleanString(row.key), cleanString(row.collectionName)]),
-  );
-  return {
-    libraryId,
-    papers: papers.sort((left, right) => left.title.localeCompare(right.title)),
-    tags: [...tagCounts.entries()]
-      .map(([tag, count]) => ({ tag, count }))
-      .sort((left, right) => left.tag.localeCompare(right.tag)),
-    collections: [...collectionCounts.entries()]
-      .map(([key, count]) => ({
-        id: key,
-        key,
-        name: collectionNames.get(key) || key,
-        library_id: libraryId,
-        item_count: count,
-      }))
-      .sort((left, right) => left.name.localeCompare(right.name)),
-    diagnostics: inputs.length ? [] : ["library_index_empty"],
-    total_papers: papers.length,
-  };
-}
-
-export async function createZoteroReadonlyLibraryAdapter(
+export async function createZoteroReadonlyHostReadPort(
   options: ZoteroReadonlyLibraryAdapterOptions,
-): Promise<SynthesisLibraryAdapter & { close: () => void }> {
+): Promise<SynthesisHostReadPort & { close: () => void }> {
   const libraryId = Math.max(1, Math.floor(numberValue(options.libraryId, 1)));
   const db = await createReadonlySqliteDatabase(options.dbPath);
   let cachedInputs: ReferenceSidecarInput[] | null = null;
@@ -304,63 +249,238 @@ export async function createZoteroReadonlyLibraryAdapter(
     cachedInputs ||= await loadRegistryInputs(db, libraryId);
     return cachedInputs;
   }
+  function summary(
+    input: ReferenceSidecarInput,
+  ): SynthesisHostLibraryItemSummary {
+    return {
+      paperRef: `${input.libraryId}:${input.itemKey}`,
+      libraryId: input.libraryId,
+      itemKey: input.itemKey,
+      itemType: cleanString(input.itemType),
+      title: cleanString(input.title),
+      year: cleanString(input.year),
+      date: cleanString(input.year),
+      creators: [...(input.creators || [])],
+      tags: [...(input.tags || [])],
+      collections: [...(input.collections || [])],
+      doi: cleanString(input.doi),
+      arxiv: cleanString(input.arxiv),
+      isbn: cleanString(input.isbn),
+      url: cleanString(input.url),
+      citekey: cleanString(input.citekey),
+      dateAdded: cleanString(input.dateAdded),
+      metadataHash: hashCanonicalJson(
+        buildReferenceSidecarMetadataFingerprintPayload(input),
+      ),
+    };
+  }
+  function limitValue(value: unknown) {
+    const limit =
+      value === undefined
+        ? SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT
+        : Number(value);
+    if (
+      !Number.isInteger(limit) ||
+      limit <= 0 ||
+      limit > SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Readonly Host page limit is invalid",
+      );
+    }
+    return limit;
+  }
+  function cursorKey(value: unknown) {
+    const cursor = cleanString(value);
+    if (!cursor) return "";
+    if (!cursor.startsWith("v1:")) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Readonly Host cursor is invalid",
+      );
+    }
+    return decodeURIComponent(cursor.slice(3));
+  }
+  const encodeCursor = (key: string) =>
+    key ? `v1:${encodeURIComponent(key)}` : "";
+  const locatorEntries = new Map<
+    string,
+    {
+      paperRef: string;
+      artifactType: SynthesisHostArtifactType;
+      noteKey: string;
+    }
+  >();
+  function locatorFor(args: {
+    paperRef: string;
+    artifactType: SynthesisHostArtifactType;
+    noteKey: string;
+  }) {
+    const locator = `readonly-artifact:v1:${encodeURIComponent(
+      args.paperRef,
+    )}:${encodeURIComponent(args.artifactType)}:${encodeURIComponent(
+      args.noteKey,
+    )}`;
+    locatorEntries.set(locator, args);
+    return locator;
+  }
   return {
-    async getRegistryInputs() {
-      return inputs();
-    },
-    async getRegistryInputsPage(args) {
-      const limit = Math.max(1, Math.floor(numberValue(args?.limit, 500)));
-      return (await inputs()).slice(0, limit);
-    },
-    async getRegistryInputForItem(args) {
-      const itemKey = cleanString(args.itemKey);
-      return (
-        (await inputs()).find((entry) => entry.itemKey === itemKey) || null
-      );
-    },
-    async getRegistryInputSummaryForItem(args) {
-      const itemKey = cleanString(args.itemKey);
-      const input = (await inputs()).find((entry) => entry.itemKey === itemKey);
-      return input
-        ? {
-            ...input,
-            notes: [],
-          }
-        : null;
-    },
-    async getRegistryMetadataFingerprints(args) {
-      const limit = Math.max(1, Math.floor(numberValue(args?.limit, 1000)));
-      return (await inputs()).slice(0, limit).map(
-        (input): SynthesisRegistryMetadataFingerprint => ({
-          library_id: input.libraryId,
-          item_key: input.itemKey,
-          paper_ref: `${input.libraryId}:${input.itemKey}`,
-          deleted: false,
-          hash: hashCanonicalJson(
-            buildReferenceSidecarMetadataFingerprintPayload(input),
+    library: {
+      async listItemsPage(request) {
+        if (Number(request.libraryId) !== libraryId) {
+          throw new SynthesisClientError(
+            "invalid_request",
+            "Readonly Host library is outside the configured scope",
+          );
+        }
+        const limit = limitValue(request.limit);
+        const after = cursorKey(request.cursor);
+        const rows = (await inputs())
+          .filter((input) => input.itemKey > after)
+          .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
+        const pageRows = rows.slice(0, limit);
+        const hasMore = rows.length > limit;
+        return {
+          items: pageRows.map(summary),
+          cursor: cleanString(request.cursor),
+          nextCursor: hasMore
+            ? encodeCursor(pageRows.at(-1)?.itemKey || "")
+            : "",
+          hasMore,
+          returned: pageRows.length,
+          limit,
+        };
+      },
+      async getItemsByRef(request) {
+        if (
+          Number(request.libraryId) !== libraryId ||
+          !Array.isArray(request.paperRefs) ||
+          request.paperRefs.length > SYNTHESIS_HOST_READ_REF_LIMIT_MAX
+        ) {
+          throw new SynthesisClientError(
+            "invalid_request",
+            "Readonly Host ref request is invalid",
+          );
+        }
+        const byRef = new Map(
+          (await inputs()).map((input) => [
+            `${input.libraryId}:${input.itemKey}`,
+            input,
+          ]),
+        );
+        const found = request.paperRefs
+          .map((ref) => byRef.get(cleanString(ref)))
+          .filter((input): input is ReferenceSidecarInput => Boolean(input));
+        return {
+          items: found.map(summary),
+          missingPaperRefs: request.paperRefs.filter(
+            (ref) => !byRef.has(cleanString(ref)),
           ),
-        }),
-      );
+        };
+      },
     },
-    async getLibraryIndex() {
-      return buildLibraryIndex(libraryId, await inputs(), db);
-    },
-    async getCitationGraphInputs() {
-      return buildCitationGraphInputsFromRegistryInputs(await inputs());
-    },
-    async scanArtifactSidecars(args) {
-      const result = readArtifactsFromRegistryInputs(await inputs(), {
-        paper_refs: args?.sourceRefs,
-        artifact_types: args?.artifactTypes,
-      });
-      return {
-        artifacts: result.artifacts,
-        diagnostics: result.diagnostics,
-        sourceItems: await inputs(),
-      };
-    },
-    async readPaperArtifacts(args) {
-      return readArtifactsFromRegistryInputs(await inputs(), args);
+    artifacts: {
+      async scanPage(request) {
+        const limit = limitValue(request.limit);
+        const allInputs = await inputs();
+        const selected = request.paperRefs?.length
+          ? allInputs.filter((input) =>
+              request.paperRefs!.includes(
+                `${input.libraryId}:${input.itemKey}`,
+              ),
+            )
+          : allInputs
+              .filter((input) => input.itemKey > cursorKey(request.cursor))
+              .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
+        const pageInputs = selected.slice(0, limit);
+        const hasMore = !request.paperRefs?.length && selected.length > limit;
+        const result = readArtifactsFromRegistryInputs(pageInputs, {
+          artifact_types: request.artifactTypes,
+        });
+        const artifacts: SynthesisHostArtifactDescriptor[] =
+          result.artifacts.map((artifact) => ({
+            paperRef: artifact.paper_ref,
+            artifactType: artifact.artifact_type,
+            payloadType: artifact.payload_type,
+            status: artifact.status,
+            ...(artifact.status === "available" && artifact.note_key
+              ? {
+                  locator: locatorFor({
+                    paperRef: artifact.paper_ref,
+                    artifactType: artifact.artifact_type,
+                    noteKey: artifact.note_key,
+                  }),
+                }
+              : {}),
+            ...(artifact.payload_hash || artifact.hash
+              ? {
+                  payloadHash: cleanString(
+                    artifact.payload_hash || artifact.hash,
+                  ),
+                }
+              : {}),
+            diagnostics: [...artifact.diagnostics],
+          }));
+        return {
+          artifacts,
+          cursor: cleanString(request.cursor),
+          nextCursor: hasMore
+            ? encodeCursor(pageInputs.at(-1)?.itemKey || "")
+            : "",
+          hasMore,
+          returned: pageInputs.length,
+          limit,
+        };
+      },
+      async read(request) {
+        const locator = locatorEntries.get(cleanString(request.locator));
+        if (!locator || !cleanString(request.expectedHash)) {
+          throw new SynthesisClientError(
+            "invalid_request",
+            "Readonly Host artifact locator is invalid",
+          );
+        }
+        const result = readArtifactsFromRegistryInputs(await inputs(), {
+          paper_refs: [locator.paperRef],
+          artifact_types: [locator.artifactType],
+        });
+        const artifact = result.artifacts.find(
+          (entry) => cleanString(entry.note_key) === locator.noteKey,
+        );
+        if (!artifact || artifact.status !== "available") {
+          return {
+            status:
+              artifact?.status === "decode_error" ? "decode_error" : "missing",
+            diagnostics: [...(artifact?.diagnostics || result.diagnostics)],
+          } as const;
+        }
+        const currentHash = cleanString(artifact.payload_hash || artifact.hash);
+        if (currentHash !== request.expectedHash) {
+          return {
+            status: "stale",
+            currentHash,
+            diagnostics: ["artifact_hash_changed"],
+          } as const;
+        }
+        return {
+          status: "available",
+          payloadHash: currentHash,
+          content:
+            locator.artifactType === "digest"
+              ? {
+                  kind: "text",
+                  text: cleanString(
+                    artifact.markdown ||
+                      artifact.decoded_text ||
+                      artifact.payload,
+                  ),
+                  mediaType: "text/markdown",
+                }
+              : { kind: "json", value: toSynthesisJsonValue(artifact.payload) },
+          diagnostics: [...artifact.diagnostics],
+        } as const;
+      },
     },
     close() {
       db.close();

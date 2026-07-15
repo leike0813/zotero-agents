@@ -1065,39 +1065,34 @@ describe("Synthesis Layer v1 integration service", function () {
     await first.applyTopicSynthesisResult(validBundle());
     const artifactStatePath = buildSynthesisStoragePaths(root).artifactState;
     const before = await fs.readFile(artifactStatePath, "utf8");
-    let registryInputCalls = 0;
-    let citationInputCalls = 0;
+    let libraryReadCalls = 0;
+    let artifactReadCalls = 0;
     const readOnly = createSynthesisService({
       root,
       libraryId: 1,
       now: () => "2026-05-13T00:00:00.000Z",
-      libraryAdapter: {
-        async getRegistryInputs() {
-          registryInputCalls += 1;
-          throw new Error("topic context read must not scan registry inputs");
+      hostReadPort: {
+        library: {
+          async listItemsPage() {
+            libraryReadCalls += 1;
+            throw new Error("topic context read must not scan library items");
+          },
+          async getItemsByRef() {
+            libraryReadCalls += 1;
+            throw new Error(
+              "topic context read must not resolve library items",
+            );
+          },
         },
-        async getCitationGraphInputs() {
-          citationInputCalls += 1;
-          throw new Error(
-            "topic context read must not scan citation graph inputs",
-          );
-        },
-        async getLibraryIndex() {
-          return {
-            libraryId: 1,
-            papers: [],
-            tags: [],
-            collections: [],
-            has_more: false,
-            returned: 0,
-            total_papers: 0,
-            index_hash: "",
-            page_hash: "",
-            diagnostics: [],
-          };
-        },
-        async readPaperArtifacts() {
-          return { artifacts: [], diagnostics: [] };
+        artifacts: {
+          async scanPage() {
+            artifactReadCalls += 1;
+            throw new Error("topic context read must not scan artifacts");
+          },
+          async read() {
+            artifactReadCalls += 1;
+            throw new Error("topic context read must not read artifacts");
+          },
         },
       },
       mirrorAdapter: createMirrorRecorder().adapter,
@@ -1110,8 +1105,8 @@ describe("Synthesis Layer v1 integration service", function () {
     };
     const after = await fs.readFile(artifactStatePath, "utf8");
 
-    assert.equal(registryInputCalls, 0);
-    assert.equal(citationInputCalls, 0);
+    assert.equal(libraryReadCalls, 0);
+    assert.equal(artifactReadCalls, 0);
     assert.equal(topicContext.freshness?.freshness, "fresh");
     assert.equal(after, before);
   });

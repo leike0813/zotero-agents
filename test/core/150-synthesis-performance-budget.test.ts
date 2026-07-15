@@ -14,6 +14,7 @@ import {
   createSyntheticSynthesisBenchmarkRegistryInputs,
   createSyntheticSynthesisBenchmarkRepositoryState,
 } from "../fixtures/synthesisSyntheticDatasets";
+import { createTestSynthesisHostReadPort } from "../helpers/synthesisHostReadPort";
 
 type BudgetMeasurement = {
   name: string;
@@ -209,7 +210,7 @@ describe("Synthesis performance budgets", function () {
     assert.lengthOf(metrics.items, 50);
   });
 
-  it("does not use the full Zotero registry scan for chrome, index, or review surfaces", async function () {
+  it("uses the bounded Host read port for chrome, index, and review surfaces", async function () {
     const root = await makeRuntimeRoot();
     const repository = createSynthesisRepository({
       runtimeRoot: root,
@@ -219,47 +220,11 @@ describe("Synthesis performance budgets", function () {
       paperCount: 20,
       referenceFanout: 0,
     });
-    let fullScanCalls = 0;
     const service = createSynthesisService({
       root,
       libraryId: 1,
       synthesisRepository: repository,
-      libraryAdapter: {
-        async getRegistryInputs() {
-          fullScanCalls += 1;
-          throw new Error(
-            "full registry scan must not be used by UI hot paths",
-          );
-        },
-        async getRegistryInputsPage(request = {}) {
-          const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-          return limit > 0 ? pageInputs.slice(0, limit) : pageInputs;
-        },
-        async getRegistryInputForItem(request) {
-          return (
-            pageInputs.find((input) => input.itemKey === request.itemKey) ||
-            null
-          );
-        },
-        async getRegistryMetadataFingerprints() {
-          return [];
-        },
-        async getLibraryIndex() {
-          return {
-            libraryId: 1,
-            papers: [],
-            tags: [],
-            collections: [],
-            diagnostics: [],
-          };
-        },
-        async getCitationGraphInputs() {
-          return [];
-        },
-        async readPaperArtifacts() {
-          return { artifacts: [], diagnostics: [] };
-        },
-      },
+      hostReadPort: createTestSynthesisHostReadPort(pageInputs),
       now: () => "2026-05-27T00:00:00.000Z",
     });
 
@@ -267,7 +232,6 @@ describe("Synthesis performance budgets", function () {
     const index = await service.getSynthesisWorkbenchSurfaceInput("index");
     const review = await service.getSynthesisWorkbenchSurfaceInput("review");
 
-    assert.isAtMost(fullScanCalls, 2);
     assert.equal(chrome.libraryId, 1);
     assert.isAtMost(index.registry?.rows?.length || 0, 20);
     assert.deepEqual(review.registry?.rows || [], []);
@@ -383,18 +347,10 @@ describe("Synthesis performance budgets", function () {
       runtimeRoot: root,
       libraryId: 1,
       synthesisRepository: repository,
-      libraryAdapter: {
-        getLibraryIndex: async () => {
-          scans += 1;
-          return {
-            libraryId: 1,
-            papers: [],
-            tags: [],
-            collections: [],
-            diagnostics: [],
-          };
-        },
-      } as any,
+      hostReadPort: createTestSynthesisHostReadPort(() => {
+        scans += 1;
+        return [];
+      }),
     });
 
     assert.equal(scans, 0);

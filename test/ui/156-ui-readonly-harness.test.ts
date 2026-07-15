@@ -12,7 +12,7 @@ import { filterHarnessVisibleWorkflows } from "../../src/modules/harness/dashboa
 import { createDashboardReadonlyModel } from "../../src/modules/harness/dashboardReadonlyModel";
 import { createAssistantReadonlyModel } from "../../src/modules/harness/assistantReadonlyModel";
 import { createReadonlySqliteAdapter } from "../../src/modules/harness/sqliteReadonly";
-import { createZoteroReadonlyLibraryAdapter } from "../../src/modules/harness/zoteroReadonlyLibraryAdapter";
+import { createZoteroReadonlyHostReadPort } from "../../src/modules/harness/zoteroReadonlyLibraryAdapter";
 import {
   buildHarnessSynthesisI18nEnvelope,
   resolveHarnessSynthesisLocale,
@@ -690,22 +690,30 @@ describe("UI readonly harness", function () {
     `);
     db.close();
 
-    const adapter = await createZoteroReadonlyLibraryAdapter({
+    const adapter = await createZoteroReadonlyHostReadPort({
       dbPath,
       libraryId: 1,
     });
     try {
-      const inputs = await adapter.getRegistryInputs();
-      assert.equal(inputs.length, 1);
-      assert.equal(inputs[0].itemKey, "ABCD1234");
-      assert.equal(inputs[0].title, "Harness Paper");
-      assert.deepEqual(inputs[0].creators, ["Ada Lovelace"]);
-      assert.deepEqual(inputs[0].tags, ["synthesis"]);
-      assert.deepEqual(inputs[0].collections, ["COLL1234"]);
-      assert.equal(inputs[0].notes?.[0].key, "NOTE1234");
-      const index = await adapter.getLibraryIndex();
-      assert.equal(index.papers[0].paper_ref, "1:ABCD1234");
-      assert.equal(index.collections[0].name, "Harness Collection");
+      const page = await adapter.library.listItemsPage({
+        libraryId: 1,
+        limit: 50,
+      });
+      assert.equal(page.items.length, 1);
+      assert.equal(page.items[0].itemKey, "ABCD1234");
+      assert.equal(page.items[0].title, "Harness Paper");
+      assert.deepEqual(page.items[0].creators, ["Ada Lovelace"]);
+      assert.deepEqual(page.items[0].tags, ["synthesis"]);
+      assert.deepEqual(page.items[0].collections, ["COLL1234"]);
+      assert.equal(Object.hasOwn(page.items[0], "notes"), false);
+      const scan = await adapter.artifacts.scanPage({
+        libraryId: 1,
+        paperRefs: ["1:ABCD1234"],
+        artifactTypes: ["digest"],
+        limit: 50,
+      });
+      assert.equal(scan.artifacts[0].paperRef, "1:ABCD1234");
+      assert.equal(Object.hasOwn(scan.artifacts[0], "payload"), false);
     } finally {
       adapter.close();
       await rm(dir, { recursive: true, force: true });

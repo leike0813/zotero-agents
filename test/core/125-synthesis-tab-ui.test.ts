@@ -5994,8 +5994,8 @@ describe("Synthesis tab UI model", function () {
       service,
       "enrichRegistryRowsWithLiveMetadata",
     );
-    assert.include(liveMetadataBlock, "getRegistryInputSummaryForItem");
-    assert.notInclude(liveMetadataBlock, "getRegistryInputForItem");
+    assert.include(liveMetadataBlock, "hostInputsForSourceRefs");
+    assert.notInclude(liveMetadataBlock, "collectHostLibraryInputs");
     assert.notInclude(liveMetadataBlock, "childNotes");
     const indexSurfaceBlock = extractIfBlock(service, 'surface === "index"');
     assert.include(indexSurfaceBlock, "state.registry.expandedSourceRefs");
@@ -6079,18 +6079,14 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/libraryAdapter.ts",
       "utf8",
     );
-    const pageStart = libraryAdapter.indexOf("async getRegistryInputsPage");
-    const pageEnd = libraryAdapter.indexOf("async getRegistryInputForItem");
-    assert.isAtLeast(pageStart, 0, "getRegistryInputsPage should exist");
-    assert.isAbove(
-      pageEnd,
-      pageStart,
-      "getRegistryInputsPage should be bounded",
-    );
+    const pageStart = libraryAdapter.indexOf("async function listItemsPage");
+    const pageEnd = libraryAdapter.indexOf("async function getItemsByRef");
+    assert.isAtLeast(pageStart, 0, "Host listItemsPage should exist");
+    assert.isAbove(pageEnd, pageStart, "Host listItemsPage should be bounded");
     const pageBlock = libraryAdapter.slice(pageStart, pageEnd);
     assert.include(pageBlock, "visibleTopLevelRegularItemsPage");
     assert.notInclude(pageBlock, "getAllRegularZoteroItems");
-    assert.include(libraryAdapter, "getRegistryInputSummaryForItem");
+    assert.include(libraryAdapter, "getItemsByRef");
     const repository = await fs.readFile(
       "src/modules/synthesis/repository.ts",
       "utf8",

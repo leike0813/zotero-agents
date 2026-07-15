@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
-import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
+import { createZoteroSynthesisHostReadPort } from "../../src/modules/synthesis/libraryAdapter";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import {
   createInProcessSynthesisClient,
@@ -192,15 +192,15 @@ describe("Synthesis Layer MVP real-data closure", function () {
     item.setField("year", "2024");
     await item.saveTx();
 
-    const adapter = createZoteroSynthesisLibraryAdapter({
+    const adapter = createZoteroSynthesisHostReadPort({
       libraryId: Zotero.Libraries.userLibraryID,
     });
-    const input = await adapter.getRegistryInputSummaryForItem?.({
+    const input = await adapter.library.getItemsByRef({
       libraryId: Zotero.Libraries.userLibraryID,
-      itemKey: item.key,
+      paperRefs: [`${Zotero.Libraries.userLibraryID}:${item.key}`],
     });
 
-    assert.equal(input?.year, "2024");
+    assert.equal(input.items[0]?.year, "2024");
   });
 
   it("uses Zotero.Items.getAll(libraryId) for sparse high-ID registry candidates", async function () {
@@ -219,19 +219,20 @@ describe("Synthesis Layer MVP real-data closure", function () {
     };
 
     try {
-      const adapter = createZoteroSynthesisLibraryAdapter({
+      const adapter = createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       });
-      const index = await adapter.getLibraryIndex();
-      const fingerprints =
-        (await adapter.getRegistryMetadataFingerprints?.()) || [];
+      const index = await adapter.library.listItemsPage({
+        libraryId: Zotero.Libraries.userLibraryID,
+        limit: 100,
+      });
 
       assert.include(
-        index.papers.map((paper) => paper.item_key),
+        index.items.map((paper) => paper.itemKey),
         item.key,
       );
       assert.include(
-        fingerprints.map((entry) => entry.item_key),
+        index.items.map((entry) => entry.itemKey),
         item.key,
       );
     } finally {
@@ -278,7 +279,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root: await makeRoot(),
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });
@@ -364,7 +365,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root: await makeRoot(),
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });
@@ -432,7 +433,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root: await makeRoot(),
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });
@@ -463,7 +464,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root: await makeRoot(),
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });
@@ -509,7 +510,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root,
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });
@@ -566,7 +567,7 @@ describe("Synthesis Layer MVP real-data closure", function () {
     const service = createSynthesisService({
       root,
       libraryId: Zotero.Libraries.userLibraryID,
-      libraryAdapter: createZoteroSynthesisLibraryAdapter({
+      hostReadPort: createZoteroSynthesisHostReadPort({
         libraryId: Zotero.Libraries.userLibraryID,
       }),
     });

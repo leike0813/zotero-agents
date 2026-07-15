@@ -1,9 +1,19 @@
-import { getAllRegularZoteroItems } from "../zoteroHostCapabilityBroker";
 import { listNotePayloadBlocksForItem } from "../zoteroNotePayloadResolver";
 import {
   listNotePayloadBlocks,
   type ZoteroNotePayloadBlock,
 } from "../notePayloadCodec";
+import {
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT,
+  SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+  SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
+  SynthesisClientError,
+  toSynthesisJsonValue,
+  type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactType,
+  type SynthesisHostLibraryItemSummary,
+  type SynthesisHostReadPort,
+} from "../../../packages/synthesis-contracts/src/index";
 import type {
   CitationGraphPaperInput,
   CitationGraphReferenceInput,
@@ -49,11 +59,6 @@ export type SynthesisLibraryIndex = {
   page_hash?: string;
 };
 
-export type SynthesisTagUsageCount = {
-  tag: string;
-  count: number;
-};
-
 export type SynthesisRegistryMetadataFingerprint = {
   library_id: number;
   item_key: string;
@@ -97,38 +102,6 @@ export type ReferenceSidecarArtifactScanResult = {
   artifacts: PaperArtifactReadResult[];
   diagnostics: string[];
   sourceItems?: ReferenceSidecarInput[];
-};
-
-export type SynthesisLibraryAdapter = {
-  getRegistryInputs: () => Promise<ReferenceSidecarInput[]>;
-  getRegistryInputsPage?: (args?: {
-    libraryId?: number;
-    limit?: number;
-  }) => Promise<ReferenceSidecarInput[]>;
-  getRegistryInputForItem?: (args: {
-    libraryId?: number;
-    itemKey: string;
-  }) => Promise<ReferenceSidecarInput | null>;
-  getRegistryInputSummaryForItem?: (args: {
-    libraryId?: number;
-    itemKey: string;
-  }) => Promise<ReferenceSidecarInput | null>;
-  getTagUsageCounts?: (args?: {
-    libraryId?: number;
-  }) => Promise<SynthesisTagUsageCount[]>;
-  getRegistryMetadataFingerprints?: (args?: {
-    libraryId?: number;
-    limit?: number;
-  }) => Promise<SynthesisRegistryMetadataFingerprint[]>;
-  getLibraryIndex: () => Promise<SynthesisLibraryIndex>;
-  getCitationGraphInputs: () => Promise<CitationGraphPaperInput[]>;
-  scanArtifactSidecars?: (args?: {
-    sourceRefs?: string[];
-    artifactTypes?: ReferenceSidecarArtifactType[];
-  }) => Promise<ReferenceSidecarArtifactScanResult>;
-  readPaperArtifacts: (
-    args: PaperArtifactReadRequest,
-  ) => Promise<{ artifacts: PaperArtifactReadResult[]; diagnostics: string[] }>;
 };
 
 const PAYLOAD_TYPES: Record<ReferenceSidecarArtifactType, string> = {
@@ -397,43 +370,6 @@ function isVisibleTopLevelRegular(item: any) {
   return regular && topLevel && !deleted;
 }
 
-async function registryInputsFromZotero(libraryId: number) {
-  const items = await getAllRegularZoteroItems(libraryId);
-  const rows = await Promise.all(
-    items
-      .filter(isVisibleTopLevelRegular)
-      .filter(
-        (item: any) =>
-          normalizeLibraryId(item?.libraryID, libraryId) === libraryId,
-      )
-      .map((item) => paperInputFromItem(item, libraryId)),
-  );
-  return rows
-    .filter((input) => input.itemKey)
-    .sort((left, right) => left.itemKey.localeCompare(right.itemKey));
-}
-
-async function tagUsageCountsFromZotero(
-  libraryId: number,
-): Promise<SynthesisTagUsageCount[]> {
-  const counts = new Map<string, number>();
-  const items = await getAllRegularZoteroItems(libraryId);
-  for (const item of items) {
-    if (!isVisibleTopLevelRegular(item)) {
-      continue;
-    }
-    if (normalizeLibraryId(item?.libraryID, libraryId) !== libraryId) {
-      continue;
-    }
-    for (const tag of getTags(item)) {
-      counts.set(tag, (counts.get(tag) || 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .map(([tag, count]) => ({ tag, count }))
-    .sort((left, right) => left.tag.localeCompare(right.tag));
-}
-
 function itemByLibraryAndKey(libraryId: number, itemKey: string) {
   const zotero = zoteroRuntime();
   return zotero.Items?.getByLibraryAndKey?.(libraryId, itemKey) || null;
@@ -465,6 +401,7 @@ function itemIdFromQueryRow(row: unknown) {
 async function queryVisibleTopLevelRegularItemIds(args: {
   libraryId: number;
   limit: number;
+  afterKey?: string;
 }) {
   const zotero = zoteroRuntime();
   const queryAsync = zotero.DB?.queryAsync;
@@ -472,7 +409,8 @@ async function queryVisibleTopLevelRegularItemIds(args: {
     return null;
   }
   const limit = Math.max(1, Math.floor(Number(args.limit) || 1));
-  const baseParams = [args.libraryId, limit];
+  const afterKey = cleanString(args.afterKey);
+  const baseParams = [args.libraryId, afterKey, limit];
   const queries = [
     `
       SELECT I.itemID
@@ -481,6 +419,7 @@ async function queryVisibleTopLevelRegularItemIds(args: {
       LEFT JOIN itemAttachments A ON A.itemID = I.itemID
       LEFT JOIN deletedItems D ON D.itemID = I.itemID
       WHERE I.libraryID = ?
+        AND I.key > ?
         AND N.itemID IS NULL
         AND A.itemID IS NULL
         AND D.itemID IS NULL
@@ -493,6 +432,7 @@ async function queryVisibleTopLevelRegularItemIds(args: {
       LEFT JOIN itemNotes N ON N.itemID = I.itemID
       LEFT JOIN itemAttachments A ON A.itemID = I.itemID
       WHERE I.libraryID = ?
+        AND I.key > ?
         AND N.itemID IS NULL
         AND A.itemID IS NULL
       ORDER BY I.key ASC
@@ -542,11 +482,13 @@ function boundedVisibleTopLevelRegularItems(args: {
 async function visibleTopLevelRegularItemsPage(args: {
   libraryId: number;
   limit: number;
+  afterKey?: string;
 }) {
   const requestedLimit = Math.max(1, Math.floor(Number(args.limit) || 1));
   const ids = await queryVisibleTopLevelRegularItemIds({
     libraryId: args.libraryId,
     limit: requestedLimit,
+    afterKey: args.afterKey,
   });
   if (ids) {
     return ids
@@ -561,12 +503,31 @@ async function visibleTopLevelRegularItemsPage(args: {
         cleanString(left?.key).localeCompare(cleanString(right?.key)),
       );
   }
+  const getAll = zoteroRuntime().Items?.getAll;
+  if (typeof getAll === "function") {
+    const items = await getAll.call(zoteroRuntime().Items, args.libraryId);
+    return (Array.isArray(items) ? items : [])
+      .filter(isVisibleTopLevelRegular)
+      .filter(
+        (item: any) =>
+          normalizeLibraryId(item?.libraryID, args.libraryId) ===
+            args.libraryId &&
+          cleanString(item?.key) > cleanString(args.afterKey),
+      )
+      .sort((left: any, right: any) =>
+        cleanString(left?.key).localeCompare(cleanString(right?.key)),
+      )
+      .slice(0, requestedLimit);
+  }
   return boundedVisibleTopLevelRegularItems({
     libraryId: args.libraryId,
-    limit: requestedLimit,
-  }).sort((left: any, right: any) =>
-    cleanString(left?.key).localeCompare(cleanString(right?.key)),
-  );
+    limit: Math.max(requestedLimit, SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX + 1),
+  })
+    .filter((item: any) => cleanString(item?.key) > cleanString(args.afterKey))
+    .sort((left: any, right: any) =>
+      cleanString(left?.key).localeCompare(cleanString(right?.key)),
+    )
+    .slice(0, requestedLimit);
 }
 
 function resolveCollection(ref: string, libraryId: number) {
@@ -647,7 +608,7 @@ function normalizeArtifactType(
   return ARTIFACT_TYPE_ALIASES[text] || null;
 }
 
-function normalizeArtifactTypes(
+export function normalizeReferenceSidecarArtifactTypes(
   values: unknown,
 ): ReferenceSidecarArtifactType[] {
   const rawValues = Array.isArray(values) ? values : [];
@@ -888,7 +849,7 @@ export function readArtifactsFromRegistryInputs(
       .map(cleanString)
       .filter(Boolean),
   );
-  const requestedTypes = normalizeArtifactTypes(
+  const requestedTypes = normalizeReferenceSidecarArtifactTypes(
     args.artifact_types || args.artifactTypes,
   );
   const artifacts: PaperArtifactReadResult[] = [];
@@ -989,115 +950,402 @@ export function readArtifactsFromRegistryInputs(
   return { artifacts, diagnostics, sourceItems: inputs };
 }
 
-export function createZoteroSynthesisLibraryAdapter(
-  args: {
-    libraryId?: number;
-  } = {},
-): SynthesisLibraryAdapter {
-  const libraryId =
+const HOST_ARTIFACT_LOCATOR_PREFIX = "synthesis-artifact:v1:";
+
+function invalidHostRead(
+  message: string,
+  details: Record<string, unknown> = {},
+): never {
+  throw new SynthesisClientError(
+    "invalid_request",
+    message,
+    toSynthesisJsonValue(details) as Record<
+      string,
+      import("../../../packages/synthesis-contracts/src/index").SynthesisJsonValue
+    >,
+  );
+}
+
+function validateHostLibraryId(value: unknown) {
+  const libraryId = Number(value);
+  if (!Number.isInteger(libraryId) || libraryId <= 0) {
+    invalidHostRead("Host libraryId must be a positive integer", {
+      libraryId: Number.isFinite(libraryId) ? libraryId : String(value),
+    });
+  }
+  return libraryId;
+}
+
+function validateHostPageLimit(value: unknown) {
+  if (value === undefined) {
+    return SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT;
+  }
+  const limit = Number(value);
+  if (
+    !Number.isInteger(limit) ||
+    limit <= 0 ||
+    limit > SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX
+  ) {
+    invalidHostRead("Host read page limit is invalid", {
+      limit: Number.isFinite(limit) ? limit : String(value),
+      maxLimit: SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX,
+    });
+  }
+  return limit;
+}
+
+function encodeHostCursor(itemKey: string) {
+  return itemKey ? `v1:${encodeURIComponent(itemKey)}` : "";
+}
+
+function decodeHostCursor(cursor: unknown) {
+  const value = cleanString(cursor);
+  if (!value) {
+    return "";
+  }
+  if (!value.startsWith("v1:")) {
+    invalidHostRead("Host read cursor is invalid");
+  }
+  try {
+    const itemKey = decodeURIComponent(value.slice(3));
+    if (!itemKey) {
+      invalidHostRead("Host read cursor is invalid");
+    }
+    return itemKey;
+  } catch {
+    invalidHostRead("Host read cursor is invalid");
+  }
+}
+
+function hostPaperRef(libraryId: number, itemKey: string) {
+  return `${libraryId}:${itemKey}`;
+}
+
+function parseHostPaperRef(value: unknown, expectedLibraryId: number) {
+  const normalized = cleanString(value);
+  const match = normalized.match(/^(\d+):([^:\s]+)$/);
+  if (!match) {
+    invalidHostRead("Host paper ref is invalid", { paperRef: normalized });
+  }
+  const libraryId = Number(match?.[1]);
+  const itemKey = cleanString(match?.[2]);
+  if (libraryId !== expectedLibraryId || !itemKey) {
+    return null;
+  }
+  return { libraryId, itemKey, paperRef: normalized };
+}
+
+function hostItemSummary(
+  item: any,
+  fallbackLibraryId: number,
+): SynthesisHostLibraryItemSummary {
+  const input = paperInputSummaryFromItem(item, fallbackLibraryId);
+  const date = readField(item, "date");
+  const paperRef = hostPaperRef(input.libraryId, input.itemKey);
+  return {
+    paperRef,
+    libraryId: input.libraryId,
+    itemKey: input.itemKey,
+    itemType: cleanString(input.itemType),
+    title: cleanString(input.title),
+    year: cleanString(input.year),
+    date,
+    creators: [...(input.creators || [])],
+    tags: [...(input.tags || [])],
+    collections: [...(input.collections || [])],
+    doi: cleanString(input.doi),
+    arxiv: cleanString(input.arxiv),
+    isbn: cleanString(input.isbn),
+    url: cleanString(input.url),
+    citekey: cleanString(input.citekey),
+    dateAdded: cleanString(input.dateAdded),
+    updatedAt: cleanString(item?.dateModified || item?.dateAdded) || undefined,
+    metadataHash: metadataFingerprintFromItem(item, fallbackLibraryId).hash,
+  };
+}
+
+function encodeArtifactLocator(args: {
+  libraryId: number;
+  itemKey: string;
+  noteKey: string;
+  artifactType: SynthesisHostArtifactType;
+}) {
+  return `${HOST_ARTIFACT_LOCATOR_PREFIX}${[
+    String(args.libraryId),
+    args.itemKey,
+    args.noteKey,
+    args.artifactType,
+  ]
+    .map((part) => encodeURIComponent(part))
+    .join(":")}`;
+}
+
+function decodeArtifactLocator(locator: unknown): {
+  libraryId: number;
+  itemKey: string;
+  noteKey: string;
+  artifactType: SynthesisHostArtifactType;
+} {
+  const value = cleanString(locator);
+  if (!value.startsWith(HOST_ARTIFACT_LOCATOR_PREFIX)) {
+    invalidHostRead("Host artifact locator is invalid");
+  }
+  const parts = value.slice(HOST_ARTIFACT_LOCATOR_PREFIX.length).split(":");
+  if (parts.length !== 4) {
+    invalidHostRead("Host artifact locator is invalid");
+  }
+  try {
+    const [libraryRaw, itemRaw, noteRaw, typeRaw] = parts.map((part) =>
+      decodeURIComponent(part),
+    );
+    const libraryId = validateHostLibraryId(libraryRaw);
+    const itemKey = cleanString(itemRaw);
+    const noteKey = cleanString(noteRaw);
+    const artifactType = cleanString(typeRaw) as SynthesisHostArtifactType;
+    if (
+      !itemKey ||
+      !noteKey ||
+      !DEFAULT_ARTIFACT_TYPES.includes(artifactType)
+    ) {
+      invalidHostRead("Host artifact locator is invalid");
+    }
+    return { libraryId, itemKey, noteKey, artifactType };
+  } catch (error) {
+    if (error instanceof SynthesisClientError) {
+      throw error;
+    }
+    invalidHostRead("Host artifact locator is invalid");
+  }
+}
+
+function hostArtifactDescriptor(
+  artifact: PaperArtifactReadResult,
+): SynthesisHostArtifactDescriptor {
+  const parsed = parseHostPaperRef(
+    artifact.paper_ref,
+    artifact.paper_ref ? Number(String(artifact.paper_ref).split(":")[0]) : 0,
+  );
+  const libraryId = parsed?.libraryId || 0;
+  const itemKey = parsed?.itemKey || "";
+  const artifactType = artifact.artifact_type;
+  const locator =
+    artifact.status === "available" && artifact.note_key && itemKey
+      ? encodeArtifactLocator({
+          libraryId,
+          itemKey,
+          noteKey: artifact.note_key,
+          artifactType,
+        })
+      : undefined;
+  return {
+    paperRef: artifact.paper_ref,
+    artifactType,
+    payloadType: artifact.payload_type,
+    status: artifact.status,
+    ...(locator ? { locator } : {}),
+    ...(artifact.payload_hash || artifact.hash
+      ? { payloadHash: cleanString(artifact.payload_hash || artifact.hash) }
+      : {}),
+    diagnostics: [...(artifact.diagnostics || [])],
+  };
+}
+
+export function createZoteroSynthesisHostReadPort(
+  args: { libraryId?: number } = {},
+): SynthesisHostReadPort {
+  const configuredLibraryId =
     normalizeLibraryId(args.libraryId, 0) ||
     normalizeLibraryId(zoteroRuntime().Libraries?.userLibraryID, 1);
-  async function inputs() {
-    return registryInputsFromZotero(libraryId);
+
+  async function listItemsPage(request: {
+    libraryId: number;
+    cursor?: string;
+    limit?: number;
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    const limit = validateHostPageLimit(request.limit);
+    const afterKey = decodeHostCursor(request.cursor);
+    const rows = await visibleTopLevelRegularItemsPage({
+      libraryId,
+      limit: limit + 1,
+      afterKey,
+    });
+    const hasMore = rows.length > limit;
+    const pageRows = rows.slice(0, limit);
+    const nextKey = hasMore ? cleanString(pageRows.at(-1)?.key) : "";
+    return {
+      items: pageRows.map((item) => hostItemSummary(item, libraryId)),
+      cursor: cleanString(request.cursor),
+      nextCursor: encodeHostCursor(nextKey),
+      hasMore,
+      returned: pageRows.length,
+      limit,
+    };
   }
+
+  async function getItemsByRef(request: {
+    libraryId: number;
+    paperRefs: string[];
+  }) {
+    const libraryId = validateHostLibraryId(request.libraryId);
+    if (libraryId !== configuredLibraryId) {
+      invalidHostRead("Host libraryId is outside the configured scope", {
+        libraryId,
+      });
+    }
+    if (
+      !Array.isArray(request.paperRefs) ||
+      request.paperRefs.length > SYNTHESIS_HOST_READ_REF_LIMIT_MAX
+    ) {
+      invalidHostRead("Host paper ref request is invalid", {
+        maxRefs: SYNTHESIS_HOST_READ_REF_LIMIT_MAX,
+      });
+    }
+    const items: SynthesisHostLibraryItemSummary[] = [];
+    const missingPaperRefs: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of request.paperRefs) {
+      const parsed = parseHostPaperRef(raw, libraryId);
+      const paperRef = cleanString(raw);
+      if (seen.has(paperRef)) {
+        continue;
+      }
+      seen.add(paperRef);
+      const item = parsed
+        ? itemByLibraryAndKey(parsed.libraryId, parsed.itemKey)
+        : null;
+      if (!item || !isVisibleTopLevelRegular(item)) {
+        missingPaperRefs.push(paperRef);
+        continue;
+      }
+      items.push(hostItemSummary(item, libraryId));
+    }
+    return { items, missingPaperRefs };
+  }
+
   return {
-    getRegistryInputs: inputs,
-    async getRegistryInputsPage(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-      const page = await visibleTopLevelRegularItemsPage({
-        libraryId: requestedLibraryId,
-        limit: limit > 0 ? limit : 250,
-      });
-      return page
-        .map((item: any) => paperInputSummaryFromItem(item, requestedLibraryId))
-        .filter((input) => input.itemKey);
-    },
-    async getRegistryInputForItem(request) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const itemKey = cleanString(request.itemKey);
-      if (!itemKey) {
-        return null;
-      }
-      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
-      if (!item || !isVisibleTopLevelRegular(item)) {
-        return null;
-      }
-      return paperInputFromItem(item, requestedLibraryId);
-    },
-    async getRegistryInputSummaryForItem(request) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const itemKey = cleanString(request.itemKey);
-      if (!itemKey) {
-        return null;
-      }
-      const item = itemByLibraryAndKey(requestedLibraryId, itemKey);
-      if (!item || !isVisibleTopLevelRegular(item)) {
-        return null;
-      }
-      return paperInputSummaryFromItem(item, requestedLibraryId);
-    },
-    async getTagUsageCounts(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      return tagUsageCountsFromZotero(requestedLibraryId);
-    },
-    async getRegistryMetadataFingerprints(request = {}) {
-      const requestedLibraryId = normalizeLibraryId(
-        request.libraryId,
-        libraryId,
-      );
-      const limit = Math.max(0, Math.floor(Number(request.limit) || 0));
-      const items = await getAllRegularZoteroItems(requestedLibraryId);
-      const rows = items
-        .filter((item: any) => {
-          const regular =
-            typeof item?.isRegularItem === "function"
-              ? item.isRegularItem()
-              : !item?.isNote?.() && !item?.isAttachment?.();
-          const topLevel =
-            typeof item?.isTopLevelItem === "function"
-              ? item.isTopLevelItem()
-              : !Number(item?.parentItemID || item?.parentID || 0);
-          return (
-            regular &&
-            topLevel &&
-            normalizeLibraryId(item?.libraryID, requestedLibraryId) ===
-              requestedLibraryId
-          );
-        })
-        .map((item: any) =>
-          metadataFingerprintFromItem(item, requestedLibraryId),
-        )
-        .filter((entry) => entry.item_key)
-        .sort((left, right) => left.item_key.localeCompare(right.item_key));
-      return limit > 0 ? rows.slice(0, limit) : rows;
-    },
-    async getLibraryIndex() {
-      return buildLibraryIndexFromRegistryInputs(libraryId, await inputs());
-    },
-    async getCitationGraphInputs() {
-      return buildCitationGraphInputsFromRegistryInputs(await inputs());
-    },
-    async scanArtifactSidecars(args = {}) {
-      return readArtifactsFromRegistryInputs(await inputs(), {
-        paper_refs: args.sourceRefs,
-        artifact_types: args.artifactTypes || DEFAULT_ARTIFACT_TYPES,
-      });
-    },
-    async readPaperArtifacts(args) {
-      return readArtifactsFromRegistryInputs(await inputs(), args);
+    library: { listItemsPage, getItemsByRef },
+    artifacts: {
+      async scanPage(request) {
+        const libraryId = validateHostLibraryId(request.libraryId);
+        const limit = validateHostPageLimit(request.limit);
+        const artifactTypes = request.artifactTypes?.length
+          ? request.artifactTypes
+          : DEFAULT_ARTIFACT_TYPES;
+        if (
+          artifactTypes.some((type) => !DEFAULT_ARTIFACT_TYPES.includes(type))
+        ) {
+          invalidHostRead("Host artifact type is invalid");
+        }
+        let summaries: SynthesisHostLibraryItemSummary[];
+        let cursor = cleanString(request.cursor);
+        let nextCursor = "";
+        let hasMore = false;
+        if (request.paperRefs?.length) {
+          const lookup = await getItemsByRef({
+            libraryId,
+            paperRefs: request.paperRefs,
+          });
+          summaries = lookup.items.slice(0, limit);
+        } else {
+          const page = await listItemsPage(request);
+          summaries = page.items;
+          cursor = page.cursor;
+          nextCursor = page.nextCursor;
+          hasMore = page.hasMore;
+        }
+        const inputs = await Promise.all(
+          summaries.map(async (summary) => {
+            const item = itemByLibraryAndKey(
+              summary.libraryId,
+              summary.itemKey,
+            );
+            return item ? paperInputFromItem(item, summary.libraryId) : null;
+          }),
+        );
+        const scan = readArtifactsFromRegistryInputs(
+          inputs.filter((input): input is ReferenceSidecarInput =>
+            Boolean(input),
+          ),
+          { artifact_types: artifactTypes },
+        );
+        return {
+          artifacts: scan.artifacts.map(hostArtifactDescriptor),
+          cursor,
+          nextCursor,
+          hasMore,
+          returned: summaries.length,
+          limit,
+        };
+      },
+      async read(request) {
+        const locator = decodeArtifactLocator(request.locator);
+        const expectedHash = cleanString(request.expectedHash);
+        if (!expectedHash) {
+          invalidHostRead("Host artifact expectedHash is required");
+        }
+        const item = itemByLibraryAndKey(locator.libraryId, locator.itemKey);
+        if (!item || !isVisibleTopLevelRegular(item)) {
+          return {
+            status: "missing" as const,
+            diagnostics: ["paper_not_found"],
+          };
+        }
+        const result = readArtifactsFromRegistryInputs(
+          [await paperInputFromItem(item, locator.libraryId)],
+          {
+            paper_refs: [hostPaperRef(locator.libraryId, locator.itemKey)],
+            artifact_types: [locator.artifactType],
+          },
+        );
+        const artifact = result.artifacts.find(
+          (entry) =>
+            entry.artifact_type === locator.artifactType &&
+            cleanString(entry.note_key) === locator.noteKey,
+        );
+        if (!artifact || artifact.status !== "available") {
+          return {
+            status: (artifact?.status === "decode_error"
+              ? "decode_error"
+              : "missing") as "decode_error" | "missing",
+            diagnostics: [...(artifact?.diagnostics || result.diagnostics)],
+          };
+        }
+        const currentHash = cleanString(artifact.payload_hash || artifact.hash);
+        if (currentHash !== expectedHash) {
+          return {
+            status: "stale" as const,
+            currentHash,
+            diagnostics: ["artifact_hash_changed"],
+          };
+        }
+        const content =
+          locator.artifactType === "digest"
+            ? {
+                kind: "text" as const,
+                text: cleanString(
+                  artifact.markdown ||
+                    artifact.decoded_text ||
+                    artifact.payload,
+                ),
+                mediaType: "text/markdown" as const,
+              }
+            : {
+                kind: "json" as const,
+                value: toSynthesisJsonValue(artifact.payload),
+              };
+        return {
+          status: "available" as const,
+          payloadHash: currentHash,
+          content,
+          diagnostics: [...(artifact.diagnostics || [])],
+        };
+      },
     },
   };
 }

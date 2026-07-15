@@ -2,7 +2,7 @@
 
 The current implementation runs inside a single Zotero plugin process on a single JavaScript event loop. Its active runtime model is explicit, bounded cache maintenance rather than automatic library-wide synchronization.
 
-Workflow Topic option queries, startup runtime reconciliation, protected database reset, default-client invalidation, related-items notifier echo classification, Workflow Host synthesis operations, both production and read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync commands, and all Host Bridge Synthesis capabilities enter through grouped `SynthesisClient` capabilities. Both Workbench paths keep chrome and surfaces separate and do not use the legacy full snapshot. Sync commands use `client.sync.git` and `client.sync.webDav`; every command invalidates the cached client and legacy default service before acquiring fresh composition. Ordinary Host Bridge and debug calls use the cached default client, whose legacy ports resolve the current default service per invocation. MCP derives its tool definitions and handlers from the Host Bridge catalog and passes local delivery mode; remote Host Bridge Topic Context and filtered artifact export carry remote delivery mode outside ordinary request JSON. Persisted operation progress remains the side-effect-free 500 ms `workbench.readProgress()` poll, and Sync commands preserve their chrome refresh fast path. Strict canonical DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside client contracts. Production Workbench phased prewarm remains plugin-side orchestration over chrome and ordered surface reads. The Workflow Host exposes twelve use-case methods, snapshots live Zotero items, and materializes Topic assets before invoking the client. Default and read-only clients share one legacy composition root and remain in-process, so this boundary does not change process, database, canonical file, mirror, or Zotero ownership. The legacy composition root is now the only production direct consumer of the complete service.
+Workflow Topic option queries, startup runtime reconciliation, protected database reset, default-client invalidation, related-items notifier echo classification, Workflow Host synthesis operations, both production and read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync commands, and all Host Bridge Synthesis capabilities enter through grouped `SynthesisClient` capabilities. Both Workbench paths keep chrome and surfaces separate and do not use the legacy full snapshot. Sync commands use `client.sync.git` and `client.sync.webDav`; every command invalidates the cached client and legacy default service before acquiring fresh composition. Ordinary Host Bridge and debug calls use the cached default client, whose legacy ports resolve the current default service per invocation. MCP derives its tool definitions and handlers from the Host Bridge catalog and passes local delivery mode; remote Host Bridge Topic Context and filtered artifact export carry remote delivery mode outside ordinary request JSON. Persisted operation progress remains the side-effect-free 500 ms `workbench.readProgress()` poll, and Sync commands preserve their chrome refresh fast path. Strict canonical DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside client contracts. Production Workbench phased prewarm remains plugin-side orchestration over chrome and ordered surface reads. The Workflow Host exposes twelve use-case methods, snapshots live Zotero items, and materializes Topic assets before invoking the client. Reverse library and artifact reads use the bounded, JSON-safe `SynthesisHostReadPort`; artifact refresh compares payload-free descriptors before requesting a single hash-guarded payload. The legacy composition root owns the production Host adapter, default service instance, and invalidation, while the readonly harness injects its own adapter. Both remain in-process, so this boundary does not change process, database, canonical file, mirror, or Zotero ownership. The legacy composition root is the only production direct consumer of the complete 128-method service.
 
 The approved Stage 1 sidecar direction is documented in `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md` and the active `define-synthesis-sidecar-service-boundary` and `introduce-synthesis-client-foundation` OpenSpec changes. Those documents govern future migration work; they do not mean that a Node service currently owns production execution, `synthesis.db`, or Topic canonical files.
 
@@ -10,8 +10,8 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 
 ## Runtime Principles
 
-- Zotero Library is read directly when correctness matters.
-- Source artifacts are read directly when topic or digest workflows need them.
+- Zotero Library metadata is paged or resolved by stable ref through the Host read port when correctness matters.
+- Source artifact scans return descriptors only; content is read one opaque locator at a time with the scanned hash.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.
@@ -28,7 +28,7 @@ Normal workflow apply is the only automatic sidecar update path:
 1. `literature-analysis` reads Zotero item/attachment/note data directly.
 2. The workflow writes digest/reference artifacts to Zotero notes or embedded payload attachments.
 3. Host apply updates bounded sidecar projections for that `source_ref`: artifact existence/hash state, changed references extraction, canonical-reference dedupe, and optional literature matching metadata.
-4. Topic create/update reads Zotero Library and source artifacts directly. Citation graph metrics may be included only as optional enrichment.
+4. Topic create/update reads Zotero Library metadata and source artifacts through the Host read port. Citation graph metrics may be included only as optional enrichment.
 5. Topic apply updates topic artifact sidecars, source manifest summaries, discovery profile metadata, and Concept/Topic Graph proposals.
 
 No step above requires a full Registry rebuild, startup reconcile, or global dirty queue drain.
@@ -77,7 +77,7 @@ The target model avoids automatic drift fan-out. Zotero Library drift is handled
 
 | Situation | Target Behavior |
 | --- | --- |
-| User opens a topic | Source check compares the topic source manifest with current Zotero/artifact reads for that topic. |
+| User opens a topic | Source check compares the topic source manifest with current bounded Host metadata/artifact reads for that topic. |
 | User opens Graph | Graph view may show missing/stale/failed cache and offer citation graph cache rebuild. |
 | Digest is applied | Only that item's artifact/reference sidecar projection is updated; Citation Graph and related-items sync are marked stale with source-scoped diagnostics. |
 | Large Zotero changes happened outside Synthesis | UI/debug may recommend explicit reference sidecar refresh or binding repair. |
@@ -108,15 +108,15 @@ Reference sidecar refresh is the broadest ordinary maintenance operation and mus
 
 Stage 1 scans artifact sidecar state:
 
-1. Enumerate the selected Zotero source scope.
-2. Locate digest, references, and citation-analysis artifacts.
+1. Enumerate the selected Zotero source scope through bounded pages or stable-ref lookup.
+2. Scan digest, references, and citation-analysis descriptors without payload content.
 3. Update artifact sidecar existence, locator, fingerprint/hash, and diagnostics.
 4. Compare `references_hash` against the previous sidecar row and build a changed set.
 
 Stage 2 processes only changed references artifacts:
 
 1. Mark old active raw references for disappeared or replaced `source_ref + references_hash` values as `stale`.
-2. Read and parse only changed references artifacts.
+2. Read and parse only changed references artifacts by opaque locator and expected hash; fail stale if the hash changed after scan.
 3. Insert new raw references.
 4. Assign canonical references and apply incremental redirects/dedupe.
 5. Run safe best-effort binding only for new or affected canonical references when it fits the operation budget.

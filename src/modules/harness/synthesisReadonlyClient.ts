@@ -2,7 +2,7 @@ import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createSynthesisRepository } from "../synthesis/repository";
 import { createLegacyInProcessSynthesisClient } from "../synthesisClient/legacyComposition";
 import { createReadonlySqliteAdapter } from "./sqliteReadonly";
-import { createZoteroReadonlyLibraryAdapter } from "./zoteroReadonlyLibraryAdapter";
+import { createZoteroReadonlyHostReadPort } from "./zoteroReadonlyLibraryAdapter";
 
 export type SynthesisReadonlyClientOptions = {
   zoteroDbPath: string;
@@ -37,7 +37,7 @@ export async function createSynthesisReadonlyClient(
     options.synthesisDbPath || options.pluginDbPath,
   );
   try {
-    const libraryAdapter = await createZoteroReadonlyLibraryAdapter({
+    const hostReadPort = await createZoteroReadonlyHostReadPort({
       dbPath: options.zoteroDbPath,
       libraryId,
     });
@@ -48,7 +48,7 @@ export async function createSynthesisReadonlyClient(
         root: paths.dataDir,
         runtimeRoot: options.pluginRuntimeRoot,
         libraryId,
-        libraryAdapter,
+        hostReadPort,
         synthesisRepository: repository,
       });
       let closed = false;
@@ -57,12 +57,12 @@ export async function createSynthesisReadonlyClient(
         close() {
           if (closed) return;
           closed = true;
-          libraryAdapter.close();
+          hostReadPort.close();
           sqliteAdapter.close();
         },
       };
     } catch (error) {
-      libraryAdapter.close();
+      hostReadPort.close();
       throw error;
     }
   } catch (error) {

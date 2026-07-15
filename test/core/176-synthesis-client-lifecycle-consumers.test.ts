@@ -8,9 +8,9 @@ import {
   invalidateDefaultSynthesisClient,
 } from "../../src/modules/synthesisClient/defaultClient";
 import {
-  getDefaultSynthesisService,
-  invalidateDefaultSynthesisService,
-} from "../../src/modules/synthesis/service";
+  getDefaultLegacySynthesisServiceForTests,
+  invalidateDefaultLegacySynthesisService,
+} from "../../src/modules/synthesisClient/legacyComposition";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -87,12 +87,12 @@ describe("Synthesis lifecycle client consumers", function () {
 
   it("fresh acquisition rebuilds a cached client and legacy service", async function () {
     invalidateDefaultSynthesisClient();
-    invalidateDefaultSynthesisService();
-    const firstService = getDefaultSynthesisService();
+    invalidateDefaultLegacySynthesisService();
+    const firstService = await getDefaultLegacySynthesisServiceForTests();
     const firstClient = await getDefaultSynthesisClient();
 
     const secondClient = await getFreshDefaultSynthesisClient();
-    const secondService = getDefaultSynthesisService();
+    const secondService = await getDefaultLegacySynthesisServiceForTests();
 
     assert.notStrictEqual(secondClient, firstClient);
     assert.notStrictEqual(secondService, firstService);
@@ -101,11 +101,11 @@ describe("Synthesis lifecycle client consumers", function () {
 
   it("fresh acquisition rebuilds the legacy service without a cached client", async function () {
     invalidateDefaultSynthesisClient();
-    invalidateDefaultSynthesisService();
-    const firstService = getDefaultSynthesisService();
+    invalidateDefaultLegacySynthesisService();
+    const firstService = await getDefaultLegacySynthesisServiceForTests();
 
     await getFreshDefaultSynthesisClient();
-    const secondService = getDefaultSynthesisService();
+    const secondService = await getDefaultLegacySynthesisServiceForTests();
 
     assert.notStrictEqual(secondService, firstService);
     invalidateDefaultSynthesisClient();

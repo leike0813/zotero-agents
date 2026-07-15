@@ -11,9 +11,11 @@ import { resetGuardedSqliteForTests } from "../../src/modules/guardedSqlite";
 import {
   SYNTHESIS_DATABASE_RESET_CONFIRMATION_TEXT,
   createSynthesisService,
-  getDefaultSynthesisService,
-  resetDefaultSynthesisServiceForTests,
 } from "../../src/modules/synthesis/service";
+import {
+  getDefaultLegacySynthesisServiceForTests,
+  resetDefaultLegacySynthesisServiceForTests,
+} from "../../src/modules/synthesisClient/legacyComposition";
 import {
   PLUGIN_TASK_DOMAIN_ACP,
   exportPluginStateStoreRowsForTests,
@@ -36,13 +38,13 @@ describe("Synthesis repository foundation", function () {
   beforeEach(function () {
     resetPluginStateStoreForTests();
     resetGuardedSqliteForTests();
-    resetDefaultSynthesisServiceForTests();
+    resetDefaultLegacySynthesisServiceForTests();
   });
 
   afterEach(function () {
     resetPluginStateStoreForTests();
     resetGuardedSqliteForTests();
-    resetDefaultSynthesisServiceForTests();
+    resetDefaultLegacySynthesisServiceForTests();
   });
 
   it("uses the dedicated Synthesis state database path", function () {
@@ -52,7 +54,7 @@ describe("Synthesis repository foundation", function () {
     );
   });
 
-  it("binds the default service repository to the persistence root, not data root", function () {
+  it("binds the default service repository to the persistence root, not data root", async function () {
     const runtimeRoot = "C:/zs-runtime-default-service";
     const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
     const previousServices = (globalThis as { Services?: unknown }).Services;
@@ -88,7 +90,7 @@ describe("Synthesis repository foundation", function () {
     };
 
     try {
-      getDefaultSynthesisService();
+      await getDefaultLegacySynthesisServiceForTests();
       const expected = getRuntimePersistencePaths(runtimeRoot)
         .synthesisDbPath.replace(/\\/g, "/")
         .toLowerCase();
@@ -104,7 +106,7 @@ describe("Synthesis repository foundation", function () {
         zotero.File.pathToFile = previousPathToFile;
       }
       (globalThis as { Services?: unknown }).Services = previousServices;
-      resetDefaultSynthesisServiceForTests();
+      resetDefaultLegacySynthesisServiceForTests();
     }
   });
 

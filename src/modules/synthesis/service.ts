@@ -1,6 +1,10 @@
 import { joinPath } from "../../utils/path";
 import type {
   SynthesisDeliveryContext,
+  SynthesisHostArtifactDescriptor,
+  SynthesisHostArtifactReadResult,
+  SynthesisHostLibraryItemSummary,
+  SynthesisHostReadPort,
   SynthesisWorkflowTopicOption,
   SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -64,11 +68,9 @@ import {
 import {
   buildCitationGraphInputsFromRegistryInputs,
   buildLibraryIndexFromRegistryInputs,
-  createZoteroSynthesisLibraryAdapter,
+  normalizeReferenceSidecarArtifactTypes,
   readArtifactsFromRegistryInputs,
   type PaperArtifactReadResult,
-  type SynthesisLibraryAdapter,
-  type SynthesisTagUsageCount,
 } from "./libraryAdapter";
 import { resolveDigestRepresentativeImageForUi } from "./digestRepresentativeImage";
 import {
@@ -543,7 +545,7 @@ export type SynthesisServiceOptions = {
   now?: () => string;
   runtimeLogAppender?: SynthesisRuntimeLogAppender;
   mirrorAdapter?: SynthesisMirrorAdapter;
-  libraryAdapter?: SynthesisLibraryAdapter;
+  hostReadPort?: SynthesisHostReadPort;
   registryInputs?: ReferenceSidecarInput[];
   citationGraphPapers?: CitationGraphPaperInput[];
   gitSyncAdapter?: SynthesisGitSyncAdapter;
@@ -552,6 +554,7 @@ export type SynthesisServiceOptions = {
   gitSyncDebounceMs?: number;
   gitSyncRetryDelaysMs?: number[];
   gitSyncAutoRetryEnabled?: boolean;
+  onConfigurationChanged?: () => void;
   webDavSyncClient?: SynthesisWebDavHttpClient;
   relatedItemsSyncHost?: RelatedItemsSyncHost | null;
   synthesisRepository?: SynthesisRepository;
@@ -564,8 +567,6 @@ type SynthesisRuntimeLogAppender = (input: RuntimeLogInput) => unknown;
 type SynthesisSidecarReferenceInput = Record<string, unknown>;
 
 type SynthesisWorkflowSidecarItemInput = {
-  item?: unknown;
-  parentItem?: unknown;
   libraryId?: unknown;
   itemKey?: unknown;
   itemType?: unknown;
@@ -585,7 +586,6 @@ type SynthesisWorkflowSidecarItemInput = {
 
 type SynthesisLiteratureDigestSidecarApplyInput =
   SynthesisWorkflowSidecarItemInput & {
-    parentItem?: unknown;
     digest?: { noteKey?: unknown; payloadHash?: unknown; content?: unknown };
     references?: {
       noteKey?: unknown;
@@ -608,7 +608,6 @@ type SynthesisLiteratureDigestSidecarApplyInput =
 
 type SynthesisReferenceMatchingSidecarApplyInput =
   SynthesisWorkflowSidecarItemInput & {
-    parentItem?: unknown;
     noteItem?: unknown;
     references?: unknown;
     matchedItems?: unknown;
@@ -846,7 +845,6 @@ export const SYNTHESIS_CLEAN_INSTALL_RESET_CONFIRMATION_TEXT =
   "RESET SYNTHESIS CLEAN INSTALL";
 
 const defaultLock = new LibraryWriteLock();
-let defaultService: SynthesisService | null = null;
 
 export const SYNTHESIS_UNKNOWN_CITATION_ROLE = "unknown";
 export const SYNTHESIS_ALLOWED_CITATION_FUNCTIONS = [
@@ -2389,11 +2387,163 @@ function registryMetadataFingerprintFromInput(input: ReferenceSidecarInput) {
   };
 }
 
-async function registryInputsForService(
-  options: Pick<SynthesisServiceOptions, "libraryAdapter" | "registryInputs">,
+function registryInputFromHostSummary(
+  input: SynthesisHostLibraryItemSummary,
+): ReferenceSidecarInput {
+  return {
+    libraryId: input.libraryId,
+    itemKey: input.itemKey,
+    title: input.title,
+    year: input.year,
+    itemType: input.itemType,
+    tags: [...input.tags],
+    collections: [...input.collections],
+    creators: [...input.creators],
+    doi: input.doi,
+    arxiv: input.arxiv,
+    isbn: input.isbn,
+    url: input.url,
+    citekey: input.citekey,
+    dateAdded: input.dateAdded,
+  };
+}
+
+async function collectHostLibraryInputs(
+  port: SynthesisHostReadPort,
+  libraryId: number,
 ) {
-  if (options.libraryAdapter) {
-    return options.libraryAdapter.getRegistryInputs();
+  const inputs: ReferenceSidecarInput[] = [];
+  const seenCursors = new Set<string>();
+  let cursor = "";
+  for (;;) {
+    if (seenCursors.has(cursor)) {
+      throw new Error("Synthesis Host library cursor did not advance");
+    }
+    seenCursors.add(cursor);
+    const page = await port.library.listItemsPage({
+      libraryId,
+      cursor,
+      limit: 100,
+    });
+    inputs.push(...page.items.map(registryInputFromHostSummary));
+    if (!page.hasMore) {
+      break;
+    }
+    const nextCursor = cleanString(page.nextCursor);
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error("Synthesis Host library cursor did not advance");
+    }
+    cursor = nextCursor;
+  }
+  return inputs;
+}
+
+async function hostInputsForSourceRefs(
+  port: SynthesisHostReadPort,
+  libraryId: number,
+  sourceRefs: string[],
+) {
+  const inputs: ReferenceSidecarInput[] = [];
+  for (let index = 0; index < sourceRefs.length; index += 100) {
+    const result = await port.library.getItemsByRef({
+      libraryId,
+      paperRefs: sourceRefs.slice(index, index + 100),
+    });
+    inputs.push(...result.items.map(registryInputFromHostSummary));
+  }
+  return inputs;
+}
+
+async function collectHostArtifactDescriptors(
+  port: SynthesisHostReadPort,
+  libraryId: number,
+  args: {
+    sourceRefs?: string[];
+    artifactTypes?: ReferenceSidecarArtifactType[];
+  } = {},
+) {
+  const sourceRefs = (args.sourceRefs || []).map(cleanString).filter(Boolean);
+  if (sourceRefs.length) {
+    const descriptors: SynthesisHostArtifactDescriptor[] = [];
+    for (let index = 0; index < sourceRefs.length; index += 100) {
+      const page = await port.artifacts.scanPage({
+        libraryId,
+        paperRefs: sourceRefs.slice(index, index + 100),
+        artifactTypes: args.artifactTypes,
+        limit: 100,
+      });
+      descriptors.push(...page.artifacts);
+    }
+    return descriptors;
+  }
+  const descriptors: SynthesisHostArtifactDescriptor[] = [];
+  const seenCursors = new Set<string>();
+  let cursor = "";
+  for (;;) {
+    if (seenCursors.has(cursor)) {
+      throw new Error("Synthesis Host artifact cursor did not advance");
+    }
+    seenCursors.add(cursor);
+    const page = await port.artifacts.scanPage({
+      libraryId,
+      cursor,
+      limit: 100,
+      artifactTypes: args.artifactTypes,
+    });
+    descriptors.push(...page.artifacts);
+    if (!page.hasMore) {
+      break;
+    }
+    const nextCursor = cleanString(page.nextCursor);
+    if (!nextCursor || nextCursor === cursor) {
+      throw new Error("Synthesis Host artifact cursor did not advance");
+    }
+    cursor = nextCursor;
+  }
+  return descriptors;
+}
+
+function paperArtifactFromHostDescriptor(
+  descriptor: SynthesisHostArtifactDescriptor,
+  read?: SynthesisHostArtifactReadResult,
+): PaperArtifactReadResult {
+  const status =
+    read?.status === "available"
+      ? "available"
+      : read?.status === "decode_error"
+        ? "decode_error"
+        : descriptor.status;
+  const content = read?.content;
+  return {
+    paper_ref: descriptor.paperRef,
+    artifact_type: descriptor.artifactType,
+    status,
+    payload_type: descriptor.payloadType,
+    probe_source: "paper_artifacts.read",
+    hash: cleanString(read?.payloadHash || descriptor.payloadHash) || undefined,
+    payload_hash:
+      cleanString(read?.payloadHash || descriptor.payloadHash) || undefined,
+    ...(content?.kind === "json" ? { payload: content.value } : {}),
+    ...(content?.kind === "text"
+      ? {
+          markdown:
+            content.mediaType === "text/markdown" ? content.text : undefined,
+          decoded_text: content.text,
+          payload: content.text,
+        }
+      : {}),
+    diagnostics: [...descriptor.diagnostics, ...(read?.diagnostics || [])],
+  };
+}
+
+async function registryInputsForService(
+  options: Pick<
+    SynthesisServiceOptions,
+    "hostReadPort" | "libraryId" | "registryInputs"
+  >,
+) {
+  if (options.hostReadPort) {
+    return collectHostLibraryInputs(options.hostReadPort, options.libraryId);
   }
   return options.registryInputs || [];
 }
@@ -2414,27 +2564,13 @@ function tagUsageCountsFromRegistryInputs(
   return counts;
 }
 
-function tagUsageCountMap(rows: SynthesisTagUsageCount[]) {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const tag = cleanString(row.tag);
-    const count = Math.max(0, Math.floor(Number(row.count) || 0));
-    if (tag) {
-      counts.set(tag, count);
-    }
-  }
-  return counts;
-}
-
 async function tagUsageCountsForService(
-  options: Pick<SynthesisServiceOptions, "libraryAdapter" | "registryInputs">,
+  options: Pick<
+    SynthesisServiceOptions,
+    "hostReadPort" | "libraryId" | "registryInputs"
+  >,
   libraryId: number,
 ) {
-  if (options.libraryAdapter?.getTagUsageCounts) {
-    return tagUsageCountMap(
-      await options.libraryAdapter.getTagUsageCounts({ libraryId }),
-    );
-  }
   return tagUsageCountsFromRegistryInputs(
     await registryInputsForService(options),
     libraryId,
@@ -2456,11 +2592,13 @@ function applyTagUsageCounts<
 async function graphInputsForService(
   options: Pick<
     SynthesisServiceOptions,
-    "libraryAdapter" | "citationGraphPapers" | "registryInputs"
+    "hostReadPort" | "libraryId" | "citationGraphPapers" | "registryInputs"
   >,
 ) {
-  if (options.libraryAdapter) {
-    return options.libraryAdapter.getCitationGraphInputs();
+  if (options.hostReadPort) {
+    return buildCitationGraphInputsFromRegistryInputs(
+      await collectHostLibraryInputs(options.hostReadPort, options.libraryId),
+    );
   }
   if (options.citationGraphPapers) {
     return options.citationGraphPapers;
@@ -3785,133 +3923,36 @@ function normalizeStringListInput(value: unknown): string[] {
   ).sort((left, right) => left.localeCompare(right));
 }
 
-function readZoteroItemField(item: unknown, field: string) {
-  try {
-    return cleanString(
-      (item as { getField?: (name: string) => unknown })?.getField?.(field),
-    );
-  } catch {
-    return "";
-  }
-}
-
 function extractYearFromDate(value: unknown) {
   return (
     cleanString(value).match(/\b(1[5-9]\d{2}|20\d{2}|21\d{2})\b/)?.[1] || ""
   );
 }
 
-function extractCitekeyFromExtra(value: unknown) {
-  const match = cleanString(value).match(
-    /(?:^|\n)\s*(?:citation\s*key|citekey)\s*:\s*([^\s]+)\s*(?:$|\n)/i,
-  );
-  return cleanString(match?.[1]);
-}
-
-function zoteroCreatorsFromItem(item: unknown) {
-  try {
-    const creators =
-      (
-        item as { getCreators?: () => Array<Record<string, unknown>> }
-      )?.getCreators?.() || [];
-    const names = creators
-      .map((creator) =>
-        cleanString(
-          [creator.firstName, creator.lastName].filter(Boolean).join(" ") ||
-            creator.name ||
-            creator.lastName ||
-            creator.firstName,
-        ),
-      )
-      .filter(Boolean);
-    if (names.length) {
-      return names;
-    }
-  } catch {
-    // Fall through to firstCreator below.
-  }
-  return cleanString((item as { firstCreator?: unknown })?.firstCreator)
-    ? [cleanString((item as { firstCreator?: unknown })?.firstCreator)]
-    : [];
-}
-
-function zoteroTagsFromItem(item: unknown) {
-  try {
-    return normalizeStringListInput(
-      (
-        (
-          item as { getTags?: () => Array<{ tag?: unknown } | unknown> }
-        )?.getTags?.() || []
-      ).map((entry) => cleanString((entry as { tag?: unknown })?.tag || entry)),
-    );
-  } catch {
-    return [];
-  }
-}
-
-function zoteroCollectionsFromItem(item: unknown) {
-  try {
-    return normalizeStringListInput(
-      (item as { getCollections?: () => unknown[] })?.getCollections?.() || [],
-    );
-  } catch {
-    return [];
-  }
-}
-
 function resolveWorkflowSidecarItem(args: {
   input: SynthesisWorkflowSidecarItemInput;
   defaultLibraryId: number;
 }) {
-  const item = args.input.parentItem || args.input.item;
-  const itemRecord = item as Record<string, unknown> | undefined;
   const libraryId =
-    normalizeLibraryId(args.input.libraryId) ||
-    normalizeLibraryId(itemRecord?.libraryID) ||
-    args.defaultLibraryId;
-  const itemKey = cleanString(args.input.itemKey || itemRecord?.key);
-  const date = cleanString(
-    args.input.date || readZoteroItemField(item, "date"),
-  );
-  const title =
-    cleanString(args.input.title) ||
-    readZoteroItemField(item, "title") ||
-    cleanString(
-      (item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.(),
-    );
-  const creators = normalizeStringListInput(args.input.creators).length
-    ? normalizeStringListInput(args.input.creators)
-    : zoteroCreatorsFromItem(item);
-  const tags = normalizeStringListInput(args.input.tags).length
-    ? normalizeStringListInput(args.input.tags)
-    : zoteroTagsFromItem(item);
-  const collections = normalizeStringListInput(args.input.collections).length
-    ? normalizeStringListInput(args.input.collections)
-    : zoteroCollectionsFromItem(item);
-  const citekey =
-    cleanString(args.input.citekey) ||
-    readZoteroItemField(item, "citationKey") ||
-    cleanString(
-      (item as { toJSON?: () => Record<string, unknown> })?.toJSON?.()
-        ?.citationKey,
-    ) ||
-    extractCitekeyFromExtra(readZoteroItemField(item, "extra"));
+    normalizeLibraryId(args.input.libraryId) || args.defaultLibraryId;
+  const itemKey = cleanString(args.input.itemKey);
+  const date = cleanString(args.input.date);
   return {
     libraryId,
     itemKey,
     paperRef: itemKey ? `${libraryId}:${itemKey}` : "",
-    itemType: cleanString(args.input.itemType || itemRecord?.itemType),
-    title,
+    itemType: cleanString(args.input.itemType),
+    title: cleanString(args.input.title),
     year: cleanString(args.input.year) || extractYearFromDate(date),
-    creators,
-    tags,
-    collections,
-    doi: cleanString(args.input.doi) || readZoteroItemField(item, "DOI"),
+    creators: normalizeStringListInput(args.input.creators),
+    tags: normalizeStringListInput(args.input.tags),
+    collections: normalizeStringListInput(args.input.collections),
+    doi: cleanString(args.input.doi),
     arxiv: cleanString(args.input.arxiv),
-    isbn: cleanString(args.input.isbn) || readZoteroItemField(item, "ISBN"),
-    url: cleanString(args.input.url) || readZoteroItemField(item, "url"),
-    citekey,
-    dateAdded: cleanString(args.input.dateAdded || itemRecord?.dateAdded),
+    isbn: cleanString(args.input.isbn),
+    url: cleanString(args.input.url),
+    citekey: cleanString(args.input.citekey),
+    dateAdded: cleanString(args.input.dateAdded),
   };
 }
 
@@ -9055,7 +9096,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               libraryId: normalizeLibraryId(binding.libraryId) || libraryId,
               itemKey: cleanString(binding.itemKey),
             }),
-            title: zoteroTitleForSourceRef(
+            title: libraryTitleForSourceRef(
               sourceRefFromParts({
                 libraryId: normalizeLibraryId(binding.libraryId) || libraryId,
                 itemKey: cleanString(binding.itemKey),
@@ -9276,18 +9317,25 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return { rows, diagnostics };
   }
 
-  function zoteroTitleForSourceRef(sourceRef: unknown) {
-    const parsed = parsePaperRef(sourceRef);
-    if (!parsed?.itemKey) {
-      return "";
+  const libraryTitlesByRef = new Map(
+    (options.registryInputs || []).map(
+      (input) =>
+        [paperRefForRegistryInput(input), cleanString(input.title)] as const,
+    ),
+  );
+
+  function rememberLibraryInputs(inputs: ReferenceSidecarInput[]) {
+    for (const input of inputs) {
+      const ref = paperRefForRegistryInput(input);
+      if (ref) {
+        libraryTitlesByRef.set(ref, cleanString(input.title));
+      }
     }
-    const item = zoteroItemByLibraryAndKey(parsed.libraryId, parsed.itemKey);
-    return (
-      readZoteroItemField(item, "title") ||
-      cleanString(
-        (item as { getDisplayTitle?: () => unknown })?.getDisplayTitle?.(),
-      )
-    );
+    return inputs;
+  }
+
+  function libraryTitleForSourceRef(sourceRef: unknown) {
+    return libraryTitlesByRef.get(cleanString(sourceRef)) || "";
   }
 
   async function registryInputsForSourceRefs(sourceRefs: Set<string>) {
@@ -9301,37 +9349,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         rowsByRef.set(ref, input);
       }
     }
-    const itemReader =
-      options.libraryAdapter?.getRegistryInputForItem ||
-      options.libraryAdapter?.getRegistryInputSummaryForItem;
-    if (typeof itemReader === "function") {
-      for (const sourceRef of sourceRefs) {
-        if (rowsByRef.has(sourceRef)) {
-          continue;
-        }
-        const parsed = parsePaperRef(sourceRef);
-        if (!parsed?.itemKey) {
-          continue;
-        }
-        const input = await itemReader({
-          libraryId: parsed.libraryId,
-          itemKey: parsed.itemKey,
-        });
-        if (input) {
-          rowsByRef.set(sourceRef, input);
+    if (options.hostReadPort) {
+      const hostInputs = await hostInputsForSourceRefs(
+        options.hostReadPort,
+        libraryId,
+        Array.from(sourceRefs),
+      );
+      for (const input of hostInputs) {
+        const ref = paperRefForRegistryInput(input);
+        if (ref && sourceRefs.has(ref)) {
+          rowsByRef.set(ref, input);
         }
       }
     }
-    return Array.from(rowsByRef.values());
+    return rememberLibraryInputs(Array.from(rowsByRef.values()));
   }
 
   async function registryInputsForWorkbenchPage(limit: number) {
     const requestedLimit = Math.max(0, Math.floor(Number(limit) || 0));
-    if (options.libraryAdapter?.getRegistryInputsPage) {
-      return options.libraryAdapter.getRegistryInputsPage({
+    if (options.hostReadPort) {
+      const rows = await collectHostLibraryInputs(
+        options.hostReadPort,
         libraryId,
-        limit: requestedLimit,
-      });
+      );
+      return rememberLibraryInputs(
+        requestedLimit > 0 ? rows.slice(0, requestedLimit) : rows,
+      );
     }
     if (options.registryInputs) {
       return requestedLimit > 0
@@ -9417,8 +9460,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function verifyIncompleteArtifactRowsFromCurrentLibrary(
     rowsByRef: Map<string, ReferenceSidecarIndexRow>,
   ) {
-    const itemReader = options.libraryAdapter?.getRegistryInputForItem;
-    if (typeof itemReader !== "function") {
+    if (!options.hostReadPort) {
       return;
     }
     const candidates = Array.from(rowsByRef.values()).filter((row) =>
@@ -9426,34 +9468,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         (artifact) => artifact.status !== "available",
       ),
     );
-    for (const row of candidates) {
-      const parsed = parsePaperRef(row.paper_ref);
-      if (!parsed?.itemKey) {
-        continue;
-      }
-      const liveInput = await itemReader({
-        libraryId: parsed.libraryId,
-        itemKey: parsed.itemKey,
+    const descriptors = await collectHostArtifactDescriptors(
+      options.hostReadPort,
+      libraryId,
+      { sourceRefs: candidates.map((row) => row.paper_ref) },
+    );
+    for (const descriptor of descriptors) {
+      const row = rowsByRef.get(descriptor.paperRef);
+      if (!row) continue;
+      const liveArtifact = buildReferenceSidecarIndexRow({
+        libraryId: row.library_id,
+        itemKey: row.item_key,
+        title: row.title,
+        notes: [],
+      }).artifacts[descriptor.artifactType];
+      liveArtifact.status =
+        descriptor.status === "available"
+          ? "available"
+          : descriptor.status === "decode_error"
+            ? "error"
+            : "missing";
+      liveArtifact.hash = descriptor.payloadHash;
+      liveArtifact.diagnostics = artifactDiagnosticsForOverlay({
+        artifactType: descriptor.artifactType,
+        status: liveArtifact.status,
+        previousDiagnostics: row.diagnostics,
       });
-      if (!liveInput) {
-        continue;
-      }
-      const liveRow = buildReferenceSidecarIndexRow(liveInput);
-      row.title = zoteroTitleForSourceRef(row.paper_ref) || liveRow.title;
-      row.year = liveRow.year || row.year;
-      for (const artifactType of [
-        "digest",
-        "references",
-        "citation_analysis",
-      ] as const) {
-        const liveArtifact = liveRow.artifacts[artifactType];
-        const currentArtifact = row.artifacts[artifactType];
-        if (
-          liveArtifact.status === "available" ||
-          currentArtifact.status !== "available"
-        ) {
-          row.artifacts[artifactType] = liveArtifact;
-        }
+      if (
+        liveArtifact.status === "available" ||
+        row.artifacts[descriptor.artifactType].status !== "available"
+      ) {
+        row.artifacts[descriptor.artifactType] = liveArtifact;
       }
       refreshArtifactDerivedFields(row);
     }
@@ -9462,24 +9507,22 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   async function enrichRegistryRowsWithLiveMetadata(
     rowsByRef: Map<string, ReferenceSidecarIndexRow>,
   ) {
-    const itemReader = options.libraryAdapter?.getRegistryInputSummaryForItem;
-    if (typeof itemReader !== "function") {
+    if (!options.hostReadPort) {
       return;
     }
-    for (const row of rowsByRef.values()) {
-      const parsed = parsePaperRef(row.paper_ref);
-      if (!parsed?.itemKey) {
-        continue;
-      }
-      const liveInput = await itemReader({
-        libraryId: parsed.libraryId,
-        itemKey: parsed.itemKey,
-      });
+    const liveInputs = await hostInputsForSourceRefs(
+      options.hostReadPort,
+      libraryId,
+      Array.from(rowsByRef.keys()),
+    );
+    for (const liveInput of liveInputs) {
+      const row = rowsByRef.get(paperRefForRegistryInput(liveInput));
+      if (!row) continue;
       if (!liveInput) {
         continue;
       }
       row.title =
-        zoteroTitleForSourceRef(row.paper_ref) ||
+        libraryTitleForSourceRef(row.paper_ref) ||
         cleanString(liveInput.title) ||
         row.title;
       row.year = cleanString(liveInput.year) || row.year;
@@ -9772,7 +9815,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         })
       : "";
     const bindingTitle = bindingPaperRef
-      ? zoteroTitleForSourceRef(bindingPaperRef)
+      ? libraryTitleForSourceRef(bindingPaperRef)
       : "";
     const title =
       bindingTitle ||
@@ -9984,7 +10027,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const inputs = await registryInputsForSourceRefs(sourceRefs);
     const rows = registryRowsForInputs(inputs);
     for (const row of rows) {
-      const zoteroTitle = zoteroTitleForSourceRef(row.paper_ref);
+      const zoteroTitle = libraryTitleForSourceRef(row.paper_ref);
       if (zoteroTitle) {
         row.title = zoteroTitle;
       }
@@ -10703,10 +10746,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function scanReferenceSidecarArtifacts() {
-    if (options.libraryAdapter?.scanArtifactSidecars) {
-      return options.libraryAdapter.scanArtifactSidecars({
-        artifactTypes: ["digest", "references", "citation_analysis"],
-      });
+    if (options.hostReadPort) {
+      const descriptors = await collectHostArtifactDescriptors(
+        options.hostReadPort,
+        libraryId,
+        {
+          artifactTypes: ["digest", "references", "citation_analysis"],
+        },
+      );
+      return {
+        artifacts: descriptors.map((descriptor) =>
+          paperArtifactFromHostDescriptor(descriptor),
+        ),
+        descriptors,
+        diagnostics: descriptors.flatMap((entry) => entry.diagnostics),
+      };
     }
     if (options.registryInputs) {
       return readArtifactsFromRegistryInputs(options.registryInputs, {
@@ -10767,7 +10821,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       registryRowsForInputs(inputs).map((row) => [row.paper_ref, row] as const),
     );
     for (const row of rowsByRef.values()) {
-      const zoteroTitle = zoteroTitleForSourceRef(row.paper_ref);
+      const zoteroTitle = libraryTitleForSourceRef(row.paper_ref);
       if (zoteroTitle) {
         row.title = zoteroTitle;
       }
@@ -10788,7 +10842,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             {
               libraryId: sidecar.libraryId || parsed?.libraryId || libraryId,
               itemKey,
-              title: zoteroTitleForSourceRef(sidecar.sourceRef) || itemKey,
+              title: libraryTitleForSourceRef(sidecar.sourceRef) || itemKey,
               notes: [],
             },
           ])[0],
@@ -10872,29 +10926,24 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         )
         .filter(([paperRef, title]) => paperRef && title),
     );
-    const itemReader =
-      options.libraryAdapter?.getRegistryInputSummaryForItem ||
-      options.libraryAdapter?.getRegistryInputForItem;
+    const hostInputs = options.hostReadPort
+      ? await hostInputsForSourceRefs(
+          options.hostReadPort,
+          libraryId,
+          targetRefs,
+        )
+      : [];
+    for (const input of hostInputs) {
+      inputByPaperRef.set(
+        paperRefForRegistryInput(input),
+        cleanString(input.title),
+      );
+    }
     for (const targetRef of targetRefs) {
       const injectedTitle = inputByPaperRef.get(targetRef);
       if (injectedTitle) {
         titles.set(targetRef, injectedTitle);
         continue;
-      }
-      if (typeof itemReader !== "function") {
-        continue;
-      }
-      const parsed = parsePaperRef(targetRef);
-      if (!parsed?.itemKey) {
-        continue;
-      }
-      const input = await itemReader({
-        libraryId: parsed.libraryId,
-        itemKey: parsed.itemKey,
-      });
-      const title = cleanString(input?.title);
-      if (title) {
-        titles.set(targetRef, title);
       }
     }
     return titles;
@@ -11236,7 +11285,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         const titleForSourceRef = (sourceRef: string) => {
           const parsed = parsePaperRef(sourceRef);
           return (
-            zoteroTitleForSourceRef(sourceRef) ||
+            libraryTitleForSourceRef(sourceRef) ||
             cleanString(sourceMetadataByRef.get(sourceRef)?.title) ||
             parsed?.itemKey ||
             sourceRef
@@ -11859,11 +11908,73 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           changed_reference_artifact_count: result.length,
         }),
       });
+      const hostDescriptors = Array.isArray(
+        (scan as { descriptors?: unknown[] }).descriptors,
+      )
+        ? ((scan as { descriptors: SynthesisHostArtifactDescriptor[] })
+            .descriptors as SynthesisHostArtifactDescriptor[])
+        : [];
+      const descriptorsByKey = new Map(
+        hostDescriptors.map((descriptor) => [
+          `${descriptor.paperRef}\n${descriptor.artifactType}`,
+          descriptor,
+        ]),
+      );
+      const readHostArtifact = async (
+        descriptor: SynthesisHostArtifactDescriptor,
+      ) => {
+        if (
+          !options.hostReadPort ||
+          descriptor.status !== "available" ||
+          !descriptor.locator ||
+          !descriptor.payloadHash
+        ) {
+          return paperArtifactFromHostDescriptor(descriptor);
+        }
+        const read = await options.hostReadPort.artifacts.read({
+          locator: descriptor.locator,
+          expectedHash: descriptor.payloadHash,
+        });
+        if (read.status === "stale") {
+          throw new Error(
+            `synthesis_host_artifact_stale:${descriptor.paperRef}:${descriptor.artifactType}`,
+          );
+        }
+        return paperArtifactFromHostDescriptor(descriptor, read);
+      };
+      const changedReferencePayloadArtifacts = options.hostReadPort
+        ? await Promise.all(
+            changedReferenceArtifacts.map(async (artifact) => {
+              if (artifact.status !== "available") {
+                return artifact;
+              }
+              const descriptor = descriptorsByKey.get(
+                `${artifact.paper_ref}\nreferences`,
+              );
+              return descriptor ? readHostArtifact(descriptor) : artifact;
+            }),
+          )
+        : changedReferenceArtifacts;
+      const changedReferenceRefs = new Set(
+        changedReferenceArtifacts.map((artifact) => artifact.paper_ref),
+      );
+      const hostCitationPayloadArtifacts = options.hostReadPort
+        ? await Promise.all(
+            hostDescriptors
+              .filter(
+                (descriptor) =>
+                  descriptor.artifactType === "citation_analysis" &&
+                  descriptor.status === "available" &&
+                  changedReferenceRefs.has(descriptor.paperRef),
+              )
+              .map(readHostArtifact),
+          )
+        : [];
       const bindingMatchItems =
-        scan.sourceItems ||
-        options.registryInputs ||
-        options.citationGraphPapers ||
-        [];
+        (scan as { sourceItems?: ReferenceSidecarInput[] }).sourceItems ||
+        (options.hostReadPort
+          ? await registryInputsForService(options)
+          : options.registryInputs || options.citationGraphPapers || []);
       const changedReferenceSourceRefs = citationGraphDeltaStrings(
         changedReferenceArtifacts.map(
           (artifact) => artifactSourceParts(artifact).sourceRef,
@@ -11888,7 +11999,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           lock.runExclusive(libraryId, () => {
             const timestamp = now();
             const citationArtifactsBySource = new Map(
-              scan.artifacts
+              (options.hostReadPort
+                ? hostCitationPayloadArtifacts
+                : scan.artifacts
+              )
                 .filter(
                   (artifact) => artifact.artifact_type === "citation_analysis",
                 )
@@ -11897,7 +12011,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
                   artifact,
                 ]),
             );
-            for (const artifact of changedReferenceArtifacts) {
+            for (const artifact of changedReferencePayloadArtifacts) {
               processedChangedArtifacts += 1;
               const source = artifactSourceParts(artifact);
               const artifactHash =
@@ -12747,7 +12861,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
               return {
                 projected_literature_item_id: paperRef,
                 paper_ref: paperRef,
-                title: zoteroTitleForSourceRef(paperRef) || paperRef,
+                title: libraryTitleForSourceRef(paperRef) || paperRef,
               };
             })();
       synthesisRepository.upsertReferenceMatchProposal({
@@ -12829,23 +12943,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         const targetLibraryId =
           normalizeLibraryId(args.target.libraryId) || libraryId;
         const targetItemKey = cleanString(args.target.itemKey);
-        const targetInput =
-          targetItemKey && options.libraryAdapter?.getRegistryInputForItem
-            ? await options.libraryAdapter.getRegistryInputForItem({
-                libraryId: targetLibraryId,
-                itemKey: targetItemKey,
-              })
-            : null;
-        const fallbackTargetInput =
-          targetInput ||
-          (await registryInputsForSourceRefs(
-            new Set([
-              sourceRefFromParts({
-                libraryId: targetLibraryId,
-                itemKey: targetItemKey,
-              }),
-            ]),
-          ).then((rows) => rows[0] || null));
+        const fallbackTargetInput = await registryInputsForSourceRefs(
+          new Set([
+            sourceRefFromParts({
+              libraryId: targetLibraryId,
+              itemKey: targetItemKey,
+            }),
+          ]),
+        ).then((rows) => rows[0] || null);
         if (!targetItemKey || !fallbackTargetInput) {
           return {
             ok: false,
@@ -16766,8 +16871,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     if (injected) {
       return injected;
     }
-    if (typeof options.libraryAdapter?.getRegistryInputForItem === "function") {
-      return options.libraryAdapter.getRegistryInputForItem(parsed);
+    if (options.hostReadPort) {
+      return hostInputsForSourceRefs(options.hostReadPort, libraryId, [
+        sourceRefFromParts(parsed),
+      ]).then((rows) => rows[0] || null);
     }
     return null;
   }
@@ -17069,10 +17176,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     args: SynthesisLiteratureDigestSidecarApplyInput = {},
   ) {
     const item = resolveWorkflowSidecarItem({
-      input: {
-        ...args,
-        item: args.parentItem || args.item,
-      },
+      input: args,
       defaultLibraryId: libraryId,
     });
     if (!item.itemKey || !item.paperRef) {
@@ -17288,10 +17392,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     args: SynthesisReferenceMatchingSidecarApplyInput = {},
   ) {
     const item = resolveWorkflowSidecarItem({
-      input: {
-        ...args,
-        item: args.parentItem || args.item,
-      },
+      input: args,
       defaultLibraryId: libraryId,
     });
     if (!item.itemKey || !item.paperRef) {
@@ -18606,20 +18707,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ) {
     const result = saveGitSyncPrefs(args);
     if (result.ok) {
-      invalidateDefaultSynthesisService();
+      options.onConfigurationChanged?.();
     }
     return result;
   }
 
   async function saveGitSyncAccessToken(token: string) {
     const result = await saveGitSyncToken(token);
-    invalidateDefaultSynthesisService();
+    options.onConfigurationChanged?.();
     return result;
   }
 
   async function clearGitSyncAccessToken() {
     const result = await clearGitSyncToken();
-    invalidateDefaultSynthesisService();
+    options.onConfigurationChanged?.();
     return result;
   }
 
@@ -18639,20 +18740,20 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ) {
     const result = saveWebDavSyncPrefs(args);
     if (result.ok) {
-      invalidateDefaultSynthesisService();
+      options.onConfigurationChanged?.();
     }
     return result;
   }
 
   async function saveWebDavSyncAccessCredential(credential: string) {
     const result = await saveWebDavSyncCredential(credential);
-    invalidateDefaultSynthesisService();
+    options.onConfigurationChanged?.();
     return result;
   }
 
   async function clearWebDavSyncAccessCredential() {
     const result = await clearWebDavSyncCredential();
-    invalidateDefaultSynthesisService();
+    options.onConfigurationChanged?.();
     return result;
   }
 
@@ -20010,14 +20111,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             libraryId ||
             cleanString(artifact.paper_ref || paperRef).split(":")[0] ||
             undefined,
-          noteKey: artifact.note_key,
+          noteKey: noteKey || artifact.note_key,
         })
       : undefined;
     return {
       ok: Boolean(markdown),
       status: markdown ? "available" : "unavailable",
       paper_ref: artifact.paper_ref || paperRef,
-      note_key: artifact.note_key,
+      note_key: noteKey || artifact.note_key,
       note_title: artifact.note_title,
       digest_markdown: markdown,
       recorded_hash: recordedHash,
@@ -20526,9 +20627,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   async function getLibraryIndex(args: Record<string, unknown> = {}) {
     const inputs = await registryInputsForService(options);
-    const base = options.libraryAdapter
-      ? await options.libraryAdapter.getLibraryIndex()
-      : buildLibraryIndexFromRegistryInputs(libraryId, inputs);
+    const base = buildLibraryIndexFromRegistryInputs(libraryId, inputs);
     const topics = await loadTopicInventoryRows();
     const registry = registryRowsForInputs(inputs);
     const cursor = parseNonNegativeInteger(args.cursor, 0);
@@ -20703,8 +20802,63 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         | ReferenceSidecarArtifactType[]
         | undefined,
     };
-    if (options.libraryAdapter) {
-      return options.libraryAdapter.readPaperArtifacts(request);
+    if (options.hostReadPort) {
+      const paperRefs = [
+        ...normalizeArray(args.paper_refs || args.paperRefs),
+        ...normalizeArray(args.paper_ref || args.paperRef),
+      ]
+        .map(cleanString)
+        .filter(Boolean);
+      const artifactTypes = Array.isArray(request.artifact_types)
+        ? normalizeReferenceSidecarArtifactTypes(request.artifact_types)
+        : undefined;
+      const descriptors = await collectHostArtifactDescriptors(
+        options.hostReadPort,
+        libraryId,
+        { sourceRefs: paperRefs, artifactTypes },
+      );
+      const payloadTypesByPaperRef = new Map<string, string[]>();
+      for (const descriptor of descriptors) {
+        const payloadTypes =
+          payloadTypesByPaperRef.get(descriptor.paperRef) || [];
+        if (!payloadTypes.includes(descriptor.payloadType)) {
+          payloadTypes.push(descriptor.payloadType);
+        }
+        payloadTypesByPaperRef.set(descriptor.paperRef, payloadTypes);
+      }
+      const artifacts = await Promise.all(
+        descriptors.map(async (descriptor) => {
+          if (
+            descriptor.status !== "available" ||
+            !descriptor.locator ||
+            !descriptor.payloadHash
+          ) {
+            return {
+              ...paperArtifactFromHostDescriptor(descriptor),
+              payload_types_seen:
+                payloadTypesByPaperRef.get(descriptor.paperRef) || [],
+            };
+          }
+          const read = await options.hostReadPort!.artifacts.read({
+            locator: descriptor.locator,
+            expectedHash: descriptor.payloadHash,
+          });
+          if (read.status === "stale") {
+            throw new Error(
+              `synthesis_host_artifact_stale:${descriptor.paperRef}:${descriptor.artifactType}`,
+            );
+          }
+          return {
+            ...paperArtifactFromHostDescriptor(descriptor, read),
+            payload_types_seen:
+              payloadTypesByPaperRef.get(descriptor.paperRef) || [],
+          };
+        }),
+      );
+      return {
+        artifacts,
+        diagnostics: artifacts.flatMap((artifact) => artifact.diagnostics),
+      };
     }
     return readArtifactsFromRegistryInputs(
       await registryInputsForService(options),
@@ -21181,28 +21335,4 @@ export function createZoteroSynthesisMirrorAdapter(): SynthesisMirrorAdapter {
         );
     },
   };
-}
-
-export function getDefaultSynthesisService() {
-  if (defaultService) {
-    return defaultService;
-  }
-  const zotero = (globalThis as { Zotero?: any }).Zotero;
-  const libraryId = normalizeLibraryId(zotero?.Libraries?.userLibraryID) || 1;
-  const paths = getRuntimePersistencePaths();
-  defaultService = createSynthesisService({
-    root: paths.dataDir,
-    runtimeRoot: paths.root,
-    libraryId,
-    libraryAdapter: createZoteroSynthesisLibraryAdapter({ libraryId }),
-  });
-  return defaultService;
-}
-
-export function invalidateDefaultSynthesisService() {
-  defaultService = null;
-}
-
-export function resetDefaultSynthesisServiceForTests() {
-  invalidateDefaultSynthesisService();
 }

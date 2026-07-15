@@ -100,6 +100,14 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/index.ts"),
       "utf8",
     );
+    const serviceSource = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/service.ts"),
+      "utf8",
+    );
+    const legacyComposition = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisClient/legacyComposition.ts"),
+      "utf8",
+    );
     assert.notMatch(workbench, /synthesis\/service["']/);
 
     const hostBridge = fs.readFileSync(
@@ -132,6 +140,20 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./debug"');
     assert.include(contractIndex, 'export * from "./libraryIndex"');
     assert.include(contractIndex, 'export * from "./workflowReview"');
+    assert.include(contractIndex, 'export * from "./hostRead"');
+    assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
+    assert.notInclude(
+      serviceSource,
+      "libraryAdapter?: SynthesisLibraryAdapter",
+    );
+    assert.notInclude(serviceSource, "getDefaultSynthesisService");
+    assert.notInclude(serviceSource, "invalidateDefaultSynthesisService");
+    assert.notInclude(serviceSource, "readZoteroItemField");
+    assert.notInclude(serviceSource, "zoteroCreatorsFromItem");
+    assert.notInclude(serviceSource, "zoteroTagsFromItem");
+    assert.notInclude(serviceSource, "zoteroCollectionsFromItem");
+    assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
+    assert.include(legacyComposition, "hostReadPort");
     assert.notInclude(workbench, ".getSynthesisWorkbenchChromeInput");
     assert.notInclude(workbench, ".getSynthesisWorkbenchSurfaceInput");
     assert.notInclude(workbench, ".resolveTopicPaperDigest");
