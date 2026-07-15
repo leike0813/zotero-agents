@@ -14,10 +14,6 @@ direct_consumers:
     role: client_composition
   - path: src/modules/zoteroMcpProtocol.ts
     role: mcp_proxy
-  - path: src/workflows/hostApi.ts
-    role: workflow_host
-  - path: src/workflows/types.ts
-    role: workflow_contract
 
 method_groups:
   - id: debug

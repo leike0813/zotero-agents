@@ -18,11 +18,7 @@ import {
   writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "../modules/runtimePersistence";
-import {
-  getDefaultSynthesisService,
-  type SynthesisService,
-} from "../modules/synthesis/service";
-import { notifySynthesisWorkbenchSidecarChanged } from "../modules/synthesisWorkbenchInvalidation";
+import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
 import {
   resolveRuntimeAddon,
   resolveRuntimeToolkit,
@@ -79,59 +75,6 @@ const RESERVED_FILE_SEGMENTS = new Set([
   "lpt8",
   "lpt9",
 ]);
-
-function createWorkflowSynthesisHostApi(): SynthesisService {
-  const service = getDefaultSynthesisService();
-  const applyLiteratureDigestSidecar = service.applyLiteratureDigestSidecar;
-  const replaceTagAuditRecords = service.replaceTagAuditRecords;
-  const clearTagAuditRecord = service.clearTagAuditRecord;
-  if (
-    typeof applyLiteratureDigestSidecar !== "function" &&
-    typeof replaceTagAuditRecords !== "function" &&
-    typeof clearTagAuditRecord !== "function"
-  ) {
-    return service;
-  }
-  return {
-    ...service,
-    async applyLiteratureDigestSidecar(
-      args?: Parameters<SynthesisService["applyLiteratureDigestSidecar"]>[0],
-    ) {
-      const result = await applyLiteratureDigestSidecar.call(service, args);
-      const output = (result || {}) as {
-        sourceRef?: unknown;
-        source_ref?: unknown;
-      };
-      const sourceRef = String(output.sourceRef || output.source_ref || "").trim();
-      notifySynthesisWorkbenchSidecarChanged({
-        sourceRefs: sourceRef ? [sourceRef] : [],
-        reason: "literature_digest_apply",
-        graphMayHaveChanged: true,
-      });
-      return result;
-    },
-    async replaceTagAuditRecords(
-      args: Parameters<SynthesisService["replaceTagAuditRecords"]>[0],
-    ) {
-      const result = await replaceTagAuditRecords.call(service, args);
-      notifySynthesisWorkbenchSidecarChanged({
-        reason: "tag_audit_apply",
-        graphMayHaveChanged: false,
-      });
-      return result;
-    },
-    async clearTagAuditRecord(
-      args: Parameters<SynthesisService["clearTagAuditRecord"]>[0],
-    ) {
-      const result = await clearTagAuditRecord.call(service, args);
-      notifySynthesisWorkbenchSidecarChanged({
-        reason: "tag_regulation_apply",
-        graphMayHaveChanged: false,
-      });
-      return result;
-    },
-  };
-}
 
 function resolveHostAddonConfig() {
   const addonConfig = resolveRuntimeAddon()?.data?.config || null;

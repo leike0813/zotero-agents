@@ -29,6 +29,59 @@ export async function getDefaultSynthesisClient(): Promise<SynthesisClient> {
           .getDefaultSynthesisService()
           .consumeRelatedItemsSyncEcho(request);
       },
+      async applyLiteratureDigestSidecar(request) {
+        return legacy
+          .getDefaultSynthesisService()
+          .applyLiteratureDigestSidecar(request);
+      },
+      async applyTopicSynthesisResult(bundle, context) {
+        return legacy
+          .getDefaultSynthesisService()
+          .applyTopicSynthesisResult(bundle, context);
+      },
+      async getTopicReport(request) {
+        return legacy.getDefaultSynthesisService().getTopicReport(request);
+      },
+      async readPaperArtifacts(request) {
+        return legacy.getDefaultSynthesisService().readPaperArtifacts(request);
+      },
+      async loadTagVocabulary() {
+        return legacy.getDefaultSynthesisService().loadTagVocabulary();
+      },
+      async saveTagVocabulary(request) {
+        const service = legacy.getDefaultSynthesisService();
+        return service.saveTagVocabulary(
+          request as Parameters<typeof service.saveTagVocabulary>[0],
+        );
+      },
+      async exportTagVocabularyForRegulator() {
+        return legacy
+          .getDefaultSynthesisService()
+          .exportTagVocabularyForRegulator();
+      },
+      async listStagedTagSuggestions() {
+        return legacy.getDefaultSynthesisService().listStagedTagSuggestions();
+      },
+      async stageTagSuggestions(request) {
+        const service = legacy.getDefaultSynthesisService();
+        return service.stageTagSuggestions(
+          request as Parameters<typeof service.stageTagSuggestions>[0],
+        );
+      },
+      async discardStagedTagSuggestions(request) {
+        const service = legacy.getDefaultSynthesisService();
+        return service.discardStagedTagSuggestions(
+          request as Parameters<typeof service.discardStagedTagSuggestions>[0],
+        );
+      },
+      async replaceTagAuditRecords(request) {
+        return legacy
+          .getDefaultSynthesisService()
+          .replaceTagAuditRecords(request);
+      },
+      async clearTagAuditRecord(request) {
+        return legacy.getDefaultSynthesisService().clearTagAuditRecord(request);
+      },
     });
   }
   return defaultClient;
