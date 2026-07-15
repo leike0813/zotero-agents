@@ -142,10 +142,10 @@ byte counts, request duration/inflight, and serialized no-op response bytes are
 recorded in the run profile.
 
 The result directory contains paired
-`acp-replay-{sample}__{stage}__{timestamp}-{nonce}.json/.md` artifacts. Their
-exact sample display name and stage are also recorded in matrix provenance;
-sample aliases do not replace the trace digest as comparison identity. Each run
-has independent execution and measurement
+`acp-replay-{sample}__{stage}__{cadence}__{timestamp}-{nonce}.json/.md`
+artifacts. Their exact sample display name, stage, and cadence are also recorded
+in matrix provenance; sample aliases do not replace the trace digest as
+comparison identity. Each run has independent execution and measurement
 completion. Measurement coverage reports R1 semantic/projection work, measured
 R2, and surface-specific R3 as captured, expected-zero, not-applicable, or
 missing. Diagnostics and lifecycle markers consumed without projection are

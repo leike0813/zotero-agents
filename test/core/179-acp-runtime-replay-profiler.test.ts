@@ -207,16 +207,18 @@ describe("ACP runtime replay profiler", function () {
     const first = buildAcpRuntimeReplayArtifactStem({
       sampleName: "复杂 Sample",
       phase: "治理 第二阶段",
+      cadence: "logical",
       createdAtMs: Date.UTC(2026, 6, 15, 1, 2, 3, 4),
     });
     const second = buildAcpRuntimeReplayArtifactStem({
       sampleName: "复杂 Sample",
       phase: "治理 第二阶段",
+      cadence: "logical",
       createdAtMs: Date.UTC(2026, 6, 15, 1, 2, 3, 4),
     });
     assert.match(
       first,
-      /^acp-replay-复杂-sample__治理-第二阶段__2026-07-15T01-02-03-004Z-1$/,
+      /^acp-replay-复杂-sample__治理-第二阶段__logical__2026-07-15T01-02-03-004Z-1$/,
     );
     assert.notEqual(first, second);
   });
@@ -641,7 +643,7 @@ describe("ACP runtime replay profiler", function () {
     );
     assert.match(
       path.basename(saved.jsonPath),
-      /^acp-replay-复杂-sample__治理-第二阶段__2025-06-15T15-06-40-000Z-\d+\.json$/,
+      /^acp-replay-复杂-sample__治理-第二阶段__burst__2025-06-15T15-06-40-000Z-\d+\.json$/,
     );
     assert.include(
       renderAcpRuntimeReplayMatrixMarkdown(matrix),

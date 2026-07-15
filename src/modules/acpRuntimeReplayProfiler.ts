@@ -1259,6 +1259,7 @@ export async function saveAcpRuntimeReplayMatrix(args: {
   const stem = buildAcpRuntimeReplayArtifactStem({
     sampleName: args.matrix.trace.sampleName || "trace",
     phase: String(args.matrix.replayConfig.phase || "stage"),
+    cadence: args.matrix.cadence,
     createdAtMs: args.nowMs,
   });
   const files = [

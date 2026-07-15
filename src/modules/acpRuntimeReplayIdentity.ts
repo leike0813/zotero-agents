@@ -1,6 +1,7 @@
 export const ACP_RUNTIME_REPLAY_PHASE_MAX_LENGTH = 80;
 export const ACP_RUNTIME_REPLAY_SAMPLE_SLUG_MAX_LENGTH = 64;
 export const ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH = 48;
+export const ACP_RUNTIME_REPLAY_CADENCE_SLUG_MAX_LENGTH = 16;
 
 export type AcpRuntimeReplayPhaseValidation =
   | { value: string; valid: true }
@@ -66,6 +67,7 @@ let artifactNonce = 0;
 export function buildAcpRuntimeReplayArtifactStem(args: {
   sampleName: string;
   phase: string;
+  cadence: string;
   createdAtMs?: number;
 }) {
   artifactNonce += 1;
@@ -82,7 +84,12 @@ export function buildAcpRuntimeReplayArtifactStem(args: {
     ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH,
     "stage",
   );
-  return `acp-replay-${sampleSlug}__${phaseSlug}__${timestamp}-${artifactNonce}`;
+  const cadenceSlug = slugAcpRuntimeReplayArtifactSegment(
+    args.cadence,
+    ACP_RUNTIME_REPLAY_CADENCE_SLUG_MAX_LENGTH,
+    "cadence",
+  );
+  return `acp-replay-${sampleSlug}__${phaseSlug}__${cadenceSlug}__${timestamp}-${artifactNonce}`;
 }
 
 export function resetAcpRuntimeReplayArtifactNonceForTests() {

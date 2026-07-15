@@ -172,9 +172,9 @@ Replay publication SHALL preserve transcript-only DOM identity, owner-first and 
 - **WHEN** a replayed event changes only transcript state
 - **THEN** toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, and unrelated managed regions SHALL retain DOM identity.
 
-### Requirement: Replay artifacts MUST expose human-readable sample and stage identity
+### Requirement: Replay artifacts MUST expose sample, stage, and cadence identity
 
-Replay MUST require a normalized free-text governance stage, derive a sample name from the selected trace filename, and retain both values in result provenance and paired artifact filenames.
+Replay MUST require a normalized free-text governance stage, derive a sample name from the selected trace filename, and retain the sample, stage, and selected cadence in result provenance and paired artifact filenames.
 
 #### Scenario: User enters a governance stage
 
@@ -191,8 +191,8 @@ Replay MUST require a normalized free-text governance stage, derive a sample nam
 #### Scenario: Replay results are persisted
 
 - **WHEN** Replay saves a complete or incomplete matrix
-- **THEN** the JSON and Markdown filenames MUST share a stem containing the trace filename-derived sample slug, stage slug, timestamp, and collision-safe nonce
-- **AND** the exact sample display name and stage MUST appear in JSON and Markdown provenance
+- **THEN** the JSON and Markdown filenames MUST share a stem containing the trace filename-derived sample slug, stage slug, cadence, timestamp, and collision-safe nonce
+- **AND** the exact sample display name, stage, and cadence MUST appear in JSON and Markdown provenance
 - **AND** trace digest rather than sample display name MUST remain the comparison identity
 
 ### Requirement: Replay progress MUST distinguish current and completed matrix slots
