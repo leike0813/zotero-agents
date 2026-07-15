@@ -198,6 +198,7 @@ sequenceDiagram
   participant O as Operation Row
   participant S as Sidecar Repository
   participant G as Graph Cache
+  participant H as Related Items Effect Port
   participant Z as Zotero Library
 
   U->>O: create visible related-items sync operation
@@ -206,17 +207,15 @@ sequenceDiagram
   else graph cache unavailable
     O->>S: resolve accepted edges from active raw refs, redirects, and bindings
   end
-  O->>Z: verify current related-item state
-  loop each selected edge
-    O->>Z: read current related-item state
-    alt missing and approved
-      O->>S: record pending effect
-      O->>Z: add relation
-      O->>S: record applied or failed effect
-    else already exists
-      O->>S: record already_existed
-    end
+  loop batches of at most 25 deterministic effects
+    O->>S: persist entire batch as pending_external_write
+    O->>H: apply canonical ensure-present / ensure-absent batch
+    H->>Z: inspect and mutate relation state idempotently
+    Z-->>H: current or updated relation state
+    H-->>O: one canonical receipt per effect
+    O->>S: reconcile ownership, status, diagnostics, and echo state
   end
+  Note over O,S: Transport or malformed receipts leave the current batch pending and stop later batches
 ```
 
 ## `seq.git_sync.export_import`

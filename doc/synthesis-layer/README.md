@@ -37,6 +37,7 @@ flowchart LR
   platform["Workflow / Skill Provider / Host Bridge"]
   zotero["Zotero Library"]
   hostRead["Bounded Host Read Port"]
+  hostEffects["Bounded Host Effect Port"]
   artifacts["Derived Artifact Notes"]
   artifactSidecar["Artifact Sidecar"]
   refs["Raw / Canonical References"]
@@ -49,6 +50,7 @@ flowchart LR
 
   platform --> zotero
   zotero --> hostRead
+  hostEffects --> zotero
   hostRead --> artifacts
   artifacts --> artifactSidecar
   artifacts --> refs
@@ -134,5 +136,5 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 | Reference Resolution | hard-cut target | Matcher output becomes graph-affecting only through deterministic safe apply or explicit decisions. |
 | Explicit Operations | hard-cut target | User/debug-triggered operations replace dirty events, WorkItems, WorkRuns, sidecar startup replay, queue drain, and Registry rebuild. Explicit startup lifecycle cancels persisted `running` rows left by a prior process; ordinary reads never mutate operation state. |
 | Workbench UI | hard-cut target | UI presents cache status, explicit operations, and Review & Overrides management. |
-| Client boundary | migration slices active | Workflow Topic options, startup/maintenance lifecycle, default invalidation, related-items notifier echo classification, the twelve-method Workflow Host facade, production plus read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync, and all Host Bridge Synthesis capabilities use grouped `SynthesisClient` capabilities. Host Bridge routes twenty-three normal and eight debug capabilities through Topics, Graph, References, Artifacts, Concepts, Maintenance, Library Index, Workflow Review, and Debug clients; MCP mirrors the Host Bridge catalog and has no separate registry. Topic Context and filtered artifact export carry local/remote delivery mode outside request JSON. Sync commands alone acquire a fresh default client after invalidating the legacy service; ordinary Host/debug calls retain cached-client composition. Strict request DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside the boundary. The reverse library/artifact seam is `SynthesisHostReadPort`: pages default to 50 and cap at 100, ref lookups cap at 100, scans are payload-free, and reads require the scanned hash. The legacy composition root owns the production adapter, default service cache, and invalidation; the readonly harness supplies the same contract. That composition root is the only production direct consumer of the complete 128-method service. |
+| Client boundary | migration slices active | Workflow Topic options, startup/maintenance lifecycle, default invalidation, related-items notifier echo classification, the twelve-method Workflow Host facade, production plus read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, Git/WebDAV Sync, and all Host Bridge Synthesis capabilities use grouped `SynthesisClient` capabilities. Host Bridge routes twenty-three normal and eight debug capabilities through Topics, Graph, References, Artifacts, Concepts, Maintenance, Library Index, Workflow Review, and Debug clients; MCP mirrors the Host Bridge catalog and has no separate registry. Topic Context and filtered artifact export carry local/remote delivery mode outside request JSON. Sync commands alone acquire a fresh default client after invalidating the legacy service; ordinary Host/debug calls retain cached-client composition. Strict request DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside the boundary. The reverse library/artifact seam is `SynthesisHostReadPort`: pages default to 50 and cap at 100, ref lookups cap at 100, scans are payload-free, and reads require the scanned hash. Related Items writes use the separate `SynthesisHostRelatedItemsEffectPort`, whose bounded semantic effects and receipts keep Zotero item objects outside the service. The legacy composition root owns both production adapters, the default service cache, and invalidation; the readonly harness supplies only read capability and omits Host writes. That composition root is the only production direct consumer of the complete 128-method service. |
 | Process topology | current in-process state | The plugin currently owns Synthesis application execution, `synthesis.db`, and Topic canonical writes. The approved sidecar migration has not cut over production ownership. |

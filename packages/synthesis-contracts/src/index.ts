@@ -7,6 +7,7 @@ export * from "./hostRead";
 export * from "./libraryIndex";
 export * from "./lifecycle";
 export * from "./references";
+export * from "./relatedItemsEffect";
 export * from "./sync";
 export * from "./tags";
 export * from "./topics";

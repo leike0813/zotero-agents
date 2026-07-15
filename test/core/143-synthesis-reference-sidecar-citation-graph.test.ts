@@ -18,6 +18,7 @@ import {
 } from "../../src/modules/synthesis/jobProfiler";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { createTestSynthesisHostReadPort } from "../helpers/synthesisHostReadPort";
+import type { SynthesisHostRelatedItemsEffectPort } from "../../packages/synthesis-contracts/src/index";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-sidecar-cache-"));
@@ -29,7 +30,7 @@ function makeService(args: {
   registryInputs?: any[] | null;
   citationGraphPapers?: any[];
   hostReadPort?: any;
-  relatedItemsSyncHost?: any;
+  hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort;
 }) {
   const repository =
     args.repository || createSynthesisRepository({ runtimeRoot: args.root });
@@ -42,9 +43,50 @@ function makeService(args: {
       args.registryInputs === null ? undefined : args.registryInputs || [],
     citationGraphPapers: args.citationGraphPapers,
     hostReadPort: args.hostReadPort,
-    relatedItemsSyncHost: args.relatedItemsSyncHost,
+    hostRelatedItemsEffectPort: args.hostRelatedItemsEffectPort,
   });
   return { service, repository };
+}
+
+function createRelatedItemsEffectPort(
+  relations: Set<string>,
+  stats: { reads: number; adds: number; removes: number },
+): SynthesisHostRelatedItemsEffectPort {
+  return {
+    async applyBatch(request) {
+      return {
+        receipts: request.effects.map((effect) => {
+          stats.reads += 1;
+          const key = `${effect.source.itemKey}->${effect.target.itemKey}`;
+          const exists = relations.has(key);
+          const desired = effect.action === "ensure_present";
+          if (exists === desired) {
+            return {
+              effectId: effect.effectId,
+              action: effect.action,
+              status: "already_satisfied" as const,
+              occurredAt: new Date().toISOString(),
+              diagnostics: [],
+            };
+          }
+          if (desired) {
+            stats.adds += 1;
+            relations.add(key);
+          } else {
+            stats.removes += 1;
+            relations.delete(key);
+          }
+          return {
+            effectId: effect.effectId,
+            action: effect.action,
+            status: "applied" as const,
+            occurredAt: new Date().toISOString(),
+            diagnostics: [],
+          };
+        }),
+      };
+    },
+  };
 }
 
 function embeddedPayloadBlocks(args: Parameters<typeof renderPayloadBlock>[0]) {
@@ -1030,27 +1072,17 @@ describe("Synthesis sidecar cache hard cut", function () {
     const root = await makeRuntimeRoot();
     const relations = new Set<string>();
     const stats = { reads: 0, adds: 0, removes: 0 };
-    const relatedItemsSyncHost = {
-      hasRelatedItem(args: any) {
-        stats.reads += 1;
-        return relations.has(`${args.sourceItemKey}->${args.targetItemKey}`);
-      },
-      addRelatedItem(args: any) {
-        stats.adds += 1;
-        relations.add(`${args.sourceItemKey}->${args.targetItemKey}`);
-      },
-      removeRelatedItem(args: any) {
-        stats.removes += 1;
-        relations.delete(`${args.sourceItemKey}->${args.targetItemKey}`);
-      },
-    };
+    const hostRelatedItemsEffectPort = createRelatedItemsEffectPort(
+      relations,
+      stats,
+    );
     const { service, repository } = makeService({
       root,
       registryInputs: [
         { libraryId: 1, itemKey: "AAA", title: "Source A", notes: [] },
         { libraryId: 1, itemKey: "BBB", title: "Target B", notes: [] },
       ],
-      relatedItemsSyncHost,
+      hostRelatedItemsEffectPort,
     });
 
     await service.applyReferenceMatchingSidecar({
@@ -1262,9 +1294,15 @@ describe("Synthesis sidecar cache hard cut", function () {
 
   it("runs related-items sync from accepted sidecar edges without graph bootstrap", async function () {
     const root = await makeRuntimeRoot();
-    const { service, repository } = makeService({ root });
     const relations = new Set<string>();
     const stats = { reads: 0, adds: 0, removes: 0 };
+    const { service, repository } = makeService({
+      root,
+      hostRelatedItemsEffectPort: createRelatedItemsEffectPort(
+        relations,
+        stats,
+      ),
+    });
 
     await service.applyReferenceMatchingSidecar({
       libraryId: 1,
@@ -1282,46 +1320,20 @@ describe("Synthesis sidecar cache hard cut", function () {
       ],
     });
 
-    const result = await service.syncRelatedItemsNow({
-      host: {
-        hasRelatedItem(args) {
-          stats.reads += 1;
-          return relations.has(`${args.sourceItemKey}->${args.targetItemKey}`);
-        },
-        addRelatedItem(args) {
-          stats.adds += 1;
-          relations.add(`${args.sourceItemKey}->${args.targetItemKey}`);
-        },
-        removeRelatedItem(args) {
-          stats.removes += 1;
-          relations.delete(`${args.sourceItemKey}->${args.targetItemKey}`);
-        },
-      },
-    });
+    const result = await service.syncRelatedItemsNow();
 
     assert.equal(result.added, 1);
     assert.equal(stats.reads, 1);
     assert.equal(stats.adds, 1);
     assert.equal(stats.removes, 0);
-    const rerun = await service.syncRelatedItemsNow({
-      host: {
-        hasRelatedItem(args) {
-          stats.reads += 1;
-          return relations.has(`${args.sourceItemKey}->${args.targetItemKey}`);
-        },
-        addRelatedItem(args) {
-          stats.adds += 1;
-          relations.add(`${args.sourceItemKey}->${args.targetItemKey}`);
-        },
-      },
-    });
+    const rerun = await service.syncRelatedItemsNow();
     assert.equal(rerun.added, 0);
     assert.equal(rerun.existing, 1);
     assert.equal(stats.reads, 2);
     assert.equal(stats.adds, 1);
     assert.equal(
       repository.listRelatedItemsSyncEffects()[0]?.status,
-      "already_existed",
+      "applied",
     );
     assert.equal(
       repository.listOperations({ includeCompleted: true })[0]?.operationType,

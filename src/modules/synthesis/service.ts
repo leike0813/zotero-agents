@@ -1,12 +1,15 @@
 import { joinPath } from "../../utils/path";
-import type {
-  SynthesisDeliveryContext,
-  SynthesisHostArtifactDescriptor,
-  SynthesisHostArtifactReadResult,
-  SynthesisHostLibraryItemSummary,
-  SynthesisHostReadPort,
-  SynthesisWorkflowTopicOption,
-  SynthesisWorkflowTopicOptionsResult,
+import {
+  rebuildSynthesisHostRelatedItemsEffectBatchResult,
+  type SynthesisHostRelatedItemsEffect,
+  type SynthesisHostRelatedItemsEffectPort,
+  type SynthesisDeliveryContext,
+  type SynthesisHostArtifactDescriptor,
+  type SynthesisHostArtifactReadResult,
+  type SynthesisHostLibraryItemSummary,
+  type SynthesisHostReadPort,
+  type SynthesisWorkflowTopicOption,
+  type SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
 export type {
   SynthesisWorkflowTopicOption,
@@ -556,7 +559,7 @@ export type SynthesisServiceOptions = {
   gitSyncAutoRetryEnabled?: boolean;
   onConfigurationChanged?: () => void;
   webDavSyncClient?: SynthesisWebDavHttpClient;
-  relatedItemsSyncHost?: RelatedItemsSyncHost | null;
+  hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort | null;
   synthesisRepository?: SynthesisRepository;
   shardSize?: number;
   writeLock?: LibraryWriteLock;
@@ -709,27 +712,6 @@ type TopicUpdateIntent = {
     updateReason: string;
   };
   diagnostics: TopicFreshnessReason[];
-};
-
-type RelatedItemsSyncHost = {
-  hasRelatedItem(args: {
-    sourceLibraryId: number;
-    sourceItemKey: string;
-    targetLibraryId: number;
-    targetItemKey: string;
-  }): boolean | Promise<boolean>;
-  addRelatedItem(args: {
-    sourceLibraryId: number;
-    sourceItemKey: string;
-    targetLibraryId: number;
-    targetItemKey: string;
-  }): void | Promise<void>;
-  removeRelatedItem?(args: {
-    sourceLibraryId: number;
-    sourceItemKey: string;
-    targetLibraryId: number;
-    targetItemKey: string;
-  }): void | Promise<void>;
 };
 
 type RelatedItemsAcceptedCitationEdge = {
@@ -975,113 +957,6 @@ function safeFileSegment(value: unknown, fallback: string) {
       .replace(/[^A-Za-z0-9._-]+/g, "_")
       .replace(/^_+|_+$/g, "") || fallback
   );
-}
-
-function zoteroItemByLibraryAndKey(libraryId: number, itemKey: string) {
-  const zotero = (globalThis as { Zotero?: any }).Zotero;
-  const key = cleanString(itemKey);
-  if (!zotero || !key) {
-    return null;
-  }
-  try {
-    const direct = zotero.Items?.getByLibraryAndKey?.(libraryId, key);
-    if (direct) {
-      return direct;
-    }
-  } catch {
-    // Fall through to optional mock/runtime scan.
-  }
-  try {
-    const rows = zotero.Items?.getAll?.(libraryId) || [];
-    return (
-      rows.find(
-        (item: any) =>
-          cleanString(item?.key) === key &&
-          Math.floor(Number(item?.libraryID) || 0) === libraryId,
-      ) || null
-    );
-  } catch {
-    return null;
-  }
-}
-
-async function saveZoteroRelatedItemChange(item: any) {
-  if (typeof item?.saveTx === "function") {
-    await item.saveTx();
-    return;
-  }
-  if (typeof item?.save === "function") {
-    await item.save();
-  }
-}
-
-function createDefaultRelatedItemsSyncHost(): RelatedItemsSyncHost | null {
-  const zotero = (globalThis as { Zotero?: any }).Zotero;
-  if (!zotero?.Items) {
-    return null;
-  }
-  const resolvePair = (args: {
-    sourceLibraryId: number;
-    sourceItemKey: string;
-    targetLibraryId: number;
-    targetItemKey: string;
-  }) => {
-    const source = zoteroItemByLibraryAndKey(
-      Math.max(0, Math.floor(Number(args.sourceLibraryId) || 0)),
-      args.sourceItemKey,
-    );
-    const target = zoteroItemByLibraryAndKey(
-      Math.max(0, Math.floor(Number(args.targetLibraryId) || 0)),
-      args.targetItemKey,
-    );
-    if (!source || !target) {
-      throw new Error(
-        "Zotero related-items source or target item was not found",
-      );
-    }
-    return { source, target };
-  };
-  return {
-    hasRelatedItem: (args) => {
-      const { source, target } = resolvePair(args);
-      try {
-        const related = source.getRelatedItems?.();
-        if (Array.isArray(related)) {
-          return related.some(
-            (entry) =>
-              cleanString(entry?.key || entry) === cleanString(target.key) ||
-              Number(entry) === Number(target.id),
-          );
-        }
-      } catch {
-        // Fall through to mock field.
-      }
-      const relatedKeys = Array.isArray(source.relatedItems)
-        ? source.relatedItems
-        : [];
-      return relatedKeys.some(
-        (entry: unknown) =>
-          cleanString(entry) === cleanString(target.key) ||
-          Number(entry) === Number(target.id),
-      );
-    },
-    addRelatedItem: async (args) => {
-      const { source, target } = resolvePair(args);
-      if (typeof source.addRelatedItem !== "function") {
-        throw new Error("Zotero item does not support addRelatedItem");
-      }
-      await source.addRelatedItem(target);
-      await saveZoteroRelatedItemChange(source);
-    },
-    removeRelatedItem: async (args) => {
-      const { source, target } = resolvePair(args);
-      if (typeof source.removeRelatedItem !== "function") {
-        throw new Error("Zotero item does not support removeRelatedItem");
-      }
-      await source.removeRelatedItem(target);
-      await saveZoteroRelatedItemChange(source);
-    },
-  };
 }
 
 function baseNameFromPath(path: string) {
@@ -16470,7 +16345,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function syncRelatedItemsFromAcceptedEdges(args: {
-    host?: RelatedItemsSyncHost | null;
     sourceRefs?: string[];
     reason?: string;
     onProgress?: () => void | Promise<void>;
@@ -16500,11 +16374,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       startedAt: timestamp,
       updatedAt: timestamp,
     });
-    const host =
-      args.host ||
-      options.relatedItemsSyncHost ||
-      createDefaultRelatedItemsSyncHost();
-    if (!host) {
+    const port = options.hostRelatedItemsEffectPort;
+    if (!port) {
       diagnostics.push({
         code: "related_items_host_unavailable",
         severity: "error",
@@ -16620,149 +16491,250 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     let skipped = 0;
     let revoked = 0;
     let failed = 0;
-    for (const edge of matchedEdges) {
-      processed += 1;
+    type EffectPlan = {
+      effect: SynthesisHostRelatedItemsEffect;
+      pendingRecord: SynthesisRelatedItemsSyncEffectRecord;
+      priorRecord: SynthesisRelatedItemsSyncEffectRecord | null;
+      recoveringPending: boolean;
+    };
+    const plans: EffectPlan[] = matchedEdges.map((edge) => {
       const effectId = `related-items:${safeFileSegment(edge.edgeId, "edge")}`;
-      try {
-        const exists = await host.hasRelatedItem({
+      const priorRecord =
+        synthesisRepository.getRelatedItemsSyncEffect(effectId);
+      return {
+        effect: {
+          effectId,
+          action: "ensure_present",
+          source: {
+            libraryId: edge.sourceLibraryId,
+            itemKey: edge.sourceItemKey,
+          },
+          target: {
+            libraryId: edge.targetLibraryId,
+            itemKey: edge.targetItemKey,
+          },
+          provenance: {
+            citationEdgeId: edge.edgeId,
+            kind: "accepted_citation",
+          },
+          permission: {
+            scope: "synthesis.related_items",
+            reason: "accepted_citation",
+          },
+        },
+        pendingRecord: {
+          effectId,
+          operationId,
+          citationEdgeId: edge.edgeId,
+          sourceLiteratureItemId: edge.sourceLiteratureItemId,
+          targetLiteratureItemId: edge.targetLiteratureItemId,
           sourceLibraryId: edge.sourceLibraryId,
           sourceItemKey: edge.sourceItemKey,
           targetLibraryId: edge.targetLibraryId,
           targetItemKey: edge.targetItemKey,
-        });
-        if (exists) {
-          existing += 1;
-          synthesisRepository.upsertRelatedItemsSyncEffect({
-            effectId,
+          action: "add",
+          status: "pending_external_write",
+          createdBySynthesis: Boolean(priorRecord?.createdBySynthesis),
+          graphHash,
+          externalWriteAt: timestamp,
+          echoState: "awaiting_echo",
+          echoObservedAt: priorRecord?.echoObservedAt,
+          diagnosticsJson: priorRecord?.diagnosticsJson || "[]",
+          createdAt: priorRecord?.createdAt || timestamp,
+          updatedAt: timestamp,
+        },
+        priorRecord,
+        recoveringPending: priorRecord?.status === "pending_external_write",
+      };
+    });
+    plans.push(
+      ...staleEffects.map(
+        (priorRecord): EffectPlan => ({
+          effect: {
+            effectId: priorRecord.effectId,
+            action: "ensure_absent",
+            source: {
+              libraryId: priorRecord.sourceLibraryId,
+              itemKey: priorRecord.sourceItemKey,
+            },
+            target: {
+              libraryId: priorRecord.targetLibraryId,
+              itemKey: priorRecord.targetItemKey,
+            },
+            provenance: {
+              citationEdgeId:
+                priorRecord.citationEdgeId || priorRecord.effectId,
+              kind: "synthesis_created_relation",
+            },
+            permission: {
+              scope: "synthesis.related_items",
+              reason: "revoke_synthesis_effect",
+            },
+          },
+          pendingRecord: {
+            ...priorRecord,
             operationId,
-            citationEdgeId: edge.edgeId,
-            sourceLiteratureItemId: edge.sourceLiteratureItemId,
-            targetLiteratureItemId: edge.targetLiteratureItemId,
-            sourceLibraryId: edge.sourceLibraryId,
-            sourceItemKey: edge.sourceItemKey,
-            targetLibraryId: edge.targetLibraryId,
-            targetItemKey: edge.targetItemKey,
-            action: "add",
-            status: "already_existed",
-            createdBySynthesis: false,
-            graphHash,
-            externalWriteAt: "",
-            echoState: "observed",
-            echoObservedAt: timestamp,
-            diagnosticsJson: "[]",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          });
-        } else {
-          await host.addRelatedItem({
-            sourceLibraryId: edge.sourceLibraryId,
-            sourceItemKey: edge.sourceItemKey,
-            targetLibraryId: edge.targetLibraryId,
-            targetItemKey: edge.targetItemKey,
-          });
-          added += 1;
-          synthesisRepository.upsertRelatedItemsSyncEffect({
-            effectId,
-            operationId,
-            citationEdgeId: edge.edgeId,
-            sourceLiteratureItemId: edge.sourceLiteratureItemId,
-            targetLiteratureItemId: edge.targetLiteratureItemId,
-            sourceLibraryId: edge.sourceLibraryId,
-            sourceItemKey: edge.sourceItemKey,
-            targetLibraryId: edge.targetLibraryId,
-            targetItemKey: edge.targetItemKey,
-            action: "add",
+            action: "revoke",
             status: "pending_external_write",
             createdBySynthesis: true,
             graphHash,
             externalWriteAt: timestamp,
             echoState: "awaiting_echo",
-            diagnosticsJson: "[]",
-            createdAt: timestamp,
             updatedAt: timestamp,
-          });
-        }
-      } catch (error) {
-        failed += 1;
-        diagnostics.push({
-          code: "related_items_sync_edge_failed",
-          severity: "error",
-          message: errorMessage(error),
-        });
+          },
+          priorRecord,
+          recoveringPending: priorRecord.status === "pending_external_write",
+        }),
+      ),
+    );
+
+    const batchSize = 25;
+    for (let offset = 0; offset < plans.length; offset += batchSize) {
+      const batch = plans.slice(offset, offset + batchSize);
+      for (const plan of batch) {
+        synthesisRepository.upsertRelatedItemsSyncEffect(plan.pendingRecord);
       }
-      if (processed % 25 === 0) {
-        synthesisRepository.updateOperationStatus({
-          operationId,
-          status: "running",
-          phase: "apply",
-          phaseLabel: "Apply related-items changes",
-          processedCount: processed,
-          totalCount: totalWork,
-          diagnosticsJson: JSON.stringify(diagnostics),
-        });
-        await args.onProgress?.();
-        await yieldToEventLoop();
-      }
-    }
-    for (const effect of staleEffects) {
-      processed += 1;
-      if (typeof host.removeRelatedItem !== "function") {
-        skipped += 1;
-        continue;
-      }
+
+      let receipts: ReturnType<
+        typeof rebuildSynthesisHostRelatedItemsEffectBatchResult
+      >["receipts"];
       try {
-        const exists = await host.hasRelatedItem({
-          sourceLibraryId: effect.sourceLibraryId,
-          sourceItemKey: effect.sourceItemKey,
-          targetLibraryId: effect.targetLibraryId,
-          targetItemKey: effect.targetItemKey,
-        });
-        if (exists) {
-          await host.removeRelatedItem({
-            sourceLibraryId: effect.sourceLibraryId,
-            sourceItemKey: effect.sourceItemKey,
-            targetLibraryId: effect.targetLibraryId,
-            targetItemKey: effect.targetItemKey,
-          });
-          revoked += 1;
+        const result = rebuildSynthesisHostRelatedItemsEffectBatchResult(
+          await port.applyBatch({
+            effects: batch.map((plan) => plan.effect),
+          }),
+        );
+        const plansById = new Map(
+          batch.map((plan) => [plan.effect.effectId, plan]),
+        );
+        if (
+          result.receipts.length !== batch.length ||
+          result.receipts.some(
+            (receipt) =>
+              !plansById.has(receipt.effectId) ||
+              plansById.get(receipt.effectId)?.effect.action !== receipt.action,
+          )
+        ) {
+          throw new Error("Related Items Host returned mismatched receipts");
         }
-        synthesisRepository.upsertRelatedItemsSyncEffect({
-          ...effect,
-          operationId,
-          action: "revoke",
-          status: exists ? "revoked" : "already_absent",
-          externalWriteAt: exists ? timestamp : effect.externalWriteAt,
-          echoState: exists ? "awaiting_echo" : "observed",
-          echoObservedAt: exists ? "" : timestamp,
-          updatedAt: timestamp,
-        });
+        receipts = result.receipts;
       } catch (error) {
-        failed += 1;
+        failed += batch.length;
         diagnostics.push({
-          code: "related_items_revoke_failed",
+          code: "related_items_host_batch_failed",
           severity: "error",
           message: errorMessage(error),
         });
+        break;
       }
-      if (processed % 25 === 0) {
-        synthesisRepository.updateOperationStatus({
+
+      const plansById = new Map(
+        batch.map((plan) => [plan.effect.effectId, plan]),
+      );
+      for (const receipt of receipts) {
+        const plan = plansById.get(receipt.effectId)!;
+        const current =
+          synthesisRepository.getRelatedItemsSyncEffect(receipt.effectId) ||
+          plan.pendingRecord;
+        const effectDiagnostics = [
+          ...parseJsonArray(current.diagnosticsJson),
+          ...receipt.diagnostics,
+        ];
+        const preservedEchoObserved = current.echoState === "observed";
+        let status = current.status;
+        let createdBySynthesis = Boolean(current.createdBySynthesis);
+        let echoState = current.echoState;
+        let echoObservedAt = current.echoObservedAt;
+        let externalWriteAt = current.externalWriteAt;
+
+        if (receipt.status === "applied") {
+          externalWriteAt = receipt.occurredAt;
+          echoState = preservedEchoObserved ? "observed" : "awaiting_echo";
+          if (receipt.action === "ensure_present") {
+            status = "applied";
+            createdBySynthesis = true;
+            added += 1;
+          } else {
+            status = "revoked";
+            createdBySynthesis = true;
+            revoked += 1;
+          }
+        } else if (receipt.status === "already_satisfied") {
+          echoState = "observed";
+          echoObservedAt = echoObservedAt || receipt.occurredAt;
+          if (receipt.action === "ensure_present") {
+            existing += 1;
+            if (
+              plan.recoveringPending ||
+              plan.priorRecord?.createdBySynthesis
+            ) {
+              status = "applied";
+              createdBySynthesis = true;
+              if (plan.recoveringPending) {
+                effectDiagnostics.push({
+                  code: "related_items_pending_effect_recovered",
+                  severity: "info",
+                  message:
+                    "A pending Related Items effect was recovered from an idempotent Host receipt.",
+                });
+              }
+            } else {
+              status = "already_existed";
+              createdBySynthesis = false;
+              externalWriteAt = "";
+            }
+          } else {
+            status = "already_absent";
+            createdBySynthesis = true;
+            skipped += 1;
+          }
+        } else {
+          status =
+            receipt.status === "not_found" ? "needs_attention" : "failed";
+          failed += 1;
+          diagnostics.push({
+            code:
+              receipt.status === "not_found"
+                ? "related_items_target_not_found"
+                : "related_items_host_effect_failed",
+            severity: "error",
+            message: `Related Items Host could not apply effect ${receipt.effectId}`,
+          });
+        }
+
+        synthesisRepository.upsertRelatedItemsSyncEffect({
+          ...current,
           operationId,
-          status: "running",
-          phase: "apply",
-          phaseLabel: "Apply related-items changes",
-          processedCount: processed,
-          totalCount: totalWork,
-          diagnosticsJson: JSON.stringify(diagnostics),
+          action: receipt.action === "ensure_present" ? "add" : "revoke",
+          status,
+          createdBySynthesis,
+          externalWriteAt,
+          echoState,
+          echoObservedAt,
+          diagnosticsJson: JSON.stringify(effectDiagnostics),
+          updatedAt: receipt.occurredAt,
         });
-        await args.onProgress?.();
-        await yieldToEventLoop();
+        processed += 1;
       }
+
+      synthesisRepository.updateOperationStatus({
+        operationId,
+        status: "running",
+        phase: "apply",
+        phaseLabel: "Apply related-items changes",
+        processedCount: processed,
+        failedCount: failed,
+        totalCount: totalWork,
+        diagnosticsJson: JSON.stringify(diagnostics),
+      });
+      await args.onProgress?.();
+      await yieldToEventLoop();
     }
     synthesisRepository.updateOperationStatus({
       operationId,
       status: failed ? "failed" : "completed",
-      phase: "complete",
-      phaseLabel: "Complete",
+      phase: failed ? "failed" : "complete",
+      phaseLabel: failed ? "Failed" : "Complete",
       processedCount: processed,
       skippedCount: skipped,
       failedCount: failed,
@@ -16837,11 +16809,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
   }
 
-  async function syncRelatedItemsNow(
-    args: { host?: RelatedItemsSyncHost | null } = {},
-  ) {
+  async function syncRelatedItemsNow() {
     return syncRelatedItemsFromAcceptedEdges({
-      host: args.host,
       reason: "manual",
     });
   }

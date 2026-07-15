@@ -1,6 +1,7 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
+import { createZoteroSynthesisRelatedItemsEffectPort } from "../synthesis/relatedItemsEffectAdapter";
 import {
   createInProcessSynthesisClient,
   type LegacySynthesisPort,
@@ -32,6 +33,7 @@ function createDefaultLegacyService(
     runtimeRoot: paths.root,
     libraryId,
     hostReadPort: createZoteroSynthesisHostReadPort({ libraryId }),
+    hostRelatedItemsEffectPort: createZoteroSynthesisRelatedItemsEffectPort(),
     onConfigurationChanged: invalidateDefaultLegacySynthesisService,
   });
   return defaultLegacyService;
