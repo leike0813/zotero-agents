@@ -356,10 +356,6 @@ describe("Synthesis invariant guards", function () {
       workbenchSource,
       "sendSnapshot",
     );
-    const notifyProgressBlock = extractFunctionBlock(
-      workbenchSource,
-      "notifyWorkbenchCommandProgress",
-    );
     const progressRefreshBlock = extractFunctionBlock(
       workbenchSource,
       "refreshWorkbenchCommandProgress",
@@ -436,7 +432,7 @@ describe("Synthesis invariant guards", function () {
     assert.notInclude(debugOperationsBlock, "getSynthesisSnapshotInput(");
     assert.notInclude(debugOperationsBlock, "getSynthesisSnapshot(");
     assert.include(debugOperationsBlock, "synthesisDebugBackgroundJobs");
-    assert.notInclude(notifyProgressBlock, "getSynthesisSnapshotInput(");
+    assert.notInclude(workbenchSource, "notifyWorkbenchCommandProgress");
     assert.notInclude(progressRefreshBlock, "getSynthesisSnapshotInput(");
     assert.match(progressRefreshBlock, /client\.workbench\s*\.readProgress/);
     assert.include(progressRefreshBlock, "toSynthesisUiSnapshotInput");

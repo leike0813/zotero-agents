@@ -484,6 +484,151 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes Tag vocabulary maintenance and export through normalized ports", async function () {
+    const calls: string[] = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async validateTagVocabulary() {
+        calls.push("validate");
+        return [
+          {
+            code: "missing_replacement",
+            checked_at: new Date("2026-07-15T00:00:00.000Z"),
+            optional_field: undefined,
+          },
+        ];
+      },
+      async rebuildTagVocabularyIndex() {
+        calls.push("rebuild");
+        return {
+          ok: true,
+          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async exportTagVocabularyForRegulator() {
+        calls.push("export");
+        return ["data:coco", "model:detr"];
+      },
+    });
+
+    assert.deepEqual(await client.tags.validateTagVocabulary(), [
+      {
+        code: "missing_replacement",
+        checked_at: "2026-07-15T00:00:00.000Z",
+      },
+    ]);
+    assert.deepEqual(await client.tags.rebuildTagVocabularyIndex(), {
+      ok: true,
+      rebuilt_at: "2026-07-15T00:00:00.000Z",
+    });
+    assert.deepEqual(await client.tags.exportTagVocabularyForRegulator(), [
+      "data:coco",
+      "model:detr",
+    ]);
+    assert.deepEqual(calls, ["validate", "rebuild", "export"]);
+  });
+
+  it("normalizes missing and failed Tag vocabulary maintenance ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "tag conflict");
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async validateTagVocabulary() {
+        throw preserved;
+      },
+      async rebuildTagVocabularyIndex() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async exportTagVocabularyForRegulator() {
+        return ["valid", 7];
+      },
+    });
+    const invalidResultClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async validateTagVocabulary() {
+        return undefined;
+      },
+      async rebuildTagVocabularyIndex() {
+        return [];
+      },
+    });
+    const ordinaryFailureClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async validateTagVocabulary() {
+        throw new Error("validation exploded");
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () => missingPortClient.tags.validateTagVocabulary(),
+        code: "unavailable",
+      },
+      {
+        run: () => missingPortClient.tags.rebuildTagVocabularyIndex(),
+        code: "unavailable",
+      },
+      {
+        run: () => missingPortClient.tags.exportTagVocabularyForRegulator(),
+        code: "unavailable",
+      },
+      {
+        run: () => client.tags.validateTagVocabulary(),
+        code: "conflict",
+        expected: preserved,
+      },
+      {
+        run: () => client.tags.rebuildTagVocabularyIndex(),
+        code: "storage_busy",
+      },
+      {
+        run: () => client.tags.exportTagVocabularyForRegulator(),
+        code: "internal",
+      },
+      {
+        run: () => invalidResultClient.tags.validateTagVocabulary(),
+        code: "internal",
+      },
+      {
+        run: () => invalidResultClient.tags.rebuildTagVocabularyIndex(),
+        code: "internal",
+      },
+      {
+        run: () => ordinaryFailureClient.tags.validateTagVocabulary(),
+        code: "internal",
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Tag vocabulary operation to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the four Citation Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({

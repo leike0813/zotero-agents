@@ -2537,6 +2537,90 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("routes Tag vocabulary maintenance and export through the Tag client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const validateRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "validateTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTagVocabularyIndex"',
+      ),
+    );
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTagVocabularyIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildConceptKbIndex"',
+      ),
+    );
+    const exportRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "exportTagVocabulary"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "importTagVocabulary"',
+      ),
+    );
+
+    assert.match(validateRegion, /client\.tags\s*\.validateTagVocabulary\(\)/);
+    assert.match(
+      validateRegion,
+      /runWorkbenchCommandOnce\(\s*runtime,\s*"validateTagVocabulary",\s*\{\}/,
+    );
+    assert.notInclude(validateRegion, "deferStart");
+    assert.notInclude(validateRegion, "failOnDiagnostic");
+
+    assert.match(
+      rebuildRegion,
+      /client\.tags\s*\.rebuildTagVocabularyIndex\(\)/,
+    );
+    assert.match(rebuildRegion, /"rebuildTagVocabularyIndex",\s*\{\}/);
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+
+    assert.match(
+      exportRegion,
+      /client\.tags\s*\.exportTagVocabularyForRegulator\(\)/,
+    );
+    assert.match(
+      exportRegion,
+      /runWorkbenchCommandOnce\(runtime, "exportTagVocabulary", \{\}/,
+    );
+    assert.include(exportRegion, "runtime.hostWindow.navigator?.clipboard");
+    assert.include(exportRegion, '`${tags.join("\\n")}\\n`');
+    assert.notInclude(exportRegion, "deferStart");
+    assert.notInclude(exportRegion, "failOnDiagnostic");
+
+    for (const region of [validateRegion, rebuildRegion, exportRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+    }
+
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildTagVocabularyIndex"');
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const tagInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "rebuildTagVocabularyIndex"'),
+      invalidationBlock.indexOf('command === "rebuildConceptKbIndex"'),
+    );
+    assert.include(tagInvalidation, 'return ["tags"]');
+    assert.notInclude(invalidationBlock, 'command === "validateTagVocabulary"');
+    assert.notInclude(invalidationBlock, 'command === "exportTagVocabulary"');
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
@@ -5664,7 +5748,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "runWorkbenchCommandOnce");
     assert.include(host, "commandProgressTimer");
     assert.include(host, "ensureCommandProgressPolling");
-    assert.include(host, "notifyWorkbenchCommandProgress");
+    assert.notInclude(host, "notifyWorkbenchCommandProgress");
     assert.include(host, "refreshWorkbenchCommandProgress");
     const progressBlock = extractFunctionBlock(
       host,
@@ -5744,6 +5828,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "globalThis.setTimeout(() => void start(), 0)");
     assert.include(host, "SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS");
     assert.match(host, /client\.topicGraph\s*\.rebuildTopicGraphIndex\(\)/);
+    assert.match(host, /client\.tags\s*\.rebuildTagVocabularyIndex\(\)/);
+    assert.notInclude(host, "notifyWorkbenchCommandProgress");
     assert.notInclude(
       host,
       'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',

@@ -106,6 +106,8 @@ export interface LegacySynthesisPort {
   ): Promise<unknown>;
   loadTagVocabulary?(): Promise<unknown>;
   saveTagVocabulary?(request: Record<string, unknown>): Promise<unknown>;
+  validateTagVocabulary?(): Promise<unknown>;
+  rebuildTagVocabularyIndex?(): Promise<unknown>;
   exportTagVocabularyForRegulator?(): Promise<unknown>;
   listStagedTagSuggestions?(): Promise<unknown>;
   stageTagSuggestions?(request: Record<string, unknown>): Promise<unknown>;
@@ -1290,6 +1292,37 @@ export function createInProcessSynthesisClient(
             )(request),
           ),
         );
+      },
+      async validateTagVocabulary() {
+        return runLegacy(async () =>
+          normalizeLegacyJson(
+            await requireLegacyPort(
+              legacy.validateTagVocabulary,
+              "tags.validateTagVocabulary",
+            )(),
+          ),
+        );
+      },
+      async rebuildTagVocabularyIndex() {
+        return runLegacy(async () => {
+          const result = normalizeLegacyJson(
+            await requireLegacyPort(
+              legacy.rebuildTagVocabularyIndex,
+              "tags.rebuildTagVocabularyIndex",
+            )(),
+          );
+          if (
+            result === null ||
+            typeof result !== "object" ||
+            Array.isArray(result)
+          ) {
+            throw new SynthesisClientError(
+              "internal",
+              "Tag vocabulary rebuild response is invalid",
+            );
+          }
+          return result;
+        });
       },
       async exportTagVocabularyForRegulator() {
         return runLegacy(async () => {

@@ -4,6 +4,7 @@ export * from "./concepts";
 export * from "./graph";
 export * from "./lifecycle";
 export * from "./references";
+export * from "./tags";
 export * from "./topics";
 export * from "./topicGraph";
 export * from "./workflow";

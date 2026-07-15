@@ -69,6 +69,12 @@ function createLegacyPort(
         request as Parameters<typeof service.saveTagVocabulary>[0],
       );
     },
+    async validateTagVocabulary() {
+      return resolveService().validateTagVocabulary();
+    },
+    async rebuildTagVocabularyIndex() {
+      return resolveService().rebuildTagVocabularyIndex();
+    },
     async exportTagVocabularyForRegulator() {
       return resolveService().exportTagVocabularyForRegulator();
     },

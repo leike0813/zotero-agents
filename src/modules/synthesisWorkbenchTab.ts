@@ -882,12 +882,6 @@ function getFreshSynthesisServiceForGitSyncCommand() {
   return getDefaultSynthesisService();
 }
 
-async function notifyWorkbenchCommandProgress(
-  runtime: SynthesisWorkbenchRuntime,
-) {
-  await refreshWorkbenchCommandProgress(runtime);
-}
-
 async function refreshWorkbenchCommandProgress(
   runtime: SynthesisWorkbenchRuntime,
 ) {
@@ -2199,9 +2193,10 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "validateTagVocabulary") {
-    runWorkbenchCommandOnce(runtime, "validateTagVocabulary", {}, () =>
-      getDefaultSynthesisService().validateTagVocabulary(),
-    );
+    runWorkbenchCommandOnce(runtime, "validateTagVocabulary", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.tags.validateTagVocabulary();
+    });
     return;
   }
   if (result.hostCommand?.command === "rebuildTagVocabularyIndex") {
@@ -2209,10 +2204,10 @@ function handleAction(
       runtime,
       "rebuildTagVocabularyIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildTagVocabularyIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.tags.rebuildTagVocabularyIndex();
+      },
       { deferStart: true },
     );
     return;
@@ -2794,15 +2789,16 @@ function handleAction(
     return;
   }
   if (result.hostCommand?.command === "exportTagVocabulary") {
-    runWorkbenchCommandOnce(runtime, "exportTagVocabulary", {}, () =>
-      getDefaultSynthesisService()
+    runWorkbenchCommandOnce(runtime, "exportTagVocabulary", {}, async () => {
+      const client = await getDefaultSynthesisClient();
+      return client.tags
         .exportTagVocabularyForRegulator()
         .then((tags) =>
           runtime.hostWindow.navigator?.clipboard?.writeText?.(
             `${tags.join("\n")}\n`,
           ),
-        ),
-    );
+        );
+    });
     return;
   }
   if (

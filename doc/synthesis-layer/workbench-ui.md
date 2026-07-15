@@ -84,6 +84,8 @@ Topic artifact deletion and purge plus discovery-hint rejection and restoration 
 
 Topic Graph projection rebuild, edge acceptance/rejection, and review actions route through a distinct `SynthesisClient.topicGraph` capability rather than Citation Graph. Rebuild keeps protected confirmation, deferred start, persisted progress polling, and its current Home-only refresh while carrying no UI callback. Edge actions retain trimmed identifiers, empty-ID skipping, their shared decision single-flight key, and singular diagnostic handling. Review retains exact `approve_suggested` selection with reject as the Workbench default. The three mutations refresh Home/Topics/Graph/Review; Topic Graph queries and checkpoint export remain on their current paths.
 
+Tag Vocabulary validation, projection rebuild, and regulator export route through `SynthesisClient.tags`. All three retain empty single-flight arguments. Validation and export start immediately, add no confirmation or diagnostic transformation, and preserve Home-only refresh. Rebuild retains protected confirmation, deferred start, Tags refresh, and persisted progress polling without a UI callback. The client returns only the exported string array; the Workbench host continues to own clipboard writing and its newline-separated format with one trailing newline. Staged suggestions, imports, vocabulary edits/deletion, bootstrap, and audit commands remain on their current paths.
+
 Canonical merge proposals must show readable source and target reference titles when matcher evidence provides them. Internal canonical ids are fallback diagnostics, not the primary decision text.
 
 ## Sync Status and Conflict Review

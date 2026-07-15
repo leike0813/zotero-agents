@@ -162,6 +162,9 @@ describe("Synthesis sidecar migration boundary", function () {
       workbench,
       /client\.topicGraph\s*\.applyTopicGraphReviewAction/,
     );
+    assert.match(workbench, /client\.tags\s*\.validateTagVocabulary/);
+    assert.match(workbench, /client\.tags\s*\.rebuildTagVocabularyIndex/);
+    assert.match(workbench, /client\.tags\s*\.exportTagVocabularyForRegulator/);
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -228,6 +231,18 @@ describe("Synthesis sidecar migration boundary", function () {
         ),
       );
     }
+    for (const method of [
+      "validateTagVocabulary",
+      "rebuildTagVocabularyIndex",
+      "exportTagVocabularyForRegulator",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(
+          `(?:getDefaultSynthesisService\\(\\)\\s*\\.|\\bservice\\.)${method}`,
+        ),
+      );
+    }
     assert.notMatch(
       workbench,
       /getDefaultSynthesisService\(\)\.getTopicReport/,
@@ -265,6 +280,10 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     const topicGraphContract = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/topicGraph.ts"),
+      "utf8",
+    );
+    const tagsContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/tags.ts"),
       "utf8",
     );
     assert.include(topicsContract, "getTopicReport(");
@@ -332,6 +351,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notMatch(
       topicGraphContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
+    assert.include(clientContract, "tags: SynthesisTagsClient");
+    assert.include(tagsContract, "validateTagVocabulary()");
+    assert.include(tagsContract, "rebuildTagVocabularyIndex()");
+    assert.include(tagsContract, "exportTagVocabularyForRegulator()");
+    assert.notMatch(
+      tagsContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions|clipboard/,
     );
     assert.notMatch(
       `${clientContract}\n${workbenchContract}`,

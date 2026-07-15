@@ -1,4 +1,5 @@
 import type { SynthesisConceptsClient } from "./concepts";
+import type { SynthesisTagsClient } from "./tags";
 import type { SynthesisTopicsClient } from "./topics";
 import type { SynthesisTopicGraphClient } from "./topicGraph";
 import type {
@@ -8,7 +9,6 @@ import type {
 } from "./lifecycle";
 import type {
   SynthesisArtifactsClient,
-  SynthesisTagsClient,
   SynthesisWorkflowApplyClient,
 } from "./workflow";
 import type { SynthesisWorkbenchClient } from "./workbench";
