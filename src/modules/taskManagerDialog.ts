@@ -1552,7 +1552,34 @@ async function buildDashboardSnapshot(args: {
       "Advanced capture limits",
     ),
     acpTraceArm: localize("task-dashboard-acp-trace-arm", "Arm Recorder"),
-    acpTraceStop: localize("task-dashboard-acp-trace-stop", "Stop / Freeze"),
+    acpTraceFinish: localize(
+      "task-dashboard-acp-trace-finish",
+      "Finish Recording",
+    ),
+    acpTraceFinishAfterTurn: localize(
+      "task-dashboard-acp-trace-finish-after-turn",
+      "Finish after Current Turn",
+    ),
+    acpTraceWaitingExplicitConnection: localize(
+      "task-dashboard-acp-trace-waiting-explicit-connection",
+      "Waiting for an explicit connection",
+    ),
+    acpTraceConnecting: localize(
+      "task-dashboard-acp-trace-connecting",
+      "Connecting",
+    ),
+    acpTraceBound: localize(
+      "task-dashboard-acp-trace-bound",
+      "Recording bound target",
+    ),
+    acpTraceStopping: localize(
+      "task-dashboard-acp-trace-stopping",
+      "Waiting for active work to finish",
+    ),
+    acpTraceSessionReplaced: localize(
+      "task-dashboard-acp-trace-session-replaced",
+      "A replacement remote session is not being recorded.",
+    ),
     acpTraceCancel: localize(
       "task-dashboard-acp-trace-cancel",
       "Cancel Recording",
@@ -3115,8 +3142,8 @@ export async function openTaskManagerDialog(args?: {
               maxEventBytes: Number(payload.maxEventBytes || 0) || undefined,
             },
           });
-        } else if (action === "acp-trace-recorder-stop") {
-          await recorder.stopAcpRuntimeSemanticTraceRecorder();
+        } else if (action === "acp-trace-recorder-finish") {
+          await recorder.finishAcpRuntimeSemanticTraceRoot();
         } else if (action === "acp-trace-recorder-cancel") {
           await recorder.cancelAcpRuntimeSemanticTraceRecorder();
         } else if (action === "acp-trace-recorder-reset") {

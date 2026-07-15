@@ -390,8 +390,15 @@ ACP runtime profiling has two complementary validation layers:
   Assistant Workspace surface attribution. It verifies mechanism-level counts,
   aggregation, and boundedness, not wall-clock speed.
 - `test/core/178-acp-runtime-semantic-trace.test.ts` locks lossless payloads,
-  source ownership, NDJSON sequence/hash/footer integrity, partial recovery,
-  quotas, and incomplete trace rejection.
+  explicit round/claim authority, session-bound ownership, paired root and
+  activity boundaries, deferred finish, NDJSON sequence/hash/footer integrity,
+  partial recovery, quotas, and incomplete trace rejection.
+- `test/core/96-acp-session-manager-lifecycle.test.ts` locks explicit Chat
+  connection claim eligibility, implicit/existing-session isolation,
+  multi-turn deferred finish, and forced terminal closure.
+- `test/core/48-workflow-execution-seams.test.ts` locks canonical top-level
+  Workflow trace identity across concurrent jobs and completion after request
+  terminals but before apply consumers continue.
 - `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/logical/burst
   scheduling, backend-free target ports, fixed R2 v1 work, three warm-ups plus
   six formal profiles, interruptible cadence, progress after cleanup, early
@@ -436,11 +443,13 @@ ACP runtime profiling has two complementary validation layers:
 The automated surface matrix is a mechanism smoke baseline. Comparable
 real-workload evidence comes from complete source-specific replay matrices.
 Manual acceptance captures separate multi-turn Chat and multi-stage Workflow
-traces in Zotero and replays them without a backend. It also verifies cancel,
-retry, save-to-Replay handoff, and a second recording round without restarting
-Zotero. Unicode artifact names and responsive progressive-disclosure layout
-remain Zotero 7/9 manual checks. CI does not lock machine-specific millisecond
-thresholds.
+traces in Zotero and replays them without a backend. It covers explicit
+new/resume/load binding, same-session reconnect, disconnect recovery, a
+different-session replacement notice, Finish during an active turn, automatic
+multi-stage Workflow completion, cancel, retry, save-to-Replay handoff, and a
+second recording round without restarting Zotero. Unicode artifact names and
+responsive progressive-disclosure layout remain Zotero 7/9 manual checks. CI
+does not lock machine-specific millisecond thresholds.
 
 Diagnosis order:
 

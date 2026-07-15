@@ -34,6 +34,15 @@ import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNo
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
+import {
+  armAcpRuntimeSemanticTraceRecorder,
+  discardAcpRuntimeSemanticTracePartialForTests,
+  getAcpRuntimeSemanticTraceRecorderView,
+  recordAcpRuntimeSemanticTraceEvent,
+  recordAcpRuntimeSemanticTraceRequestTerminal,
+} from "../../src/modules/acpRuntimeSemanticTraceRecorder";
+import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 async function createWorkflowRoot(args: {
   id: string;
@@ -3376,5 +3385,339 @@ describe("workflow execution seams", function () {
     assert.lengthOf(assistantCalls, 1);
     assert.equal(assistantCalls[0].tab, "acp-skills");
     assert.equal(assistantCalls[0].requestId, "acp-req-2");
+  });
+
+  it("records concurrent ACP jobs under one canonical workflow execution root", async function () {
+    const traceRoot = await mkTempDir("zotero-skills-workflow-trace");
+    const orchestrationContexts: any[] = [];
+    setDebugModeOverrideForTests(true);
+    try {
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-workflow-execution",
+        root: traceRoot,
+      });
+      const runState = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "seam-acp-trace-root",
+                label: "Seam ACP Trace Root",
+              },
+            } as any,
+            requests: [
+              { skill_id: "skill-a", requestId: "request-a" },
+              { skill_id: "skill-b", requestId: "request-b" },
+            ],
+            skippedByFilter: 0,
+            executionContext: {
+              providerId: "acp",
+              requestKind: "acp.skill.run.v1",
+              providerOptions: {},
+              backend: {
+                id: "backend-acp",
+                type: "acp",
+                baseUrl: "local://backend-acp",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async (args: any) => {
+            orchestrationContexts.push(args.orchestrationContext);
+            const context = args.orchestrationContext.semanticTraceContext;
+            const requestId = String(args.request.requestId);
+            const owner = {
+              rootId: context.rootId,
+              workflowId: args.orchestrationContext.workflowId,
+              workflowRunId: args.orchestrationContext.parentWorkflowRunId,
+              jobId: args.orchestrationContext.jobId,
+              requestId,
+            };
+            await recordAcpRuntimeSemanticTraceEvent(context, {
+              kind: "request-start",
+              sourceKind: "acp-workflow-execution",
+              owner,
+              payload: {},
+            });
+            await recordAcpRuntimeSemanticTraceRequestTerminal({
+              requestId,
+              payload: { status: "succeeded" },
+            });
+            return {
+              status: "succeeded",
+              requestId,
+              resultJson: { ok: true },
+            };
+          },
+          selectAcpSkillRun: () => undefined,
+          openAssistantWorkspaceSidebar: async () => undefined,
+        } as any,
+      );
+
+      await runState.idlePromise;
+      const view = getAcpRuntimeSemanticTraceRecorderView();
+      assert.deepInclude(view, {
+        state: "frozen",
+        completion: "complete",
+        activeRequestCount: 0,
+      });
+      assert.deepInclude(view.binding, {
+        sourceKind: "acp-workflow-execution",
+        workflowId: "seam-acp-trace-root",
+        workflowRunId: runState.runId,
+      });
+      assert.lengthOf(orchestrationContexts, 2);
+      assert.isTrue(
+        orchestrationContexts.every(
+          (entry) =>
+            entry.parentWorkflowRunId === runState.runId &&
+            entry.semanticTraceContext.rootId === runState.runId,
+        ),
+      );
+      const trace = await loadAcpRuntimeSemanticTrace(view.partialPath || "");
+      assert.equal(trace.events[0].kind, "root-start");
+      assert.equal(trace.events.at(-1)?.kind, "root-end");
+      assert.deepEqual(
+        trace.events
+          .filter((event) => event.kind === "request-start")
+          .map((event) => event.owner.rootId),
+        [runState.runId, runState.runId],
+      );
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+    }
+  });
+
+  it("keeps multi-stage ACP sequence requests on the canonical trace root", async function () {
+    const traceRoot = await mkTempDir("zotero-skills-sequence-trace");
+    const orchestrationContexts: any[] = [];
+    setDebugModeOverrideForTests(true);
+    try {
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-workflow-execution",
+        root: traceRoot,
+      });
+      const runState = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "seam-acp-sequence-trace-root",
+                label: "Seam ACP Sequence Trace Root",
+              },
+            } as any,
+            requests: [
+              {
+                kind: "skillrunner.sequence.v1",
+                steps: [
+                  {
+                    id: "prepare",
+                    skill_id: "prepare-skill",
+                    mode: "auto",
+                  },
+                  {
+                    id: "finalize",
+                    skill_id: "finalize-skill",
+                    mode: "auto",
+                    workspace: "reuse-workflow",
+                  },
+                ],
+                final_step_id: "finalize",
+              },
+            ],
+            skippedByFilter: 0,
+            executionContext: {
+              providerId: "acp",
+              requestKind: "skillrunner.sequence.v1",
+              providerOptions: {},
+              backend: {
+                id: "backend-acp-sequence",
+                type: "acp",
+                baseUrl: "local://backend-acp-sequence",
+              },
+            },
+          },
+        },
+        {
+          executeWithProvider: async (args: any) => {
+            orchestrationContexts.push(args.orchestrationContext);
+            const context = args.orchestrationContext.semanticTraceContext;
+            const requestId = `${String(args.request.skill_id)}-request`;
+            const owner = {
+              rootId: context.rootId,
+              workflowId: args.orchestrationContext.workflowId,
+              workflowRunId: args.orchestrationContext.parentWorkflowRunId,
+              jobId: args.orchestrationContext.jobId,
+              requestId,
+            };
+            await recordAcpRuntimeSemanticTraceEvent(context, {
+              kind: "request-start",
+              sourceKind: "acp-workflow-execution",
+              owner,
+              payload: {},
+            });
+            await recordAcpRuntimeSemanticTraceRequestTerminal({
+              requestId,
+              payload: { status: "succeeded" },
+            });
+            return {
+              status: "succeeded",
+              requestId,
+              fetchType: "result",
+              resultJson: { skillId: args.request.skill_id },
+              responseJson: {},
+            };
+          },
+          selectAcpSkillRun: () => undefined,
+          openAssistantWorkspaceSidebar: async () => undefined,
+        } as any,
+      );
+
+      await runState.idlePromise;
+      const view = getAcpRuntimeSemanticTraceRecorderView();
+      assert.equal(
+        view.state,
+        "frozen",
+        JSON.stringify({ view, orchestrationContexts }),
+      );
+      const trace = await loadAcpRuntimeSemanticTrace(view.partialPath || "");
+      assert.lengthOf(orchestrationContexts, 2);
+      assert.isTrue(
+        orchestrationContexts.every(
+          (entry) =>
+            entry.parentWorkflowRunId === runState.runId &&
+            entry.semanticTraceContext.rootId === runState.runId &&
+            entry.workflowRunId !== runState.runId,
+        ),
+      );
+      assert.deepEqual(
+        trace.events
+          .filter((event) => event.kind === "request-start")
+          .map((event) => event.owner.rootId),
+        [runState.runId, runState.runId],
+      );
+      assert.equal(trace.events.at(-1)?.kind, "root-end");
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+    }
+  });
+
+  it("records terminal workflow outcomes and leaves zero-request execution armed", async function () {
+    const traceRoot = await mkTempDir("zotero-skills-terminal-trace");
+    setDebugModeOverrideForTests(true);
+    try {
+      for (const outcome of ["failed", "canceled"] as const) {
+        await armAcpRuntimeSemanticTraceRecorder({
+          sourceKind: "acp-workflow-execution",
+          root: traceRoot,
+        });
+        const runState = runWorkflowExecutionSeam(
+          {
+            prepared: {
+              workflow: {
+                manifest: {
+                  id: `seam-acp-${outcome}-trace`,
+                  label: `Seam ACP ${outcome} Trace`,
+                },
+              } as any,
+              requests: [{ skill_id: `${outcome}-skill`, requestId: outcome }],
+              skippedByFilter: 0,
+              executionContext: {
+                providerId: "acp",
+                requestKind: "acp.skill.run.v1",
+                providerOptions: {},
+                backend: {
+                  id: `backend-acp-${outcome}`,
+                  type: "acp",
+                  baseUrl: `local://backend-acp-${outcome}`,
+                },
+              },
+            },
+          },
+          {
+            executeWithProvider: async (args: any) => {
+              const context = args.orchestrationContext.semanticTraceContext;
+              const requestId = String(args.request.requestId);
+              const owner = {
+                rootId: context.rootId,
+                workflowId: args.orchestrationContext.workflowId,
+                workflowRunId: args.orchestrationContext.parentWorkflowRunId,
+                jobId: args.orchestrationContext.jobId,
+                requestId,
+              };
+              await recordAcpRuntimeSemanticTraceEvent(context, {
+                kind: "request-start",
+                sourceKind: "acp-workflow-execution",
+                owner,
+                payload: {},
+              });
+              await recordAcpRuntimeSemanticTraceRequestTerminal({
+                requestId,
+                payload: { status: outcome },
+              });
+              return {
+                status: outcome,
+                requestId,
+                fetchType: "result",
+                error: outcome,
+              };
+            },
+            selectAcpSkillRun: () => undefined,
+            openAssistantWorkspaceSidebar: async () => undefined,
+          } as any,
+        );
+
+        await runState.idlePromise;
+        const view = getAcpRuntimeSemanticTraceRecorderView();
+        const trace = await loadAcpRuntimeSemanticTrace(view.partialPath || "");
+        assert.equal(view.state, "frozen");
+        assert.deepEqual(trace.events.at(-1)?.payload, { outcome });
+        await discardAcpRuntimeSemanticTracePartialForTests();
+      }
+
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-workflow-execution",
+        root: traceRoot,
+      });
+      const emptyRun = runWorkflowExecutionSeam(
+        {
+          prepared: {
+            workflow: {
+              manifest: {
+                id: "seam-acp-empty-trace",
+                label: "Seam ACP Empty Trace",
+              },
+            } as any,
+            requests: [],
+            skippedByFilter: 0,
+            executionContext: {
+              providerId: "acp",
+              requestKind: "acp.skill.run.v1",
+              providerOptions: {},
+              backend: {
+                id: "backend-acp-empty",
+                type: "acp",
+                baseUrl: "local://backend-acp-empty",
+              },
+            },
+          },
+        },
+        {
+          selectAcpSkillRun: () => undefined,
+          openAssistantWorkspaceSidebar: async () => undefined,
+        } as any,
+      );
+      await emptyRun.idlePromise;
+      assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+        state: "armed",
+        eventCount: 0,
+      });
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+    }
   });
 });

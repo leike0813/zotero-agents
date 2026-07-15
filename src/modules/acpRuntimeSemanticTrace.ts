@@ -77,7 +77,6 @@ export type AcpRuntimeSemanticTraceHeader = {
 export type AcpRuntimeSemanticTraceWarning = {
   code:
     | "unowned-event"
-    | "mid-turn-start"
     | "active-owner"
     | "event-limit"
     | "byte-limit"
@@ -136,6 +135,75 @@ function isSourceKind(value: unknown): value is AcpRuntimeTraceSourceKind {
   );
 }
 
+const ACP_RUNTIME_SEMANTIC_TRACE_EVENT_KINDS = new Set<string>([
+  "root-start",
+  "root-end",
+  "request-start",
+  "request-end",
+  "turn-start",
+  "turn-end",
+  "session-notification",
+  "diagnostic",
+  "permission-request",
+  "permission-outcome",
+  "terminal",
+  "connection-close",
+]);
+
+function validateCompleteAcpRuntimeSemanticTrace(
+  events: readonly AcpRuntimeSemanticTraceEvent[],
+) {
+  if (events[0]?.kind !== "root-start" || events.at(-1)?.kind !== "root-end") {
+    throw new Error("ACP semantic trace root boundary is incomplete");
+  }
+  const rootId = events[0].owner.rootId;
+  let rootStartCount = 0;
+  let rootEndCount = 0;
+  let completedActivityCount = 0;
+  const activeTurns = new Set<string>();
+  const activeRequests = new Set<string>();
+  for (const event of events) {
+    if (event.owner.rootId !== rootId) {
+      throw new Error("ACP semantic trace root ownership is inconsistent");
+    }
+    if (event.kind === "root-start") rootStartCount += 1;
+    if (event.kind === "root-end") rootEndCount += 1;
+    if (event.kind === "turn-start") {
+      if (!event.owner.turnId || activeTurns.has(event.owner.turnId)) {
+        throw new Error("ACP semantic trace turn activity is invalid");
+      }
+      activeTurns.add(event.owner.turnId);
+    } else if (event.kind === "turn-end") {
+      if (!event.owner.turnId || !activeTurns.delete(event.owner.turnId)) {
+        throw new Error("ACP semantic trace turn activity is invalid");
+      }
+      completedActivityCount += 1;
+    } else if (event.kind === "request-start") {
+      if (!event.owner.requestId || activeRequests.has(event.owner.requestId)) {
+        throw new Error("ACP semantic trace request activity is invalid");
+      }
+      activeRequests.add(event.owner.requestId);
+    } else if (event.kind === "request-end") {
+      if (
+        !event.owner.requestId ||
+        !activeRequests.delete(event.owner.requestId)
+      ) {
+        throw new Error("ACP semantic trace request activity is invalid");
+      }
+      completedActivityCount += 1;
+    }
+  }
+  if (
+    rootStartCount !== 1 ||
+    rootEndCount !== 1 ||
+    activeTurns.size > 0 ||
+    activeRequests.size > 0 ||
+    completedActivityCount < 1
+  ) {
+    throw new Error("ACP semantic trace activity boundary is incomplete");
+  }
+}
+
 export async function parseAcpRuntimeSemanticTraceNdjson(
   content: string,
 ): Promise<AcpRuntimeSemanticTraceDocument> {
@@ -167,6 +235,7 @@ export async function parseAcpRuntimeSemanticTraceNdjson(
     const event = events[index];
     if (
       event?.record !== "event" ||
+      !ACP_RUNTIME_SEMANTIC_TRACE_EVENT_KINDS.has(event.kind) ||
       event.seq !== index + 1 ||
       event.sourceKind !== header.sourceKind ||
       !event.owner?.rootId ||
@@ -194,6 +263,9 @@ export async function parseAcpRuntimeSemanticTraceNdjson(
     (footer.completion !== "complete" && footer.completion !== "incomplete")
   ) {
     throw new Error("ACP semantic trace integrity check failed");
+  }
+  if (footer.completion === "complete") {
+    validateCompleteAcpRuntimeSemanticTrace(events);
   }
   return { header, events, footer, digest };
 }

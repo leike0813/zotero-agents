@@ -60,6 +60,7 @@ import {
 import type {
   AcpConnectionAdapter,
   AcpConnectionAdapterFactoryArgs,
+  AcpConnectionSemanticTraceContext,
   AcpConnectionDiagnosticsListener,
   AcpConnectionPermissionListener,
   AcpConnectionUpdateListener,
@@ -263,6 +264,7 @@ export class FakeAcpConnectionAdapter implements AcpConnectionAdapter {
   readonly resumeSessionIds: string[] = [];
   readonly authenticateCalls: string[] = [];
   readonly cancelSessionIds: string[] = [];
+  semanticTraceContext?: AcpConnectionSemanticTraceContext;
   permissionOptions: AcpPermissionOption[] = [
     {
       optionId: "allow-once",
@@ -888,6 +890,7 @@ export function installAcpSessionManagerTestHooks() {
       async (args: AcpConnectionAdapterFactoryArgs) => {
         harness.lastFactoryArgs = args;
         harness.lastAdapter = new FakeAcpConnectionAdapter();
+        harness.lastAdapter.semanticTraceContext = args.semanticTraceContext;
         harness.adapters.add(harness.lastAdapter);
         return harness.lastAdapter;
       },

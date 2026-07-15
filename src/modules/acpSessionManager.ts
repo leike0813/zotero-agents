@@ -35,6 +35,8 @@ import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
   type AcpConnectionAdapterFactoryArgs,
+  type AcpConnectionSemanticTraceBinding,
+  type AcpConnectionSemanticTraceContext,
   type AcpPromptResult,
 } from "./acpConnectionAdapter";
 import {
@@ -62,8 +64,14 @@ import {
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
 import { isDebugModeEnabled } from "./debugMode";
 import {
+  abandonAcpRuntimeSemanticTraceClaimAttempt,
+  beginAcpRuntimeSemanticTraceClaimAttempt,
+  claimAcpRuntimeSemanticTraceRoot,
   getAcpRuntimeSemanticTraceRecorderView,
+  noticeAcpRuntimeSemanticTraceSessionReplacement,
   recordAcpRuntimeSemanticTraceEvent,
+  type AcpRuntimeSemanticTraceClaimAttempt,
+  type AcpRuntimeSemanticTraceContext,
 } from "./acpRuntimeSemanticTraceRecorder";
 import type {
   AcpRuntimeReplayLogicalTimerDescriptor,
@@ -176,10 +184,22 @@ export type AcpChatSessionRuntime = {
   unsubscribePermission: (() => void) | null;
   unsubscribeHostBridgePermission: (() => void) | null;
   suppressCloseEvent: boolean;
+  semanticTraceBinding?: AcpConnectionSemanticTraceBinding;
+  semanticTraceAdapterContext?: AcpConnectionSemanticTraceContext;
   activePrompt: {
     token: string;
     promise: Promise<AcpPromptResult>;
     watchdog: PromiseSettlementWatchdog | null;
+    semanticTrace?: {
+      context: AcpRuntimeSemanticTraceContext;
+      owner: {
+        rootId: string;
+        conversationId: string;
+        sessionId: string;
+        turnId: string;
+      };
+      terminalRecorded: boolean;
+    };
   } | null;
   activeAssistantItemId: string;
   activeThoughtItemId: string;
@@ -3128,6 +3148,21 @@ async function disconnectSessionRuntimeAdapter(
   }
 }
 
+async function finishAcpChatSemanticTraceTurn(
+  activePrompt: NonNullable<AcpChatSessionRuntime["activePrompt"]>,
+  payload: unknown,
+) {
+  const semanticTrace = activePrompt.semanticTrace;
+  if (!semanticTrace || semanticTrace.terminalRecorded) return;
+  semanticTrace.terminalRecorded = true;
+  await recordAcpRuntimeSemanticTraceEvent(semanticTrace.context, {
+    kind: "turn-end",
+    sourceKind: "acp-chat-conversation",
+    owner: semanticTrace.owner,
+    payload,
+  });
+}
+
 async function forceStopAcpChatPrompt(
   sessionRuntime: AcpChatSessionRuntime,
   token: string,
@@ -3143,6 +3178,19 @@ async function forceStopAcpChatPrompt(
   } catch (error) {
     if (sessionRuntime.activePrompt?.token !== token) {
       return;
+    }
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      await finishAcpChatSemanticTraceTurn(sessionRuntime.activePrompt, {
+        outcome: "cancelled",
+        forced: true,
+        closeFailed: true,
+        error: serializeAcpError(error, "prompt_interrupt_close"),
+      });
     }
     clearActiveAcpChatPrompt(sessionRuntime);
     sessionRuntime.snapshot.busy = false;
@@ -3164,6 +3212,17 @@ async function forceStopAcpChatPrompt(
   }
   if (sessionRuntime.activePrompt?.token !== token) {
     return;
+  }
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    await finishAcpChatSemanticTraceTurn(sessionRuntime.activePrompt, {
+      outcome: "cancelled",
+      forced: true,
+    });
   }
   clearActiveAcpChatPrompt(sessionRuntime);
   markSessionRuntimeConnectionIdle(sessionRuntime, {
@@ -3372,6 +3431,13 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       injection: hostBridgeCliInjection,
     });
     await enforceAcpChatLiveAdapterLimit(sessionRuntime);
+    const semanticTraceAdapterContext =
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+        ? {}
+        : undefined;
     const nextAdapter = await adapterFactory({
       backend: backendWithHostBridgeCli,
       agentWorkspaceDir: sessionRuntime.snapshot.agentWorkspaceDir,
@@ -3382,18 +3448,19 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       (typeof __debug_mode__ === "undefined"
         ? isDebugModeEnabled()
         : __debug_mode__) &&
-      sessionRuntime.snapshot.conversationId
-        ? {
-            semanticTraceContext: {
-              sourceKind: "acp-chat-conversation" as const,
-              owner: {
-                rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
-                conversationId: sessionRuntime.snapshot.conversationId,
-              },
-            },
-          }
+      semanticTraceAdapterContext
+        ? { semanticTraceContext: semanticTraceAdapterContext }
         : {}),
     });
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      semanticTraceAdapterContext
+    ) {
+      sessionRuntime.semanticTraceAdapterContext = semanticTraceAdapterContext;
+    }
     bindAdapter(sessionRuntime, nextAdapter);
     touchLiveAcpChatSessionRuntime(sessionRuntime);
     sessionRuntime.snapshot.status = "spawning";
@@ -3494,13 +3561,94 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.busy = false;
 }
 
-async function ensureSession(backendId?: string, conversationId?: string) {
+type AcpChatSessionAttachKind = "existing" | "resume" | "load" | "new";
+
+async function bindAcpChatSemanticTraceAfterAttach(args: {
+  sessionRuntime: AcpChatSessionRuntime;
+  adapter: AcpConnectionAdapter;
+  attachKind: AcpChatSessionAttachKind;
+  claimAttempt?: AcpRuntimeSemanticTraceClaimAttempt;
+}) {
+  const sessionId = String(args.sessionRuntime.snapshot.sessionId || "").trim();
+  if (!sessionId) return;
+  const existing = args.sessionRuntime.semanticTraceBinding;
+  const adapterContext = args.sessionRuntime.semanticTraceAdapterContext;
+  if (existing) {
+    if (existing.owner.sessionId === sessionId) {
+      if (adapterContext) adapterContext.current = existing;
+    } else {
+      if (adapterContext) adapterContext.current = undefined;
+      noticeAcpRuntimeSemanticTraceSessionReplacement({
+        context: existing.context,
+        sessionId,
+      });
+    }
+    return;
+  }
+  if (!args.claimAttempt || args.attachKind === "existing") return;
+  const backendId =
+    args.sessionRuntime.snapshot.backendId || args.sessionRuntime.backendId;
+  const conversationId = args.sessionRuntime.snapshot.conversationId;
+  if (!backendId || !conversationId) return;
+  const owner = {
+    rootId: `${backendId}\n${conversationId}`,
+    conversationId,
+    sessionId,
+  };
+  const context = await claimAcpRuntimeSemanticTraceRoot({
+    attempt: args.claimAttempt,
+    binding: {
+      sourceKind: "acp-chat-conversation",
+      backendId,
+      conversationId,
+      sessionId,
+      attachKind: args.attachKind,
+    },
+    owner,
+    payload: {
+      backendId,
+      conversationId,
+      sessionId,
+      attachKind: args.attachKind,
+    },
+  });
+  if (!context) return;
+  const semanticTraceBinding: AcpConnectionSemanticTraceBinding = {
+    context,
+    sourceKind: "acp-chat-conversation",
+    owner,
+  };
+  args.sessionRuntime.semanticTraceBinding = semanticTraceBinding;
+  if (adapterContext) adapterContext.current = semanticTraceBinding;
+}
+
+async function ensureSession(
+  backendId?: string,
+  conversationId?: string,
+  claimAttempt?: AcpRuntimeSemanticTraceClaimAttempt,
+) {
   const { sessionRuntime, adapter } = await ensureAdapter(
     backendId,
     conversationId,
   );
+  const finishAttach = async (attachKind: AcpChatSessionAttachKind) => {
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      await bindAcpChatSemanticTraceAfterAttach({
+        sessionRuntime,
+        adapter,
+        attachKind,
+        claimAttempt,
+      });
+    }
+    return { sessionRuntime, adapter, attachKind };
+  };
   if (sessionRuntime.snapshot.sessionId) {
-    return { sessionRuntime, adapter };
+    return finishAttach("existing");
   }
   const remoteSessionId = String(
     sessionRuntime.snapshot.remoteSessionId || "",
@@ -3520,7 +3668,7 @@ async function ensureSession(backendId?: string, conversationId?: string) {
         sessionRuntime.snapshot.remoteSessionRestoreMessage =
           "Remote ACP session resumed.";
         emitSessionRuntimeSnapshot(sessionRuntime);
-        return { sessionRuntime, adapter };
+        return finishAttach("resume");
       } catch (error) {
         sessionRuntime.snapshot.sessionId = "";
         sessionRuntime.snapshot.remoteSessionRestoreStatus = "failed";
@@ -3550,7 +3698,7 @@ async function ensureSession(backendId?: string, conversationId?: string) {
         sessionRuntime.snapshot.remoteSessionRestoreMessage =
           "Remote ACP session loaded.";
         emitSessionRuntimeSnapshot(sessionRuntime);
-        return { sessionRuntime, adapter };
+        return finishAttach("load");
       } catch (error) {
         sessionRuntime.suppressSessionLoadReplay = false;
         sessionRuntime.snapshot.sessionId = "";
@@ -3616,7 +3764,7 @@ async function ensureSession(backendId?: string, conversationId?: string) {
       sessionRuntime.snapshot.remoteSessionRestoreMessage = "";
     }
     emitSessionRuntimeSnapshot(sessionRuntime);
-    return { sessionRuntime, adapter };
+    return finishAttach("new");
   } catch (error) {
     if (error instanceof AcpAuthRequiredError) {
       sessionRuntime.snapshot.busy = false;
@@ -4347,10 +4495,39 @@ export async function connectAcpConversation(args?: {
 }) {
   ensureInitialized();
   await refreshAcpBackends();
-  const ensured = await ensureSession(
+  const sessionRuntime = getOrCreateSessionRuntime(
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
+  const hasLiveSession = Boolean(
+    sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
+  );
+  const claimAttempt =
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    !hasLiveSession
+      ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
+      : undefined;
+  let ensured;
+  try {
+    ensured = await ensureSession(
+      sessionRuntime.backendId,
+      sessionRuntime.snapshot.conversationId,
+      claimAttempt,
+    );
+  } catch (error) {
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+    }
+    throw error;
+  }
   emitSessionRuntimeSnapshot(ensured.sessionRuntime);
 }
 
@@ -4433,6 +4610,18 @@ export async function sendAcpConversationPrompt(args: {
   if (sessionRuntime.activePrompt || sessionRuntime.snapshot.busy) {
     throw new Error("ACP Chat already has an active prompt turn.");
   }
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    sessionRuntime.semanticTraceBinding &&
+    getAcpRuntimeSemanticTraceRecorderView().state === "stopping"
+  ) {
+    throw new Error(
+      "ACP semantic trace is waiting for the active turn to finish",
+    );
+  }
   await hydrateAcpChatTranscriptMirror(sessionRuntime);
   touchLiveAcpChatSessionRuntime(sessionRuntime);
   const shouldInjectStartupPreamble =
@@ -4493,48 +4682,38 @@ export async function sendAcpConversationPrompt(args: {
     : null;
   emitSessionRuntimeSnapshot(sessionRuntime);
   const promptToken = nextOpaqueId("acp-prompt-turn");
-  const semanticTraceOwner =
+  let traceTurn: NonNullable<
+    NonNullable<AcpChatSessionRuntime["activePrompt"]>["semanticTrace"]
+  > | null = null;
+  if (
     __acp_runtime_semantic_trace_recorder_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
-      ? {
-          rootId: `${sessionRuntime.snapshot.backendId}\n${sessionRuntime.snapshot.conversationId}`,
-          conversationId: sessionRuntime.snapshot.conversationId,
-          turnId: promptToken,
-        }
-      : undefined;
-  if (
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__) &&
-    __acp_runtime_semantic_trace_recorder_enabled__ &&
-    semanticTraceOwner &&
-    !getAcpRuntimeSemanticTraceRecorderView().rootId
   ) {
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-chat-conversation",
-      owner: semanticTraceOwner,
-      payload: {
-        backendId: sessionRuntime.snapshot.backendId,
+    const traceBinding = sessionRuntime.semanticTraceBinding;
+    if (traceBinding) {
+      const owner = {
+        rootId: traceBinding.context.rootId,
         conversationId: sessionRuntime.snapshot.conversationId,
-      },
-    });
-  }
-  if (
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__) &&
-    __acp_runtime_semantic_trace_recorder_enabled__ &&
-    semanticTraceOwner
-  ) {
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "turn-start",
-      sourceKind: "acp-chat-conversation",
-      owner: semanticTraceOwner,
-      payload: { message: promptMessage, hostContext: args.hostContext },
-    });
+        sessionId: sessionRuntime.snapshot.sessionId,
+        turnId: promptToken,
+      };
+      if (
+        await recordAcpRuntimeSemanticTraceEvent(traceBinding.context, {
+          kind: "turn-start",
+          sourceKind: "acp-chat-conversation",
+          owner,
+          payload: { message: promptMessage, hostContext: args.hostContext },
+        })
+      ) {
+        traceTurn = {
+          context: traceBinding.context,
+          owner,
+          terminalRecorded: false,
+        };
+      }
+    }
   }
   try {
     await flushPendingChatTranscriptWrites(sessionRuntime);
@@ -4546,11 +4725,13 @@ export async function sendAcpConversationPrompt(args: {
       token: promptToken,
       promise: promptPromise,
       watchdog: null,
+      ...(traceTurn ? { semanticTrace: traceTurn } : {}),
     };
     const response = await promptPromise;
     if (sessionRuntime.activePrompt?.token !== promptToken) {
       return;
     }
+    const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
     sessionRuntime.snapshot.busy = false;
     sessionRuntime.snapshot.status = "connected";
@@ -4597,16 +4778,11 @@ export async function sendAcpConversationPrompt(args: {
         ? isDebugModeEnabled()
         : __debug_mode__) &&
       __acp_runtime_semantic_trace_recorder_enabled__ &&
-      semanticTraceOwner
+      activePrompt
     ) {
-      await recordAcpRuntimeSemanticTraceEvent({
-        kind: "turn-end",
-        sourceKind: "acp-chat-conversation",
-        owner: semanticTraceOwner,
-        payload: {
-          stopReason: sessionRuntime.snapshot.lastStopReason,
-          outcome: "complete",
-        },
+      await finishAcpChatSemanticTraceTurn(activePrompt, {
+        stopReason: sessionRuntime.snapshot.lastStopReason,
+        outcome: "complete",
       });
     }
   } catch (error) {
@@ -4617,6 +4793,7 @@ export async function sendAcpConversationPrompt(args: {
       normalizeAcpPromptInterruptState(
         sessionRuntime.snapshot.promptInterruptState,
       ) === "requested";
+    const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
     sessionRuntime.snapshot.busy = false;
     if (interruptionRequested) {
@@ -4666,16 +4843,11 @@ export async function sendAcpConversationPrompt(args: {
         ? isDebugModeEnabled()
         : __debug_mode__) &&
       __acp_runtime_semantic_trace_recorder_enabled__ &&
-      semanticTraceOwner
+      activePrompt
     ) {
-      await recordAcpRuntimeSemanticTraceEvent({
-        kind: "turn-end",
-        sourceKind: "acp-chat-conversation",
-        owner: semanticTraceOwner,
-        payload: {
-          outcome: "error",
-          error: serializeAcpError(error, "prompt"),
-        },
+      await finishAcpChatSemanticTraceTurn(activePrompt, {
+        outcome: "error",
+        error: serializeAcpError(error, "prompt"),
       });
     }
     throw error;
@@ -5028,16 +5200,40 @@ export async function reconnectAcpConversation(args?: {
     args?.backendId || activeBackendId,
     args?.conversationId,
   );
+  const hasLiveSession = Boolean(
+    sessionRuntime.adapter && sessionRuntime.snapshot.sessionId,
+  );
+  const claimAttempt =
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    !hasLiveSession
+      ? beginAcpRuntimeSemanticTraceClaimAttempt("acp-chat-conversation")
+      : undefined;
   await disconnectSessionRuntimeAdapter(sessionRuntime);
   markSessionRuntimeConnectionIdle(sessionRuntime, {
     clearErrors: true,
     clearStderrTail: true,
   });
   emitSessionRuntimeSnapshot(sessionRuntime);
-  await ensureSession(
-    sessionRuntime.backendId,
-    sessionRuntime.snapshot.conversationId,
-  );
+  try {
+    await ensureSession(
+      sessionRuntime.backendId,
+      sessionRuntime.snapshot.conversationId,
+      claimAttempt,
+    );
+  } catch (error) {
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      abandonAcpRuntimeSemanticTraceClaimAttempt(claimAttempt);
+    }
+    throw error;
+  }
 }
 
 export async function authenticateAcpConversation(args: {

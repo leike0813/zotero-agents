@@ -5,18 +5,24 @@ import { assert } from "chai";
 import { classifyAcpTranscriptSessionUpdate } from "../../src/modules/acpTranscriptBoundary";
 import {
   ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA,
+  acpRuntimeSemanticTraceByteLength,
+  encodeAcpRuntimeSemanticTraceLine,
+  encodeAcpRuntimeSemanticTraceText,
   loadAcpRuntimeSemanticTrace,
   parseAcpRuntimeSemanticTraceNdjson,
 } from "../../src/modules/acpRuntimeSemanticTrace";
+import { sha256Hex } from "../../src/utils/sha256";
 import {
   armAcpRuntimeSemanticTraceRecorder,
+  beginAcpRuntimeSemanticTraceClaimAttempt,
   cancelAcpRuntimeSemanticTraceRecorder,
+  claimAcpRuntimeSemanticTraceRoot,
   discardAcpRuntimeSemanticTracePartialForTests,
+  finishAcpRuntimeSemanticTraceRoot,
   getAcpRuntimeSemanticTraceRecorderView,
   recordAcpRuntimeSemanticTraceEvent,
   resetAcpRuntimeSemanticTraceRecorder,
   saveFrozenAcpRuntimeSemanticTrace,
-  stopAcpRuntimeSemanticTraceRecorder,
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
@@ -42,6 +48,55 @@ describe("ACP runtime semantic trace", function () {
   let tempRoot = "";
   let monotonic = 100;
 
+  async function claimChatRoot(owner: {
+    rootId: string;
+    conversationId: string;
+    sessionId: string;
+  }) {
+    const attempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-chat-conversation",
+    );
+    assert.exists(attempt);
+    const context = await claimAcpRuntimeSemanticTraceRoot({
+      attempt: attempt!,
+      binding: {
+        sourceKind: "acp-chat-conversation",
+        backendId: owner.rootId.split("\n", 1)[0] || "backend-a",
+        conversationId: owner.conversationId,
+        sessionId: owner.sessionId,
+        attachKind: "new",
+      },
+      owner,
+      payload: { attachKind: "new" },
+    });
+    assert.exists(context);
+    return context!;
+  }
+
+  async function claimWorkflowRoot(owner: {
+    rootId: string;
+    workflowId: string;
+    workflowRunId: string;
+    jobId?: string;
+  }) {
+    const attempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-workflow-execution",
+    );
+    assert.exists(attempt);
+    const context = await claimAcpRuntimeSemanticTraceRoot({
+      attempt: attempt!,
+      binding: {
+        sourceKind: "acp-workflow-execution",
+        workflowId: owner.workflowId,
+        workflowRunId: owner.workflowRunId,
+      },
+      owner,
+      payload: {},
+    });
+    assert.exists(context);
+    return context!;
+  }
+
   beforeEach(async function () {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-trace-"));
     monotonic = 100;
@@ -54,6 +109,130 @@ describe("ACP runtime semantic trace", function () {
     resetAcpRuntimeDiagnosticsModeForTests();
     setDebugModeOverrideForTests();
     await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("claims explicitly, ignores stale or mismatched authority, and defers finish", async function () {
+    await armAcpRuntimeSemanticTraceRecorder({
+      sourceKind: "acp-chat-conversation",
+      root: tempRoot,
+    });
+    const owner = {
+      rootId: "backend-a\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    assert.isFalse(
+      await recordAcpRuntimeSemanticTraceEvent(undefined, {
+        kind: "session-notification",
+        sourceKind: "acp-chat-conversation",
+        owner,
+        payload: {},
+      }),
+    );
+    assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+      state: "armed",
+      eventCount: 0,
+    });
+
+    const staleAttempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-chat-conversation",
+    );
+    const winningAttempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-chat-conversation",
+    );
+    assert.exists(staleAttempt);
+    assert.exists(winningAttempt);
+    const context = await claimAcpRuntimeSemanticTraceRoot({
+      attempt: winningAttempt!,
+      binding: {
+        sourceKind: "acp-chat-conversation",
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        sessionId: "session-a",
+        attachKind: "new",
+      },
+      owner,
+      payload: { attachKind: "new" },
+    });
+    assert.exists(context);
+    assert.isUndefined(
+      await claimAcpRuntimeSemanticTraceRoot({
+        attempt: staleAttempt!,
+        binding: {
+          sourceKind: "acp-chat-conversation",
+          backendId: "backend-b",
+          conversationId: "conversation-b",
+          sessionId: "session-b",
+          attachKind: "resume",
+        },
+        owner: {
+          rootId: "backend-b\nconversation-b",
+          conversationId: "conversation-b",
+          sessionId: "session-b",
+        },
+        payload: {},
+      }),
+    );
+    assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView().binding, {
+      sessionId: "session-a",
+    });
+
+    assert.isFalse(
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "session-notification",
+        sourceKind: "acp-chat-conversation",
+        owner: { ...owner, sessionId: "session-b" },
+        payload: {},
+      }),
+    );
+    assert.isTrue(
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "turn-start",
+        sourceKind: "acp-chat-conversation",
+        owner: { ...owner, turnId: "turn-a" },
+        payload: {},
+      }),
+    );
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-end",
+      sourceKind: "acp-chat-conversation",
+      owner: { ...owner, turnId: "turn-a" },
+      payload: { outcome: "complete" },
+    });
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-start",
+      sourceKind: "acp-chat-conversation",
+      owner: { ...owner, turnId: "turn-b" },
+      payload: {},
+    });
+    const stopping = await finishAcpRuntimeSemanticTraceRoot({
+      context,
+      payload: { outcome: "complete" },
+    });
+    assert.deepInclude(stopping, {
+      state: "stopping",
+      activeTurnCount: 1,
+      canFinish: true,
+    });
+    assert.isFalse(
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "turn-start",
+        sourceKind: "acp-chat-conversation",
+        owner: { ...owner, turnId: "turn-c" },
+        payload: {},
+      }),
+    );
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-end",
+      sourceKind: "acp-chat-conversation",
+      owner: { ...owner, turnId: "turn-b" },
+      payload: { outcome: "complete" },
+    });
+    assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+      state: "frozen",
+      completion: "complete",
+      activeTurnCount: 0,
+    });
   });
 
   it("arms and records when the host has no performance global", async function () {
@@ -73,25 +252,27 @@ describe("ACP runtime semantic trace", function () {
       const owner = {
         rootId: "chat-without-performance",
         conversationId: "conversation-without-performance",
+        sessionId: "session-without-performance",
       };
-      await recordAcpRuntimeSemanticTraceEvent({
-        kind: "root-start",
+      const context = await claimChatRoot(owner);
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "turn-start",
         sourceKind: "acp-chat-conversation",
-        owner,
+        owner: { ...owner, turnId: "turn-without-performance" },
         payload: {},
       });
-      await recordAcpRuntimeSemanticTraceEvent({
-        kind: "root-end",
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "turn-end",
         sourceKind: "acp-chat-conversation",
-        owner,
+        owner: { ...owner, turnId: "turn-without-performance" },
         payload: { outcome: "complete" },
       });
-      const frozen = await stopAcpRuntimeSemanticTraceRecorder();
+      const frozen = await finishAcpRuntimeSemanticTraceRoot({ context });
       assert.equal(frozen.completion, "complete");
       const saved = await saveFrozenAcpRuntimeSemanticTrace();
       const trace = await loadAcpRuntimeSemanticTrace(saved.path);
       const offsets = trace.events.map((event) => event.monotonicOffsetMs);
-      assert.lengthOf(offsets, 2);
+      assert.lengthOf(offsets, 4);
       assert.isTrue(offsets.every(Number.isFinite));
       assert.isAtLeast(offsets[0], 0);
       assert.isAtLeast(offsets[1], offsets[0]);
@@ -111,26 +292,25 @@ describe("ACP runtime semantic trace", function () {
       nowMs: 1_750_000_000_000,
       monotonicNow: () => monotonic,
     });
-    const owner = { rootId: "chat-root", conversationId: "conversation-a" };
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-chat-conversation",
-      owner,
-      payload: { backendId: "backend-is-semantic-not-authorization" },
-    });
+    const owner = {
+      rootId: "backend-is-semantic-not-authorization\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    const context = await claimChatRoot(owner);
     for (const [turnId, prompt] of [
       ["turn-1", "full prompt with secret alpha"],
       ["turn-2", "full prompt with secret beta"],
     ] as const) {
       monotonic += 5;
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "turn-start",
         sourceKind: "acp-chat-conversation",
         owner: { ...owner, turnId },
         payload: { prompt },
       });
       monotonic += 5;
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "session-notification",
         sourceKind: "acp-chat-conversation",
         owner: { ...owner, turnId, sessionId: "session-a" },
@@ -143,21 +323,14 @@ describe("ACP runtime semantic trace", function () {
           },
         },
       });
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "turn-end",
         sourceKind: "acp-chat-conversation",
         owner: { ...owner, turnId },
         payload: { outcome: "complete" },
       });
     }
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-end",
-      sourceKind: "acp-chat-conversation",
-      owner,
-      payload: { outcome: "complete" },
-    });
-
-    const frozen = await stopAcpRuntimeSemanticTraceRecorder();
+    const frozen = await finishAcpRuntimeSemanticTraceRoot({ context });
     assert.equal(frozen.completion, "complete");
     const saved = await saveFrozenAcpRuntimeSemanticTrace();
     const trace = await loadAcpRuntimeSemanticTrace(saved.path);
@@ -193,14 +366,9 @@ describe("ACP runtime semantic trace", function () {
       workflowRunId: "run-a",
       jobId: "job-a",
     };
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-workflow-execution",
-      owner: root,
-      payload: {},
-    });
+    const context = await claimWorkflowRoot(root);
     for (const requestId of ["request-a", "request-b"]) {
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "request-start",
         sourceKind: "acp-workflow-execution",
         owner: { ...root, stageId: `stage-${requestId}`, requestId },
@@ -208,7 +376,7 @@ describe("ACP runtime semantic trace", function () {
       });
     }
     for (const requestId of ["request-b", "request-a"]) {
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "request-end",
         sourceKind: "acp-workflow-execution",
         owner: { ...root, stageId: `stage-${requestId}`, requestId },
@@ -216,20 +384,14 @@ describe("ACP runtime semantic trace", function () {
       });
     }
     assert.isFalse(
-      await recordAcpRuntimeSemanticTraceEvent({
+      await recordAcpRuntimeSemanticTraceEvent(context, {
         kind: "root-start",
         sourceKind: "acp-chat-conversation",
         owner: { rootId: "other-root" },
         payload: {},
       }),
     );
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-end",
-      sourceKind: "acp-workflow-execution",
-      owner: root,
-      payload: {},
-    });
-    const frozen = await stopAcpRuntimeSemanticTraceRecorder();
+    const frozen = await finishAcpRuntimeSemanticTraceRoot({ context });
     assert.equal(frozen.completion, "complete");
     assert.equal(frozen.eventCount, 6);
   });
@@ -238,26 +400,32 @@ describe("ACP runtime semantic trace", function () {
     await armAcpRuntimeSemanticTraceRecorder({
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
-      limits: { maxEvents: 1 },
+      limits: { maxEvents: 2 },
     });
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
+    const owner = {
+      rootId: "backend-a\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    const context = await claimChatRoot(owner);
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-start",
       sourceKind: "acp-chat-conversation",
-      owner: { rootId: "root-a" },
+      owner: { ...owner, turnId: "turn-a" },
       payload: {},
     });
     assert.isFalse(
-      await recordAcpRuntimeSemanticTraceEvent({
-        kind: "root-end",
+      await recordAcpRuntimeSemanticTraceEvent(context, {
+        kind: "turn-end",
         sourceKind: "acp-chat-conversation",
-        owner: { rootId: "root-a" },
+        owner: { ...owner, turnId: "turn-a" },
         payload: {},
       }),
     );
     assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
       state: "frozen",
       completion: "incomplete",
-      eventCount: 1,
+      eventCount: 2,
     });
     assert.equal(
       getAcpRuntimeSemanticTraceRecorderView().warnings[0]?.code,
@@ -300,30 +468,114 @@ describe("ACP runtime semantic trace", function () {
     );
   });
 
-  it("marks stop with an active turn incomplete and refuses baseline save", async function () {
+  it("rejects complete traces without one root pair and a complete activity", async function () {
+    const header = {
+      record: "header",
+      schema: ACP_RUNTIME_SEMANTIC_TRACE_SCHEMA,
+      sourceKind: "acp-chat-conversation",
+      createdAt: "2026-07-15T00:00:00.000Z",
+    } as const;
+    const owner = {
+      rootId: "backend-a\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    async function encodeComplete(events: unknown[]) {
+      const content = [header, ...events]
+        .map(encodeAcpRuntimeSemanticTraceLine)
+        .join("");
+      const digest = await sha256Hex(
+        encodeAcpRuntimeSemanticTraceText(content),
+      );
+      return `${content}${encodeAcpRuntimeSemanticTraceLine({
+        record: "footer",
+        eventCount: events.length,
+        contentBytes: acpRuntimeSemanticTraceByteLength(content),
+        sha256: digest,
+        completion: "complete",
+        warnings: [],
+      })}`;
+    }
+    const rootStart = {
+      record: "event",
+      seq: 1,
+      monotonicOffsetMs: 0,
+      kind: "root-start",
+      sourceKind: "acp-chat-conversation",
+      owner,
+      payload: {},
+    };
+    await assertRejects(
+      parseAcpRuntimeSemanticTraceNdjson(
+        await encodeComplete([
+          rootStart,
+          {
+            ...rootStart,
+            seq: 2,
+            kind: "root-end",
+            monotonicOffsetMs: 1,
+          },
+        ]),
+      ),
+      /activity boundary/,
+    );
+    await assertRejects(
+      parseAcpRuntimeSemanticTraceNdjson(
+        await encodeComplete([
+          rootStart,
+          {
+            ...rootStart,
+            seq: 2,
+            kind: "turn-start",
+            monotonicOffsetMs: 1,
+            owner: { ...owner, turnId: "turn-a" },
+          },
+          {
+            ...rootStart,
+            seq: 3,
+            kind: "turn-end",
+            monotonicOffsetMs: 2,
+            owner: { ...owner, turnId: "turn-a" },
+          },
+        ]),
+      ),
+      /root boundary/,
+    );
+  });
+
+  it("does not finish an empty session or its first active turn", async function () {
     await armAcpRuntimeSemanticTraceRecorder({
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
     });
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-chat-conversation",
-      owner: { rootId: "root-a" },
-      payload: {},
+    const owner = {
+      rootId: "backend-a\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    const context = await claimChatRoot(owner);
+    assert.deepInclude(await finishAcpRuntimeSemanticTraceRoot(), {
+      state: "recording",
+      canFinish: false,
     });
-    await recordAcpRuntimeSemanticTraceEvent({
+    await recordAcpRuntimeSemanticTraceEvent(context, {
       kind: "turn-start",
       sourceKind: "acp-chat-conversation",
-      owner: { rootId: "root-a", turnId: "turn-a" },
+      owner: { ...owner, turnId: "turn-a" },
       payload: {},
     });
-    const frozen = await stopAcpRuntimeSemanticTraceRecorder();
-    assert.equal(frozen.completion, "incomplete");
-    assert.equal(frozen.warnings[0]?.code, "active-owner");
+    const unchanged = await finishAcpRuntimeSemanticTraceRoot();
+    assert.deepInclude(unchanged, {
+      state: "recording",
+      canFinish: false,
+      activeTurnCount: 1,
+    });
     await assertRejects(
       saveFrozenAcpRuntimeSemanticTrace(),
       /not a complete frozen trace/,
     );
+    const canceled = await cancelAcpRuntimeSemanticTraceRecorder();
+    assert.equal(canceled.completion, "incomplete");
   });
 
   it("cancels to a preserved incomplete partial and starts another round", async function () {
@@ -331,12 +583,9 @@ describe("ACP runtime semantic trace", function () {
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
     });
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-chat-conversation",
-      owner: { rootId: "canceled-root" },
-      payload: {},
-    });
+    const staleAttempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-chat-conversation",
+    );
     const canceled = await cancelAcpRuntimeSemanticTraceRecorder();
     assert.equal(canceled.state, "frozen");
     assert.equal(canceled.completion, "incomplete");
@@ -352,10 +601,28 @@ describe("ACP runtime semantic trace", function () {
     await resetAcpRuntimeSemanticTraceRecorder();
     assert.equal(getAcpRuntimeSemanticTraceRecorderView().state, "idle");
     const second = await armAcpRuntimeSemanticTraceRecorder({
-      sourceKind: "acp-workflow-execution",
+      sourceKind: "acp-chat-conversation",
       root: tempRoot,
     });
     assert.notEqual(second.partialPath, first.partialPath);
+    assert.isUndefined(
+      await claimAcpRuntimeSemanticTraceRoot({
+        attempt: staleAttempt!,
+        binding: {
+          sourceKind: "acp-chat-conversation",
+          backendId: "stale-backend",
+          conversationId: "stale-conversation",
+          sessionId: "stale-session",
+          attachKind: "new",
+        },
+        owner: {
+          rootId: "stale-backend\nstale-conversation",
+          conversationId: "stale-conversation",
+          sessionId: "stale-session",
+        },
+        payload: {},
+      }),
+    );
   });
 
   it("resets a saved round without deleting its trace", async function () {
@@ -363,20 +630,25 @@ describe("ACP runtime semantic trace", function () {
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
     });
-    const owner = { rootId: "saved-root" };
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
+    const owner = {
+      rootId: "backend-a\nconversation-a",
+      conversationId: "conversation-a",
+      sessionId: "session-a",
+    };
+    const context = await claimChatRoot(owner);
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-start",
       sourceKind: "acp-chat-conversation",
-      owner,
+      owner: { ...owner, turnId: "turn-a" },
       payload: {},
     });
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-end",
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-end",
       sourceKind: "acp-chat-conversation",
-      owner,
+      owner: { ...owner, turnId: "turn-a" },
       payload: {},
     });
-    await stopAcpRuntimeSemanticTraceRecorder();
+    await finishAcpRuntimeSemanticTraceRoot({ context });
     const saved = await saveFrozenAcpRuntimeSemanticTrace();
     await resetAcpRuntimeSemanticTraceRecorder();
     assert.equal(getAcpRuntimeSemanticTraceRecorderView().state, "idle");

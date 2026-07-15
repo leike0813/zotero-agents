@@ -2966,13 +2966,52 @@
     });
     advanced.appendChild(advancedFields);
     panel.appendChild(advanced);
+    const lifecycleLabel =
+      view.state === "armed"
+        ? view.claiming
+          ? labelText(labels, "acpTraceConnecting", "Connecting")
+          : labelText(
+              labels,
+              "acpTraceWaitingExplicitConnection",
+              "Waiting for an explicit connection",
+            )
+        : view.state === "recording"
+          ? labelText(labels, "acpTraceBound", "Recording bound target")
+          : view.state === "stopping"
+            ? labelText(
+                labels,
+                "acpTraceStopping",
+                "Waiting for active work to finish",
+              )
+            : view.state;
     panel.appendChild(
       el(
         "div",
         "mono profiler-saved-path",
-        `State: ${view.state}; events: ${view.eventCount}; bytes: ${view.contentBytes}; completion: ${view.completion || "pending"}`,
+        `${lifecycleLabel}; events: ${view.eventCount}; bytes: ${view.contentBytes}; active turns: ${view.activeTurnCount || 0}; active requests: ${view.activeRequestCount || 0}; completion: ${view.completion || "pending"}`,
       ),
     );
+    if (view.binding) {
+      const binding = view.binding;
+      panel.appendChild(
+        el(
+          "div",
+          "mono profiler-saved-path acp-trace-binding",
+          binding.sourceKind === "acp-chat-conversation"
+            ? `${binding.backendId} / ${binding.conversationId} / ${binding.sessionId} (${binding.attachKind})`
+            : `${binding.workflowId || "workflow"} / ${binding.workflowRunId}`,
+        ),
+      );
+    }
+    if (view.notice && view.notice.code === "session-replaced") {
+      panel.appendChild(
+        el(
+          "div",
+          "error-banner profiler-sensitive-warning acp-trace-notice",
+          `${labelText(labels, "acpTraceSessionReplaced", "A replacement remote session is not being recorded.")} ${view.notice.sessionId || ""}`,
+        ),
+      );
+    }
     const actions = el("div", "toolbar-actions profiler-toolbar-actions");
     if (view.state === "idle") {
       const start = el(
@@ -2990,16 +3029,28 @@
       });
       actions.appendChild(start);
     }
-    if (view.state === "armed" || view.state === "recording") {
-      const stop = el(
+    if (view.state === "recording" && view.canFinish) {
+      const finish = el(
         "button",
         "btn danger",
-        labelText(labels, "acpTraceStop", "Stop / Freeze"),
+        view.activeTurnCount > 0 || view.activeRequestCount > 0
+          ? labelText(
+              labels,
+              "acpTraceFinishAfterTurn",
+              "Finish after Current Turn",
+            )
+          : labelText(labels, "acpTraceFinish", "Finish Recording"),
       );
-      stop.addEventListener("click", function () {
-        sendAction("acp-trace-recorder-stop");
+      finish.addEventListener("click", function () {
+        sendAction("acp-trace-recorder-finish");
       });
-      actions.appendChild(stop);
+      actions.appendChild(finish);
+    }
+    if (
+      view.state === "armed" ||
+      view.state === "recording" ||
+      view.state === "stopping"
+    ) {
       const cancel = el(
         "button",
         "btn",

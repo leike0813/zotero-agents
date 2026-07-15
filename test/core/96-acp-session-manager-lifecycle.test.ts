@@ -69,6 +69,14 @@ import {
   type AcpPermissionOption,
   type AcpSessionConfigOption,
 } from "../helpers/acpSessionManagerHarness";
+import {
+  armAcpRuntimeSemanticTraceRecorder,
+  cancelAcpRuntimeSemanticTraceRecorder,
+  discardAcpRuntimeSemanticTracePartialForTests,
+  finishAcpRuntimeSemanticTraceRoot,
+  getAcpRuntimeSemanticTraceRecorderView,
+} from "../../src/modules/acpRuntimeSemanticTraceRecorder";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
@@ -89,6 +97,131 @@ describe("acp session manager", function () {
     assert.equal(snapshot.sessionId, "");
     assert.equal(snapshot.remoteSessionId, "session-1");
     assert.equal(harness.lastAdapter?.closeCalls, 1);
+  });
+
+  it("claims Chat recording only from an eligible explicit connection", async function () {
+    const traceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-trace-"),
+    );
+    setDebugModeOverrideForTests(true);
+    try {
+      await connectAcpConversation();
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-chat-conversation",
+        root: traceRoot,
+      });
+
+      await connectAcpConversation();
+      await sendAcpConversationPrompt({ message: "Existing session" });
+      assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+        state: "armed",
+        eventCount: 0,
+      });
+
+      await disconnectAcpConversation();
+      await reconnectAcpConversation();
+      const view = getAcpRuntimeSemanticTraceRecorderView();
+      assert.equal(view.state, "recording");
+      assert.deepInclude(view.binding, {
+        sourceKind: "acp-chat-conversation",
+        backendId: getAcpConversationSnapshot().backendId,
+        conversationId: getAcpConversationSnapshot().conversationId,
+        sessionId: getAcpConversationSnapshot().sessionId,
+      });
+      assert.equal(
+        harness.lastAdapter?.semanticTraceContext?.current?.owner.sessionId,
+        getAcpConversationSnapshot().sessionId,
+      );
+      await cancelAcpRuntimeSemanticTraceRecorder();
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+      await fs.rm(traceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("defers Chat finish until the active bound turn becomes terminal", async function () {
+    const traceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-trace-"),
+    );
+    setDebugModeOverrideForTests(true);
+    try {
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-chat-conversation",
+        root: traceRoot,
+      });
+      await connectAcpConversation();
+      await sendAcpConversationPrompt({ message: "Completed turn" });
+      assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+        state: "recording",
+        activeTurnCount: 0,
+        canFinish: true,
+      });
+
+      const releasePrompt = harness.lastAdapter!.holdPrompt();
+      const prompt = sendAcpConversationPrompt({ message: "Active turn" });
+      await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+      assert.deepInclude(await finishAcpRuntimeSemanticTraceRoot(), {
+        state: "stopping",
+        activeTurnCount: 1,
+      });
+      releasePrompt();
+      await prompt;
+      assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+        state: "frozen",
+        completion: "complete",
+        activeTurnCount: 0,
+      });
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+      await fs.rm(traceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the original Chat binding when reconnect attaches a replacement session", async function () {
+    const traceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-trace-"),
+    );
+    setDebugModeOverrideForTests(true);
+    try {
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-chat-conversation",
+        root: traceRoot,
+      });
+      await connectAcpConversation();
+      const originalSessionId = getAcpConversationSnapshot().sessionId;
+      await disconnectAcpConversation();
+      setAcpConnectionAdapterFactoryForTests(async (args) => {
+        const replacement = new FakeAcpConnectionAdapter();
+        replacement.sessionIds.push("existing-seed");
+        replacement.semanticTraceContext = args.semanticTraceContext;
+        harness.lastAdapter = replacement;
+        harness.adapters.add(replacement);
+        return replacement;
+      });
+
+      await reconnectAcpConversation();
+      const replacementSessionId = getAcpConversationSnapshot().sessionId;
+      assert.notEqual(replacementSessionId, originalSessionId);
+      const view = getAcpRuntimeSemanticTraceRecorderView();
+      assert.equal(
+        view.binding?.sourceKind === "acp-chat-conversation"
+          ? view.binding.sessionId
+          : "",
+        originalSessionId,
+      );
+      assert.deepEqual(view.notice, {
+        code: "session-replaced",
+        sessionId: replacementSessionId,
+      });
+      assert.isUndefined(harness.lastAdapter?.semanticTraceContext?.current);
+      await cancelAcpRuntimeSemanticTraceRecorder();
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+      await fs.rm(traceRoot, { recursive: true, force: true });
+    }
   });
 
   it("publishes disconnecting while ACP conversation close is pending", async function () {
@@ -343,20 +476,44 @@ describe("acp session manager", function () {
   });
 
   it("force-closes only the active conversation after the interrupt grace period", async function () {
-    setAcpChatPromptInterruptGraceMsForTests(5);
-    await connectAcpConversation();
-    harness.lastAdapter!.holdPrompt();
-    void sendAcpConversationPrompt({ message: "Ignore cancellation" });
-    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
-    await cancelAcpConversationPrompt();
-
-    const snapshot = await waitForAcpConversationSnapshot(
-      (current) => current.promptInterruptState === "forced",
+    const traceRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-trace-"),
     );
-    assert.equal(snapshot.status, "idle");
-    assert.equal(snapshot.busy, false);
-    assert.equal(snapshot.sessionId, "");
-    assert.equal(snapshot.remoteSessionId, "session-1");
-    assert.equal(harness.lastAdapter?.closeCalls, 1);
+    setDebugModeOverrideForTests(true);
+    try {
+      setAcpChatPromptInterruptGraceMsForTests(5);
+      await armAcpRuntimeSemanticTraceRecorder({
+        sourceKind: "acp-chat-conversation",
+        root: traceRoot,
+      });
+      await connectAcpConversation();
+      await sendAcpConversationPrompt({ message: "Completed before force" });
+      harness.lastAdapter!.holdPrompt();
+      void sendAcpConversationPrompt({ message: "Ignore cancellation" });
+      await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+      assert.equal(
+        (await finishAcpRuntimeSemanticTraceRoot()).state,
+        "stopping",
+      );
+      await cancelAcpConversationPrompt();
+
+      const snapshot = await waitForAcpConversationSnapshot(
+        (current) => current.promptInterruptState === "forced",
+      );
+      assert.equal(snapshot.status, "idle");
+      assert.equal(snapshot.busy, false);
+      assert.equal(snapshot.sessionId, "");
+      assert.equal(snapshot.remoteSessionId, "session-1");
+      assert.equal(harness.lastAdapter?.closeCalls, 1);
+      assert.deepInclude(getAcpRuntimeSemanticTraceRecorderView(), {
+        state: "frozen",
+        completion: "complete",
+        activeTurnCount: 0,
+      });
+    } finally {
+      await discardAcpRuntimeSemanticTracePartialForTests();
+      setDebugModeOverrideForTests();
+      await fs.rm(traceRoot, { recursive: true, force: true });
+    }
   });
 });

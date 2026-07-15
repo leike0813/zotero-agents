@@ -38,13 +38,50 @@ export type AcpRuntimeSemanticTraceRecorderState =
   | "idle"
   | "armed"
   | "recording"
+  | "stopping"
   | "frozen"
   | "saved";
+
+export type AcpRuntimeSemanticTraceBinding =
+  | {
+      sourceKind: "acp-chat-conversation";
+      backendId: string;
+      conversationId: string;
+      sessionId: string;
+      attachKind: "new" | "resume" | "load";
+    }
+  | {
+      sourceKind: "acp-workflow-execution";
+      workflowRunId: string;
+      workflowId?: string;
+    };
+
+export type AcpRuntimeSemanticTraceRecorderNotice = {
+  code: "session-replaced";
+  sessionId: string;
+};
+
+export type AcpRuntimeSemanticTraceClaimAttempt = Readonly<{
+  sourceKind: AcpRuntimeTraceSourceKind;
+  token: string;
+}>;
+
+export type AcpRuntimeSemanticTraceContext = Readonly<{
+  sourceKind: AcpRuntimeTraceSourceKind;
+  rootId: string;
+  token: string;
+}>;
 
 export type AcpRuntimeSemanticTraceRecorderView = {
   state: AcpRuntimeSemanticTraceRecorderState;
   sourceKind?: AcpRuntimeTraceSourceKind;
   rootId?: string;
+  binding?: AcpRuntimeSemanticTraceBinding;
+  activeTurnCount: number;
+  activeRequestCount: number;
+  canFinish: boolean;
+  claiming: boolean;
+  notice?: AcpRuntimeSemanticTraceRecorderNotice;
   eventCount: number;
   contentBytes: number;
   completion?: "complete" | "incomplete";
@@ -89,6 +126,12 @@ function safeTimestamp(nowMs: number) {
 let state: AcpRuntimeSemanticTraceRecorderState = "idle";
 let sourceKind: AcpRuntimeTraceSourceKind | undefined;
 let boundRootId: string | undefined;
+let boundRootOwner: AcpRuntimeTraceOwner | undefined;
+let binding: AcpRuntimeSemanticTraceBinding | undefined;
+let notice: AcpRuntimeSemanticTraceRecorderNotice | undefined;
+let roundToken: string | undefined;
+let boundContext: AcpRuntimeSemanticTraceContext | undefined;
+let claimAttempts = new Set<string>();
 let partialPath: string | undefined;
 let savedPath: string | undefined;
 let folder: string | undefined;
@@ -103,15 +146,35 @@ let startedMonotonicMs = 0;
 let monotonicNow = createAcpRuntimeMonotonicClock();
 let activeTurns = new Set<string>();
 let activeRequests = new Set<string>();
+let registeredRequestActivities = new Map<
+  string,
+  {
+    context: AcpRuntimeSemanticTraceContext;
+    owner: AcpRuntimeTraceOwner;
+  }
+>();
+let completedActivityCount = 0;
+let pendingFinishPayload: unknown;
+let finishWaiters: Array<(view: AcpRuntimeSemanticTraceRecorderView) => void> =
+  [];
 let writeChain: Promise<void> = Promise.resolve();
 let footerWritten = false;
 let recorderNonce = 0;
+let tokenNonce = 0;
 
 function recorderView(): AcpRuntimeSemanticTraceRecorderView {
   return {
     state,
     ...(sourceKind ? { sourceKind } : {}),
     ...(boundRootId ? { rootId: boundRootId } : {}),
+    ...(binding ? { binding: { ...binding } } : {}),
+    activeTurnCount: activeTurns.size,
+    activeRequestCount: activeRequests.size,
+    canFinish:
+      (state === "recording" || state === "stopping") &&
+      completedActivityCount > 0,
+    claiming: state === "armed" && claimAttempts.size > 0,
+    ...(notice ? { notice: { ...notice } } : {}),
     eventCount,
     contentBytes,
     ...(completion ? { completion } : {}),
@@ -133,7 +196,13 @@ function freezeIncomplete(warning: AcpRuntimeSemanticTraceWarning) {
   }
   completion = "incomplete";
   state = "frozen";
+  roundToken = undefined;
+  boundContext = undefined;
+  claimAttempts.clear();
+  registeredRequestActivities.clear();
   releaseAcpRuntimeDiagnosticsMode("recording");
+  const view = recorderView();
+  for (const resolve of finishWaiters.splice(0)) resolve(view);
 }
 
 export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
@@ -154,10 +223,21 @@ export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
     warnings = [];
     completion = undefined;
     boundRootId = undefined;
+    boundRootOwner = undefined;
+    binding = undefined;
+    notice = undefined;
+    tokenNonce += 1;
+    roundToken = `round-${recorderNonce + 1}-${tokenNonce}`;
+    boundContext = undefined;
+    claimAttempts = new Set();
     partialPath = undefined;
     savedPath = undefined;
     activeTurns = new Set();
     activeRequests = new Set();
+    registeredRequestActivities = new Map();
+    completedActivityCount = 0;
+    pendingFinishPayload = undefined;
+    finishWaiters = [];
     writeChain = Promise.resolve();
     footerWritten = false;
     monotonicNow = options.monotonicNow || createAcpRuntimeMonotonicClock();
@@ -190,27 +270,36 @@ export async function armAcpRuntimeSemanticTraceRecorder(options: ArmOptions) {
 }
 
 function ownerActivityKey(owner: AcpRuntimeTraceOwner) {
-  return owner.turnId || owner.requestId || owner.sessionId || owner.rootId;
+  return owner.turnId || owner.requestId;
 }
 
-export async function recordAcpRuntimeSemanticTraceEvent(
-  input: AcpRuntimeSemanticTraceEventInput,
-) {
-  if (state !== "armed" && state !== "recording") return false;
-  if (!sourceKind || input.sourceKind !== sourceKind) return false;
-  if (!input.owner?.rootId) {
-    freezeIncomplete({ code: "unowned-event" });
+function isLiveContext(
+  context: AcpRuntimeSemanticTraceContext | undefined,
+): context is AcpRuntimeSemanticTraceContext {
+  return Boolean(
+    context &&
+    boundContext &&
+    context.token === boundContext.token &&
+    context.sourceKind === boundContext.sourceKind &&
+    context.rootId === boundContext.rootId,
+  );
+}
+
+function eventMatchesBinding(input: AcpRuntimeSemanticTraceEventInput) {
+  if (!binding || input.sourceKind !== binding.sourceKind) return false;
+  if (input.owner.rootId !== boundRootId) return false;
+  if (
+    binding.sourceKind === "acp-chat-conversation" &&
+    input.owner.sessionId !== binding.sessionId
+  ) {
     return false;
   }
-  if (!boundRootId) {
-    if (input.kind !== "root-start") {
-      freezeIncomplete({ code: "mid-turn-start" });
-      return false;
-    }
-    boundRootId = input.owner.rootId;
-    state = "recording";
-  }
-  if (input.owner.rootId !== boundRootId) return false;
+  return true;
+}
+
+async function appendAcpRuntimeSemanticTraceEvent(
+  input: AcpRuntimeSemanticTraceEventInput,
+) {
   const event: AcpRuntimeSemanticTraceEvent = {
     record: "event",
     seq: eventCount + 1,
@@ -233,13 +322,6 @@ export async function recordAcpRuntimeSemanticTraceEvent(
   }
   eventCount += 1;
   contentBytes += eventBytes;
-  const activityKey = ownerActivityKey(input.owner);
-  if (input.kind === "turn-start") activeTurns.add(activityKey);
-  if (input.kind === "turn-end") activeTurns.delete(activityKey);
-  if (input.kind === "request-start") activeRequests.add(activityKey);
-  if (input.kind === "request-end" || input.kind === "terminal") {
-    activeRequests.delete(activityKey);
-  }
   writeChain = writeChain
     .then(async () => {
       if (partialPath) await appendRuntimeTextFile(partialPath, eventLine);
@@ -251,15 +333,237 @@ export async function recordAcpRuntimeSemanticTraceEvent(
       });
     });
   await writeChain;
-  return state === "recording";
+  return state !== "frozen";
+}
+
+export function beginAcpRuntimeSemanticTraceClaimAttempt(
+  attemptSourceKind: AcpRuntimeTraceSourceKind,
+) {
+  if (
+    state !== "armed" ||
+    !roundToken ||
+    !sourceKind ||
+    attemptSourceKind !== sourceKind
+  ) {
+    return undefined;
+  }
+  tokenNonce += 1;
+  const token = `${roundToken}:claim-${tokenNonce}`;
+  claimAttempts.add(token);
+  return Object.freeze({ sourceKind: attemptSourceKind, token });
+}
+
+export function abandonAcpRuntimeSemanticTraceClaimAttempt(
+  attempt: AcpRuntimeSemanticTraceClaimAttempt | undefined,
+) {
+  if (!attempt) return false;
+  return claimAttempts.delete(attempt.token);
+}
+
+export async function claimAcpRuntimeSemanticTraceRoot(args: {
+  attempt: AcpRuntimeSemanticTraceClaimAttempt;
+  binding: AcpRuntimeSemanticTraceBinding;
+  owner: AcpRuntimeTraceOwner;
+  payload: unknown;
+}) {
+  if (
+    state !== "armed" ||
+    !roundToken ||
+    boundContext ||
+    !claimAttempts.has(args.attempt.token) ||
+    args.attempt.sourceKind !== sourceKind ||
+    args.binding.sourceKind !== sourceKind ||
+    !args.owner.rootId
+  ) {
+    return undefined;
+  }
+  if (
+    args.binding.sourceKind === "acp-chat-conversation" &&
+    (args.owner.conversationId !== args.binding.conversationId ||
+      args.owner.sessionId !== args.binding.sessionId)
+  ) {
+    return undefined;
+  }
+  if (
+    args.binding.sourceKind === "acp-workflow-execution" &&
+    args.owner.workflowRunId !== args.binding.workflowRunId
+  ) {
+    return undefined;
+  }
+  const context = Object.freeze({
+    sourceKind: args.attempt.sourceKind,
+    rootId: args.owner.rootId,
+    token: `${roundToken}:root-${tokenNonce}`,
+  });
+  claimAttempts.clear();
+  boundRootId = args.owner.rootId;
+  boundRootOwner = { ...args.owner };
+  binding = { ...args.binding } as AcpRuntimeSemanticTraceBinding;
+  boundContext = context;
+  state = "recording";
+  const appended = await appendAcpRuntimeSemanticTraceEvent({
+    kind: "root-start",
+    sourceKind: context.sourceKind,
+    owner: boundRootOwner,
+    payload: args.payload,
+  });
+  return appended ? context : undefined;
+}
+
+export function noticeAcpRuntimeSemanticTraceSessionReplacement(args: {
+  context: AcpRuntimeSemanticTraceContext;
+  sessionId: string;
+}) {
+  if (
+    !isLiveContext(args.context) ||
+    binding?.sourceKind !== "acp-chat-conversation" ||
+    args.sessionId === binding.sessionId
+  ) {
+    return false;
+  }
+  notice = { code: "session-replaced", sessionId: args.sessionId };
+  return true;
+}
+
+async function completeAcpRuntimeSemanticTraceRoot(payload: unknown) {
+  if (
+    !boundContext ||
+    !boundRootOwner ||
+    completedActivityCount < 1 ||
+    activeTurns.size > 0 ||
+    activeRequests.size > 0 ||
+    footerWritten
+  ) {
+    return recorderView();
+  }
+  const appended = await appendAcpRuntimeSemanticTraceEvent({
+    kind: "root-end",
+    sourceKind: boundContext.sourceKind,
+    owner: boundRootOwner,
+    payload,
+  });
+  if (!appended) return recorderView();
+  completion = warnings.length > 0 ? "incomplete" : "complete";
+  state = "frozen";
+  roundToken = undefined;
+  boundContext = undefined;
+  claimAttempts.clear();
+  registeredRequestActivities.clear();
+  releaseAcpRuntimeDiagnosticsMode("recording");
+  await finalizeAcpRuntimeSemanticTracePartial();
+  const view = recorderView();
+  for (const resolve of finishWaiters.splice(0)) resolve(view);
+  return view;
+}
+
+export async function recordAcpRuntimeSemanticTraceEvent(
+  context: AcpRuntimeSemanticTraceContext | undefined,
+  input: AcpRuntimeSemanticTraceEventInput,
+) {
+  if (state !== "recording" && state !== "stopping") return false;
+  if (!isLiveContext(context) || !eventMatchesBinding(input)) return false;
+  if (input.kind === "root-start" || input.kind === "root-end") return false;
+  const activityKey = ownerActivityKey(input.owner);
+  if (input.kind === "turn-start") {
+    if (state === "stopping" || !activityKey || activeTurns.has(activityKey)) {
+      return false;
+    }
+    activeTurns.add(activityKey);
+  } else if (input.kind === "request-start") {
+    if (
+      state === "stopping" ||
+      !activityKey ||
+      activeRequests.has(activityKey)
+    ) {
+      return false;
+    }
+    activeRequests.add(activityKey);
+    registeredRequestActivities.set(activityKey, {
+      context,
+      owner: { ...input.owner },
+    });
+  } else if (input.kind === "turn-end") {
+    if (!activityKey || !activeTurns.delete(activityKey)) return false;
+    completedActivityCount += 1;
+  } else if (input.kind === "request-end") {
+    if (!activityKey || !activeRequests.delete(activityKey)) return false;
+    registeredRequestActivities.delete(activityKey);
+    completedActivityCount += 1;
+  }
+  const appended = await appendAcpRuntimeSemanticTraceEvent(input);
+  if (
+    appended &&
+    state === "stopping" &&
+    activeTurns.size === 0 &&
+    activeRequests.size === 0
+  ) {
+    await completeAcpRuntimeSemanticTraceRoot(pendingFinishPayload);
+  }
+  return appended;
+}
+
+export async function recordAcpRuntimeSemanticTraceRequestTerminal(args: {
+  requestId: string;
+  payload: unknown;
+}) {
+  const registered = registeredRequestActivities.get(args.requestId);
+  if (!registered) return false;
+  if (
+    !isLiveContext(registered.context) ||
+    !eventMatchesBinding({
+      kind: "terminal",
+      sourceKind: "acp-workflow-execution",
+      owner: registered.owner,
+      payload: args.payload,
+    })
+  ) {
+    return false;
+  }
+  const terminalRecorded = await appendAcpRuntimeSemanticTraceEvent({
+    kind: "terminal",
+    sourceKind: "acp-workflow-execution",
+    owner: registered.owner,
+    payload: args.payload,
+  });
+  if (!terminalRecorded) return false;
+  const ended = await recordAcpRuntimeSemanticTraceEvent(registered.context, {
+    kind: "request-end",
+    sourceKind: "acp-workflow-execution",
+    owner: registered.owner,
+    payload: args.payload,
+  });
+  return ended;
+}
+
+export async function settleAcpRuntimeSemanticTraceOpenRequests(args: {
+  context: AcpRuntimeSemanticTraceContext;
+  payload: unknown;
+}) {
+  if (!isLiveContext(args.context)) return 0;
+  const requestIds = [...registeredRequestActivities.entries()]
+    .filter(([, entry]) => entry.context.token === args.context.token)
+    .map(([requestId]) => requestId);
+  let settled = 0;
+  for (const requestId of requestIds) {
+    if (
+      await recordAcpRuntimeSemanticTraceRequestTerminal({
+        requestId,
+        payload: args.payload,
+      })
+    ) {
+      settled += 1;
+    }
+  }
+  return settled;
 }
 
 export function recordAcpSessionNotificationForTrace(args: {
+  context?: AcpRuntimeSemanticTraceContext;
   sourceKind: AcpRuntimeTraceSourceKind;
   owner: AcpRuntimeTraceOwner;
   notification: SessionNotification;
 }) {
-  return recordAcpRuntimeSemanticTraceEvent({
+  return recordAcpRuntimeSemanticTraceEvent(args.context, {
     kind: "session-notification",
     sourceKind: args.sourceKind,
     owner: args.owner,
@@ -297,22 +601,34 @@ async function finalizeAcpRuntimeSemanticTracePartial() {
   }
 }
 
-export async function stopAcpRuntimeSemanticTraceRecorder() {
-  if (state !== "armed" && state !== "recording") return recorderView();
-  await writeChain;
-  if (state === "armed" || activeTurns.size > 0 || activeRequests.size > 0) {
-    freezeIncomplete({ code: "active-owner" });
-  } else {
-    completion = warnings.length > 0 ? "incomplete" : "complete";
-    state = "frozen";
-    releaseAcpRuntimeDiagnosticsMode("recording");
+export async function finishAcpRuntimeSemanticTraceRoot(args?: {
+  context?: AcpRuntimeSemanticTraceContext;
+  payload?: unknown;
+  waitForActivities?: boolean;
+}) {
+  if (state !== "recording" && state !== "stopping") {
+    return recorderView();
   }
-  await finalizeAcpRuntimeSemanticTracePartial();
-  return recorderView();
+  if (args?.context && !isLiveContext(args.context)) return recorderView();
+  await writeChain;
+  if (completedActivityCount < 1) return recorderView();
+  pendingFinishPayload = args?.payload ?? { outcome: "complete" };
+  if (activeTurns.size > 0 || activeRequests.size > 0) {
+    state = "stopping";
+    if (args?.waitForActivities) {
+      return new Promise<AcpRuntimeSemanticTraceRecorderView>((resolve) => {
+        finishWaiters.push(resolve);
+      });
+    }
+    return recorderView();
+  }
+  return completeAcpRuntimeSemanticTraceRoot(pendingFinishPayload);
 }
 
 export async function cancelAcpRuntimeSemanticTraceRecorder() {
-  if (state !== "armed" && state !== "recording") return recorderView();
+  if (state !== "armed" && state !== "recording" && state !== "stopping") {
+    return recorderView();
+  }
   await writeChain;
   freezeIncomplete({ code: "user-canceled" });
   await finalizeAcpRuntimeSemanticTracePartial();
@@ -342,7 +658,7 @@ export async function saveFrozenAcpRuntimeSemanticTrace() {
 }
 
 export async function resetAcpRuntimeSemanticTraceRecorder() {
-  if (state === "armed" || state === "recording") {
+  if (state === "armed" || state === "recording" || state === "stopping") {
     throw new Error(
       "Active ACP semantic trace recording must be canceled first",
     );
@@ -360,6 +676,12 @@ export async function resetAcpRuntimeSemanticTraceRecorder() {
   state = "idle";
   sourceKind = undefined;
   boundRootId = undefined;
+  boundRootOwner = undefined;
+  binding = undefined;
+  notice = undefined;
+  roundToken = undefined;
+  boundContext = undefined;
+  claimAttempts.clear();
   partialPath = undefined;
   savedPath = undefined;
   folder = undefined;
@@ -370,6 +692,10 @@ export async function resetAcpRuntimeSemanticTraceRecorder() {
   completion = undefined;
   activeTurns.clear();
   activeRequests.clear();
+  registeredRequestActivities.clear();
+  completedActivityCount = 0;
+  pendingFinishPayload = undefined;
+  finishWaiters = [];
   writeChain = Promise.resolve();
   footerWritten = false;
   return recorderView();
@@ -381,6 +707,12 @@ export async function shutdownAcpRuntimeSemanticTraceRecorder() {
   state = "idle";
   sourceKind = undefined;
   boundRootId = undefined;
+  boundRootOwner = undefined;
+  binding = undefined;
+  notice = undefined;
+  roundToken = undefined;
+  boundContext = undefined;
+  claimAttempts.clear();
   partialPath = undefined;
   savedPath = undefined;
   folder = undefined;
@@ -391,6 +723,10 @@ export async function shutdownAcpRuntimeSemanticTraceRecorder() {
   completion = undefined;
   activeTurns.clear();
   activeRequests.clear();
+  registeredRequestActivities.clear();
+  completedActivityCount = 0;
+  pendingFinishPayload = undefined;
+  finishWaiters = [];
   writeChain = Promise.resolve();
   footerWritten = false;
 }

@@ -45,6 +45,14 @@ function fixtureTrace(
     | "acp-chat-conversation"
     | "acp-workflow-execution" = "acp-chat-conversation",
 ): AcpRuntimeSemanticTraceDocument {
+  const rootOwner =
+    sourceKind === "acp-chat-conversation"
+      ? { rootId: "source-root", conversationId: "source-chat" }
+      : { rootId: "source-root", workflowRunId: "source-run" };
+  const activityOwner =
+    sourceKind === "acp-chat-conversation"
+      ? { ...rootOwner, turnId: "source-turn" }
+      : { ...rootOwner, requestId: "source-request" };
   return {
     header: {
       record: "header",
@@ -59,20 +67,28 @@ function fixtureTrace(
         monotonicOffsetMs: 0,
         kind: "root-start",
         sourceKind,
-        owner: { rootId: "source-root", conversationId: "source-chat" },
+        owner: rootOwner,
         payload: { toolCallId: "semantic-id-stays-stable" },
       },
       {
         record: "event",
         seq: 2,
+        monotonicOffsetMs: 1,
+        kind:
+          sourceKind === "acp-chat-conversation"
+            ? "turn-start"
+            : "request-start",
+        sourceKind,
+        owner: activityOwner,
+        payload: {},
+      },
+      {
+        record: "event",
+        seq: 3,
         monotonicOffsetMs: 5,
         kind: "session-notification",
         sourceKind,
-        owner: {
-          rootId: "source-root",
-          conversationId: "source-chat",
-          turnId: "source-turn",
-        },
+        owner: activityOwner,
         payload: {
           sessionId: "source-session",
           update: {
@@ -81,10 +97,29 @@ function fixtureTrace(
           },
         },
       },
+      {
+        record: "event",
+        seq: 4,
+        monotonicOffsetMs: 6,
+        kind:
+          sourceKind === "acp-chat-conversation" ? "turn-end" : "request-end",
+        sourceKind,
+        owner: activityOwner,
+        payload: { outcome: "complete" },
+      },
+      {
+        record: "event",
+        seq: 5,
+        monotonicOffsetMs: 7,
+        kind: "root-end",
+        sourceKind,
+        owner: rootOwner,
+        payload: { outcome: "complete" },
+      },
     ],
     footer: {
       record: "footer",
-      eventCount: 2,
+      eventCount: 5,
       contentBytes: 100,
       sha256: "a".repeat(64),
       completion: "complete",
@@ -126,7 +161,7 @@ function measuredProfile(args: {
     startedAtMs: 100,
     finishedAtMs: 110,
     metrics: [
-      counter("semantic_event", 2),
+      counter("semantic_event", 5),
       counter("host_input_fragment", 33),
       counter("host_input_bytes", 536),
       {
@@ -244,7 +279,7 @@ describe("ACP runtime replay profiler", function () {
               (event.payload as any).toolCallId,
               "semantic-id-stays-stable",
             );
-          } else {
+          } else if (event.kind === "session-notification") {
             assert.equal(transcriptBoundary, "soft-side-channel");
           }
           now += 7;
@@ -258,8 +293,18 @@ describe("ACP runtime replay profiler", function () {
         now += delay;
       },
     });
-    assert.deepEqual(recordedOrder, ["apply-1", "sleep-5", "apply-2"]);
-    assert.equal(recorded.appliedEvents, 2);
+    assert.deepEqual(recordedOrder, [
+      "apply-1",
+      "sleep-1",
+      "apply-2",
+      "sleep-4",
+      "apply-3",
+      "sleep-1",
+      "apply-4",
+      "sleep-1",
+      "apply-5",
+    ]);
+    assert.equal(recorded.appliedEvents, 5);
     assert.equal(recorded.completion, "complete");
 
     const burstWaits: number[] = [];
@@ -306,10 +351,19 @@ describe("ACP runtime replay profiler", function () {
       "advance-0",
       "apply-1",
       "capture-0",
-      "advance-5",
+      "advance-1",
       "apply-2",
+      "capture-1",
+      "advance-5",
+      "apply-3",
       "capture-5",
-      "release-5",
+      "advance-6",
+      "apply-4",
+      "capture-6",
+      "advance-7",
+      "apply-5",
+      "capture-7",
+      "release-7",
       "drain",
     ]);
     assert.equal(logical.completion, "complete");
@@ -414,7 +468,7 @@ describe("ACP runtime replay profiler", function () {
       cadence: "burst",
     });
     assert.equal(unknown.completion, "incomplete");
-    assert.equal(unknown.unknownEvents, 2);
+    assert.equal(unknown.unknownEvents, 5);
 
     const failed = await replayAcpRuntimeSemanticTrace({
       trace: fixtureTrace(),

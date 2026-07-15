@@ -9207,6 +9207,9 @@ describe("acp ui smoke", function () {
     assert.notInclude(assistantWorkspaceJs, "performanceProfiles");
     assert.notInclude(assistantWorkspaceJs, "runtimePerformanceProfiles");
     assert.notInclude(assistantWorkspaceJs, "acpRuntimeProfiler");
+    assert.notInclude(signatureSource, "acpTraceRecorderView");
+    assert.notInclude(acpSkillRunJs, "acpTraceRecorderView");
+    assert.notInclude(assistantWorkspaceJs, "acpTraceRecorderView");
 
     const chromeStart = taskManagerDialog.indexOf(
       "function dashboardChromeSignatureInput",
@@ -9264,6 +9267,15 @@ describe("acp ui smoke", function () {
     assert.notInclude(recorderRenderSource, "Copy JSON");
     assert.notInclude(recorderRenderSource, "clipboard");
     assert.include(recorderRenderSource, "sensitive data");
+    assert.include(recorderRenderSource, "view.binding");
+    assert.include(recorderRenderSource, "view.activeTurnCount");
+    assert.include(recorderRenderSource, "view.activeRequestCount");
+    assert.include(recorderRenderSource, "view.notice");
+    assert.include(recorderRenderSource, 'view.state === "stopping"');
+    assert.include(
+      recorderRenderSource,
+      'sendAction("acp-trace-recorder-finish"',
+    );
     assert.include(replayRenderSource, "Run Nine-Replay Matrix");
     assert.include(replayRenderSource, '["recorded", "logical", "burst"]');
     assert.include(replayRenderSource, 'view.cadence || "logical"');

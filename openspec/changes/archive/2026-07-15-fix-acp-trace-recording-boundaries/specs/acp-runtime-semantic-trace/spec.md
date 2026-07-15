@@ -1,9 +1,4 @@
-# acp-runtime-semantic-trace Specification
-
-## Purpose
-Source-bound, lossless semantic trace capture for ACP runtime sessions. The recorder persists complete semantic event streams (Chat and Workflow) as local NDJSON traces that serve as the input for backend-free replay profiling. Traces are debug-only, isolated from the production code path, and expose no egress workflow.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Semantic traces are source-bound and lossless
 
@@ -63,40 +58,6 @@ The recorder SHALL implement `idle`, `armed`, `recording`, `stopping`, `frozen`,
 - **WHEN** the trace reaches its configured byte, event, or per-event limit
 - **THEN** recording SHALL freeze immediately as incomplete
 - **AND** no observed event SHALL be silently discarded while recording continues.
-
-### Requirement: Trace persistence is bounded, atomic, and local
-
-The default limits SHALL be 256 MiB, 250,000 events, and 16 MiB per event, with only lower pre-start Dashboard overrides. Records SHALL stream as buffered NDJSON to a permission-restricted `.partial` file and SHALL be atomically renamed only after sequence, count, byte, SHA-256, and footer validation.
-
-#### Scenario: Partial file survives a crash
-- **WHEN** the host exits before finalization
-- **THEN** the `.partial` file SHALL remain available for recovery diagnostics
-- **AND** it SHALL NOT be accepted as a complete baseline trace.
-
-#### Scenario: Corrupt trace is loaded
-- **WHEN** sequence, footer, count, byte, or digest validation fails
-- **THEN** the trace SHALL be rejected with a structured validation result.
-
-### Requirement: Trace recorder is isolated and source-elided
-
-The recorder SHALL be debug-only, SHALL have an independent hard-coded source switch, SHALL remain mutually exclusive with replay, and SHALL contribute zero runtime bytes when debug mode or its source switch is disabled. Production and source-disabled bundles SHALL also eliminate trace owner/context construction, semantic-update property reads performed only for tracing, empty recorder method calls, recorder-only runtime markers, and trace-exclusive imports from ACP hot paths. The semantic trace document/parser module MAY remain in a recorder-disabled debug build only when independently enabled Replay requires it as input validation.
-
-#### Scenario: Capture is active
-
-- **WHEN** a semantic trace is recording
-- **THEN** runtime profiling SHALL remain disabled.
-
-#### Scenario: Recorder source is disabled
-
-- **WHEN** a production bundle or recorder-disabled debug bundle is built
-- **THEN** recorder code, recorder-only markers, state, owner/context construction, trace-only update reads, recorder calls, and hot-path branches SHALL be absent
-- **AND** shared trace schema/parser code SHALL remain only when independently enabled Replay consumes it.
-
-#### Scenario: Real ACP entry is compiled for production
-
-- **WHEN** release-elision verification compiles the real plugin entry with `__debug_mode__` set to false
-- **THEN** every semantic-trace exclusive module, including its schema, SHALL contribute zero output bytes
-- **AND** no trace recorder call or trace owner/context runtime marker SHALL remain in the output.
 
 ### Requirement: Raw traces expose no egress workflow
 

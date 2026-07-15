@@ -58,6 +58,7 @@ import {
 import {
   recordAcpRuntimeSemanticTraceEvent,
   recordAcpSessionNotificationForTrace,
+  type AcpRuntimeSemanticTraceContext,
 } from "./acpRuntimeSemanticTraceRecorder";
 
 export type AcpConnectionUpdate = SessionNotification;
@@ -89,18 +90,34 @@ export type AcpConnectionAdapterFactoryArgs = {
   mcpCompatibilityMode?: AcpMcpCompatibilityMode;
   diagnosticCapture?: AcpTransportDiagnosticCaptureOptions;
   performanceProfileRequestId?: string;
-  semanticTraceContext?: {
-    sourceKind: AcpRuntimeTraceSourceKind;
-    owner: AcpRuntimeTraceOwner;
-  };
+  semanticTraceContext?: AcpConnectionSemanticTraceContext;
 };
 
-type AcpConnectionSemanticTraceContext = NonNullable<
-  AcpConnectionAdapterFactoryArgs["semanticTraceContext"]
->;
+export type AcpConnectionSemanticTraceBinding = {
+  context: AcpRuntimeSemanticTraceContext;
+  sourceKind: AcpRuntimeTraceSourceKind;
+  owner: AcpRuntimeTraceOwner;
+};
+
+export type AcpConnectionSemanticTraceContext = {
+  current?: AcpConnectionSemanticTraceBinding;
+};
+
+function mergeAcpRuntimeTraceOwner(
+  owner: AcpRuntimeTraceOwner,
+  overrides: Partial<AcpRuntimeTraceOwner> | undefined,
+) {
+  const merged = { ...owner };
+  for (const [key, value] of Object.entries(overrides || {})) {
+    if (value !== undefined) {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
+  return merged;
+}
 
 function recordAcpConnectionSemanticEvent(args: {
-  context?: AcpConnectionSemanticTraceContext;
+  context?: AcpConnectionSemanticTraceBinding;
   kind:
     | "diagnostic"
     | "permission-request"
@@ -110,26 +127,26 @@ function recordAcpConnectionSemanticEvent(args: {
   owner?: Partial<AcpRuntimeTraceOwner>;
 }) {
   if (!args.context) return;
-  void recordAcpRuntimeSemanticTraceEvent({
+  void recordAcpRuntimeSemanticTraceEvent(args.context.context, {
     kind: args.kind,
     sourceKind: args.context.sourceKind,
-    owner: { ...args.context.owner, ...args.owner },
+    owner: mergeAcpRuntimeTraceOwner(args.context.owner, args.owner),
     payload: args.payload,
   });
 }
 
 async function recordAcpConnectionSessionNotification(args: {
-  context?: AcpConnectionSemanticTraceContext;
+  context?: AcpConnectionSemanticTraceBinding;
   sessionId?: string;
   notification: SessionNotification;
 }) {
   if (!args.context) return;
   await recordAcpSessionNotificationForTrace({
+    context: args.context.context,
     sourceKind: args.context.sourceKind,
-    owner: {
-      ...args.context.owner,
+    owner: mergeAcpRuntimeTraceOwner(args.context.owner, {
       sessionId: args.sessionId,
-    },
+    }),
     notification: args.notification,
   });
 }
@@ -516,7 +533,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         : __debug_mode__)
     ) {
       recordAcpConnectionSemanticEvent({
-        context: this.args.semanticTraceContext,
+        context: this.args.semanticTraceContext?.current,
         kind: "diagnostic",
         owner: { sessionId: this.currentSessionId || undefined },
         payload,
@@ -717,7 +734,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         : __debug_mode__)
     ) {
       await recordAcpConnectionSessionNotification({
-        context: this.args.semanticTraceContext,
+        context: this.args.semanticTraceContext?.current,
         sessionId: sessionId || undefined,
         notification: params,
       });
@@ -1015,7 +1032,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
           : __debug_mode__)
       ) {
         recordAcpConnectionSemanticEvent({
-          context: this.args.semanticTraceContext,
+          context: this.args.semanticTraceContext?.current,
           kind: "permission-request",
           owner: { sessionId: this.currentSessionId || undefined },
           payload: pending,
@@ -1032,7 +1049,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         : __debug_mode__)
     ) {
       recordAcpConnectionSemanticEvent({
-        context: this.args.semanticTraceContext,
+        context: this.args.semanticTraceContext?.current,
         kind: "permission-outcome",
         owner: { sessionId: this.currentSessionId || undefined },
         payload: outcome,
@@ -1066,7 +1083,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
         : __debug_mode__)
     ) {
       recordAcpConnectionSemanticEvent({
-        context: this.args.semanticTraceContext,
+        context: this.args.semanticTraceContext?.current,
         kind: "connection-close",
         owner: { sessionId: this.currentSessionId || undefined },
         payload: event || {},
@@ -1183,7 +1200,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
                 : __debug_mode__)
             ) {
               recordAcpConnectionSemanticEvent({
-                context: this.args.semanticTraceContext,
+                context: this.args.semanticTraceContext?.current,
                 kind: "permission-request",
                 owner: {
                   sessionId: String(params.sessionId || "").trim() || undefined,
@@ -1203,7 +1220,7 @@ class NativeAcpConnectionAdapter implements AcpConnectionAdapter {
             : __debug_mode__)
         ) {
           recordAcpConnectionSemanticEvent({
-            context: this.args.semanticTraceContext,
+            context: this.args.semanticTraceContext?.current,
             kind: "permission-outcome",
             owner: {
               sessionId: String(params.sessionId || "").trim() || undefined,

@@ -382,10 +382,19 @@ describe("ACP runtime replay logical time", function () {
         {
           record: "event" as const,
           seq: 2,
+          monotonicOffsetMs: 1,
+          sourceKind: "acp-chat-conversation" as const,
+          kind: "turn-start" as const,
+          owner: { ...owner, turnId: "source-turn" },
+          payload: {},
+        },
+        {
+          record: "event" as const,
+          seq: 3,
           monotonicOffsetMs: 10,
           sourceKind: "acp-chat-conversation" as const,
           kind: "session-notification" as const,
-          owner,
+          owner: { ...owner, turnId: "source-turn" },
           payload: {
             sessionId: "source-session",
             update: {
@@ -397,17 +406,35 @@ describe("ACP runtime replay logical time", function () {
         },
         {
           record: "event" as const,
-          seq: 3,
+          seq: 4,
           monotonicOffsetMs: 200,
           sourceKind: "acp-chat-conversation" as const,
           kind: "diagnostic" as const,
-          owner,
+          owner: { ...owner, turnId: "source-turn" },
           payload: {},
+        },
+        {
+          record: "event" as const,
+          seq: 5,
+          monotonicOffsetMs: 201,
+          sourceKind: "acp-chat-conversation" as const,
+          kind: "turn-end" as const,
+          owner: { ...owner, turnId: "source-turn" },
+          payload: { outcome: "complete" },
+        },
+        {
+          record: "event" as const,
+          seq: 6,
+          monotonicOffsetMs: 202,
+          sourceKind: "acp-chat-conversation" as const,
+          kind: "root-end" as const,
+          owner,
+          payload: { outcome: "complete" },
         },
       ],
       footer: {
         record: "footer" as const,
-        eventCount: 3,
+        eventCount: 6,
         contentBytes: 3,
         sha256: "b".repeat(64),
         completion: "complete" as const,
@@ -430,8 +457,8 @@ describe("ACP runtime replay logical time", function () {
     assert.equal(replay.completion, "complete");
     assert.deepEqual(replay.warnings, []);
     assert.deepEqual(waits, []);
-    assert.equal(replay.projectedEvents, 1);
-    assert.equal(replay.consumedNoopEvents, 2);
+    assert.equal(replay.projectedEvents, 2);
+    assert.equal(replay.consumedNoopEvents, 4);
   });
 
   it("fails closed when a target-active Workspace timer has no owned host", function () {

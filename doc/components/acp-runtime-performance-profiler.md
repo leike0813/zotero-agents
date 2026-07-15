@@ -33,16 +33,38 @@ sensitive local data.
 ## Recorder Contract
 
 Select `ACP Chat conversation` or `ACP Workflow execution` before arming. The
-first complete matching root binds the recorder. Chat traces may contain many
-turns. Workflow traces retain the workflow/run/job/stage/request hierarchy and
-interleaving.
+recorder then waits for an eligible source-owned claim. Chat binds only after
+the next user-initiated Connect or Reconnect successfully creates, resumes, or
+loads a remote session; an already-live session, an implicit prompt connection,
+background recovery, and connection-time events cannot claim it. The binding is
+fixed to backend, local conversation, and remote session. A reconnect to the
+same remote session continues capture, while a replacement session is ignored
+and shown as a non-fatal Dashboard notice. Chat traces may contain many turns.
 
-The state sequence is `idle -> armed -> recording -> frozen -> saved`. Events
-carry consecutive sequence numbers and monotonic offsets. NDJSON is buffered to
-`.partial`; Stop flushes and checks event count, UTF-8 byte count, SHA-256, and
-footer before an atomic rename. A crash leaves the partial file for diagnosis.
-Mid-turn starts, active requests at Stop, write/integrity failure, or quota
-failure produce an incomplete trace that replay rejects.
+Workflow capture binds only when a new top-level execution has at least one
+executable ACP request. Its root is the canonical workflow execution `runId`;
+ordinary requests and every concrete sequence stage retain their existing
+public identities while sharing that one transient recording root. Recovery
+and zero-request executions cannot claim an armed recorder.
+
+The state sequence is
+`idle -> armed -> recording -> stopping -> frozen -> saved`. Events carry
+consecutive sequence numbers and monotonic offsets. A complete trace starts
+with exactly one `root-start`, ends with exactly one `root-end`, and contains at
+least one paired turn or request activity. NDJSON is buffered to `.partial`;
+Finish appends the root end, checks event count, UTF-8 byte count, SHA-256, and
+footer, then enables the atomic save rename. A crash leaves the partial file for
+diagnosis. Pre-claim events are ignored. Write/integrity or quota failure
+produces an incomplete trace that replay rejects.
+
+Chat Finish becomes available only after one turn completes. If another turn
+is active, Finish enters `stopping`, rejects a new turn, and freezes after the
+active turn terminal is recorded. Cancel is always available and preserves an
+incomplete partial. Workflow capture closes request activity at terminal and
+automatically finishes after the execution queue becomes idle, before the
+workflow apply seam. A failed or canceled workflow can still be
+capture-complete because business outcome and event-stream completeness are
+separate.
 
 Cancel drains buffered writes, writes an incomplete `user-canceled` footer,
 releases diagnostic ownership, and preserves the `.partial` file. Frozen
@@ -192,7 +214,9 @@ allocation, or module initialization.
 ## Manual Zotero Acceptance
 
 Capture one real multi-turn Chat trace and one real multi-stage Workflow trace
-in Zotero. For each host, verify save-to-Replay handoff, live nine-record
+in Zotero. Exercise explicit new/resume/load binding, same-session reconnect,
+disconnect recovery, the replacement-session notice, Finish during an active
+turn, and automatic Workflow completion. For each host, verify save-to-Replay handoff, live nine-record
 progress, cancellation with an incomplete result, retry with fresh owners, and
 a second recording round without restart. Replay without a running backend and
 confirm a stable trace digest, correct surface attribution, and Workspace state

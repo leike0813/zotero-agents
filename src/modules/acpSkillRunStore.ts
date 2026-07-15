@@ -60,7 +60,7 @@ import {
   observeAcpRuntimeDuration,
   readAcpRuntimePerformanceClockMs,
 } from "./acpRuntimePerformanceProfiler";
-import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
+import { recordAcpRuntimeSemanticTraceRequestTerminal } from "./acpRuntimeSemanticTraceRecorder";
 import type {
   AcpRuntimeReplayLogicalTimerDescriptor,
   AcpRuntimeReplayLogicalTimerInspection,
@@ -3658,25 +3658,8 @@ export function upsertAcpSkillRun(update: {
     !isTerminalAcpSkillRunStatus(existing?.status || "queued") &&
     isTerminalAcpSkillRunStatus(next.status)
   ) {
-    const owner = {
-      rootId: next.runId || next.jobId || requestId,
-      workflowId: next.workflowId || undefined,
-      workflowRunId: next.runId || undefined,
-      jobId: next.jobId || undefined,
-      stageId: next.sequenceStepId || undefined,
+    void recordAcpRuntimeSemanticTraceRequestTerminal({
       requestId,
-      sessionId: next.sessionId || undefined,
-    };
-    void recordAcpRuntimeSemanticTraceEvent({
-      kind: "request-end",
-      sourceKind: "acp-workflow-execution",
-      owner,
-      payload: { status: next.status, error: next.error },
-    });
-    void recordAcpRuntimeSemanticTraceEvent({
-      kind: "terminal",
-      sourceKind: "acp-workflow-execution",
-      owner,
       payload: { status: next.status, error: next.error },
     });
   }

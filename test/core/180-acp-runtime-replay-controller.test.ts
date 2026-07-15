@@ -13,12 +13,14 @@ import {
 } from "../../src/modules/acpRuntimeReplayController";
 import {
   armAcpRuntimeSemanticTraceRecorder,
+  beginAcpRuntimeSemanticTraceClaimAttempt,
   cancelAcpRuntimeSemanticTraceRecorder,
+  claimAcpRuntimeSemanticTraceRoot,
   discardAcpRuntimeSemanticTracePartialForTests,
+  finishAcpRuntimeSemanticTraceRoot,
   recordAcpRuntimeSemanticTraceEvent,
   resetAcpRuntimeSemanticTraceRecorder,
   saveFrozenAcpRuntimeSemanticTrace,
-  stopAcpRuntimeSemanticTraceRecorder,
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { resetAcpRuntimeDiagnosticsModeForTests } from "../../src/modules/acpRuntimeDiagnosticsMode";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
@@ -52,26 +54,45 @@ describe("ACP runtime replay controller", function () {
       sourceKind: "acp-chat-conversation",
       root: tempRoot,
     });
-    const owner = { rootId: "controller-trace" };
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-start",
-      sourceKind: "acp-chat-conversation",
-      owner,
-      payload: {},
-    });
     if (args?.cancel) {
       const canceled = await cancelAcpRuntimeSemanticTraceRecorder();
       const tracePath = canceled.partialPath || "";
       await resetAcpRuntimeSemanticTraceRecorder();
       return tracePath;
     }
-    await recordAcpRuntimeSemanticTraceEvent({
-      kind: "root-end",
-      sourceKind: "acp-chat-conversation",
+    const owner = {
+      rootId: "controller-backend\ncontroller-conversation",
+      conversationId: "controller-conversation",
+      sessionId: "controller-session",
+    };
+    const attempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-chat-conversation",
+    );
+    const context = await claimAcpRuntimeSemanticTraceRoot({
+      attempt: attempt!,
+      binding: {
+        sourceKind: "acp-chat-conversation",
+        backendId: "controller-backend",
+        conversationId: owner.conversationId,
+        sessionId: owner.sessionId,
+        attachKind: "new",
+      },
       owner,
       payload: {},
     });
-    await stopAcpRuntimeSemanticTraceRecorder();
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-start",
+      sourceKind: "acp-chat-conversation",
+      owner: { ...owner, turnId: "controller-turn" },
+      payload: {},
+    });
+    await recordAcpRuntimeSemanticTraceEvent(context, {
+      kind: "turn-end",
+      sourceKind: "acp-chat-conversation",
+      owner: { ...owner, turnId: "controller-turn" },
+      payload: {},
+    });
+    await finishAcpRuntimeSemanticTraceRoot({ context });
     return (await saveFrozenAcpRuntimeSemanticTrace()).path;
   }
 
@@ -127,7 +148,7 @@ describe("ACP runtime replay controller", function () {
             {
               name: "semantic_event" as const,
               labels: {},
-              counter: { total: 2 },
+              counter: { total: 4 },
             },
             {
               name: "host_input_fragment" as const,
@@ -187,7 +208,7 @@ describe("ACP runtime replay controller", function () {
     });
     assert.equal(ready.traceValidation, "ready");
     assert.equal(ready.traceMetadata?.sourceKind, "acp-chat-conversation");
-    assert.equal(ready.traceMetadata?.eventCount, 2);
+    assert.equal(ready.traceMetadata?.eventCount, 4);
     assert.match(ready.traceMetadata?.digest || "", /^[a-f0-9]{64}$/);
     assert.isNotEmpty(ready.traceMetadata?.sampleName || "");
 

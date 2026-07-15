@@ -31,6 +31,7 @@ import {
 } from "./sequenceStateStore";
 import { updateSkillRunnerRunApplyState } from "../skillRunnerRunStore";
 import { isNonRecoverableSkillRunnerFailure } from "../skillRunnerRecoverableState";
+import { isDebugModeEnabled } from "../debugMode";
 
 export type ExecuteWithProvider = (args: {
   requestKind: string;
@@ -1208,6 +1209,8 @@ async function executeSequenceFromState(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
   onSequenceStepFinished?: SequenceStepFinishedObserver;
+  parentWorkflowRunId?: string;
+  semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
 }) {
   const backendType = normalizeString(args.backend.type);
   if (
@@ -1331,21 +1334,35 @@ async function executeSequenceFromState(args: {
     let progressRequestId = "";
     let stepResult: ProviderExecutionResult;
     try {
+      const orchestrationContext: ProviderOrchestrationContext = {
+        workflowId: args.state.workflowId,
+        workflowLabel: args.state.workflowLabel,
+        workflowRunId: args.state.workflowRunId,
+        jobId: `${args.state.jobId}:${step.id}`,
+        sequenceStepId: step.id,
+        sequenceStepIndex: index,
+        skillId: step.skill_id,
+        finalStepId: args.state.request.final_step_id,
+      };
+      if (
+        __acp_runtime_semantic_trace_recorder_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        if (args.parentWorkflowRunId) {
+          orchestrationContext.parentWorkflowRunId = args.parentWorkflowRunId;
+        }
+        if (args.semanticTraceContext) {
+          orchestrationContext.semanticTraceContext = args.semanticTraceContext;
+        }
+      }
       stepResult = await args.executeWithProvider({
         requestKind: stepRequestKind,
         request: stepRequest,
         backend: args.backend,
         providerOptions: args.providerOptions,
-        orchestrationContext: {
-          workflowId: args.state.workflowId,
-          workflowLabel: args.state.workflowLabel,
-          workflowRunId: args.state.workflowRunId,
-          jobId: `${args.state.jobId}:${step.id}`,
-          sequenceStepId: step.id,
-          sequenceStepIndex: index,
-          skillId: step.skill_id,
-          finalStepId: args.state.request.final_step_id,
-        },
+        orchestrationContext,
         onProgress: (event) => {
           if (event.type === "request-created") {
             progressRequestId = normalizeString(event.requestId);
@@ -1598,6 +1615,8 @@ export async function executeSkillRunnerSequence(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
   onSequenceStepFinished?: SequenceStepFinishedObserver;
+  parentWorkflowRunId?: string;
+  semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
 }) {
   const state = initializeSequenceRunState({
     request: args.request,
@@ -1609,7 +1628,7 @@ export async function executeSkillRunnerSequence(args: {
     jobId: args.jobId,
     skillDisplayById: args.skillDisplayById,
   });
-  return executeSequenceFromState({
+  const executionArgs: Parameters<typeof executeSequenceFromState>[0] = {
     state,
     startIndex: 0,
     backend: args.backend,
@@ -1620,7 +1639,18 @@ export async function executeSkillRunnerSequence(args: {
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
     onSequenceStepFinished: args.onSequenceStepFinished,
-  });
+  };
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    args.semanticTraceContext
+  ) {
+    executionArgs.parentWorkflowRunId = args.parentWorkflowRunId;
+    executionArgs.semanticTraceContext = args.semanticTraceContext;
+  }
+  return executeSequenceFromState(executionArgs);
 }
 
 export async function continueSkillRunnerSequence(args: {
@@ -1634,13 +1664,15 @@ export async function continueSkillRunnerSequence(args: {
   onProgress?: (event: ProviderProgressEvent) => void;
   onSequenceStepSucceeded?: SequenceStepSucceededObserver;
   onSequenceStepFinished?: SequenceStepFinishedObserver;
+  parentWorkflowRunId?: string;
+  semanticTraceContext?: ProviderOrchestrationContext["semanticTraceContext"];
 }) {
   markSequenceRunContinuing(args.sequenceRunId);
   const state = getSequenceRunState(args.sequenceRunId);
   if (!state) {
     throw new Error(`sequence run state not found: ${args.sequenceRunId}`);
   }
-  return executeSequenceFromState({
+  const executionArgs: Parameters<typeof executeSequenceFromState>[0] = {
     state,
     startIndex: args.startIndex,
     backend: args.backend,
@@ -1651,5 +1683,16 @@ export async function continueSkillRunnerSequence(args: {
     onProgress: args.onProgress,
     onSequenceStepSucceeded: args.onSequenceStepSucceeded,
     onSequenceStepFinished: args.onSequenceStepFinished,
-  });
+  };
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    args.semanticTraceContext
+  ) {
+    executionArgs.parentWorkflowRunId = args.parentWorkflowRunId;
+    executionArgs.semanticTraceContext = args.semanticTraceContext;
+  }
+  return executeSequenceFromState(executionArgs);
 }
