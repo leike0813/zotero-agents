@@ -54,6 +54,7 @@ import {
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
+import { yieldToEventLoop } from "../utils/runtimeCompatibility";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -3436,6 +3437,29 @@ export async function resetSynthesisWorkbenchTabRuntimeForTests() {
   cleanupSynthesisWorkbenchTab();
 }
 
+async function publishSynthesisWorkbenchPrewarmPhase(
+  surface: "chrome" | SynthesisWorkbenchSurfaceName,
+  input: SynthesisUiSnapshotInput,
+) {
+  prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
+    prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
+    input,
+  );
+  const runtime = synthesisWorkbenchTab;
+  if (!runtime) {
+    return;
+  }
+  mergeRuntimeSnapshotInput(runtime, input);
+  if (surface === "chrome") {
+    await sendChrome(runtime, { refreshFromService: false });
+    return;
+  }
+  markSurfaceLoaded(runtime, surface);
+  if (isActiveSurface(runtime, surface)) {
+    await sendSurface(runtime, surface, { refreshFromService: false });
+  }
+}
+
 export function prewarmSynthesisWorkbenchSurfaces(
   args: {
     surfaces?: SynthesisWorkbenchSurfaceName[];
@@ -3444,34 +3468,40 @@ export function prewarmSynthesisWorkbenchSurfaces(
   if (prewarmSynthesisSurfacesPromise) {
     return prewarmSynthesisSurfacesPromise;
   }
-  prewarmSynthesisSurfacesPromise = getDefaultSynthesisService()
-    .warmSynthesisWorkbenchSurfaces({
-      state: synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
-      surfaces: args.surfaces,
-      onPhase: async (phase) => {
-        if (phase.input) {
-          prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
-            prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),
-            phase.input,
-          );
-        }
-        const runtime = synthesisWorkbenchTab;
-        if (!runtime || !phase.input) {
-          return;
-        }
-        mergeRuntimeSnapshotInput(runtime, phase.input);
-        if (phase.surface === "chrome") {
-          await sendChrome(runtime, { refreshFromService: false });
-          return;
-        }
-        markSurfaceLoaded(runtime, phase.surface);
-        if (surfaceForTab(runtime.state.selectedTab) === phase.surface) {
-          await sendSurface(runtime, phase.surface, {
-            refreshFromService: false,
-          });
-        }
-      },
-    })
+  prewarmSynthesisSurfacesPromise = (async () => {
+    const readState = toSynthesisWorkbenchReadState(
+      synthesisWorkbenchTab?.state || createDefaultSynthesisUiState(),
+    );
+    const client = await getDefaultSynthesisClient();
+    const surfaces =
+      args.surfaces !== undefined
+        ? args.surfaces
+        : ([
+            "index",
+            "review",
+            "graph",
+            "tags",
+            "concepts",
+            "topics",
+          ] satisfies SynthesisWorkbenchSurfaceName[]);
+    let input = toSynthesisUiSnapshotInput(
+      await client.workbench.readChrome({ state: readState }),
+    );
+    await publishSynthesisWorkbenchPrewarmPhase("chrome", input);
+    for (const surface of surfaces) {
+      await yieldToEventLoop();
+      try {
+        const surfaceInput = toSynthesisUiSnapshotInput(
+          await client.workbench.readSurface({ surface, state: readState }),
+        );
+        await publishSynthesisWorkbenchPrewarmPhase(surface, surfaceInput);
+        input = mergeSynthesisUiSnapshotInput(input, surfaceInput);
+      } catch {
+        continue;
+      }
+    }
+    return input;
+  })()
     .then((input) => {
       prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput(
         prewarmedSynthesisSnapshotInput || buildDefaultSnapshotInput(),

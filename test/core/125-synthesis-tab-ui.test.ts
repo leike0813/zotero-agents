@@ -2772,7 +2772,7 @@ describe("Synthesis tab UI model", function () {
     assert.notInclude(host, ".getSynthesisWorkbenchChromeInput");
     assert.notInclude(host, ".getSynthesisWorkbenchSurfaceInput");
     assert.notInclude(host, ".resolveTopicPaperDigest");
-    assert.include(host, "warmSynthesisWorkbenchSurfaces");
+    assert.notInclude(host, ".warmSynthesisWorkbenchSurfaces");
     const chromeBlock = extractFunctionBlock(host, "sendChrome");
     assert.match(chromeBlock, /client\.workbench\s*\.readChrome/);
     assert.include(chromeBlock, "toSynthesisWorkbenchReadState");
@@ -4698,11 +4698,6 @@ describe("Synthesis tab UI model", function () {
     ].forEach((forbidden) => {
       assert.notInclude(chromeBlock, forbidden);
     });
-    const warmupBlock = extractFunctionBlock(
-      service,
-      "warmSynthesisWorkbenchSurfaces",
-    );
-    assert.include(warmupBlock, "args.surfaces !== undefined");
     const surfaceBlock = extractFunctionBlock(
       service,
       "getSynthesisWorkbenchSurfaceInput",
@@ -4772,7 +4767,74 @@ describe("Synthesis tab UI model", function () {
       host,
       "prewarmSynthesisWorkbenchSurfaces",
     );
-    assert.include(prewarmBlock, "surfaces: args.surfaces");
+    const publishPrewarmPhaseBlock = extractFunctionBlock(
+      host,
+      "publishSynthesisWorkbenchPrewarmPhase",
+    );
+    assert.notInclude(prewarmBlock, "getDefaultSynthesisService");
+    assert.notInclude(prewarmBlock, ".warmSynthesisWorkbenchSurfaces");
+    assert.include(prewarmBlock, "getDefaultSynthesisClient");
+    assert.include(prewarmBlock, "client.workbench.readChrome");
+    assert.include(prewarmBlock, "client.workbench.readSurface");
+    assert.include(prewarmBlock, "args.surfaces !== undefined");
+    assert.lengthOf(
+      prewarmBlock.match(/toSynthesisWorkbenchReadState/g) || [],
+      1,
+      "prewarm state should cross the client boundary once per run",
+    );
+    const defaultSurfaceOrder = [
+      '"index"',
+      '"review"',
+      '"graph"',
+      '"tags"',
+      '"concepts"',
+      '"topics"',
+    ];
+    let priorSurfaceIndex = -1;
+    for (const surface of defaultSurfaceOrder) {
+      const surfaceIndex = prewarmBlock.indexOf(surface, priorSurfaceIndex + 1);
+      assert.isAbove(
+        surfaceIndex,
+        priorSurfaceIndex,
+        `default prewarm surface ${surface} should retain its order`,
+      );
+      priorSurfaceIndex = surfaceIndex;
+    }
+    const surfaceLoopIndex = prewarmBlock.indexOf("for (const surface");
+    const yieldIndex = prewarmBlock.indexOf(
+      "await yieldToEventLoop()",
+      surfaceLoopIndex,
+    );
+    const surfaceReadIndex = prewarmBlock.indexOf(
+      "client.workbench.readSurface",
+      surfaceLoopIndex,
+    );
+    assert.isAtLeast(surfaceLoopIndex, 0);
+    assert.isAbove(yieldIndex, surfaceLoopIndex);
+    assert.isAbove(surfaceReadIndex, yieldIndex);
+    assert.include(prewarmBlock, "continue");
+    assert.include(prewarmBlock, ".catch(() => undefined)");
+    assert.include(prewarmBlock, "prewarmSynthesisSurfacesPromise = undefined");
+    assert.include(
+      publishPrewarmPhaseBlock,
+      "prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput",
+    );
+    const cacheMergeIndex = publishPrewarmPhaseBlock.indexOf(
+      "prewarmedSynthesisSnapshotInput = mergeSynthesisUiSnapshotInput",
+    );
+    const currentRuntimeIndex = publishPrewarmPhaseBlock.indexOf(
+      "const runtime = synthesisWorkbenchTab",
+    );
+    const runtimeMergeIndex = publishPrewarmPhaseBlock.indexOf(
+      "mergeRuntimeSnapshotInput",
+    );
+    assert.isAbove(currentRuntimeIndex, cacheMergeIndex);
+    assert.isAbove(runtimeMergeIndex, currentRuntimeIndex);
+    assert.include(publishPrewarmPhaseBlock, "sendChrome");
+    assert.include(publishPrewarmPhaseBlock, "markSurfaceLoaded");
+    assert.include(publishPrewarmPhaseBlock, "isActiveSurface");
+    assert.include(publishPrewarmPhaseBlock, "sendSurface");
+    assert.include(publishPrewarmPhaseBlock, "refreshFromService: false");
     const libraryAdapter = await fs.readFile(
       "src/modules/synthesis/libraryAdapter.ts",
       "utf8",

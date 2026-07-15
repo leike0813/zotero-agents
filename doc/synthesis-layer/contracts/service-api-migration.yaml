@@ -59,14 +59,6 @@ method_groups:
       - getSynthesisWorkbenchChromeInput
       - getSynthesisWorkbenchSurfaceInput
 
-  - id: workbench_warmup
-    category: command
-    target_capability: workbench
-    disposition: internal
-    consumer_groups: [workbench]
-    methods:
-      - warmSynthesisWorkbenchSurfaces
-
   - id: legacy_full_snapshot
     category: query
     target_capability: debug

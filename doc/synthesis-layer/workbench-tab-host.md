@@ -288,8 +288,8 @@ runtime.commandProgressTimer = setInterval(() => {
 ### 数据发送
 
 - **`snapshotForRuntime(runtime)`** — 从 `runtime.snapshotInput` + `actionStatusInput()` 构建 `SynthesisUiSnapshot`
-- **`sendChrome(runtime, options)`** — 刷新 chrome：从 service 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
-- **`sendSurface(runtime, surface, options)`** — 刷新 surface：从 service 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`
+- **`sendChrome(runtime, options)`** — 刷新 chrome：通过 `SynthesisClient.workbench.readChrome()` 获取 ChromeInput（含 maintenance summary、background jobs 等），merge 到 snapshotInput，发送 `synthesis:chrome` 消息
+- **`sendSurface(runtime, surface, options)`** — 刷新 surface：通过 `SynthesisClient.workbench.readSurface()` 获取 surface 输入数据，merge 到 snapshotInput，标记 surface loaded，发送 `synthesis:surface` 消息。失败时发送 `synthesis:surface-error`
 - **`sendSnapshot(runtime, messageType)`** — 发送完整 snapshot（用于 init）
 
 ### Surface 请求代际
@@ -297,7 +297,7 @@ runtime.commandProgressTimer = setInterval(() => {
 Surface refresh 是异步且可能乱序返回的。SQLite busy retry 会扩大慢响应窗口，因此 host 和 child frame 都必须把 surface 数据当成带代际的响应处理，而不是“最后到达者覆盖 UI”。
 
 - Host 每次 `sendSurface()` 创建递增 `requestId`，记录到 `latestSurfaceRequestBySurface[surface]`，并把 `{ requestId, surface, selectedTabAtRequest, refreshFromService, startedAt }` 随 `synthesis:surface` / `synthesis:surface-error` 一起发送。
-- Host 在读取 service 后、postMessage 前再次校验该请求仍是目标 surface 的最新请求，且目标 surface 仍是当前活跃 surface。过期或非活跃 surface 的响应只能更新 host 内部 cache，不得覆盖 iframe。
+- Host 在 client read 返回后、postMessage 前再次校验该请求仍是目标 surface 的最新请求，且目标 surface 仍是当前活跃 surface。过期或非活跃 surface 的响应只能更新 host 内部 cache，不得覆盖 iframe。
 - `scheduleActiveSurfaceRefresh()` 调度时捕获目标 surface。定时器执行时如果用户已经切到其他 tab，调度直接丢弃，不重新读取“当前 tab”后误发另一个 surface。
 - Child frame 按 surface 保存 latest accepted request id 与 last-known-good snapshot。旧 request id 的 `synthesis:surface` / `synthesis:surface-error` 必须丢弃。
 
@@ -317,10 +317,10 @@ Child frame 收到 transient error 时不得清空当前 surface 内容；如果
 `prewarmSynthesisWorkbenchSurfaces(args)` 在 tab 实际打开之前预加载 surface 数据：
 
 - 单次运行保护：`prewarmSynthesisSurfacesPromise` 防止重复预热
-- 调用 `synthesisService.warmSynthesisWorkbenchSurfaces()` 分阶段加载
-- `onPhase` callback：每个 phase 产生输入数据时：
-  - 更新 `prewarmedSynthesisSnapshotInput` 全局缓存
-  - 如果有已打开的 runtime，实时 merge 并发送 chrome/surface 更新
+- 启动时只捕获并转换一次 Workbench state；通过现有 `SynthesisClient.workbench.readChrome()` / `readSurface()` 分阶段加载，不使用 callback、streaming 或 full-snapshot client API
+- 默认顺序为 `index → review → graph → tags → concepts → topics`；显式 `surfaces: []` 只预热 chrome；每次 surface read 前先让出事件循环
+- chrome 失败终止本轮并由外层 fallback 返回 `undefined`；单个 surface 失败只跳过该 surface
+- 每个成功 phase 先更新 `prewarmedSynthesisSnapshotInput` 全局缓存，再动态读取当前 runtime 并 merge：chrome 发布 cached chrome；surface 先标记 loaded，且仅在当前 active 时发布 cached surface
 - 完成后：`prewarmedSynthesisSnapshotInput` 供后续 `openSynthesisWorkbenchTab()` / `mountSynthesisWorkbenchRuntime()` 复用
 
 ## 库变更通知

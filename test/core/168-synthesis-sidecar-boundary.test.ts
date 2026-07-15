@@ -36,8 +36,20 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.isAbove(report.publicMethods.length, 0);
+    assert.lengthOf(report.publicMethods, 125);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
+    assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
+    assert.notInclude(
+      report.inventory.methods.map((method) => method.name),
+      "warmSynthesisWorkbenchSurfaces",
+    );
+    const rawInventory = parseYaml(fs.readFileSync(INVENTORY_FILE, "utf8")) as {
+      method_groups: Array<{ id: string }>;
+    };
+    assert.notInclude(
+      rawInventory.method_groups.map((group) => group.id),
+      "workbench_warmup",
+    );
   });
 
   it("assigns every public method a valid category, capability, and disposition", async function () {
@@ -85,6 +97,20 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.workbench\s*\.readSurface/);
     assert.match(workbench, /client\.workbench\s*\.readTopicDetail/);
     assert.match(workbench, /client\.workbench\s*\.readPaperDigest/);
+    assert.notInclude(workbench, ".warmSynthesisWorkbenchSurfaces");
+
+    const clientContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/client.ts"),
+      "utf8",
+    );
+    const workbenchContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/workbench.ts"),
+      "utf8",
+    );
+    assert.notMatch(
+      `${clientContract}\n${workbenchContract}`,
+      /prewarm|warmSynthesis|onPhase|fullSnapshot/,
+    );
   });
 
   it("records reviewable schema, canonical ownership, and bounded DTO fixtures [inv.runtime.single_production_owner]", function () {

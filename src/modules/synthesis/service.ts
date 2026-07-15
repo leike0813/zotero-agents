@@ -92,7 +92,6 @@ import {
 import {
   buildSynthesisUiSnapshot,
   createDefaultSynthesisUiState,
-  mergeSynthesisUiSnapshotInput,
   type SynthesisUiCleanupProposalRow,
   type SynthesisUiSnapshot,
   type SynthesisUiSnapshotInput,
@@ -16159,48 +16158,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function warmSynthesisWorkbenchSurfaces(
-    args: {
-      state?: SynthesisUiState;
-      surfaces?: SynthesisWorkbenchSurfaceName[];
-      onPhase?: (phase: {
-        surface: "chrome" | SynthesisWorkbenchSurfaceName;
-        status: "ready" | "failed";
-        input?: SynthesisUiSnapshotInput;
-        error?: unknown;
-      }) => void | Promise<void>;
-    } = {},
-  ) {
-    const state = args.state || createDefaultSynthesisUiState();
-    const surfaces =
-      args.surfaces !== undefined
-        ? args.surfaces
-        : ([
-            "index",
-            "review",
-            "graph",
-            "tags",
-            "concepts",
-            "topics",
-          ] satisfies SynthesisWorkbenchSurfaceName[]);
-    let input = await getSynthesisWorkbenchChromeInput(state);
-    await args.onPhase?.({ surface: "chrome", status: "ready", input });
-    for (const surface of surfaces) {
-      await yieldToEventLoop();
-      try {
-        const surfaceInput = await getSynthesisWorkbenchSurfaceInput(
-          surface,
-          state,
-        );
-        input = mergeSynthesisUiSnapshotInput(input, surfaceInput);
-        await args.onPhase?.({ surface, status: "ready", input: surfaceInput });
-      } catch (error) {
-        await args.onPhase?.({ surface, status: "failed", error });
-      }
-    }
-    return input;
-  }
-
   async function getSynthesisSnapshot(
     state: SynthesisUiState = createDefaultSynthesisUiState(),
   ): Promise<SynthesisUiSnapshot> {
@@ -20970,7 +20927,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     getDebugSynthesisSnapshotInput,
     getSynthesisWorkbenchChromeInput,
     getSynthesisWorkbenchSurfaceInput,
-    warmSynthesisWorkbenchSurfaces,
     getSynthesisSnapshot,
     consumeRelatedItemsSyncEcho,
     syncRelatedItemsNow,
