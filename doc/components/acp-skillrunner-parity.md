@@ -372,3 +372,19 @@ Warning codes:
 | Output Convergence | Assistant text + runnerJson | `AcpSkillOutputConvergenceResult` | `convergeAcpSkillTurnOutput()` |
 | Result File Fallback | Workspace dir + runnerJson | `AcpSkillResultFileFallbackResolution` | `resolveAcpSkillResultFileFallback()` |
 | Output Validation | Candidate payload + runnerJson | `AcpSkillOutputValidationResult` | `validateAcpSkillFinalPayload()` |
+
+---
+
+## Assistant Workspace publication parity
+
+ACP Skills and ACP Chat use the same Workspace transcript region, page, item,
+mutation, publication, acknowledgement, and receiver vocabulary. ACP Skills
+`progress` maps to the shared `message-counts` region and `runtime-options`
+maps to `reply-hint`; transcript events are normalized at the store seam and
+processed by the same boundary projection used by Chat.
+
+The Skills run store and persistence format remain Skills-specific. That
+difference ends at the adapter boundary: no Skills-only transcript field,
+revision state machine, page continuity rule, or browser apply path exists.
+Indexed page readiness is independent from full mirror hydration, so a ready
+page is renderable while cold mirror hydration continues in the background.

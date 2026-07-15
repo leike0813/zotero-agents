@@ -10,8 +10,10 @@ import {
 import {
   appendAcpSkillRunUserReply,
   cleanupSyntheticAcpSkillRunReplay,
+  getAcpSkillRunRecord,
   getSelectedAcpSkillRunRequestId,
   inspectSyntheticAcpSkillRunReplayTimers,
+  readAcpSkillRunTranscriptRegion,
   selectAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -366,6 +368,57 @@ describe("ACP runtime replay logical time", function () {
     await target.cleanup();
     assert.equal(getSelectedAcpSkillRunRequestId(), "real-request");
     await selectAcpSkillRun("");
+  });
+
+  it("projects source request events into the selected synthetic Skills owner and closes its text boundary", async function () {
+    const target = await createAcpWorkflowRuntimeReplayTarget({
+      syntheticRootId: "workflow-owner",
+    });
+    await target.activate();
+    const owner = { rootId: "source-root", requestId: "source-request" };
+    const requestStart: AcpRuntimeSemanticTraceEvent = {
+      record: "event",
+      seq: 1,
+      monotonicOffsetMs: 0,
+      sourceKind: "acp-workflow-execution",
+      kind: "request-start",
+      owner,
+      payload: {},
+    };
+    await target.apply({ event: requestStart, owner });
+    await target.apply({
+      event: {
+        ...requestStart,
+        seq: 2,
+        kind: "session-notification",
+        payload: {
+          sessionId: "source-session",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "held until request end" },
+          },
+        },
+      },
+      owner,
+      transcriptBoundary: "text-continuation",
+    });
+    await target.apply({
+      event: { ...requestStart, seq: 3, kind: "request-end" },
+      owner,
+      transcriptBoundary: "hard-boundary",
+    });
+
+    assert.isNull(getAcpSkillRunRecord("source-request"));
+    const region = await readAcpSkillRunTranscriptRegion({
+      requestId: "workflow-owner-request",
+    });
+    assert.equal(region.status, "ready");
+    assert.deepInclude(region.page?.items[0], {
+      itemKind: "message",
+      text: "held until request end",
+      status: "complete",
+    });
+    await target.cleanup();
   });
 
   it("runs the production Chat logical port without recorded gap sleeps", async function () {

@@ -137,12 +137,7 @@ async function mkTempRoot() {
 }
 
 async function readRunTranscriptItems(requestId: string) {
-  const snapshot = await prepareAcpSkillRunPanelSnapshot({
-    selectedRequestId: requestId,
-  });
-  return Array.isArray(snapshot.selectedTranscriptPage?.items)
-    ? snapshot.selectedTranscriptPage.items
-    : [];
+  return readCanonicalRunTranscriptItems(requestId);
 }
 
 async function readCanonicalRunTranscriptItems(requestId: string) {
@@ -6249,7 +6244,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(snapshot.selectedRun?.requestId, "run-lightweight-list-a");
       assert.isAtLeast(snapshot.selectedRun?.events.length || 0, 1);
       assert.notProperty(snapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(snapshot.selectedTranscriptPage?.items);
+      assert.isArray(snapshot.transcriptRegion.page?.items);
       assert.notProperty(snapshot.selectedRun as any, "outputRevisions");
       const transcript = await readRunTranscriptItems("run-lightweight-list-a");
       assert.isAtLeast(transcript.length, 1);
@@ -6321,9 +6316,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-live-mirror");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Mirror text"),
         ),
       );
@@ -6395,9 +6390,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-release-a");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("persisted transcript"),
         ),
       );
@@ -6479,11 +6474,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         readySnapshot.selectedRun?.requestId,
         "run-release-settled-a",
       );
-      assert.equal(readySnapshot.selectedTranscript?.state, "ready");
+      assert.equal(readySnapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (readySnapshot.selectedTranscriptPage?.items || []).some(
+        (readySnapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("persisted transcript"),
         ),
       );
@@ -6552,9 +6547,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-recover-a",
       });
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("old transcript new transcript"),
         ),
       );
@@ -6629,8 +6624,8 @@ describe("ACP SkillRunner-compatible runner", function () {
         loadingSnapshot.selectedRun?.requestId,
         "run-partial-complete-a",
       );
-      assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
-      assert.isUndefined(loadingSnapshot.selectedTranscriptPage);
+      assert.equal(loadingSnapshot.transcriptRegion.status, "loading");
+      assert.isNull(loadingSnapshot.transcriptRegion.page);
       assert.isUndefined(
         getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
           "run-partial-complete-a",
@@ -6641,11 +6636,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-partial-complete-a",
         transcriptReadMode: "page-first",
       });
-      assert.equal(snapshot.selectedTranscript?.state, "ready");
+      assert.equal(snapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("old persisted"),
         ),
       );
@@ -6913,11 +6908,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
 
       assert.equal(prepared.selectedRun?.requestId, "run-coalesced-hydrate-a");
-      assert.equal(snapshot.selectedTranscript?.state, "ready");
+      assert.equal(snapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("coalesced hydrate transcript"),
         ),
       );
@@ -6977,15 +6972,15 @@ describe("ACP SkillRunner-compatible runner", function () {
         "run-implicit-selection",
       );
       assert.equal(getSelectedAcpSkillRunRequestId(), "run-implicit-selection");
-      assert.equal(readySnapshot.selectedTranscript?.state, "ready");
+      assert.equal(readySnapshot.transcriptRegion.status, "ready");
       assert.equal(
-        readySnapshot.selectedTranscriptPage?.requestId,
-        "run-implicit-selection",
+        readySnapshot.transcriptRegion.page?.pageKey,
+        "run-implicit-selection\ntail:80",
       );
       assert.isTrue(
-        (readySnapshot.selectedTranscriptPage?.items || []).some(
+        (readySnapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("implicit persisted transcript"),
         ),
       );
@@ -7038,11 +7033,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(snapshot.selectedRun?.requestId, "run-stale-page-b");
       assert.equal(getSelectedAcpSkillRunRequestId(), "run-stale-page-b");
       assert.notEqual(
-        snapshot.selectedTranscriptPage?.requestId,
+        snapshot.transcriptRegion.page?.pageKey,
         "run-stale-page-a",
       );
       assert.isFalse(
-        (snapshot.selectedTranscriptPage?.items || []).some((item) =>
+        (snapshot.transcriptRegion.page?.items || []).some((item) =>
           String((item as any).text || "").includes("stale page transcript A"),
         ),
       );
@@ -7100,7 +7095,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-coalesced-updates",
       });
       assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
+      assert.isArray(visibleSnapshot.transcriptRegion.page?.items);
     } finally {
       unsubscribe();
       await fs.rm(root, { recursive: true, force: true });
@@ -7162,7 +7157,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         thought: 0,
         tool: 1,
       });
-      assert.equal(active.selectedTranscriptPage?.total, 0);
+      assert.equal(active.transcriptRegion.page?.totalItemCount, 0);
 
       projectAcpSkillRunOutputEnvelopeToTranscript({
         requestId: "run-silent",
@@ -7196,8 +7191,12 @@ describe("ACP SkillRunner-compatible runner", function () {
       runtimeDir: path.join(root, ".acp"),
     });
     let notifications = 0;
-    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+    const transcriptBoundaries: string[] = [];
+    const unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
       notifications += 1;
+      transcriptBoundaries.push(
+        ...(change?.transcriptEvents || []).map((event) => event.boundary),
+      );
     });
     try {
       recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
@@ -7228,6 +7227,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       } as any);
       await delay(120);
       assert.equal(notifications, 1);
+      assert.include(transcriptBoundaries, "text-continuation");
+      assert.include(transcriptBoundaries, "hard-boundary");
 
       const transcript = await readRunTranscriptItems(
         "run-streaming-render-disabled",
@@ -7271,8 +7272,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.isUndefined(
-        (thoughtOnlySnapshot.selectedTranscriptPage?.items || []).find(
-          (item) => item.kind === "thought" && item.text === "visible thinking",
+        (thoughtOnlySnapshot.transcriptRegion.page?.items || []).find(
+          (item) =>
+            item.itemKind === "thought" && item.text === "visible thinking",
         ),
       );
 
@@ -7309,18 +7311,19 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.notProperty(beforeBoundary.selectedRun as any, "transcriptItems");
-      assert.isArray(beforeBoundary.selectedTranscriptPage?.items);
+      assert.isArray(beforeBoundary.transcriptRegion.page?.items);
       assert.isUndefined(
-        (beforeBoundary.selectedTranscriptPage?.items || []).find(
+        (beforeBoundary.transcriptRegion.page?.items || []).find(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             item.role === "assistant" &&
             item.text === "partial",
         ),
       );
       assert.isOk(
-        (beforeBoundary.selectedTranscriptPage?.items || []).find(
-          (item) => item.kind === "thought" && item.text === "visible thinking",
+        (beforeBoundary.transcriptRegion.page?.items || []).find(
+          (item) =>
+            item.itemKind === "thought" && item.text === "visible thinking",
         ) as unknown,
       );
 
@@ -7338,14 +7341,16 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.notProperty(afterBoundary.selectedRun as any, "transcriptItems");
-      assert.isArray(afterBoundary.selectedTranscriptPage?.items);
+      assert.isArray(afterBoundary.transcriptRegion.page?.items);
       const visibleMessage = (
-        afterBoundary.selectedTranscriptPage?.items || []
-      ).find((item) => item.kind === "message" && item.role === "assistant");
-      assert.equal(visibleMessage?.kind, "message");
-      if (visibleMessage?.kind === "message") {
+        afterBoundary.transcriptRegion.page?.items || []
+      ).find(
+        (item) => item.itemKind === "message" && item.role === "assistant",
+      );
+      assert.equal(visibleMessage?.itemKind, "message");
+      if (visibleMessage?.itemKind === "message") {
         assert.equal(visibleMessage.text, "partial");
-        assert.equal(visibleMessage.state, "complete");
+        assert.equal(visibleMessage.status, "complete");
       }
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -7390,23 +7395,22 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-workspace-activity-disabled",
       });
       assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
-      const visible = await readRunTranscriptItems(
-        "run-streaming-workspace-activity-disabled",
-      );
+      assert.isArray(visibleSnapshot.transcriptRegion.page?.items);
+      const visible = visibleSnapshot.transcriptRegion.page?.items || [];
       assert.isUndefined(
         visible.find(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             item.role === "assistant" &&
             item.text === "held partial",
         ),
       );
       const activity = visible.find(
-        (item) => item.kind === "status" && item.label === "workspace-activity",
+        (item) =>
+          item.itemKind === "status" && item.label === "workspace-activity",
       );
-      assert.equal(activity?.kind, "status");
-      if (activity?.kind === "status") {
+      assert.equal(activity?.itemKind, "status");
+      if (activity?.itemKind === "status") {
         assert.equal(activity.text, "result/output.json");
       }
     } finally {
@@ -10016,7 +10020,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(panelSnapshot.selectedRun?.validationStatus, "valid");
     assert.notProperty(panelSnapshot.selectedRun as any, "outputRevisions");
     assert.notProperty(panelSnapshot.selectedRun as any, "transcriptItems");
-    assert.isArray(panelSnapshot.selectedTranscriptPage?.items);
+    assert.isArray(panelSnapshot.transcriptRegion.page?.items);
     const outputRevisions = await readRunOutputRevisions(result.requestId);
     assert.deepEqual(
       outputRevisions.map((entry) => entry.status),
@@ -10269,7 +10273,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(finished?.applyResultState, "pending");
     assert.equal(finished?.pendingInteraction, undefined);
     assert.notProperty(finished as any, "transcriptItems");
-    assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
+    assert.isArray(finishedSnapshot.transcriptRegion.page?.items);
     assert.notProperty(finished as any, "outputRevisions");
     const finalAssistantMessages = transcriptAfterInteractiveReply.filter(
       (item) => item.kind === "message" && item.role === "assistant",
@@ -10789,7 +10793,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.notProperty(finished as any, "outputRevisions");
       assert.notProperty(finished as any, "transcriptItems");
-      assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
+      assert.isArray(finishedSnapshot.transcriptRegion.page?.items);
       const assistantMessages = (
         await readRunTranscriptItems(requestId)
       ).filter((item) => item.kind === "message" && item.role === "assistant");

@@ -106,6 +106,20 @@ import {
   type AcpSkillRunPermissionRequestWithResolver,
 } from "./acpSkillRunPermissionFacade";
 import { registerAcpSkillRunAutoApprovalResolver } from "./hostBridgeWriteAutoApprovalRegistry";
+import {
+  createAcpSkillsWorkspaceOwner,
+  createFailedTranscriptRegion,
+  createIdleTranscriptRegion,
+  createLoadingTranscriptRegion,
+  createReadyTranscriptRegion,
+} from "./assistantWorkspacePublication";
+import {
+  createAssistantWorkspaceTranscriptPage,
+  createAssistantWorkspaceTranscriptMutation,
+  type AssistantWorkspaceTranscriptBoundary,
+  type AssistantWorkspaceTranscriptMutationEvent,
+  type AssistantWorkspaceTranscriptRegion,
+} from "./assistantWorkspaceTranscriptPublication";
 
 export type AcpSkillRunStatus =
   | "queued"
@@ -437,16 +451,7 @@ export type AcpSkillRunPanelSnapshot = {
   executionDisplayMode: ReturnType<typeof getAssistantExecutionDisplayMode>;
   messageCounts?: AssistantMessageCountsSnapshot;
   selectedRequestId: string;
-  selectedTranscript?: {
-    requestId: string;
-    state: "ready" | "loading" | "failed";
-    error?: string;
-  };
-  selectedTranscriptPage?: AcpSkillRunTranscriptPage & {
-    requestId: string;
-    transcriptRevision: number;
-    limit: number;
-  };
+  transcriptRegion: AssistantWorkspaceTranscriptRegion;
   mcpServer?: ZoteroMcpServerStatusSnapshot;
   mcpHealth?: AcpMcpHealthSnapshot;
   hostBridge?: HostBridgeStatusSnapshot;
@@ -507,6 +512,9 @@ export type AcpSkillRunSnapshotChange = {
   requestIds?: string[];
   kinds?: AcpSkillRunSnapshotChangeKind[];
   global?: boolean;
+  transcriptEvents?: AssistantWorkspaceTranscriptMutationEvent[];
+  transcriptEventSeq?: number;
+  transcriptItemCount?: number;
 };
 
 type AcpSkillRunController = {
@@ -568,6 +576,7 @@ type AcpSkillRunTranscriptLiveState = {
       summary?: string;
     }
   >;
+  workspaceTranscriptEvents: AssistantWorkspaceTranscriptMutationEvent[];
 };
 
 const runRecords = new Map<string, AcpSkillRunRecord>();
@@ -743,6 +752,7 @@ function resetTranscriptItemMirror(state: AcpSkillRunTranscriptLiveState) {
   state.itemsById.clear();
   state.itemIds = [];
   state.mirrorLoaded = false;
+  state.workspaceTranscriptEvents = [];
 }
 
 function resetTranscriptContinuityState(state: AcpSkillRunTranscriptLiveState) {
@@ -976,6 +986,7 @@ function getAcpSkillRunTranscriptLiveState(record: AcpSkillRunRecord) {
       permissionItemIds: new Map(),
       toolItemIds: new Map(),
       toolItems: new Map(),
+      workspaceTranscriptEvents: [],
     };
     transcriptLiveStates.set(requestId, state);
   }
@@ -1269,28 +1280,21 @@ function scheduleAcpSkillRunTranscriptHydrate(requestIdRaw: string) {
   void hydrateAcpSkillRunTranscriptMirror(requestId).catch(() => undefined);
 }
 
-function selectedTranscriptStateForRun(record: AcpSkillRunRecord | undefined) {
+function transcriptLoadForRun(record: AcpSkillRunRecord | undefined) {
   if (!record) {
-    return undefined;
+    return { status: "idle" as const, error: null };
   }
   const state = getAcpSkillRunTranscriptLiveState(record);
   if (state.mirrorLoaded || !hasDurableAcpSkillRunTranscript(record, state)) {
-    return {
-      requestId: record.requestId,
-      state: "ready" as const,
-    };
+    return { status: "ready" as const, error: null };
   }
   if (state.hydrateState === "failed") {
     return {
-      requestId: record.requestId,
-      state: "failed" as const,
-      error: state.hydrateError,
+      status: "failed" as const,
+      error: state.hydrateError || "Transcript failed to load.",
     };
   }
-  return {
-    requestId: record.requestId,
-    state: "loading" as const,
-  };
+  return { status: "loading" as const, error: null };
 }
 
 async function readSelectedTranscriptPageFromStore(
@@ -1369,6 +1373,7 @@ function queueTranscriptEvent(
     createdAt: string;
     newItem?: boolean;
     textPreview?: string;
+    boundary?: AssistantWorkspaceTranscriptBoundary;
   },
 ) {
   const state = getAcpSkillRunTranscriptLiveState(record);
@@ -1433,6 +1438,19 @@ function queueTranscriptEvent(
     patch: args.patch,
     createdAt: args.createdAt,
   });
+  const currentItem = state.itemsById.get(args.itemId);
+  const mutation = createAssistantWorkspaceTranscriptMutation({
+    op: args.op,
+    itemId: args.itemId,
+    item: currentItem as unknown as Record<string, unknown> | undefined,
+    text: args.text,
+  });
+  if (mutation) {
+    state.workspaceTranscriptEvents.push({
+      boundary: args.boundary || "hard-boundary",
+      mutation,
+    });
+  }
   if (!normalizeString(record.runtimeDir)) {
     return;
   }
@@ -2931,6 +2949,7 @@ const ACP_SKILL_RUN_SNAPSHOT_CHANGE_KINDS =
   new Set<AcpSkillRunSnapshotChangeKind>([
     "run",
     "transcript",
+    "progress",
     "runtime-options",
     "selection",
     "archive",
@@ -2968,6 +2987,12 @@ function normalizeAcpSkillRunSnapshotChange(
   return {
     requestIds: requestIds.length > 0 ? requestIds : undefined,
     kinds: kinds.length > 0 ? kinds : undefined,
+    transcriptEvents: change.transcriptEvents?.map((event) => ({
+      boundary: event.boundary,
+      mutation: JSON.parse(JSON.stringify(event.mutation)),
+    })),
+    transcriptEventSeq: change.transcriptEventSeq,
+    transcriptItemCount: change.transcriptItemCount,
   };
 }
 
@@ -3007,6 +3032,17 @@ function mergeAcpSkillRunSnapshotChanges(
         ...(normalizedNext.kinds || []),
       ]),
     ),
+    transcriptEvents: [
+      ...(normalizedCurrent.transcriptEvents || []),
+      ...(normalizedNext.transcriptEvents || []),
+    ],
+    transcriptEventSeq: Math.max(
+      normalizedCurrent.transcriptEventSeq || 0,
+      normalizedNext.transcriptEventSeq || 0,
+    ),
+    transcriptItemCount:
+      normalizedNext.transcriptItemCount ??
+      normalizedCurrent.transcriptItemCount,
   };
 }
 
@@ -3015,9 +3051,26 @@ function acpSkillRunSnapshotChange(
   kinds: AcpSkillRunSnapshotChangeKind[],
 ): AcpSkillRunSnapshotChange {
   const normalizedRequestId = normalizeString(requestId);
+  const record = normalizedRequestId
+    ? runRecords.get(normalizedRequestId)
+    : undefined;
+  const state = record ? getAcpSkillRunTranscriptLiveState(record) : undefined;
+  const hasTranscript = kinds.includes("transcript");
+  const transcriptEvents = hasTranscript
+    ? state?.workspaceTranscriptEvents.splice(0) || []
+    : [];
   return {
     requestIds: normalizedRequestId ? [normalizedRequestId] : undefined,
     kinds,
+    ...(transcriptEvents.length > 0
+      ? {
+          transcriptEvents,
+          transcriptEventSeq:
+            state?.eventSeq || record?.transcriptEventSeq || 0,
+          transcriptItemCount:
+            state?.itemCount || record?.transcriptItemCount || 0,
+        }
+      : {}),
   };
 }
 
@@ -4066,6 +4119,7 @@ function appendTextChunk(args: {
       text,
       createdAt: args.now,
       textPreview: text,
+      boundary: "text-continuation",
     });
     return;
   }
@@ -4103,6 +4157,7 @@ function appendTextChunk(args: {
     item,
     createdAt: args.now,
     newItem: true,
+    boundary: "text-continuation",
   });
 }
 
@@ -4178,6 +4233,7 @@ function upsertTranscriptToolCall(
   record: AcpSkillRunRecord,
   update: AcpToolCall,
   now: string,
+  boundary: AssistantWorkspaceTranscriptBoundary,
 ) {
   const liveState = getAcpSkillRunTranscriptLiveState(record);
   const toolCallId =
@@ -4222,6 +4278,7 @@ function upsertTranscriptToolCall(
     item: next,
     createdAt: now,
     newItem: !existingId,
+    boundary,
   });
 }
 
@@ -4309,9 +4366,14 @@ export function recordAcpSkillRunSessionUpdate(
     if (isAcpTranscriptHardBoundaryUpdate(kind)) {
       completeOpenStreamingTextItems(next, now);
     }
-    upsertTranscriptToolCall(next, update as AcpToolCall, now);
+    upsertTranscriptToolCall(next, update as AcpToolCall, now, "hard-boundary");
   } else if (kind === "tool_call_update") {
-    upsertTranscriptToolCall(next, update as AcpToolCall, now);
+    upsertTranscriptToolCall(
+      next,
+      update as AcpToolCall,
+      now,
+      "soft-side-channel",
+    );
   } else if (kind === "plan") {
     if (isAcpTranscriptHardBoundaryUpdate(kind)) {
       completeOpenStreamingTextItems(next, now);
@@ -5114,6 +5176,13 @@ function runtimeOptionsForRun(run: AcpSkillRunRecord) {
     findSelectableOption(base.reasoningEffortOptions, run.acpReasoningEffort) ||
     cloneSelectableOption(base.currentReasoningEffort);
   return base;
+}
+
+export function getAcpSkillRunRuntimeOptions(requestIdRaw: string) {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const run = requestId ? runRecords.get(requestId) : undefined;
+  return run ? runtimeOptionsForRun(run) : null;
 }
 
 function resolveEffortIdFromRawModel(
@@ -5969,22 +6038,22 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   };
 }
 
-type AcpSkillRunTranscriptPageRequest = {
+export type AcpSkillRunTranscriptPageRequest = {
   requestId?: string;
   cursor?: number;
   limit?: number;
 };
 type AcpSkillRunTranscriptReadMode = "loading-first" | "page-first";
 
-function selectedTranscriptPageForRun(
+function transcriptPageForRun(
   record: AcpSkillRunRecord | undefined,
   request?: AcpSkillRunTranscriptPageRequest,
 ) {
   if (!record) {
     return undefined;
   }
-  const transcriptState = selectedTranscriptStateForRun(record);
-  if (transcriptState?.state !== "ready") {
+  const load = transcriptLoadForRun(record);
+  if (load.status !== "ready") {
     return undefined;
   }
   const requestedPageRunId = normalizeString(request?.requestId);
@@ -6001,17 +6070,58 @@ function selectedTranscriptPageForRun(
   return page;
 }
 
+function buildAcpSkillsTranscriptRegion(
+  record: AcpSkillRunRecord | undefined,
+  page:
+    | (AcpSkillRunTranscriptPage & {
+        requestId?: string;
+        transcriptRevision?: number;
+        limit?: number;
+      })
+    | undefined,
+  request?: AcpSkillRunTranscriptPageRequest,
+): AssistantWorkspaceTranscriptRegion {
+  if (!record) return createIdleTranscriptRegion();
+  const owner = createAcpSkillsWorkspaceOwner(record.requestId);
+  const load = transcriptLoadForRun(record);
+  if (!page && load.status === "failed") {
+    return createFailedTranscriptRegion(owner, {
+      code: "transcript-page-read-failed",
+      message: load.error,
+    });
+  }
+  if (!page && load.status === "loading") {
+    return createLoadingTranscriptRegion(owner);
+  }
+  const cursor = Math.max(0, Number(page?.cursor) || 0);
+  const limit = normalizeTranscriptPageLimit(page?.limit || request?.limit);
+  return createReadyTranscriptRegion(
+    owner,
+    createAssistantWorkspaceTranscriptPage({
+      owner,
+      anchor: request?.cursor === undefined ? "tail" : "cursor",
+      cursor,
+      limit,
+      totalItemCount: Number(page?.total) || 0,
+      previousCursor: page?.prevCursor,
+      nextCursor: page?.nextCursor,
+      eventSeq: Math.max(
+        Number(page?.eventSeq) || 0,
+        Number(record.transcriptEventSeq) || 0,
+      ),
+      items: (page?.items || []) as Array<Record<string, unknown>>,
+    }),
+    0,
+  );
+}
+
 function buildAcpSkillRunPanelSnapshotFromRuns(
   listedRuns: AcpSkillRunSummary[],
   args?: {
     selectedRequestId?: string;
     transcriptPage?: AcpSkillRunTranscriptPageRequest;
-    selectedTranscriptOverride?: ReturnType<
-      typeof selectedTranscriptStateForRun
-    >;
-    selectedTranscriptPageOverride?: ReturnType<
-      typeof selectedTranscriptPageForRun
-    >;
+    transcriptRegionOverride?: AssistantWorkspaceTranscriptRegion;
+    transcriptPageOverride?: ReturnType<typeof transcriptPageForRun>;
   },
 ): AcpSkillRunPanelSnapshot {
   const truncated = listedRuns.length > ACP_SKILL_RUN_PANEL_RUN_LIMIT;
@@ -6034,8 +6144,12 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
     ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
   }
   const snapshotSelectedRequestId = selected?.requestId || "";
-  const selectedTranscript =
-    args?.selectedTranscriptOverride || selectedTranscriptStateForRun(selected);
+  const page =
+    args?.transcriptPageOverride ||
+    transcriptPageForRun(selected, args?.transcriptPage);
+  const transcriptRegion =
+    args?.transcriptRegionOverride ||
+    buildAcpSkillsTranscriptRegion(selected, page, args?.transcriptPage);
   const selectedTask = selected ? findTaskForRun(selected) : undefined;
   const logs = selected
     ? listRuntimeLogs({
@@ -6086,10 +6200,7 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
       : undefined,
     labels,
     selectedRequestId: snapshotSelectedRequestId,
-    selectedTranscript,
-    selectedTranscriptPage:
-      args?.selectedTranscriptPageOverride ||
-      selectedTranscriptPageForRun(selected, args?.transcriptPage),
+    transcriptRegion,
     mcpServer: getZoteroMcpServerStatus(),
     mcpHealth: getZoteroMcpHealthSnapshot(),
     hostBridge: getHostBridgeServerStatus(),
@@ -6136,6 +6247,42 @@ export function buildAcpSkillRunPanelSnapshot(args?: {
   return buildAcpSkillRunPanelSnapshotFromRuns(listedRuns, args);
 }
 
+export async function readAcpSkillRunTranscriptRegion(args: {
+  requestId: string;
+  transcriptPage?: AcpSkillRunTranscriptPageRequest;
+  transcriptReadMode?: AcpSkillRunTranscriptReadMode;
+}): Promise<AssistantWorkspaceTranscriptRegion> {
+  ensureHydrated();
+  const requestId = normalizeString(args.requestId);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  if (!record) return createIdleTranscriptRegion();
+  const owner = createAcpSkillsWorkspaceOwner(requestId);
+  if (args.transcriptReadMode === "loading-first") {
+    return createLoadingTranscriptRegion(owner);
+  }
+  const state = getAcpSkillRunTranscriptLiveState(record);
+  try {
+    const page =
+      !state.mirrorLoaded && hasDurableAcpSkillRunTranscript(record, state)
+        ? await readSelectedTranscriptPageFromStore(record, args.transcriptPage)
+        : transcriptPageForRun(record, args.transcriptPage);
+    const region = buildAcpSkillsTranscriptRegion(
+      record,
+      page,
+      args.transcriptPage,
+    );
+    if (page && !state.mirrorLoaded) {
+      scheduleAcpSkillRunTranscriptHydrate(requestId);
+    }
+    return region;
+  } catch (error) {
+    return createFailedTranscriptRegion(owner, {
+      code: "transcript-page-read-failed",
+      message: errorText(error),
+    });
+  }
+}
+
 export async function prepareAcpSkillRunPanelSnapshot(args?: {
   selectedRequestId?: string;
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
@@ -6155,12 +6302,8 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
     requested: selectedRequestIdForSnapshot,
     runs: listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT),
   });
-  let selectedTranscriptOverride:
-    | ReturnType<typeof selectedTranscriptStateForRun>
-    | undefined;
-  let selectedTranscriptPageOverride:
-    | ReturnType<typeof selectedTranscriptPageForRun>
-    | undefined;
+  let transcriptRegionOverride: AssistantWorkspaceTranscriptRegion | undefined;
+  let transcriptPageOverride: ReturnType<typeof transcriptPageForRun>;
   if (selected) {
     const state = getAcpSkillRunTranscriptLiveState(selected);
     if (
@@ -6168,10 +6311,9 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
       hasDurableAcpSkillRunTranscript(selected, state)
     ) {
       if (args?.transcriptReadMode === "loading-first") {
-        selectedTranscriptOverride = {
-          requestId: selected.requestId,
-          state: "loading" as const,
-        };
+        transcriptRegionOverride = createLoadingTranscriptRegion(
+          createAcpSkillsWorkspaceOwner(selected.requestId),
+        );
       } else {
         try {
           const pageReadStartedAt = __acp_runtime_performance_profiler_enabled__
@@ -6183,11 +6325,10 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
                 ? readAcpRuntimePerformanceClockMs()
                 : 0
             : 0;
-          selectedTranscriptPageOverride =
-            await readSelectedTranscriptPageFromStore(
-              selected,
-              args?.transcriptPage,
-            );
+          transcriptPageOverride = await readSelectedTranscriptPageFromStore(
+            selected,
+            args?.transcriptPage,
+          );
           if (
             __acp_runtime_performance_profiler_enabled__ &&
             (typeof __debug_mode__ === "undefined"
@@ -6211,21 +6352,24 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
               readAcpRuntimePerformanceClockMs() - pageReadStartedAt,
             );
           }
-          if (selectedTranscriptPageOverride) {
-            selectedTranscriptOverride = {
-              requestId: selected.requestId,
-              state: "ready" as const,
-            };
+          if (transcriptPageOverride) {
+            transcriptRegionOverride = buildAcpSkillsTranscriptRegion(
+              selected,
+              transcriptPageOverride,
+              args?.transcriptPage,
+            );
             scheduleAcpSkillRunTranscriptHydrate(selected.requestId);
           }
         } catch (error) {
           state.hydrateState = "failed";
           state.hydrateError = errorText(error);
-          selectedTranscriptOverride = {
-            requestId: selected.requestId,
-            state: "failed" as const,
-            error: state.hydrateError,
-          };
+          transcriptRegionOverride = createFailedTranscriptRegion(
+            createAcpSkillsWorkspaceOwner(selected.requestId),
+            {
+              code: "transcript-page-read-failed",
+              message: state.hydrateError,
+            },
+          );
           appendRuntimeLog({
             level: "warn",
             scope: "system",
@@ -6243,8 +6387,8 @@ export async function prepareAcpSkillRunPanelSnapshot(args?: {
   return buildAcpSkillRunPanelSnapshotFromRuns(listedRuns, {
     ...args,
     selectedRequestId: selectedRequestIdForSnapshot,
-    selectedTranscriptOverride,
-    selectedTranscriptPageOverride,
+    transcriptRegionOverride,
+    transcriptPageOverride,
   });
 }
 

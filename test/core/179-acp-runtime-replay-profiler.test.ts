@@ -151,6 +151,7 @@ function measuredProfile(args: {
   requestId: string;
   surface: "closed" | "open-inactive" | "target-active";
   mismatchedR3Publication?: boolean;
+  producerNativeR3?: boolean;
 }) {
   const counter = (
     name: any,
@@ -213,8 +214,9 @@ function measuredProfile(args: {
       },
       ...(args.surface === "target-active"
         ? [
-            counter("panel_prepare", 1),
-            counter("panel_signature", 1),
+            ...(args.producerNativeR3
+              ? []
+              : [counter("panel_prepare", 1), counter("panel_signature", 1)]),
             counter("panel_post", 1, { publicationId: "publication-1" }),
             counter("panel_shell_forward", 1, {
               publicationId: "publication-1",
@@ -917,6 +919,45 @@ describe("ACP runtime replay profiler", function () {
       targetActive?.measurement.families.r3.detail || "",
       "publication identity mismatch",
     );
+  });
+
+  it("accepts producer-native deltas without page materialization metrics", async function () {
+    let activeProfile:
+      | {
+          requestId: string;
+          surface: "closed" | "open-inactive" | "target-active";
+        }
+      | undefined;
+    const matrix = await runAcpRuntimeReplayMatrix({
+      trace: fixtureTrace(),
+      cadence: "burst",
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+      createTarget: async ({ sourceKind, syntheticRootId }) =>
+        target({ sourceKind, syntheticRootId }),
+      workspace: {
+        snapshot: async () => ({}),
+        prepare: async () => ({ ok: true }),
+        drain: async () => ({ ok: true }),
+        restore: async () => undefined,
+      },
+      profiler: {
+        start: async ({ syntheticRootId, surface }) => {
+          activeProfile = { requestId: syntheticRootId, surface };
+        },
+        finish: async () =>
+          measuredProfile({
+            ...activeProfile!,
+            producerNativeR3: activeProfile?.surface === "target-active",
+          }),
+      },
+      r2Port: { consumeFragment: async () => undefined },
+      sleep: async () => undefined,
+    });
+
+    const targetActive = matrix.records.find(
+      (record) => record.surface === "target-active",
+    );
+    assert.equal(targetActive?.measurement.families.r3.state, "captured");
   });
 
   it("reports target setup failures without running profile, replay, R2, or drain and rejects zero-event R1 evidence", async function () {

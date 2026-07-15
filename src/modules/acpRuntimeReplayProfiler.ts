@@ -812,8 +812,6 @@ function evaluateReplayMeasurement(args: {
     );
   const r3Complete =
     r3Lifecycle.post > 0 &&
-    r3Lifecycle.prepare >= r3Lifecycle.post &&
-    r3Lifecycle.signature >= r3Lifecycle.post &&
     r3Lifecycle.shellForward === r3Lifecycle.post &&
     r3Lifecycle.childApply === r3Lifecycle.post &&
     r3Lifecycle.renderAck === r3Lifecycle.post &&

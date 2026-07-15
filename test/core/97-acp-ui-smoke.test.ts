@@ -301,6 +301,9 @@ async function loadAcpSkillRunSidebarForSmoke(
 ) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile("addon/content/sidebar/acp-skill-run.js");
+  const publicationCode = await readProjectFile(
+    "addon/content/shared/assistant/assistant-transcript-publication.js",
+  );
   const transcriptCode = options.useActualTranscriptRenderer
     ? await readProjectFile(
         "addon/content/shared/assistant/assistant-transcript-renderer.js",
@@ -383,6 +386,7 @@ async function loadAcpSkillRunSidebarForSmoke(
   if (transcriptCode) {
     vm.runInNewContext(transcriptCode, context);
   }
+  vm.runInNewContext(publicationCode, context);
   vm.runInNewContext(code, context);
   return {
     actions,
@@ -410,6 +414,9 @@ async function loadAcpSkillRunSidebarForSmoke(
 async function loadAcpChatSidebarForSmoke(document: any) {
   const vm = await dynamicImport<typeof import("vm")>("vm");
   const code = await readProjectFile("addon/content/sidebar/acp-chat.js");
+  const publicationCode = await readProjectFile(
+    "addon/content/shared/assistant/assistant-transcript-publication.js",
+  );
   const listeners = new Map<string, any[]>();
   const actions: Array<{ action: string; payload: Record<string, unknown> }> =
     [];
@@ -511,6 +518,7 @@ async function loadAcpChatSidebarForSmoke(document: any) {
     setTimeout,
     clearTimeout,
   };
+  vm.runInNewContext(publicationCode, context);
   vm.runInNewContext(code, context);
   return {
     actions,
@@ -556,6 +564,114 @@ function collectFakeText(node: any): string {
       ? node.children.map((child: any) => collectFakeText(child)).join("")
       : "")
   );
+}
+
+function canonicalTranscriptItem(item: Record<string, any>) {
+  return {
+    ...item,
+    itemId: String(item.itemId || item.id || ""),
+    itemKind:
+      item.itemKind || (item.kind === "tool_call" ? "tool-call" : item.kind),
+    createdAt: String(item.createdAt || "2026-01-01T00:00:00.000Z"),
+    updatedAt: item.updatedAt || null,
+    status:
+      item.status ||
+      (item.state === "in_progress" ? "in-progress" : item.state) ||
+      (item.kind === "message" || item.kind === "thought"
+        ? "complete"
+        : undefined),
+  };
+}
+
+function transcriptRegionFixture(args: {
+  source: "acp-chat" | "acp-skills";
+  backendId?: string;
+  conversationId?: string;
+  requestId?: string;
+  status: "loading" | "ready" | "failed";
+  error?: string;
+  cursor?: number;
+  prevCursor?: number;
+  nextCursor?: number;
+  total?: number;
+  eventSeq?: number;
+  revision?: number;
+  limit?: number;
+  items?: Array<Record<string, any>>;
+}) {
+  const owner =
+    args.source === "acp-chat"
+      ? {
+          source: args.source,
+          ownerKey: `${args.backendId || ""}\n${args.conversationId || ""}`,
+          backendId: args.backendId || "",
+          conversationId: args.conversationId || "",
+        }
+      : {
+          source: args.source,
+          ownerKey: args.requestId || "",
+          requestId: args.requestId || "",
+        };
+  const limit = args.limit || 80;
+  const cursor = args.cursor || 0;
+  return {
+    owner,
+    status: args.status,
+    error:
+      args.status === "failed"
+        ? { code: "fixture-failed", message: args.error || "failed" }
+        : null,
+    page:
+      args.status === "ready"
+        ? {
+            pageKey: owner.ownerKey,
+            startCursor: cursor,
+            limit,
+            totalItemCount: args.total || 0,
+            previousCursor:
+              typeof args.prevCursor === "number" ? args.prevCursor : null,
+            nextCursor:
+              typeof args.nextCursor === "number" ? args.nextCursor : null,
+            eventSeq: args.eventSeq || 0,
+            items: (args.items || []).map(canonicalTranscriptItem),
+          }
+        : null,
+    uiRevision: args.revision || 0,
+  };
+}
+
+function publicationFixture(args: {
+  publicationId: string;
+  source: "acp-chat" | "acp-skills";
+  ownerKey: string;
+  revision: number;
+  publicationKind?: "baseline-status" | "message-counts";
+  payload?: Record<string, unknown>;
+}) {
+  const [backendId, conversationId] = args.ownerKey.split("\n", 2);
+  return {
+    schema: "zotero-agents.assistant-workspace-publication.v3",
+    publicationId: args.publicationId,
+    owner:
+      args.source === "acp-chat"
+        ? {
+            source: args.source,
+            ownerKey: args.ownerKey,
+            backendId,
+            conversationId,
+          }
+        : {
+            source: args.source,
+            ownerKey: args.ownerKey,
+            requestId: args.ownerKey,
+          },
+    publicationKind: args.publicationKind || "baseline-status",
+    publicationForm: "region",
+    publicationCause: "steady-state",
+    regionRevision: args.revision,
+    deliverySequence: args.revision,
+    payload: args.payload || { status: "running", busy: true, message: null },
+  };
 }
 
 function createFakeDocumentForAssistantPanel() {
@@ -3087,14 +3203,14 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "function projectConversationView(snapshot)");
     assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
     assert.include(acpChatJs, "Array.isArray(snapshot && snapshot.items)");
-    assert.include(acpChatJs, "selectedTranscriptPageForConversation");
+    assert.include(acpChatJs, "assistantTranscriptPublication");
     assert.include(
       acpChatJs,
       "snapshotTranscriptPaginationVirtualizationEnabled",
     );
-    assert.include(acpChatJs, "const view = page");
+    assert.include(acpChatJs, "const view = regionPage");
     assert.include(acpChatJs, "projectConversationView(snapshot || {})");
-    assert.include(acpChatJs, "snapshot.transcriptState");
+    assert.include(acpChatJs, 'region.status === "loading"');
     assert.include(acpChatJs, "acp-chat-transcript-loading");
     assert.include(
       acpChatJs,
@@ -3175,7 +3291,7 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "runtimeOptions.currentReasoningEffort.id");
     assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
     assert.include(acpSkillRunJs, "executionDisplayMode:");
-    assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
+    assert.include(acpSkillRunJs, "transcriptRegionForRun");
     assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
     assert.include(
       acpSkillRunJs,
@@ -3447,8 +3563,8 @@ describe("acp ui smoke", function () {
     assert.include(acpSkillRunJs, "modeKey: state.transcriptMode");
     assert.include(acpSkillRunJs, "onRendered: function (result)");
     assert.include(acpSkillRunJs, "syncTranscriptRun(run, transcript);");
-    assert.include(acpSkillRunJs, "selectedTranscriptPage");
-    assert.include(acpSkillRunJs, "selectedTranscriptPageForRun");
+    assert.include(acpSkillRunJs, "transcriptRendererPageForRun");
+    assert.include(acpSkillRunJs, "transcriptPageSignature");
     assert.include(acpSkillRunJs, "load-transcript-page");
     assert.include(acpSkillRunJs, "transcriptPaginationVirtualizationEnabled");
     assert.include(acpSkillRunJs, "resetTranscriptVirtualState");
@@ -3502,7 +3618,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantTranscriptRendererJs, "pageRejected");
     assert.include(assistantPanelModelJs, "acpSkillTranscriptItemsFromPanel");
-    assert.include(assistantPanelModelJs, "selectedTranscriptPage");
+    assert.include(assistantPanelModelJs, "AssistantTranscriptPublication");
     assert.notInclude(
       acpSkillRunJs,
       "Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []",
@@ -3606,10 +3722,7 @@ describe("acp ui smoke", function () {
       assistantSidebar,
       "transcriptPaginationVirtualizationEnabled",
     );
-    assert.include(
-      assistantSidebar,
-      "shouldRefreshAcpSkillRunSnapshotForChange",
-    );
+    assert.include(assistantSidebar, "scheduleAcpSkillRunPublications");
     assert.include(assistantSidebar, "load-transcript-page");
     assert.include(assistantSidebar, "getSelectedAcpSkillRunRequestId()");
     const loadTranscriptPageBlock = assistantSidebar.slice(
@@ -3621,9 +3734,13 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       loadTranscriptPageBlock,
-      "!requestId || requestId !== selectedRequestId",
+      "parseAssistantWorkspaceTranscriptPageRequest(childPayload)",
     );
-    assert.notInclude(loadTranscriptPageBlock, "selectedRequestId: requestId");
+    assert.include(
+      loadTranscriptPageBlock,
+      'pageRequest.owner.source === "acp-skills"',
+    );
+    assert.include(loadTranscriptPageBlock, "requestId !== selectedRequestId");
     assert.include(
       assistantSidebar,
       "setAcpConversationAutoApprovePermissions",
@@ -3829,7 +3946,7 @@ describe("acp ui smoke", function () {
     assert.include(sidebarTypes, "reasoningEffortOptions");
     assert.include(sidebarTypes, "archivedAt?: string");
     assert.include(sidebarTypes, "AcpBackendChatSessions");
-    assert.include(sidebarTypes, "transcriptState?:");
+    assert.notInclude(sidebarTypes, "transcriptState?:");
     assert.include(sidebarTypes, "stderrTail: string");
     assert.include(sidebarTypes, "lastLifecycleEvent: string");
     assert.include(sidebarTypes, 'AcpChatDisplayMode = "plain" | "bubble"');
@@ -3858,13 +3975,10 @@ describe("acp ui smoke", function () {
       "readAcpConversationTranscriptMirrorPage",
     );
     assert.include(acpChatPanelReadModel, "readAcpConversationTranscriptPage");
-    assert.include(
-      acpChatPanelReadModel,
-      "selectedAcpChatTranscriptPageReadable",
-    );
+    assert.include(acpChatPanelReadModel, "createReadyTranscriptRegion");
     assert.include(acpChatPanelReadModel, "prepareAcpChatPanelSnapshot");
     assert.include(acpChatPanelReadModel, "transcriptReadMode");
-    assert.include(acpChatPanelReadModel, "selectedTranscriptPage");
+    assert.include(acpChatPanelReadModel, "transcriptRegion");
     assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
     assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
     assert.include(assistantSidebar, "postAcpChatLoadingFirstSnapshot");
@@ -3889,10 +4003,18 @@ describe("acp ui smoke", function () {
       chatBranchStart,
     );
     const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
-    assert.include(chatBranch, 'action === "load-transcript-page"');
-    assert.include(chatBranch, "postAcpChatPanelPublication");
     assert.include(chatBranch, "postAcpChatLoadingFirstSnapshot");
     assert.notInclude(chatBranch, "refreshAcpConversationBackends");
+    const sharedPageRequestBranch = assistantSidebar.slice(
+      assistantSidebar.indexOf(
+        'action === "load-transcript-page"',
+        handlerStart,
+      ),
+      chatBranchStart,
+    );
+    assert.include(sharedPageRequestBranch, "postAcpChatPanelPublication");
+    assert.include(sharedPageRequestBranch, "postAcpSkillRunPublication");
+    assert.include(sharedPageRequestBranch, "pageRequest.owner.source");
 
     const ordinaryPostStart = assistantSidebar.indexOf(
       "function postSnapshotForTab",
@@ -3953,7 +4075,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(
       acpChatPanelReadModel,
-      "selectedAcpChatTranscriptPageReadable",
+      "createAssistantWorkspaceTranscriptPage",
     );
     assert.include(
       acpSkillRunStore,
@@ -4131,11 +4253,12 @@ describe("acp ui smoke", function () {
     assert.notInclude(refreshPredicate, "tab-switch");
     assert.notInclude(refreshPredicate, "shell-load");
 
+    assert.notInclude(assistantSidebar, "subscribeAcpFrontendSnapshots");
     const subscriptionStart = assistantSidebar.indexOf(
-      "host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots",
+      "host.removeAcpChatPanelSubscription = subscribeAcpChatPanelSnapshots",
     );
     const subscriptionEnd = assistantSidebar.indexOf(
-      "host.removeAcpChatPanelSubscription",
+      "host.removeAcpSkillRunSubscription",
       subscriptionStart,
     );
     const sharedAcpSubscription = assistantSidebar.slice(
@@ -4143,6 +4266,7 @@ describe("acp ui smoke", function () {
       subscriptionEnd,
     );
     assert.include(sharedAcpSubscription, "updateAssistantAttentionIndicator");
+    assert.include(sharedAcpSubscription, "scheduleAcpChatPublications");
     assert.notInclude(sharedAcpSubscription, "schedulePostSnapshot");
 
     const streamingSubscriptionStart = assistantSidebar.indexOf(
@@ -4559,15 +4683,12 @@ describe("acp ui smoke", function () {
       },
       activeBackendId: "backend-a",
       activeConversationId: "conversation-a",
-      workspacePublication: {
-        id: `publication-${revision}`,
-        tab: "acp-chat",
-        kind: "baseline-status",
-        owner: { key: "backend-a\nconversation-a" },
+      workspacePublication: publicationFixture({
+        publicationId: `publication-${revision}`,
+        source: "acp-chat",
+        ownerKey: "backend-a\nconversation-a",
         revision,
-        signature: `snapshot-${revision}`,
-        initialization: false,
-      },
+      }),
     });
 
     shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
@@ -5988,20 +6109,23 @@ describe("acp ui smoke", function () {
           replyState: "idle",
           sessionId: "session-connected-idle",
         },
-        selectedTranscriptPage: {
+        transcriptRegion: transcriptRegionFixture({
+          source: "acp-skills",
           requestId: "acp-skill-connected-idle",
-          cursor: 0,
+          status: "ready",
           total: 1,
           eventSeq: 1,
-          transcriptRevision: 1,
-          limit: 80,
+          revision: 1,
           items: [
             {
+              id: "interrupt-confirmed",
               kind: "status",
               label: "interrupt-confirmed",
+              level: "info",
+              text: "",
             },
           ],
-        },
+        }),
         runs: [{ requestId: "acp-skill-connected-idle", status: "running" }],
         logs: [],
       });
@@ -6729,20 +6853,14 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-a",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 1,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-a",
         conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
+        revision: 1,
         items: [
           {
             id: "old-message",
@@ -6751,7 +6869,7 @@ describe("acp ui smoke", function () {
             text: "old ACP Chat page",
           },
         ],
-      },
+      }),
       items: [],
       labels: {},
     });
@@ -6764,11 +6882,13 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-b",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 2,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-b",
         conversationId: "conversation-b",
-        state: "ready",
-      },
+        status: "loading",
+        revision: 2,
+      }),
       items: [],
       labels: {},
     });
@@ -6827,11 +6947,13 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-loading",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 1,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-loading",
         conversationId: "conversation-loading",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
       items: [],
       labels: {},
     };
@@ -6858,11 +6980,13 @@ describe("acp ui smoke", function () {
       activeConversationId: "conversation-other",
       conversationId: "conversation-other",
       transcriptRevision: 1,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-loading",
         conversationId: "conversation-other",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
     });
     assert.notStrictEqual(
       transcript.querySelector(".acp-chat-transcript-loading"),
@@ -6880,20 +7004,14 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-a",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 1,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-pending",
         conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-pending\nconversation-a",
-        backendId: "backend-pending",
-        conversationId: "conversation-a",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
+        revision: 1,
         items: [
           {
             id: "conversation-a-message",
@@ -6902,7 +7020,7 @@ describe("acp ui smoke", function () {
             text: "conversation A visible transcript",
           },
         ],
-      },
+      }),
       chatSessions: [
         {
           backendId: "backend-pending",
@@ -6943,11 +7061,13 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-b",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 2,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-pending",
         conversationId: "conversation-b",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 2,
+      }),
       chatSessions: conversationAReadySnapshot.chatSessions,
       items: [],
       labels: {},
@@ -6999,10 +7119,12 @@ describe("acp ui smoke", function () {
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 0,
       transcriptItemCount: 0,
-      transcriptState: {
-        backendId: "",
-        conversationId: "",
-        state: "loading",
+      transcriptRegion: {
+        owner: null,
+        status: "idle",
+        error: null,
+        page: null,
+        uiRevision: 0,
       },
       items: [],
       labels: {},
@@ -7087,20 +7209,14 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-current",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 4,
-      transcriptState: {
-        backendId: "backend-current",
-        conversationId: "conversation-current",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-old\nconversation-old",
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-old",
         conversationId: "conversation-old",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 4,
-        transcriptRevision: 4,
-        limit: 80,
+        revision: 4,
         items: [
           {
             id: "wrong-message",
@@ -7109,7 +7225,7 @@ describe("acp ui smoke", function () {
             text: "wrong ACP Chat page",
           },
         ],
-      },
+      }),
       items: [],
       labels: {},
     });
@@ -7129,20 +7245,16 @@ describe("acp ui smoke", function () {
       conversationId: "conversation-a",
       transcriptPaginationVirtualizationEnabled: true,
       transcriptRevision: 8,
-      transcriptState: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-chat",
         backendId: "backend-a",
         conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
+        status: "ready",
         cursor: 80,
         prevCursor: 0,
         total: 81,
         eventSeq: 8,
-        transcriptRevision: 8,
+        revision: 8,
         limit: 80,
         items: [
           {
@@ -7152,7 +7264,7 @@ describe("acp ui smoke", function () {
             text: "matching ACP Chat page",
           },
         ],
-      },
+      }),
       items: [],
       labels: {},
     });
@@ -7172,11 +7284,13 @@ describe("acp ui smoke", function () {
     assert.deepEqual(sidebar.actions.at(-1), {
       action: "load-transcript-page",
       payload: {
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        requestId: "backend-a\nconversation-a",
-        cursor: 0,
-        limit: 80,
+        owner: {
+          source: "acp-chat",
+          ownerKey: "backend-a\nconversation-a",
+          backendId: "backend-a",
+          conversationId: "conversation-a",
+        },
+        request: { cursor: 0, limit: 80 },
       },
     });
   });
@@ -7700,17 +7814,14 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 1,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-a",
+        status: "ready",
         cursor: 80,
         total: 81,
         eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
+        revision: 1,
         items: [
           {
             id: "message-a",
@@ -7719,7 +7830,7 @@ describe("acp ui smoke", function () {
             text: "run A transcript",
           },
         ],
-      },
+      }),
     });
     assert.include(collectFakeText(transcript), "run A transcript");
 
@@ -7729,10 +7840,12 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 1,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-b",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
     });
     transcript.scrollTop = 0;
     transcript.dispatchEventType("scroll");
@@ -7746,17 +7859,14 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 2,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-b",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-b",
+        status: "ready",
         cursor: 80,
         total: 81,
         eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
+        revision: 2,
         items: [
           {
             id: "message-b",
@@ -7765,7 +7875,7 @@ describe("acp ui smoke", function () {
             text: "run B transcript",
           },
         ],
-      },
+      }),
     });
 
     assert.include(collectFakeText(transcript), "run B transcript");
@@ -7792,10 +7902,12 @@ describe("acp ui smoke", function () {
           transcriptRevision: 1,
         },
       ],
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-loading-stable",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
     };
 
     sidebar.postSnapshot(loadingSnapshot);
@@ -7843,10 +7955,12 @@ describe("acp ui smoke", function () {
           transcriptRevision: 1,
         },
       ],
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-loading-other",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
     });
     assert.notStrictEqual(
       transcript.querySelector(".acp-skill-transcript-loading"),
@@ -7887,16 +8001,12 @@ describe("acp ui smoke", function () {
           transcriptRevision: 2,
         },
       ],
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-pending-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-pending-a",
-        cursor: 0,
+        status: "ready",
         total: 1,
-        transcriptRevision: 1,
-        limit: 80,
+        revision: 1,
         items: [
           {
             id: "run-pending-a-message",
@@ -7905,7 +8015,7 @@ describe("acp ui smoke", function () {
             text: "run A visible transcript",
           },
         ],
-      },
+      }),
     };
 
     sidebar.postSnapshot(runAReadySnapshot);
@@ -7927,10 +8037,12 @@ describe("acp ui smoke", function () {
         transcriptRevision: 2,
       },
       runs: runAReadySnapshot.runs,
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-pending-b",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 2,
+      }),
     });
 
     assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
@@ -7973,17 +8085,13 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 7,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-spinner-guard",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-spinner-guard",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 7,
-        transcriptRevision: 7,
-        limit: 80,
+        revision: 7,
         items: [
           {
             id: "message-1",
@@ -7992,7 +8100,7 @@ describe("acp ui smoke", function () {
             text: "ready transcript",
           },
         ],
-      },
+      }),
     });
     assert.equal(
       transcript.querySelector(".assistant-transcript-row")?.textContent,
@@ -8005,10 +8113,12 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 7,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-spinner-guard",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 7,
+      }),
     });
     assert.notOk(transcript.querySelector(".acp-skill-transcript-loading"));
     assert.equal(
@@ -8022,10 +8132,12 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 1,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-spinner-first-load",
-        state: "loading",
-      },
+        status: "loading",
+        revision: 1,
+      }),
     });
     assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
   });
@@ -8073,17 +8185,13 @@ describe("acp ui smoke", function () {
       selectedRun: baseRun,
       runs: [baseRun],
       logs: [{ id: "log-1", message: "first log" }],
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-dom-stability",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-dom-stability",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
+        revision: 1,
         items: [
           {
             id: "message-1",
@@ -8092,7 +8200,7 @@ describe("acp ui smoke", function () {
             text: "first transcript chunk",
           },
         ],
-      },
+      }),
     });
 
     const firstMount = details.querySelector(
@@ -8122,17 +8230,13 @@ describe("acp ui smoke", function () {
       },
       runs: [{ ...baseRun, transcriptRevision: 2 }],
       logs: [{ id: "log-2", message: "transcript pulse log" }],
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-dom-stability",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-dom-stability",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
+        revision: 2,
         items: [
           {
             id: "message-1",
@@ -8141,7 +8245,7 @@ describe("acp ui smoke", function () {
             text: "second transcript chunk",
           },
         ],
-      },
+      }),
     });
 
     const nextRunnerSection = details
@@ -8196,17 +8300,13 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 2,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-current",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-current",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
+        revision: 2,
         items: [
           {
             id: "message-current",
@@ -8215,7 +8315,7 @@ describe("acp ui smoke", function () {
             text: "current transcript",
           },
         ],
-      },
+      }),
     });
     assert.equal(
       transcript.querySelector(".assistant-transcript-row")?.textContent,
@@ -8233,17 +8333,13 @@ describe("acp ui smoke", function () {
         status: "running",
         transcriptRevision: 3,
       },
-      selectedTranscript: {
+      transcriptRegion: transcriptRegionFixture({
+        source: "acp-skills",
         requestId: "run-previous",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-previous",
-        cursor: 0,
+        status: "ready",
         total: 1,
         eventSeq: 3,
-        transcriptRevision: 3,
-        limit: 80,
+        revision: 3,
         items: [
           {
             id: "message-previous",
@@ -8252,7 +8348,7 @@ describe("acp ui smoke", function () {
             text: "previous transcript",
           },
         ],
-      },
+      }),
     });
 
     assert.equal(
@@ -8456,12 +8552,21 @@ describe("acp ui smoke", function () {
         conversation: { items: [{ id: "message-1", text: "second" }] },
         raw: {
           transcriptRevision: 2,
-          selectedTranscriptPage: {
+          transcriptRegion: transcriptRegionFixture({
+            source: "acp-skills",
             requestId: "run-managed-stable",
+            status: "ready",
             cursor: 80,
-            transcriptRevision: 2,
-            items: [{ id: "message-1", text: "second" }],
-          },
+            revision: 2,
+            items: [
+              {
+                id: "message-1",
+                kind: "message",
+                role: "assistant",
+                text: "second",
+              },
+            ],
+          }),
         },
       },
       {
@@ -9122,29 +9227,23 @@ describe("acp ui smoke", function () {
     const transcriptRenderCount = sidebar.transcriptRenderCalls.length;
     const counterRenderCount = sidebar.counterRenderCalls.length;
 
-    sidebar.postPublication({
-      schema: "zotero-agents.assistant-workspace-publication.v1",
-      id: "publication-1",
-      tab: "acp-chat",
-      kind: "message-counts",
-      owner: {
+    sidebar.postPublication(
+      publicationFixture({
+        publicationId: "publication-1",
         source: "acp-chat",
-        key: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-      },
-      revision: 1,
-      signature: "counts-2",
-      initialization: false,
-      dto: {
-        messageCounts: {
-          ...snapshot.messageCounts,
-          current: { assistant: 1, thought: 0, tool: 0 },
-          cumulative: { assistant: 1, thought: 0, tool: 0 },
-          revision: 2,
+        ownerKey: "backend-a\nconversation-a",
+        revision: 1,
+        publicationKind: "message-counts",
+        payload: {
+          counts: {
+            ...snapshot.messageCounts,
+            current: { assistant: 1, thought: 0, tool: 0 },
+            cumulative: { assistant: 1, thought: 0, tool: 0 },
+            revision: 2,
+          },
         },
-      },
-    });
+      }),
+    );
 
     assert.isAbove(sidebar.counterRenderCalls.length, counterRenderCount);
     assert.equal(sidebar.panelRenderCalls.length, panelRenderCount);
@@ -9155,35 +9254,27 @@ describe("acp ui smoke", function () {
         entry.payload.stage === "render-complete",
     );
     assert.equal(renderAck?.payload.publicationId, "publication-1");
-    assert.equal(renderAck?.payload.kind, "message-counts");
-    assert.equal(renderAck?.payload.ownerKey, "backend-a\nconversation-a");
-    assert.equal(renderAck?.payload.revision, 1);
-    assert.equal(renderAck?.payload.signature, "counts-2");
-    assert.equal(renderAck?.payload.outcome, "applied");
+    assert.equal(renderAck?.payload.outcome, "accepted");
+    assert.isNull(renderAck?.payload.reason);
 
     const renderedCounterCount = sidebar.counterRenderCalls.length;
     sidebar.postPublication({
-      schema: "zotero-agents.assistant-workspace-publication.v1",
-      id: "publication-stale",
-      tab: "acp-chat",
-      kind: "message-counts",
-      owner: {
+      ...publicationFixture({
+        publicationId: "publication-stale",
         source: "acp-chat",
-        key: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-      },
-      revision: 0,
-      signature: "counts-stale",
-      initialization: false,
-      dto: { messageCounts: snapshot.messageCounts },
+        ownerKey: "backend-a\nconversation-a",
+        revision: 2,
+        publicationKind: "message-counts",
+        payload: { counts: snapshot.messageCounts },
+      }),
+      regionRevision: 1,
     });
     assert.equal(sidebar.counterRenderCalls.length, renderedCounterCount);
     const staleAck = sidebar.actions.at(-1)?.payload;
     assert.equal(staleAck?.publicationId, "publication-stale");
     assert.equal(staleAck?.stage, "child-apply");
     assert.equal(staleAck?.outcome, "rejected");
-    assert.equal(staleAck?.reason, "stale-revision");
+    assert.equal(staleAck?.reason, "stale");
   });
 
   it("delivers ACP Skills count-only snapshots to the shared region guards", async function () {
@@ -9252,15 +9343,12 @@ describe("acp ui smoke", function () {
       selectedRun: { requestId: "run-a", status: "running" },
       runs: [],
       labels: {},
-      workspacePublication: {
-        id: `publication-${revision}`,
-        tab: "acp-skills",
-        kind: "baseline-status",
-        owner: { key: "run-a" },
+      workspacePublication: publicationFixture({
+        publicationId: `publication-${revision}`,
+        source: "acp-skills",
+        ownerKey: "run-a",
         revision,
-        signature: `snapshot-${revision}`,
-        initialization: false,
-      },
+      }),
     });
 
     sidebar.postSnapshot(snapshot(1));
@@ -9333,7 +9421,7 @@ describe("acp ui smoke", function () {
       acpSkillRunJs,
       "let revision = incomingTranscriptRevision(run);",
     );
-    assert.include(acpSkillRunJs, "selectedTranscriptPageSignature(run)");
+    assert.include(acpSkillRunJs, "transcriptPageSignature(run)");
     assert.include(acpSkillRunJs, "const virtualized =");
     assert.include(acpSkillRunJs, "isStaleLoadingTranscriptRevision");
     assert.include(acpSkillRunJs, "revision <= state.transcriptRevision");
@@ -9345,7 +9433,7 @@ describe("acp ui smoke", function () {
       acpSkillRenderTranscript.indexOf(
         "if (isStaleTranscriptRevision(revision))",
       ),
-      acpSkillRenderTranscript.indexOf("selectedTranscriptPageSignature(run)"),
+      acpSkillRenderTranscript.indexOf("transcriptPageSignature(run)"),
     );
     assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
     assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");
@@ -9609,9 +9697,8 @@ describe("acp ui smoke", function () {
     ]) {
       assert.include(canonicalSource, field);
     }
-    assert.include(canonicalSource, "selectedTranscript");
-    assert.include(canonicalSource, "selectedTranscriptPage");
-    assert.include(canonicalSource, "selectedTranscriptLoading");
+    assert.include(canonicalSource, "transcriptRegion");
+    assert.include(canonicalSource, "transcriptLoading");
     assert.match(canonicalSource, /requestId\s*===\s*selectedRequestId/);
   });
 

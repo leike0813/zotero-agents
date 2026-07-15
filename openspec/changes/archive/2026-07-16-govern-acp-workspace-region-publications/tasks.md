@@ -34,6 +34,7 @@
 
 - [x] 5.1 Run the focused Node/Zotero session, UI smoke, performance profiler, and replay profiler tests
 - [x] 5.2 Run `npm run lint:check`, `npm run build`, and strict OpenSpec validation
-- [ ] 5.3 Generate the same-provenance corrected after live Chat matrix and verify baseline count/posted bytes decrease without drift-bucket regression where real Zotero hosts are available
+- [x] 5.3 Generate the same-provenance corrected after live Chat matrix and verify baseline count/posted bytes decrease without drift-bucket regression where real Zotero hosts are available
 - [x] 5.4 Record unavailable Zotero 7/9 formal host runs explicitly without claiming real-host latency improvement
 - [x] 5.5 Run focused regression coverage for delayed acknowledgements, cross-round attribution, and same-frame Skills snapshots
+

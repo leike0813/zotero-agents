@@ -155,6 +155,36 @@ describe("ACP runtime performance profiler", function () {
     );
   });
 
+  it("keeps publication surface, form, and materialization labels distinct", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "run-publication-labels",
+      displayMode: "boundary",
+      transport: "websocket",
+      zoteroMajor: 9,
+    });
+    incrementAcpRuntimeMetric(
+      "run-publication-labels",
+      "panel_materialization",
+      {
+        publicationKind: "transcript",
+        publicationSurface: "acp-skills",
+        publicationForm: "delta",
+        materializationSource: "transcript-page",
+      },
+    );
+    const metric = snapshotAcpRuntimeProfiles()?.active[0].metrics.find(
+      (entry) => entry.name === "panel_materialization",
+    );
+    assert.deepInclude(metric?.labels, {
+      publicationKind: "transcript",
+      publicationSurface: "acp-skills",
+      publicationForm: "delta",
+      materializationSource: "transcript-page",
+    });
+  });
+
   it("rejects alias collisions between active profiles", function () {
     setDebugModeOverrideForTests(true);
     enableAcpRuntimePerformanceProfiler();

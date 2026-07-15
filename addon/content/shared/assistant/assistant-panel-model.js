@@ -1031,19 +1031,16 @@
   function acpSkillTranscriptItemsFromPanel(panel, run) {
     const sourcePanel = panel && typeof panel === "object" ? panel : {};
     const sourceRun = run && typeof run === "object" ? run : {};
-    const page =
-      sourcePanel.selectedTranscriptPage &&
-      typeof sourcePanel.selectedTranscriptPage === "object"
-        ? sourcePanel.selectedTranscriptPage
-        : null;
-    const pageRequestId = safeText(page && page.requestId);
     const runRequestId = safeText(sourceRun && sourceRun.requestId);
-    if (
-      page &&
-      Array.isArray(page.items) &&
-      (!pageRequestId || !runRequestId || pageRequestId === runRequestId)
-    ) {
-      return page.items;
+    const publication = window.AssistantTranscriptPublication;
+    if (publication && typeof publication.readRegion === "function") {
+      const region = publication.readRegion(
+        sourcePanel,
+        "acp-skills",
+        runRequestId,
+      );
+      const page = publication.rendererPage(region);
+      if (page) return page.items;
     }
     return Array.isArray(sourceRun.transcriptItems)
       ? sourceRun.transcriptItems

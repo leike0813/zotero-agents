@@ -339,12 +339,6 @@ export type AcpConversationSnapshot = {
   transcriptItemCount: number;
   transcriptPreview?: string;
   messageCounts?: AssistantMessageCountsSnapshot;
-  transcriptState?: {
-    backendId: string;
-    conversationId: string;
-    state: "ready" | "loading" | "failed";
-    error?: string;
-  };
   items: AcpConversationItem[];
   lastHostContext: AcpHostContext | null;
   agentWorkspaceDir: string;

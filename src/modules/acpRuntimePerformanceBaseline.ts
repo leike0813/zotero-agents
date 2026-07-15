@@ -111,6 +111,7 @@ export const ACP_RUNTIME_METRIC_RISK_GROUP: Readonly<
   panel_requested: "R3",
   panel_dropped_before_build: "R3",
   panel_prepare_duration: "R3",
+  panel_materialization: "R3",
   transcript_page_read: "R3",
   transcript_page_scan_items: "R3",
   transcript_page_read_duration: "R3",

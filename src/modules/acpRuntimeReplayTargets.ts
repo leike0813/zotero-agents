@@ -24,6 +24,7 @@ import type { SyntheticAcpChatReplayActivationLease } from "./acpSessionManager"
 import {
   applySyntheticAcpSkillRunReplayPermission,
   cleanupSyntheticAcpSkillRunReplay,
+  completeAcpSkillRunTranscriptTurnBoundary,
   flushAcpSkillRunRuntimeFileWrites,
   getSelectedAcpSkillRunRequestId,
   prepareSyntheticAcpSkillRunReplay,
@@ -51,10 +52,6 @@ function mappedSessionNotification(
     sessionId: context.owner.sessionId || notification.sessionId,
     update: { ...notification.update },
   };
-}
-
-function workflowRequestId(owner: AcpRuntimeTraceOwner) {
-  return owner.requestId || `${owner.rootId}-request`;
 }
 
 export async function createAcpChatRuntimeReplayTarget(args: {
@@ -157,7 +154,7 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
   let activated = false;
   let cleaned = false;
   const ensureRequest = (owner: AcpRuntimeTraceOwner) => {
-    const requestId = workflowRequestId(owner);
+    const requestId = identity.workflow.requestId;
     if (!requestIds.has(requestId)) {
       prepareSyntheticAcpSkillRunReplay({
         requestId,
@@ -186,15 +183,21 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
     apply: async (context) => {
       switch (context.event.kind) {
         case "root-start":
-        case "root-end":
         case "turn-start":
         case "turn-end":
         case "diagnostic":
         case "connection-close":
           return "consumed-noop";
-        case "request-start":
-          ensureRequest(context.owner);
+        case "root-end":
+          completeAcpSkillRunTranscriptTurnBoundary(
+            identity.workflow.requestId,
+          );
+          return "consumed-noop";
+        case "request-start": {
+          const requestId = ensureRequest(context.owner);
+          completeAcpSkillRunTranscriptTurnBoundary(requestId);
           return "applied";
+        }
         case "session-notification":
           recordAcpSkillRunSessionUpdate(
             ensureRequest(context.owner),
@@ -216,6 +219,7 @@ export async function createAcpWorkflowRuntimeReplayTarget(args: {
         case "request-end":
         case "terminal": {
           const requestId = ensureRequest(context.owner);
+          completeAcpSkillRunTranscriptTurnBoundary(requestId);
           const status = String(
             (context.event.payload as { status?: unknown })?.status || "",
           );

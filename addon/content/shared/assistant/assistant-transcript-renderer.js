@@ -1899,7 +1899,44 @@
     if (row.getAttribute("data-assistant-render-signature") === signature) {
       return false;
     }
+    const kind = String((item && item.kind) || "");
+    const state = String((item && item.state) || "");
+    const nextText = String((item && item.text) || "");
+    const previousText = row.getAttribute("data-assistant-stream-text");
+    const body = row.querySelector("[data-assistant-transcript-body]");
+    if (
+      (kind === "message" || kind === "thought" || kind === "process") &&
+      state === "streaming" &&
+      previousText !== null &&
+      nextText.startsWith(previousText) &&
+      body
+    ) {
+      const suffix = nextText.slice(previousText.length);
+      const textNode = body.firstChild;
+      if (
+        suffix &&
+        textNode &&
+        textNode === body.lastChild &&
+        typeof textNode.appendData === "function"
+      ) {
+        textNode.appendData(suffix);
+      } else if (suffix) {
+        body.textContent = nextText;
+      }
+      updateTranscriptClasses(row, item, options || {});
+      row.setAttribute("data-assistant-stream-text", nextText);
+      row.setAttribute("data-assistant-render-signature", signature);
+      return true;
+    }
     renderAssistantTranscriptItem(row, item, options);
+    if (
+      state === "streaming" &&
+      (kind === "message" || kind === "thought" || kind === "process")
+    ) {
+      row.setAttribute("data-assistant-stream-text", nextText);
+    } else {
+      row.removeAttribute("data-assistant-stream-text");
+    }
     row.setAttribute("data-assistant-render-signature", signature);
     return true;
   }

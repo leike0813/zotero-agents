@@ -2011,3 +2011,22 @@ npm run check:zotero-librarian-profile
 - 是否关闭该风险，或仅降低触发概率。
 
 阶段 0 已为 R1、R2、R3 建立 closed、open-inactive、acp-active 三 surface 自动化机制基线；后续治理应按相同矩阵读取这些计数、容量和 duration 聚合，再按需补充 Zotero 7/9 真实宿主校准。closed 的零 R3 是“面板关闭不发生 UI publication”的对照，两个 open 状态分别保留 inactive 与 active 的归属。R1、R2、R3 分别代表事件风暴、直接同步长任务和静默模式下仍发生的 UI 前置工作，覆盖了当前最可能的三类卡顿机制。
+
+## 23. R3 v3 数据面实施补记（2026-07-16）
+
+`complete-acp-workspace-publication-data-plane-unification` 将 Chat 与 Skills
+原子迁移到同一个 `AssistantWorkspaceTranscriptRegion`、producer mutation
+projection、publication coordinator、Shell identity/ACK 链和 child receiver。
+steady transcript 不再读取完整 selected page 或执行反向 diff；Chat counts、
+Skills progress 和两侧 runtime options 也直接构建区域 DTO。完整 panel
+materialization 仅保留在初始化、真实 activation、owner-first loading、显式
+page request、diagnostic 和 rebase 路径。
+
+本次同时修复了 cold page 已读取但 full mirror `loading` 覆盖 page-ready 的
+问题。`pageKey` 区分 tail 与 cursor page；历史页收到 tail delta 时只推进
+`totalItemCount/eventSeq/uiRevision`，不改写历史页 identity 或插入 tail item。
+
+Node 门禁覆盖两侧 producer boundary、side-channel、cold page-first、共享
+receiver、ACK/gap、字段词汇和禁止 materialization。正式 Replay 与 Zotero
+7/9 宿主性能数字必须在相同 trace digest、cadence 和用户保持的 boundary
+设置下重新采集；在该证据产生前，不据此补记性能改善结论。

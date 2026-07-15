@@ -109,12 +109,11 @@ describe("ACP runtime replay publication sidecar", function () {
     assert.deepEqual(await pending, { ok: true });
   });
 
-  it("waits for older pending publications before closing the measurement boundary", async function () {
+  it("closes an exact measurement boundary despite unrelated older publications", async function () {
     const child = new FakePublicationWindow();
     let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
       { publicationId: "publication-before", state: "pending" },
     ];
-    let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-skills",
       timeoutMs: 250,
@@ -127,22 +126,8 @@ describe("ACP runtime replay publication sidecar", function () {
         return { publicationId: "publication-target" };
       },
     });
-    void pending.then(() => {
-      settled = true;
-    });
-
     publications = [
       { publicationId: "publication-before", state: "pending" },
-      { publicationId: "publication-target", state: "render-complete" },
-    ];
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.isFalse(
-      settled,
-      "a prior late ack could otherwise leak into profile",
-    );
-
-    publications = [
-      { publicationId: "publication-before", state: "render-complete" },
       { publicationId: "publication-target", state: "render-complete" },
     ];
     assert.deepEqual(await pending, { ok: true });

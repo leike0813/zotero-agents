@@ -27,7 +27,7 @@
     pendingTranscriptOwnerKey: "",
     pendingTranscriptBackendId: "",
     pendingTranscriptPreviousOwnerKey: "",
-    publicationRevisions: new Map(),
+    publicationReceiver: null,
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -124,11 +124,11 @@
 
   function snapshotSummary(snapshot) {
     const source = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const page =
-      source.selectedTranscriptPage &&
-      typeof source.selectedTranscriptPage === "object"
-        ? source.selectedTranscriptPage
+    const region =
+      source.transcriptRegion && typeof source.transcriptRegion === "object"
+        ? source.transcriptRegion
         : null;
+    const page = region && region.page ? region.page : null;
     return {
       backendAvailability: safeText(source.backendAvailability),
       conversationAvailability: safeText(source.conversationAvailability),
@@ -143,12 +143,13 @@
       chatSessions: Array.isArray(source.chatSessions)
         ? source.chatSessions.length
         : 0,
-      selectedTranscriptPage: page
+      transcriptRegion: region
         ? {
-            requestId: safeText(page.requestId),
-            cursor: Number(page.cursor || 0),
-            total: Number(page.total || 0),
-            items: Array.isArray(page.items) ? page.items.length : 0,
+            status: safeText(region.status),
+            pageKey: safeText(page && page.pageKey),
+            cursor: Number((page && page.startCursor) || 0),
+            total: Number((page && page.totalItemCount) || 0),
+            items: page && Array.isArray(page.items) ? page.items.length : 0,
           }
         : null,
     };
@@ -313,39 +314,7 @@
     return true;
   }
 
-  function selectedTranscriptPage(snapshot) {
-    const page =
-      snapshot &&
-      snapshot.selectedTranscriptPage &&
-      typeof snapshot.selectedTranscriptPage === "object"
-        ? snapshot.selectedTranscriptPage
-        : null;
-    return page && Array.isArray(page.items) ? page : null;
-  }
-
-  function selectedTranscriptPageForConversation(
-    snapshot,
-    backendId,
-    conversationId,
-  ) {
-    const page = selectedTranscriptPage(snapshot);
-    const pageKey = transcriptPageKey(backendId, conversationId);
-    if (!page || !pageKey || safeText(page.requestId) !== pageKey) {
-      return null;
-    }
-    if (safeText(page.backendId) && safeText(page.backendId) !== backendId) {
-      return null;
-    }
-    if (
-      safeText(page.conversationId) &&
-      safeText(page.conversationId) !== conversationId
-    ) {
-      return null;
-    }
-    return page;
-  }
-
-  function selectedTranscriptPageSignature(page) {
+  function transcriptPageSignature(page) {
     if (!page) return "";
     return [
       safeText(page.requestId),
@@ -431,6 +400,13 @@
     return window.AssistantTranscriptRenderer &&
       typeof window.AssistantTranscriptRenderer === "object"
       ? window.AssistantTranscriptRenderer
+      : null;
+  }
+
+  function assistantTranscriptPublication() {
+    return window.AssistantTranscriptPublication &&
+      typeof window.AssistantTranscriptPublication === "object"
+      ? window.AssistantTranscriptPublication
       : null;
   }
 
@@ -991,40 +967,29 @@
     const virtualized =
       hasConversation &&
       snapshotTranscriptPaginationVirtualizationEnabled(snapshot);
-    const page = virtualized
-      ? selectedTranscriptPageForConversation(
+    const publication = assistantTranscriptPublication();
+    const region = publication
+      ? publication.readRegion(
           snapshot || {},
-          backendId,
-          conversationId,
+          "acp-chat",
+          transcriptPageKey(backendId, conversationId),
         )
       : null;
-    const pageSignature = page ? selectedTranscriptPageSignature(page) : "";
-    const transcriptState =
-      snapshot && snapshot.transcriptState ? snapshot.transcriptState : null;
-    if (
-      hasConversation &&
-      transcriptState &&
-      safeText(transcriptState.backendId) === backendId &&
-      safeText(transcriptState.conversationId) === conversationId &&
-      transcriptState.state === "loading"
-    ) {
-      renderTranscriptLoading("transcript-state", backendId, conversationId);
+    const regionPage = publication ? publication.rendererPage(region) : null;
+    const page = virtualized ? regionPage : null;
+    const pageSignature = page ? transcriptPageSignature(page) : "";
+    if (hasConversation && region && region.status === "loading") {
+      renderTranscriptLoading("region-loading", backendId, conversationId);
       return;
     }
-    if (
-      hasConversation &&
-      transcriptState &&
-      safeText(transcriptState.backendId) === backendId &&
-      safeText(transcriptState.conversationId) === conversationId &&
-      transcriptState.state === "failed"
-    ) {
+    if (hasConversation && region && region.status === "failed") {
       state.transcriptLoadingSignature = "";
       clear(transcriptEl);
       transcriptEl.appendChild(
         el(
           "div",
           "acp-chat-transcript-error asst-empty-state compact",
-          safeText(transcriptState.error) || "Transcript failed to load.",
+          publication.errorMessage(region) || "Transcript failed to load.",
         ),
       );
       return;
@@ -1036,14 +1001,14 @@
     state.transcriptLoadingSignature = "";
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    const revision = page
-      ? transcriptRevisionNumber(page.transcriptRevision)
+    const revision = region
+      ? transcriptRevisionNumber(region.uiRevision)
       : Number(snapshot && snapshot.transcriptRevision) || 0;
     if (isStaleTranscriptRevision(revision)) {
       return;
     }
-    const view = page
-      ? { items: page.items || [] }
+    const view = regionPage
+      ? { items: regionPage.items || [] }
       : projectConversationView(snapshot || {});
     const expandedSignature = toolActivityExpandedSignature();
     if (
@@ -1116,13 +1081,12 @@
         ) {
           return;
         }
-        sendAction("load-transcript-page", {
-          backendId,
-          conversationId,
-          requestId: pageKey,
-          cursor: Math.max(0, Math.floor(cursor)),
-          limit: Math.max(1, Math.floor(Number(request.limit || 80) || 80)),
-        });
+        const pageRequest = publication.createPageRequest(
+          region.owner,
+          cursor,
+          request.limit,
+        );
+        if (pageRequest) sendAction("load-transcript-page", pageRequest);
       },
       onToggleExpanded: function (id) {
         if (state.toolActivityExpandedIds.has(id)) {
@@ -1159,64 +1123,71 @@
     renderTranscript(state.snapshot);
     const publication = state.snapshot.workspacePublication;
     if (publication && typeof publication === "object") {
-      publicationAck(publication, "child-apply", "applied");
-      publicationAck(publication, "render-complete", "applied");
+      const shared = assistantTranscriptPublication();
+      state.publicationReceiver ||=
+        shared && shared.createReceiver({ source: "acp-chat" });
+      const result = state.publicationReceiver
+        ? state.publicationReceiver.apply(
+            state.snapshot,
+            publication,
+            snapshotTranscriptOwnerKey(state.snapshot),
+          )
+        : { accepted: false, reason: "invalid", snapshot: state.snapshot };
+      publicationAck(
+        publication,
+        "child-apply",
+        result.accepted ? "accepted" : "rejected",
+        result.reason,
+      );
+      if (result.accepted) {
+        state.snapshot = result.snapshot;
+        publicationAck(publication, "render-complete", "accepted", null);
+      }
       delete state.snapshot.workspacePublication;
     }
   }
 
-  function publicationRevisionKey(publication) {
-    return [
-      safeText(publication && publication.owner && publication.owner.key),
-      safeText(publication && publication.kind),
-    ].join("\n");
-  }
-
   function publicationAck(publication, stage, outcome, reason) {
     sendAction("publication-ack", {
-      publicationId: safeText(publication && publication.id),
-      kind: safeText(publication && publication.kind),
-      ownerKey: safeText(
-        publication && publication.owner && publication.owner.key,
-      ),
-      revision: Number(publication && publication.revision) || 0,
-      signature: safeText(publication && publication.signature),
-      initialization: publication && publication.initialization === true,
+      publicationId: safeText(publication && publication.publicationId),
       stage,
       outcome,
-      reason: reason || undefined,
+      reason: reason || null,
     });
   }
 
   function applyPublication(publication) {
-    const ownerKey = safeText(
-      publication && publication.owner && publication.owner.key,
-    );
     const currentOwnerKey = snapshotTranscriptOwnerKey(state.snapshot || {});
-    const kind = safeText(publication && publication.kind);
-    const revision = Number(publication && publication.revision) || 0;
-    const key = publicationRevisionKey(publication || {});
-    const lastRevision = state.publicationRevisions.get(key) || 0;
-    if (!ownerKey || !kind || !publication || !publication.dto) {
+    const shared = assistantTranscriptPublication();
+    state.publicationReceiver ||=
+      shared && shared.createReceiver({ source: "acp-chat" });
+    const result = state.publicationReceiver
+      ? state.publicationReceiver.apply(
+          state.snapshot || {},
+          publication,
+          currentOwnerKey,
+        )
+      : { accepted: false, reason: "invalid", snapshot: state.snapshot };
+    if (!result.accepted) {
       publicationAck(
         publication || {},
         "child-apply",
         "rejected",
-        "invalid-publication",
+        result.reason,
       );
+      if (result.reloadPage) {
+        const pageRequest = shared.createPageRequest(
+          publication && publication.owner,
+          null,
+          80,
+        );
+        if (pageRequest) sendAction("load-transcript-page", pageRequest);
+      }
       return;
     }
-    if (currentOwnerKey && ownerKey !== currentOwnerKey) {
-      publicationAck(publication, "child-apply", "rejected", "old-owner");
-      return;
-    }
-    if (revision <= lastRevision && lastRevision > 0) {
-      publicationAck(publication, "child-apply", "rejected", "stale-revision");
-      return;
-    }
-    state.publicationRevisions.set(key, revision);
-    state.snapshot = Object.assign({}, state.snapshot || {}, publication.dto);
-    publicationAck(publication, "child-apply", "applied");
+    const kind = result.publicationKind;
+    state.snapshot = result.snapshot;
+    publicationAck(publication, "child-apply", "accepted", null);
     if (kind === "message-counts") {
       renderMessageCounter(state.snapshot);
     } else if (kind === "transcript") {
@@ -1224,7 +1195,7 @@
     } else {
       renderPanel(state.snapshot);
     }
-    publicationAck(publication, "render-complete", "applied");
+    publicationAck(publication, "render-complete", "accepted", null);
   }
 
   function queueRender(snapshot) {

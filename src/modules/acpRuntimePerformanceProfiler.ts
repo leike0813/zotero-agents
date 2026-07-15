@@ -43,6 +43,7 @@ export type AcpRuntimeMetricName =
   | "panel_requested"
   | "panel_dropped_before_build"
   | "panel_prepare_duration"
+  | "panel_materialization"
   | "transcript_page_read"
   | "transcript_page_scan_items"
   | "transcript_page_read_duration"
@@ -125,6 +126,18 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "inactive-source"
     | "owner-mismatch";
   publicationPhase: "initialization" | "steady-state";
+  publicationSurface: "acp-chat" | "acp-skills";
+  publicationForm:
+    | "initialization"
+    | "snapshot"
+    | "delta"
+    | "resync-required"
+    | "region";
+  materializationSource:
+    | "region"
+    | "transcript-page"
+    | "frontend-snapshot"
+    | "panel-snapshot";
   publicationId: string;
 }>;
 
@@ -302,6 +315,9 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     "publicationKind",
     "publicationCausality",
     "publicationPhase",
+    "publicationSurface",
+    "publicationForm",
+    "materializationSource",
   ] as const) {
     const value = labels[key];
     if (value) {

@@ -438,7 +438,7 @@ describe("ACP runtime memory governance", function () {
         selectedRequestId: "req-runtime-memory",
       }) as any;
       assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
-      assert.isArray(snapshot.selectedTranscriptPage?.items);
+      assert.isArray(snapshot.transcriptRegion.page?.items);
       assert.notProperty(snapshot.selectedRun || {}, "outputRevisions");
       assert.notProperty(snapshot.selectedRun || {}, "requestPayload");
       assert.notProperty(snapshot.selectedRun || {}, "runnerJson");
@@ -451,12 +451,12 @@ describe("ACP runtime memory governance", function () {
       const prepared = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory",
       });
-      const items = prepared.selectedTranscriptPage?.items || [];
+      const items = prepared.transcriptRegion.page?.items || [];
       assert.isAtLeast(items.length, 1);
       assert.isTrue(
         items.some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Need input"),
         ),
       );
@@ -550,9 +550,9 @@ describe("ACP runtime memory governance", function () {
       });
       assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Small pending"),
         ),
       );
@@ -589,11 +589,11 @@ describe("ACP runtime memory governance", function () {
         selectedRequestId: "req-runtime-long-transcript",
       });
       assert.notProperty(tail.selectedRun || {}, "transcriptItems");
-      assert.isAtMost(tail.selectedTranscriptPage?.items.length || 0, 80);
-      assert.equal(tail.selectedTranscriptPage?.total, 210);
-      assert.equal(tail.selectedTranscriptPage?.cursor, 130);
+      assert.isAtMost(tail.transcriptRegion.page?.items.length || 0, 80);
+      assert.equal(tail.transcriptRegion.page?.totalItemCount, 210);
+      assert.equal(tail.transcriptRegion.page?.startCursor, 130);
       assert.isTrue(
-        (tail.selectedTranscriptPage?.items || []).some((item) =>
+        (tail.transcriptRegion.page?.items || []).some((item) =>
           String(item.text || "").includes("message-209"),
         ),
       );
@@ -606,11 +606,11 @@ describe("ACP runtime memory governance", function () {
           limit: 80,
         },
       });
-      assert.equal(firstPage.selectedTranscriptPage?.cursor, 0);
-      assert.equal(firstPage.selectedTranscriptPage?.nextCursor, 80);
-      assert.isUndefined(firstPage.selectedTranscriptPage?.prevCursor);
+      assert.equal(firstPage.transcriptRegion.page?.startCursor, 0);
+      assert.equal(firstPage.transcriptRegion.page?.nextCursor, 80);
+      assert.isNull(firstPage.transcriptRegion.page?.previousCursor);
       assert.isTrue(
-        (firstPage.selectedTranscriptPage?.items || []).some((item) =>
+        (firstPage.transcriptRegion.page?.items || []).some((item) =>
           String(item.text || "").includes("message-000"),
         ),
       );

@@ -268,3 +268,26 @@ have been exercised.
 
 Use Gecko Profiler for CPU stacks and flame graphs. It is complementary and is
 not part of semantic trace replay.
+
+## Assistant Workspace Publication Data Plane v3
+
+ACP Chat and ACP Skills now share one internal publication protocol and one
+transcript receiver. Publications use `publicationSurface=acp-chat|acp-skills`,
+`publicationForm=initialization|snapshot|delta|resync-required`, and
+`materializationSource=region|transcript-page|frontend-snapshot|panel-snapshot`.
+The last two materialization sources are valid only for explicit initialization,
+activation, page request, diagnostic, or rebase work; steady transcript and
+message-count/progress updates must not record them.
+
+Steady transcript deltas originate at each store's transcript event seam and
+pass through the shared boundary projection and coordinator. They no longer
+read or diff a complete selected page. Store `eventSeq`, page `uiRevision`,
+region `regionRevision`, and Shell `deliverySequence` are separate continuity
+domains. A publication remains in flight until `render-complete` or an explicit
+terminal rejection; Shell receive and forward acknowledgements are
+observational only.
+
+The v3 field vocabulary is current-state only: `owner`, `transcriptRegion`,
+`pageKey`, `itemId`, `itemKind`, `publicationId`, `publicationKind`,
+`publicationForm`, and `publicationCause`. The runtime validator rejects old
+Workspace transcript aliases and `undefined` wire values.

@@ -132,10 +132,7 @@ export function drainAcpRuntimeReplayPublication(args: {
         });
         return;
       }
-      const hasPendingPublication = inspection.publications.some(
-        (entry) => entry.state === "pending",
-      );
-      if (target?.state === "render-complete" && !hasPendingPublication) {
+      if (target?.state === "render-complete") {
         settle({ ok: true });
       }
     };

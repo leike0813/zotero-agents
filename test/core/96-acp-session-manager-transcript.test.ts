@@ -1026,10 +1026,7 @@ describe("acp session manager", function () {
 
     await setActiveAcpConversation({ conversationId: previousConversationId });
     const initial = getAcpConversationUiSnapshot();
-    assert.include(
-      ["loading", "ready"],
-      initial.transcriptState?.state || "ready",
-    );
+    assert.equal(initial.conversationId, previousConversationId);
 
     const ready = await waitForAcpConversationUiSnapshot((snapshot) =>
       snapshot.items.some(
@@ -1039,7 +1036,6 @@ describe("acp session manager", function () {
           entry.text === "Cold hydrate chat transcript",
       ),
     );
-    assert.equal(ready.transcriptState?.state, "ready");
     assert.isTrue(
       ready.items.some(
         (entry) =>
@@ -1060,7 +1056,6 @@ describe("acp session manager", function () {
     const disconnected = getAcpConversationUiSnapshot();
     assert.equal(disconnected.conversationId, firstConversationId);
     assert.equal(disconnected.status, "idle");
-    assert.equal(disconnected.transcriptState?.state, "ready");
     assert.isTrue(
       disconnected.items.some(
         (entry) =>
@@ -1074,7 +1069,6 @@ describe("acp session manager", function () {
     await setActiveAcpConversation({ conversationId: firstConversationId });
     const ready = getAcpConversationUiSnapshot();
     assert.equal(ready.conversationId, firstConversationId);
-    assert.equal(ready.transcriptState?.state, "ready");
     assert.isTrue(
       ready.items.some(
         (entry) =>
@@ -1300,7 +1294,6 @@ describe("acp session manager", function () {
     assert.equal(structural.transcriptRevision, full.transcriptRevision);
     assert.equal(structural.transcriptItemCount, full.transcriptItemCount);
     assert.equal(structural.transcriptPreview, full.transcriptPreview);
-    assert.deepEqual(structural.transcriptState, full.transcriptState);
 
     const frontend = getAcpFrontendSnapshot({ itemMode: "structural" });
     assert.deepEqual(
@@ -1387,20 +1380,16 @@ describe("acp session manager", function () {
         (entry) => entry.kind === "plan",
       ),
     );
-    const selectedPage = panel.selectedTranscriptPage as
+    const selectedPage = panel.transcriptRegion.page as
       | {
-          backendId: string;
-          conversationId: string;
-          requestId: string;
+          pageKey: string;
           items: unknown[];
         }
       | undefined;
     assert.isOk(selectedPage);
-    assert.equal(selectedPage?.backendId, active.backendId);
-    assert.equal(selectedPage?.conversationId, active.conversationId);
     assert.equal(
-      selectedPage?.requestId,
-      acpChatTranscriptPageKey(active.backendId, active.conversationId),
+      selectedPage?.pageKey,
+      `${acpChatTranscriptPageKey(active.backendId, active.conversationId)}\ntail:80`,
     );
     assert.isAtLeast(selectedPage?.items.length || 0, 1);
   });
@@ -1424,7 +1413,8 @@ describe("acp session manager", function () {
     assert.equal(panel.backendAvailability, "selected");
     assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "failed");
+    assert.isNull(panel.transcriptRegion.page);
     assert.isAtLeast(
       ((panel.backendChatSessions as unknown[]) || []).length,
       1,
@@ -1452,7 +1442,8 @@ describe("acp session manager", function () {
     assert.deepEqual(panel.backendOptions, []);
     assert.deepEqual(panel.chatSessions, []);
     assert.deepEqual(panel.backendChatSessions, []);
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "idle");
+    assert.isNull(panel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
   });
 
@@ -1474,7 +1465,8 @@ describe("acp session manager", function () {
     assert.equal(panel.activeBackendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(panel.activeConversationId, "");
     assert.equal(panel.conversationId, "");
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "idle");
+    assert.isNull(panel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
   });
 
@@ -1499,20 +1491,17 @@ describe("acp session manager", function () {
     });
 
     assert.equal(panel.activeConversationId, firstConversationId);
-    assert.equal(
-      (panel.transcriptState as { state?: string } | undefined)?.state,
-      "ready",
-    );
+    assert.equal(panel.transcriptRegion.status, "ready");
     assert.isTrue(
       (
         (
-          panel.selectedTranscriptPage as
-            | { items?: Array<{ kind?: string; text?: string }> }
+          panel.transcriptRegion.page as
+            | { items?: Array<{ itemKind?: string; text?: string }> }
             | undefined
         )?.items || []
       ).some(
         (item) =>
-          item.kind === "message" &&
+          item.itemKind === "message" &&
           String(item.text || "").includes("Panel mirror loading source"),
       ),
     );
@@ -1557,11 +1546,8 @@ describe("acp session manager", function () {
     });
 
     assert.equal(loadingPanel.activeConversationId, coldConversationId);
-    assert.equal(
-      (loadingPanel.transcriptState as { state?: string } | undefined)?.state,
-      "loading",
-    );
-    assert.isUndefined(loadingPanel.selectedTranscriptPage);
+    assert.equal(loadingPanel.transcriptRegion.status, "loading");
+    assert.isNull(loadingPanel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
     const afterLoadingDiagnostics =
       getAcpChatTranscriptMirrorDiagnosticsForTests({
@@ -1580,20 +1566,17 @@ describe("acp session manager", function () {
     });
 
     assert.equal(pagePanel.activeConversationId, coldConversationId);
-    assert.equal(
-      (pagePanel.transcriptState as { state?: string } | undefined)?.state,
-      "ready",
-    );
+    assert.equal(pagePanel.transcriptRegion.status, "ready");
     assert.isTrue(
       (
         (
-          pagePanel.selectedTranscriptPage as
-            | { items?: Array<{ kind?: string; text?: string }> }
+          pagePanel.transcriptRegion.page as
+            | { items?: Array<{ itemKind?: string; text?: string }> }
             | undefined
         )?.items || []
       ).some(
         (item) =>
-          item.kind === "message" &&
+          item.itemKind === "message" &&
           String(item.text || "").includes("ACP Chat owner-first cold"),
       ),
     );
@@ -1666,10 +1649,10 @@ describe("acp session manager", function () {
     });
     const thoughtOnlyItems =
       (
-        thoughtOnlyPanel.selectedTranscriptPage as
+        thoughtOnlyPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 text?: string;
               }>;
             }
@@ -1678,7 +1661,7 @@ describe("acp session manager", function () {
     assert.isUndefined(
       thoughtOnlyItems.find(
         (entry) =>
-          entry.kind === "thought" && entry.text === "visible thinking",
+          entry.itemKind === "thought" && entry.text === "visible thinking",
       ),
     );
 
@@ -1714,10 +1697,10 @@ describe("acp session manager", function () {
     });
     const hiddenItems =
       (
-        hiddenPanel.selectedTranscriptPage as
+        hiddenPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
                 toolCallId?: string;
@@ -1728,7 +1711,7 @@ describe("acp session manager", function () {
     assert.isUndefined(
       hiddenItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
@@ -1736,7 +1719,7 @@ describe("acp session manager", function () {
     assert.isOk(
       hiddenItems.find(
         (entry) =>
-          entry.kind === "thought" && entry.text === "visible thinking",
+          entry.itemKind === "thought" && entry.text === "visible thinking",
       ) as unknown,
     );
     setAssistantStreamingRenderEnabled(true);
@@ -1745,10 +1728,10 @@ describe("acp session manager", function () {
     });
     const visibleItems =
       (
-        visiblePanel.selectedTranscriptPage as
+        visiblePanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
               }>;
@@ -1758,7 +1741,7 @@ describe("acp session manager", function () {
     assert.isOk(
       visibleItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
@@ -1779,10 +1762,10 @@ describe("acp session manager", function () {
     });
     const boundaryItems =
       (
-        boundaryPanel.selectedTranscriptPage as
+        boundaryPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
                 toolCallId?: string;
@@ -1793,14 +1776,15 @@ describe("acp session manager", function () {
     assert.isOk(
       boundaryItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
     );
     assert.isOk(
       boundaryItems.find(
-        (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
+        (entry) =>
+          entry.itemKind === "tool-call" && entry.toolCallId === "tool-1",
       ) as unknown,
     );
   });
@@ -1956,6 +1940,15 @@ describe("acp session manager", function () {
     assert.isTrue(hasKind("transcript-boundary"));
     assert.isTrue(hasKind("message-counts"));
     assert.isTrue(changes.some((change) => change.active === true));
+    const transcriptEvents = changes.flatMap(
+      (change) => change.transcriptEvents || [],
+    );
+    assert.isTrue(
+      transcriptEvents.some((event) => event.boundary === "text-continuation"),
+    );
+    assert.isTrue(
+      transcriptEvents.some((event) => event.boundary === "hard-boundary"),
+    );
   });
 
   it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {

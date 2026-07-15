@@ -30,6 +30,11 @@ import {
   classifyAcpTranscriptSessionUpdate,
   isAcpTranscriptHardBoundaryUpdate,
 } from "./acpTranscriptBoundary";
+import type {
+  AssistantWorkspaceTranscriptBoundary,
+  AssistantWorkspaceTranscriptMutationEvent,
+} from "./assistantWorkspaceTranscriptPublication";
+import { createAssistantWorkspaceTranscriptMutation } from "./assistantWorkspaceTranscriptPublication";
 import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
@@ -158,6 +163,9 @@ export type AcpChatPanelSnapshotChange = {
   active?: boolean;
   global?: boolean;
   kinds: AcpChatPanelSnapshotChangeKind[];
+  transcriptEvents?: AssistantWorkspaceTranscriptMutationEvent[];
+  transcriptEventSeq?: number;
+  transcriptItemCount?: number;
 };
 type AcpChatPanelSnapshotListener = (
   change: AcpChatPanelSnapshotChange,
@@ -183,6 +191,7 @@ export type AcpChatSessionRuntime = {
   uiHasUnpublishedTranscript: boolean;
   uiPendingPublishMode: AcpUiPublishMode | null;
   uiPendingChangeKinds: Set<AcpChatPanelSnapshotChangeKind>;
+  workspaceTranscriptEvents: AssistantWorkspaceTranscriptMutationEvent[];
   unsubscribeUpdate: (() => void) | null;
   unsubscribeClose: (() => void) | null;
   unsubscribeDiagnostics: (() => void) | null;
@@ -585,6 +594,7 @@ function getOrCreateSessionRuntime(
     uiHasUnpublishedTranscript: false,
     uiPendingPublishMode: null,
     uiPendingChangeKinds: new Set<AcpChatPanelSnapshotChangeKind>(),
+    workspaceTranscriptEvents: [],
     unsubscribeUpdate: null,
     unsubscribeClose: null,
     unsubscribeDiagnostics: null,
@@ -746,6 +756,16 @@ function getForegroundSessionRuntime() {
   return getOrCreateSessionRuntime(activeBackendId);
 }
 
+export function getActiveAcpChatOwner() {
+  ensureInitialized();
+  return {
+    backendId: normalizeBackendId(activeBackendId),
+    conversationId: normalizeConversationId(
+      resolveActiveConversationId(activeBackendId),
+    ),
+  };
+}
+
 function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   const activeConversationId = resolveActiveConversationId(activeBackendId);
   return (
@@ -761,12 +781,28 @@ function buildAcpChatPanelSnapshotChange(
   kinds: AcpChatPanelSnapshotChangeKind[],
   options: { global?: boolean } = {},
 ): AcpChatPanelSnapshotChange {
+  const hasTranscript = kinds.some(
+    (kind) =>
+      kind === "transcript-append" ||
+      kind === "transcript-boundary" ||
+      kind === "transcript-progress",
+  );
+  const transcriptEvents = hasTranscript
+    ? sessionRuntime.workspaceTranscriptEvents.splice(0)
+    : [];
   return {
     backendId: sessionRuntime.backendId,
     conversationId: sessionRuntime.snapshot.conversationId,
     active: isForegroundSessionRuntime(sessionRuntime),
     global: options.global === true,
     kinds,
+    ...(transcriptEvents.length > 0
+      ? {
+          transcriptEvents,
+          transcriptEventSeq: sessionRuntime.transcriptEventSeq,
+          transcriptItemCount: sessionRuntime.transcriptItemCount,
+        }
+      : {}),
   };
 }
 
@@ -782,6 +818,12 @@ function notifyAcpChatPanelSnapshotListeners(
     active: change.active === true,
     global: change.global === true,
     kinds: [...change.kinds],
+    transcriptEvents: change.transcriptEvents?.map((event) => ({
+      boundary: event.boundary,
+      mutation: JSON.parse(JSON.stringify(event.mutation)),
+    })),
+    transcriptEventSeq: change.transcriptEventSeq,
+    transcriptItemCount: change.transcriptItemCount,
   };
   for (const listener of acpChatPanelListeners) {
     listener(cloned);
@@ -1026,8 +1068,6 @@ function applyPublishedSessionRuntimeSnapshotMetadata(
   cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
   cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
   cloned.transcriptPreview = sessionRuntime.snapshot.transcriptPreview;
-  cloned.transcriptState =
-    selectedTranscriptStateForSessionRuntime(sessionRuntime);
 }
 
 function clonePublishedSessionRuntimeSnapshot(
@@ -1121,8 +1161,6 @@ function updatePublishedSessionRuntimeSnapshot(
 ) {
   const previous = sessionRuntime.uiSnapshot;
   const next = cloneSnapshotValue(sessionRuntime.snapshot);
-  next.transcriptState =
-    selectedTranscriptStateForSessionRuntime(sessionRuntime);
   if (publishMode === "structural") {
     next.items = mergeStructuralConversationItems(sessionRuntime, previous);
   } else {
@@ -1768,6 +1806,7 @@ function resetChatTranscriptMirror(sessionRuntime: AcpChatSessionRuntime) {
   sessionRuntime.activeAssistantItemId = "";
   sessionRuntime.activeThoughtItemId = "";
   sessionRuntime.activePlanItemId = "";
+  sessionRuntime.workspaceTranscriptEvents = [];
 }
 
 function loadChatTranscriptMirrorFromItems(
@@ -1849,6 +1888,7 @@ function queueChatTranscriptEvent(
     patch?: Partial<AcpConversationItem>;
     createdAt: string;
     newItem?: boolean;
+    boundary?: AssistantWorkspaceTranscriptBoundary;
   },
 ) {
   applyChatTranscriptEventToMirror(sessionRuntime, args);
@@ -1857,6 +1897,19 @@ function queueChatTranscriptEvent(
     text: args.text,
     newItem: args.newItem,
   });
+  const currentItem = sessionRuntime.transcriptItemsById.get(args.itemId);
+  const mutation = createAssistantWorkspaceTranscriptMutation({
+    op: args.op,
+    itemId: args.itemId,
+    item: currentItem as unknown as Record<string, unknown> | undefined,
+    text: args.text,
+  });
+  if (mutation) {
+    sessionRuntime.workspaceTranscriptEvents.push({
+      boundary: args.boundary || "hard-boundary",
+      mutation,
+    });
+  }
   enqueueAcpChatTranscriptEvent({
     conversationStorageDir: sessionRuntime.snapshot.conversationStorageDir,
     op: args.op,
@@ -1871,6 +1924,7 @@ function queueChatTranscriptEvent(
 function upsertTranscriptItem(
   sessionRuntime: AcpChatSessionRuntime,
   item: AcpConversationItem,
+  boundary?: AssistantWorkspaceTranscriptBoundary,
 ) {
   queueChatTranscriptEvent(sessionRuntime, {
     op: "upsert_item",
@@ -1878,6 +1932,7 @@ function upsertTranscriptItem(
     item,
     createdAt: item.createdAt || nowIso(),
     newItem: true,
+    boundary,
   });
 }
 
@@ -1885,12 +1940,14 @@ function patchTranscriptItem(
   sessionRuntime: AcpChatSessionRuntime,
   itemId: string,
   patch: Partial<AcpConversationItem>,
+  boundary?: AssistantWorkspaceTranscriptBoundary,
 ) {
   queueChatTranscriptEvent(sessionRuntime, {
     op: "patch_item",
     itemId,
     patch,
     createdAt: nowIso(),
+    boundary,
   });
 }
 
@@ -1904,6 +1961,7 @@ function appendTranscriptText(
     itemId: item.id,
     text,
     createdAt: nowIso(),
+    boundary: "text-continuation",
   });
 }
 
@@ -1937,7 +1995,7 @@ function appendStreamingTranscriptText(
         state: "streaming",
       };
       sessionRuntime.activeAssistantItemId = target.id;
-      pushItem(sessionRuntime, target);
+      pushItem(sessionRuntime, target, "text-continuation");
       return;
     }
     appendTranscriptText(sessionRuntime, target, args.text);
@@ -1959,7 +2017,7 @@ function appendStreamingTranscriptText(
       state: "streaming",
     };
     sessionRuntime.activeThoughtItemId = target.id;
-    pushItem(sessionRuntime, target);
+    pushItem(sessionRuntime, target, "text-continuation");
     return;
   }
   appendTranscriptText(sessionRuntime, target, args.text);
@@ -1987,8 +2045,9 @@ function upsertStatusItem(
 function pushItem(
   sessionRuntime: AcpChatSessionRuntime,
   item: AcpConversationItem,
+  boundary?: AssistantWorkspaceTranscriptBoundary,
 ) {
-  upsertTranscriptItem(sessionRuntime, item);
+  upsertTranscriptItem(sessionRuntime, item, boundary);
 }
 
 function getLatestConversationItem(sessionRuntime: AcpChatSessionRuntime) {
@@ -2224,6 +2283,7 @@ function extractToolResultSummary(update: Record<string, unknown>) {
 function upsertToolCallItem(
   sessionRuntime: AcpChatSessionRuntime,
   update: Record<string, unknown>,
+  boundary: AssistantWorkspaceTranscriptBoundary,
 ) {
   const toolCallId = String(update.toolCallId || "").trim();
   const nextState = normalizeToolCallState(update.status);
@@ -2243,19 +2303,23 @@ function upsertToolCallItem(
     : undefined;
   if (!target) {
     const frozenInputSummary = inputSummary || undefined;
-    pushItem(sessionRuntime, {
-      id: nextOpaqueId("acp-tool"),
-      kind: "tool_call",
-      toolCallId,
-      title,
-      toolKind,
-      toolName,
-      inputSummary: frozenInputSummary,
-      resultSummary: resultSummary || undefined,
-      state: nextState,
-      createdAt: now,
-      summary: frozenInputSummary || resultSummary || undefined,
-    });
+    pushItem(
+      sessionRuntime,
+      {
+        id: nextOpaqueId("acp-tool"),
+        kind: "tool_call",
+        toolCallId,
+        title,
+        toolKind,
+        toolName,
+        inputSummary: frozenInputSummary,
+        resultSummary: resultSummary || undefined,
+        state: nextState,
+        createdAt: now,
+        summary: frozenInputSummary || resultSummary || undefined,
+      },
+      boundary,
+    );
     return;
   }
   const patch: Partial<AcpConversationToolCallItem> = {};
@@ -2294,6 +2358,7 @@ function upsertToolCallItem(
     sessionRuntime,
     target.id,
     patch as Partial<AcpConversationItem>,
+    boundary,
   );
 }
 
@@ -2997,7 +3062,7 @@ function handleSessionUpdate(
       if (isAcpTranscriptHardBoundaryUpdate(update.sessionUpdate)) {
         completeActiveStreamingTextItems(sessionRuntime);
       }
-      upsertToolCallItem(sessionRuntime, update);
+      upsertToolCallItem(sessionRuntime, update, "hard-boundary");
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
         publishMode: "structural",
@@ -3009,13 +3074,17 @@ function handleSessionUpdate(
     }
     case "tool_call_update": {
       sessionRuntime.snapshot.lastLifecycleEvent = "tool_call_update";
-      upsertToolCallItem(sessionRuntime, update);
+      upsertToolCallItem(sessionRuntime, update, transcriptBoundary);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: transcriptBoundary === "soft-side-channel",
         uiReason:
           transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
         publishMode: "structural",
-        changeKinds: ["transcript-boundary"],
+        changeKinds: [
+          transcriptBoundary === "soft-side-channel"
+            ? "transcript-progress"
+            : "transcript-boundary",
+        ],
       });
       return;
     }
@@ -4201,37 +4270,6 @@ export function scheduleAcpChatTranscriptHydrateForOwner(args?: {
   scheduleAcpChatTranscriptHydrate(
     getOrCreateSessionRuntime(backendId, conversationId),
   );
-}
-
-function selectedTranscriptStateForSessionRuntime(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  const conversationId = normalizeString(
-    sessionRuntime.snapshot.conversationId,
-  );
-  if (!conversationId) {
-    return undefined;
-  }
-  if (sessionRuntime.transcriptMirrorLoaded) {
-    return {
-      backendId: sessionRuntime.backendId,
-      conversationId,
-      state: "ready" as const,
-    };
-  }
-  if (sessionRuntime.transcriptHydrateState === "failed") {
-    return {
-      backendId: sessionRuntime.backendId,
-      conversationId,
-      state: "failed" as const,
-      error: sessionRuntime.transcriptHydrateError,
-    };
-  }
-  return {
-    backendId: sessionRuntime.backendId,
-    conversationId,
-    state: "loading" as const,
-  };
 }
 
 const ACP_CHAT_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
