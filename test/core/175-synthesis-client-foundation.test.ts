@@ -283,6 +283,207 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict Topic Graph commands through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request?: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async rebuildTopicGraphIndex() {
+        calls.push({ operation: "rebuild" });
+        return {
+          ok: true,
+          rebuilt_at: new Date("2026-07-15T00:00:00.000Z"),
+          optional_field: undefined,
+        };
+      },
+      async acceptTopicGraphRelation(request) {
+        calls.push({ operation: "accept", request });
+        return {
+          diagnostic: { code: "topic_graph_edge_missing" },
+        };
+      },
+      async rejectTopicGraphRelation(request) {
+        calls.push({ operation: "reject", request });
+        return { edge: { edge_id: request.edgeId, status: "rejected" } };
+      },
+      async applyTopicGraphReviewAction(request) {
+        calls.push({ operation: "review", request });
+        return {
+          diagnostic: { code: "topic_graph_review_closed" },
+        };
+      },
+    });
+
+    assert.deepEqual(await client.topicGraph.rebuildTopicGraphIndex(), {
+      ok: true,
+      rebuilt_at: "2026-07-15T00:00:00.000Z",
+    });
+    assert.deepEqual(
+      await client.topicGraph.acceptTopicGraphRelation({
+        edgeId: " edge-1 ",
+        unexpected: "discard",
+      } as never),
+      { diagnostic: { code: "topic_graph_edge_missing" } },
+    );
+    assert.deepEqual(
+      await client.topicGraph.rejectTopicGraphRelation({ edgeId: " edge-2 " }),
+      { edge: { edge_id: "edge-2", status: "rejected" } },
+    );
+    assert.deepEqual(
+      await client.topicGraph.applyTopicGraphReviewAction({
+        reviewId: " review-1 ",
+        action: "approve_suggested",
+        unexpected: "discard",
+      } as never),
+      { diagnostic: { code: "topic_graph_review_closed" } },
+    );
+    assert.deepEqual(calls, [
+      { operation: "rebuild" },
+      { operation: "accept", request: { edgeId: "edge-1" } },
+      { operation: "reject", request: { edgeId: "edge-2" } },
+      {
+        operation: "review",
+        request: { reviewId: "review-1", action: "approve_suggested" },
+      },
+    ]);
+  });
+
+  it("rejects invalid Topic Graph commands before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async acceptTopicGraphRelation() {
+        invocations += 1;
+        return {};
+      },
+      async rejectTopicGraphRelation() {
+        invocations += 1;
+        return {};
+      },
+      async applyTopicGraphReviewAction() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () =>
+        missingPortClient.topicGraph.acceptTopicGraphRelation({ edgeId: " " }),
+      () =>
+        missingPortClient.topicGraph.applyTopicGraphReviewAction({
+          reviewId: " ",
+          action: "reject",
+        }),
+      () => client.topicGraph.acceptTopicGraphRelation(undefined as never),
+      () => client.topicGraph.acceptTopicGraphRelation({ edgeId: 1 } as never),
+      () =>
+        client.topicGraph.rejectTopicGraphRelation({
+          edgeId: "edge-1",
+          callback: (() => undefined) as never,
+        } as never),
+      () =>
+        client.topicGraph.applyTopicGraphReviewAction({
+          reviewId: "review-1",
+          action: "approve",
+        } as never),
+      () =>
+        client.topicGraph.applyTopicGraphReviewAction({
+          reviewId: false,
+          action: "reject",
+        } as never),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the Topic Graph request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed Topic Graph command ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "review conflict");
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async rebuildTopicGraphIndex() {
+        return undefined;
+      },
+      async acceptTopicGraphRelation() {
+        throw new Error("accept exploded");
+      },
+      async rejectTopicGraphRelation() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async applyTopicGraphReviewAction() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () => missingPortClient.topicGraph.rebuildTopicGraphIndex(),
+        code: "unavailable",
+      },
+      {
+        run: () => client.topicGraph.rebuildTopicGraphIndex(),
+        code: "internal",
+      },
+      {
+        run: () =>
+          client.topicGraph.acceptTopicGraphRelation({ edgeId: "edge-1" }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          client.topicGraph.rejectTopicGraphRelation({ edgeId: "edge-2" }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          client.topicGraph.applyTopicGraphReviewAction({
+            reviewId: "review-1",
+            action: "reject",
+          }),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the Topic Graph command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the four Citation Graph commands through narrow normalized ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({

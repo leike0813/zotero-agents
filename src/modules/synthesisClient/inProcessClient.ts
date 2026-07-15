@@ -4,6 +4,7 @@ import {
   SYNTHESIS_CONCEPT_REVIEW_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_ACTIONS,
   SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DECISION_ACTIONS,
+  SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS,
   SYNTHESIS_WORKBENCH_SURFACES,
   SynthesisClientError,
   toSynthesisJsonObject,
@@ -43,6 +44,9 @@ import {
   type SynthesisTopicArtifactDeleteRequest,
   type SynthesisTopicCommandResult,
   type SynthesisTopicDiscoveryHintRequest,
+  type SynthesisTopicGraphCommandResult,
+  type SynthesisTopicGraphEdgeDecisionRequest,
+  type SynthesisTopicGraphReviewActionRequest,
   type SynthesisTopicReportRequest,
   type SynthesisTopicReportResult,
   type SynthesisWorkflowTopicOptionsRequest,
@@ -86,6 +90,16 @@ export interface LegacySynthesisPort {
   ): Promise<unknown>;
   restoreTopicDiscoveryHint?(
     request: SynthesisTopicDiscoveryHintRequest,
+  ): Promise<unknown>;
+  rebuildTopicGraphIndex?(): Promise<unknown>;
+  acceptTopicGraphRelation?(
+    request: SynthesisTopicGraphEdgeDecisionRequest,
+  ): Promise<unknown>;
+  rejectTopicGraphRelation?(
+    request: SynthesisTopicGraphEdgeDecisionRequest,
+  ): Promise<unknown>;
+  applyTopicGraphReviewAction?(
+    request: SynthesisTopicGraphReviewActionRequest,
   ): Promise<unknown>;
   readPaperArtifacts?(
     request: SynthesisPaperArtifactsRequest,
@@ -268,6 +282,38 @@ function normalizeTopicDiscoveryHintRequest(
       request.hintId,
       "hintId",
       "Synthesis Topic discovery hintId",
+    ),
+  };
+}
+
+function normalizeTopicGraphEdgeDecisionRequest(
+  value: unknown,
+): SynthesisTopicGraphEdgeDecisionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    edgeId: normalizeRequiredString(
+      request.edgeId,
+      "edgeId",
+      "Synthesis Topic Graph edgeId",
+    ),
+  };
+}
+
+function normalizeTopicGraphReviewActionRequest(
+  value: unknown,
+): SynthesisTopicGraphReviewActionRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    reviewId: normalizeRequiredString(
+      request.reviewId,
+      "reviewId",
+      "Synthesis Topic Graph reviewId",
+    ),
+    action: normalizeStringEnum(
+      request.action,
+      SYNTHESIS_TOPIC_GRAPH_REVIEW_ACTIONS,
+      "action",
+      "Synthesis Topic Graph review action",
     ),
   };
 }
@@ -858,6 +904,58 @@ export function createInProcessSynthesisClient(
               )(),
             ) as SynthesisGraphCommandResult,
         );
+      },
+    },
+    topicGraph: {
+      async rebuildTopicGraphIndex() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.rebuildTopicGraphIndex,
+                "topicGraph.rebuildTopicGraphIndex",
+              )(),
+            ) as SynthesisTopicGraphCommandResult,
+        );
+      },
+      async acceptTopicGraphRelation(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeTopicGraphEdgeDecisionRequest(request);
+          const port = requireLegacyPort(
+            legacy.acceptTopicGraphRelation,
+            "topicGraph.acceptTopicGraphRelation",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicGraphCommandResult;
+        });
+      },
+      async rejectTopicGraphRelation(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeTopicGraphEdgeDecisionRequest(request);
+          const port = requireLegacyPort(
+            legacy.rejectTopicGraphRelation,
+            "topicGraph.rejectTopicGraphRelation",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicGraphCommandResult;
+        });
+      },
+      async applyTopicGraphReviewAction(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeTopicGraphReviewActionRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyTopicGraphReviewAction,
+            "topicGraph.applyTopicGraphReviewAction",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisTopicGraphCommandResult;
+        });
       },
     },
     references: {

@@ -203,7 +203,8 @@ Child frame 通过 bridge `postMessage()` 或 `postMessage` 事件发送 action�
 | Citation Graph | 4 | `rebuildCitationGraphCacheNow`, `refreshCitationGraphCacheIncrementalNow`, `retryCitationGraphCacheRebuild`, `manualRecomputeLayout` |
 | Tag Vocabulary | 10+ | `rebuildTagVocabularyIndex`, `validateTagVocabulary`, `exportTagVocabulary`, `importTagVocabulary`, `previewTagVocabularyImport`, `updateStagedTagSuggestion`, `updateTagVocabularyEntry`, `deleteTagVocabularyEntry`, `promoteStagedTagSuggestions`, `discardStagedTagSuggestions`, `clearStagedTagSuggestions`, `applyTagVocabularyImport` |
 | Concept KB | 4 | `rebuildConceptKbIndex`, `deleteConceptEntry`, `updateConceptDisplayText`, `applyConceptReviewAction` |
-| Topic Graph | 5 | `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction`, `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint` |
+| Topic Graph | 4 | `rebuildTopicGraphIndex`, `acceptTopicGraphRelation`, `rejectTopicGraphRelation`, `applyTopicGraphReviewAction` |
+| Topic Discovery | 2 | `rejectTopicDiscoveryHint`, `restoreTopicDiscoveryHint` |
 | Git Sync | 5 | `syncNow`, `pauseGitSync`, `resumeGitSync`, `retryGitSync`, `resolveGitSyncConflict` |
 | Topic Artifact | 5 | `openTopicArtifact`, `exportTopicSynthesisReport`, `resolveTopicPaperDigest`, `deleteTopicArtifact`, `purgeDeletedTopicArtifacts` |
 | 其他 | 2 | `openPreferences`, `manualRecomputeLayout` |
@@ -216,7 +217,9 @@ Canonical revision review、单个/批量 Reference match proposal action、单�
 
 Concept KB rebuild、display-text update、review action 与批量删除也在命令执行闭包内解析默认 `SynthesisClient`，并调用 `client.concepts`。Workbench 保留 concept/review id trim、review action allowlist、可选 merge target、单个/批量删除 aliases 和 single-flight 参数；client adapter 只接受四个显示字段、严格 review action 与非空删除列表。Rebuild 保留 protected confirmation 和 deferred start，但不再把 `onProgress` callback 带入 contract，进度继续来自 `workbench.readProgress()`。仅 review action 使用 singular `failOnDiagnostic`，四路仍失效 Concepts/Review。Concept queries/checkpoint export、Tag、Topic Graph、Sync 等路径保持当前边界。
 
-Topic artifact delete/purge 与 discovery-hint reject/restore 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.topics`。Delete 与 hint 请求只跨越 trim 后的 canonical `topicId` / `hintId`，purge 为无参数命令；四路都不携带 progress callback、streaming state 或 deferred start。Delete/purge 保留原确认、single-flight 和 Home/Topics 失效，delete 的 `ok: false` 继续以领域 `reason` 失败；hint actions 保留空 ID 跳过、singular `failOnDiagnostic` 与 selected-surface 默认失效。Topic queries、Topic Graph、mirror、Tag、Sync、Host Bridge 和 MCP 保持当前边界。
+Topic artifact delete/purge 与 discovery-hint reject/restore 在各自命令闭包内解析默认 `SynthesisClient`，并调用 `client.topics`。Delete 与 hint 请求只跨越 trim 后的 canonical `topicId` / `hintId`，purge 为无参数命令；四路都不携带 progress callback、streaming state 或 deferred start。Delete/purge 保留原确认、single-flight 和 Home/Topics 失效，delete 的 `ok: false` 继续以领域 `reason` 失败；hint actions 保留空 ID 跳过、singular `failOnDiagnostic` 与 selected-surface 默认失效。Topic queries、mirror、Tag、Sync、Host Bridge 和 MCP 保持当前边界。
+
+Topic Graph projection rebuild、edge accept/reject 与 review action 使用独立的 `client.topicGraph`，不并入 Citation Graph 的 `client.graph`。Rebuild 保留 protected confirmation、deferred start 与 Home-only 默认失效，但调用无参数 client method，进度只来自 `workbench.readProgress()`；edge/review 请求只传递 trim 后的 canonical ID 和严格 review action。三个 mutation 保留原 single-flight、singular `failOnDiagnostic`、立即启动及 Home/Topics/Graph/Review 失效。Topic Graph query/checkpoint export、Host Bridge 和 MCP 保持当前边界。
 
 ### 受保护命令
 

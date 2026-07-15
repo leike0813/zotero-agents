@@ -155,6 +155,13 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.match(workbench, /client\.concepts\s*\.updateConceptDisplayText/);
     assert.match(workbench, /client\.concepts\s*\.applyConceptReviewAction/);
     assert.match(workbench, /client\.concepts\s*\.deleteConceptEntries/);
+    assert.match(workbench, /client\.topicGraph\s*\.rebuildTopicGraphIndex/);
+    assert.match(workbench, /client\.topicGraph\s*\.acceptTopicGraphRelation/);
+    assert.match(workbench, /client\.topicGraph\s*\.rejectTopicGraphRelation/);
+    assert.match(
+      workbench,
+      /client\.topicGraph\s*\.applyTopicGraphReviewAction/,
+    );
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -208,6 +215,19 @@ describe("Synthesis sidecar migration boundary", function () {
         ),
       );
     }
+    for (const method of [
+      "rebuildTopicGraphIndex",
+      "acceptTopicGraphRelation",
+      "rejectTopicGraphRelation",
+      "applyTopicGraphReviewAction",
+    ]) {
+      assert.notMatch(
+        workbench,
+        new RegExp(
+          `(?:getDefaultSynthesisService\\(\\)\\s*\\.|\\bservice\\.)${method}`,
+        ),
+      );
+    }
     assert.notMatch(
       workbench,
       /getDefaultSynthesisService\(\)\.getTopicReport/,
@@ -243,6 +263,10 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/concepts.ts"),
       "utf8",
     );
+    const topicGraphContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/topicGraph.ts"),
+      "utf8",
+    );
     assert.include(topicsContract, "getTopicReport(");
     assert.include(topicsContract, "deleteTopicArtifact(");
     assert.include(topicsContract, "purgeDeletedTopicArtifacts()");
@@ -267,6 +291,7 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(clientContract, "references: SynthesisReferencesClient");
     assert.include(clientContract, "concepts: SynthesisConceptsClient");
+    assert.include(clientContract, "topicGraph: SynthesisTopicGraphClient");
     assert.include(referencesContract, "refreshReferenceSidecarNow()");
     assert.include(referencesContract, "retryReferenceSidecarRefresh()");
     assert.include(referencesContract, "runAdvancedReferenceMatchingNow()");
@@ -297,6 +322,15 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(conceptsContract, "short_definition?: string");
     assert.notMatch(
       conceptsContract,
+      /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
+    );
+    assert.include(topicGraphContract, "rebuildTopicGraphIndex()");
+    assert.include(topicGraphContract, "acceptTopicGraphRelation(");
+    assert.include(topicGraphContract, "rejectTopicGraphRelation(");
+    assert.include(topicGraphContract, "applyTopicGraphReviewAction(");
+    assert.include(topicGraphContract, '"approve_suggested"');
+    assert.notMatch(
+      topicGraphContract,
       /onProgress|callback|stream|Workbench|SynthesisUi|progressOptions/,
     );
     assert.notMatch(

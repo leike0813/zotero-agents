@@ -5,5 +5,6 @@ export * from "./graph";
 export * from "./lifecycle";
 export * from "./references";
 export * from "./topics";
+export * from "./topicGraph";
 export * from "./workflow";
 export * from "./workbench";

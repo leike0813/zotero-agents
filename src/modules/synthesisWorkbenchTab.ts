@@ -2235,10 +2235,10 @@ function handleAction(
       runtime,
       "rebuildTopicGraphIndex",
       {},
-      () =>
-        getDefaultSynthesisService().rebuildTopicGraphIndex({
-          onProgress: () => notifyWorkbenchCommandProgress(runtime),
-        }),
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topicGraph.rebuildTopicGraphIndex();
+      },
       { deferStart: true },
     );
     return;
@@ -2250,14 +2250,15 @@ function handleAction(
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const edgeId = String(commandArgs.edgeId || "").trim();
     if (edgeId) {
-      const service = getDefaultSynthesisService();
       const command = result.hostCommand.command;
-      runWorkbenchCommandOnce(runtime, command, { edgeId }, () =>
-        (command === "acceptTopicGraphRelation"
-          ? service.acceptTopicGraphRelation({ edgeId })
-          : service.rejectTopicGraphRelation({ edgeId })
-        ).then(failOnDiagnostic),
-      );
+      runWorkbenchCommandOnce(runtime, command, { edgeId }, async () => {
+        const client = await getDefaultSynthesisClient();
+        return (
+          command === "acceptTopicGraphRelation"
+            ? client.topicGraph.acceptTopicGraphRelation({ edgeId })
+            : client.topicGraph.rejectTopicGraphRelation({ edgeId })
+        ).then(failOnDiagnostic);
+      });
       return;
     }
     void sendActiveSurface(runtime, { refreshFromService: false });
@@ -2274,13 +2275,15 @@ function handleAction(
       runtime,
       "applyTopicGraphReviewAction",
       { reviewId, action },
-      () =>
-        getDefaultSynthesisService()
+      async () => {
+        const client = await getDefaultSynthesisClient();
+        return client.topicGraph
           .applyTopicGraphReviewAction({
             reviewId,
             action,
           })
-          .then(failOnDiagnostic),
+          .then(failOnDiagnostic);
+      },
     );
     return;
   }

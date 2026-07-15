@@ -45,6 +45,18 @@ function createLegacyPort(
     async restoreTopicDiscoveryHint(request) {
       return resolveService().restoreTopicDiscoveryHint(request);
     },
+    async rebuildTopicGraphIndex() {
+      return resolveService().rebuildTopicGraphIndex();
+    },
+    async acceptTopicGraphRelation(request) {
+      return resolveService().acceptTopicGraphRelation(request);
+    },
+    async rejectTopicGraphRelation(request) {
+      return resolveService().rejectTopicGraphRelation(request);
+    },
+    async applyTopicGraphReviewAction(request) {
+      return resolveService().applyTopicGraphReviewAction(request);
+    },
     async readPaperArtifacts(request) {
       return resolveService().readPaperArtifacts(request);
     },

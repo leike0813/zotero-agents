@@ -2408,6 +2408,135 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("routes Topic Graph commands through a distinct strict client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const uiModelSource = await fs.readFile(
+      "src/modules/synthesis/uiModel.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const rebuildRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rebuildTopicGraphIndex"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "acceptTopicGraphRelation"',
+      ),
+    );
+    const edgeRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "acceptTopicGraphRelation"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTopicGraphReviewAction"',
+      ),
+    );
+    const reviewRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "applyTopicGraphReviewAction"',
+      ),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "rejectTopicDiscoveryHint"',
+      ),
+    );
+
+    assert.match(
+      rebuildRegion,
+      /client\.topicGraph\s*\.rebuildTopicGraphIndex\(\)/,
+    );
+    assert.include(rebuildRegion, "await getDefaultSynthesisClient()");
+    assert.include(rebuildRegion, "deferStart: true");
+    assert.notInclude(rebuildRegion, "onProgress");
+    assert.notInclude(rebuildRegion, "notifyWorkbenchCommandProgress");
+    assert.notInclude(rebuildRegion, "getDefaultSynthesisService");
+
+    assert.include(edgeRegion, 'String(commandArgs.edgeId || "").trim()');
+    assert.match(
+      edgeRegion,
+      /client\.topicGraph\s*\.acceptTopicGraphRelation\(/,
+    );
+    assert.match(
+      edgeRegion,
+      /client\.topicGraph\s*\.rejectTopicGraphRelation\(/,
+    );
+    assert.match(
+      edgeRegion,
+      /runWorkbenchCommandOnce\(runtime, command, \{ edgeId \}/,
+    );
+    assert.match(edgeRegion, /\.then\(failOnDiagnostic\)/);
+    assert.include(edgeRegion, "refreshFromService: false");
+
+    assert.include(reviewRegion, 'String(commandArgs.reviewId || "").trim()');
+    assert.include(reviewRegion, '=== "approve_suggested"');
+    assert.include(reviewRegion, '? "approve_suggested"');
+    assert.include(reviewRegion, ': "reject"');
+    assert.match(
+      reviewRegion,
+      /client\.topicGraph\s*\.applyTopicGraphReviewAction\(/,
+    );
+    assert.match(
+      reviewRegion,
+      /"applyTopicGraphReviewAction",\s*\{ reviewId, action \}/,
+    );
+    assert.match(reviewRegion, /\.then\(failOnDiagnostic\)/);
+    assert.notInclude(reviewRegion, "if (reviewId)");
+
+    for (const region of [edgeRegion, reviewRegion]) {
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "deferStart");
+      assert.notInclude(region, "onProgress");
+    }
+
+    assert.include(uiModelSource, 'case "acceptTopicGraphRelation":');
+    assert.include(uiModelSource, 'case "rejectTopicGraphRelation":');
+    assert.include(
+      uiModelSource,
+      "`decideTopicGraphRelation:${keyPart(args.edgeId)}`",
+    );
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.notInclude(diagnosticBlock, '"diagnostics"');
+    const protectedBlock = extractFunctionBlock(
+      tabSource,
+      "isProtectedRebuildCommand",
+    );
+    assert.include(protectedBlock, 'command === "rebuildTopicGraphIndex"');
+    const progressBlock = extractFunctionBlock(
+      tabSource,
+      "refreshWorkbenchCommandProgress",
+    );
+    assert.match(progressBlock, /client\.workbench\s*\.readProgress/);
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const mutationInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf('command === "acceptTopicGraphRelation"'),
+      invalidationBlock.indexOf('command === "deleteTopicArtifact"'),
+    );
+    assert.include(
+      mutationInvalidation,
+      'command === "rejectTopicGraphRelation"',
+    );
+    assert.include(
+      mutationInvalidation,
+      'command === "applyTopicGraphReviewAction"',
+    );
+    assert.include(
+      mutationInvalidation,
+      'return ["home", "topics", "graph", "review"]',
+    );
+    assert.notInclude(
+      invalidationBlock,
+      'command === "rebuildTopicGraphIndex"',
+    );
+  });
+
   it("wires the Workbench run synthesis host command to workflow execution", async function () {
     const source = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
@@ -5614,10 +5743,7 @@ describe("Synthesis tab UI model", function () {
     assert.include(host, "deferStart?: boolean");
     assert.include(host, "globalThis.setTimeout(() => void start(), 0)");
     assert.include(host, "SYNTHESIS_WORKBENCH_COMMAND_PROGRESS_INTERVAL_MS");
-    assert.include(
-      host,
-      "getDefaultSynthesisService().rebuildTopicGraphIndex({",
-    );
+    assert.match(host, /client\.topicGraph\s*\.rebuildTopicGraphIndex\(\)/);
     assert.notInclude(
       host,
       'retryReferenceSidecarRefresh" &&\n    !confirmProtectedRebuildCommand',
