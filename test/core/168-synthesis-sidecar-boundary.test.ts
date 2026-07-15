@@ -134,6 +134,19 @@ describe("Synthesis sidecar migration boundary", function () {
       workbench,
       /client\.references\s*\.applyReferenceMatchProposalActions/,
     );
+    assert.match(
+      workbench,
+      /client\.references\s*\.mergeEffectiveCanonicalReference/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.applyCanonicalRevisionMergeRequests/,
+    );
+    assert.match(
+      workbench,
+      /client\.references\s*\.updateCanonicalReferenceMetadata/,
+    );
+    assert.match(workbench, /client\.references\s*\.archiveCanonicalReference/);
     for (const method of [
       "recomputeCitationGraphLayout",
       "rebuildCitationGraphCacheNow",
@@ -153,6 +166,10 @@ describe("Synthesis sidecar migration boundary", function () {
       "applyCanonicalRevisionReviewAction",
       "applyReferenceMatchProposalAction",
       "applyReferenceMatchProposalActions",
+      "mergeEffectiveCanonicalReference",
+      "applyCanonicalRevisionMergeRequests",
+      "updateCanonicalReferenceMetadata",
+      "archiveCanonicalReference",
     ]) {
       assert.notMatch(
         workbench,
@@ -210,6 +227,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(referencesContract, "applyCanonicalRevisionReviewAction(");
     assert.include(referencesContract, "applyReferenceMatchProposalAction(");
     assert.include(referencesContract, "applyReferenceMatchProposalActions(");
+    assert.include(referencesContract, "mergeEffectiveCanonicalReference(");
+    assert.include(referencesContract, "applyCanonicalRevisionMergeRequests(");
+    assert.include(referencesContract, "updateCanonicalReferenceMetadata(");
+    assert.include(referencesContract, "archiveCanonicalReference(");
+    assert.include(
+      referencesContract,
+      "SynthesisCanonicalReferenceMetadataPatch",
+    );
     assert.include(referencesContract, '"manual_target"');
     assert.include(referencesContract, 'kind: "zotero_item"');
     assert.include(referencesContract, 'kind: "canonical_reference"');

@@ -2580,14 +2580,16 @@ function handleAction(
         runtime,
         "mergeEffectiveCanonicalReference",
         { sourceEffectiveCanonicalId, targetEffectiveCanonicalId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .mergeEffectiveCanonicalReference({
               sourceEffectiveCanonicalId,
               targetEffectiveCanonicalId,
               confirmRetargetGroup: Boolean(commandArgs.confirmRetargetGroup),
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2597,20 +2599,37 @@ function handleAction(
   if (result.hostCommand?.command === "applyCanonicalRevisionMergeRequests") {
     const commandArgs = commandArgsFromPayload(envelope.payload);
     const requests = Array.isArray(commandArgs.requests)
-      ? commandArgs.requests.filter(
-          (entry): entry is Record<string, unknown> =>
-            Boolean(entry) && typeof entry === "object",
-        )
+      ? commandArgs.requests
+          .filter(
+            (entry): entry is Record<string, unknown> =>
+              Boolean(entry) &&
+              typeof entry === "object" &&
+              !Array.isArray(entry),
+          )
+          .map((request) => ({
+            sourceEffectiveCanonicalId: String(
+              request.sourceEffectiveCanonicalId ||
+                request.source_effective_canonical_id ||
+                "",
+            ).trim(),
+            targetEffectiveCanonicalId: String(
+              request.targetEffectiveCanonicalId ||
+                request.target_effective_canonical_id ||
+                "",
+            ).trim(),
+          }))
       : [];
     if (requests.length) {
       runWorkbenchCommandOnce(
         runtime,
         "applyCanonicalRevisionMergeRequests",
         { count: requests.length },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .applyCanonicalRevisionMergeRequests({ requests })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
         { deferStart: true },
       );
       return;
@@ -2629,20 +2648,26 @@ function handleAction(
       commandArgs.patch &&
       typeof commandArgs.patch === "object" &&
       !Array.isArray(commandArgs.patch)
-        ? (commandArgs.patch as Record<string, unknown>)
+        ? { ...(commandArgs.patch as Record<string, unknown>) }
         : {};
+    if ("normalizedTitle" in patch || "normalized_title" in patch) {
+      patch.normalizedTitle = patch.normalizedTitle || patch.normalized_title;
+      delete patch.normalized_title;
+    }
     if (canonicalReferenceId) {
       runWorkbenchCommandOnce(
         runtime,
         "updateCanonicalReferenceMetadata",
         { canonicalReferenceId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .updateCanonicalReferenceMetadata({
               canonicalReferenceId,
               patch,
             })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }
@@ -2661,10 +2686,12 @@ function handleAction(
         runtime,
         "archiveCanonicalReference",
         { canonicalReferenceId },
-        () =>
-          getDefaultSynthesisService()
+        async () => {
+          const client = await getDefaultSynthesisClient();
+          return client.references
             .archiveCanonicalReference({ canonicalReferenceId })
-            .then(failOnDiagnostic),
+            .then(failOnDiagnostic);
+        },
       );
       return;
     }

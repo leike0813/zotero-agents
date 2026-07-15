@@ -8,6 +8,11 @@ import {
   toSynthesisJsonObject,
   toSynthesisJsonValue,
   type SynthesisClient,
+  type SynthesisCanonicalReferenceArchiveRequest,
+  type SynthesisCanonicalReferenceMergePair,
+  type SynthesisCanonicalReferenceMetadataPatch,
+  type SynthesisCanonicalReferenceMetadataUpdateRequest,
+  type SynthesisCanonicalRevisionMergeRequestsRequest,
   type SynthesisCanonicalRevisionReviewRequest,
   type SynthesisCitationGraphLayoutRequest,
   type SynthesisDatabaseResetRequest,
@@ -34,6 +39,7 @@ import {
   type SynthesisWorkflowTopicOptionsRequest,
   type SynthesisWorkflowTopicOptionsResult,
   type SynthesisGraphCommandResult,
+  type SynthesisEffectiveCanonicalReferenceMergeRequest,
   type SynthesisWorkbenchPaperDigestResult,
   type SynthesisWorkbenchProjection,
   type SynthesisWorkbenchSurfaceName,
@@ -108,6 +114,18 @@ export interface LegacySynthesisPort {
   ): Promise<unknown>;
   applyReferenceMatchProposalActions?(
     request: SynthesisReferenceMatchProposalActionsRequest,
+  ): Promise<unknown>;
+  mergeEffectiveCanonicalReference?(
+    request: SynthesisEffectiveCanonicalReferenceMergeRequest,
+  ): Promise<unknown>;
+  applyCanonicalRevisionMergeRequests?(
+    request: SynthesisCanonicalRevisionMergeRequestsRequest,
+  ): Promise<unknown>;
+  updateCanonicalReferenceMetadata?(
+    request: SynthesisCanonicalReferenceMetadataUpdateRequest,
+  ): Promise<unknown>;
+  archiveCanonicalReference?(
+    request: SynthesisCanonicalReferenceArchiveRequest,
   ): Promise<unknown>;
 }
 
@@ -401,6 +419,156 @@ function normalizeReferenceMatchProposalActionsRequest(
   };
 }
 
+function normalizeCanonicalReferenceMergePair(
+  value: unknown,
+  location = "$.request",
+): SynthesisCanonicalReferenceMergePair {
+  const request = toSynthesisJsonObject(value, location);
+  return {
+    sourceEffectiveCanonicalId: normalizeRequiredString(
+      request.sourceEffectiveCanonicalId,
+      `${location}.sourceEffectiveCanonicalId`,
+      "Synthesis canonical Reference sourceEffectiveCanonicalId",
+    ),
+    targetEffectiveCanonicalId: normalizeRequiredString(
+      request.targetEffectiveCanonicalId,
+      `${location}.targetEffectiveCanonicalId`,
+      "Synthesis canonical Reference targetEffectiveCanonicalId",
+    ),
+  };
+}
+
+function normalizeEffectiveCanonicalReferenceMergeRequest(
+  value: unknown,
+): SynthesisEffectiveCanonicalReferenceMergeRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (
+    request.confirmRetargetGroup !== undefined &&
+    typeof request.confirmRetargetGroup !== "boolean"
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis canonical Reference confirmRetargetGroup must be a boolean",
+      { field: "confirmRetargetGroup" },
+    );
+  }
+  return {
+    ...normalizeCanonicalReferenceMergePair(request),
+    confirmRetargetGroup: request.confirmRetargetGroup === true,
+  };
+}
+
+function normalizeCanonicalRevisionMergeRequestsRequest(
+  value: unknown,
+): SynthesisCanonicalRevisionMergeRequestsRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  if (!Array.isArray(request.requests) || request.requests.length === 0) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "Synthesis canonical Reference merge requests are required",
+      { field: "requests" },
+    );
+  }
+  return {
+    requests: request.requests.map((entry, index) =>
+      normalizeCanonicalReferenceMergePair(
+        entry,
+        `$.request.requests[${index}]`,
+      ),
+    ),
+  };
+}
+
+function normalizeOptionalMetadataString(
+  patch: Record<string, unknown>,
+  field: "title" | "normalizedTitle" | "year",
+) {
+  const value = patch[field];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `Synthesis canonical Reference metadata ${field} must be a string`,
+      { field: `patch.${field}` },
+    );
+  }
+  return value.trim();
+}
+
+function normalizeCanonicalReferenceMetadataPatch(
+  value: unknown,
+): SynthesisCanonicalReferenceMetadataPatch {
+  const patch = toSynthesisJsonObject(value, "$.request.patch");
+  const normalized: SynthesisCanonicalReferenceMetadataPatch = {};
+  for (const field of ["title", "normalizedTitle", "year"] as const) {
+    const fieldValue = normalizeOptionalMetadataString(patch, field);
+    if (fieldValue !== undefined) normalized[field] = fieldValue;
+  }
+  if (patch.authors !== undefined) {
+    if (!Array.isArray(patch.authors)) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "Synthesis canonical Reference metadata authors must be an array",
+        { field: "patch.authors" },
+      );
+    }
+    normalized.authors = patch.authors.map((author, index) =>
+      normalizeRequiredString(
+        author,
+        `patch.authors[${index}]`,
+        "Synthesis canonical Reference metadata author",
+      ),
+    );
+  }
+  if (patch.identifiers !== undefined) {
+    const identifiers = toSynthesisJsonObject(
+      patch.identifiers,
+      "$.request.patch.identifiers",
+    );
+    normalized.identifiers = {};
+    for (const [rawKey, rawValue] of Object.entries(identifiers)) {
+      const key = normalizeRequiredString(
+        rawKey,
+        "patch.identifiers key",
+        "Synthesis canonical Reference metadata identifier key",
+      );
+      normalized.identifiers[key] = normalizeRequiredString(
+        rawValue,
+        `patch.identifiers.${rawKey}`,
+        "Synthesis canonical Reference metadata identifier value",
+      );
+    }
+  }
+  return normalized;
+}
+
+function normalizeCanonicalReferenceMetadataUpdateRequest(
+  value: unknown,
+): SynthesisCanonicalReferenceMetadataUpdateRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    canonicalReferenceId: normalizeRequiredString(
+      request.canonicalReferenceId,
+      "canonicalReferenceId",
+      "Synthesis canonical Reference canonicalReferenceId",
+    ),
+    patch: normalizeCanonicalReferenceMetadataPatch(request.patch),
+  };
+}
+
+function normalizeCanonicalReferenceArchiveRequest(
+  value: unknown,
+): SynthesisCanonicalReferenceArchiveRequest {
+  const request = toSynthesisJsonObject(value, "$.request");
+  return {
+    canonicalReferenceId: normalizeRequiredString(
+      request.canonicalReferenceId,
+      "canonicalReferenceId",
+      "Synthesis canonical Reference canonicalReferenceId",
+    ),
+  };
+}
+
 function mapPaperDigestRequest(value: unknown): Record<string, unknown> {
   const request = toSynthesisJsonObject(value, "$.request");
   const mapped: Record<string, unknown> = {};
@@ -567,6 +735,58 @@ export function createInProcessSynthesisClient(
           const port = requireLegacyPort(
             legacy.applyReferenceMatchProposalActions,
             "references.applyReferenceMatchProposalActions",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async mergeEffectiveCanonicalReference(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeEffectiveCanonicalReferenceMergeRequest(request);
+          const port = requireLegacyPort(
+            legacy.mergeEffectiveCanonicalReference,
+            "references.mergeEffectiveCanonicalReference",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async applyCanonicalRevisionMergeRequests(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeCanonicalRevisionMergeRequestsRequest(request);
+          const port = requireLegacyPort(
+            legacy.applyCanonicalRevisionMergeRequests,
+            "references.applyCanonicalRevisionMergeRequests",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async updateCanonicalReferenceMetadata(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeCanonicalReferenceMetadataUpdateRequest(request);
+          const port = requireLegacyPort(
+            legacy.updateCanonicalReferenceMetadata,
+            "references.updateCanonicalReferenceMetadata",
+          );
+          return normalizeLegacyObject(
+            await port(normalizedRequest),
+          ) as SynthesisReferenceCommandResult;
+        });
+      },
+      async archiveCanonicalReference(request) {
+        return runLegacy(async () => {
+          const normalizedRequest =
+            normalizeCanonicalReferenceArchiveRequest(request);
+          const port = requireLegacyPort(
+            legacy.archiveCanonicalReference,
+            "references.archiveCanonicalReference",
           );
           return normalizeLegacyObject(
             await port(normalizedRequest),

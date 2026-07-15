@@ -126,6 +126,18 @@ function createLegacyPort(
     async applyReferenceMatchProposalActions(request) {
       return resolveService().applyReferenceMatchProposalActions(request);
     },
+    async mergeEffectiveCanonicalReference(request) {
+      return resolveService().mergeEffectiveCanonicalReference(request);
+    },
+    async applyCanonicalRevisionMergeRequests(request) {
+      return resolveService().applyCanonicalRevisionMergeRequests(request);
+    },
+    async updateCanonicalReferenceMetadata(request) {
+      return resolveService().updateCanonicalReferenceMetadata(request);
+    },
+    async archiveCanonicalReference(request) {
+      return resolveService().archiveCanonicalReference(request);
+    },
   };
 }
 

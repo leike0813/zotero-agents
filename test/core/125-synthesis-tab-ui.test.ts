@@ -2014,6 +2014,146 @@ describe("Synthesis tab UI model", function () {
     assert.include(reviewInvalidation, 'return ["index", "review", "graph"]');
   });
 
+  it("routes canonical Reference mutations through the strict References client", async function () {
+    const tabSource = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const handleActionBlock = extractFunctionBlock(tabSource, "handleAction");
+    const mutationRegion = handleActionBlock.slice(
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "mergeEffectiveCanonicalReference"',
+      ),
+      handleActionBlock.indexOf('result.hostCommand?.command === "syncNow"'),
+    );
+    const singleMergeRegion = mutationRegion.slice(
+      0,
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionMergeRequests"',
+      ),
+    );
+    const batchMergeRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "applyCanonicalRevisionMergeRequests"',
+      ),
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    const metadataRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "updateCanonicalReferenceMetadata"',
+      ),
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "archiveCanonicalReference"',
+      ),
+    );
+    const archiveRegion = mutationRegion.slice(
+      mutationRegion.indexOf(
+        'result.hostCommand?.command === "archiveCanonicalReference"',
+      ),
+    );
+
+    for (const [command, method] of [
+      ["mergeEffectiveCanonicalReference", "mergeEffectiveCanonicalReference"],
+      [
+        "applyCanonicalRevisionMergeRequests",
+        "applyCanonicalRevisionMergeRequests",
+      ],
+      ["updateCanonicalReferenceMetadata", "updateCanonicalReferenceMetadata"],
+      ["archiveCanonicalReference", "archiveCanonicalReference"],
+    ]) {
+      assert.match(
+        mutationRegion,
+        new RegExp(
+          `${command}[\\s\\S]{0,2200}client\\.references\\s*\\.${method}\\(`,
+        ),
+      );
+    }
+    assert.include(singleMergeRegion, "source_effective_canonical_id");
+    assert.include(singleMergeRegion, "target_effective_canonical_id");
+    assert.include(
+      singleMergeRegion,
+      "Boolean(commandArgs.confirmRetargetGroup)",
+    );
+    assert.match(
+      singleMergeRegion,
+      /"mergeEffectiveCanonicalReference",\s*\{ sourceEffectiveCanonicalId, targetEffectiveCanonicalId \}/,
+    );
+    assert.include(batchMergeRegion, ".filter(");
+    assert.include(batchMergeRegion, ".map(");
+    assert.include(batchMergeRegion, "source_effective_canonical_id");
+    assert.include(batchMergeRegion, "target_effective_canonical_id");
+    assert.match(
+      batchMergeRegion,
+      /"applyCanonicalRevisionMergeRequests",\s*\{ count: requests\.length \}/,
+    );
+    assert.include(metadataRegion, "canonical_reference_id");
+    assert.include(metadataRegion, "normalized_title");
+    assert.include(metadataRegion, "normalizedTitle");
+    assert.match(
+      metadataRegion,
+      /"updateCanonicalReferenceMetadata",\s*\{ canonicalReferenceId \}/,
+    );
+    assert.include(archiveRegion, "canonical_reference_id");
+    assert.match(
+      archiveRegion,
+      /"archiveCanonicalReference",\s*\{ canonicalReferenceId \}/,
+    );
+    for (const region of [
+      singleMergeRegion,
+      batchMergeRegion,
+      metadataRegion,
+      archiveRegion,
+    ]) {
+      assert.match(region, /\.then\(failOnDiagnostic\)/);
+      assert.include(region, "await getDefaultSynthesisClient()");
+      assert.notInclude(region, "getDefaultSynthesisService");
+      assert.notInclude(region, "confirmWorkbenchAction");
+      assert.notInclude(region, "onProgress");
+      assert.notInclude(region, "notifyWorkbenchCommandProgress");
+    }
+    assert.notInclude(singleMergeRegion, "deferStart");
+    assert.include(batchMergeRegion, "deferStart: true");
+    assert.notInclude(metadataRegion, "deferStart");
+    assert.notInclude(archiveRegion, "deferStart");
+
+    const diagnosticBlock = extractFunctionBlock(tabSource, "failOnDiagnostic");
+    assert.include(diagnosticBlock, '"diagnostic" in result');
+    assert.notInclude(diagnosticBlock, '"diagnostics"');
+
+    const invalidationBlock = extractFunctionBlock(
+      tabSource,
+      "surfacesInvalidatedByCommand",
+    );
+    const mergeInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "mergeEffectiveCanonicalReference"',
+      ) - 220,
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+    );
+    assert.include(
+      mergeInvalidation,
+      'command === "applyCanonicalRevisionMergeRequests"',
+    );
+    assert.include(mergeInvalidation, 'return ["index", "review", "graph"]');
+    const metadataInvalidation = invalidationBlock.slice(
+      invalidationBlock.indexOf(
+        'command === "updateCanonicalReferenceMetadata"',
+      ),
+      invalidationBlock.indexOf(
+        'command === "refreshCitationGraphCacheIncrementalNow"',
+      ),
+    );
+    assert.include(
+      metadataInvalidation,
+      'command === "archiveCanonicalReference"',
+    );
+    assert.include(metadataInvalidation, 'return ["index", "review"]');
+  });
+
   it("routes Workbench artifact delete and purge host commands", function () {
     const deleteResult = applySynthesisUiAction(
       createDefaultSynthesisUiState(),

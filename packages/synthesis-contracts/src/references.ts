@@ -60,6 +60,37 @@ export type SynthesisReferenceMatchProposalActionsRequest = {
   decisions: SynthesisReferenceMatchProposalDecision[];
 };
 
+export type SynthesisCanonicalReferenceMergePair = {
+  sourceEffectiveCanonicalId: string;
+  targetEffectiveCanonicalId: string;
+};
+
+export type SynthesisEffectiveCanonicalReferenceMergeRequest =
+  SynthesisCanonicalReferenceMergePair & {
+    confirmRetargetGroup?: boolean;
+  };
+
+export type SynthesisCanonicalRevisionMergeRequestsRequest = {
+  requests: SynthesisCanonicalReferenceMergePair[];
+};
+
+export type SynthesisCanonicalReferenceMetadataPatch = {
+  title?: string;
+  normalizedTitle?: string;
+  year?: string;
+  authors?: string[];
+  identifiers?: Record<string, string>;
+};
+
+export type SynthesisCanonicalReferenceMetadataUpdateRequest = {
+  canonicalReferenceId: string;
+  patch: SynthesisCanonicalReferenceMetadataPatch;
+};
+
+export type SynthesisCanonicalReferenceArchiveRequest = {
+  canonicalReferenceId: string;
+};
+
 export type SynthesisReferenceCommandResult = SynthesisJsonObject;
 
 export interface SynthesisReferencesClient {
@@ -75,5 +106,17 @@ export interface SynthesisReferencesClient {
   ): Promise<SynthesisReferenceCommandResult>;
   applyReferenceMatchProposalActions(
     request: SynthesisReferenceMatchProposalActionsRequest,
+  ): Promise<SynthesisReferenceCommandResult>;
+  mergeEffectiveCanonicalReference(
+    request: SynthesisEffectiveCanonicalReferenceMergeRequest,
+  ): Promise<SynthesisReferenceCommandResult>;
+  applyCanonicalRevisionMergeRequests(
+    request: SynthesisCanonicalRevisionMergeRequestsRequest,
+  ): Promise<SynthesisReferenceCommandResult>;
+  updateCanonicalReferenceMetadata(
+    request: SynthesisCanonicalReferenceMetadataUpdateRequest,
+  ): Promise<SynthesisReferenceCommandResult>;
+  archiveCanonicalReference(
+    request: SynthesisCanonicalReferenceArchiveRequest,
   ): Promise<SynthesisReferenceCommandResult>;
 }

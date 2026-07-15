@@ -712,6 +712,363 @@ describe("Synthesis client foundation", function () {
     }
   });
 
+  it("routes strict canonical Reference mutations through narrow normalized ports", async function () {
+    const calls: Array<{ operation: string; request: unknown }> = [];
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async mergeEffectiveCanonicalReference(request) {
+        calls.push({ operation: "merge", request });
+        return {
+          ok: false,
+          status: "invalid_target",
+          optional_field: undefined,
+          checked_at: new Date("2026-07-15T00:00:00.000Z"),
+        };
+      },
+      async applyCanonicalRevisionMergeRequests(request) {
+        calls.push({ operation: "batch", request });
+        return {
+          ok: false,
+          failed_count: 1,
+          diagnostics: [{ code: "domain_failure" }],
+        };
+      },
+      async updateCanonicalReferenceMetadata(request) {
+        calls.push({ operation: "metadata", request });
+        return { ok: false, status: "bound_to_zotero" };
+      },
+      async archiveCanonicalReference(request) {
+        calls.push({ operation: "archive", request });
+        return { ok: false, status: "blocked" };
+      },
+    });
+
+    assert.deepEqual(
+      await client.references.mergeEffectiveCanonicalReference({
+        sourceEffectiveCanonicalId: " same-id ",
+        targetEffectiveCanonicalId: " same-id ",
+        confirmRetargetGroup: true,
+        unexpected: "discard",
+      } as never),
+      {
+        ok: false,
+        status: "invalid_target",
+        checked_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      await client.references.mergeEffectiveCanonicalReference({
+        sourceEffectiveCanonicalId: " source-2 ",
+        targetEffectiveCanonicalId: " target-2 ",
+      }),
+      {
+        ok: false,
+        status: "invalid_target",
+        checked_at: "2026-07-15T00:00:00.000Z",
+      },
+    );
+    assert.deepEqual(
+      await client.references.applyCanonicalRevisionMergeRequests({
+        requests: [
+          {
+            sourceEffectiveCanonicalId: " source-1 ",
+            targetEffectiveCanonicalId: " target-1 ",
+            unexpected: "discard",
+          },
+        ],
+        unexpected: "discard",
+      } as never),
+      {
+        ok: false,
+        failed_count: 1,
+        diagnostics: [{ code: "domain_failure" }],
+      },
+    );
+    assert.deepEqual(
+      await client.references.updateCanonicalReferenceMetadata({
+        canonicalReferenceId: " canonical-1 ",
+        patch: {
+          title: " Title ",
+          normalizedTitle: " normalized title ",
+          year: " 2026 ",
+          authors: [" Author One ", "Author Two"],
+          identifiers: { " doi ": " 10.1000/example ", pmid: " 123 " },
+          unknown: "discard",
+        },
+        unexpected: "discard",
+      } as never),
+      { ok: false, status: "bound_to_zotero" },
+    );
+    assert.deepEqual(
+      await client.references.updateCanonicalReferenceMetadata({
+        canonicalReferenceId: "canonical-empty",
+        patch: {},
+      }),
+      { ok: false, status: "bound_to_zotero" },
+    );
+    assert.deepEqual(
+      await client.references.updateCanonicalReferenceMetadata({
+        canonicalReferenceId: "canonical-clear",
+        patch: { authors: [], identifiers: {} },
+      }),
+      { ok: false, status: "bound_to_zotero" },
+    );
+    assert.deepEqual(
+      await client.references.archiveCanonicalReference({
+        canonicalReferenceId: " canonical-2 ",
+        unexpected: "discard",
+      } as never),
+      { ok: false, status: "blocked" },
+    );
+
+    assert.deepEqual(calls, [
+      {
+        operation: "merge",
+        request: {
+          sourceEffectiveCanonicalId: "same-id",
+          targetEffectiveCanonicalId: "same-id",
+          confirmRetargetGroup: true,
+        },
+      },
+      {
+        operation: "merge",
+        request: {
+          sourceEffectiveCanonicalId: "source-2",
+          targetEffectiveCanonicalId: "target-2",
+          confirmRetargetGroup: false,
+        },
+      },
+      {
+        operation: "batch",
+        request: {
+          requests: [
+            {
+              sourceEffectiveCanonicalId: "source-1",
+              targetEffectiveCanonicalId: "target-1",
+            },
+          ],
+        },
+      },
+      {
+        operation: "metadata",
+        request: {
+          canonicalReferenceId: "canonical-1",
+          patch: {
+            title: "Title",
+            normalizedTitle: "normalized title",
+            year: "2026",
+            authors: ["Author One", "Author Two"],
+            identifiers: { doi: "10.1000/example", pmid: "123" },
+          },
+        },
+      },
+      {
+        operation: "metadata",
+        request: { canonicalReferenceId: "canonical-empty", patch: {} },
+      },
+      {
+        operation: "metadata",
+        request: {
+          canonicalReferenceId: "canonical-clear",
+          patch: { authors: [], identifiers: {} },
+        },
+      },
+      {
+        operation: "archive",
+        request: { canonicalReferenceId: "canonical-2" },
+      },
+    ]);
+  });
+
+  it("rejects invalid canonical Reference mutations before resolving legacy ports", async function () {
+    let invocations = 0;
+    const missingPortClient = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+    });
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async mergeEffectiveCanonicalReference() {
+        invocations += 1;
+        return {};
+      },
+      async applyCanonicalRevisionMergeRequests() {
+        invocations += 1;
+        return {};
+      },
+      async updateCanonicalReferenceMetadata() {
+        invocations += 1;
+        return {};
+      },
+      async archiveCanonicalReference() {
+        invocations += 1;
+        return {};
+      },
+    });
+    const invalidRequests: Array<() => Promise<unknown>> = [
+      () =>
+        missingPortClient.references.mergeEffectiveCanonicalReference({
+          sourceEffectiveCanonicalId: " ",
+          targetEffectiveCanonicalId: "target",
+        }),
+      () =>
+        missingPortClient.references.applyCanonicalRevisionMergeRequests({
+          requests: [],
+        }),
+      () =>
+        missingPortClient.references.updateCanonicalReferenceMetadata({
+          canonicalReferenceId: " ",
+          patch: {},
+        }),
+      () =>
+        missingPortClient.references.archiveCanonicalReference({
+          canonicalReferenceId: " ",
+        }),
+      () =>
+        client.references.mergeEffectiveCanonicalReference({
+          sourceEffectiveCanonicalId: "source",
+          targetEffectiveCanonicalId: " ",
+        }),
+      () =>
+        client.references.mergeEffectiveCanonicalReference({
+          sourceEffectiveCanonicalId: "source",
+          targetEffectiveCanonicalId: "target",
+          confirmRetargetGroup: "yes",
+        } as never),
+      () =>
+        client.references.applyCanonicalRevisionMergeRequests({ requests: [] }),
+      () =>
+        client.references.applyCanonicalRevisionMergeRequests({
+          requests: [null],
+        } as never),
+      () =>
+        client.references.applyCanonicalRevisionMergeRequests({
+          requests: [
+            {
+              sourceEffectiveCanonicalId: "source",
+              targetEffectiveCanonicalId: " ",
+            },
+          ],
+        }),
+      () =>
+        client.references.updateCanonicalReferenceMetadata({
+          canonicalReferenceId: "canonical-1",
+          patch: null,
+        } as never),
+      ...[
+        { title: 2026 },
+        { normalizedTitle: false },
+        { year: 2026 },
+        { authors: "Author" },
+        { authors: [" "] },
+        { authors: [1] },
+        { identifiers: [] },
+        { identifiers: { " ": "doi" } },
+        { identifiers: { doi: " " } },
+        { identifiers: { doi: 1000 } },
+      ].map(
+        (patch) => () =>
+          client.references.updateCanonicalReferenceMetadata({
+            canonicalReferenceId: "canonical-1",
+            patch,
+          } as never),
+      ),
+      () =>
+        client.references.archiveCanonicalReference({
+          canonicalReferenceId: "",
+        }),
+    ];
+
+    for (const run of invalidRequests) {
+      try {
+        await run();
+        assert.fail("expected the canonical Reference request to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, "invalid_request");
+      }
+    }
+    assert.equal(invocations, 0);
+  });
+
+  it("normalizes missing and failed canonical Reference mutation ports", async function () {
+    const preserved = new SynthesisClientError("conflict", "merge conflict");
+    const client = createInProcessSynthesisClient({
+      async listWorkflowTopicOptions() {
+        return { options: [], diagnostics: [] };
+      },
+      async applyCanonicalRevisionMergeRequests() {
+        throw new Error("batch merge exploded");
+      },
+      async updateCanonicalReferenceMetadata() {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      },
+      async archiveCanonicalReference() {
+        throw preserved;
+      },
+    });
+    const cases: Array<{
+      run: () => Promise<unknown>;
+      code: string;
+      expected?: SynthesisClientError;
+    }> = [
+      {
+        run: () =>
+          client.references.mergeEffectiveCanonicalReference({
+            sourceEffectiveCanonicalId: "source",
+            targetEffectiveCanonicalId: "target",
+          }),
+        code: "unavailable",
+      },
+      {
+        run: () =>
+          client.references.applyCanonicalRevisionMergeRequests({
+            requests: [
+              {
+                sourceEffectiveCanonicalId: "source",
+                targetEffectiveCanonicalId: "target",
+              },
+            ],
+          }),
+        code: "internal",
+      },
+      {
+        run: () =>
+          client.references.updateCanonicalReferenceMetadata({
+            canonicalReferenceId: "canonical-1",
+            patch: {},
+          }),
+        code: "storage_busy",
+      },
+      {
+        run: () =>
+          client.references.archiveCanonicalReference({
+            canonicalReferenceId: "canonical-1",
+          }),
+        code: "conflict",
+        expected: preserved,
+      },
+    ];
+
+    for (const testCase of cases) {
+      try {
+        await testCase.run();
+        assert.fail("expected the canonical Reference command to reject");
+      } catch (error) {
+        assert.instanceOf(error, SynthesisClientError);
+        assert.equal((error as SynthesisClientError).code, testCase.code);
+        if (testCase.expected) assert.strictEqual(error, testCase.expected);
+      }
+    }
+  });
+
   it("routes the five region-scoped Workbench reads through narrow ports", async function () {
     const calls: Array<{ operation: string; args: unknown[] }> = [];
     const client = createInProcessSynthesisClient({
