@@ -179,6 +179,10 @@ import {
   preflightRuntimeProcessControlOnStartup,
   type RuntimeProcessControlSnapshot,
 } from "./platform/processControl";
+import {
+  startSynthesisSidecarRuntimeSupervisor,
+  stopSynthesisSidecarRuntimeSupervisor,
+} from "./modules/synthesisSidecarRuntimeSupervisor";
 
 const WORKFLOW_MENU_RETRY_INTERVAL_MS = 100;
 const WORKFLOW_MENU_RETRY_MAX_ATTEMPTS = 20;
@@ -826,6 +830,7 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
+  startSynthesisSidecarRuntimeSupervisor();
   await cleanupRetiredSynthesisGitSyncRuntime(
     getRuntimePersistencePaths().runtimeRoot,
   ).catch((error) => {
@@ -1094,6 +1099,10 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout(
+    "synthesis-sidecar-supervisor-stop",
+    stopSynthesisSidecarRuntimeSupervisor,
+  );
   await runShutdownStepWithTimeout(
     "reachability-coordinator-stop",
     stopSkillRunnerBackendReachabilityCoordinator,

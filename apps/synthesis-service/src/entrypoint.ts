@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { acquireSynthesisSidecarServiceLifecycle } from "./lifecycle.js";
 import { writeServiceLog } from "./logging.js";
 import { loadRuntimeConfig, parseConfigPath } from "./runtimeConfig.js";
 import { startSynthesisSidecarServer } from "./server.js";
@@ -26,13 +28,35 @@ process.once("unhandledRejection", (error) => {
 async function main() {
   const configPath = parseConfigPath(process.argv.slice(2));
   const config = loadRuntimeConfig(configPath);
-  const runtime = await startSynthesisSidecarServer(config);
-  const stopForSignal = (signal: NodeJS.Signals) => {
-    runtime.beginShutdown(signal.toLowerCase());
-  };
-  process.once("SIGINT", stopForSignal);
-  process.once("SIGTERM", stopForSignal);
-  await runtime.stopped;
+  const serviceInstanceId = randomUUID();
+  const lifecycle = acquireSynthesisSidecarServiceLifecycle({
+    config,
+    configPath,
+    serviceInstanceId,
+  });
+  try {
+    const runtime = await startSynthesisSidecarServer(
+      config,
+      serviceInstanceId,
+    );
+    lifecycle.publishDiscovery({ port: runtime.port });
+    lifecycle.startLeaseMonitor(() => runtime.beginShutdown("host_lease"));
+    const stopForSignal = (signal: NodeJS.Signals) => {
+      runtime.beginShutdown(signal.toLowerCase());
+    };
+    const stopForHostPipe = () => runtime.beginShutdown("host_pipe_eof");
+    process.once("SIGINT", stopForSignal);
+    process.once("SIGTERM", stopForSignal);
+    process.stdin.once("end", stopForHostPipe);
+    process.stdin.once("close", stopForHostPipe);
+    process.stdin.resume();
+    await runtime.stopped;
+    process.stdin.off("end", stopForHostPipe);
+    process.stdin.off("close", stopForHostPipe);
+    process.stdin.pause();
+  } finally {
+    lifecycle.release();
+  }
 }
 
 main().catch((error) => {

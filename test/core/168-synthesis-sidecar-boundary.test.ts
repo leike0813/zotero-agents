@@ -311,11 +311,30 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./tagEffect"');
     assert.include(contractIndex, 'export * from "./webDavSyncPort"');
     assert.include(contractIndex, 'export * from "./sidecarSystem"');
+    assert.include(contractIndex, 'export * from "./sidecarLifecycle"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
       /(?:src\/modules\/synthesis|synthesis\/service|repository|canonical|hostEffect|webDavSync|synthesis-engine|globalThis\.Zotero|zotero-plugin)/i,
     );
+    assert.notMatch(
+      sidecarAppSource,
+      /(?:node:child_process|node:worker_threads|new\s+Worker\s*\()/,
+    );
+    const runtimeSupervisor = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
+      "utf8",
+    );
+    for (const forbidden of [
+      "pathSearch",
+      "resolveRuntimeCommand",
+      "getRuntimeProcessControlSnapshot",
+      "processControl",
+      "getDefaultSynthesisClient",
+      "getDefaultSynthesisService",
+    ]) {
+      assert.notInclude(runtimeSupervisor, forbidden);
+    }
     assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
     assert.notInclude(
       serviceSource,
@@ -1069,16 +1088,25 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(runtime, "complete 108-method service");
   });
 
-  it("keeps packaged runtime installation out of production activation [inv.runtime.sidecar_packaging_not_activated]", function () {
+  it("keeps supervised runtime isolated from production ownership [inv.runtime.sidecar_supervision_isolated]", function () {
     const hooks = fs.readFileSync(path.join(ROOT_DIR, "src/hooks.ts"), "utf8");
     const installer = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeInstaller.ts"),
       "utf8",
     );
-    assert.notInclude(hooks, "synthesisSidecarRuntimeInstaller");
+    const supervisor = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
+      "utf8",
+    );
+    assert.include(hooks, "startSynthesisSidecarRuntimeSupervisor");
     assert.notInclude(installer, "ensureSynthesisService");
     assert.notInclude(installer, "getMozillaSubprocessModule");
     assert.notInclude(installer, "resolveRuntimeCommand");
+    assert.notInclude(supervisor, "getDefaultSynthesisClient");
+    assert.notInclude(supervisor, "getDefaultSynthesisService");
+    assert.notInclude(supervisor, "synthesisDbPath");
+    assert.notInclude(supervisor, "canonical");
+    assert.notInclude(supervisor, "pathSearch");
   });
 
   it("registers the migration-safe single-owner invariant", function () {

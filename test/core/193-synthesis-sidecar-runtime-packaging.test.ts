@@ -154,6 +154,9 @@ describe("Synthesis sidecar runtime packaging", function () {
       assert.equal(first.state, "ready");
       assert.deepEqual(second, first);
       assert.equal(first.bundleId, bundle.manifest.bundleId);
+      assert.equal(first.nodeVersion, bundle.manifest.nodeVersion);
+      assert.equal(first.serviceVersion, bundle.manifest.serviceVersion);
+      assert.equal(first.protocolVersion, bundle.manifest.protocolVersion);
       assert.equal(
         fs.readFileSync(first.nodePath!, "utf8"),
         "product-owned-node",

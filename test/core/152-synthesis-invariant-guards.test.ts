@@ -32,7 +32,7 @@ const VALID_TEST_KINDS = new Set(["behavior", "static_guard"]);
 const STATIC_ONLY_ALLOWED = new Set([
   "inv.discovery.no_global_llm_nxm",
   "inv.runtime.sidecar_foundation_isolated",
-  "inv.runtime.sidecar_packaging_not_activated",
+  "inv.runtime.sidecar_supervision_isolated",
   "inv.runtime.single_production_owner",
 ]);
 

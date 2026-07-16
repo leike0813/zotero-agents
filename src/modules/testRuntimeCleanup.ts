@@ -28,6 +28,7 @@ import { setDebugModeOverrideForTests } from "./debugMode";
 import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
 import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
+import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesisSidecarRuntimeSupervisor";
 
 type CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh: () => void;
@@ -56,6 +57,7 @@ type CleanupDeps = {
   setDiagnosticVerboseOverrideForTests: () => void;
   setSkillRunnerInteractiveAutoReplyEnabledForTests: () => void;
   resetWorkflowRuntimeForTests: () => void;
+  resetSynthesisSidecarRuntimeSupervisorForTests: () => void | Promise<void>;
 };
 
 const defaultCleanupDeps: CleanupDeps = {
@@ -85,6 +87,7 @@ const defaultCleanupDeps: CleanupDeps = {
   setDiagnosticVerboseOverrideForTests,
   setSkillRunnerInteractiveAutoReplyEnabledForTests,
   resetWorkflowRuntimeForTests,
+  resetSynthesisSidecarRuntimeSupervisorForTests,
 };
 
 let cleanupDeps: CleanupDeps = defaultCleanupDeps;
@@ -101,6 +104,9 @@ export function setBackgroundRuntimeCleanupDepsForTests(
 }
 
 export async function cleanupBackgroundRuntimeForZoteroTests() {
+  await Promise.resolve(
+    cleanupDeps.resetSynthesisSidecarRuntimeSupervisorForTests(),
+  );
   await Promise.resolve(cleanupDeps.resetSkillRunnerRunDialogForTests());
   cleanupDeps.resetSkillRunnerAutoReplyObserverForTests();
   await Promise.resolve(cleanupDeps.resetTaskManagerDialogRuntimeForTests());

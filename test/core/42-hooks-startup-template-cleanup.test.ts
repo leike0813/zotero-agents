@@ -1,4 +1,6 @@
 import { assert } from "chai";
+import fs from "node:fs";
+import path from "node:path";
 import { config } from "../../package.json";
 import hooks from "../../src/hooks";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
@@ -136,6 +138,16 @@ describe("hooks startup template cleanup", function () {
       getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests();
     assert.isTrue(runtime.started);
     assert.isTrue(runtime.timerActive || runtime.pendingProbeTimerCount > 0);
+  });
+
+  it("starts and stops the Synthesis sidecar supervisor through plugin lifecycle", function () {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "src/hooks.ts"),
+      "utf8",
+    );
+    assert.include(source, "startSynthesisSidecarRuntimeSupervisor()");
+    assert.include(source, '"synthesis-sidecar-supervisor-stop"');
+    assert.include(source, "stopSynthesisSidecarRuntimeSupervisor");
   });
 
   it("enables runtime diagnostic log mode on startup when hardcoded debug mode is on", async function () {

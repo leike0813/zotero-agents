@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -87,14 +87,21 @@ function success(args: {
   };
 }
 
-function strictHandshakeSchema(payload: SynthesisJsonObject): string {
-  const keys = Object.keys(payload);
+function strictHandshake(payload: SynthesisJsonObject) {
+  const keys = Object.keys(payload).sort();
   if (
-    keys.length !== 1 ||
-    keys[0] !== "schemaVersion" ||
+    keys.length !== 3 ||
+    keys[0] !== "bundleId" ||
+    keys[1] !== "schemaVersion" ||
+    keys[2] !== "supervisorInstanceId" ||
     typeof payload.schemaVersion !== "string" ||
     payload.schemaVersion.length === 0 ||
-    payload.schemaVersion.length > 128
+    payload.schemaVersion.length > 128 ||
+    typeof payload.bundleId !== "string" ||
+    payload.bundleId.length !== 64 ||
+    typeof payload.supervisorInstanceId !== "string" ||
+    payload.supervisorInstanceId.length === 0 ||
+    payload.supervisorInstanceId.length > 128
   ) {
     throw new SidecarRuntimeError({
       status: 400,
@@ -102,7 +109,11 @@ function strictHandshakeSchema(payload: SynthesisJsonObject): string {
       message: "The handshake payload is invalid.",
     });
   }
-  return payload.schemaVersion;
+  return {
+    schemaVersion: payload.schemaVersion,
+    bundleId: payload.bundleId,
+    supervisorInstanceId: payload.supervisorInstanceId,
+  };
 }
 
 function requireEmptyPayload(payload: SynthesisJsonObject) {
@@ -117,8 +128,8 @@ function requireEmptyPayload(payload: SynthesisJsonObject) {
 
 export async function startSynthesisSidecarServer(
   config: SynthesisSidecarRuntimeConfig,
+  serviceInstanceId: string,
 ): Promise<SynthesisSidecarRuntime> {
-  const serviceInstanceId = randomUUID();
   let lifecycleState: SynthesisSidecarLifecycleState = "starting";
   let shutdownStarted = false;
   const sockets = new Set<Socket>();
@@ -171,6 +182,8 @@ export async function startSynthesisSidecarServer(
           protocol: SYNTHESIS_SIDECAR_PROTOCOL,
           serviceVersion: config.serviceVersion,
           serviceInstanceId,
+          supervisorInstanceId: config.supervisorInstanceId,
+          bundleId: config.bundleId,
           lifecycleState,
         };
         writeJson(response, 200, health);
@@ -250,13 +263,27 @@ export async function startSynthesisSidecarServer(
         });
       }
       if (call.capability === "system.handshake") {
-        const schemaVersion = strictHandshakeSchema(call.payload);
-        if (schemaVersion !== config.schemaVersion) {
+        const handshake = strictHandshake(call.payload);
+        if (handshake.schemaVersion !== config.schemaVersion) {
           throw new SidecarRuntimeError({
             status: 409,
             code: "schema_mismatch",
             message: "The Synthesis sidecar schema does not match.",
             details: { expectedSchemaVersion: config.schemaVersion },
+          });
+        }
+        if (handshake.bundleId !== config.bundleId) {
+          throw new SidecarRuntimeError({
+            status: 409,
+            code: "runtime_mismatch",
+            message: "The Synthesis sidecar runtime bundle does not match.",
+          });
+        }
+        if (handshake.supervisorInstanceId !== config.supervisorInstanceId) {
+          throw new SidecarRuntimeError({
+            status: 409,
+            code: "runtime_mismatch",
+            message: "The Synthesis sidecar supervisor does not match.",
           });
         }
         writeJson(
@@ -269,6 +296,9 @@ export async function startSynthesisSidecarServer(
               protocol: SYNTHESIS_SIDECAR_PROTOCOL,
               serviceVersion: config.serviceVersion,
               serviceInstanceId,
+              supervisorInstanceId: config.supervisorInstanceId,
+              bundleId: config.bundleId,
+              nodeVersion: config.nodeVersion,
               profileId: config.profileId,
               schemaVersion: config.schemaVersion,
               runtimeRootId: config.runtimeRootId,

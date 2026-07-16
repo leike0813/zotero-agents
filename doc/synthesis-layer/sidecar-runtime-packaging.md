@@ -50,8 +50,12 @@ root.
 
 ## Current Runtime Topology
 
-Packaging is not activation. Plugin startup does not call the installer or
-launch the service. There is no discovery record, process owner lock, parent
-lease, health poll, restart policy, worker pool, or remote `SynthesisClient`.
-Production remains in the Zotero plugin process, which remains the sole owner
-of `synthesis.db` and Topic canonical current files.
+Plugin startup now invokes the installer and launches the selected verified
+runtime under the profile-scoped supervisor described in
+`sidecar-runtime-supervision.md`. The launcher uses no system Node, PATH, npm,
+or user shell.
+
+Activation is not production routing. The service remains mutation-disabled,
+has no workers or domain capabilities, and does not access production
+`synthesis.db` or Topic canonical current files. The default
+`SynthesisClient` remains in-process.

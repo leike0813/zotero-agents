@@ -41,17 +41,24 @@ export type SynthesisSidecarHealth = {
   protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   serviceVersion: string;
   serviceInstanceId: string;
+  supervisorInstanceId: string;
+  bundleId: string;
   lifecycleState: SynthesisSidecarLifecycleState;
 };
 
 export type SynthesisSidecarHandshakePayload = {
   schemaVersion: string;
+  bundleId: string;
+  supervisorInstanceId: string;
 };
 
 export type SynthesisSidecarHandshakeResult = {
   protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   serviceVersion: string;
   serviceInstanceId: string;
+  supervisorInstanceId: string;
+  bundleId: string;
+  nodeVersion: string;
   profileId: string;
   schemaVersion: string;
   runtimeRootId: string;
@@ -81,6 +88,7 @@ export type SynthesisSidecarErrorCode =
   | "protocol_mismatch"
   | "profile_mismatch"
   | "schema_mismatch"
+  | "runtime_mismatch"
   | "capability_not_found"
   | "service_not_ready"
   | "internal_error";

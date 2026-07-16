@@ -997,6 +997,26 @@ describe("background refresh governance", function () {
     }
   });
 
+  it("keeps Synthesis sidecar supervision on one low-frequency scheduler", function () {
+    const source = readFileSync(
+      join(process.cwd(), "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
+      "utf8",
+    );
+    assert.notInclude(source, "setInterval(");
+    assert.include(source, 'owner: "synthesis-sidecar-supervisor"');
+    assert.include(source, "DEFAULT_LEASE_INTERVAL_MS = 30_000");
+    assert.include(source, "DEFAULT_HEALTH_INTERVAL_MS = 60_000");
+    for (const forbidden of [
+      "listWorkflow",
+      "listAcp",
+      "buildSynthesisWorkbench",
+      "getDefaultSynthesisClient",
+      "getDefaultSynthesisService",
+    ]) {
+      assert.notInclude(source, forbidden);
+    }
+  });
+
   it("gates ACP Skills workspace observation with the execution display mode", function () {
     const source = readFileSync(
       join(process.cwd(), "src/modules/acpSkillRunnerOrchestrator.ts"),

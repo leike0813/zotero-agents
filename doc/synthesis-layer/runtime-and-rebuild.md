@@ -6,7 +6,13 @@ Workflow Topic option queries, startup runtime reconciliation, protected databas
 
 The approved Stage 1 sidecar direction is documented in `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md` and the active Synthesis migration OpenSpec changes. The repository now contains an independently compiled Node service foundation under `apps/synthesis-service`: it provides only loopback liveness, authenticated protocol/profile/schema handshake, separate lifecycle-token shutdown, bounded request parsing, and redacted lifecycle diagnostics. Five platform bundles combine that service tree with product-owned Node `24.18.0`; strict manifests, signed upstream provenance, per-file hashes, staged installation, atomic active/previous pointers, repair, and rollback produce trusted absolute runtime paths.
 
-Production execution nevertheless remains in-process. Plugin startup does not invoke the installer, launch, discover, supervise, or call the service. The plugin is still the only owner of `synthesis.db` and Topic canonical files, and the default `SynthesisClient` still resolves the legacy in-process composition. The packaged runtime is the trusted input to a later WS4 supervisor change; it is not a production fallback.
+Production execution nevertheless remains in-process. Plugin startup now
+non-blockingly installs, launches, discovers, and supervises the
+mutation-disabled service, but it does not route the production
+`SynthesisClient` to it. The plugin is still the only owner of `synthesis.db`
+and Topic canonical files, and the default client still resolves the legacy
+in-process composition. Runtime supervision is event-driven with one
+low-frequency deadline scheduler; it is not a production fallback.
 
 Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
 
@@ -42,7 +48,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. Projection promotion remains application-owned; proposal matching is not part of the engine.
 - Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. It derives only roots and unplaced identifiers; graph/review rows, proposal and mutation logic, diagnostics, progress, and projection promotion remain application-owned.
 - Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production remains in-process and inside the existing canonical-write serialization; the WS4 Node foundation does not execute engines.
-- Synthesis runtime packaging supports exactly Windows x64, macOS x64/arm64, and Linux x64/arm64. Installation reads only packaged assets, writes only `runtime/synthesis/service-runtime`, and never resolves system commands or launches a process.
+- Synthesis runtime packaging supports exactly Windows x64, macOS x64/arm64, and Linux x64/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

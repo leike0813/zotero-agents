@@ -44,6 +44,9 @@ export type SynthesisSidecarRuntimeInstallSnapshot = {
   state: SynthesisSidecarRuntimeInstallState;
   target: SynthesisSidecarRuntimeTargetDetection;
   bundleId?: string;
+  nodeVersion?: string;
+  serviceVersion?: string;
+  protocolVersion?: string;
   installRoot?: string;
   nodePath?: string;
   entrypointPath?: string;
@@ -183,6 +186,9 @@ async function verifyInstalledRuntime(args: {
     state: "ready",
     target: args.target,
     bundleId: manifest.bundleId,
+    nodeVersion: manifest.nodeVersion,
+    serviceVersion: manifest.serviceVersion,
+    protocolVersion: manifest.protocolVersion,
     installRoot: args.installRoot,
     nodePath: joinPath(args.installRoot, manifest.executable),
     entrypointPath: joinPath(args.installRoot, manifest.entrypoint),

@@ -1,30 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  rebuildSynthesisSidecarLaunchConfig,
+  type SynthesisSidecarLaunchConfig,
+} from "../../../packages/synthesis-contracts/src/sidecarLifecycle.js";
 import { SidecarRuntimeError } from "./errors.js";
 
-export type SynthesisSidecarRuntimeConfig = {
-  profileId: string;
-  runtimeRootId: string;
-  dataRootId: string;
-  serviceVersion: string;
-  schemaVersion: string;
-  clientToken: string;
-  lifecycleToken: string;
-  mutationEnabled: false;
-  port: number;
-};
-
-const CONFIG_KEYS = new Set([
-  "profileId",
-  "runtimeRootId",
-  "dataRootId",
-  "serviceVersion",
-  "schemaVersion",
-  "clientToken",
-  "lifecycleToken",
-  "mutationEnabled",
-  "port",
-]);
+export type SynthesisSidecarRuntimeConfig = SynthesisSidecarLaunchConfig;
 
 function configError(code: string): never {
   throw new SidecarRuntimeError({
@@ -35,79 +17,13 @@ function configError(code: string): never {
   });
 }
 
-function strictString(
-  value: unknown,
-  code: string,
-  options: { min?: number; max?: number } = {},
-): string {
-  const min = options.min ?? 1;
-  const max = options.max ?? 512;
-  if (typeof value !== "string" || value.length < min || value.length > max) {
-    configError(code);
-  }
-  return value;
-}
-
-function rebuildConfig(value: unknown): SynthesisSidecarRuntimeConfig {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    Object.getPrototypeOf(value) !== Object.prototype
-  ) {
-    configError("config_not_object");
-  }
-  const record = value as Record<string, unknown>;
-  for (const key of Object.keys(record)) {
-    if (!CONFIG_KEYS.has(key)) {
-      configError("config_unknown_field");
-    }
-  }
-  if (record.mutationEnabled !== false) {
-    configError("mutation_must_be_disabled");
-  }
-  const port = record.port;
-  if (
-    typeof port !== "number" ||
-    !Number.isInteger(port) ||
-    port < 0 ||
-    port > 65535
-  ) {
-    configError("port_invalid");
-  }
-  const clientToken = strictString(record.clientToken, "client_token_invalid", {
-    min: 32,
-  });
-  const lifecycleToken = strictString(
-    record.lifecycleToken,
-    "lifecycle_token_invalid",
-    { min: 32 },
+function expectedConfigPath(config: SynthesisSidecarRuntimeConfig) {
+  return path.join(
+    config.profileRuntimeRoot,
+    "sessions",
+    config.supervisorInstanceId,
+    "config.json",
   );
-  if (clientToken === lifecycleToken) {
-    configError("tokens_must_be_distinct");
-  }
-  return {
-    profileId: strictString(record.profileId, "profile_id_invalid"),
-    runtimeRootId: strictString(
-      record.runtimeRootId,
-      "runtime_root_id_invalid",
-    ),
-    dataRootId: strictString(record.dataRootId, "data_root_id_invalid"),
-    serviceVersion: strictString(
-      record.serviceVersion,
-      "service_version_invalid",
-      { max: 128 },
-    ),
-    schemaVersion: strictString(
-      record.schemaVersion,
-      "schema_version_invalid",
-      { max: 128 },
-    ),
-    clientToken,
-    lifecycleToken,
-    mutationEnabled: false,
-    port,
-  };
 }
 
 export function parseConfigPath(argv: string[]): string {
@@ -138,7 +54,14 @@ export function loadRuntimeConfig(
     configError("config_file_unreadable");
   }
   try {
-    return rebuildConfig(JSON.parse(source));
+    const config = rebuildSynthesisSidecarLaunchConfig(JSON.parse(source));
+    if (!path.isAbsolute(config.profileRuntimeRoot)) {
+      configError("profile_runtime_root_must_be_absolute");
+    }
+    if (path.resolve(configPath) !== path.resolve(expectedConfigPath(config))) {
+      configError("config_path_scope_mismatch");
+    }
+    return config;
   } catch (error) {
     if (error instanceof SidecarRuntimeError) {
       throw error;

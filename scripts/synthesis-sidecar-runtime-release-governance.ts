@@ -26,6 +26,7 @@ const FINGERPRINT_STATIC_INPUTS = [
   "apps/synthesis-service/tsconfig.json",
   "apps/synthesis-service/tsconfig.build.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
+  "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
   "scripts/check-synthesis-sidecar-runtime-freshness.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
@@ -56,6 +57,7 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
     ...(await collectFiles(root, "apps/synthesis-service/src")),
     ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
       (file) =>
+        file.endsWith("/sidecarLifecycle.ts") ||
         file.endsWith("/sidecarSystem.ts") ||
         file.endsWith("/sidecarRuntimeBundle.ts"),
     ),

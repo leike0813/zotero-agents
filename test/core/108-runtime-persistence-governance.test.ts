@@ -8,6 +8,8 @@ import {
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
   getRuntimePersistencePaths,
+  getSynthesisSidecarLifecyclePaths,
+  replacePrivateRuntimeTextFileAtomically,
   scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
@@ -147,6 +149,31 @@ describe("runtime persistence governance", function () {
     assert.include(
       paths.workflowProductsDir.replace(/\\/g, "/"),
       "/workflow-products",
+    );
+  });
+
+  it("keeps sidecar lifecycle sessions profile-scoped and private", async function () {
+    const runtimeRoot = getRuntimePersistencePaths().runtimeRoot;
+    const lifecycle = getSynthesisSidecarLifecyclePaths({
+      runtimeRoot,
+      profileId: "a".repeat(64),
+      supervisorInstanceId: "sup-test",
+    });
+    assert.equal(
+      path.relative(runtimeRoot, lifecycle.configPath).replace(/\\/g, "/"),
+      `synthesis/service-runtime/profiles/${"a".repeat(64)}/sessions/sup-test/config.json`,
+    );
+    await replacePrivateRuntimeTextFileAtomically(lifecycle.configPath, "{}\n");
+    assert.equal(await fs.readFile(lifecycle.configPath, "utf8"), "{}\n");
+    if (process.platform !== "win32") {
+      assert.equal((await fs.stat(lifecycle.configPath)).mode & 0o777, 0o600);
+    }
+    assert.throws(() =>
+      getSynthesisSidecarLifecyclePaths({
+        runtimeRoot,
+        profileId: "../outside",
+        supervisorInstanceId: "sup-test",
+      }),
     );
   });
 

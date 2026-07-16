@@ -52,8 +52,20 @@ export type SynthesisSidecarRuntimePaths = {
   root: string;
   versionsDir: string;
   stagingDir: string;
+  profilesDir: string;
   activePointerPath: string;
   previousPointerPath: string;
+};
+
+export type SynthesisSidecarLifecyclePaths = {
+  profileRoot: string;
+  ownerDir: string;
+  ownerPath: string;
+  discoveryPath: string;
+  sessionsDir: string;
+  sessionRoot: string;
+  configPath: string;
+  leasePath: string;
 };
 
 export type RuntimePersistenceCategoryUsage = {
@@ -720,8 +732,44 @@ export function getSynthesisSidecarRuntimePaths(
     root,
     versionsDir: joinPath(root, "versions"),
     stagingDir: joinPath(root, "staging"),
+    profilesDir: joinPath(root, "profiles"),
     activePointerPath: joinPath(root, "active.json"),
     previousPointerPath: joinPath(root, "previous.json"),
+  };
+}
+
+function assertLifecycleId(valueRaw: string, label: string) {
+  const value = normalizeString(valueRaw);
+  if (!/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
+    throw new Error(`Synthesis sidecar ${label} is invalid`);
+  }
+  return value;
+}
+
+export function getSynthesisSidecarLifecyclePaths(args: {
+  runtimeRoot: string;
+  profileId: string;
+  supervisorInstanceId: string;
+}): SynthesisSidecarLifecyclePaths {
+  const runtime = getSynthesisSidecarRuntimePaths(args.runtimeRoot);
+  const profileId = assertLifecycleId(args.profileId, "profile id");
+  const supervisorInstanceId = assertLifecycleId(
+    args.supervisorInstanceId,
+    "supervisor instance id",
+  );
+  const profileRoot = joinPath(runtime.profilesDir, profileId);
+  const ownerDir = joinPath(profileRoot, "owner");
+  const sessionsDir = joinPath(profileRoot, "sessions");
+  const sessionRoot = joinPath(sessionsDir, supervisorInstanceId);
+  return {
+    profileRoot,
+    ownerDir,
+    ownerPath: joinPath(ownerDir, "owner.json"),
+    discoveryPath: joinPath(profileRoot, "discovery.json"),
+    sessionsDir,
+    sessionRoot,
+    configPath: joinPath(sessionRoot, "config.json"),
+    leasePath: joinPath(sessionRoot, "lease.json"),
   };
 }
 
@@ -1169,10 +1217,7 @@ export async function moveRuntimePath(args: {
   throw new Error("No runtime file move API is available");
 }
 
-export async function setRuntimeExecutablePermissions(
-  pathRaw: string,
-  mode = 0o755,
-) {
+export async function setRuntimeFilePermissions(pathRaw: string, mode: number) {
   const path = normalizeString(pathRaw);
   if (!path || getPlatform() === "win32") {
     return false;
@@ -1218,6 +1263,13 @@ export async function setRuntimeExecutablePermissions(
     return true;
   }
   return false;
+}
+
+export async function setRuntimeExecutablePermissions(
+  pathRaw: string,
+  mode = 0o755,
+) {
+  return setRuntimeFilePermissions(pathRaw, mode);
 }
 
 export async function getRuntimeFilePermissions(pathRaw: string) {
@@ -1483,6 +1535,18 @@ export async function replaceRuntimeTextFileAtomically(
   } catch (error) {
     await removeRuntimePath(tempPath).catch(() => false);
     throw error;
+  }
+}
+
+export async function replacePrivateRuntimeTextFileAtomically(
+  pathRaw: string,
+  content: string,
+) {
+  await replaceRuntimeTextFileAtomically(pathRaw, content);
+  const permissionsSet = await setRuntimeFilePermissions(pathRaw, 0o600);
+  if (getPlatform() !== "win32" && !permissionsSet) {
+    await removeRuntimePath(pathRaw).catch(() => false);
+    throw new Error("sidecar_private_file_permissions_unavailable");
   }
 }
 

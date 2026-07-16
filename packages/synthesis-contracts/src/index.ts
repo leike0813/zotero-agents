@@ -11,6 +11,7 @@ export * from "./lifecycle";
 export * from "./references";
 export * from "./representativeImageRead";
 export * from "./relatedItemsEffect";
+export * from "./sidecarLifecycle";
 export * from "./sidecarSystem";
 export * from "./sidecarRuntimeBundle";
 export * from "./sync";

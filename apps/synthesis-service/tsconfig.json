@@ -14,6 +14,7 @@
   "include": [
     "src/**/*.ts",
     "../../packages/synthesis-contracts/src/common.ts",
+    "../../packages/synthesis-contracts/src/sidecarLifecycle.ts",
     "../../packages/synthesis-contracts/src/sidecarSystem.ts"
   ]
 }
