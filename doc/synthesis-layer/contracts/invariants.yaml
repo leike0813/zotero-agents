@@ -43,7 +43,7 @@ invariants:
 
   - id: inv.runtime.sidecar_foundation_isolated
     severity: fatal
-    statement: The independent Node sidecar runtime is a loopback-only mutation-disabled control plane with one 8 MiB-envelope bounded Citation Graph layout worker canary; it cannot access Zotero, Synthesis repositories, canonical writers, Host effects, sync runtime, child processes, or any other production engine route.
+    statement: The independent Node sidecar runtime is a loopback-only mutation-disabled control plane whose sole production engine route is the 8 MiB-envelope bounded Citation Graph layout worker; it cannot access Zotero, Synthesis repositories, canonical writers, Host effects, sync runtime, child processes, or any other production engine route, and production layout has no in-process fallback.
     evidence: Service application/worker import-boundary, compute wire-capacity, and production-composition guards.
     test_refs:
       - file: test/core/152-synthesis-invariant-guards.test.ts
@@ -52,7 +52,7 @@ invariants:
 
   - id: inv.runtime.sidecar_supervision_isolated
     severity: fatal
-    statement: Plugin startup may install, launch, and supervise the mutation-disabled product-owned Synthesis runtime, but supervision never resolves system Node or PATH, never routes a production consumer to the sidecar, never grants production DB/canonical/Host ownership, and does not change the 108-method service or its single direct production consumer.
+    statement: Plugin startup may install, launch, and supervise the mutation-disabled product-owned Synthesis runtime and production Citation Graph layout may use its current ready compute connection, but supervision never resolves system Node or PATH, never grants production DB/canonical/Host ownership, and does not change the 108-method service or its single direct production consumer.
     evidence: Runtime launcher/supervisor tests and production-composition guard.
     test_refs:
       - file: test/core/168-synthesis-sidecar-boundary.test.ts

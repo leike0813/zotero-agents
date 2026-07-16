@@ -1,6 +1,6 @@
 # Library SSOT and Sidecar Cache
 
-This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The implementation is currently in-process; the approved sidecar migration changes process ownership in later, independently verified changes without changing the data truth defined here.
+This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The plugin still owns all production data and canonical files; only Citation Graph layout compute currently crosses the supervised sidecar worker, without changing the data truth defined here.
 
 ## Decision
 
@@ -43,7 +43,7 @@ The index layer mainly serves citation graph and fast inspection. That makes it 
 - No startup reconcile that fans out Zotero library changes into sidecar work.
 - No dirty-event queue whose purpose is to keep Synthesis in lockstep with Zotero.
 - No full Registry rebuild on normal startup, snapshot read, or topic workflow read.
-- The current implementation does not require an external process. This is a current topology fact, not a constraint on the approved sidecar migration.
+- Production Citation Graph layout requires the ready supervised sidecar worker and fails closed when it is unavailable; all data correctness and previous-layout retention remain plugin-owned.
 
 ## Allowed Update Paths
 

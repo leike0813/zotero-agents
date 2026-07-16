@@ -63,9 +63,14 @@ runtime under the profile-scoped supervisor described in
 `sidecar-runtime-supervision.md`. The launcher uses no system Node, PATH, npm,
 or user shell.
 
-Activation is not production routing. The service remains mutation-disabled
-and carries one lazy bounded Citation Graph layout worker canary, but it does
-not access production `synthesis.db` or Topic canonical current files. Its
-compute JSON request and response envelopes are capped at 8 MiB and require no
-additional runtime dependency or asset. The default `SynthesisClient` and all
-eight production engines remain in-process.
+The service remains mutation-disabled and does not access production
+`synthesis.db` or Topic canonical current files. The default `SynthesisClient`
+routes Citation Graph layout computation to its lazy bounded worker; DB reads,
+graph-basis checks, promotion, canonical files, and the other seven engines
+remain plugin-owned. Compute JSON request and response envelopes are capped at
+8 MiB and require no additional runtime dependency or asset.
+
+Source routing does not regenerate platform prebuilds. Production release
+freshness and XPI checks fail closed until every bundled platform runtime
+matches the current service/worker/engine/D3/package-version/lockfile
+fingerprint produced by the separate release pipeline.

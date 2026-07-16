@@ -310,6 +310,7 @@ describe("Synthesis sidecar compute worker pool", function () {
           baseUrl,
           profileId: config.profileId,
           clientToken: config.clientToken,
+          serviceInstanceId: "service-test",
         },
         request(),
       );
@@ -333,6 +334,7 @@ describe("Synthesis sidecar compute worker pool", function () {
       baseUrl: "http://127.0.0.1:1",
       profileId: "1".repeat(64),
       clientToken: CLIENT_TOKEN,
+      serviceInstanceId: "service-test",
     };
     const invalidClient = createSynthesisSidecarComputeClient({
       fetch: async () =>

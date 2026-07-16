@@ -69,17 +69,22 @@ describe("Synthesis sidecar migration boundary", function () {
         "topic_structured_artifact",
       ],
     );
-    assert.isTrue(
-      rawInventory.internal_engines.every(
-        (engine) =>
-          engine.implementation === "in_process" &&
-          engine.production_worker === false,
-      ),
+    const layoutEngine = rawInventory.internal_engines.find(
+      (engine) => engine.id === "citation_graph_layout",
     );
+    assert.deepInclude(layoutEngine, {
+      implementation: "sidecar_worker",
+      production_worker: true,
+      sidecar_worker_canary: false,
+    });
     assert.isTrue(
-      rawInventory.internal_engines.find(
-        (engine) => engine.id === "citation_graph_layout",
-      )?.sidecar_worker_canary,
+      rawInventory.internal_engines
+        .filter((engine) => engine.id !== "citation_graph_layout")
+        .every(
+          (engine) =>
+            engine.implementation === "in_process" &&
+            engine.production_worker === false,
+        ),
     );
   });
 
@@ -198,6 +203,13 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(
         ROOT_DIR,
         "src/modules/synthesis/citationGraphLayoutEngineAdapter.ts",
+      ),
+      "utf8",
+    );
+    const sidecarCitationGraphLayoutAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/sidecarCitationGraphLayoutEngineAdapter.ts",
       ),
       "utf8",
     );
@@ -483,13 +495,29 @@ describe("Synthesis sidecar migration boundary", function () {
       serviceSource,
       /lock\.runExclusive[\s\S]{0,240}computeCitationGraphLayoutWithEngine/,
     );
-    assert.include(
+    assert.notInclude(
       legacyComposition,
       "createInProcessSynthesisCitationGraphLayoutEngine",
+    );
+    assert.include(
+      legacyComposition,
+      "createSynthesisSidecarCitationGraphLayoutEngine",
     );
     assert.include(legacyComposition, "citationGraphLayoutEngine");
     assert.notInclude(legacyComposition, "synthesisSidecarComputeClient");
     assert.notInclude(workbench, "synthesisSidecarComputeClient");
+    assert.include(
+      sidecarCitationGraphLayoutAdapter,
+      "getReadySynthesisSidecarControlConnection",
+    );
+    assert.include(
+      sidecarCitationGraphLayoutAdapter,
+      "SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS",
+    );
+    assert.notMatch(
+      sidecarCitationGraphLayoutAdapter,
+      /(?:repository|canonical|Host|Zotero|child_process|createInProcessSynthesisCitationGraphLayoutEngine)/,
+    );
     assert.include(
       legacyComposition,
       "createInProcessSynthesisCitationGraphMetricsEngine",
@@ -1127,8 +1155,10 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(
       runtime,
-      "The production Synthesis application still runs inside",
+      "The production Synthesis application and data authority remain inside",
     );
+    assert.include(runtime, "injects the sidecar-backed");
+    assert.include(runtime, "not retried or executed locally");
     assert.include(
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",

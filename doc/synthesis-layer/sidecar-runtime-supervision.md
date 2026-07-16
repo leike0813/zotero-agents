@@ -6,10 +6,10 @@ service entrypoint returned by the runtime installer. It does not inspect
 system Node, PATH, npm, a login shell, or the ACP process-control registry.
 
 The service is still mutation-disabled. It does not open production
-`synthesis.db`, Topic canonical files, or Host capabilities. It exposes one
-authenticated Citation Graph layout compute canary through a service-owned
-worker; the default production `SynthesisClient` and all production engine
-composition remain in-process.
+`synthesis.db`, Topic canonical files, or Host capabilities. The default
+production `SynthesisClient` routes only Citation Graph layout computation
+through its authenticated service-owned worker. The plugin still owns graph
+reads, basis checks, promotion, and all other production engines.
 
 ## Profile Lifecycle
 
@@ -54,7 +54,7 @@ is 120 seconds, with a resume grace for long scheduling gaps. This fallback is
 for addon-realm failure; host process death normally arrives immediately as
 stdin EOF.
 
-## Bounded Compute Canary
+## Bounded Production Layout Compute
 
 `compute.citation_graph_layout` is the only worker operation. The pool is lazy,
 runs one task, retains at most two waiting tasks, and rejects additional work
@@ -65,6 +65,12 @@ envelopes are each capped at 8 MiB, with 250,000 request and 50,000 response JSO
 structural nodes; the shared endpoint continues to cap general and system
 requests at 1 MiB. Oversized uploads are rejected before queue admission, and
 oversized results are transport failures rather than worker runtime faults.
+
+Each production call resolves the supervisor's current ready connection. A
+missing connection fails immediately with `service_not_ready`; restart identity,
+transport, or worker failures are not retried and never fall back to the local
+engine. Request and service-instance identity are checked before strict result
+rebuild and plugin-owned graph-basis promotion.
 
 Each layout has a five-second hard deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The worker is limited to 256 MiB

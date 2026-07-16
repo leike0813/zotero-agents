@@ -1002,9 +1002,15 @@ graph layout 作为第一条 process canary，因为：
   envelope 各自严格限制为 8 MiB，request/result JSON 结构分别限制为
   250,000/50,000 nodes，并在 client、HTTP reader、dispatch 与 response 边界对称
   拒绝超限；general/system request 仍保持 1 MiB。
+- 已交付 `route-synthesis-citation-graph-layout-through-sidecar-worker`：默认生产
+  composition 仅将 Citation Graph layout 纯计算路由到当前 ready 的 authenticated
+  worker，固定五秒 deadline，并校验 request/service instance identity；未 ready、
+  restart、transport 或 worker failure 均立即失败，不等待、重试或 in-process
+  fallback。插件继续持有 DB 读取、graph basis 校验、promotion、canonical files
+  和其它七个 production engine。
 - runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
-  数据。八个 production engine 和 production owner 仍在 Zotero 插件内的
-  in-process composition；layout 尚未切 production route。
+  数据；五平台 prebuild 由独立 release 流程按新 fingerprint 重新生成和同步，
+  在此之前 freshness/XPI release gate 保持 fail closed。
 
 #### 任务
 

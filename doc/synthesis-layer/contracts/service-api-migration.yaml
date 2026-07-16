@@ -10,9 +10,9 @@ internal_engines:
     production_worker: false
   - id: citation_graph_layout
     contract: SynthesisCitationGraphLayoutEngine
-    implementation: in_process
-    sidecar_worker_canary: true
-    production_worker: false
+    implementation: sidecar_worker
+    sidecar_worker_canary: false
+    production_worker: true
   - id: citation_graph_metrics
     contract: SynthesisCitationGraphMetricsEngine
     implementation: in_process

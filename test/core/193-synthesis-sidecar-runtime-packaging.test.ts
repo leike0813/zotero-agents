@@ -20,6 +20,7 @@ import {
   runtimeArchiveName,
   SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
+import { checkSynthesisSidecarRuntimeFreshness } from "../../scripts/check-synthesis-sidecar-runtime-freshness";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -457,5 +458,28 @@ describe("Synthesis sidecar runtime packaging", function () {
       "utf8",
     );
     assert.include(pluginConfig, "addon/bin/synthesis-sidecar/**/*");
+  });
+
+  it("fails the production release gate until every platform prebuild is present and current", async function () {
+    const emptyAssets = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-sidecar-empty-prebuilds-"),
+    );
+    const result = await checkSynthesisSidecarRuntimeFreshness(
+      ROOT,
+      emptyAssets,
+    );
+
+    assert.isFalse(result.ok);
+    assert.deepEqual(result.targets, [
+      "win32-x64",
+      "darwin-x64",
+      "darwin-arm64",
+      "linux-x64",
+      "linux-arm64",
+    ]);
+    assert.deepEqual(
+      result.diagnostics.map((entry) => [entry.code, entry.target]),
+      result.targets.map((target) => ["bundle_unreadable", target]),
+    );
   });
 });

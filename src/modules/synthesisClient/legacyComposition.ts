@@ -1,6 +1,5 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import {
-  createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
@@ -10,6 +9,7 @@ import {
 } from "../../../packages/synthesis-engine/src/index";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
+import { createSynthesisSidecarCitationGraphLayoutEngine } from "../synthesis/sidecarCitationGraphLayoutEngineAdapter";
 import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../synthesis/representativeImageReadAdapter";
@@ -60,8 +60,9 @@ function createDefaultLegacyService(
     hostStagedTagBindingMigrationPort:
       createZoteroSynthesisStagedTagBindingMigrationPort(),
     hostTagEffectPort: createZoteroSynthesisTagEffectPort(),
-    citationGraphLayoutEngine:
-      createInProcessSynthesisCitationGraphLayoutEngine(),
+    citationGraphLayoutEngine: createSynthesisSidecarCitationGraphLayoutEngine({
+      signal: abortController.signal,
+    }),
     citationGraphMetricsEngine:
       createInProcessSynthesisCitationGraphMetricsEngine(),
     citationGraphBuildEngine:

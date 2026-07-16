@@ -404,6 +404,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
       baseUrl: "http://127.0.0.1:1",
       profileId: "1".repeat(64),
       clientToken: CLIENT_TOKEN,
+      serviceInstanceId: "capacity-test",
     };
     let fetchCalls = 0;
     const requestClient = createSynthesisSidecarComputeClient({

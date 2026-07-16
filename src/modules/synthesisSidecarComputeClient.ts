@@ -15,12 +15,16 @@ export type SynthesisSidecarComputeConnection = {
   baseUrl: string;
   profileId: string;
   clientToken: string;
+  serviceInstanceId: string;
 };
 
 type FetchLike = typeof fetch;
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+let computeRequestSequence = 0;
+
+export const SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS = 5_000;
 
 export class SynthesisSidecarComputeClientError extends Error {
   readonly code: SynthesisSidecarErrorCode;
@@ -91,18 +95,20 @@ async function readBoundedResponse(response: Response, maxBytes: number) {
 
 function composedSignal(parent: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
+  let timedOut = false;
   const abort = () => controller.abort(parent?.reason);
   if (parent?.aborted) {
     abort();
   } else {
     parent?.addEventListener("abort", abort, { once: true });
   }
-  const timeout = setTimeout(
-    () => controller.abort(new Error("worker_timeout")),
-    timeoutMs,
-  );
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error("worker_timeout"));
+  }, timeoutMs);
   return {
     signal: controller.signal,
+    timedOut: () => timedOut,
     dispose() {
       clearTimeout(timeout);
       parent?.removeEventListener("abort", abort);
@@ -110,12 +116,19 @@ function composedSignal(parent: AbortSignal | undefined, timeoutMs: number) {
   };
 }
 
+function nextComputeRequestId() {
+  computeRequestSequence =
+    (computeRequestSequence + 1) % Number.MAX_SAFE_INTEGER;
+  return `compute:${Date.now()}:${computeRequestSequence}`;
+}
+
 export function createSynthesisSidecarComputeClient(options?: {
   fetch?: FetchLike;
   deadlineMs?: number;
 }) {
   const fetchImpl = options?.fetch ?? globalThis.fetch;
-  const defaultDeadlineMs = options?.deadlineMs ?? 5_000;
+  const defaultDeadlineMs =
+    options?.deadlineMs ?? SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS;
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_compute_fetch_unavailable");
   }
@@ -126,9 +139,10 @@ export function createSynthesisSidecarComputeClient(options?: {
       callOptions: { signal?: AbortSignal; deadlineMs?: number } = {},
     ) {
       const request = rebuildSynthesisCitationGraphLayoutRequest(input);
+      const requestId = nextComputeRequestId();
       const requestSource = JSON.stringify({
         protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-        requestId: `compute:${Date.now()}`,
+        requestId,
         profileId: connection.profileId,
         capability: "compute.citation_graph_layout",
         payload: request,
@@ -162,13 +176,26 @@ export function createSynthesisSidecarComputeClient(options?: {
         );
         let body: {
           ok?: unknown;
+          requestId?: unknown;
+          serviceInstanceId?: unknown;
           data?: unknown;
           error?: { code?: unknown };
         };
         try {
           body = JSON.parse(responseSource) as typeof body;
         } catch {
-          return computeClientError("internal_error");
+          return computeClientError("worker_result_invalid");
+        }
+        const requestIdentityMismatch =
+          typeof body.requestId === "string" &&
+          body.requestId.length > 0 &&
+          body.requestId !== requestId;
+        const runtimeIdentityMismatch =
+          typeof body.serviceInstanceId === "string" &&
+          body.serviceInstanceId.length > 0 &&
+          body.serviceInstanceId !== connection.serviceInstanceId;
+        if (requestIdentityMismatch || runtimeIdentityMismatch) {
+          return computeClientError("runtime_mismatch");
         }
         if (!response.ok || body.ok !== true) {
           return computeClientError(
@@ -177,7 +204,28 @@ export function createSynthesisSidecarComputeClient(options?: {
               : "internal_error",
           );
         }
-        return rebuildSynthesisCitationGraphLayoutResult(body.data, request);
+        if (
+          body.requestId !== requestId ||
+          body.serviceInstanceId !== connection.serviceInstanceId
+        ) {
+          return computeClientError("runtime_mismatch");
+        }
+        try {
+          return rebuildSynthesisCitationGraphLayoutResult(body.data, request);
+        } catch {
+          return computeClientError("worker_result_invalid");
+        }
+      } catch (error) {
+        if (error instanceof SynthesisSidecarComputeClientError) {
+          throw error;
+        }
+        if (callOptions.signal?.aborted) {
+          return computeClientError("worker_canceled");
+        }
+        if (deadline.timedOut()) {
+          return computeClientError("worker_timeout");
+        }
+        return computeClientError("worker_unavailable");
       } finally {
         deadline.dispose();
       }
