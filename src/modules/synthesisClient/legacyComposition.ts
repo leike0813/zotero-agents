@@ -3,6 +3,7 @@ import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisReferenceMatcherEngine,
+  createInProcessSynthesisTagVocabularyEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
@@ -63,6 +64,7 @@ function createDefaultLegacyService(
     citationGraphBuildEngine:
       createInProcessSynthesisCitationGraphBuildEngine(),
     referenceMatcherEngine: createInProcessSynthesisReferenceMatcherEngine(),
+    tagVocabularyEngine: createInProcessSynthesisTagVocabularyEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

@@ -5,10 +5,12 @@ import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisReferenceMatcherEngine,
+  createInProcessSynthesisTagVocabularyEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisReferenceBindingResult,
   type SynthesisReferenceMatcherEngine,
+  type SynthesisTagVocabularyEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import {
   createInProcessSynthesisCitationGraphBuildEngine,
@@ -523,6 +525,7 @@ export type SynthesisServiceOptions = {
   citationGraphMetricsEngine?: SynthesisCitationGraphMetricsEngine;
   citationGraphBuildEngine?: SynthesisCitationGraphBuildEngine;
   referenceMatcherEngine?: SynthesisReferenceMatcherEngine;
+  tagVocabularyEngine?: SynthesisTagVocabularyEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -6152,6 +6155,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const referenceMatcherEngine =
     options.referenceMatcherEngine ||
     createInProcessSynthesisReferenceMatcherEngine();
+  const tagVocabularyEngine =
+    options.tagVocabularyEngine ||
+    createInProcessSynthesisTagVocabularyEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -6162,6 +6168,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     root,
     now,
     repository: synthesisRepository,
+    engine: tagVocabularyEngine,
   });
   const conceptKb = createSynthesisConceptKbService({
     root,
@@ -6177,11 +6184,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     root,
     now,
     repository: synthesisRepository,
+    tagVocabularyEngine,
   });
   const checkpointExport = createSynthesisCheckpointExportService({
     root,
     now,
     repository: synthesisRepository,
+    tagVocabularyEngine,
   });
   let tagImportPreviewState:
     | {

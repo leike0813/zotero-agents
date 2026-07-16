@@ -505,4 +505,29 @@ describe("Synthesis invariant guards", function () {
       ),
     );
   });
+
+  it("keeps Tag Vocabulary compute behind the environment-neutral engine boundary", function () {
+    const serviceSource = readRepoText(
+      "src/modules/synthesis/tagVocabulary.ts",
+    );
+    const adapterSource = readRepoText(
+      "src/modules/synthesis/tagVocabularyEngineAdapter.ts",
+    );
+    const engineSource = readRepoText(
+      "packages/synthesis-engine/src/tagVocabulary.ts",
+    );
+
+    assert.include(serviceSource, "validateSynthesisTagVocabularyWithEngine");
+    assert.include(serviceSource, "buildSynthesisTagVocabularyIndexWithEngine");
+    assert.notInclude(serviceSource, "function validateVocabulary(");
+    assert.notInclude(serviceSource, "function tagProjectionFromSnapshot(");
+    assert.include(
+      adapterSource,
+      "rebuildSynthesisTagVocabularyValidationResult",
+    );
+    assert.notMatch(
+      engineSource,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+  });
 });

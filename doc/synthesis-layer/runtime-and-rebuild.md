@@ -26,6 +26,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Citation Graph metrics compute uses the same limits, never holds the library write lock during PageRank/component/role computation, and replaces rows only for the captured graph hash.
 - Citation Graph build compute accepts at most 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets, keeps Host reads and assembly outside the write lock, and replaces rows only for the captured durable sidecar-fact basis.
 - Advanced Reference Matching uses one bounded engine with separate binding and canonical-dedupe contracts. It captures repository facts under a short lock, computes both passes outside the lock, recaptures Host and repository basis, and atomically promotes accepted facts and proposals only when the basis remains current.
+- Tag Vocabulary validation and index construction use one strict synchronous engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. Canonical mutation validation remains inside the existing repository transaction; index failure or malformed output cannot advance projection registry state.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

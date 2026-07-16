@@ -178,6 +178,17 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const tagVocabularyEngine = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-engine/src/tagVocabulary.ts"),
+      "utf8",
+    );
+    const tagVocabularyAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/tagVocabularyEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -322,6 +333,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "buildProductionCitationGraphWithEngine");
     assert.include(serviceSource, "citation_graph_build_basis_superseded");
     assert.include(serviceSource, "referenceMatcherEngine");
+    assert.include(serviceSource, "tagVocabularyEngine");
     assert.include(
       serviceSource,
       "computeSynthesisReferenceBindingsWithEngine",
@@ -358,6 +370,11 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "referenceMatcherEngine");
     assert.include(
+      legacyComposition,
+      "createInProcessSynthesisTagVocabularyEngine",
+    );
+    assert.include(legacyComposition, "tagVocabularyEngine");
+    assert.include(
       readonlyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",
     );
@@ -367,6 +384,11 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisReferenceMatcherEngine",
     );
     assert.include(readonlyComposition, "referenceMatcherEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisTagVocabularyEngine",
+    );
+    assert.include(readonlyComposition, "tagVocabularyEngine");
     assert.isFalse(
       fs.existsSync(
         path.join(ROOT_DIR, "src/modules/synthesis/referenceMatcher.ts"),
@@ -375,6 +397,18 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notMatch(
       referenceMatcherEngine,
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.notMatch(
+      tagVocabularyEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.include(
+      tagVocabularyAdapter,
+      "rebuildSynthesisTagVocabularyValidationResult",
+    );
+    assert.include(
+      tagVocabularyAdapter,
+      "rebuildSynthesisTagVocabularyIndexResult",
     );
     assert.include(
       referenceMatcherAdapter,
@@ -413,6 +447,7 @@ describe("Synthesis sidecar migration boundary", function () {
       "d3-force",
       "./canonicalJson",
       "./referenceMatcher",
+      "./tagVocabulary",
     ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");

@@ -6,9 +6,11 @@ import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisReferenceMatcherEngine,
+  createInProcessSynthesisTagVocabularyEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisReferenceMatcherEngine,
+  type SynthesisTagVocabularyEngine,
 } from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
@@ -5683,5 +5685,35 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       result.nextManifest.section_hashes.coverage,
       "sha256:newer-coverage",
     );
+  });
+
+  it("routes Tag Vocabulary validation and index construction through the configured engine", async function () {
+    const root = await makeRoot();
+    const defaultEngine = createInProcessSynthesisTagVocabularyEngine();
+    const calls = { validate: 0, buildIndex: 0 };
+    const engine: SynthesisTagVocabularyEngine = {
+      validate(request) {
+        calls.validate += 1;
+        return defaultEngine.validate(request);
+      },
+      buildIndex(request) {
+        calls.buildIndex += 1;
+        return defaultEngine.buildIndex(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      tagVocabularyEngine: engine,
+    });
+
+    await service.saveTagVocabulary({
+      entries: [{ tag: "field:vision", facet: "field" }],
+    });
+    await service.validateTagVocabulary();
+    await service.rebuildTagVocabularyIndex();
+
+    assert.isAtLeast(calls.validate, 2);
+    assert.equal(calls.buildIndex, 1);
   });
 });

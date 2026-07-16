@@ -30,6 +30,15 @@ import {
   rebuildSynthesisHostItemRefs,
   synthesisHostItemRefKey,
 } from "../../../packages/synthesis-contracts/src/index";
+import {
+  SYNTHESIS_TAG_VOCABULARY_INDEX_SCHEMA_VERSION,
+  createInProcessSynthesisTagVocabularyEngine,
+  type SynthesisTagVocabularyEngine,
+} from "../../../packages/synthesis-engine/src/tagVocabulary";
+import {
+  buildSynthesisTagVocabularyIndexWithEngine,
+  validateSynthesisTagVocabularyWithEngine,
+} from "./tagVocabularyEngineAdapter";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
 export const SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID = "synthesis.tag_vocabulary";
@@ -37,7 +46,8 @@ export const SYNTHESIS_TAG_ALIASES_SCHEMA_ID = "synthesis.tag_aliases";
 export const SYNTHESIS_TAG_ABBREV_SCHEMA_ID = "synthesis.tag_abbrev";
 export const SYNTHESIS_TAG_PROTOCOL_SCHEMA_ID = "synthesis.tag_protocol";
 export const SYNTHESIS_TAG_MANIFEST_SCHEMA_ID = "synthesis.tag_manifest";
-export const SYNTHESIS_TAG_INDEX_SCHEMA_VERSION = "1.0.0";
+export const SYNTHESIS_TAG_INDEX_SCHEMA_VERSION =
+  SYNTHESIS_TAG_VOCABULARY_INDEX_SCHEMA_VERSION;
 export const TAGVOCAB_PROTOCOL_VERSION = "1.0.0";
 export const TAGVOCAB_TAG_PATTERN_SOURCE = "^[a-z_]+:[a-zA-Z0-9/_.-]+$";
 export const TAGVOCAB_MAX_TAG_LENGTH = 120;
@@ -184,6 +194,7 @@ type ServiceOptions = {
   root: string;
   now?: () => string;
   repository?: SynthesisRepository;
+  engine?: SynthesisTagVocabularyEngine;
 };
 
 const DEFAULT_PROTOCOL: SynthesisTagProtocolAsset = {
@@ -514,114 +525,6 @@ function createRegistry() {
   return registry;
 }
 
-function validateVocabulary(args: {
-  entries: SynthesisTagVocabularyEntry[];
-  aliases: Record<string, string>;
-  abbrev: Record<string, string>;
-  protocol: SynthesisTagProtocolAsset;
-}) {
-  const warnings: SynthesisTagValidationWarning[] = [];
-  const pattern = new RegExp(
-    args.protocol.tag_pattern || TAGVOCAB_TAG_PATTERN_SOURCE,
-  );
-  const allowedFacets = new Set(args.protocol.facets);
-  const knownTags = new Set(args.entries.map((entry) => entry.tag));
-  const seenLower = new Map<string, string>();
-  const abbrev = normalizeAbbrevRegistry(args.abbrev);
-  for (const [key, value] of Object.entries(abbrev)) {
-    if (!/^[a-z]+$/.test(key)) {
-      warnings.push({
-        code: "invalid_abbrev_key",
-        severity: "error",
-        tag: key,
-        message: "Abbreviation registry keys must be lowercase letters.",
-      });
-    }
-    if (!/^[A-Z][A-Za-z0-9]*$/.test(value)) {
-      warnings.push({
-        code: "invalid_abbrev_value",
-        severity: "error",
-        tag: key,
-        message: "Abbreviation registry values must use canonical casing.",
-      });
-    }
-  }
-  for (const entry of args.entries) {
-    const tag = cleanString(entry.tag);
-    const facet = cleanString(entry.facet);
-    if (!pattern.test(tag) || tag.length > args.protocol.max_tag_length) {
-      warnings.push({
-        code: "invalid_tag_format",
-        severity: "error",
-        tag,
-        message: "Tag must match the configured TagVocab pattern.",
-      });
-    }
-    if (!allowedFacets.has(facet)) {
-      warnings.push({
-        code: "unknown_facet",
-        severity: "error",
-        tag,
-        message: "Tag facet is not allowed by the protocol.",
-      });
-    }
-    if (facet && facetFromTag(tag) && facet !== facetFromTag(tag)) {
-      warnings.push({
-        code: "facet_mismatch",
-        severity: "error",
-        tag,
-        message: "Entry facet must match the prefix before ':'.",
-      });
-    }
-    const lower = tag.toLowerCase();
-    const existing = seenLower.get(lower);
-    if (existing && existing !== tag) {
-      warnings.push({
-        code: "case_duplicate",
-        severity: "error",
-        tag,
-        message: "Tag duplicates another entry with different casing.",
-      });
-    }
-    seenLower.set(lower, tag);
-    const value = tag.includes(":") ? tag.split(":").slice(1).join(":") : tag;
-    for (const segment of value.split("/").filter(Boolean)) {
-      const expected = abbrev[segment.toLowerCase()];
-      if (expected && segment !== expected) {
-        warnings.push({
-          code: "abbrev_case_error",
-          severity: "error",
-          tag,
-          message: "Registered abbreviation segment uses non-canonical casing.",
-        });
-      }
-    }
-    if (
-      entry.deprecated &&
-      entry.replacement &&
-      !knownTags.has(entry.replacement)
-    ) {
-      warnings.push({
-        code: "missing_replacement",
-        severity: "warning",
-        tag,
-        message: "Deprecated replacement tag is not present in the vocabulary.",
-      });
-    }
-  }
-  for (const [alias, tag] of Object.entries(args.aliases)) {
-    if (!knownTags.has(tag)) {
-      warnings.push({
-        code: "alias_target_missing",
-        severity: "error",
-        tag: alias,
-        message: "Alias target is not present in the vocabulary.",
-      });
-    }
-  }
-  return warnings;
-}
-
 function entriesEqual(
   left: SynthesisTagVocabularyEntry,
   right: SynthesisTagVocabularyEntry,
@@ -644,6 +547,7 @@ function parseImportPayload(payload: unknown) {
 }
 
 function buildImportPreview(args: {
+  engine: SynthesisTagVocabularyEngine;
   local: SynthesisTagVocabularyEntry[];
   imported: SynthesisTagVocabularyEntry[];
   aliases: Record<string, string>;
@@ -664,11 +568,14 @@ function buildImportPreview(args: {
       conflicts.push({ tag: imported.tag, local, imported });
     }
   }
-  const warnings = validateVocabulary({
-    entries: dedupeEntries([...args.local, ...args.imported]),
-    aliases: args.aliases,
-    abbrev: args.abbrev,
-    protocol: args.protocol,
+  const warnings = validateSynthesisTagVocabularyWithEngine({
+    engine: args.engine,
+    input: {
+      entries: dedupeEntries([...args.local, ...args.imported]),
+      aliases: args.aliases,
+      abbrev: args.abbrev,
+      protocol: args.protocol,
+    },
   });
   return {
     action: "preview",
@@ -922,41 +829,14 @@ function mergeStagedSuggestion(
   };
 }
 
-function tagProjectionFromSnapshot(args: {
-  snapshot: SynthesisTagVocabularySnapshot;
-  rebuiltAt: string;
-}): SynthesisTagIndexProjection {
-  return {
-    schema_id: "synthesis.tag_index_projection",
-    schema_version: SYNTHESIS_TAG_INDEX_SCHEMA_VERSION,
-    source_manifest_hash: args.snapshot.manifest.manifest_hash,
-    rebuilt_at: args.rebuiltAt,
-    tags: args.snapshot.entries
-      .filter((entry) => !entry.deprecated)
-      .map((entry) => entry.tag)
-      .sort((left, right) =>
-        left.localeCompare(right, "en", { sensitivity: "base" }),
-      ),
-    aliases: args.snapshot.aliases,
-    abbrev: args.snapshot.abbrev,
-    search: args.snapshot.entries.map((entry) => ({
-      tag: entry.tag,
-      normalized:
-        `${entry.tag} ${entry.note || ""} ${(entry.aliases || []).join(" ")} ${(entry.abbrev || []).join(" ")}`.toLowerCase(),
-      facet: cleanString(entry.facet),
-      aliases: entry.aliases || [],
-      abbrev: entry.abbrev || [],
-    })),
-    validation_warnings: args.snapshot.validation_warnings,
-  };
-}
-
 export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   const root = cleanString(options.root);
   if (!root) {
     throw new Error("Synthesis tag vocabulary service requires a storage root");
   }
   const now = options.now || nowIso;
+  const engine =
+    options.engine || createInProcessSynthesisTagVocabularyEngine();
   const repository =
     options.repository ||
     createSynthesisRepository({
@@ -977,7 +857,10 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     const aliases = normalizeRecordMap(args.aliases || {});
     const abbrev = normalizeAbbrevRegistry(args.abbrev || {});
     const protocol = validateProtocolShape(args.protocol || DEFAULT_PROTOCOL);
-    const warnings = validateVocabulary({ entries, aliases, abbrev, protocol });
+    const warnings = validateSynthesisTagVocabularyWithEngine({
+      engine,
+      input: { entries, aliases, abbrev, protocol },
+    });
     const errors = warnings.filter((entry) => entry.severity === "error");
     if (errors.length) {
       await writeCanonicalDiagnostic({
@@ -1074,11 +957,14 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       manifest,
       validation_warnings: currentWarnings.length
         ? currentWarnings
-        : validateVocabulary({
-            entries,
-            aliases: aliasMap,
-            abbrev: abbrevMap,
-            protocol: normalizedProtocol,
+        : validateSynthesisTagVocabularyWithEngine({
+            engine,
+            input: {
+              entries,
+              aliases: aliasMap,
+              abbrev: abbrevMap,
+              protocol: normalizedProtocol,
+            },
           }),
       projection: projectionState.projections[SYNTHESIS_TAG_INDEX_TARGET],
     };
@@ -1166,11 +1052,14 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     protocol?: SynthesisTagProtocolAsset;
   }) {
     const current = await loadTagVocabulary();
-    return validateVocabulary({
-      entries: dedupeEntries(args?.entries || current.entries),
-      aliases: normalizeRecordMap(args?.aliases || current.aliases),
-      abbrev: normalizeRecordMap(args?.abbrev || current.abbrev),
-      protocol: validateProtocolShape(args?.protocol || current.protocol),
+    return validateSynthesisTagVocabularyWithEngine({
+      engine,
+      input: {
+        entries: dedupeEntries(args?.entries || current.entries),
+        aliases: normalizeRecordMap(args?.aliases || current.aliases),
+        abbrev: normalizeRecordMap(args?.abbrev || current.abbrev),
+        protocol: validateProtocolShape(args?.protocol || current.protocol),
+      },
     });
   }
 
@@ -1333,7 +1222,10 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     const aliases = tagAliasesFromRecords(args.aliases);
     const abbrev = tagAbbrevFromRecords(args.abbrevs);
     const protocol = tagProtocolFromRecord(args.protocol);
-    const warnings = validateVocabulary({ entries, aliases, abbrev, protocol });
+    const warnings = validateSynthesisTagVocabularyWithEngine({
+      engine,
+      input: { entries, aliases, abbrev, protocol },
+    });
     const errors = warnings.filter((entry) => entry.severity === "error");
     if (errors.length) {
       throw new Error(
@@ -1539,6 +1431,7 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       ...imported.abbrev,
     };
     return buildImportPreview({
+      engine,
       local: current.entries,
       imported: imported.entries,
       aliases: current.aliases,
@@ -1606,7 +1499,17 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       `${snapshot.entries.length} tag entries loaded`,
     );
     const rebuiltAt = now();
-    const projection = tagProjectionFromSnapshot({ snapshot, rebuiltAt });
+    const projection = buildSynthesisTagVocabularyIndexWithEngine({
+      engine,
+      input: {
+        entries: snapshot.entries,
+        aliases: snapshot.aliases,
+        abbrev: snapshot.abbrev,
+        protocol: snapshot.protocol,
+      },
+      sourceManifestHash: snapshot.manifest.manifest_hash,
+      rebuiltAt,
+    });
     await options.yieldControl?.();
     await reportProgress("write_projection", "Write projection", 2);
     await options.yieldControl?.();
@@ -1622,8 +1525,16 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   }
 
   async function readTagIndexProjection() {
-    return tagProjectionFromSnapshot({
-      snapshot: await loadTagVocabulary(),
+    const snapshot = await loadTagVocabulary();
+    return buildSynthesisTagVocabularyIndexWithEngine({
+      engine,
+      input: {
+        entries: snapshot.entries,
+        aliases: snapshot.aliases,
+        abbrev: snapshot.abbrev,
+        protocol: snapshot.protocol,
+      },
+      sourceManifestHash: snapshot.manifest.manifest_hash,
       rebuiltAt: now(),
     });
   }

@@ -104,6 +104,7 @@ strategy.
 | Citation graph cache rebuild | full or source slice; build contract capped at 25,000 sources / 1,250,000 references / 750,000 external targets | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, ownership, incoming groups, and light metrics. Durable facts are captured under a short lock; Host reads and build-engine compute run outside it; promotion recaptures the basis. |
 | Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 3000 ms phase budget; no current mid-compute cutoff | Fixed phases or metric rows. PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
 | Citation graph layout rebuild | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 2000 ms pre-start soft check; no current mid-compute cutoff | Layout nodes for one existing graph hash. Compute runs outside the write lock; promotion rechecks the hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
+| Tag vocabulary validation/index | <= 25,000 entries, <= 50,000 global aliases, <= 10,000 abbreviations, <= 256 facets; per-entry alias/abbrev lists <= 256 | 2000 ms explicit-operation budget | Validation rows or search rows. The synchronous engine is checkpoint-capable and performs no persistence or Host I/O; canonical mutation validation remains transaction-local. |
 | Zotero related-items sync | scoped source refs or batched full accepted edges | 2000 ms per 100 accepted library edges | Accepted library-to-library citation edges resolved from ready graph cache or sidecar fallback. |
 | Topic discovery apply-time match | active topics for one literature | 2000 ms | Active topic count. |
 | Topic discovery repair | 500 topic-literature pairs | 2000 ms | Bounded pairs. |
@@ -112,7 +113,7 @@ strategy.
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-Citation Graph build, layout, and complex metrics are the current process-readiness exceptions to slice cancellation: their inputs are hard-bounded and their kernels are isolated from the write lock, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Build checkpoints exist for a future cancellable runtime, while production cancellation and worker termination require a later topology change with explicit normal/target/stress policy.
+Citation Graph build, layout, complex metrics, and Tag Vocabulary index construction are current process-readiness exceptions to slice cancellation: their inputs are hard-bounded, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Tag canonical validation intentionally remains synchronous inside the repository transaction. Checkpoints support future cancellable runtimes; production cancellation and worker termination require a later topology change with explicit normal/target/stress policy.
 
 ## External Source Drift Policy
 

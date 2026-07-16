@@ -84,6 +84,13 @@ Do not use SQLite sidecar rows as proof that Zotero Library is synchronized. Cor
 
 Runtime readiness has one source: `synt_cache_basis` (citation graph cache family). Runtime command progress has one source: `synt_operation` (operation progress family). Legacy sidecar state files, sidecar index files, graph index files, and graph manifests may exist only as old exports, checkpoints, debug/import material, or cleanup residue. They must not drive Workbench readiness, background job rows, Index status, or Graph status.
 
+Tag Vocabulary rows, aliases, abbreviations, protocol, and validation warnings
+remain SQLite-owned. The environment-neutral Tag Vocabulary engine receives a
+bounded JSON-safe snapshot and returns validation or rebuildable index data; it
+does not open SQLite, write files, compute canonical manifests, or update the
+projection registry. A failed or malformed index result leaves the existing
+registry state unchanged.
+
 ## `data/synthesis` Boundary
 
 Normal startup and Workbench snapshot may read `data/synthesis/topics` and
@@ -105,7 +112,8 @@ write global sidecar JSON fallbacks such as `sidecar/index.json`,
 explicit migration input until a separate verified maintenance action removes
 them.
 
-Rebuildable graph/cache projections must not be exported as Git durable state.
+Rebuildable graph/cache projections must not be exported as WebDAV durable
+bundle state.
 Legacy `data/synthesis/state` and `data/synthesis/sidecar` global JSON files
 must not feed normal Workbench UI unless the user explicitly imports or recovers
 them.

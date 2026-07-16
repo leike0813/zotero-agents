@@ -2,7 +2,10 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
+import {
+  buildSynthesisKnowledgeGraphPaths,
+  readProjectionRegistryState,
+} from "../../src/modules/synthesis/foundation";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
@@ -13,6 +16,7 @@ import {
 } from "../../src/modules/synthesis/tagEffectAdapter";
 import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import { handlers } from "../../src/handlers";
+import { createInProcessSynthesisTagVocabularyEngine } from "../../packages/synthesis-engine/src/tagVocabulary";
 import {
   readRuntimeTextFile,
   runtimePathExists,
@@ -1257,6 +1261,62 @@ describe("Synthesis tag vocabulary", function () {
     const computed = await service.readTagIndexProjection();
     assert.include(computed.tags, "ai_task:tag_normalization");
     assert.isFalse(await runtimePathExists(indexPath));
+  });
+
+  it("preserves Tag state and projection registry when the configured engine fails", async function () {
+    const root = await makeRuntimeRoot();
+    const now = () => "2026-07-16T00:00:00.000Z";
+    const repository = createSynthesisRepository({ runtimeRoot: root, now });
+    const baseEngine = createInProcessSynthesisTagVocabularyEngine();
+    let validationFailure = false;
+    let malformedIndex = false;
+    const service = createSynthesisTagVocabularyService({
+      root,
+      repository,
+      now,
+      engine: {
+        validate(request) {
+          if (validationFailure) {
+            throw new Error("validation engine failed");
+          }
+          return baseEngine.validate(request);
+        },
+        buildIndex(request) {
+          const result = baseEngine.buildIndex(request);
+          return malformedIndex ? { ...result, tags: [] } : result;
+        },
+      },
+    });
+    await service.saveTagVocabulary({
+      entries: [{ tag: "field:vision", facet: "field" }],
+    });
+    const beforeVocabulary = await service.loadTagVocabulary();
+
+    validationFailure = true;
+    try {
+      await service.saveTagVocabulary({
+        entries: [{ tag: "topic:changed", facet: "topic" }],
+      });
+      assert.fail("expected validation engine failure");
+    } catch (error) {
+      assert.match(String(error), /validation engine failed/);
+    }
+    validationFailure = false;
+    assert.deepEqual(await service.loadTagVocabulary(), beforeVocabulary);
+
+    await service.rebuildTagIndexProjection();
+    const beforeProjection = await readProjectionRegistryState(root);
+    malformedIndex = true;
+    try {
+      await service.rebuildTagIndexProjection();
+      assert.fail("expected malformed index failure");
+    } catch (error) {
+      assert.match(String(error), /index result does not match/i);
+    }
+    assert.deepEqual(
+      (await readProjectionRegistryState(root)).projections,
+      beforeProjection.projections,
+    );
   });
 
   it("enriches Workbench tag rows with current user library usage counts", async function () {

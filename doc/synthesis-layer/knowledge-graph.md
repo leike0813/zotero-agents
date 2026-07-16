@@ -17,7 +17,8 @@ Nine modules implement this subsystem:
 | Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
-| Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | Tag vocabulary with protocol enforcement |
+| Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | SQLite, transaction, import, staged-suggestion, Host-effect, and projection orchestration |
+| Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
 | Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
 | Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
 
@@ -208,7 +209,7 @@ Each knowledge domain follows a similar service pattern:
 | Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
 | Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
-| Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |
+| Tag Vocabulary | `SynthesisTagVocabularyEngine` plus application adapter | Strict synchronous `validate()` and `buildIndex()` computation; application-owned import, transactions, staged suggestions, Host effects, manifests, and projection registration |
 | Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
 | Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
 
@@ -250,9 +251,18 @@ const SYNTHESIS_TAG_FACETS = [
 ];
 ```
 
-The vocabulary enforces a tag pattern (`^[a-z_]+:[a-zA-Z0-9/_.-]+$`) and
-supports staged suggestions: new tags are proposed via `stageTagSuggestions()`,
-then promoted to the live vocabulary via `promoteStagedTagSuggestions()`.
+The environment-neutral engine enforces the tag pattern
+(`^[a-z_]+:[a-zA-Z0-9/_.-]+$`), facet and abbreviation rules, replacement and
+alias checks, active-tag selection, and search-index construction. Requests are
+strictly JSON-safe and bounded to 25,000 entries, 50,000 global aliases, 10,000
+abbreviations, and 256 facets. The application service invokes synchronous
+validation inside the existing repository transaction; it continues to own
+SQLite mapping, canonical manifests and hashes, import merge policy,
+diagnostics, projection registry writes, and WebDAV autosync.
+
+Staged suggestions remain application-owned: new tags are proposed via
+`stageTagSuggestions()`, then promoted to the live vocabulary via
+`promoteStagedTagSuggestions()` with Host Tag effects after commit.
 
 ---
 

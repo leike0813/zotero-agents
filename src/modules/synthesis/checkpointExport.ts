@@ -9,6 +9,7 @@ import {
   type SynthesisRepository,
 } from "./repository";
 import { createSynthesisTagVocabularyService } from "./tagVocabulary";
+import type { SynthesisTagVocabularyEngine } from "../../../packages/synthesis-engine/src/tagVocabulary";
 import { createSynthesisTopicGraphService } from "./topicGraph";
 import {
   listRuntimeChildren,
@@ -21,6 +22,7 @@ type ServiceOptions = {
   root: string;
   now?: () => string;
   repository?: SynthesisRepository;
+  tagVocabularyEngine?: SynthesisTagVocabularyEngine;
 };
 
 function cleanString(value: unknown) {
@@ -243,6 +245,7 @@ export function createSynthesisCheckpointExportService(
     root,
     now,
     repository,
+    engine: options.tagVocabularyEngine,
   });
 
   async function exportSynthesisCheckpoint(
