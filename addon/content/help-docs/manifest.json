@@ -119,12 +119,6 @@
       "path": "docs/de/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "de",
-      "title": "Git Sync",
-      "path": "docs/de/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "de",
       "title": "Home-Dashboard",
@@ -417,12 +411,6 @@
       "locale": "en",
       "title": "Concept Knowledge Base",
       "path": "docs/en/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "en",
-      "title": "Git Sync",
-      "path": "docs/en/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -755,12 +743,6 @@
       "path": "docs/es/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "es",
-      "title": "Git Sync",
-      "path": "docs/es/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "es",
       "title": "Panel Home",
@@ -1053,12 +1035,6 @@
       "locale": "fr",
       "title": "Base de connaissances conceptuelle",
       "path": "docs/fr/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "fr",
-      "title": "Synchronisation Git",
-      "path": "docs/fr/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -1355,12 +1331,6 @@
       "path": "docs/it/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "it",
-      "title": "Git Sync",
-      "path": "docs/it/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "it",
       "title": "Dashboard Home",
@@ -1653,12 +1623,6 @@
       "locale": "ja",
       "title": "概念知識ベース",
       "path": "docs/ja/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "ja",
-      "title": "Git Sync",
-      "path": "docs/ja/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -1955,12 +1919,6 @@
       "path": "docs/ko/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "ko",
-      "title": "Git 동기화",
-      "path": "docs/ko/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "ko",
       "title": "홈 대시보드",
@@ -2253,12 +2211,6 @@
       "locale": "ru",
       "title": "База знаний концепций",
       "path": "docs/ru/synthesis/concepts.md"
-    },
-    {
-      "id": "synthesis/git-sync",
-      "locale": "ru",
-      "title": "Git Sync",
-      "path": "docs/ru/synthesis/git-sync.md"
     },
     {
       "id": "synthesis/home",
@@ -2555,12 +2507,6 @@
       "path": "docs/zh-CN/synthesis/concepts.md"
     },
     {
-      "id": "synthesis/git-sync",
-      "locale": "zh-CN",
-      "title": "Git 同步",
-      "path": "docs/zh-CN/synthesis/git-sync.md"
-    },
-    {
       "id": "synthesis/home",
       "locale": "zh-CN",
       "title": "Home 仪表板",
@@ -2753,7 +2699,11 @@
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
@@ -2805,7 +2755,11 @@
             "id": "backends/hermes-profiles",
             "label": "Zotero Librarian Hermes Profile"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -2951,18 +2905,30 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
         "items": [
-          { "type": "doc", "id": "sidebar/index", "label": "Sidebar Overview" },
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "Sidebar Overview"
+          },
           {
             "type": "doc",
             "id": "sidebar/acp-chat",
             "label": "ACP Chat Usage"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -2979,20 +2945,31 @@
             "id": "synthesis/index",
             "label": "Synthesis Workbench Overview"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Home Dashboard" },
-          { "type": "doc", "id": "synthesis/review", "label": "Review Hub" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home Dashboard"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "Review Hub"
+          },
           {
             "type": "doc",
             "id": "synthesis/concepts",
             "label": "Concept Knowledge Base"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "WebDAV Sync"
           },
-          { "type": "doc", "id": "synthesis/tags", "label": "Tags Management" },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tags Management"
+          },
           {
             "type": "doc",
             "id": "synthesis/index-and-citation",
@@ -3005,20 +2982,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "de": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "Installationsleitfaden"
           },
-          { "type": "doc", "id": "getting-started", "label": "Erste Schritte" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Erste Schritte"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -3060,7 +3049,11 @@
             "id": "backends/hermes-profiles",
             "label": "Zotero Librarian Hermes-Profil"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP-Server" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP-Server"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -3201,7 +3194,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
@@ -3216,7 +3213,11 @@
             "id": "sidebar/acp-chat",
             "label": "ACP Chat-Nutzung"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -3233,7 +3234,11 @@
             "id": "synthesis/index",
             "label": "Synthesis Workbench – Übersicht"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Home-Dashboard" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home-Dashboard"
+          },
           {
             "type": "doc",
             "id": "synthesis/review",
@@ -3244,13 +3249,16 @@
             "id": "synthesis/concepts",
             "label": "Konzept-Wissensbasis"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "WebDAV Sync"
           },
-          { "type": "doc", "id": "synthesis/tags", "label": "Tag-Verwaltung" },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tag-Verwaltung"
+          },
           {
             "type": "doc",
             "id": "synthesis/index-and-citation",
@@ -3263,20 +3271,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "es": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "Guía de instalación"
           },
-          { "type": "doc", "id": "getting-started", "label": "Primeros pasos" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Primeros pasos"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -3318,7 +3338,11 @@
             "id": "backends/hermes-profiles",
             "label": "Perfil Hermes Zotero Librarian"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -3459,7 +3483,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
@@ -3474,7 +3502,11 @@
             "id": "sidebar/acp-chat",
             "label": "Uso de ACP Chat"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -3491,7 +3523,11 @@
             "id": "synthesis/index",
             "label": "Descripción general de Synthesis Workbench"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Panel Home" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Panel Home"
+          },
           {
             "type": "doc",
             "id": "synthesis/review",
@@ -3502,7 +3538,6 @@
             "id": "synthesis/concepts",
             "label": "Base de conocimiento de conceptos"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -3525,20 +3560,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "fr": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "Guide d'installation"
           },
-          { "type": "doc", "id": "getting-started", "label": "Premiers pas" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Premiers pas"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -3725,7 +3772,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
@@ -3740,7 +3791,11 @@
             "id": "sidebar/acp-chat",
             "label": "Utilisation de ACP Chat"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -3774,11 +3829,6 @@
           },
           {
             "type": "doc",
-            "id": "synthesis/git-sync",
-            "label": "Synchronisation Git"
-          },
-          {
-            "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "Synchronisation WebDAV"
           },
@@ -3799,20 +3849,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "it": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "Guida all'Installazione"
           },
-          { "type": "doc", "id": "getting-started", "label": "Primi Passi" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Primi Passi"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -3854,7 +3916,11 @@
             "id": "backends/hermes-profiles",
             "label": "Profilo Hermes Zotero Librarian"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "Server MCP" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "Server MCP"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -3995,7 +4061,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
@@ -4010,7 +4080,11 @@
             "id": "sidebar/acp-chat",
             "label": "Utilizzo di ACP Chat"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -4027,7 +4101,11 @@
             "id": "synthesis/index",
             "label": "Panoramica di Synthesis Workbench"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Dashboard Home" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Dashboard Home"
+          },
           {
             "type": "doc",
             "id": "synthesis/review",
@@ -4038,7 +4116,6 @@
             "id": "synthesis/concepts",
             "label": "Base di Conoscenza dei Concetti"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -4061,20 +4138,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "ja": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "インストールガイド"
           },
-          { "type": "doc", "id": "getting-started", "label": "はじめに" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "はじめに"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -4132,7 +4221,11 @@
         "type": "category",
         "label": "🔧 Workflow",
         "items": [
-          { "type": "doc", "id": "workflows/index", "label": "Workflow概要" },
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow概要"
+          },
           {
             "type": "doc",
             "id": "workflows/invocation",
@@ -4257,18 +4350,30 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
         "items": [
-          { "type": "doc", "id": "sidebar/index", "label": "サイドバー概要" },
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "サイドバー概要"
+          },
           {
             "type": "doc",
             "id": "sidebar/acp-chat",
             "label": "ACP Chatの使い方"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -4290,19 +4395,26 @@
             "id": "synthesis/home",
             "label": "Home ダッシュボード"
           },
-          { "type": "doc", "id": "synthesis/review", "label": "レビューハブ" },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "レビューハブ"
+          },
           {
             "type": "doc",
             "id": "synthesis/concepts",
             "label": "概念知識ベース"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "WebDAV Sync"
           },
-          { "type": "doc", "id": "synthesis/tags", "label": "タグ管理" },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "タグ管理"
+          },
           {
             "type": "doc",
             "id": "synthesis/index-and-citation",
@@ -4315,16 +4427,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "ko": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
-          { "type": "doc", "id": "installation", "label": "설치 가이드" },
-          { "type": "doc", "id": "getting-started", "label": "시작하기" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "설치 가이드"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "시작하기"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -4366,7 +4494,11 @@
             "id": "backends/hermes-profiles",
             "label": "Zotero Librarian Hermes 프로필"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -4378,7 +4510,11 @@
         "type": "category",
         "label": "🔧 Workflow",
         "items": [
-          { "type": "doc", "id": "workflows/index", "label": "Workflow 개요" },
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow 개요"
+          },
           {
             "type": "doc",
             "id": "workflows/invocation",
@@ -4503,18 +4639,30 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
         "items": [
-          { "type": "doc", "id": "sidebar/index", "label": "사이드바 개요" },
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "사이드바 개요"
+          },
           {
             "type": "doc",
             "id": "sidebar/acp-chat",
             "label": "ACP Chat 사용법"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -4531,20 +4679,31 @@
             "id": "synthesis/index",
             "label": "Synthesis Workbench 개요"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "홈 대시보드" },
-          { "type": "doc", "id": "synthesis/review", "label": "리뷰 허브" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "홈 대시보드"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "리뷰 허브"
+          },
           {
             "type": "doc",
             "id": "synthesis/concepts",
             "label": "개념 지식 베이스"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git 동기화" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "WebDAV 동기화"
           },
-          { "type": "doc", "id": "synthesis/tags", "label": "태그 관리" },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "태그 관리"
+          },
           {
             "type": "doc",
             "id": "synthesis/index-and-citation",
@@ -4557,20 +4716,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "ru": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
           {
             "type": "doc",
             "id": "installation",
             "label": "Руководство по установке"
           },
-          { "type": "doc", "id": "getting-started", "label": "Начало работы" },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "Начало работы"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -4612,7 +4783,11 @@
             "id": "backends/hermes-profiles",
             "label": "Профиль Hermes Zotero Librarian"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP-сервер" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP-сервер"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -4624,7 +4799,11 @@
         "type": "category",
         "label": "🔧 Workflow",
         "items": [
-          { "type": "doc", "id": "workflows/index", "label": "Обзор Workflow" },
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Обзор Workflow"
+          },
           {
             "type": "doc",
             "id": "workflows/invocation",
@@ -4749,7 +4928,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
@@ -4764,7 +4947,11 @@
             "id": "sidebar/acp-chat",
             "label": "Использование ACP Чата"
           },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "Навыки ACP" },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "Навыки ACP"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -4781,7 +4968,11 @@
             "id": "synthesis/index",
             "label": "Обзор Synthesis Workbench"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Главная панель" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Главная панель"
+          },
           {
             "type": "doc",
             "id": "synthesis/review",
@@ -4792,7 +4983,6 @@
             "id": "synthesis/concepts",
             "label": "База знаний концепций"
           },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git Sync" },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
@@ -4815,16 +5005,32 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ],
     "zh-CN": [
       {
         "type": "category",
         "label": "📖 Guide",
         "items": [
-          { "type": "doc", "id": "intro", "label": "Zotero Agents" },
-          { "type": "doc", "id": "installation", "label": "安装指南" },
-          { "type": "doc", "id": "getting-started", "label": "快速开始" },
+          {
+            "type": "doc",
+            "id": "intro",
+            "label": "Zotero Agents"
+          },
+          {
+            "type": "doc",
+            "id": "installation",
+            "label": "安装指南"
+          },
+          {
+            "type": "doc",
+            "id": "getting-started",
+            "label": "快速开始"
+          },
           {
             "type": "doc",
             "id": "markdown-reader",
@@ -4836,13 +5042,21 @@
         "type": "category",
         "label": "⚙️ Backend Configuration",
         "items": [
-          { "type": "doc", "id": "backends/index", "label": "后端配置概览" },
+          {
+            "type": "doc",
+            "id": "backends/index",
+            "label": "后端配置概览"
+          },
           {
             "type": "doc",
             "id": "backends/backend-manager",
             "label": "后端管理器"
           },
-          { "type": "doc", "id": "backends/acp", "label": "ACP 后端配置" },
+          {
+            "type": "doc",
+            "id": "backends/acp",
+            "label": "ACP 后端配置"
+          },
           {
             "type": "doc",
             "id": "backends/skill-runner",
@@ -4858,7 +5072,11 @@
             "id": "backends/hermes-profiles",
             "label": "Zotero Librarian Hermes Profile"
           },
-          { "type": "doc", "id": "backends/mcp-server", "label": "MCP Server" },
+          {
+            "type": "doc",
+            "id": "backends/mcp-server",
+            "label": "MCP Server"
+          },
           {
             "type": "doc",
             "id": "backends/generic-http",
@@ -4870,7 +5088,11 @@
         "type": "category",
         "label": "🔧 Workflow",
         "items": [
-          { "type": "doc", "id": "workflows/index", "label": "Workflow 介绍" },
+          {
+            "type": "doc",
+            "id": "workflows/index",
+            "label": "Workflow 介绍"
+          },
           {
             "type": "doc",
             "id": "workflows/invocation",
@@ -5000,14 +5222,30 @@
           }
         ]
       },
-      { "type": "doc", "id": "dashboard", "label": "📊 Dashboard" },
+      {
+        "type": "doc",
+        "id": "dashboard",
+        "label": "📊 Dashboard"
+      },
       {
         "type": "category",
         "label": "🖥️ Sidebar & ACP Chat",
         "items": [
-          { "type": "doc", "id": "sidebar/index", "label": "侧边栏概览" },
-          { "type": "doc", "id": "sidebar/acp-chat", "label": "ACP Chat 使用" },
-          { "type": "doc", "id": "sidebar/acp-skills", "label": "ACP Skills" },
+          {
+            "type": "doc",
+            "id": "sidebar/index",
+            "label": "侧边栏概览"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-chat",
+            "label": "ACP Chat 使用"
+          },
+          {
+            "type": "doc",
+            "id": "sidebar/acp-skills",
+            "label": "ACP Skills"
+          },
           {
             "type": "doc",
             "id": "sidebar/skillrunner-tab",
@@ -5024,16 +5262,31 @@
             "id": "synthesis/index",
             "label": "Synthesis Workbench 概览"
           },
-          { "type": "doc", "id": "synthesis/home", "label": "Home 仪表板" },
-          { "type": "doc", "id": "synthesis/review", "label": "审核中心" },
-          { "type": "doc", "id": "synthesis/concepts", "label": "概念知识库" },
-          { "type": "doc", "id": "synthesis/git-sync", "label": "Git 同步" },
+          {
+            "type": "doc",
+            "id": "synthesis/home",
+            "label": "Home 仪表板"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/review",
+            "label": "审核中心"
+          },
+          {
+            "type": "doc",
+            "id": "synthesis/concepts",
+            "label": "概念知识库"
+          },
           {
             "type": "doc",
             "id": "synthesis/webdav-sync",
             "label": "WebDAV Sync"
           },
-          { "type": "doc", "id": "synthesis/tags", "label": "Tags 管理" },
+          {
+            "type": "doc",
+            "id": "synthesis/tags",
+            "label": "Tags 管理"
+          },
           {
             "type": "doc",
             "id": "synthesis/index-and-citation",
@@ -5046,7 +5299,11 @@
           }
         ]
       },
-      { "type": "doc", "id": "preferences", "label": "⚙️ Preferences" }
+      {
+        "type": "doc",
+        "id": "preferences",
+        "label": "⚙️ Preferences"
+      }
     ]
   },
   "assets": [

@@ -151,13 +151,7 @@ import {
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
 } from "./modules/synthesisClient/defaultClient";
-import {
-  clearGitSyncToken,
-  getGitSyncPrefsStatus,
-  saveGitSyncPrefs,
-  saveGitSyncToken,
-  testGitSyncConfiguration,
-} from "./modules/synthesis/gitSyncPrefs";
+import { cleanupRetiredSynthesisGitSyncRuntime } from "./modules/synthesis/syncRuntimeCleanup";
 import {
   clearWebDavSyncCredential,
   getWebDavSyncPrefsStatus,
@@ -832,6 +826,16 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
+  await cleanupRetiredSynthesisGitSyncRuntime(
+    getRuntimePersistencePaths().runtimeRoot,
+  ).catch((error) => {
+    if (typeof console !== "undefined") {
+      console.warn(
+        "[synthesis-sync] retired Git runtime cleanup failed",
+        error,
+      );
+    }
+  });
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -1465,35 +1469,6 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
     case "resetSynthesisDatabase":
       return (await getDefaultSynthesisClient()).maintenance.resetDatabase({
         confirmationText: String(data.confirmationText || ""),
-      });
-    case "getGitSyncPrefsStatus":
-      return getGitSyncPrefsStatus();
-    case "saveGitSyncPrefs": {
-      const result = saveGitSyncPrefs({
-        enabled: data.enabled,
-        remoteUrl: data.remoteUrl,
-        branch: data.branch,
-        autoSyncEnabled: data.autoSyncEnabled,
-        autoRetryEnabled: data.autoRetryEnabled,
-      });
-      if (result.ok) {
-        invalidateDefaultSynthesisClient();
-      }
-      return result;
-    }
-    case "saveGitSyncToken": {
-      const result = await saveGitSyncToken(String(data.token || ""));
-      invalidateDefaultSynthesisClient();
-      return result;
-    }
-    case "clearGitSyncToken": {
-      const result = await clearGitSyncToken();
-      invalidateDefaultSynthesisClient();
-      return result;
-    }
-    case "testGitSyncConfiguration":
-      return testGitSyncConfiguration({
-        cwd: getRuntimePersistencePaths().dataDir,
       });
     case "getWebDavSyncPrefsStatus":
       return getWebDavSyncPrefsStatus();

@@ -33,6 +33,8 @@ function descriptionUnavailable() {
   return rebuildSynthesisHostWebDavSyncDescription({
     status: "unavailable",
     configStatus: "invalid",
+    autoSyncEnabled: false,
+    autoRetryEnabled: false,
     baseUrl: "",
     remotePath: "",
     username: "",
@@ -52,6 +54,8 @@ function descriptionFromStatus(status: WebDavStatus) {
   return rebuildSynthesisHostWebDavSyncDescription({
     status: available ? "available" : "disabled",
     configStatus: status.config_status,
+    autoSyncEnabled: status.auto_sync_enabled,
+    autoRetryEnabled: status.auto_retry_enabled,
     baseUrl: status.base_url,
     remotePath: status.remote_path,
     username: status.username,

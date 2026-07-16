@@ -81,7 +81,6 @@ const sidebars: SidebarsConfig = {
         "synthesis/home",
         "synthesis/review",
         "synthesis/concepts",
-        "synthesis/git-sync",
         "synthesis/webdav-sync",
         "synthesis/tags",
         "synthesis/index-and-citation",

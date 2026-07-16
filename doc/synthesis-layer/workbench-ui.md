@@ -92,7 +92,7 @@ Canonical merge proposals must show readable source and target reference titles 
 
 ## Sync Status and Conflict Review
 
-The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. Git Sync is retained as hidden/deprecated service code and is not exposed by the Workbench Sync panel. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
+The Workbench Sync panel is a runtime surface, not the long-term sync configuration editor. WebDAV base URL, WebDAV remote path, username, retry policy, and encrypted credential state are owned by Zotero Preferences. When WebDAV Sync is disabled or incomplete, Workbench shows the config state and offers `Open preferences` as the primary action.
 
 When WebDAV configuration is complete, Workbench may expose runtime actions such as `WebDAV Sync now`, `Pause`, `Resume`, and `Retry` based on service-provided `allowedActions`. The panel should use a compact summary row for remote path, base URL, and queue state, then place last run, recent sanitized connection-test diagnostics, and execution feedback in the terminal-style log area. It must never display or accept a password in the Workbench.
 

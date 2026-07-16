@@ -100,7 +100,7 @@ Gestiona todos los perfiles de backend:
 
 ## WebDAV Sync
 
-Solución de sincronización multi-dispositivo para el Synthesis Workbench, que reemplaza al obsoleto Git Sync. Consulta [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) para más detalles.
+Sincronización duradera entre dispositivos para Synthesis Workbench. Consulta [WebDAV Sync](#doc/synthesis%2Fwebdav-sync) para más detalles.
 
 | Configuración | Tipo | Predeterminado | Descripción |
 |---------------|------|----------------|-------------|

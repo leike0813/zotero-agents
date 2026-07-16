@@ -4,15 +4,15 @@
 
 The Synthesis Knowledge Graph (KG) subsystem manages structured knowledge assets
 on top of the Synthesis sidecar cache. It provides a canonical file-based asset
-store, a projection/index system for runtime queries, and a Git-based sync
-service for cross-instance knowledge sharing.
+store, a projection/index system for runtime queries, and a WebDAV durable
+bundle service for cross-instance knowledge sharing.
 
 Eight modules implement this subsystem:
 
 | Module | File | Role |
 |--------|------|------|
 | Foundation | `src/modules/synthesis/foundation.ts` | Canonical store, envelopes, sharding, transaction support, projection registry |
-| Git Sync | `src/modules/synthesis/gitSync.ts` | Git-based KG synchronization service |
+| WebDAV Sync | `src/modules/synthesis/webDavSync.ts` | Durable bundle synchronization through the Host WebDAV port |
 | Citation Graph | `src/modules/synthesis/citationGraph.ts` | Citation graph building, metrics, layout |
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
@@ -26,7 +26,7 @@ Core concepts:
   with envelope format and transaction support
 - **Projection/Index** — build-time queryable projections from the canonical
   store into SQLite for hot-read paths
-- **Git Sync** — export canonical assets to Git and import remote snapshots
+- **WebDAV Sync** — export canonical durable bundles and import remote snapshots
 
 ---
 
@@ -159,10 +159,10 @@ projection registry state is stored through DB-backed cache-basis rows.
 
 ---
 
-## Git Sync
+## WebDAV Durable Sync
 
-`createSynthesisGitSyncService(options)` manages cross-instance KG
-synchronization via Git.
+`createSynthesisWebDavSyncService(options)` manages cross-instance knowledge
+exchange through the strict, secret-free `SynthesisHostWebDavSyncPort`.
 
 ### Sync State Machine
 
@@ -176,32 +176,25 @@ idle → queued → syncing → blocked_conflict → failed_retryable → idle
 
 ### Sync Cycle (`runSync()`)
 
-1. **Lock** — acquire exclusive lock
-2. **Export** — `exportCanonicalSnapshot()` writes eligible canonical assets as
-   a `SynthesisGitSyncManifest` to a temporary export directory
-3. **Copy** — move exports to the sync worktree
-4. **Fetch** — `SynthesisGitSyncAdapter.fetch()` pull remote refs
-5. **Merge** — `SynthesisGitSyncAdapter.merge()` resolve with remote
-6. **Validate** — `validateGitSyncImportSnapshot()` verify imported assets
-7. **Push** — `SynthesisGitSyncAdapter.push()` send merged state to remote
-8. **Import** — `importCanonicalSnapshot()` apply remote changes as a canonical
-   transaction
-9. **Cleanup** — remove temporary files, release lock
+1. **Describe** — rebuild the strict Host description and reject disabled or
+   incomplete configuration.
+2. **Read** — read `HEAD.json` and download the referenced manifest and bundles.
+3. **Preview** — validate paths, hashes, schema, duplicates, and durable conflicts
+   before any SQLite write.
+4. **Apply** — import clean durable facts through repository/domain APIs and mark
+   rebuildable projections stale.
+5. **Export** — render the current durable state with the `webdav-sync.v1`
+   capability into local staging.
+6. **Upload** — upload the immutable snapshot and conditionally replace
+   `HEAD.json` using the observed ETag.
+7. **Recover** — classify conflict and permanent validation failures without
+   retry; retry transport failures at most four times when enabled.
 
-### Git Sync Adapter Interface
-
-```typescript
-type SynthesisGitSyncAdapter = {
-  validateConfiguration?(): ValidationResult;
-  describeRemote?(url: string): RemoteDescription;
-  fetch?(worktreeDir: string): FetchResult;
-  merge?(worktreeDir: string): MergeResult;
-  push?(worktreeDir: string): PushResult;
-};
-```
-
-The adapter pattern allows pluggable Git implementations. The default adapter
-uses the system `git` binary.
+Canonical-write autosync is disabled by default. When enabled, service writes
+schedule one WebDAV run after the library write lock is released, with a
+five-second debounce and maintenance-epoch coalescing. The production
+composition owns the abort signal that cancels pending debounce and retry work
+when the service is invalidated.
 
 ---
 
@@ -300,8 +293,8 @@ Background rebuild jobs re-derive the projection into SQLite for UI consumption.
 │  ├─ Reference Matcher: buildIndex → match → dedupe    │
 │  └─ Registry: scan note payloads → buildIndexRow      │
 │                                                        │
-│  Git Sync                                              │
-│  └─ export → fetch → merge → validate → push → import │
+│  WebDAV Durable Sync                                   │
+│  └─ read → preview → apply → export → upload          │
 └──────────────────────┬───────────────────────────────┘
                        │
                        ▼

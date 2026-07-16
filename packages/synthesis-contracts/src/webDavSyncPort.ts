@@ -20,6 +20,8 @@ export type SynthesisHostWebDavSyncConfigStatus =
 export type SynthesisHostWebDavSyncDescription = {
   status: "available" | "disabled" | "unavailable";
   configStatus: SynthesisHostWebDavSyncConfigStatus;
+  autoSyncEnabled: boolean;
+  autoRetryEnabled: boolean;
   baseUrl: string;
   remotePath: string;
   username: string;
@@ -132,6 +134,13 @@ function configStatus(value: unknown): SynthesisHostWebDavSyncConfigStatus {
   return invalid("WebDAV Sync configStatus is invalid");
 }
 
+function booleanValue(value: unknown, location: string) {
+  if (typeof value !== "boolean") {
+    return invalid(`${location} must be a boolean`);
+  }
+  return value;
+}
+
 function managedPath(value: unknown, location: string) {
   const path = stringValue(value, location, { max: PATH_MAX });
   const segments = path.split("/");
@@ -226,6 +235,8 @@ export function rebuildSynthesisHostWebDavSyncDescription(
   return {
     status,
     configStatus: rebuiltStatus,
+    autoSyncEnabled: booleanValue(json.autoSyncEnabled, "autoSyncEnabled"),
+    autoRetryEnabled: booleanValue(json.autoRetryEnabled, "autoRetryEnabled"),
     baseUrl: safeBaseUrl(json.baseUrl, status),
     remotePath: stringValue(json.remotePath, "remotePath", {
       allowEmpty: status !== "available",

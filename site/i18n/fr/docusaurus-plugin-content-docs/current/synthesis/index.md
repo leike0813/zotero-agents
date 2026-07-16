@@ -108,4 +108,4 @@ L'utilisation du Synthesis Workbench nécessite :
 - [Créer une synthèse de sujet](topic-synthesis) — Créer des analyses de sujets
 - [Centre de révision](review) — Réviser les correspondances de citations, les concepts et les propositions du graphe de sujets
 - [Base de connaissances conceptuelle](concepts) — Gérer les concepts fondamentaux
-- [Synchronisation Git](git-sync) — Configurer la synchronisation et la sauvegarde des données
+- [Synchronisation WebDAV](webdav-sync) — Configurer la synchronisation durable

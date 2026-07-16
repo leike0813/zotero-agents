@@ -21,6 +21,16 @@ async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-webdav-sync-"));
 }
 
+async function waitFor(predicate: () => boolean, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("timed out waiting for WebDAV test condition");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function resetWebDavPrefs() {
   setPref("synthesisWebDavSyncEnabled", false);
   setPref("synthesisWebDavSyncBaseUrl", "");
@@ -56,6 +66,7 @@ class MemoryWebDavClient implements SynthesisWebDavHttpClient {
   readonly collections = new Set<string>(["https://dav.example.test/root"]);
   readonly requests: SynthesisWebDavHttpRequest[] = [];
   mutateBeforeHeadPut?: () => void;
+  failHeadReads = false;
 
   async request(request: SynthesisWebDavHttpRequest) {
     this.requests.push(request);
@@ -75,6 +86,9 @@ class MemoryWebDavClient implements SynthesisWebDavHttpClient {
       return { status: 201, ok: true, text: "" };
     }
     if (request.method === "GET") {
+      if (url.endsWith("/HEAD.json") && this.failHeadReads) {
+        return { status: 503, ok: false, text: "temporarily unavailable" };
+      }
       if (!this.files.has(url)) {
         return { status: 404, ok: false, text: "" };
       }
@@ -193,6 +207,160 @@ describe("Synthesis WebDAV sync", function () {
 
     assert.isFalse(client.requests.some((entry) => entry.method === "PUT"));
   });
+
+  it("debounces enabled canonical-write autosync into one WebDAV run", async function () {
+    const root = await makeRuntimeRoot();
+    const client = new MemoryWebDavClient();
+    saveWebDavSyncPrefs({
+      enabled: true,
+      baseUrl: "https://dav.example.test/root",
+      remotePath: "zotero-agents",
+      autoSyncEnabled: true,
+    });
+    const port = createPrefsConfiguredSynthesisWebDavSyncPort({ client });
+    assert.deepInclude(await port.describe(), {
+      autoSyncEnabled: true,
+      autoRetryEnabled: false,
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostWebDavSyncPort: port,
+      webDavSyncDebounceMs: 5,
+    });
+
+    await service.saveTagVocabulary({
+      transactionId: "webdav-autosync-1",
+      entries: [{ tag: "field:webdav", facet: "field", source: "manual" }],
+    });
+    await service.saveTagVocabulary({
+      transactionId: "webdav-autosync-2",
+      entries: [{ tag: "field:sync", facet: "field", source: "manual" }],
+    });
+
+    await waitFor(() =>
+      client.requests.some(
+        (entry) => entry.method === "PUT" && entry.url.endsWith("/HEAD.json"),
+      ),
+    );
+    assert.equal(
+      client.requests.filter(
+        (entry) => entry.method === "PUT" && entry.url.endsWith("/HEAD.json"),
+      ).length,
+      1,
+    );
+  });
+
+  it("bounds automatic retries to four delays per trigger", async function () {
+    const root = await makeRuntimeRoot();
+    const client = new MemoryWebDavClient();
+    client.failHeadReads = true;
+    saveWebDavSyncPrefs({
+      enabled: true,
+      baseUrl: "https://dav.example.test/root",
+      remotePath: "zotero-agents",
+      autoRetryEnabled: true,
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
+      webDavSyncRetryDelaysMs: [0, 0, 0, 0],
+    });
+
+    await service.syncWebDavNow();
+    await waitFor(
+      () =>
+        client.requests.filter(
+          (entry) => entry.method === "GET" && entry.url.endsWith("/HEAD.json"),
+        ).length === 5,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(
+      client.requests.filter(
+        (entry) => entry.method === "GET" && entry.url.endsWith("/HEAD.json"),
+      ).length,
+      5,
+    );
+  });
+
+  it("does not retry a terminal WebDAV snapshot failure", async function () {
+    const root = await makeRuntimeRoot();
+    const client = new MemoryWebDavClient();
+    client.files.set(
+      "https://dav.example.test/root/zotero-agents/HEAD.json",
+      "not-json",
+    );
+    saveWebDavSyncPrefs({
+      enabled: true,
+      baseUrl: "https://dav.example.test/root",
+      remotePath: "zotero-agents",
+      autoRetryEnabled: true,
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
+      webDavSyncRetryDelaysMs: [0, 0, 0, 0],
+    });
+
+    const state = await service.syncWebDavNow();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(state.queue_state, "failed_permanent");
+    assert.equal(
+      client.requests.filter(
+        (entry) => entry.method === "GET" && entry.url.endsWith("/HEAD.json"),
+      ).length,
+      1,
+    );
+  });
+
+  for (const cancellation of ["pause", "conflict", "abort"] as const) {
+    it(`cancels a pending WebDAV retry on ${cancellation}`, async function () {
+      const root = await makeRuntimeRoot();
+      const client = new MemoryWebDavClient();
+      client.failHeadReads = true;
+      saveWebDavSyncPrefs({
+        enabled: true,
+        baseUrl: "https://dav.example.test/root",
+        remotePath: "zotero-agents",
+        autoRetryEnabled: true,
+      });
+      const abortController = new AbortController();
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+          client,
+        }),
+        webDavSyncRetryDelaysMs: [40],
+        runtimeAbortSignal: abortController.signal,
+      });
+
+      await service.syncWebDavNow();
+      if (cancellation === "pause") {
+        await service.pauseWebDavSync();
+      } else if (cancellation === "conflict") {
+        await service.resolveWebDavSyncConflict({ action: "use_remote" });
+      } else {
+        abortController.abort();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 80));
+
+      assert.equal(
+        client.requests.filter(
+          (entry) => entry.method === "GET" && entry.url.endsWith("/HEAD.json"),
+        ).length,
+        1,
+      );
+    });
+  }
 
   it("initializes an empty WebDAV remote with durable bundles", async function () {
     const root = await makeRuntimeRoot();

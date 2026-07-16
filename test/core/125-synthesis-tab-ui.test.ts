@@ -115,24 +115,21 @@ describe("Synthesis tab UI model", function () {
         ],
         allowedActions: [],
         requiresConfirmation: false,
-        git: {
+        webdav: {
           queue_state: "blocked_conflict",
           paused: false,
           adapter_configured: true,
           config_status: "configured",
-          remote_url: "https://[redacted]@example.invalid/repo.git",
-          branch: "main",
-          token_masked: "ghp_ab...1234",
-          token_updated_at: "2026-06-14T00:00:00.000Z",
+          base_url: "https://dav.example.invalid/root",
+          remote_path: "zotero-agents",
           connection_test: {
             ok: true,
             tested_at: "2026-06-14T00:01:00.000Z",
-            remote_branch_state: "missing_initializable",
             diagnostics: [
               {
-                code: "git_sync_remote_branch_missing_initializable",
+                code: "webdav_sync_connection_ready",
                 severity: "info",
-                message: "remote branch will be initialized",
+                message: "WebDAV connection is ready",
               },
             ],
           },
@@ -152,10 +149,10 @@ describe("Synthesis tab UI model", function () {
             "save_remote_copy",
             "clear_after_manual_edit",
           ],
-          allowed_actions: ["retryGitSync", "resolveGitSyncConflict"],
+          allowed_actions: ["retryWebDavSync", "resolveWebDavSyncConflict"],
           diagnostics: [
             {
-              code: "git_sync_conflict",
+              code: "webdav_sync_conflict",
               severity: "warning",
               message: "Review required",
             },
@@ -264,16 +261,12 @@ describe("Synthesis tab UI model", function () {
     assert.equal(snapshot.actions.lastFailed?.status, "failed");
     assert.equal(snapshot.sync.status, "ready");
     assert.lengthOf(snapshot.sync.diagnostics, 1);
-    assert.equal(snapshot.sync.git?.queue_state, "blocked_conflict");
-    assert.equal(snapshot.sync.git?.config_status, "configured");
-    assert.equal(snapshot.sync.git?.token_masked, "ghp_ab...1234");
-    assert.equal(snapshot.sync.git?.connection_test?.ok, true);
-    assert.equal(
-      snapshot.sync.git?.connection_test?.remote_branch_state,
-      "missing_initializable",
-    );
-    assert.equal(snapshot.sync.git?.conflict_count, 1);
-    assert.deepEqual(snapshot.sync.git?.conflict_assets, [
+    assert.notProperty(snapshot.sync, "git");
+    assert.equal(snapshot.sync.webdav?.queue_state, "blocked_conflict");
+    assert.equal(snapshot.sync.webdav?.config_status, "configured");
+    assert.equal(snapshot.sync.webdav?.connection_test?.ok, true);
+    assert.equal(snapshot.sync.webdav?.conflict_count, 1);
+    assert.deepEqual(snapshot.sync.webdav?.conflict_assets, [
       {
         asset_path: "tags/vocabulary.json",
         reason: "both_changed",
@@ -282,12 +275,15 @@ describe("Synthesis tab UI model", function () {
         remote_hash: "sha256:remote",
       },
     ]);
-    assert.sameMembers(snapshot.sync.git?.conflictActions || [], [
+    assert.sameMembers(snapshot.sync.webdav?.conflictActions || [], [
       "keep_local",
       "save_remote_copy",
       "clear_after_manual_edit",
     ]);
-    assert.include(snapshot.sync.git?.allowedActions || [], "retryGitSync");
+    assert.include(
+      snapshot.sync.webdav?.allowedActions || [],
+      "retryWebDavSync",
+    );
     assert.equal(snapshot.maintenance.summary.status, "queued");
     assert.deepEqual(snapshot.maintenance.backgroundJobs.rows, []);
     assert.equal(
@@ -304,8 +300,10 @@ describe("Synthesis tab UI model", function () {
       ["conflict-a"],
     );
     assert.isArray(snapshot.hostCommands);
-    assert.include(snapshot.hostCommands, "syncNow");
-    assert.include(snapshot.hostCommands, "resolveGitSyncConflict");
+    assert.include(snapshot.hostCommands, "syncWebDavNow");
+    assert.include(snapshot.hostCommands, "resolveWebDavSyncConflict");
+    assert.notInclude(snapshot.hostCommands, "syncNow");
+    assert.notInclude(snapshot.hostCommands, "resolveGitSyncConflict");
     assert.include(snapshot.hostCommands, "runAdvancedReferenceMatchingNow");
     assert.include(snapshot.hostCommands, "applyReferenceMatchProposalAction");
     assert.include(snapshot.hostCommands, "applyReferenceMatchProposalActions");
@@ -2030,7 +2028,9 @@ describe("Synthesis tab UI model", function () {
       handleActionBlock.indexOf(
         'result.hostCommand?.command === "mergeEffectiveCanonicalReference"',
       ),
-      handleActionBlock.indexOf('result.hostCommand?.command === "syncNow"'),
+      handleActionBlock.indexOf(
+        'result.hostCommand?.command === "syncWebDavNow"',
+      ),
     );
     const singleMergeRegion = mutationRegion.slice(
       0,
@@ -2167,18 +2167,13 @@ describe("Synthesis tab UI model", function () {
     );
     const handleAction = extractFunctionBlock(host, "handleAction");
     const syncRegion = handleAction.slice(
-      handleAction.indexOf('result.hostCommand?.command === "syncNow"'),
+      handleAction.indexOf('result.hostCommand?.command === "syncWebDavNow"'),
       handleAction.indexOf(
         'result.hostCommand?.command === "exportTagVocabulary"',
       ),
     );
     const routes = [
-      ["syncNow", "git", "runNow"],
       ["syncWebDavNow", "webDav", "runNow"],
-      ["pauseGitSync", "git", "pause"],
-      ["resumeGitSync", "git", "resume"],
-      ["retryGitSync", "git", "retry"],
-      ["resolveGitSyncConflict", "git", "resolveConflict"],
       ["pauseWebDavSync", "webDav", "pause"],
       ["resumeWebDavSync", "webDav", "resume"],
       ["retryWebDavSync", "webDav", "retry"],
@@ -2218,19 +2213,14 @@ describe("Synthesis tab UI model", function () {
       'result.hostCommand?.command === "syncWebDavNow"',
     );
     const webDavRunEnd = syncRegion.indexOf(
-      'result.hostCommand?.command === "pauseGitSync"',
+      'result.hostCommand?.command === "pauseWebDavSync"',
       webDavRunStart,
     );
     assert.include(
       syncRegion.slice(webDavRunStart, webDavRunEnd),
       "deferStart: true",
     );
-    for (const command of [
-      "syncNow",
-      "syncWebDavNow",
-      "retryGitSync",
-      "retryWebDavSync",
-    ]) {
+    for (const command of ["syncWebDavNow", "retryWebDavSync"]) {
       const start = syncRegion.indexOf(`command === "${command}"`);
       assert.isAtLeast(start, 0);
       assert.include(
@@ -2245,7 +2235,7 @@ describe("Synthesis tab UI model", function () {
 
     const syncCommandClassifier = extractFunctionBlock(
       host,
-      "isGitSyncRuntimeCommand",
+      "isSyncRuntimeCommand",
     );
     for (const [command] of routes) {
       assert.include(syncCommandClassifier, `command === "${command}"`);
@@ -2254,7 +2244,7 @@ describe("Synthesis tab UI model", function () {
       host,
       "refreshWorkbenchCommandProgress",
     );
-    assert.include(progressBlock, "hasInFlightGitSyncCommand(runtime)");
+    assert.include(progressBlock, "hasInFlightSyncCommand(runtime)");
     assert.include(progressBlock, "refreshFromService: true");
   });
 

@@ -175,7 +175,6 @@ type Snapshot = {
   sync?: {
     status?: string;
     diagnostics?: Array<Record<string, unknown>>;
-    git?: SyncTransportSnapshot;
     webdav?: SyncTransportSnapshot;
   };
   conflicts?: { candidates?: Array<Record<string, unknown>> };
@@ -1092,8 +1091,6 @@ function reviewDecisionKey(
       return `reference-match:${keyPart(args.proposalId)}`;
     case "applyTagVocabularyImport":
       return `tag-import:${keyPart(args.action)}`;
-    case "resolveGitSyncConflict":
-      return `git-conflict:${keyPart(args.assetPath, "current")}:${keyPart(args.action)}`;
     default:
       return "";
   }
@@ -1785,7 +1782,7 @@ function sourceLabelForJob(source: string) {
     workbench: "Workbench",
     operation: "Operation",
     citation_graph_layout: "Graph layout",
-    git_sync: "Git Sync",
+    webdav_sync: "WebDAV Sync",
     canonical_maintenance: "Canonical",
   };
   return labels[source] || source || "Synthesis";

@@ -129,29 +129,6 @@ Workbench Review Center SHALL display both Zotero binding and canonical merge pr
 - **THEN** it SHALL show readable source and target reference titles, confidence, score, and reasons
 - **AND** it SHALL provide Accept and Reject actions.
 
-### Requirement: Workbench surfaces durable Git Sync status
-
-Synthesis Workbench SHALL keep Git Sync service state internal and hidden from user-facing Home sync controls.
-
-#### Scenario: Git Sync state exists in a snapshot
-
-- **WHEN** the Home surface renders a snapshot that includes `sync.git`
-- **THEN** it SHALL NOT show Git Sync cards, Git Sync actions, remote URL, branch, token state, or Git conflict controls.
-
-### Requirement: Workbench presents Git Sync config and runtime status
-
-Git Sync configuration and runtime status SHALL NOT be exposed in user-facing Workbench Home UI.
-
-#### Scenario: Git Sync is not configured
-
-- **WHEN** Git Sync has no enabled prefs-backed adapter
-- **THEN** Workbench SHALL NOT show a Git Sync setup prompt.
-
-#### Scenario: Git Sync is configured
-
-- **WHEN** Git Sync configuration is complete
-- **THEN** Workbench SHALL NOT offer Git Sync runtime actions from Home.
-
 ### Requirement: Workbench presents semantic conflict approvals
 
 Workbench SHALL present semantic conflict approvals for the visible sync transport only.
@@ -172,8 +149,7 @@ Workbench SHALL show WebDAV Sync runtime status and a manual Sync now action whe
 
 #### Scenario: User triggers WebDAV Sync
 - **WHEN** the user clicks WebDAV Sync now
-- **THEN** Workbench SHALL route the command through the Synthesis service
-- **AND** it SHALL NOT trigger Git Sync as part of that command.
+- **THEN** Workbench SHALL route the command through the Synthesis client.
 
 ### Requirement: Workbench consolidates visible sync feedback
 

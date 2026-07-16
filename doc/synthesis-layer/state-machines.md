@@ -23,7 +23,7 @@ Terminal operation state does not imply data readiness. A completed operation is
 | `sm.cache.projection` | Sidecar cache service | Cache projection | Stale cache is mistaken for Zotero Library truth |
 | `sm.operation.explicit` | Explicit operation service | User/debug-triggered operation | Operation becomes a hidden worker queue |
 | `sm.topic.source_check` | Topic source-check service | Source-check diagnostic | Cache refresh marks topic changed |
-| `sm.sync.git` | Git Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
+| `sm.sync.webdav` | WebDAV Sync service | Durable exchange run | Live SQLite or conflicting durable facts are imported unsafely |
 | `sm.import.lifecycle` | Import/export service | Import run | Bundle writes sidecar state before preview |
 
 ## `sm.reference.canonical`
@@ -298,7 +298,7 @@ stateDiagram-v2
   validating --> failed: invalid path, hash, schema, or manifest
   previewing --> preview_ready: dry-run diff built
   previewing --> blocked_conflict: conflict gate blocks
-  preview_ready --> applying: user confirms or Git Sync auto-apply allowed
+  preview_ready --> applying: user confirms or WebDAV Sync preview is clean
   preview_ready --> cancelled: user cancels
   blocked_conflict --> previewing: manual edit or resolution clears blocker
   applying --> stale_projection: durable facts committed
@@ -313,16 +313,16 @@ Forbidden transitions:
 - `blocked_conflict -> applying` without an explicit resolution action.
 - Importing a file bundle by making it a Workbench hot path.
 
-## `sm.sync.git`
+## `sm.sync.webdav`
 
-Owner: Git Sync service.
+Owner: WebDAV Sync service.
 
-Object: One Git durable-state exchange run.
+Object: One WebDAV durable-state exchange run.
 
 ```mermaid
 stateDiagram-v2
   [*] --> idle
-  idle --> syncing: queued or manual sync
+  idle --> syncing: manual sync or canonical-write autosync
   syncing --> validating: fetch/merge completed
   validating --> blocked_conflict: durable conflict gate blocks
   validating --> failed_permanent: invalid manifest, path, hash, or schema
@@ -339,6 +339,7 @@ Forbidden transitions:
 - `validating -> applying` when durable preview reports conflicts.
 - `applying -> import live SQLite`.
 - `blocked_conflict -> idle` by silently choosing last-writer-wins.
+- Restoring hidden retry timers after process startup.
 
 ## State Combination Governance
 

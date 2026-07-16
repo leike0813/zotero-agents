@@ -2,7 +2,7 @@
 
 ## 概要
 
-WebDAV Sync は、Synthesis Workbench のクロスデバイス同期メカニズムであり、非推奨となった Git Sync を置き換えるものである。WebDAV プロトコルを介して決定的な耐久状態バンドルスナップショットを交換する。
+WebDAV Sync は、Synthesis Workbench のクロスデバイス同期メカニズムである。WebDAV プロトコルを介して決定的な耐久状態バンドルスナップショットを交換する。
 
 WebDAV 準拠のサーバー（Nextcloud、ownCloud、Synology など）で動作する。Git は不要。
 
@@ -116,4 +116,3 @@ Workbench の Home ページの同期パネルに、競合の詳細とアクシ�
 
 - [Home ダッシュボード](home) — 同期状態を確認
 - [環境設定](../preferences) — WebDAV 同期を設定
-- [Git Sync](git-sync)（非推奨） — 過去の情報

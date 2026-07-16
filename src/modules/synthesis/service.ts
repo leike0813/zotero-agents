@@ -168,13 +168,8 @@ import {
   type SynthesisReviewItemRecord,
   type SynthesisRepositoryTableName,
 } from "./repository";
-import { createSynthesisGitSyncService } from "./gitSync";
 import { createSynthesisWebDavSyncService } from "./webDavSync";
-import {
-  createDisabledSynthesisGitSyncRuntimeBinding,
-  createDisabledSynthesisHostWebDavSyncPort,
-  type SynthesisGitSyncRuntimeBinding,
-} from "./syncRuntime";
+import { createDisabledSynthesisHostWebDavSyncPort } from "./webDavSyncRuntime";
 import {
   decideSynthesisApply,
   validateSynthesisResultBundle,
@@ -501,10 +496,10 @@ export type SynthesisServiceOptions = {
   hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort;
   registryInputs?: ReferenceSidecarInput[];
   citationGraphPapers?: CitationGraphPaperInput[];
-  gitSyncRuntime?: SynthesisGitSyncRuntimeBinding;
-  gitSyncDebounceMs?: number;
-  gitSyncRetryDelaysMs?: number[];
   hostWebDavSyncPort?: SynthesisHostWebDavSyncPort;
+  webDavSyncDebounceMs?: number;
+  webDavSyncRetryDelaysMs?: number[];
+  runtimeAbortSignal?: AbortSignal;
   hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort | null;
   hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
   hostTagEffectPort?: SynthesisHostTagEffectPort | null;
@@ -6157,32 +6152,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         preview: Awaited<ReturnType<typeof tagVocabulary.previewImport>>;
       }
     | undefined;
-  const gitSyncRuntime =
-    options.gitSyncRuntime || createDisabledSynthesisGitSyncRuntimeBinding();
-  const gitSyncAutoSyncEnabled = gitSyncRuntime.autoSyncEnabled;
-  const gitSync = createSynthesisGitSyncService({
-    root,
-    persistenceRoot: runtimeRoot,
-    repository: synthesisRepository,
-    now,
-    adapter: gitSyncRuntime.adapter,
-    debounceMs: options.gitSyncDebounceMs,
-    retryDelaysMs: options.gitSyncRetryDelaysMs,
-    autoRetryEnabled: gitSyncRuntime.autoRetryEnabled,
-    configStatusProvider: gitSyncRuntime.readConfigStatus,
-    progressReporter: (report) => {
-      if (report.status === "completed") {
-        completeSynthesisJobProgress(report);
-      } else if (
-        report.status === "failed_retryable" ||
-        report.status === "failed_terminal"
-      ) {
-        failSynthesisJobProgress(report);
-      } else {
-        reportSynthesisJobProgress(report);
-      }
-    },
-  });
   const webDavSync = createSynthesisWebDavSyncService({
     root,
     persistenceRoot: runtimeRoot,
@@ -6190,6 +6159,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     now,
     hostPort:
       options.hostWebDavSyncPort || createDisabledSynthesisHostWebDavSyncPort(),
+    retryDelaysMs: options.webDavSyncRetryDelaysMs,
+    abortSignal: options.runtimeAbortSignal,
     progressReporter: (report) => {
       if (report.status === "completed") {
         completeSynthesisJobProgress(report);
@@ -6203,13 +6174,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       }
     },
   });
-  const canonicalMaintenanceGitSyncDebounceMs = Math.max(
+  const canonicalMaintenanceWebDavSyncDebounceMs = Math.max(
     0,
-    Math.floor(Number(options.gitSyncDebounceMs ?? 5000)),
+    Math.floor(Number(options.webDavSyncDebounceMs ?? 5000)),
   );
   let activeCanonicalMaintenanceWorkers = 0;
   let activeCanonicalMaintenanceWorkerKinds: string[] = [];
   let canonicalMaintenanceEpoch = 0;
+  let canonicalMaintenanceDirty = false;
   let pendingCanonicalMaintenanceSync = false;
   let canonicalMaintenanceSyncTimer: ReturnType<typeof setTimeout> | undefined;
   let referenceSidecarRefreshRunning = false;
@@ -6448,7 +6420,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  function scheduleCanonicalMaintenanceGitSync() {
+  function scheduleCanonicalMaintenanceWebDavSync() {
     if (
       !pendingCanonicalMaintenanceSync ||
       activeCanonicalMaintenanceWorkers > 0
@@ -6459,12 +6431,21 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     canonicalMaintenanceSyncTimer = setTimeout(() => {
       canonicalMaintenanceSyncTimer = undefined;
       if (activeCanonicalMaintenanceWorkers > 0) {
-        scheduleCanonicalMaintenanceGitSync();
+        scheduleCanonicalMaintenanceWebDavSync();
         return;
       }
       pendingCanonicalMaintenanceSync = false;
-      void notifyGitSyncAfterCanonicalWrite();
-    }, canonicalMaintenanceGitSyncDebounceMs);
+      void notifyWebDavSyncAfterCanonicalWrite();
+    }, canonicalMaintenanceWebDavSyncDebounceMs);
+  }
+
+  async function queueCanonicalMaintenanceWebDavSync() {
+    if (!(await webDavSync.isWebDavAutoSyncEnabled())) {
+      return;
+    }
+    pendingCanonicalMaintenanceSync = true;
+    canonicalMaintenanceEpoch += 1;
+    scheduleCanonicalMaintenanceWebDavSync();
   }
 
   function beginCanonicalMaintenanceWorker(kind: string) {
@@ -6477,8 +6458,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return {
       markCanonicalMutation() {
         mutated = true;
-        pendingCanonicalMaintenanceSync = true;
-        canonicalMaintenanceEpoch += 1;
+        canonicalMaintenanceDirty = true;
       },
       finish() {
         activeCanonicalMaintenanceWorkers = Math.max(
@@ -6492,8 +6472,13 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             ...activeCanonicalMaintenanceWorkerKinds.slice(kindIndex + 1),
           ];
         }
-        if (mutated && activeCanonicalMaintenanceWorkers === 0) {
-          scheduleCanonicalMaintenanceGitSync();
+        if (
+          mutated &&
+          canonicalMaintenanceDirty &&
+          activeCanonicalMaintenanceWorkers === 0
+        ) {
+          canonicalMaintenanceDirty = false;
+          void queueCanonicalMaintenanceWebDavSync();
         }
       },
       kind,
@@ -6564,7 +6549,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       normalized === "reference_sidecar_refresh" ||
       normalized === "citation_graph_cache_rebuild" ||
       normalized === "citation_graph_layout" ||
-      normalized === "git_sync" ||
+      normalized === "webdav_sync" ||
       normalized === "canonical_maintenance"
     ) {
       return normalized;
@@ -7047,7 +7032,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   function buildMaintenanceBackgroundJobs(args: {
     jobProgressRows?: SynthesisUiBackgroundJobRow[];
-    gitSyncState?: unknown;
   }): SynthesisUiBackgroundJobRow[] {
     return [...(args.jobProgressRows || [])];
   }
@@ -7163,7 +7147,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnostics.push({
         code: "canonical_maintenance_sync_pending",
         severity: "info",
-        message: "Git Sync is waiting for canonical maintenance debounce.",
+        message: "WebDAV Sync is waiting for canonical maintenance debounce.",
       });
     }
     const literatureUpdatedAt =
@@ -7230,24 +7214,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  async function notifyGitSyncAfterCanonicalWrite() {
-    if (!gitSyncAutoSyncEnabled) {
-      return;
-    }
+  async function notifyWebDavSyncAfterCanonicalWrite() {
     try {
-      await gitSync.notifyCanonicalStoreChanged();
-    } catch (error) {
-      await gitSync
-        .recordGitSyncDiagnostic({
-          code: "git_sync_autosync_notify_failed",
-          severity: "warning",
-          message: errorMessage(error),
-          details:
-            error instanceof Error
-              ? { name: error.name, stack: error.stack }
-              : error,
-        })
-        .catch(() => undefined);
+      await webDavSync.triggerWebDavAutoSync();
+    } catch {
+      // Canonical writes have already committed; autosync is best-effort.
     }
   }
 
@@ -7257,7 +7228,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ): Promise<T> {
     const result = await lock.runExclusive(libraryId, operation);
     if (shouldNotify(result)) {
-      await notifyGitSyncAfterCanonicalWrite();
+      await queueCanonicalMaintenanceWebDavSync();
     }
     return result;
   }
@@ -15048,10 +15019,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const paths = buildSynthesisStoragePaths(root);
     const rootReady = await runtimePathExists(paths.synthesisRoot);
     const conflicts: SynthesisConflictCandidate[] = [];
-    const [gitSyncState, webDavSyncState] = await Promise.all([
-      gitSync.loadGitSyncState().catch(() => undefined),
-      webDavSync.loadWebDavSyncState().catch(() => undefined),
-    ]);
+    const webDavSyncState = await webDavSync
+      .loadWebDavSyncState()
+      .catch(() => undefined);
     const referenceSidecarCache = synthesisRepository.getCacheBasis(
       "reference-sidecar:library",
     );
@@ -15076,7 +15046,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     const backgroundJobs = buildMaintenanceBackgroundJobs({
       jobProgressRows: activeJobProgressRows(),
-      gitSyncState,
     });
     const registryReviewItems = synthesisRepository.listReviewItems({
       statuses: ["open"],
@@ -15098,7 +15067,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         diagnostics: sync.diagnostics,
         allowedActions: sync.allowedActions,
         requiresConfirmation: sync.requiresConfirmation,
-        git: gitSyncState,
         webdav: webDavSyncState,
       },
       conflicts,
@@ -15570,10 +15538,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           metadata: topicGraphContext?.metadata || {},
         })
       : [];
-    const [gitSyncState, webDavSyncState] = await Promise.all([
-      gitSync.loadGitSyncState().catch(() => undefined),
-      webDavSync.loadWebDavSyncState().catch(() => undefined),
-    ]);
+    const webDavSyncState = await webDavSync
+      .loadWebDavSyncState()
+      .catch(() => undefined);
     const graph = dbGraph.nodes.length
       ? dbGraph
       : emptyCitationGraph({
@@ -15604,7 +15571,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     });
     const backgroundJobs = buildMaintenanceBackgroundJobs({
       jobProgressRows: activeJobProgressRows(),
-      gitSyncState,
     });
     return {
       libraryId,
@@ -15617,7 +15583,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         diagnostics: sync.diagnostics,
         allowedActions: sync.allowedActions,
         requiresConfirmation: sync.requiresConfirmation,
-        git: gitSyncState,
         webdav: webDavSyncState,
       },
       conflicts,
@@ -18375,83 +18340,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return readDbCitationGraphOverview();
   }
 
-  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
-  async function loadGitSyncState() {
-    return gitSync.loadGitSyncState();
-  }
-
-  /** @deprecated Hidden Git transport retained for diagnostics; WebDAV is the visible manual sync UI. */
-  async function syncNow() {
-    const maintenance = canonicalMaintenanceStatus();
-    const hasActiveMaintenance =
-      maintenance.active_worker_count > 0 || maintenance.pending_sync;
-    if (!maintenance.active_worker_count) {
-      pendingCanonicalMaintenanceSync = false;
-      clearCanonicalMaintenanceSyncTimer();
-    }
-    const state = await lock.runExclusive(libraryId, async () => {
-      const current = await gitSync.loadGitSyncState();
-      if (current.paused && current.queue_state !== "blocked_conflict") {
-        return gitSync.retryGitSync();
-      }
-      return gitSync.runSync();
-    });
-    if (!hasActiveMaintenance) {
-      return state;
-    }
-    return gitSync.recordGitSyncDiagnostic({
-      code: maintenance.active_worker_count
-        ? "canonical_maintenance_active"
-        : "canonical_maintenance_sync_pending",
-      severity: "info",
-      message: maintenance.active_worker_count
-        ? "Manual Git Sync ran while canonical maintenance workers were active."
-        : "Manual Git Sync ran while a maintenance-triggered sync was pending.",
-      details: maintenance,
-    });
-  }
-
-  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
-  async function pauseGitSync() {
-    return gitSync.pauseGitSync();
-  }
-
-  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
-  async function resumeGitSync() {
-    return lock.runExclusive(libraryId, () => gitSync.resumeGitSync());
-  }
-
-  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
-  async function retryGitSync() {
-    return lock.runExclusive(libraryId, () => gitSync.retryGitSync());
-  }
-
-  /** @deprecated Hidden Git transport retained for diagnostics; not exposed by sync UI. */
-  async function resolveGitSyncConflict(args: {
-    action:
-      | "keep_local"
-      | "use_remote"
-      | "save_remote_copy"
-      | "mark_needs_attention"
-      | "clear_after_manual_edit"
-      | "skip"
-      | "resolved";
-  }) {
-    return lock.runExclusive(libraryId, () =>
-      gitSync.resolveGitSyncConflict(args),
-    );
-  }
-
-  async function readGitSyncDiagnostics() {
-    return gitSync.readGitSyncDiagnostics();
-  }
-
   async function loadWebDavSyncState() {
     return webDavSync.loadWebDavSyncState();
   }
 
   async function syncWebDavNow() {
-    return lock.runExclusive(libraryId, () => webDavSync.runSync());
+    pendingCanonicalMaintenanceSync = false;
+    clearCanonicalMaintenanceSyncTimer();
+    return lock.runExclusive(libraryId, () => webDavSync.triggerWebDavSync());
   }
 
   async function pauseWebDavSync() {
@@ -20896,13 +20792,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     rebuildCitationGraphCacheNow,
     retryCitationGraphCacheRebuild,
     readCitationGraphSnapshot,
-    loadGitSyncState,
-    syncNow,
-    pauseGitSync,
-    resumeGitSync,
-    retryGitSync,
-    resolveGitSyncConflict,
-    readGitSyncDiagnostics,
     loadWebDavSyncState,
     syncWebDavNow,
     pauseWebDavSync,

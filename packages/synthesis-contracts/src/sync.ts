@@ -30,6 +30,5 @@ export interface SynthesisSyncTransportClient {
 }
 
 export interface SynthesisSyncClient {
-  readonly git: SynthesisSyncTransportClient;
   readonly webDav: SynthesisSyncTransportClient;
 }

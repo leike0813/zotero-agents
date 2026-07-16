@@ -100,7 +100,7 @@ Zotero Agents 的设置位于 **Zotero → 设置 → Zotero Agents**（Windows/
 
 ## WebDAV Sync
 
-Synthesis Workbench 的跨设备同步方案，替代已弃用的 Git Sync。详见 [WebDAV 同步](synthesis/webdav-sync)。
+Synthesis Workbench 的跨设备持久数据同步方案。详见 [WebDAV 同步](synthesis/webdav-sync)。
 
 | 设置项 | 类型 | 默认值 | 说明 |
 |-------|------|--------|------|

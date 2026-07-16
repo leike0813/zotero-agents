@@ -29,6 +29,10 @@ import {
   buildSynthesisStoragePaths,
 } from "../../src/modules/synthesis/foundation";
 import {
+  cleanupRetiredSynthesisGitSyncRuntime,
+  RETIRED_SYNTHESIS_GIT_SYNC_PREFS,
+} from "../../src/modules/synthesis/syncRuntimeCleanup";
+import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   PLUGIN_TASK_DOMAIN_ACP,
   PLUGIN_TASK_DOMAIN_SKILLRUNNER,
@@ -1358,16 +1362,9 @@ describe("runtime persistence governance", function () {
     assert.equal(await fs.readFile(runtimeSynthesisFile, "utf8"), "legacy");
   });
 
-  it("does not report Synthesis sync workspaces as misplaced durable assets", async function () {
+  it("does not report the WebDAV Sync workspace as a misplaced durable asset", async function () {
     const paths = getRuntimePersistencePaths();
     const syncFiles = [
-      path.join(paths.runtimeRoot, "synthesis", "git-sync", "state.json"),
-      path.join(
-        paths.runtimeRoot,
-        "synthesis",
-        "git-sync-worktree",
-        "manifest.json",
-      ),
       path.join(
         paths.runtimeRoot,
         "synthesis",
@@ -1386,6 +1383,52 @@ describe("runtime persistence governance", function () {
       report.issues.map((issue) => issue.type),
       "forbidden_durable_asset_in_runtime",
     );
+  });
+
+  it("cleans only the two retired Git runtime roots and nine prefs idempotently", async function () {
+    const paths = getRuntimePersistencePaths();
+    const retiredRoots = [
+      path.join(paths.runtimeRoot, "synthesis", "git-sync"),
+      path.join(paths.runtimeRoot, "synthesis", "git-sync-worktree"),
+    ];
+    const externalRoot = path.join(tempRoot, "external-git-repository");
+    const webDavRoot = path.join(paths.runtimeRoot, "synthesis", "webdav-sync");
+    for (const root of [...retiredRoots, externalRoot, webDavRoot]) {
+      await fs.mkdir(root, { recursive: true });
+      await fs.writeFile(path.join(root, "sentinel.txt"), root, "utf8");
+    }
+    for (const key of RETIRED_SYNTHESIS_GIT_SYNC_PREFS) {
+      (globalThis as any).Zotero.Prefs.set(
+        `extensions.zotero.zotero-skills.${key}`,
+        key === "synthesisGitSyncRemoteUrl"
+          ? `file://${externalRoot}`
+          : "retired",
+        true,
+      );
+    }
+
+    const first = await cleanupRetiredSynthesisGitSyncRuntime(
+      paths.runtimeRoot,
+    );
+    const second = await cleanupRetiredSynthesisGitSyncRuntime(
+      paths.runtimeRoot,
+    );
+
+    assert.sameMembers(first.removedPaths, retiredRoots);
+    assert.deepEqual(second.removedPaths, []);
+    for (const root of retiredRoots) {
+      assert.isFalse(await pathExists(root));
+    }
+    assert.isTrue(await pathExists(path.join(externalRoot, "sentinel.txt")));
+    assert.isTrue(await pathExists(path.join(webDavRoot, "sentinel.txt")));
+    for (const key of RETIRED_SYNTHESIS_GIT_SYNC_PREFS) {
+      assert.isUndefined(
+        (globalThis as any).Zotero.Prefs.get(
+          `extensions.zotero.zotero-skills.${key}`,
+          true,
+        ),
+      );
+    }
   });
 
   it("reports managed path policy issues without making canonical data cleanable", async function () {

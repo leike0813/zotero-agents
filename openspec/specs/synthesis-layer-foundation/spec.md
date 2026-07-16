@@ -160,11 +160,11 @@ helpers and persist them as DB-backed canonical-store records.
 
 Foundation SHALL provide reusable transaction, event, diagnostics, and projection stale helpers for canonical store domains.
 
-#### Scenario: Git adapter exchange runs
+#### Scenario: WebDAV durable exchange runs
 
-- **WHEN** a production Git adapter exchanges canonical assets with a worktree
+- **WHEN** the production WebDAV Host port exchanges canonical durable bundles
 - **THEN** the local canonical store SHALL remain the source of truth
-- **AND** imported remote content SHALL still enter the store only through Foundation-backed Git Sync import validation and promotion.
+- **AND** imported remote content SHALL enter the store only through Foundation-backed WebDAV import validation and promotion.
 
 ### Requirement: UI snapshot reads do not write foundation state
 
@@ -209,3 +209,17 @@ persistence.
   source
 - **AND** the plugin runtime SHALL NOT expose mirror rebuild/recovery as the
   primary sync mechanism.
+
+
+### Requirement: WebDAV durable import uses one Foundation transaction
+
+WebDAV durable import SHALL apply validated canonical assets through one
+Foundation transaction and SHALL emit one canonical-store-changed event only
+after promotion succeeds.
+
+#### Scenario: Valid import is promoted
+
+- **WHEN** a WebDAV durable import passes validation, preview, and conflict gates
+- **THEN** one Foundation transaction SHALL apply all imported canonical facts
+- **AND** failed promotion SHALL roll back partial writes and emit no success
+  receipt.

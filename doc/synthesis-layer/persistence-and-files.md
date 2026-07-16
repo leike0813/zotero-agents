@@ -12,7 +12,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Topic artifact store | `data/synthesis/topics/<topicId>/current/**` | Canonical current Topic source: complete artifact, manifest, metadata, section JSON, and managed assets |
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
-| Git durable exchange store | Git Sync worktree `synthesis/` root | Deterministic durable-state assets used for cross-device sync and recovery; see [Git Sync Durable State](./git-sync-durable-state.md) |
+| WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -39,8 +39,7 @@ zotero-agents/
       deleted/**
       state/                 # legacy cleanup residue only
   runtime/
-    synthesis/git-sync/**
-    synthesis/git-sync-worktree/**
+    synthesis/webdav-sync/**
     acp/**
     cache/**
     logs/**
@@ -188,9 +187,9 @@ The Workbench Review & Overrides view should aggregate bounded DTOs:
 
 Export/checkpoint should render from DB and topic artifacts into a portable bundle. Import should validate and write through repository APIs. It should not copy arbitrary file trees back into runtime state.
 
-Git Sync uses this rule as a hard contract:
+WebDAV Sync uses this rule as a hard contract:
 
-- durable facts must be exportable as canonical Git assets with a stable envelope and manifest entry;
+- durable facts must be exportable as canonical bundle assets with a stable envelope and manifest entry;
 - the live SQLite file, WAL/SHM files, operation rows, cache basis rows, graph cache rows, layout rows, metrics rows, logs, locks, credentials, and temp workspaces are local-only;
-- import validates and dry-runs the Git durable payload before writing SQLite;
+- import validates and dry-runs the WebDAV durable payload before writing SQLite;
 - successful import hydrates durable facts and marks rebuildable projections stale rather than ready.

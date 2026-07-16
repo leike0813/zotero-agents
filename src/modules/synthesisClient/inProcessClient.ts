@@ -239,13 +239,6 @@ export interface LegacySynthesisPort {
   deleteConceptEntries?(
     request: SynthesisConceptDeleteRequest,
   ): Promise<unknown>;
-  syncNow?(): Promise<unknown>;
-  pauseGitSync?(): Promise<unknown>;
-  resumeGitSync?(): Promise<unknown>;
-  retryGitSync?(): Promise<unknown>;
-  resolveGitSyncConflict?(
-    request: SynthesisSyncConflictResolutionRequest,
-  ): Promise<unknown>;
   syncWebDavNow?(): Promise<unknown>;
   pauseWebDavSync?(): Promise<unknown>;
   resumeWebDavSync?(): Promise<unknown>;
@@ -1294,16 +1287,6 @@ export function createInProcessSynthesisClient(
       },
     },
     sync: {
-      git: createSyncTransportClient(
-        {
-          runNow: legacy.syncNow,
-          pause: legacy.pauseGitSync,
-          resume: legacy.resumeGitSync,
-          retry: legacy.retryGitSync,
-          resolveConflict: legacy.resolveGitSyncConflict,
-        },
-        "sync.git",
-      ),
       webDav: createSyncTransportClient(
         {
           runNow: legacy.syncWebDavNow,

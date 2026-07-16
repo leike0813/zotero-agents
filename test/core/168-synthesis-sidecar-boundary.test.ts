@@ -36,7 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.lengthOf(report.publicMethods, 115);
+    assert.lengthOf(report.publicMethods, 108);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
     assert.notInclude(
@@ -127,8 +127,8 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesis/webDavSyncAdapter.ts"),
       "utf8",
     );
-    const syncRuntime = fs.readFileSync(
-      path.join(ROOT_DIR, "src/modules/synthesis/syncRuntime.ts"),
+    const webDavSyncRuntime = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/webDavSyncRuntime.ts"),
       "utf8",
     );
     const citationGraphSource = fs.readFileSync(
@@ -269,22 +269,15 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(webDavSyncSource, "hostPort.writeText");
     assert.include(webDavSyncAdapter, "webDavCredentialForRequest");
     assert.include(webDavSyncAdapter, "getSynthesisWebDavSyncPrefsConfig");
-    assert.include(syncRuntime, "createDisabledSynthesisGitSyncRuntimeBinding");
-    assert.include(syncRuntime, "createDisabledSynthesisHostWebDavSyncPort");
     assert.include(
-      legacyComposition,
-      "createPrefsConfiguredSynthesisGitSyncRuntimeBinding",
+      webDavSyncRuntime,
+      "createDisabledSynthesisHostWebDavSyncPort",
     );
-    assert.include(legacyComposition, "gitSyncRuntime");
     assert.include(
       legacyComposition,
       "createPrefsConfiguredSynthesisWebDavSyncPort",
     );
     assert.include(legacyComposition, "hostWebDavSyncPort");
-    assert.include(
-      readonlyComposition,
-      "createDisabledSynthesisGitSyncRuntimeBinding",
-    );
     assert.include(
       readonlyComposition,
       "createDisabledSynthesisHostWebDavSyncPort",
@@ -453,11 +446,6 @@ describe("Synthesis sidecar migration boundary", function () {
       /client\.topicGraph\s*\.applyTopicGraphReviewAction/,
     );
     for (const [transport, method] of [
-      ["git", "runNow"],
-      ["git", "pause"],
-      ["git", "resume"],
-      ["git", "retry"],
-      ["git", "resolveConflict"],
       ["webDav", "runNow"],
       ["webDav", "pause"],
       ["webDav", "resume"],
@@ -797,7 +785,7 @@ describe("Synthesis sidecar migration boundary", function () {
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
-    assert.include(runtime, "complete 115-method service");
+    assert.include(runtime, "complete 108-method service");
   });
 
   it("registers the migration-safe single-owner invariant", function () {

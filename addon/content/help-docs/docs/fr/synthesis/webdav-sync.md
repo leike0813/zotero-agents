@@ -116,4 +116,3 @@ Le panneau de synchronisation de la page Home du Workbench affiche les détails 
 
 - [Tableau de bord Home](#doc/synthesis%2Fhome) — Voir l'état de la synchronisation
 - [Préférences](#doc/preferences) — Configurer la synchronisation WebDAV
-- [Synchronisation Git](#doc/synthesis%2Fgit-sync) (obsolète) — Référence historique

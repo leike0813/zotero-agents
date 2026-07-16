@@ -285,27 +285,6 @@ method_groups:
       - exportSynthesisCheckpoint
       - verifySynthesisCheckpoint
 
-  - id: git_sync_queries
-    category: query
-    target_capability: sync.git
-    disposition: client_capability
-    consumer_groups: [workbench, host_bridge, mcp]
-    methods:
-      - loadGitSyncState
-      - readGitSyncDiagnostics
-
-  - id: git_sync_commands
-    category: command
-    target_capability: sync.git
-    disposition: client_capability
-    consumer_groups: [workbench, host_bridge, mcp]
-    methods:
-      - syncNow
-      - pauseGitSync
-      - resumeGitSync
-      - retryGitSync
-      - resolveGitSyncConflict
-
   - id: webdav_sync_queries
     category: query
     target_capability: sync.webdav

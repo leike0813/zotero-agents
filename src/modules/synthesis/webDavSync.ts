@@ -84,6 +84,8 @@ export type SynthesisWebDavSyncState = {
   username?: string;
   credential_updated_at?: string;
   connection_test?: unknown;
+  retry_attempt?: number;
+  next_retry_at?: string;
   last_run?: {
     run_id: string;
     status:
@@ -146,6 +148,8 @@ type ServiceOptions = {
   progressReporter?: (
     report: SynthesisWebDavSyncProgressReport,
   ) => void | Promise<void>;
+  retryDelaysMs?: number[];
+  abortSignal?: AbortSignal;
 };
 
 function cleanString(value: unknown) {
@@ -311,6 +315,36 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   const now = options.now || nowIso;
   const hostPort = options.hostPort;
   const repository = options.repository;
+  const retryDelaysMs = (
+    options.retryDelaysMs || [60_000, 300_000, 900_000, 1_800_000]
+  )
+    .slice(0, 4)
+    .map((value) => Math.max(0, Math.floor(Number(value))))
+    .filter((value) => Number.isFinite(value));
+  let triggerGeneration = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let aborted = options.abortSignal?.aborted === true;
+
+  function clearRetryTimer() {
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+  }
+
+  function cancelTriggerChain() {
+    triggerGeneration += 1;
+    clearRetryTimer();
+  }
+
+  options.abortSignal?.addEventListener(
+    "abort",
+    () => {
+      aborted = true;
+      cancelTriggerChain();
+    },
+    { once: true },
+  );
 
   async function describeHost() {
     try {
@@ -321,6 +355,8 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       return rebuildSynthesisHostWebDavSyncDescription({
         status: "unavailable",
         configStatus: "invalid",
+        autoSyncEnabled: false,
+        autoRetryEnabled: false,
         baseUrl: "",
         remotePath: "",
         username: "",
@@ -396,6 +432,7 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
     state.credential_updated_at = host.credentialUpdatedAt;
     state.connection_test = host.connectionTest;
     if (!configured) {
+      cancelTriggerChain();
       state.queue_state = "disabled";
       state.diagnostics = fallback.diagnostics;
     } else if (state.queue_state === "disabled") {
@@ -734,6 +771,8 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
           await writeJson(syncPaths(persistenceRoot).conflictPath, report);
           return persistState({
             queue_state: "blocked_conflict",
+            retry_attempt: undefined,
+            next_retry_at: undefined,
             conflict_report: report,
             diagnostics: report.diagnostics,
             last_run: {
@@ -834,6 +873,8 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       });
       return persistState({
         queue_state: "idle",
+        retry_attempt: undefined,
+        next_retry_at: undefined,
         diagnostics,
         conflict_report: undefined,
         last_run: {
@@ -848,9 +889,17 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       });
     } catch (error) {
       const message = String(error instanceof Error ? error.message : error);
+      const permanentFailure = [
+        "webdav HEAD is invalid",
+        "webdav durable manifest missing",
+        "webdav durable asset path invalid",
+        "webdav_sync_snapshot_validation_failed",
+      ].some((marker) => message.includes(marker));
       const code = message.includes("webdav_sync_remote_changed_during_sync")
         ? "webdav_sync_remote_changed_during_sync"
-        : "webdav_sync_failed";
+        : permanentFailure
+          ? "webdav_sync_terminal_failure"
+          : "webdav_sync_failed";
       const entry = diagnostic({
         code,
         severity: "error",
@@ -861,16 +910,18 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
         phase: "failed",
         index: phaseTotal,
         total: phaseTotal,
-        status: "failed_retryable",
+        status: permanentFailure ? "failed_terminal" : "failed_retryable",
         message,
         diagnostics: [entry],
       });
       return persistState({
-        queue_state: "failed_retryable",
+        queue_state: permanentFailure ? "failed_permanent" : "failed_retryable",
+        retry_attempt: undefined,
+        next_retry_at: undefined,
         diagnostics: [entry],
         last_run: {
           run_id: runId,
-          status: "failed_retryable",
+          status: permanentFailure ? "failed_permanent" : "failed_retryable",
           started_at: startedAt,
           completed_at: now(),
           diagnostics: [entry],
@@ -879,8 +930,83 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
     }
   }
 
+  function retryTimestamp(delayMs: number) {
+    const parsed = Date.parse(now());
+    return new Date(
+      (Number.isFinite(parsed) ? parsed : Date.now()) + delayMs,
+    ).toISOString();
+  }
+
+  async function scheduleRetry(
+    state: SynthesisWebDavSyncState,
+    generation: number,
+    retryIndex: number,
+  ): Promise<SynthesisWebDavSyncState> {
+    if (
+      aborted ||
+      generation !== triggerGeneration ||
+      state.queue_state !== "failed_retryable" ||
+      state.paused ||
+      retryIndex >= retryDelaysMs.length
+    ) {
+      clearRetryTimer();
+      return state;
+    }
+    const host = await describeHost();
+    if (
+      host.status !== "available" ||
+      !host.autoRetryEnabled ||
+      generation !== triggerGeneration ||
+      aborted
+    ) {
+      clearRetryTimer();
+      return state;
+    }
+    const delayMs = retryDelaysMs[retryIndex];
+    const scheduled = await persistState({
+      retry_attempt: retryIndex + 1,
+      next_retry_at: retryTimestamp(delayMs),
+    });
+    clearRetryTimer();
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      if (aborted || generation !== triggerGeneration) {
+        return;
+      }
+      void runSync()
+        .then((next) => scheduleRetry(next, generation, retryIndex + 1))
+        .catch(() => undefined);
+    }, delayMs);
+    return scheduled;
+  }
+
+  async function triggerWebDavSync() {
+    cancelTriggerChain();
+    const generation = triggerGeneration;
+    const state = await runSync();
+    return scheduleRetry(state, generation, 0);
+  }
+
+  async function triggerWebDavAutoSync() {
+    const host = await describeHost();
+    if (host.status !== "available" || !host.autoSyncEnabled || aborted) {
+      return loadWebDavSyncState();
+    }
+    return triggerWebDavSync();
+  }
+
+  async function isWebDavAutoSyncEnabled() {
+    const host = await describeHost();
+    return host.status === "available" && host.autoSyncEnabled && !aborted;
+  }
+
   async function pauseWebDavSync() {
-    return persistState({ paused: true });
+    cancelTriggerChain();
+    return persistState({
+      paused: true,
+      retry_attempt: undefined,
+      next_retry_at: undefined,
+    });
   }
 
   async function resumeWebDavSync() {
@@ -893,11 +1019,14 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       queue_state: "queued",
       diagnostics: [],
       conflict_report: undefined,
+      retry_attempt: undefined,
+      next_retry_at: undefined,
     });
-    return runSync();
+    return triggerWebDavSync();
   }
 
   async function resolveWebDavSyncConflict(args: { action: string }) {
+    cancelTriggerChain();
     const state = await loadWebDavSyncState();
     const action = cleanString(args.action) || "keep_local";
     if (action === "keep_local" && state.conflict_report) {
@@ -925,6 +1054,9 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   return {
     loadWebDavSyncState,
     runSync,
+    triggerWebDavSync,
+    triggerWebDavAutoSync,
+    isWebDavAutoSyncEnabled,
     pauseWebDavSync,
     resumeWebDavSync,
     retryWebDavSync,

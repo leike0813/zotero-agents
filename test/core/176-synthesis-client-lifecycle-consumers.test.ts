@@ -164,19 +164,16 @@ describe("Synthesis lifecycle client consumers", function () {
     );
     assert.include(
       legacyComposition,
-      "createPrefsConfiguredSynthesisGitSyncRuntimeBinding",
-    );
-    assert.include(
-      legacyComposition,
       "createPrefsConfiguredSynthesisWebDavSyncPort",
     );
-    assert.include(legacyComposition, "gitSyncRuntime");
     assert.include(legacyComposition, "hostWebDavSyncPort");
-    assert.notInclude(legacyComposition, "onConfigurationChanged");
+    assert.include(legacyComposition, "new AbortController()");
     assert.include(
-      readonlyComposition,
-      "createDisabledSynthesisGitSyncRuntimeBinding",
+      legacyComposition,
+      "defaultLegacyServiceAbortController?.abort()",
     );
+    assert.include(legacyComposition, "runtimeAbortSignal");
+    assert.notInclude(legacyComposition, "onConfigurationChanged");
     assert.include(
       readonlyComposition,
       "createDisabledSynthesisHostWebDavSyncPort",

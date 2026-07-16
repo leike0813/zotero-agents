@@ -535,7 +535,7 @@ export type SynthesisUiSyncDiagnostic = {
   message: string;
 };
 
-export type SynthesisUiGitSyncQueueState =
+export type SynthesisUiDurableSyncQueueState =
   | "idle"
   | "queued"
   | "syncing"
@@ -544,22 +544,16 @@ export type SynthesisUiGitSyncQueueState =
   | "failed_permanent"
   | "disabled";
 
-export type SynthesisUiGitSyncStatus = {
-  queue_state: SynthesisUiGitSyncQueueState;
+export type SynthesisUiDurableSyncStatus = {
+  queue_state: SynthesisUiDurableSyncQueueState;
   paused: boolean;
   adapter_configured: boolean;
   config_status?: string;
-  remote_url?: string;
   base_url?: string;
   remote_path?: string;
-  branch?: string;
-  worktree_path?: string;
-  token_masked?: string;
-  token_updated_at?: string;
   connection_test?: {
     ok: boolean;
     tested_at?: string;
-    remote_branch_state?: "exists" | "missing_initializable" | "unknown";
     diagnostics: SynthesisUiSyncDiagnostic[];
   };
   last_run_status?: string;
@@ -649,7 +643,7 @@ export type SynthesisUiBackgroundJobRow = {
     | "reference_sidecar_refresh"
     | "citation_graph_cache_rebuild"
     | "citation_graph_layout"
-    | "git_sync"
+    | "webdav_sync"
     | "canonical_maintenance";
   status: SynthesisUiBackgroundJobStatus;
   label: string;
@@ -681,8 +675,7 @@ export type SynthesisUiSyncStatus = {
   diagnostics: SynthesisUiSyncDiagnostic[];
   allowedActions: string[];
   requiresConfirmation: boolean;
-  git?: SynthesisUiGitSyncStatus;
-  webdav?: SynthesisUiGitSyncStatus;
+  webdav?: SynthesisUiDurableSyncStatus;
 };
 
 export type SynthesisUiConflictCandidate = {
@@ -802,8 +795,7 @@ export type SynthesisUiSnapshotInput = {
   };
   storage?: Partial<SynthesisUiStorageStatus>;
   preferences?: Partial<SynthesisUiPreferencesStatus>;
-  sync?: Partial<Omit<SynthesisUiSyncStatus, "git" | "webdav">> & {
-    git?: unknown;
+  sync?: Partial<Omit<SynthesisUiSyncStatus, "webdav">> & {
     webdav?: unknown;
   };
   conflicts?: SynthesisUiConflictCandidate[];
@@ -1069,12 +1061,7 @@ export type SynthesisUiHostCommandName =
   | "purgeDeletedTopicArtifacts"
   | "submitTopicSynthesisUpdate"
   | "resolveTopicPaperDigest"
-  | "syncNow"
   | "syncWebDavNow"
-  | "pauseGitSync"
-  | "resumeGitSync"
-  | "retryGitSync"
-  | "resolveGitSyncConflict"
   | "pauseWebDavSync"
   | "resumeWebDavSync"
   | "retryWebDavSync"
@@ -1167,12 +1154,7 @@ const HOST_COMMANDS: SynthesisUiHostCommandName[] = [
   "purgeDeletedTopicArtifacts",
   "submitTopicSynthesisUpdate",
   "resolveTopicPaperDigest",
-  "syncNow",
   "syncWebDavNow",
-  "pauseGitSync",
-  "resumeGitSync",
-  "retryGitSync",
-  "resolveGitSyncConflict",
   "pauseWebDavSync",
   "resumeWebDavSync",
   "retryWebDavSync",
@@ -1231,12 +1213,7 @@ const COMMAND_LABELS: Record<SynthesisUiHostCommandName, string> = {
   purgeDeletedTopicArtifacts: "Purge deleted artifacts",
   submitTopicSynthesisUpdate: "Update topic synthesis",
   resolveTopicPaperDigest: "Open paper digest",
-  syncNow: "Sync now",
   syncWebDavNow: "WebDAV sync now",
-  pauseGitSync: "Pause sync",
-  resumeGitSync: "Resume sync",
-  retryGitSync: "Retry sync",
-  resolveGitSyncConflict: "Resolve sync conflict",
   pauseWebDavSync: "Pause WebDAV sync",
   resumeWebDavSync: "Resume WebDAV sync",
   retryWebDavSync: "Retry WebDAV sync",
@@ -1602,9 +1579,9 @@ function normalizeSyncStatus(value: unknown): SynthesisUiSyncStatus["status"] {
   return "ready";
 }
 
-function normalizeGitSyncQueueState(
+function normalizeDurableSyncQueueState(
   value: unknown,
-): SynthesisUiGitSyncQueueState {
+): SynthesisUiDurableSyncQueueState {
   const state = cleanString(value);
   if (
     state === "queued" ||
@@ -1619,7 +1596,9 @@ function normalizeGitSyncQueueState(
   return "idle";
 }
 
-function normalizeGitSyncStatus(value: unknown): SynthesisUiGitSyncStatus {
+function normalizeDurableSyncStatus(
+  value: unknown,
+): SynthesisUiDurableSyncStatus {
   const input =
     value && typeof value === "object"
       ? (value as Record<string, unknown>)
@@ -1639,32 +1618,17 @@ function normalizeGitSyncStatus(value: unknown): SynthesisUiGitSyncStatus {
     input.connection_test && typeof input.connection_test === "object"
       ? (input.connection_test as Record<string, unknown>)
       : undefined;
-  const remoteBranchState = cleanString(connectionTest?.remote_branch_state);
   return {
-    queue_state: normalizeGitSyncQueueState(input.queue_state),
+    queue_state: normalizeDurableSyncQueueState(input.queue_state),
     paused: Boolean(input.paused),
     adapter_configured: Boolean(input.adapter_configured),
     config_status: cleanString(input.config_status) || undefined,
-    remote_url: cleanString(input.remote_url) || undefined,
     base_url: cleanString(input.base_url) || undefined,
     remote_path: cleanString(input.remote_path) || undefined,
-    branch: cleanString(input.branch) || undefined,
-    worktree_path: cleanString(input.worktree_path) || undefined,
-    token_masked: cleanString(input.token_masked) || undefined,
-    token_updated_at: cleanString(input.token_updated_at) || undefined,
     connection_test: connectionTest
       ? {
           ok: Boolean(connectionTest.ok),
           tested_at: cleanString(connectionTest.tested_at) || undefined,
-          remote_branch_state:
-            remoteBranchState === "exists" ||
-            remoteBranchState === "missing_initializable" ||
-            remoteBranchState === "unknown"
-              ? (remoteBranchState as
-                  | "exists"
-                  | "missing_initializable"
-                  | "unknown")
-              : undefined,
           diagnostics: normalizeSyncDiagnostics(connectionTest.diagnostics),
         }
       : undefined,
@@ -3690,7 +3654,7 @@ function normalizeBackgroundJobSource(
     source === "reference_sidecar_refresh" ||
     source === "citation_graph_cache_rebuild" ||
     source === "citation_graph_layout" ||
-    source === "git_sync" ||
+    source === "webdav_sync" ||
     source === "canonical_maintenance"
   ) {
     return source;
@@ -4061,8 +4025,7 @@ export function buildSynthesisUiSnapshot(
       diagnostics: normalizeSyncDiagnostics(input.sync?.diagnostics),
       allowedActions: normalizeStringList(input.sync?.allowedActions),
       requiresConfirmation: Boolean(input.sync?.requiresConfirmation),
-      git: normalizeGitSyncStatus(input.sync?.git),
-      webdav: normalizeGitSyncStatus(input.sync?.webdav),
+      webdav: normalizeDurableSyncStatus(input.sync?.webdav),
     },
     conflicts: {
       candidates: normalizeConflictCandidates(input.conflicts),

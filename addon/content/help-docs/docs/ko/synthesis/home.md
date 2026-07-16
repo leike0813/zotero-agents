@@ -20,7 +20,7 @@
 
 ## 동기화 패널
 
-[WebDAV 동기화](#doc/synthesis%2Fwebdav-sync)(권장) 또는 [Git 동기화](#doc/synthesis%2Fgit-sync)(사용 중단됨)가 구성된 경우, 홈 페이지에 동기화 상태 패널이 표시됩니다:
+[WebDAV 동기화](#doc/synthesis%2Fwebdav-sync)가 구성된 경우, 홈 페이지에 동기화 상태 패널이 표시됩니다:
 
 ### WebDAV 동기화
 
@@ -39,7 +39,6 @@ WebDAV 동기화의 자동 동기화 기능은 아직 충분히 테스트되지 
 
 ### Git 동기화 (사용 중단됨)
 
-역사적 참고를 위해 [Git 동기화](#doc/synthesis%2Fgit-sync)를 참조하세요.
 
 ## 리뷰 항목 패널
 

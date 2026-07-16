@@ -5,7 +5,6 @@ import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../synthesis/representativeImageReadAdapter";
 import { createZoteroSynthesisRelatedItemsEffectPort } from "../synthesis/relatedItemsEffectAdapter";
-import { createPrefsConfiguredSynthesisGitSyncRuntimeBinding } from "../synthesis/syncRuntimeAdapter";
 import {
   createZoteroSynthesisStagedTagBindingMigrationPort,
   createZoteroSynthesisTagEffectPort,
@@ -21,6 +20,7 @@ type LegacyServiceInstance = ReturnType<
 >;
 
 let defaultLegacyService: LegacyServiceInstance | undefined;
+let defaultLegacyServiceAbortController: AbortController | undefined;
 
 function configuredLibraryId() {
   const value = Number(
@@ -37,6 +37,8 @@ function createDefaultLegacyService(
   }
   const libraryId = configuredLibraryId();
   const paths = getRuntimePersistencePaths();
+  const abortController = new AbortController();
+  defaultLegacyServiceAbortController = abortController;
   defaultLegacyService = legacy.createSynthesisService({
     root: paths.dataDir,
     runtimeRoot: paths.root,
@@ -51,8 +53,8 @@ function createDefaultLegacyService(
     hostTagEffectPort: createZoteroSynthesisTagEffectPort(),
     citationGraphLayoutEngine:
       createInProcessSynthesisCitationGraphLayoutEngine(),
-    gitSyncRuntime: createPrefsConfiguredSynthesisGitSyncRuntimeBinding(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
+    runtimeAbortSignal: abortController.signal,
   });
   return defaultLegacyService;
 }
@@ -335,21 +337,6 @@ function createLegacyPort(
     async deleteConceptEntries(request) {
       return resolveService().deleteConceptEntries(request);
     },
-    async syncNow() {
-      return resolveService().syncNow();
-    },
-    async pauseGitSync() {
-      return resolveService().pauseGitSync();
-    },
-    async resumeGitSync() {
-      return resolveService().resumeGitSync();
-    },
-    async retryGitSync() {
-      return resolveService().retryGitSync();
-    },
-    async resolveGitSyncConflict(request) {
-      return resolveService().resolveGitSyncConflict(request);
-    },
     async syncWebDavNow() {
       return resolveService().syncWebDavNow();
     },
@@ -369,6 +356,8 @@ function createLegacyPort(
 }
 
 export function invalidateDefaultLegacySynthesisService() {
+  defaultLegacyServiceAbortController?.abort();
+  defaultLegacyServiceAbortController = undefined;
   defaultLegacyService = undefined;
 }
 

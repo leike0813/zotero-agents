@@ -60,7 +60,7 @@ Synthesis Tag Vocabulary SHALL import TagVocab-compatible payloads through an ex
 
 - **WHEN** the user applies `use-imported` or `merge-non-conflicting`
 - **THEN** the service SHALL commit the resulting canonical vocabulary through the foundation transaction boundary
-- **AND** a successful commit SHALL be eligible for Git Sync autosync.
+- **AND** a successful commit SHALL be eligible for coalesced WebDAV autosync.
 
 #### Scenario: Conflicts are not silently replaced
 
@@ -321,3 +321,15 @@ viewing and managing staged `tag-regulator` suggestions.
 - **THEN** promotion SHALL report it as skipped
 - **AND** the staged row SHALL remain available for user action.
 
+
+
+### Requirement: Canonical tag writes schedule WebDAV autosync
+
+Successful canonical TagVocab imports, staged promotions, and other durable tag mutations SHALL enter the shared WebDAV autosync maintenance epoch after their write transaction succeeds.
+
+#### Scenario: Tag vocabulary mutation commits
+
+- **WHEN** a canonical tag vocabulary mutation commits successfully
+- **THEN** it SHALL schedule the same coalesced WebDAV autosync opportunity as
+  other canonical service writes
+- **AND** notification failure SHALL NOT roll back the tag mutation.

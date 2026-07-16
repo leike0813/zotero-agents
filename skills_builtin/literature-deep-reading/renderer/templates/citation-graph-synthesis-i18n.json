@@ -162,6 +162,8 @@
       "synthesis-column-updated": "Updated",
       "synthesis-column-action": "Action",
       "synthesis-column-actions": "Actions",
+      "synthesis-action-analyze": "Analyze",
+      "synthesis-action-regulate-tags": "Regulate tags",
       "synthesis-column-artifacts": "Artifacts",
       "synthesis-column-label": "Label",
       "synthesis-column-target-candidates": "Target Candidates",
@@ -722,11 +724,6 @@
       "synthesis-operation-submitTopicSynthesisUpdate": "Starting topic update",
       "synthesis-operation-exportTopicSynthesisReport": "Exporting synthesis report",
       "synthesis-operation-exportTopicDetailHtml": "Exporting topic HTML",
-      "synthesis-operation-syncNow": "Running sync",
-      "synthesis-operation-pauseGitSync": "Pausing sync",
-      "synthesis-operation-resumeGitSync": "Resuming sync",
-      "synthesis-operation-retryGitSync": "Retrying sync",
-      "synthesis-operation-resolveGitSyncConflict": "Resolving sync conflict",
       "synthesis-operation-deleteTopicArtifact": "Deleting topic artifact",
       "synthesis-operation-purgeDeletedTopicArtifacts": "Purging deleted artifacts"
     }
@@ -894,6 +891,8 @@
       "synthesis-column-updated": "更新时间",
       "synthesis-column-action": "操作",
       "synthesis-column-actions": "操作",
+      "synthesis-action-analyze": "分析",
+      "synthesis-action-regulate-tags": "规范化标签",
       "synthesis-column-artifacts": "工件",
       "synthesis-column-label": "标签",
       "synthesis-column-target-candidates": "目标候选项",
@@ -1454,11 +1453,6 @@
       "synthesis-operation-submitTopicSynthesisUpdate": "正在启动主题更新",
       "synthesis-operation-exportTopicSynthesisReport": "正在导出 synthesis 报告",
       "synthesis-operation-exportTopicDetailHtml": "正在导出主题 HTML",
-      "synthesis-operation-syncNow": "正在同步",
-      "synthesis-operation-pauseGitSync": "正在暂停同步",
-      "synthesis-operation-resumeGitSync": "正在恢复同步",
-      "synthesis-operation-retryGitSync": "正在重试同步",
-      "synthesis-operation-resolveGitSyncConflict": "正在解决同步冲突",
       "synthesis-operation-deleteTopicArtifact": "正在删除主题工件",
       "synthesis-operation-purgeDeletedTopicArtifacts": "正在清理已删除工件"
     }
@@ -1626,6 +1620,8 @@
       "synthesis-column-updated": "Mis à jour",
       "synthesis-column-action": "Action",
       "synthesis-column-actions": "Actions",
+      "synthesis-action-analyze": "Analyser",
+      "synthesis-action-regulate-tags": "Normaliser les étiquettes",
       "synthesis-column-artifacts": "Artefacts",
       "synthesis-column-label": "Étiquette",
       "synthesis-column-target-candidates": "Candidats cibles",
@@ -2186,11 +2182,6 @@
       "synthesis-operation-submitTopicSynthesisUpdate": "Démarrage de la mise à jour du sujet",
       "synthesis-operation-exportTopicSynthesisReport": "Export du rapport de synthèse",
       "synthesis-operation-exportTopicDetailHtml": "Export du HTML du sujet",
-      "synthesis-operation-syncNow": "Synchronisation en cours",
-      "synthesis-operation-pauseGitSync": "Pause de la synchronisation",
-      "synthesis-operation-resumeGitSync": "Reprise de la synchronisation",
-      "synthesis-operation-retryGitSync": "Nouvelle tentative de synchronisation",
-      "synthesis-operation-resolveGitSyncConflict": "Résolution du conflit de synchronisation",
       "synthesis-operation-deleteTopicArtifact": "Suppression de l'artefact de sujet",
       "synthesis-operation-purgeDeletedTopicArtifacts": "Purge des artefacts supprimés"
     }
@@ -2358,6 +2349,8 @@
       "synthesis-column-updated": "更新日時",
       "synthesis-column-action": "操作",
       "synthesis-column-actions": "操作",
+      "synthesis-action-analyze": "分析",
+      "synthesis-action-regulate-tags": "タグを正規化",
       "synthesis-column-artifacts": "成果物",
       "synthesis-column-label": "ラベル",
       "synthesis-column-target-candidates": "ターゲット候補",
@@ -2918,11 +2911,6 @@
       "synthesis-operation-submitTopicSynthesisUpdate": "トピック更新を開始中",
       "synthesis-operation-exportTopicSynthesisReport": "Synthesis レポートをエクスポート中",
       "synthesis-operation-exportTopicDetailHtml": "トピック HTML をエクスポート中",
-      "synthesis-operation-syncNow": "同期中",
-      "synthesis-operation-pauseGitSync": "同期を一時停止中",
-      "synthesis-operation-resumeGitSync": "同期を再開中",
-      "synthesis-operation-retryGitSync": "同期を再試行中",
-      "synthesis-operation-resolveGitSyncConflict": "同期競合を解決中",
       "synthesis-operation-deleteTopicArtifact": "トピック成果物を削除中",
       "synthesis-operation-purgeDeletedTopicArtifacts": "削除済み成果物を消去中"
     }

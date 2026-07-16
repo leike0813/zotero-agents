@@ -494,7 +494,7 @@ describe("Synthesis client foundation", function () {
     }
   });
 
-  it("routes both Sync transports through ten narrow normalized ports", async function () {
+  it("routes WebDAV Sync through five narrow normalized ports", async function () {
     const calls: Array<{ operation: string; request?: unknown }> = [];
     const result = (operation: string) => ({
       ok: true,
@@ -505,26 +505,6 @@ describe("Synthesis client foundation", function () {
     const client = createInProcessSynthesisClient({
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
-      },
-      async syncNow() {
-        calls.push({ operation: "git.run" });
-        return result("git.run");
-      },
-      async pauseGitSync() {
-        calls.push({ operation: "git.pause" });
-        return result("git.pause");
-      },
-      async resumeGitSync() {
-        calls.push({ operation: "git.resume" });
-        return result("git.resume");
-      },
-      async retryGitSync() {
-        calls.push({ operation: "git.retry" });
-        return result("git.retry");
-      },
-      async resolveGitSyncConflict(request) {
-        calls.push({ operation: "git.resolve", request });
-        return result("git.resolve");
       },
       async syncWebDavNow() {
         calls.push({ operation: "webdav.run" });
@@ -549,14 +529,6 @@ describe("Synthesis client foundation", function () {
     });
 
     const actual = [
-      await client.sync.git.runNow(),
-      await client.sync.git.pause(),
-      await client.sync.git.resume(),
-      await client.sync.git.retry(),
-      await client.sync.git.resolveConflict({
-        action: "resolved",
-        unknown: "discard",
-      } as never),
       await client.sync.webDav.runNow(),
       await client.sync.webDav.pause(),
       await client.sync.webDav.resume(),
@@ -567,17 +539,13 @@ describe("Synthesis client foundation", function () {
       } as never),
     ];
 
-    assert.lengthOf(actual, 10);
+    assert.lengthOf(actual, 5);
+    assert.notProperty(client.sync, "git");
     for (const entry of actual) {
       assert.equal(entry.completed_at, "2026-07-16T00:00:00.000Z");
       assert.notProperty(entry, "optional_field");
     }
     assert.deepEqual(calls, [
-      { operation: "git.run" },
-      { operation: "git.pause" },
-      { operation: "git.resume" },
-      { operation: "git.retry" },
-      { operation: "git.resolve", request: { action: "resolved" } },
       { operation: "webdav.run" },
       { operation: "webdav.pause" },
       { operation: "webdav.resume" },
@@ -609,19 +577,16 @@ describe("Synthesis client foundation", function () {
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
-      async resolveGitSyncConflict() {
-        invocations += 1;
-        return {};
-      },
       async resolveWebDavSyncConflict() {
         invocations += 1;
         return {};
       },
     });
     const invalidRequests: Array<() => Promise<unknown>> = [
-      () => missingPortClient.sync.git.resolveConflict({ action: "" } as never),
-      () => client.sync.git.resolveConflict(undefined as never),
-      () => client.sync.git.resolveConflict({ action: "approve" } as never),
+      () =>
+        missingPortClient.sync.webDav.resolveConflict({ action: "" } as never),
+      () => client.sync.webDav.resolveConflict(undefined as never),
+      () => client.sync.webDav.resolveConflict({ action: "approve" } as never),
       () =>
         client.sync.webDav.resolveConflict({
           action: "keep_local",
@@ -653,18 +618,18 @@ describe("Synthesis client foundation", function () {
       async listWorkflowTopicOptions() {
         return { options: [], diagnostics: [] };
       },
-      async syncNow() {
+      async syncWebDavNow() {
         return undefined;
       },
-      async pauseGitSync() {
+      async pauseWebDavSync() {
         throw new Error("pause exploded");
       },
-      async resumeGitSync() {
+      async resumeWebDavSync() {
         throw Object.assign(new Error("database is locked"), {
           code: "SQLITE_BUSY",
         });
       },
-      async retryGitSync() {
+      async retryWebDavSync() {
         throw preserved;
       },
     });
@@ -674,11 +639,11 @@ describe("Synthesis client foundation", function () {
       expected?: SynthesisClientError;
     }> = [
       { run: () => missingPortClient.sync.webDav.pause(), code: "unavailable" },
-      { run: () => client.sync.git.runNow(), code: "internal" },
-      { run: () => client.sync.git.pause(), code: "internal" },
-      { run: () => client.sync.git.resume(), code: "storage_busy" },
+      { run: () => client.sync.webDav.runNow(), code: "internal" },
+      { run: () => client.sync.webDav.pause(), code: "internal" },
+      { run: () => client.sync.webDav.resume(), code: "storage_busy" },
       {
-        run: () => client.sync.git.retry(),
+        run: () => client.sync.webDav.retry(),
         code: "conflict",
         expected: preserved,
       },

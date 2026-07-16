@@ -379,7 +379,7 @@ export function createSynthesisDurableManifest(args: {
     required_capabilities: [
       "durable-state.v1",
       "durable-bundles.v2",
-      "git-sync.v1",
+      "webdav-sync.v1",
     ],
     domain_versions: {
       concept: "1.0.0",

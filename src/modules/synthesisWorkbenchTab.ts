@@ -854,16 +854,11 @@ function clearCommandProgressPolling(runtime: SynthesisWorkbenchRuntime) {
   runtime.commandProgressTimer = undefined;
 }
 
-function isGitSyncRuntimeCommand(
+function isSyncRuntimeCommand(
   command: SynthesisUiActionOperation["command"] | undefined,
 ) {
   return (
-    command === "syncNow" ||
     command === "syncWebDavNow" ||
-    command === "pauseGitSync" ||
-    command === "resumeGitSync" ||
-    command === "retryGitSync" ||
-    command === "resolveGitSyncConflict" ||
     command === "pauseWebDavSync" ||
     command === "resumeWebDavSync" ||
     command === "retryWebDavSync" ||
@@ -871,9 +866,9 @@ function isGitSyncRuntimeCommand(
   );
 }
 
-function hasInFlightGitSyncCommand(runtime: SynthesisWorkbenchRuntime) {
+function hasInFlightSyncCommand(runtime: SynthesisWorkbenchRuntime) {
   return Array.from(runtime.inFlightCommands.values()).some((operation) =>
-    isGitSyncRuntimeCommand(operation.command),
+    isSyncRuntimeCommand(operation.command),
   );
 }
 
@@ -888,7 +883,7 @@ async function refreshWorkbenchCommandProgress(
   }
   runtime.commandProgressSnapshotRunning = true;
   try {
-    if (hasInFlightGitSyncCommand(runtime)) {
+    if (hasInFlightSyncCommand(runtime)) {
       await sendChrome(runtime, {
         refreshFromService: true,
       });
@@ -930,7 +925,7 @@ function runWorkbenchCommandOnce(
   }
   runtime.inFlightCommands.set(operation.key, operation);
   void sendChrome(runtime, {
-    refreshFromService: isGitSyncRuntimeCommand(command),
+    refreshFromService: isSyncRuntimeCommand(command),
   });
   ensureCommandProgressPolling(runtime);
   const start = () =>
@@ -2698,13 +2693,6 @@ function handleAction(
     void sendActiveSurface(runtime, { refreshFromService: false });
     return;
   }
-  if (result.hostCommand?.command === "syncNow") {
-    runWorkbenchCommandOnce(runtime, "syncNow", {}, async () => {
-      const client = await getFreshDefaultSynthesisClient();
-      return client.sync.git.runNow().then(failOnSyncFailureState);
-    });
-    return;
-  }
   if (result.hostCommand?.command === "syncWebDavNow") {
     runWorkbenchCommandOnce(
       runtime,
@@ -2715,42 +2703,6 @@ function handleAction(
         return client.sync.webDav.runNow().then(failOnSyncFailureState);
       },
       { deferStart: true },
-    );
-    return;
-  }
-  if (result.hostCommand?.command === "pauseGitSync") {
-    runWorkbenchCommandOnce(runtime, "pauseGitSync", {}, async () => {
-      const client = await getFreshDefaultSynthesisClient();
-      return client.sync.git.pause();
-    });
-    return;
-  }
-  if (result.hostCommand?.command === "resumeGitSync") {
-    runWorkbenchCommandOnce(runtime, "resumeGitSync", {}, async () => {
-      const client = await getFreshDefaultSynthesisClient();
-      return client.sync.git.resume();
-    });
-    return;
-  }
-  if (result.hostCommand?.command === "retryGitSync") {
-    runWorkbenchCommandOnce(runtime, "retryGitSync", {}, async () => {
-      const client = await getFreshDefaultSynthesisClient();
-      return client.sync.git.retry().then(failOnSyncFailureState);
-    });
-    return;
-  }
-  if (result.hostCommand?.command === "resolveGitSyncConflict") {
-    const commandArgs = commandArgsFromPayload(envelope.payload);
-    const action = (String(commandArgs.action || "").trim() ||
-      "keep_local") as SynthesisSyncConflictResolutionAction;
-    runWorkbenchCommandOnce(
-      runtime,
-      "resolveGitSyncConflict",
-      { action },
-      async () => {
-        const client = await getFreshDefaultSynthesisClient();
-        return client.sync.git.resolveConflict({ action });
-      },
     );
     return;
   }

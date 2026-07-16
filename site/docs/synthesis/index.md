@@ -15,7 +15,7 @@ Synthesis Workbench consists of 8 surfaces, each providing a different functiona
 
 | Surface | Function | Docs |
 |---------|----------|------|
-| **Home** | Library overview dashboard: library insights (registered papers / topic count / graph nodes), Git sync status panel, trending topic card list | [Details](home) |
+| **Home** | Library overview dashboard: library insights, WebDAV sync status, and trending topic cards | [Details](home) |
 | **Topics** | Topic list and management: 3 view modes (graph / grid / list), create and update topics, topic search and sorting | [Details](topic-synthesis) |
 | **Index** | Canonical Reference index: paper registry view (paper list + citation rows + binding status), canonical reference view (search / merge / redirect / deduplicate) | [Details](index-and-citation) |
 | **Review** | Review hub: 3 sub-tabs — citation match review (accept/reject binding proposals), concept review, topic graph relationship review | [Details](review) |
@@ -41,7 +41,7 @@ synthesis/
 ├── topic-graph/        # Topic graph nodes and edges
 ├── citation-graph/     # Citation graph snapshots
 ├── tags/               # Controlled tag vocabulary
-├── sync/               # Git sync working tree
+├── bundles/            # Durable WebDAV exchange bundles
 └── state/              # Runtime state (transactions, receipts, caches, etc.)
 ```
 
@@ -90,7 +90,7 @@ Zotero Library
     │                   ├──→ Topic Graph (Topic Relationships)
     │                   └──→ Concept Associations (Concept KB)
     │
-    └──→ Git Sync ←→ Remote Repository (Version Control and Backup)
+    └──→ WebDAV Sync ←→ Remote Durable Snapshots
 ```
 
 ## Prerequisites
@@ -108,4 +108,4 @@ Using Synthesis Workbench requires:
 - [Create Topic Synthesis](topic-synthesis) — Create topic analyses
 - [Review Hub](review) — Review citation matches, concepts, and topic graph proposals
 - [Concept Knowledge Base](concepts) — Manage core concepts
-- [Git Sync](git-sync) — Configure data sync and backup
+- [WebDAV Sync](webdav-sync) — Configure durable data sync

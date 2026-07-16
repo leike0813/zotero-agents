@@ -185,7 +185,7 @@ async function seedDurableFacts(root: string, label = "Alpha concept") {
   });
   repository.upsertOperation({
     operationId: "operation:runtime-only",
-    operationType: "git_sync",
+    operationType: "webdav_sync",
     label: "Runtime only",
     status: "running",
   });
@@ -249,6 +249,8 @@ describe("Synthesis durable sync exchange", function () {
     });
 
     assert.equal(first.manifest.manifest_hash, second.manifest.manifest_hash);
+    assert.include(first.manifest.required_capabilities, "webdav-sync.v1");
+    assert.notInclude(first.manifest.required_capabilities, "git-sync.v1");
     assert.deepEqual(
       first.manifest.assets.map((asset) => [asset.path, asset.hash]),
       second.manifest.assets.map((asset) => [asset.path, asset.hash]),

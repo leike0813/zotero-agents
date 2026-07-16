@@ -1186,27 +1186,13 @@ describe("Synthesis tag vocabulary", function () {
 
   it("exposes import preview through service snapshots and applies explicit DB imports", async function () {
     const root = await makeRuntimeRoot();
-    let syncRuns = 0;
     const service = createSynthesisService({
       root,
       libraryId: 1,
-      gitSyncDebounceMs: 0,
-      gitSyncRuntime: {
-        adapter: {
-          merge: () => {
-            syncRuns += 1;
-            return { status: "clean" };
-          },
-        },
-        autoSyncEnabled: false,
-        autoRetryEnabled: true,
-        readConfigStatus: () => ({ config_status: "configured" }),
-      },
     });
     await service.saveTagVocabulary({
       entries: [{ tag: "model:detr", facet: "model", note: "local" }],
     });
-    assert.equal(syncRuns, 0);
 
     await service.previewTagVocabularyImport({
       entries: [
@@ -1241,7 +1227,6 @@ describe("Synthesis tag vocabulary", function () {
       tags.entries.map((entry) => entry.tag),
       "data:coco",
     );
-    assert.equal(syncRuns, 0);
     assert.isFalse(
       await runtimePathExists(
         path.join(
