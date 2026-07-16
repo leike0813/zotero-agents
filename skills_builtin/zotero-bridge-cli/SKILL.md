@@ -87,7 +87,7 @@ This section is generated from the Host Bridge surface catalog.
 
 ### CLI release check
 
-- Expected `zotero-bridge` CLI version for this generated surface: `0.2.1`.
+- Expected `zotero-bridge` CLI version for this generated surface: `0.2.2`.
 - Confirm with `<zotero-bridge> --version` when the loaded skill or reference path is uncertain, command help does not match this surface, or a CLI error points to command shape mismatch.
 - If the observed version differs from the expected version, stop using this loaded skill copy for command syntax. Prefer the workspace-injected skill and run-local shim, then inspect `<zotero-bridge> --help` or the generated reference beside that workspace copy.
 

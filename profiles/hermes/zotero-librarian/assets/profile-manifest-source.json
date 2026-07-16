@@ -50,12 +50,12 @@
     "workflowCatalogChecksum": "1fe659ff51b66bdf9710aefcce41cf1e87c6a72198f1a3e7ddee12c359f822d1",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
-      "version": "0.2.1",
-      "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
-      "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
+      "version": "0.2.2",
+      "buildFingerprint": "543a82bba5d2a920df54b60b2d251af60e979430312b5f1d07fe4bac4f49df09",
+      "binaryAggregateSha256": "e324cc2137f1b4ca090566d2d2a248d5d653423ce7b69c1d1b0729144e23118e"
     },
     "profileVersion": "0.2.2",
-    "zoteroBridgeCliVersion": "0.2.1",
+    "zoteroBridgeCliVersion": "0.2.2",
     "profileVersionSourceChecksum": "28c8146b5c4cb76660e021d68912c4e3a9a4d336dee3ea055fcf06376eb402b0",
     "semanticSourceChecksum": "ff0a45b879e634adf8063c746e57339de53b09891cc2c4810f570b883aa83a5d",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"

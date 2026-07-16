@@ -22,7 +22,7 @@
   },
   "generated": {
     "bundleVersion": "0.2.0",
-    "cliVersion": "0.2.1",
-    "semanticChecksum": "17a25206c133c91978eed50cc1343004ab7b823734d94f1afb3c9e51b1ab0511"
+    "cliVersion": "0.2.2",
+    "semanticChecksum": "a9af9b119762ef110f29b2a3099d2de178cf9d5725e7ff7e93be4fc21da6d6cd"
   }
 }
