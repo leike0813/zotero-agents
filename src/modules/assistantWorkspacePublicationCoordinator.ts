@@ -140,7 +140,7 @@ export class AssistantWorkspacePublicationCoordinator {
     ) {
       return undefined;
     }
-    const state = this.transcriptState(args.owner);
+    const state = this.transcriptLane(args.owner);
     state.accumulator.drain();
     state.pendingMetadata = false;
     state.page = args.region.page;
@@ -185,15 +185,23 @@ export class AssistantWorkspacePublicationCoordinator {
           reason: "gap",
         },
       });
-      const lane = state || this.transcriptState(args.owner);
+      const lane = state || this.transcriptLane(args.owner);
       lane.pendingSnapshots.push(publication);
       this.pumpTranscriptLane(lane);
       return publication;
     }
+    const totalItemCount = Math.max(0, Math.floor(args.totalItemCount || 0));
+    const startCursor = isTailPage(state.page)
+      ? Math.max(0, totalItemCount - state.page.limit)
+      : state.page.startCursor;
     state.page = {
       ...state.page,
       eventSeq: Math.max(state.page.eventSeq, Math.floor(args.eventSeq || 0)),
-      totalItemCount: Math.max(0, Math.floor(args.totalItemCount || 0)),
+      totalItemCount,
+      startCursor,
+      previousCursor:
+        startCursor > 0 ? Math.max(0, startCursor - state.page.limit) : null,
+      nextCursor: isTailPage(state.page) ? null : state.page.nextCursor,
     };
     const mutations = args.events.flatMap((event) =>
       this.transcriptProjection.record(args.owner, {
@@ -220,7 +228,7 @@ export class AssistantWorkspacePublicationCoordinator {
     mutations: readonly AssistantWorkspaceTranscriptMutation[];
   }) {
     if (!this.isActive(args.owner)) return this.drop(args.owner);
-    const state = this.transcriptState(args.owner);
+    const state = this.transcriptLane(args.owner);
     state.page = args.page;
     state.accumulator.enqueue(args.mutations);
     this.pumpTranscriptLane(state);
@@ -348,7 +356,7 @@ export class AssistantWorkspacePublicationCoordinator {
     this.transcriptProjection.clear(owner);
   }
 
-  private transcriptState(owner: AssistantWorkspaceOwner) {
+  private transcriptLane(owner: AssistantWorkspaceOwner) {
     const key = ownerIdentity(owner);
     let state = this.transcripts.get(key);
     if (!state) {

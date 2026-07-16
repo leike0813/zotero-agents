@@ -1180,7 +1180,7 @@ function updatePublishedSessionRuntimeSnapshot(
 }
 
 function notifyConversationListenersNow(sessionRuntime: AcpChatSessionRuntime) {
-  if (!isForegroundSessionRuntime(sessionRuntime)) {
+  if (!listeners.size || !isForegroundSessionRuntime(sessionRuntime)) {
     return;
   }
   const cloned = clonePublishedSessionRuntimeSnapshot(sessionRuntime);
@@ -1190,12 +1190,14 @@ function notifyConversationListenersNow(sessionRuntime: AcpChatSessionRuntime) {
 }
 
 function notifyFrontendListenersNow(change?: AcpChatPanelSnapshotChange) {
-  const frontend = buildFrontendSnapshot({
-    uiVisible: true,
-    itemMode: "structural",
-  });
-  for (const listener of frontendListeners) {
-    listener(frontend);
+  if (frontendListeners.size) {
+    const frontend = buildFrontendSnapshot({
+      uiVisible: true,
+      itemMode: "structural",
+    });
+    for (const listener of frontendListeners) {
+      listener(frontend);
+    }
   }
   notifyAcpChatPanelSnapshotListeners(change);
 }

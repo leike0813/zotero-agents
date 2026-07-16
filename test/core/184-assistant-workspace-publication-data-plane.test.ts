@@ -723,6 +723,323 @@ describe("Assistant Workspace publication data plane v3", function () {
     }
   });
 
+  it("keeps the selected tail page bounded while its cursor advances", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantTranscriptPublication;
+
+    for (const owner of [
+      createAcpChatWorkspaceOwner("backend", "conversation"),
+      createAcpSkillsWorkspaceOwner("request"),
+    ]) {
+      const receiver = api.createReceiver({ source: owner.source });
+      const initialPage = {
+        ...page(owner.ownerKey),
+        pageKey: `${owner.ownerKey}\ntail:2`,
+        limit: 2,
+        totalItemCount: 2,
+        items: [
+          page(owner.ownerKey).items[0],
+          {
+            ...page(owner.ownerKey).items[0],
+            itemId: "message-2",
+            text: "second",
+          },
+        ],
+      };
+      const region = createReadyTranscriptRegion(owner, initialPage, 0);
+      const adopted = receiver.apply(
+        { transcriptRegion: region },
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `${owner.source}-bounded-snapshot`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "snapshot",
+          publicationCause: "initialization",
+          regionRevision: 1,
+          deliverySequence: 1,
+          payload: region,
+        },
+        owner.ownerKey,
+      );
+      const applied = receiver.apply(
+        adopted.snapshot,
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `${owner.source}-bounded-delta`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "delta",
+          publicationCause: "steady-state",
+          regionRevision: 2,
+          deliverySequence: 2,
+          payload: {
+            page: {
+              pageKey: `${owner.ownerKey}\ntail:2`,
+              startCursor: 1,
+              limit: 2,
+              totalItemCount: 3,
+              previousCursor: 0,
+              nextCursor: null,
+              eventSeq: 2,
+            },
+            baseUiRevision: 0,
+            uiRevision: 1,
+            mutations: [
+              {
+                op: "upsert_item",
+                item: {
+                  ...page(owner.ownerKey).items[0],
+                  itemId: "message-3",
+                  text: "third",
+                },
+              },
+            ],
+          },
+        },
+        owner.ownerKey,
+      );
+
+      assert.isTrue(applied.accepted);
+      assert.equal(applied.snapshot.transcriptRegion.page.startCursor, 1);
+      assert.deepEqual(
+        Array.from(
+          applied.snapshot.transcriptRegion.page.items,
+          (item: any) => item.itemId,
+        ),
+        ["message-2", "message-3"],
+      );
+      assert.lengthOf(applied.snapshot.transcriptRegion.page.items, 2);
+    }
+  });
+
+  it("publishes advancing tail metadata from the shared coordinator", function () {
+    const owner = createAcpChatWorkspaceOwner("backend", "conversation");
+    const posts: AssistantWorkspacePublication[] = [];
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "bounded-tail",
+      getActiveOwner: () => owner,
+      post(publication) {
+        posts.push(publication);
+        return true;
+      },
+    });
+    const initialPage = {
+      ...page(owner.ownerKey),
+      pageKey: `${owner.ownerKey}\ntail:2`,
+      limit: 2,
+      totalItemCount: 2,
+      items: [
+        page(owner.ownerKey).items[0],
+        {
+          ...page(owner.ownerKey).items[0],
+          itemId: "message-2",
+        },
+      ],
+    };
+    const snapshot = coordinator.publishTranscriptSnapshot({
+      owner,
+      cause: "initialization",
+      region: createReadyTranscriptRegion(owner, initialPage, 0),
+    });
+    coordinator.acknowledge({
+      publicationId: snapshot!.publicationId,
+      stage: "render-complete",
+      outcome: "accepted",
+      reason: null,
+    });
+    coordinator.publishTranscriptMutations({
+      owner,
+      eventSeq: 2,
+      totalItemCount: 3,
+      visibility: "live",
+      events: [
+        {
+          boundary: "hard-boundary",
+          mutation: {
+            op: "upsert_item",
+            item: {
+              ...page(owner.ownerKey).items[0],
+              itemId: "message-3",
+            },
+          },
+        },
+      ],
+    });
+
+    assert.equal((posts[1].payload as any).page.startCursor, 1);
+    assert.equal((posts[1].payload as any).page.previousCursor, 0);
+    assert.equal((posts[1].payload as any).page.totalItemCount, 3);
+  });
+
+  it("rejects a mixed invalid mutation batch atomically", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantTranscriptPublication;
+    const owner = createAcpChatWorkspaceOwner("backend", "conversation");
+    const receiver = api.createReceiver({ source: owner.source });
+    const region = createReadyTranscriptRegion(owner, page(owner.ownerKey), 0);
+    const adopted = receiver.apply(
+      { transcriptRegion: region },
+      {
+        schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+        publicationId: "atomic-snapshot",
+        owner,
+        publicationKind: "transcript",
+        publicationForm: "snapshot",
+        publicationCause: "initialization",
+        regionRevision: 1,
+        deliverySequence: 1,
+        payload: region,
+      },
+      owner.ownerKey,
+    );
+    const result = receiver.apply(
+      adopted.snapshot,
+      {
+        schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+        publicationId: "atomic-delta",
+        owner,
+        publicationKind: "transcript",
+        publicationForm: "delta",
+        publicationCause: "steady-state",
+        regionRevision: 2,
+        deliverySequence: 2,
+        payload: {
+          page: {
+            pageKey: `${owner.ownerKey}\ntail:80`,
+            startCursor: 0,
+            limit: 80,
+            totalItemCount: 2,
+            previousCursor: null,
+            nextCursor: null,
+            eventSeq: 2,
+          },
+          baseUiRevision: 0,
+          uiRevision: 1,
+          mutations: [
+            {
+              op: "upsert_item",
+              item: {
+                ...page(owner.ownerKey).items[0],
+                itemId: "message-2",
+              },
+            },
+            { op: "append_text", itemId: "missing", text: "invalid" },
+          ],
+        },
+      },
+      owner.ownerKey,
+    );
+
+    assert.deepInclude(result, {
+      accepted: false,
+      reason: "gap",
+      reloadPage: true,
+    });
+    assert.strictEqual(result.snapshot, adopted.snapshot);
+    assert.deepEqual(
+      Array.from(
+        adopted.snapshot.transcriptRegion.page.items,
+        (item: any) => item.itemId,
+      ),
+      ["message-1"],
+    );
+  });
+
+  it("requests rebase when a tail delete needs an unloaded head item", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantTranscriptPublication;
+    const owner = createAcpSkillsWorkspaceOwner("request");
+    const receiver = api.createReceiver({ source: owner.source });
+    const selectedPage = {
+      ...page(owner.ownerKey),
+      pageKey: `${owner.ownerKey}\ntail:2`,
+      startCursor: 1,
+      limit: 2,
+      totalItemCount: 3,
+      previousCursor: 0,
+      items: [
+        {
+          ...page(owner.ownerKey).items[0],
+          itemId: "message-2",
+        },
+        {
+          ...page(owner.ownerKey).items[0],
+          itemId: "message-3",
+        },
+      ],
+    };
+    const region = createReadyTranscriptRegion(owner, selectedPage, 0);
+    const adopted = receiver.apply(
+      { transcriptRegion: region },
+      {
+        schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+        publicationId: "delete-snapshot",
+        owner,
+        publicationKind: "transcript",
+        publicationForm: "snapshot",
+        publicationCause: "initialization",
+        regionRevision: 1,
+        deliverySequence: 1,
+        payload: region,
+      },
+      owner.ownerKey,
+    );
+    const result = receiver.apply(
+      adopted.snapshot,
+      {
+        schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+        publicationId: "delete-delta",
+        owner,
+        publicationKind: "transcript",
+        publicationForm: "delta",
+        publicationCause: "steady-state",
+        regionRevision: 2,
+        deliverySequence: 2,
+        payload: {
+          page: {
+            pageKey: `${owner.ownerKey}\ntail:2`,
+            startCursor: 0,
+            limit: 2,
+            totalItemCount: 2,
+            previousCursor: null,
+            nextCursor: null,
+            eventSeq: 2,
+          },
+          baseUiRevision: 0,
+          uiRevision: 1,
+          mutations: [{ op: "delete_item", itemId: "message-3" }],
+        },
+      },
+      owner.ownerKey,
+    );
+
+    assert.deepInclude(result, {
+      accepted: false,
+      reason: "gap",
+      reloadPage: true,
+    });
+    assert.strictEqual(result.snapshot, adopted.snapshot);
+  });
+
   it("applies owner, revision, and gap rules through one browser receiver", async function () {
     const vm = await import("vm");
     const code = await readFile(
@@ -872,6 +1189,16 @@ describe("Assistant Workspace publication data plane v3", function () {
             status: "complete",
           },
         ],
+        pageItems: [
+          {
+            itemId: "message-1",
+            itemKind: "message",
+            role: "assistant",
+            text: "hello world",
+            status: "complete",
+          },
+        ],
+        evictedItemIds: [],
       });
       assert.equal(
         applied.snapshot.transcriptRegion.page.items[0].text,
@@ -1053,6 +1380,68 @@ describe("Assistant Workspace publication data plane v3", function () {
         outcome: "rejected",
         reason: "render-failed",
       });
+      assert.equal(snapshot.transcriptRegion.page.items[0].text, "hello");
+    }
+  });
+
+  it("never turns a failed steady structural effect into a snapshot render", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantTranscriptPublication;
+
+    for (const owner of [
+      createAcpChatWorkspaceOwner("backend", "conversation"),
+      createAcpSkillsWorkspaceOwner("request"),
+    ]) {
+      const region = createReadyTranscriptRegion(
+        owner,
+        page(owner.ownerKey),
+        1,
+      );
+      let snapshotRenders = 0;
+      const rendered = api.renderResult(
+        {
+          publicationKind: "transcript",
+          snapshot: { transcriptRegion: region },
+          effect: {
+            kind: "mutations",
+            onSelectedPage: true,
+            mutations: [
+              {
+                op: "upsert_item",
+                item: {
+                  ...page(owner.ownerKey).items[0],
+                  itemId: "message-2",
+                },
+              },
+            ],
+            affectedItems: [],
+            pageItems: page(owner.ownerKey).items,
+            evictedItemIds: [],
+          },
+        },
+        {
+          source: owner.source,
+          getOwnerKey: () => owner.ownerKey,
+          transcriptRenderer: {
+            applyAssistantTranscriptEffects: () => false,
+          },
+          transcriptContainer: {},
+          rowNodesByKey: new Map(),
+          renderSnapshot: () => {
+            snapshotRenders += 1;
+            return true;
+          },
+        },
+      );
+
+      assert.isFalse(rendered);
+      assert.equal(snapshotRenders, 0);
     }
   });
 

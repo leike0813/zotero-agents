@@ -923,19 +923,15 @@
     const renderer = assistantPanelRenderer();
     if (
       !renderer ||
-      typeof renderer.renderAssistantPanelSnapshot !== "function"
+      typeof renderer.renderAssistantMessageCounts !== "function"
     )
-      return;
-    renderer.renderAssistantPanelSnapshot(
-      projectPanelSnapshot(snapshot || {}),
-      {
-        managed: true,
-        managedRegions: { messageCounter: true },
-        root: rootEl,
-        regions: {
-          messageCounter: document.getElementById("acp-chat-message-counter"),
-        },
-      },
+      return false;
+    return renderer.renderAssistantMessageCounts(
+      document.getElementById("acp-chat-message-counter"),
+      snapshot && snapshot.messageCounts,
+      snapshot?.labels?.assistantPanel?.transcript ||
+        snapshot?.labels?.transcript ||
+        {},
     );
   }
 
@@ -1139,52 +1135,65 @@
     });
   }
 
-  function renderPublicationResult(result) {
-    const kind = result.publicationKind;
-    if (kind === "message-counts") {
-      renderMessageCounter(state.snapshot);
-      return true;
-    }
-    if (kind !== "transcript") {
-      renderPanel(state.snapshot);
-      return true;
-    }
+  function renderPublicationResult(result, publication) {
+    const nextSnapshot = result.snapshot || {};
     const shared = assistantTranscriptPublication();
-    const renderer = assistantTranscriptRenderer();
-    const effect = result.effect || {};
-    const region = shared
-      ? shared.readRegion(
-          state.snapshot || {},
-          "acp-chat",
-          snapshotTranscriptOwnerKey(state.snapshot || {}),
-        )
-      : null;
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
-    const targeted =
-      renderer &&
-      typeof renderer.applyAssistantTranscriptEffects === "function" &&
-      renderer.applyAssistantTranscriptEffects({
-        container: transcriptEl,
-        nodeMap: state.transcriptNodeMap,
-        effect,
-        affectedItems: (effect.affectedItems || []).map(shared.rendererItem),
-        virtualized: !!(region && region.page),
-        mode,
+    const rendered = !!(
+      shared &&
+      typeof shared.renderResult === "function" &&
+      shared.renderResult(result, {
+        source: "acp-chat",
+        getOwnerKey: snapshotTranscriptOwnerKey,
+        panelRenderer: assistantPanelRenderer(),
+        messageCountContainer: document.getElementById(
+          "acp-chat-message-counter",
+        ),
+        transcriptRenderer: assistantTranscriptRenderer(),
+        transcriptContainer: transcriptEl,
+        rowNodesByKey: state.transcriptNodeMap,
+        getMode: function () {
+          return mode;
+        },
         variant: "acp-chat",
+        expandedRowKeys: state.toolActivityExpandedIds,
         renderMarkdown,
         formatTime,
-        labels:
-          state.snapshot.labels?.assistantPanel?.transcript ||
-          state.snapshot.labels?.transcript ||
-          {},
-      });
-    if (targeted) {
-      state.transcriptRevision = transcriptRevisionNumber(region.uiRevision);
+        getLabels: function (snapshot) {
+          return (
+            snapshot.labels?.assistantPanel?.transcript ||
+            snapshot.labels?.transcript ||
+            {}
+          );
+        },
+        renderRegion: function () {
+          renderPanel(nextSnapshot);
+          return true;
+        },
+        renderSnapshot: function () {
+          renderTranscript(nextSnapshot);
+          return true;
+        },
+        onEffectRendered: function (observation) {
+          sendAction("publication-render-observation", {
+            publicationId: safeText(publication && publication.publicationId),
+            ...observation,
+          });
+        },
+      })
+    );
+    if (rendered && result.publicationKind === "transcript") {
+      const region = shared.readRegion(
+        nextSnapshot,
+        "acp-chat",
+        snapshotTranscriptOwnerKey(nextSnapshot),
+      );
+      state.transcriptRevision = transcriptRevisionNumber(
+        region && region.uiRevision,
+      );
       state.transcriptRenderedMode = mode;
-      return true;
     }
-    renderTranscript(state.snapshot);
-    return true;
+    return rendered;
   }
 
   function publicationClient() {

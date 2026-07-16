@@ -130,6 +130,7 @@
       eventSeq: nonNegativeInteger(page.eventSeq, 0),
       transcriptRevision: nonNegativeInteger(page.transcriptRevision, 0),
       limit: positiveInteger(page.limit, fallbackLimit),
+      stableTail: page.stableTail === true,
     };
   }
 
@@ -148,10 +149,14 @@
     );
     if (!normalized) return null;
     state.loadingCursors.delete(normalized.cursor);
+    if (normalized.stableTail) {
+      state.pages.clear();
+      state.itemLocations.clear();
+    }
     const previousPage = state.pages.get(normalized.cursor);
     if (previousPage) {
       previousPage.items.forEach(function (item) {
-        const itemId = String(item && item.id ? item.id : "").trim();
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
         const location = itemId ? state.itemLocations.get(itemId) : null;
         if (location && location.page === previousPage) {
           state.itemLocations.delete(itemId);
@@ -160,12 +165,13 @@
     }
     state.pages.set(normalized.cursor, normalized);
     normalized.items.forEach(function (item, index) {
-      const itemId = String(item && item.id ? item.id : "").trim();
+      const itemId = String(item && item.itemId ? item.itemId : "").trim();
       if (itemId) {
         state.itemLocations.set(itemId, { page: normalized, index });
       }
     });
     trimVirtualTranscriptPages(state, options);
+    if (normalized.stableTail) pruneVirtualTranscriptRowHeights(state);
     return normalized;
   }
 
@@ -218,12 +224,12 @@
 
   function virtualTranscriptEntryKey(entry) {
     const source = (entry && entry.item) || {};
-    const id = String(source.id || "").trim();
-    if (id) return "id:" + id;
+    const itemId = String(source.itemId || "").trim();
+    if (itemId) return "item:" + itemId;
     return [
       "index",
       String(nonNegativeInteger(entry && entry.index, 0)),
-      String(source.kind || ""),
+      String(source.itemKind || ""),
       String(source.role || ""),
     ].join(":");
   }
@@ -239,12 +245,12 @@
     ) {
       return virtual.rowKeys[index];
     }
-    const id = String(source.id || "").trim();
-    if (id) return "id:" + id;
+    const rowKey = String(source.rowKey || "").trim();
+    if (rowKey) return rowKey;
     return [
       "rendered",
       String(nonNegativeInteger(index, 0)),
-      String(source.kind || ""),
+      String(source.rowKind || ""),
       String(source.role || ""),
     ].join(":");
   }
@@ -710,8 +716,8 @@
               position.key,
               Math.round(position.height),
               String(
-                position.entry.item && position.entry.item.id
-                  ? position.entry.item.id
+                position.entry.item && position.entry.item.itemId
+                  ? position.entry.item.itemId
                   : "",
               ),
             ].join(":");
@@ -862,7 +868,12 @@
     return fallback;
   }
 
-  function measureVirtualTranscriptRows(container, state, options) {
+  function measureVirtualTranscriptRows(
+    container,
+    state,
+    options,
+    dirtyRowKeys,
+  ) {
     if (!container || !state || !state.rowHeights) return false;
     const estimatedHeight = positiveInteger(
       options.estimatedRowHeight,
@@ -880,6 +891,7 @@
           : "",
       ).trim();
       if (!key) return;
+      if (dirtyRowKeys && !dirtyRowKeys.has(key)) return;
       const height = positiveInteger(
         measuredElementHeight(row, estimatedHeight),
         estimatedHeight,
@@ -1278,142 +1290,63 @@
     }
   }
 
-  function toolStateRank(state) {
-    switch (normalizeStatusToken(state)) {
-      case "failed":
-        return 4;
-      case "completed":
-      case "succeeded":
-        return 3;
-      case "in_progress":
-      case "running":
-        return 2;
-      case "pending":
-      default:
-        return 1;
-    }
-  }
-
-  function toolEventTime(item) {
-    const parsed = Date.parse(
-      String((item && (item.updatedAt || item.createdAt)) || ""),
-    );
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-
-  function isPreferredToolEvent(candidate, current) {
-    const candidateRank = toolStateRank(candidate && candidate.state);
-    const currentRank = toolStateRank(current && current.state);
-    if (candidateRank !== currentRank) return candidateRank > currentRank;
-    return toolEventTime(candidate) >= toolEventTime(current);
-  }
-
-  function sanitizeToolGroupKey(key) {
-    const text = String(key || "unknown");
-    let hash = 0;
-    for (let index = 0; index < text.length; index += 1) {
-      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-    }
-    const slug =
-      text.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 48) || "unknown";
-    return slug + "-" + hash.toString(36);
-  }
-
-  function createCanonicalToolItem(key, group) {
-    const items = group.items || [];
-    const first = items[0] || {};
-    const selected = items.reduce(function (current, candidate) {
-      return isPreferredToolEvent(candidate, current) ? candidate : current;
-    }, first);
-    const latestSummary =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return String(tool.summary || "").trim();
-        }) || {};
-    const firstInputSummary =
-      items.find(function (tool) {
-        return !isGenericToolText(tool.inputSummary);
-      }) || {};
-    const latestResultSummary =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return !isGenericToolText(tool.resultSummary);
-        }) || {};
-    const latestToolName =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return !isGenericToolText(tool.toolName);
-        }) || {};
-    return {
-      id: "assistant-tool-" + sanitizeToolGroupKey(key),
-      kind: "tool",
-      toolCallId: String(selected.toolCallId || first.toolCallId || key || ""),
-      title: String(selected.title || first.title || "Tool"),
-      toolKind:
-        String(selected.toolKind || first.toolKind || "").trim() || undefined,
-      toolName:
-        String(
-          latestToolName.toolName || selected.toolName || first.toolName || "",
-        ).trim() || undefined,
-      inputSummary:
-        String(
-          firstInputSummary.inputSummary || selected.inputSummary || "",
-        ).trim() || undefined,
-      resultSummary:
-        String(
-          latestResultSummary.resultSummary || selected.resultSummary || "",
-        ).trim() || undefined,
-      state: selected.state || first.state || "pending",
-      summary:
-        String(selected.summary || latestSummary.summary || "").trim() ||
-        undefined,
-      createdAt: first.createdAt,
-      updatedAt: selected.updatedAt || selected.createdAt || first.updatedAt,
-    };
-  }
-
-  function buildCanonicalTranscriptItems(items) {
-    const entries = [];
-    const toolGroups = new Map();
-    (Array.isArray(items) ? items : []).forEach(function (item) {
-      if (!item || item.kind === "plan") return;
-      if (item.kind !== "tool_call" && item.kind !== "tool") {
-        entries.push({ index: entries.length, item });
-        return;
+  function adaptLegacyTranscriptItem(item) {
+    const source = item && typeof item === "object" ? item : {};
+    if (source.itemId && source.itemKind) return source;
+    const itemId = String(source.id || "").trim();
+    const legacyKind = String(source.kind || "").trim();
+    const itemKind =
+      legacyKind === "tool" || legacyKind === "tool_call"
+        ? "tool-call"
+        : legacyKind === "process"
+          ? "thought"
+          : legacyKind;
+    if (!itemId || !itemKind) return null;
+    const adapted = {};
+    Object.keys(source).forEach(function (key) {
+      if (key !== "id" && key !== "kind" && key !== "state") {
+        adapted[key] = source[key];
       }
-      const key = String(item.toolCallId || item.id || "").trim();
-      const groupKey = key || String(item.id || entries.length);
-      let group = toolGroups.get(groupKey);
-      if (!group) {
-        group = { index: entries.length, items: [] };
-        toolGroups.set(groupKey, group);
-        entries.push({ index: group.index, toolGroupKey: groupKey });
-      }
-      group.items.push(item);
     });
-    return entries
-      .map(function (entry) {
-        if (entry.toolGroupKey) {
-          return createCanonicalToolItem(
-            entry.toolGroupKey,
-            toolGroups.get(entry.toolGroupKey) || {},
-          );
-        }
-        return entry.item;
+    adapted.itemId = itemId;
+    adapted.itemKind = itemKind;
+    adapted.status =
+      source.state === "in_progress" ? "in-progress" : source.state;
+    if (source.revision && typeof source.revision === "object") {
+      adapted.revision = {
+        count: Number(source.revision.count) || 0,
+        status: source.revision.status || source.revision.latestStatus || "",
+        repairRound:
+          Number(
+            source.revision.repairRound || source.revision.latestRepairRound,
+          ) || 0,
+      };
+    }
+    return adapted;
+  }
+
+  function createItemPresentationRow(item) {
+    if (!item || !item.itemId || !item.itemKind) return null;
+    return Object.assign({}, item, {
+      rowKey: "item:" + String(item.itemId),
+      itemIds: [String(item.itemId)],
+      rowKind: String(item.itemKind),
+    });
+  }
+
+  function buildPresentationItemRows(items) {
+    return (Array.isArray(items) ? items : [])
+      .filter(function (item) {
+        return item && item.itemKind !== "plan";
       })
+      .map(createItemPresentationRow)
       .filter(Boolean);
   }
 
   function toolActivitySummaryState(items) {
     const tools = Array.isArray(items) ? items : [];
     const states = tools.map(function (tool) {
-      return normalizeStatusToken(tool && tool.state);
+      return normalizeStatusToken(tool && tool.status);
     });
     const completedCount = states.filter(function (state) {
       return state === "completed" || state === "succeeded";
@@ -1433,37 +1366,36 @@
 
   function stableToolActivityGroupKey(run, fallbackIndex) {
     const first = run[0] || {};
-    const key =
-      String(first.toolCallId || "").trim() ||
-      String(first.id || "").trim() ||
-      String(first.createdAt || "").trim() ||
-      "run-" + String(fallbackIndex || 0);
-    return sanitizeToolGroupKey(key);
+    return (
+      String(first.itemId || "").trim() ||
+      "unknown-" + String(fallbackIndex || 0)
+    );
   }
 
   function createToolActivityGroup(run, expandedIds, fallbackIndex) {
     const first = run[0] || {};
     const last = run[run.length - 1] || first;
-    const id =
-      "assistant-tool-activity-" +
-      stableToolActivityGroupKey(run, fallbackIndex);
+    const rowKey = "tool-run:" + stableToolActivityGroupKey(run, fallbackIndex);
     return {
-      id,
-      kind: "tool_activity_group",
+      rowKey,
+      itemIds: run.map(function (item) {
+        return String(item.itemId);
+      }),
+      rowKind: "tool-activity-group",
       items: run,
       createdAt: first.createdAt,
       updatedAt: last.updatedAt || last.createdAt,
-      state: last.state,
+      status: last.status,
       expanded:
         expandedIds &&
         typeof expandedIds.has === "function" &&
-        expandedIds.has(id),
+        expandedIds.has(rowKey),
     };
   }
 
   function buildTranscriptRenderItems(items, mode, expandedIds) {
-    const canonicalItems = buildCanonicalTranscriptItems(items);
-    if (mode !== "bubble") return canonicalItems;
+    const presentationRows = buildPresentationItemRows(items);
+    if (mode !== "bubble") return presentationRows;
     const entries = [];
     let toolRun = [];
     function flush() {
@@ -1474,8 +1406,8 @@
         );
       toolRun = [];
     }
-    canonicalItems.forEach(function (item) {
-      if (item.kind === "tool_call" || item.kind === "tool") {
+    presentationRows.forEach(function (item) {
+      if (item.rowKind === "tool-call") {
         toolRun.push(item);
         return;
       }
@@ -1487,22 +1419,28 @@
   }
 
   function itemRole(item) {
-    if (item.kind === "message") return String(item.role || "assistant");
+    if (item.rowKind === "message") return String(item.role || "assistant");
     if (
-      item.kind === "tool" ||
-      item.kind === "tool_call" ||
-      item.kind === "tool_activity_group"
+      item.rowKind === "tool-call" ||
+      item.rowKind === "tool-activity-group"
     ) {
       return "tool";
     }
-    if (item.kind === "permission") return "permission";
-    if (item.kind === "process" || item.kind === "thought") return "process";
-    return String(item.kind || "status");
+    if (item.rowKind === "permission") return "permission";
+    if (item.rowKind === "thought") return "process";
+    return String(item.rowKind || "status");
   }
 
   function createTranscriptNode(item) {
     const row = el("article", "assistant-transcript-row");
-    row.setAttribute("data-assistant-item-id", String(item.id || ""));
+    row.setAttribute("data-assistant-row-key", String(item.rowKey || ""));
+    row.setAttribute(
+      "data-assistant-item-ids",
+      (Array.isArray(item.itemIds) ? item.itemIds : []).join("\u001f"),
+    );
+    if (item.itemIds && item.itemIds.length === 1) {
+      row.setAttribute("data-assistant-item-id", String(item.itemIds[0]));
+    }
     const meta = el("div", "assistant-transcript-meta");
     const body = el("div", "assistant-transcript-body");
     body.setAttribute("data-assistant-transcript-body", "true");
@@ -1512,7 +1450,7 @@
   }
 
   function updateTranscriptClasses(row, item, options) {
-    const kind = String(item.kind || "status");
+    const kind = String(item.rowKind || "status");
     const role = itemRole(item);
     const variant = String((options && options.variant) || "acp-chat");
     row.className = "assistant-transcript-row";
@@ -1546,13 +1484,13 @@
     );
     row.classList.toggle(
       "is-streaming",
-      String(item.state || "").trim() === "streaming",
+      String(item.status || "").trim() === "streaming",
     );
     row.classList.toggle(
       "is-error",
-      String(item.state || "").trim() === "error",
+      String(item.status || "").trim() === "error",
     );
-    if (item.kind === "tool_activity_group") {
+    if (item.rowKind === "tool-activity-group") {
       row.classList.add("is-tool-activity-group");
       row.classList.toggle("is-expanded", item.expanded === true);
       row.classList.toggle("is-collapsed", item.expanded !== true);
@@ -1618,13 +1556,13 @@
     badge.title =
       transcriptLabel(options, "latestRevision") +
       ": " +
-      String(revision.latestStatus || "") +
+      String(revision.status || "") +
       ", repair round " +
-      String(Number(revision.latestRepairRound || 0));
+      String(Number(revision.repairRound || 0));
     parent.appendChild(badge);
   }
 
-  function renderCanonicalItem(row, item, options) {
+  function renderPresentationRow(row, item, options) {
     const renderMarkdown =
       options.renderMarkdown ||
       function (value) {
@@ -1645,7 +1583,7 @@
     body.className = "assistant-transcript-body";
     row.onclick = null;
     row.onkeydown = null;
-    if (item.kind === "message") {
+    if (item.rowKind === "message") {
       meta.appendChild(
         el(
           "span",
@@ -1661,7 +1599,7 @@
       meta.appendChild(
         el("span", "assistant-transcript-time", formatTime(item.createdAt)),
       );
-      if (String(item.state || "").trim() === "streaming") {
+      if (String(item.status || "").trim() === "streaming") {
         body.textContent = String(item.text || "");
         return;
       }
@@ -1670,11 +1608,11 @@
       decorateMarkdownCodeBlocks(body, options);
       return;
     }
-    if (item.kind === "process" || item.kind === "thought") {
+    if (item.rowKind === "thought") {
       meta.textContent = String(
         item.label || transcriptLabel(options, "thinking"),
       );
-      if (String(item.state || "").trim() === "streaming") {
+      if (String(item.status || "").trim() === "streaming") {
         body.textContent = String(item.text || "");
         return;
       }
@@ -1683,7 +1621,7 @@
       decorateMarkdownCodeBlocks(body, options);
       return;
     }
-    if (item.kind === "permission") {
+    if (item.rowKind === "permission") {
       meta.textContent = transcriptLabel(options, "permission");
       const led = el(
         "span",
@@ -1707,18 +1645,18 @@
       );
       return;
     }
-    if (item.kind === "tool" || item.kind === "tool_call") {
+    if (item.rowKind === "tool-call") {
       meta.textContent = transcriptLabel(options, "tool");
       const led = el(
         "span",
-        "assistant-transcript-tool-led " + toolToneClass(item.state),
+        "assistant-transcript-tool-led " + toolToneClass(item.status),
       );
       led.setAttribute("aria-hidden", "true");
       body.appendChild(led);
       appendToolDisplay(body, item);
       return;
     }
-    if (item.kind === "tool_activity_group") {
+    if (item.rowKind === "tool-activity-group") {
       const summaryState = toolActivitySummaryState(item.items);
       const summary = el(
         "button",
@@ -1772,7 +1710,7 @@
       if (typeof options.onToggleExpanded === "function") {
         summary.addEventListener("click", function (event) {
           event.stopPropagation();
-          options.onToggleExpanded(item.id);
+          options.onToggleExpanded(item.rowKey);
         });
       }
       body.appendChild(summary);
@@ -1782,12 +1720,12 @@
           const entry = el(
             "div",
             "assistant-transcript-tool-activity-item " +
-              toolToneClass(tool.state),
+              toolToneClass(tool.status),
           );
           setAssistantTooltip(entry, assistantToolCommandTooltip(tool));
           const toolLed = el(
             "span",
-            "assistant-transcript-tool-led " + toolToneClass(tool.state),
+            "assistant-transcript-tool-led " + toolToneClass(tool.status),
           );
           toolLed.setAttribute("aria-hidden", "true");
           entry.appendChild(toolLed);
@@ -1798,7 +1736,7 @@
       }
       return;
     }
-    if (item.kind === "status" && item.label === "workspace-activity") {
+    if (item.rowKind === "status" && item.label === "workspace-activity") {
       meta.textContent = transcriptLabel(options, "workspace");
       const relativePath =
         item.details &&
@@ -1828,14 +1766,14 @@
   function toolGroupSummaryText(items, options) {
     const tools = Array.isArray(items) ? items : [];
     const failedCount = tools.filter(function (tool) {
-      return normalizeStatusToken(tool.state) === "failed";
+      return normalizeStatusToken(tool.status) === "failed";
     }).length;
     const runningCount = tools.filter(function (tool) {
-      const status = normalizeStatusToken(tool.state);
+      const status = normalizeStatusToken(tool.status);
       return status === "in_progress" || status === "running";
     }).length;
     const pendingCount = tools.filter(function (tool) {
-      return normalizeStatusToken(tool.state) === "pending";
+      return normalizeStatusToken(tool.status) === "pending";
     }).length;
     return [
       String(tools.length) + " " + transcriptLabel(options, "tools"),
@@ -1861,7 +1799,7 @@
   }
 
   function renderAssistantTranscriptItem(row, item, options) {
-    renderCanonicalItem(row, item || {}, options || {});
+    renderPresentationRow(row, item || {}, options || {});
   }
 
   function createRow(item, options) {
@@ -1871,16 +1809,16 @@
   function transcriptItemSignature(item, options) {
     const source = item || {};
     const expanded =
-      source.kind === "tool_activity_group" && source.expanded === true
+      source.rowKind === "tool-activity-group" && source.expanded === true
         ? "expanded"
         : "collapsed";
     return [
       options && options.variant,
       options && options.mode,
-      source.id,
-      source.kind,
+      source.rowKey,
+      source.itemIds && source.itemIds.join(","),
+      source.rowKind,
       source.role,
-      source.state,
       source.status,
       source.label,
       source.text,
@@ -1894,13 +1832,13 @@
       source.resultSummary,
       expanded,
       source.revision && source.revision.count,
-      source.revision && source.revision.latestStatus,
+      source.revision && source.revision.status,
       Array.isArray(source.items)
         ? source.items
             .map(function (entry) {
               return [
-                entry && entry.id,
-                entry && entry.state,
+                entry && entry.itemId,
+                entry && entry.status,
                 entry && entry.toolName,
                 entry && entry.summary,
                 entry && entry.resultSummary,
@@ -1916,13 +1854,13 @@
     if (row.getAttribute("data-assistant-render-signature") === signature) {
       return false;
     }
-    const kind = String((item && item.kind) || "");
-    const state = String((item && item.state) || "");
+    const kind = String((item && item.rowKind) || "");
+    const state = String((item && item.status) || "");
     const nextText = String((item && item.text) || "");
     const previousText = row.getAttribute("data-assistant-stream-text");
     const body = row.querySelector("[data-assistant-transcript-body]");
     if (
-      (kind === "message" || kind === "thought" || kind === "process") &&
+      (kind === "message" || kind === "thought") &&
       state === "streaming" &&
       previousText !== null &&
       nextText.startsWith(previousText) &&
@@ -1946,10 +1884,7 @@
       return true;
     }
     renderAssistantTranscriptItem(row, item, options);
-    if (
-      state === "streaming" &&
-      (kind === "message" || kind === "thought" || kind === "process")
-    ) {
+    if (state === "streaming" && (kind === "message" || kind === "thought")) {
       row.setAttribute("data-assistant-stream-text", nextText);
     } else {
       row.removeAttribute("data-assistant-stream-text");
@@ -1974,8 +1909,8 @@
     const affected = new Map();
     (Array.isArray(opts.affectedItems) ? opts.affectedItems : []).forEach(
       function (item) {
-        const id = String(item && item.id ? item.id : "").trim();
-        if (id) affected.set(id, item);
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
+        if (itemId) affected.set(itemId, item);
       },
     );
     const operations = new Map();
@@ -1989,45 +1924,115 @@
         if (id) operations.set(id, mutation.op);
       },
     );
-    const virtualState = opts.virtualized
-      ? getVirtualTranscriptState(container)
-      : null;
-    let structural = false;
-    operations.forEach(function (operation, itemId) {
-      const row = nodeMap.get(itemId);
-      if (operation === "delete_item") {
-        if (row && row.parentNode === container) container.removeChild(row);
-        nodeMap.delete(itemId);
-        structural = true;
-        const location = virtualState && virtualState.itemLocations.get(itemId);
-        if (location) {
-          location.page.items.splice(location.index, 1);
-          virtualState.itemLocations.delete(itemId);
-          location.page.items.forEach(function (item, index) {
-            const id = String(item && item.id ? item.id : "").trim();
-            if (id) {
-              virtualState.itemLocations.set(id, {
-                page: location.page,
-                index,
-              });
-            }
-          });
-        }
-        return;
-      }
-      const item = affected.get(itemId);
-      if (!row || !item) {
-        structural = true;
-        return;
-      }
-      renderAssistantTranscriptItemIfChanged(row, item, opts);
-      const location = virtualState && virtualState.itemLocations.get(itemId);
-      if (location) location.page.items[location.index] = item;
+    const structural = Array.from(operations.values()).some(function (op) {
+      return op === "upsert_item" || op === "delete_item";
     });
-    if (structural) return false;
+    const pageItems = Array.isArray(effect.pageItems) ? effect.pageItems : null;
+    if (structural && !pageItems) return false;
+    let virtualState = null;
+    let virtual = null;
+    let rawItems = pageItems;
+    if (opts.virtualized) {
+      if (!opts.page || !Array.isArray(opts.page.items)) return false;
+      virtualState = getVirtualTranscriptState(container);
+      const merged = mergeVirtualTranscriptPage(virtualState, opts.page, opts);
+      if (!merged) return false;
+      const latestOptions = Object.assign({}, opts);
+      virtualState.latestOptions = latestOptions;
+      virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
+      rawItems = virtual.items;
+    }
+    if (!rawItems) {
+      operations.forEach(function (operation, itemId) {
+        if (operation === "delete_item") return;
+        const item = affected.get(itemId);
+        const row = nodeMap.get("item:" + itemId);
+        const presentation = createItemPresentationRow(item);
+        if (!row || !presentation) return;
+        renderAssistantTranscriptItemIfChanged(row, presentation, opts);
+      });
+      return true;
+    }
+    const rows = buildTranscriptRenderItems(
+      rawItems,
+      opts.mode === "bubble" ? "bubble" : "plain",
+      opts.expandedIds,
+    );
+    const desiredKeys = new Set(
+      rows.map(function (row) {
+        return row.rowKey;
+      }),
+    );
+    const changedItemIds = new Set(operations.keys());
+    (Array.isArray(effect.evictedItemIds) ? effect.evictedItemIds : []).forEach(
+      function (itemId) {
+        changedItemIds.add(String(itemId));
+      },
+    );
+    const dirtyRowKeys = new Set();
+    let removedRows = 0;
+    nodeMap.forEach(function (row, rowKey) {
+      if (desiredKeys.has(String(rowKey))) return;
+      if (row && row.parentNode === container) container.removeChild(row);
+      nodeMap.delete(rowKey);
+      dirtyRowKeys.add(String(rowKey));
+      removedRows += 1;
+    });
+    let insertedRows = 0;
+    let updatedRows = 0;
+    rows.forEach(function (presentation, index) {
+      const rowKey = String(presentation.rowKey);
+      let row = nodeMap.get(rowKey);
+      const representedItemIds = presentation.itemIds.join("\u001f");
+      const membershipChanged =
+        !!row &&
+        row.getAttribute("data-assistant-item-ids") !== representedItemIds;
+      const touchesChangedItem = presentation.itemIds.some(function (itemId) {
+        return changedItemIds.has(itemId);
+      });
+      if (!row) {
+        row = createRow(presentation, { variant: opts.variant });
+        nodeMap.set(rowKey, row);
+        dirtyRowKeys.add(rowKey);
+        insertedRows += 1;
+      } else if (membershipChanged || touchesChangedItem) {
+        dirtyRowKeys.add(rowKey);
+      }
+      row.setAttribute("data-assistant-item-ids", representedItemIds);
+      applyVirtualTranscriptRowMetadata(row, presentation, index, virtual);
+      if (
+        dirtyRowKeys.has(rowKey) &&
+        renderAssistantTranscriptItemIfChanged(row, presentation, opts)
+      ) {
+        updatedRows += 1;
+      }
+    });
+    const children = Array.from(container.children || []);
+    let anchor =
+      children.length &&
+      children[children.length - 1].classList &&
+      children[children.length - 1].classList.contains(
+        "assistant-transcript-virtual-spacer",
+      )
+        ? children[children.length - 1]
+        : null;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = nodeMap.get(rows[index].rowKey);
+      if (!row) return false;
+      const currentChildren = Array.from(container.children || []);
+      const rowIndex = currentChildren.indexOf(row);
+      const next = rowIndex >= 0 ? currentChildren[rowIndex + 1] || null : null;
+      if (next !== anchor) container.insertBefore(row, anchor);
+      anchor = row;
+    }
     const measuredChanged =
       virtualState && opts.virtualized
-        ? measureVirtualTranscriptRows(container, virtualState, opts)
+        ? measureVirtualTranscriptRows(
+            container,
+            virtualState,
+            opts,
+            dirtyRowKeys,
+          )
         : false;
     if (measuredChanged && virtualState.lastVirtual) {
       virtualState.lastAnchor = captureVirtualScrollAnchor(
@@ -2035,8 +2040,18 @@
         virtualState.lastVirtual,
       );
     }
+    if (virtualState && virtual) virtualState.lastVirtual = virtual;
     if (shouldStickAssistantTranscript(container, opts.stickThreshold)) {
       stickAssistantTranscriptToBottom(container);
+    }
+    if (typeof opts.onEffectRendered === "function") {
+      opts.onEffectRendered({
+        renderPath: "incremental",
+        insertedRows,
+        updatedRows,
+        removedRows,
+        measuredRows: dirtyRowKeys.size,
+      });
     }
     return true;
   }
@@ -2138,7 +2153,7 @@
     }
     const itemOrderKey = items
       .map(function (item) {
-        return String(item.kind || "") + ":" + String(item.id || "");
+        return String(item.rowKind || "") + ":" + String(item.rowKey || "");
       })
       .join("|");
     const contextKey = [
@@ -2170,7 +2185,7 @@
       items.forEach(function (item, index) {
         const row = createRow(item, { variant });
         applyVirtualTranscriptRowMetadata(row, item, index, virtual);
-        if (canDiff) nodeMap.set(String(item.id || ""), row);
+        if (canDiff) nodeMap.set(String(item.rowKey || ""), row);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
         container.appendChild(row);
       });
@@ -2180,7 +2195,7 @@
     } else {
       const desiredIds = new Set(
         items.map(function (item) {
-          return String(item.id || "");
+          return String(item.rowKey || "");
         }),
       );
       nodeMap.forEach(function (row, id) {
@@ -2189,23 +2204,27 @@
         nodeMap.delete(id);
       });
       items.forEach(function (item, index) {
-        const id = String(item.id || "");
-        let row = nodeMap.get(id);
+        const rowKey = String(item.rowKey || "");
+        let row = nodeMap.get(rowKey);
         if (!row) {
           row = createRow(item, { variant });
-          nodeMap.set(id, row);
+          nodeMap.set(rowKey, row);
           container.appendChild(row);
         }
         applyVirtualTranscriptRowMetadata(row, item, index, virtual);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
       });
       if (previousItemOrder !== itemOrderKey) {
-        items.forEach(function (item) {
-          const row = nodeMap.get(String(item.id || ""));
-          if (!row) return;
-          if (row.parentNode === container) container.removeChild(row);
-          container.appendChild(row);
-        });
+        let anchor = null;
+        for (let index = items.length - 1; index >= 0; index -= 1) {
+          const row = nodeMap.get(String(items[index].rowKey || ""));
+          if (!row) continue;
+          const children = Array.from(container.children || []);
+          const rowIndex = children.indexOf(row);
+          const next = rowIndex >= 0 ? children[rowIndex + 1] || null : null;
+          if (next !== anchor) container.insertBefore(row, anchor);
+          anchor = row;
+        }
       }
     }
     const measuredChanged =
@@ -2251,6 +2270,7 @@
   }
 
   window.AssistantTranscriptRenderer = {
+    adaptLegacyTranscriptItem,
     applyAssistantTranscriptEffects,
     buildTranscriptRenderItems,
     compactAssistantToolName,

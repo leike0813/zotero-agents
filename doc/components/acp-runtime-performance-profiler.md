@@ -311,3 +311,12 @@ The v3 field vocabulary is current-state only: `owner`, `transcriptRegion`,
 `pageKey`, `itemId`, `itemKind`, `publicationId`, `publicationKind`,
 `publicationForm`, and `publicationCause`. The runtime validator rejects old
 Workspace transcript aliases and `undefined` wire values.
+
+Selected tail pages are bounded by their declared `limit`; `startCursor`
+advances as `totalItemCount` grows. Steady render work uses presentation
+`rowKey + itemIds` without inventing a second item identity. The profiler
+records the user's actual execution display mode and accepts Shell/child/render
+stages only for publication identities posted inside the current profile
+window. Incremental transcript renders also report bounded inserted, updated,
+removed, and measured row counters under `renderPath=incremental`; these
+counters diagnose DOM work and do not change the acknowledgement envelope.

@@ -469,6 +469,10 @@ async function loadAcpChatSidebarForSmoke(document: any) {
       },
     },
     AssistantPanelRenderer: {
+      renderAssistantMessageCounts(_container: any, counts: any, labels: any) {
+        counterRenderCalls.push({ counts, labels });
+        return true;
+      },
       renderAssistantPanelSnapshot(panelSnapshot: any, options: any = {}) {
         const managedRegions = options.managedRegions || {};
         const counterOnly =
@@ -678,6 +682,7 @@ function createFakeDocumentForAssistantPanel() {
   const documentRef: any = {
     activeElement: null,
     measurementHeights: new Map<string, number>(),
+    measurementReads: new Map<string, number>(),
     createElement(tag: string) {
       return new FakeElement(tag, documentRef);
     },
@@ -753,6 +758,13 @@ function createFakeDocumentForAssistantPanel() {
     private measuredHeight() {
       const id = this.getAttribute("data-assistant-item-id") || "";
       const rowKey = this.getAttribute("data-assistant-virtual-row-key") || "";
+      const measurementKey = rowKey || id;
+      if (measurementKey) {
+        this.ownerDocument.measurementReads.set(
+          measurementKey,
+          (this.ownerDocument.measurementReads.get(measurementKey) || 0) + 1,
+        );
+      }
       const explicit =
         this.ownerDocument.measurementHeights.get(id) ??
         this.ownerDocument.measurementHeights.get(rowKey);
@@ -775,12 +787,23 @@ function createFakeDocumentForAssistantPanel() {
     }
 
     appendChild(child: FakeElement) {
+      if (child.parentNode) {
+        child.parentNode.children = child.parentNode.children.filter(
+          (entry) => entry !== child,
+        );
+      }
       child.parentNode = this;
       this.children.push(child);
       return child;
     }
 
     insertBefore(child: FakeElement, before: FakeElement | null) {
+      if (child === before) return child;
+      if (child.parentNode) {
+        child.parentNode.children = child.parentNode.children.filter(
+          (entry) => entry !== child,
+        );
+      }
       child.parentNode = this;
       if (!before) {
         this.children.push(child);
@@ -2795,7 +2818,7 @@ describe("acp ui smoke", function () {
       assistantTranscriptRendererJs,
       "assistant-transcript-revision-badge",
     );
-    assert.include(assistantTranscriptRendererJs, "tool_activity_group");
+    assert.include(assistantTranscriptRendererJs, "tool-activity-group");
     assert.include(assistantTranscriptRendererJs, "stableToolActivityGroupKey");
     assert.include(assistantTranscriptRendererJs, '"aria-expanded"');
     assert.include(
@@ -2810,10 +2833,7 @@ describe("acp ui smoke", function () {
     );
     assert.include(assistantTranscriptRendererJs, "data-assistant-item-kind");
     assert.include(assistantTranscriptRendererJs, "data-assistant-role");
-    assert.include(
-      assistantTranscriptRendererJs,
-      'item.kind === "process" || item.kind === "thought"',
-    );
+    assert.include(assistantTranscriptRendererJs, 'item.rowKind === "thought"');
     assert.include(
       assistantTranscriptRendererJs,
       'transcriptLabel(options, "thinking")',
@@ -6804,15 +6824,17 @@ describe("acp ui smoke", function () {
         limit: 80,
         items: [
           {
-            id: "message-1",
-            kind: "message",
+            itemId: "message-1",
+            itemKind: "message",
             role: "assistant",
             text: "hello virtual transcript",
+            status: "complete",
           },
           {
-            id: "thought-2",
-            kind: "thought",
+            itemId: "thought-2",
+            itemKind: "thought",
             text: "thinking",
+            status: "complete",
           },
         ],
       },
@@ -6850,11 +6872,11 @@ describe("acp ui smoke", function () {
           transcriptRevision: revision,
           items: [
             {
-              id: "message-1",
-              kind: "message",
+              itemId: "message-1",
+              itemKind: "message",
               role: "assistant",
               text: value,
-              state: "streaming",
+              status: "streaming",
             },
           ],
         },
@@ -6868,10 +6890,10 @@ describe("acp ui smoke", function () {
       });
 
     render(1, "hello");
-    const originalRow = nodeMap.get("message-1");
+    const originalRow = nodeMap.get("item:message-1");
     render(2, "hello world");
 
-    assert.strictEqual(nodeMap.get("message-1"), originalRow);
+    assert.strictEqual(nodeMap.get("item:message-1"), originalRow);
     assert.include(collectFakeText(originalRow), "hello world");
   });
 
@@ -6885,18 +6907,18 @@ describe("acp ui smoke", function () {
       container: transcript,
       items: [
         {
-          id: "message-1",
-          kind: "message",
+          itemId: "message-1",
+          itemKind: "message",
           role: "assistant",
           text: "hello",
-          state: "streaming",
+          status: "streaming",
         },
         {
-          id: "message-2",
-          kind: "message",
+          itemId: "message-2",
+          itemKind: "message",
           role: "user",
           text: "question",
-          state: "complete",
+          status: "complete",
         },
       ],
       nodeMap,
@@ -6907,8 +6929,8 @@ describe("acp ui smoke", function () {
         orderKey = result.orderKey;
       },
     });
-    const firstRow = nodeMap.get("message-1");
-    const secondRow = nodeMap.get("message-2");
+    const firstRow = nodeMap.get("item:message-1");
+    const secondRow = nodeMap.get("item:message-2");
     const originalTextNode = firstRow.querySelector(
       "[data-assistant-transcript-body]",
     )?.firstChild;
@@ -6923,26 +6945,265 @@ describe("acp ui smoke", function () {
           mutations: [
             { op: "append_text", itemId: "message-1", text: " world" },
           ],
+          pageItems: [
+            {
+              itemId: "message-1",
+              itemKind: "message",
+              role: "assistant",
+              text: "hello world",
+              status: "streaming",
+            },
+            {
+              itemId: "message-2",
+              itemKind: "message",
+              role: "user",
+              text: "question",
+              status: "complete",
+            },
+          ],
         },
         affectedItems: [
           {
-            id: "message-1",
-            kind: "message",
+            itemId: "message-1",
+            itemKind: "message",
             role: "assistant",
             text: "hello world",
-            state: "streaming",
+            status: "streaming",
           },
         ],
         mode: "plain",
       }),
     );
-    assert.strictEqual(nodeMap.get("message-1"), firstRow);
-    assert.strictEqual(nodeMap.get("message-2"), secondRow);
+    assert.strictEqual(nodeMap.get("item:message-1"), firstRow);
+    assert.strictEqual(nodeMap.get("item:message-2"), secondRow);
     assert.strictEqual(
       firstRow.querySelector("[data-assistant-transcript-body]")?.firstChild,
       originalTextNode,
     );
     assert.include(collectFakeText(firstRow), "hello world");
+  });
+
+  it("inserts and deletes shared transcript items without replacing unaffected rows", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("section");
+    const nodeMap = new Map<string, any>();
+    const initialItems = [
+      {
+        itemId: "message-1",
+        itemKind: "message",
+        role: "assistant",
+        text: "hello",
+        status: "streaming",
+      },
+      {
+        itemId: "message-2",
+        itemKind: "message",
+        role: "user",
+        text: "question",
+        status: "complete",
+      },
+    ];
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      items: initialItems,
+      nodeMap,
+      orderKey: "",
+      modeKey: "plain",
+      mode: "plain",
+    });
+    const firstRow = nodeMap.get("item:message-1");
+    const secondRow = nodeMap.get("item:message-2");
+    const firstTextNode = firstRow.querySelector(
+      "[data-assistant-transcript-body]",
+    )?.firstChild;
+    const nextItems = [
+      initialItems[0],
+      initialItems[1],
+      {
+        itemId: "tool-1",
+        itemKind: "tool-call",
+        toolCallId: "call-1",
+        title: "Read",
+        toolName: "read_file",
+        status: "in-progress",
+      },
+    ];
+
+    assert.isTrue(
+      renderer.applyAssistantTranscriptEffects({
+        container: transcript,
+        nodeMap,
+        effect: {
+          kind: "mutations",
+          onSelectedPage: true,
+          mutations: [{ op: "upsert_item", item: nextItems[2] }],
+          affectedItems: [nextItems[2]],
+          pageItems: nextItems,
+        },
+        mode: "plain",
+      }),
+    );
+    assert.strictEqual(nodeMap.get("item:message-1"), firstRow);
+    assert.strictEqual(nodeMap.get("item:message-2"), secondRow);
+    assert.strictEqual(
+      firstRow.querySelector("[data-assistant-transcript-body]")?.firstChild,
+      firstTextNode,
+    );
+    assert.isDefined(nodeMap.get("item:tool-1"));
+
+    assert.isTrue(
+      renderer.applyAssistantTranscriptEffects({
+        container: transcript,
+        nodeMap,
+        effect: {
+          kind: "mutations",
+          onSelectedPage: true,
+          mutations: [{ op: "delete_item", itemId: "message-2" }],
+          affectedItems: [],
+          pageItems: [nextItems[0], nextItems[2]],
+        },
+        mode: "plain",
+      }),
+    );
+    assert.strictEqual(nodeMap.get("item:message-1"), firstRow);
+    assert.isUndefined(nodeMap.get("item:message-2"));
+    assert.isDefined(nodeMap.get("item:tool-1"));
+  });
+
+  it("uses explicit presentation row identity for bubble tool groups", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const rows = renderer.buildTranscriptRenderItems(
+      [
+        {
+          itemId: "tool-1",
+          itemKind: "tool-call",
+          toolCallId: "call-1",
+          title: "Read",
+          status: "completed",
+        },
+        {
+          itemId: "tool-2",
+          itemKind: "tool-call",
+          toolCallId: "call-2",
+          title: "Write",
+          status: "in-progress",
+        },
+      ],
+      "bubble",
+      new Set(),
+    );
+
+    assert.lengthOf(rows, 1);
+    assert.deepEqual(Array.from(rows[0].itemIds), ["tool-1", "tool-2"]);
+    assert.equal(rows[0].rowKey, "tool-run:tool-1");
+    assert.equal(rows[0].rowKind, "tool-activity-group");
+    assert.notProperty(rows[0], "id");
+    assert.notProperty(rows[0], "kind");
+    assert.notProperty(rows[0], "state");
+  });
+
+  it("measures only the dirty virtual row for a steady patch", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("section");
+    transcript.clientHeight = 400;
+    transcript.scrollHeight = 800;
+    transcript.scrollTop = 400;
+    const nodeMap = new Map<string, any>();
+    const items = [0, 1, 2].map((index) => ({
+      itemId: `message-${index}`,
+      itemKind: "message",
+      role: "assistant",
+      text: `message ${index}`,
+      status: "complete",
+    }));
+    const page = {
+      requestId: "owner-a",
+      cursor: 0,
+      total: 3,
+      transcriptRevision: 1,
+      limit: 80,
+      stableTail: true,
+      items,
+    };
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      pageKey: "owner-a",
+      page,
+      nodeMap,
+      orderKey: "",
+      modeKey: "plain",
+      mode: "plain",
+    });
+    fakeDocument.measurementReads.clear();
+    const patchedItems = items.map((item) =>
+      item.itemId === "message-1" ? { ...item, text: "changed" } : item,
+    );
+
+    assert.isTrue(
+      renderer.applyAssistantTranscriptEffects({
+        container: transcript,
+        virtualized: true,
+        pageKey: "owner-a",
+        page: { ...page, transcriptRevision: 2, items: patchedItems },
+        nodeMap,
+        effect: {
+          kind: "mutations",
+          onSelectedPage: true,
+          mutations: [
+            {
+              op: "patch_item",
+              itemId: "message-1",
+              patch: { text: "changed" },
+            },
+          ],
+          affectedItems: [patchedItems[1]],
+          pageItems: patchedItems,
+          evictedItemIds: [],
+        },
+        affectedItems: [patchedItems[1]],
+        mode: "plain",
+      }),
+    );
+    assert.deepEqual(Array.from(fakeDocument.measurementReads.keys()), [
+      "item:message-1",
+    ]);
+  });
+
+  it("renders typed message counts without projecting a panel snapshot", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const counter = fakeDocument.createElement("section");
+
+    assert.isTrue(
+      renderer.renderAssistantMessageCounts(
+        counter,
+        {
+          scopeKey: "backend\nconversation",
+          executionKey: "turn-1",
+          active: true,
+          current: { assistant: 2, thought: 1, tool: 3 },
+          cumulative: { assistant: 4, thought: 2, tool: 5 },
+          completeness: "complete",
+          revision: 7,
+        },
+        {
+          assistant: "Assistant",
+          thinking: "Thought",
+          tool: "Tool",
+        },
+      ),
+    );
+    assert.equal(
+      counter.getAttribute("data-message-counter-owner"),
+      "backend\nconversation",
+    );
+    assert.include(collectFakeText(counter), "2/4");
+    assert.include(collectFakeText(counter), "1/2");
+    assert.include(collectFakeText(counter), "3/5");
   });
 
   it("renders items-only virtual transcripts without requesting pages", async function () {
@@ -6959,10 +7220,11 @@ describe("acp ui smoke", function () {
       virtualized: true,
       pageKey: "skillrunner-run-a\ntask-a",
       items: Array.from({ length: 12 }, (_entry, index) => ({
-        id: `skillrunner-a-${index}`,
-        kind: "message",
+        itemId: `skillrunner-a-${index}`,
+        itemKind: "message",
         role: "assistant",
         text: `run A message ${index}`,
+        status: "complete",
       })),
       mode: "plain",
       nodeMap: new Map(),
@@ -6994,10 +7256,11 @@ describe("acp ui smoke", function () {
       pageKey: "skillrunner-run-b\ntask-b",
       items: [
         {
-          id: "skillrunner-b-1",
-          kind: "message",
+          itemId: "skillrunner-b-1",
+          itemKind: "message",
           role: "assistant",
           text: "run B transcript",
+          status: "complete",
         },
       ],
       mode: "plain",
@@ -7482,10 +7745,11 @@ describe("acp ui smoke", function () {
       transcriptRevision: 1,
       limit: 80,
       items: Array.from({ length: 5 }, (_entry, index) => ({
-        id: `message-${index}`,
-        kind: "message",
+        itemId: `message-${index}`,
+        itemKind: "message",
         role: "assistant",
         text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
+        status: "complete",
       })),
     };
 
@@ -7533,10 +7797,11 @@ describe("acp ui smoke", function () {
         transcriptRevision: 1,
         limit: 80,
         items: Array.from({ length: 5 }, (_entry, index) => ({
-          id: `message-${index}`,
-          kind: "message",
+          itemId: `message-${index}`,
+          itemKind: "message",
           role: "assistant",
           text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
+          status: "complete",
         })),
       },
       mode: "plain",
@@ -7571,10 +7836,11 @@ describe("acp ui smoke", function () {
       limit: 80,
       items: [
         {
-          id: "message-1",
-          kind: "message",
+          itemId: "message-1",
+          itemKind: "message",
           role: "assistant",
           text: "first",
+          status: "complete",
         },
       ],
     };
@@ -7623,10 +7889,11 @@ describe("acp ui smoke", function () {
       limit: 80,
       items: [
         {
-          id: "message-1",
-          kind: "message",
+          itemId: "message-1",
+          itemKind: "message",
           role: "assistant",
           text: "first",
+          status: "complete",
         },
       ],
     };
@@ -7677,10 +7944,11 @@ describe("acp ui smoke", function () {
         transcriptRevision: 1,
         limit: 80,
         items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${80 + index}`,
-          kind: "message",
+          itemId: `message-${80 + index}`,
+          itemKind: "message",
           role: "assistant",
           text: `message ${80 + index}`,
+          status: "complete",
         })),
       },
       mode: "plain",
@@ -7718,10 +7986,11 @@ describe("acp ui smoke", function () {
         transcriptRevision: 1,
         limit: 80,
         items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${80 + index}`,
-          kind: "message",
+          itemId: `message-${80 + index}`,
+          itemKind: "message",
           role: "assistant",
           text: `message ${80 + index}`,
+          status: "complete",
         })),
       },
       mode: "plain",
@@ -7767,10 +8036,11 @@ describe("acp ui smoke", function () {
         transcriptRevision: 1,
         limit: 80,
         items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${index}`,
-          kind: "message",
+          itemId: `message-${index}`,
+          itemKind: "message",
           role: "assistant",
           text: `message ${index}`,
+          status: "complete",
         })),
       },
       mode: "plain",
@@ -7804,10 +8074,11 @@ describe("acp ui smoke", function () {
     transcript.scrollTop = 700;
     const oldItems = [
       {
-        id: "message-old",
-        kind: "message",
+        itemId: "message-old",
+        itemKind: "message",
         role: "assistant",
         text: "old run transcript",
+        status: "complete",
       },
     ];
 
@@ -7852,10 +8123,11 @@ describe("acp ui smoke", function () {
         limit: 80,
         items: [
           {
-            id: "message-a",
-            kind: "message",
+            itemId: "message-a",
+            itemKind: "message",
             role: "assistant",
             text: "run A transcript",
+            status: "complete",
           },
         ],
       },
@@ -7897,10 +8169,11 @@ describe("acp ui smoke", function () {
         limit: 80,
         items: [
           {
-            id: "message-a",
-            kind: "message",
+            itemId: "message-a",
+            itemKind: "message",
             role: "assistant",
             text: "run A transcript",
+            status: "complete",
           },
         ],
       },
@@ -7926,10 +8199,11 @@ describe("acp ui smoke", function () {
         limit: 80,
         items: [
           {
-            id: "message-b",
-            kind: "message",
+            itemId: "message-b",
+            itemKind: "message",
             role: "assistant",
             text: "run B transcript",
+            status: "complete",
           },
         ],
       },
@@ -9555,11 +9829,11 @@ describe("acp ui smoke", function () {
       container: transcript,
       items: [
         {
-          id: "assistant-1",
-          kind: "message",
+          itemId: "assistant-1",
+          itemKind: "message",
           role: "assistant",
           text: "answer",
-          state: "complete",
+          status: "complete",
         },
       ],
       labels: { transcript: { assistant: "助手" } },
@@ -9598,21 +9872,26 @@ describe("acp ui smoke", function () {
     assert.include(acpChatJs, "state.toolActivityExpandedSignature");
     assert.include(
       acpSkillRunJs,
-      "let revision = incomingTranscriptRevision(run);",
+      "let revision = incomingTranscriptRevision(run, sourceSnapshot);",
     );
-    assert.include(acpSkillRunJs, "transcriptPageSignature(run)");
+    assert.include(
+      acpSkillRunJs,
+      "transcriptPageSignature(run, sourceSnapshot)",
+    );
     assert.include(acpSkillRunJs, "const virtualized =");
     assert.include(acpSkillRunJs, "isStaleLoadingTranscriptRevision");
     assert.include(acpSkillRunJs, "revision <= state.transcriptRevision");
     const acpSkillRenderTranscript = acpSkillRunJs.slice(
-      acpSkillRunJs.indexOf("function renderTranscript(run)"),
+      acpSkillRunJs.indexOf("function renderTranscript(run, snapshot)"),
       acpSkillRunJs.indexOf("function renderSelectedRun(snapshot)"),
     );
     assert.isBelow(
       acpSkillRenderTranscript.indexOf(
         "if (isStaleTranscriptRevision(revision))",
       ),
-      acpSkillRenderTranscript.indexOf("transcriptPageSignature(run)"),
+      acpSkillRenderTranscript.indexOf(
+        "transcriptPageSignature(run, sourceSnapshot)",
+      ),
     );
     assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
     assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");

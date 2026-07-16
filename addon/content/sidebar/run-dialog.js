@@ -905,6 +905,8 @@
       panelSnapshot.conversation &&
       Array.isArray(panelSnapshot.conversation.items)
         ? panelSnapshot.conversation.items
+            .map(renderer.adaptLegacyTranscriptItem)
+            .filter(Boolean)
         : [];
     const raw =
       panelSnapshot && panelSnapshot.raw

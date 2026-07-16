@@ -403,3 +403,12 @@ the preceding mutation result, so the final patch cannot overwrite newly
 appended text. Full-page clone/reindex and transcript revision in DOM order
 identity are not part of steady publication. Shell delivery and acknowledgement
 are scoped to the current child document generation for both surfaces.
+
+Item and row identity are deliberately separate on both surfaces. Domain pages
+and mutations expose only `itemId`, `itemKind`, and `status`; ordinary
+presentation rows use `rowKey=item:<itemId>`, while a bubble tool run uses
+`rowKey=tool-run:<firstItemId>` and declares every represented `itemId`.
+Chat and Skills share the same bounded selected-page model, structural keyed
+reconciler, direct typed message-count renderer, render failure/rebase rule,
+and dirty-row measurement path. A steady structural mutation never falls back
+to a full transcript or panel render.

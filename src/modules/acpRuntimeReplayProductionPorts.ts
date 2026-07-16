@@ -20,6 +20,7 @@ import type {
 } from "./acpRuntimeReplayProfiler";
 import { createAcpRuntimeReplayLogicalTime } from "./acpRuntimeReplayLogicalTime";
 import { createAcpRuntimeReplayOwnerIdentity } from "./acpRuntimeReplayIdentity";
+import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
 import type { AcpRuntimeTraceOwner } from "./acpRuntimeSemanticTrace";
 import {
   closeAssistantWorkspaceSidebar,
@@ -148,7 +149,7 @@ export function createAcpRuntimeReplayProductionProfilerPort(): AcpRuntimeReplay
       const zoteroMajorRaw = Number.parseInt(String(Zotero.version || "0"), 10);
       startAcpRuntimeProfile({
         requestId: syntheticRootId,
-        displayMode: "live",
+        displayMode: getAssistantExecutionDisplayMode(),
         transport: "unknown",
         zoteroMajor:
           zoteroMajorRaw === 7 || zoteroMajorRaw === 9

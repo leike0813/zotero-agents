@@ -26,26 +26,6 @@
     return ownerMatches(region.owner, source, ownerKey) ? region : null;
   }
 
-  function rendererItem(item) {
-    const source = item && typeof item === "object" ? item : {};
-    const revision =
-      source.revision && typeof source.revision === "object"
-        ? Object.assign({}, source.revision, {
-            latestStatus: source.revision.status,
-            latestRepairRound: source.revision.repairRound,
-          })
-        : source.revision;
-    return Object.assign({}, source, {
-      id: text(source.itemId),
-      kind: source.itemKind === "tool-call" ? "tool_call" : source.itemKind,
-      state:
-        source.status === "in-progress"
-          ? "in_progress"
-          : source.status || source.state,
-      revision,
-    });
-  }
-
   function rendererPage(region) {
     const page =
       region && region.status === "ready" && region.page ? region.page : null;
@@ -63,7 +43,8 @@
         typeof page.nextCursor === "number" ? page.nextCursor : undefined,
       eventSeq: Math.max(0, Number(page.eventSeq) || 0),
       transcriptRevision: Math.max(0, Number(region.uiRevision) || 0),
-      items: page.items.map(rendererItem),
+      stableTail: isTailPageKey(page.pageKey),
+      items: page.items,
     };
   }
 
@@ -125,67 +106,174 @@
 
   function createPageModel(page) {
     const items = page && Array.isArray(page.items) ? page.items : [];
-    const indexById = new Map();
-    items.forEach(function (item, index) {
-      indexById.set(text(item && item.itemId), index);
+    const itemsById = new Map();
+    const itemOrder = [];
+    items.forEach(function (item) {
+      const itemId = text(item && item.itemId);
+      if (!itemId || itemsById.has(itemId)) return;
+      itemsById.set(itemId, item);
+      itemOrder.push(itemId);
     });
-    return { page: page || null, indexById };
+    return { page: page || null, itemsById, itemOrder };
   }
 
-  function applyMutations(page, model, mutations) {
-    const current = page && Array.isArray(page.items) ? page.items : [];
-    let next = current;
-    let changed = false;
-    const affectedItems = new Map();
-    function mutableItems() {
-      if (!changed) {
-        next = current.slice();
-        changed = true;
-      }
-      return next;
+  function validatePageMetadata(page) {
+    if (!page || typeof page !== "object" || !text(page.pageKey)) return null;
+    const startCursor = Number(page.startCursor);
+    const limit = Number(page.limit);
+    const totalItemCount = Number(page.totalItemCount);
+    const eventSeq = Number(page.eventSeq);
+    if (
+      !Number.isInteger(startCursor) ||
+      startCursor < 0 ||
+      !Number.isInteger(limit) ||
+      limit <= 0 ||
+      !Number.isInteger(totalItemCount) ||
+      totalItemCount < 0 ||
+      !Number.isInteger(eventSeq) ||
+      eventSeq < 0
+    ) {
+      return null;
     }
-    (Array.isArray(mutations) ? mutations : []).forEach(function (mutation) {
-      const itemId = text(
-        mutation && mutation.op === "upsert_item"
-          ? mutation.item && mutation.item.itemId
-          : mutation && mutation.itemId,
-      );
-      if (!itemId) return;
-      const index = model.indexById.get(itemId);
+    return {
+      pageKey: text(page.pageKey),
+      startCursor,
+      limit,
+      totalItemCount,
+      previousCursor:
+        typeof page.previousCursor === "number" ? page.previousCursor : null,
+      nextCursor: typeof page.nextCursor === "number" ? page.nextCursor : null,
+      eventSeq,
+    };
+  }
+
+  function isTailPageKey(pageKey) {
+    return /\ntail:\d+$/.test(text(pageKey));
+  }
+
+  function planMutationBatch(model, mutations) {
+    if (!model || !model.page || !Array.isArray(mutations)) return null;
+    const knownItemIds = new Set(model.itemOrder);
+    const replacements = new Map();
+    const appendedItemIds = [];
+    const deletedItemIds = new Set();
+    const affectedItemIds = new Set();
+
+    function currentItem(itemId) {
+      return replacements.has(itemId)
+        ? replacements.get(itemId)
+        : model.itemsById.get(itemId);
+    }
+
+    for (const mutation of mutations) {
+      if (!mutation || typeof mutation !== "object") return null;
       if (mutation.op === "upsert_item") {
-        if (typeof index === "number") {
-          mutableItems()[index] = clone(mutation.item);
-          affectedItems.set(itemId, mutableItems()[index]);
-        } else {
-          const items = mutableItems();
-          model.indexById.set(itemId, items.length);
-          items.push(clone(mutation.item));
-          affectedItems.set(itemId, items[items.length - 1]);
+        const item = mutation.item;
+        const itemId = text(item && item.itemId);
+        if (!itemId || !text(item && item.itemKind)) return null;
+        if (!knownItemIds.has(itemId)) {
+          knownItemIds.add(itemId);
+          appendedItemIds.push(itemId);
         }
-      } else if (mutation.op === "append_text" && typeof index === "number") {
-        const items = mutableItems();
-        const item = items[index];
-        items[index] = Object.assign({}, item, {
-          text: String(item.text || "") + String(mutation.text || ""),
-        });
-        affectedItems.set(itemId, items[index]);
-      } else if (mutation.op === "patch_item" && typeof index === "number") {
-        const items = mutableItems();
-        items[index] = Object.assign(
-          {},
-          items[index],
-          clone(mutation.patch || {}),
-        );
-        affectedItems.set(itemId, items[index]);
-      } else if (mutation.op === "delete_item" && typeof index === "number") {
-        mutableItems().splice(index, 1);
-        model.indexById.clear();
-        next.forEach(function (item, itemIndex) {
-          model.indexById.set(text(item && item.itemId), itemIndex);
-        });
+        deletedItemIds.delete(itemId);
+        replacements.set(itemId, clone(item));
+        affectedItemIds.add(itemId);
+        continue;
       }
+      const itemId = text(mutation.itemId);
+      if (!itemId || !knownItemIds.has(itemId) || deletedItemIds.has(itemId)) {
+        return null;
+      }
+      const item = currentItem(itemId);
+      if (!item) return null;
+      if (mutation.op === "append_text") {
+        if (
+          (item.itemKind !== "message" && item.itemKind !== "thought") ||
+          typeof mutation.text !== "string"
+        ) {
+          return null;
+        }
+        replacements.set(
+          itemId,
+          Object.assign({}, item, {
+            text: String(item.text || "") + mutation.text,
+          }),
+        );
+        affectedItemIds.add(itemId);
+      } else if (mutation.op === "patch_item") {
+        if (
+          !mutation.patch ||
+          typeof mutation.patch !== "object" ||
+          Object.prototype.hasOwnProperty.call(mutation.patch, "itemId") ||
+          Object.prototype.hasOwnProperty.call(mutation.patch, "itemKind")
+        ) {
+          return null;
+        }
+        replacements.set(
+          itemId,
+          Object.assign({}, item, clone(mutation.patch)),
+        );
+        affectedItemIds.add(itemId);
+      } else if (mutation.op === "delete_item") {
+        deletedItemIds.add(itemId);
+        replacements.delete(itemId);
+        affectedItemIds.delete(itemId);
+      } else {
+        return null;
+      }
+    }
+
+    return {
+      replacements,
+      appendedItemIds,
+      deletedItemIds,
+      affectedItemIds,
+    };
+  }
+
+  function commitMutationBatch(page, model, pageMetadata, transaction) {
+    const startAdvance = pageMetadata.startCursor - Number(page.startCursor);
+    if (startAdvance < 0) return null;
+    let order = model.itemOrder
+      .filter(function (itemId) {
+        return !transaction.deletedItemIds.has(itemId);
+      })
+      .concat(transaction.appendedItemIds);
+    if (startAdvance > order.length) return null;
+    if (startAdvance > 0) order = order.slice(startAdvance);
+    if (order.length > pageMetadata.limit) {
+      order = order.slice(order.length - pageMetadata.limit);
+    }
+    const expectedLength = Math.min(
+      pageMetadata.limit,
+      Math.max(0, pageMetadata.totalItemCount - pageMetadata.startCursor),
+    );
+    if (order.length !== expectedLength) return null;
+    const items = [];
+    for (const itemId of order) {
+      const item = transaction.replacements.has(itemId)
+        ? transaction.replacements.get(itemId)
+        : model.itemsById.get(itemId);
+      if (!item) return null;
+      items.push(item);
+    }
+    const affectedItems = [];
+    transaction.affectedItemIds.forEach(function (itemId) {
+      if (order.indexOf(itemId) < 0) return;
+      const item = transaction.replacements.has(itemId)
+        ? transaction.replacements.get(itemId)
+        : model.itemsById.get(itemId);
+      if (item) affectedItems.push(item);
     });
-    return { items: next, affectedItems: Array.from(affectedItems.values()) };
+    return {
+      items,
+      affectedItems,
+      evictedItemIds: model.itemOrder.filter(function (itemId) {
+        return (
+          order.indexOf(itemId) < 0 && !transaction.deletedItemIds.has(itemId)
+        );
+      }),
+    };
   }
 
   function createReceiver(options) {
@@ -300,29 +388,41 @@
             ) {
               return rejected(publication, "gap", snapshot);
             }
+            const pageMetadata = validatePageMetadata(payload.page);
+            if (!pageMetadata) {
+              return rejected(publication, "invalid", snapshot, true);
+            }
+            const samePageKey =
+              text(current.page.pageKey) === text(pageMetadata.pageKey);
             const onSelectedPage =
-              text(current.page.pageKey) ===
-                text(payload.page && payload.page.pageKey) &&
-              Number(current.page.startCursor) ===
-                Number(payload.page && payload.page.startCursor);
+              samePageKey &&
+              (isTailPageKey(pageMetadata.pageKey) ||
+                Number(current.page.startCursor) === pageMetadata.startCursor);
             if (selectedPageModel.page !== current.page) {
               selectedPageModel = createPageModel(current.page);
             }
-            const applied = onSelectedPage
-              ? applyMutations(
-                  current.page,
-                  selectedPageModel,
-                  payload.mutations,
-                )
+            const transaction = onSelectedPage
+              ? planMutationBatch(selectedPageModel, payload.mutations)
               : null;
+            const applied =
+              onSelectedPage && transaction
+                ? commitMutationBatch(
+                    current.page,
+                    selectedPageModel,
+                    pageMetadata,
+                    transaction,
+                  )
+                : null;
+            if (onSelectedPage && !applied) {
+              return rejected(publication, "gap", snapshot, true);
+            }
             const nextPage = onSelectedPage
-              ? Object.assign({}, current.page, payload.page || {}, {
+              ? Object.assign({}, current.page, pageMetadata, {
                   items: applied.items,
                 })
               : Object.assign({}, current.page, {
-                  totalItemCount:
-                    Number(payload.page && payload.page.totalItemCount) || 0,
-                  eventSeq: Number(payload.page && payload.page.eventSeq) || 0,
+                  totalItemCount: pageMetadata.totalItemCount,
+                  eventSeq: pageMetadata.eventSeq,
                 });
             next.transcriptRegion = Object.assign({}, current, {
               uiRevision: Number(payload.uiRevision) || 0,
@@ -336,6 +436,8 @@
                 ? (payload.mutations || []).map(clone)
                 : [],
               affectedItems: applied ? applied.affectedItems : [],
+              pageItems: applied ? applied.items : [],
+              evictedItemIds: applied ? applied.evictedItemIds : [],
             };
           } else if (publication.publicationForm === "resync-required") {
             return rejected(publication, "gap", snapshot, true);
@@ -396,10 +498,10 @@
           );
           return result;
         }
-        options.setSnapshot(result.snapshot);
         try {
-          const rendered = options.render(result);
+          const rendered = options.render(result, publication);
           if (rendered === false) throw new Error("transcript-render-failed");
+          options.setSnapshot(result.snapshot);
           receiver.complete(
             publication && publication.publicationId,
             "accepted",
@@ -422,6 +524,81 @@
         return result;
       },
     };
+  }
+
+  function renderResult(result, options) {
+    const opts = options || {};
+    const snapshot = (result && result.snapshot) || {};
+    const kind = result && result.publicationKind;
+    const labels =
+      typeof opts.getLabels === "function"
+        ? opts.getLabels(snapshot) || {}
+        : {};
+    if (kind === "message-counts") {
+      return !!(
+        opts.panelRenderer &&
+        typeof opts.panelRenderer.renderAssistantMessageCounts === "function" &&
+        opts.panelRenderer.renderAssistantMessageCounts(
+          opts.messageCountContainer,
+          snapshot.messageCounts,
+          labels,
+        )
+      );
+    }
+    if (kind !== "transcript") {
+      return typeof opts.renderRegion === "function"
+        ? opts.renderRegion(result)
+        : true;
+    }
+    const ownerKey =
+      typeof opts.getOwnerKey === "function"
+        ? text(opts.getOwnerKey(snapshot))
+        : "";
+    const region = readRegion(snapshot, opts.source, ownerKey);
+    const page = rendererPage(region);
+    const effect = result.effect || {};
+    if (effect.kind === "none") return true;
+    if (effect.kind === "snapshot") {
+      if (typeof opts.renderSnapshot !== "function") return false;
+      const rendered = opts.renderSnapshot(result);
+      if (rendered !== false && typeof opts.onEffectRendered === "function") {
+        opts.onEffectRendered({
+          renderPath: "snapshot",
+          insertedRows: 0,
+          updatedRows: 0,
+          removedRows: 0,
+          measuredRows: 0,
+        });
+      }
+      return rendered;
+    }
+    const mode =
+      typeof opts.getMode === "function" ? opts.getMode() : opts.mode;
+    return !!(
+      opts.transcriptRenderer &&
+      typeof opts.transcriptRenderer.applyAssistantTranscriptEffects ===
+        "function" &&
+      opts.transcriptRenderer.applyAssistantTranscriptEffects({
+        container: opts.transcriptContainer,
+        nodeMap: opts.rowNodesByKey,
+        effect,
+        affectedItems: effect.affectedItems || [],
+        virtualized:
+          !!page &&
+          (typeof opts.isVirtualized === "function"
+            ? opts.isVirtualized(snapshot, region)
+            : true),
+        pageKey: page ? page.requestId : undefined,
+        page: page || undefined,
+        mode: mode === "bubble" ? "bubble" : "plain",
+        variant: opts.variant,
+        expandedIds: opts.expandedRowKeys,
+        renderMarkdown: opts.renderMarkdown,
+        formatTime: opts.formatTime,
+        labels,
+        onEffectRendered: opts.onEffectRendered,
+      })
+    );
   }
 
   function legacyOptions(group) {
@@ -547,7 +724,7 @@
     createReceiver,
     ownerMatches,
     readRegion,
+    renderResult,
     rendererPage,
-    rendererItem,
   };
 })();

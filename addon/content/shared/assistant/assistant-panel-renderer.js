@@ -830,17 +830,11 @@
     });
   }
 
-  function renderAssistantMessageCounter(container, snapshot) {
-    if (!container) return;
-    const panel = normalize(snapshot);
-    const counts =
-      panel.raw && typeof panel.raw.messageCounts === "object"
-        ? panel.raw.messageCounts
-        : null;
-    clear(container);
+  function renderAssistantMessageCounts(container, counts, labels) {
+    if (!container) return false;
     if (!counts || !counts.current) {
       container.classList.add("hidden");
-      return;
+      return true;
     }
     container.classList.remove("hidden");
     container.setAttribute(
@@ -848,17 +842,23 @@
       safeText(counts.scopeKey),
     );
     const complete = safeText(counts.completeness) === "complete";
+    const countLabels = labels && typeof labels === "object" ? labels : {};
     const categories = [
       {
         key: "assistant",
-        label: labelOf(panel, "transcript.assistant", "Assistant"),
+        label: safeText(countLabels.assistant) || "Assistant",
       },
       {
         key: "thought",
-        label: labelOf(panel, "transcript.thinking", "Thought"),
+        label: safeText(countLabels.thinking) || "Thought",
       },
-      { key: "tool", label: labelOf(panel, "transcript.tool", "Tool") },
+      { key: "tool", label: safeText(countLabels.tool) || "Tool" },
     ];
+    const nodes =
+      container.__assistantMessageCountNodes instanceof Map
+        ? container.__assistantMessageCountNodes
+        : new Map();
+    container.__assistantMessageCountNodes = nodes;
     categories.forEach(function (category) {
       const current = Math.max(0, Number(counts.current[category.key]) || 0);
       const cumulative = Math.max(
@@ -866,15 +866,42 @@
         Number(counts.cumulative && counts.cumulative[category.key]) || 0,
       );
       const value = complete ? current + "/" + cumulative : String(current);
-      const item = el("div", "assistant-message-counter-item");
-      item.setAttribute("data-message-counter-kind", category.key);
-      item.setAttribute("aria-label", category.label + " " + value);
-      item.appendChild(
-        el("span", "assistant-message-counter-label", category.label),
-      );
-      item.appendChild(el("span", "assistant-message-counter-value", value));
-      container.appendChild(item);
+      let entry = nodes.get(category.key);
+      if (entry && entry.item.parentNode !== container) {
+        nodes.delete(category.key);
+        entry = null;
+      }
+      if (!entry) {
+        const item = el("div", "assistant-message-counter-item");
+        item.setAttribute("data-message-counter-kind", category.key);
+        const label = el("span", "assistant-message-counter-label");
+        const valueNode = el("span", "assistant-message-counter-value");
+        item.appendChild(label);
+        item.appendChild(valueNode);
+        container.appendChild(item);
+        entry = { item, label, value: valueNode };
+        nodes.set(category.key, entry);
+      }
+      entry.label.textContent = category.label;
+      entry.value.textContent = value;
+      entry.item.setAttribute("data-message-counter-kind", category.key);
+      entry.item.setAttribute("aria-label", category.label + " " + value);
     });
+    return true;
+  }
+
+  function renderAssistantMessageCounter(container, snapshot) {
+    if (!container) return;
+    const panel = normalize(snapshot);
+    const counts =
+      panel.raw && typeof panel.raw.messageCounts === "object"
+        ? panel.raw.messageCounts
+        : null;
+    return renderAssistantMessageCounts(
+      container,
+      counts,
+      panel.labels && panel.labels.transcript,
+    );
   }
 
   function renderContextActions(container, snapshot, options) {
@@ -2749,6 +2776,7 @@
   }
 
   window.AssistantPanelRenderer = {
+    renderAssistantMessageCounts,
     renderAssistantPanelSnapshot,
     renderToolbar,
     renderContextSelectors,

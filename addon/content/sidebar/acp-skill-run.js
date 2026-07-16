@@ -266,21 +266,21 @@
     return true;
   }
 
-  function transcriptRegionForRun(run) {
+  function transcriptRegionForRun(run, snapshot) {
     const publication = assistantTranscriptPublication();
     return publication
       ? publication.readRegion(
-          state.snapshot || {},
+          snapshot || state.snapshot || {},
           "acp-skills",
           safeText(run && run.requestId),
         )
       : null;
   }
 
-  function transcriptRendererPageForRun(run) {
+  function transcriptRendererPageForRun(run, snapshot) {
     const publication = assistantTranscriptPublication();
     return publication
-      ? publication.rendererPage(transcriptRegionForRun(run))
+      ? publication.rendererPage(transcriptRegionForRun(run, snapshot))
       : null;
   }
 
@@ -293,8 +293,8 @@
     return Math.max(0, Math.floor(Number(value || 0) || 0));
   }
 
-  function transcriptPageSignature(run) {
-    const page = transcriptRendererPageForRun(run);
+  function transcriptPageSignature(run, snapshot) {
+    const page = transcriptRendererPageForRun(run, snapshot);
     if (!page) return "";
     return [
       safeText(page.requestId),
@@ -305,7 +305,7 @@
       String(transcriptRevisionNumber(page.transcriptRevision)),
       (Array.isArray(page.items) ? page.items : [])
         .map(function (item) {
-          return safeText(item && item.id);
+          return safeText(item && item.itemId);
         })
         .join(","),
     ].join("|");
@@ -324,8 +324,8 @@
     return true;
   }
 
-  function incomingTranscriptRevision(run) {
-    const region = transcriptRegionForRun(run);
+  function incomingTranscriptRevision(run, snapshot) {
+    const region = transcriptRegionForRun(run, snapshot);
     if (region) return transcriptRevisionNumber(region.uiRevision);
     return transcriptRevisionNumber(run && run.transcriptRevision);
   }
@@ -864,11 +864,12 @@
     renderChatDisplayMode();
   }
 
-  function renderTranscript(run) {
+  function renderTranscript(run, snapshot) {
+    const sourceSnapshot = snapshot || state.snapshot || {};
     const transcript = $("acp-skill-run-transcript");
     const requestId = syncTranscriptRun(run, transcript);
-    let revision = incomingTranscriptRevision(run);
-    const region = transcriptRegionForRun(run);
+    let revision = incomingTranscriptRevision(run, sourceSnapshot);
+    const region = transcriptRegionForRun(run, sourceSnapshot);
     const publication = assistantTranscriptPublication();
     if (region && region.status === "loading") {
       if (isStaleLoadingTranscriptRevision(revision)) {
@@ -904,16 +905,16 @@
           "div",
           "empty-state compact",
           safeText(
-            state.snapshot &&
-              state.snapshot.labels &&
-              state.snapshot.labels.transcriptRendererUnavailable,
+            sourceSnapshot &&
+              sourceSnapshot.labels &&
+              sourceSnapshot.labels.transcriptRendererUnavailable,
           ),
         ),
       );
       return;
     }
-    const page = transcriptRendererPageForRun(run);
-    const pageSignature = transcriptPageSignature(run);
+    const page = transcriptRendererPageForRun(run, sourceSnapshot);
+    const pageSignature = transcriptPageSignature(run, sourceSnapshot);
     const virtualized =
       !!page && state.transcriptPaginationVirtualizationEnabled !== false;
     const sourceRevision =
@@ -950,12 +951,12 @@
       renderMarkdown,
       formatTime,
       labels:
-        state.snapshot?.labels?.assistantPanel?.transcript ||
-        state.snapshot?.labels?.transcript ||
+        sourceSnapshot?.labels?.assistantPanel?.transcript ||
+        sourceSnapshot?.labels?.transcript ||
         {},
       emptyText:
-        state.snapshot?.labels?.assistantPanel?.transcript?.empty ||
-        state.snapshot?.labels?.transcript?.empty ||
+        sourceSnapshot?.labels?.assistantPanel?.transcript?.empty ||
+        sourceSnapshot?.labels?.transcript?.empty ||
         "Waiting for agent transcript...",
       onRequestPage: function (request) {
         if (!virtualized) {
@@ -1005,7 +1006,7 @@
     empty.classList.add("hidden");
     main.classList.remove("hidden");
     try {
-      renderTranscript(run);
+      renderTranscript(run, snapshot);
       return true;
     } catch (error) {
       renderPanelRuntimeFailure(
@@ -1038,44 +1039,65 @@
     });
   }
 
-  function renderPublicationResult(result) {
-    if (result.publicationKind !== "transcript") {
-      renderAssistantPanelRuntime(state.snapshot);
-      return true;
-    }
+  function renderPublicationResult(result, publication) {
+    const nextSnapshot = result.snapshot || {};
     const shared = assistantTranscriptPublication();
-    const renderer = assistantTranscriptRenderer();
-    const effect = result.effect || {};
-    const run = selectedRunFromSnapshot() || {};
-    const region = transcriptRegionForRun(run);
-    const transcript = $("acp-skill-run-transcript");
-    const targeted =
-      renderer &&
-      typeof renderer.applyAssistantTranscriptEffects === "function" &&
-      renderer.applyAssistantTranscriptEffects({
-        container: transcript,
-        nodeMap: state.transcriptNodeMap,
-        effect,
-        affectedItems: (effect.affectedItems || []).map(shared.rendererItem),
-        virtualized:
-          !!(region && region.page) &&
-          state.transcriptPaginationVirtualizationEnabled !== false,
-        mode: state.chatDisplayMode,
+    const run = (nextSnapshot && nextSnapshot.selectedRun) || {};
+    const rendered = !!(
+      shared &&
+      typeof shared.renderResult === "function" &&
+      shared.renderResult(result, {
+        source: "acp-skills",
+        getOwnerKey: function (snapshot) {
+          return safeText(snapshot && snapshot.selectedRun?.requestId);
+        },
+        panelRenderer: assistantPanelRenderer(),
+        messageCountContainer: $("acp-skill-run-message-counter"),
+        transcriptRenderer: assistantTranscriptRenderer(),
+        transcriptContainer: $("acp-skill-run-transcript"),
+        rowNodesByKey: state.transcriptNodeMap,
+        getMode: function () {
+          return state.chatDisplayMode;
+        },
+        isVirtualized: function () {
+          return state.transcriptPaginationVirtualizationEnabled !== false;
+        },
         variant: "skillrunner",
+        expandedRowKeys: state.toolActivityExpandedIds,
         renderMarkdown,
         formatTime,
-        labels:
-          state.snapshot?.labels?.assistantPanel?.transcript ||
-          state.snapshot?.labels?.transcript ||
-          {},
-      });
-    if (targeted) {
-      state.transcriptRevision = transcriptRevisionNumber(region.uiRevision);
+        getLabels: function (snapshot) {
+          return (
+            snapshot?.labels?.assistantPanel?.transcript ||
+            snapshot?.labels?.transcript ||
+            {}
+          );
+        },
+        renderRegion: function () {
+          renderAssistantPanelRuntime(nextSnapshot);
+          return true;
+        },
+        renderSnapshot: function () {
+          renderSelectedRun(nextSnapshot);
+          return true;
+        },
+        onEffectRendered: function (observation) {
+          sendAction("publication-render-observation", {
+            publicationId: safeText(publication && publication.publicationId),
+            ...observation,
+          });
+        },
+      })
+    );
+    if (rendered && result.publicationKind === "transcript") {
+      const region = transcriptRegionForRun(run, nextSnapshot);
+      state.transcriptRevision = transcriptRevisionNumber(
+        region && region.uiRevision,
+      );
       state.transcriptRenderedMode = state.chatDisplayMode;
       renderChatDisplayMode();
-      return true;
     }
-    return renderSelectedRun(state.snapshot);
+    return rendered;
   }
 
   function publicationClient() {

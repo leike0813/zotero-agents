@@ -214,6 +214,16 @@ describe("ACP runtime performance profiler", function () {
       snapshotAcpRuntimeProfiles()?.active[0].publicationLifecycles,
       [],
     );
+    assert.isUndefined(
+      snapshotAcpRuntimeProfiles()?.active[0].metrics.find(
+        (entry) => entry.name === "panel_child_apply",
+      ),
+    );
+    assert.isUndefined(
+      snapshotAcpRuntimeProfiles()?.active[0].metrics.find(
+        (entry) => entry.name === "panel_render_ack",
+      ),
+    );
 
     const postedLabels = {
       ...labels,
@@ -240,6 +250,49 @@ describe("ACP runtime performance profiler", function () {
           renderAck: 0,
         },
       ],
+    );
+  });
+
+  it("records bounded incremental render work on an in-window publication", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "run-render-work",
+      displayMode: "boundary",
+      transport: "unknown",
+      zoteroMajor: 9,
+    });
+    const labels = {
+      publicationId: "publication-render-work",
+      publicationSurface: "acp-chat" as const,
+      publicationKind: "transcript" as const,
+      publicationForm: "delta" as const,
+      renderPath: "incremental" as const,
+    };
+    incrementAcpRuntimeMetric("run-render-work", "panel_post", labels);
+    incrementAcpRuntimeMetric(
+      "run-render-work",
+      "panel_render_inserted_rows",
+      labels,
+      2,
+    );
+    incrementAcpRuntimeMetric(
+      "run-render-work",
+      "panel_render_measured_rows",
+      labels,
+      1,
+    );
+
+    const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics || [];
+    assert.equal(
+      metrics.find((entry) => entry.name === "panel_render_inserted_rows")
+        ?.counter?.total,
+      2,
+    );
+    assert.deepInclude(
+      metrics.find((entry) => entry.name === "panel_render_measured_rows")
+        ?.labels,
+      { renderPath: "incremental" },
     );
   });
 

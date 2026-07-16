@@ -2030,3 +2030,17 @@ Node 门禁覆盖两侧 producer boundary、side-channel、cold page-first、共
 receiver、ACK/gap、字段词汇和禁止 materialization。正式 Replay 与 Zotero
 7/9 宿主性能数字必须在相同 trace digest、cadence 和用户保持的 boundary
 设置下重新采集；在该证据产生前，不据此补记性能改善结论。
+
+## 24. Round3结构增量修正契约（2026-07-16）
+
+后续round3复盘确认，Host publication数量与bytes已下降，但共享child仍在每个
+新tool `upsert_item`上退回整窗render；receiver又没有按tail `limit`淘汰头部，
+导致DOM重挂载、全部row测量和virtual layout成本随累计item增长。该问题属于
+Chat/Skills共享renderer与selected-page模型，不是Chat producer或wire负载问题。
+
+当前治理契约将`itemId`固定为唯一domain身份，展示组合只使用显式
+`rowKey + itemIds`；tail cursor随total推进并保持有界；steady upsert、patch、
+append和delete只协调受影响row，无法局部应用时明确rebase，不允许full-render
+fallback。Profiler只接收当前profile内已post identity的后续stage，并记录真实
+display mode与dirty render row计数。正式性能结论仍需相同trace digest、boundary
+模式和Zotero宿主recorded cadence证据。

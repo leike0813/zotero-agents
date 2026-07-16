@@ -58,6 +58,10 @@ export type AcpRuntimeMetricName =
   | "panel_child_apply"
   | "panel_render_ack"
   | "panel_render_duration"
+  | "panel_render_inserted_rows"
+  | "panel_render_updated_rows"
+  | "panel_render_removed_rows"
+  | "panel_render_measured_rows"
   | "transport_queue_entries"
   | "transport_queue_bytes"
   | "transport_message_queue_entries"
@@ -139,6 +143,7 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "transcript-page"
     | "frontend-snapshot"
     | "panel-snapshot";
+  renderPath: "incremental" | "snapshot";
   publicationId: string;
 }>;
 
@@ -319,6 +324,7 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     "publicationSurface",
     "publicationForm",
     "materializationSource",
+    "renderPath",
   ] as const) {
     const value = labels[key];
     if (value) {
@@ -345,12 +351,13 @@ function recordPublicationLifecycle(
             ? "renderAck"
             : null;
   const publicationId = String(labels.publicationId || "").trim();
-  if (!stage || !publicationId) return;
+  if (!stage) return true;
+  if (!publicationId) return false;
   let lifecycle = profile.publicationLifecycles.get(publicationId);
   if (!lifecycle) {
-    if (stage !== "post") return;
+    if (stage !== "post") return false;
     if (profile.publicationLifecycles.size >= MAX_PUBLICATION_LIFECYCLES) {
-      return;
+      return false;
     }
     lifecycle = {
       publicationId,
@@ -362,6 +369,7 @@ function recordPublicationLifecycle(
     profile.publicationLifecycles.set(publicationId, lifecycle);
   }
   lifecycle[stage] += delta;
+  return true;
 }
 
 function seriesKey(name: AcpRuntimeMetricName, labels: AcpRuntimeMetricLabels) {
@@ -556,12 +564,13 @@ export function incrementAcpRuntimeMetric(
     if (!profile) {
       return;
     }
-    recordPublicationLifecycle(
+    const ownedPublicationStage = recordPublicationLifecycle(
       profile,
       name,
       labels,
       Number.isFinite(delta) ? delta : 0,
     );
+    if (!ownedPublicationStage) return;
     const series = getOrCreateSeries(profile, name, labels, "counter");
     if (series) {
       series.total += Number.isFinite(delta) ? delta : 0;

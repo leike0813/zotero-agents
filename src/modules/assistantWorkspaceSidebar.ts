@@ -3372,6 +3372,10 @@ async function handleChildAction(
     recordWorkspacePublicationAck(host, childPayload);
     return;
   }
+  if (action === "publication-render-observation") {
+    recordWorkspacePublicationRenderObservation(host, childPayload);
+    return;
+  }
   if (action === "ready") {
     const documentGeneration =
       String(childPayload.documentGeneration || "").trim() || `${tab}:document`;
@@ -3620,6 +3624,55 @@ function recordWorkspacePublicationAck(
         readAcpRuntimePerformanceClockMs() - lifecycle.postedAtMs,
       );
     }
+  }
+}
+
+function recordWorkspacePublicationRenderObservation(
+  host: AssistantWorkspaceHostRuntime,
+  payload: Record<string, unknown>,
+) {
+  if (
+    !__acp_runtime_performance_profiler_enabled__ ||
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    return;
+  }
+  const publicationId = String(payload.publicationId || "").trim();
+  const lifecycle = host.publicationLifecycles.get(publicationId);
+  if (!publicationId || !lifecycle || !lifecycle.ownerKey) return;
+  const labels = {
+    operationClass: "panel" as const,
+    publicationKind: lifecycle.kind,
+    publicationCausality: "matching-target" as const,
+    publicationPhase:
+      lifecycle.cause === "initialization"
+        ? ("initialization" as const)
+        : ("steady-state" as const),
+    publicationSurface: lifecycle.source,
+    publicationForm:
+      lifecycle.cause === "initialization"
+        ? ("initialization" as const)
+        : lifecycle.form,
+    materializationSource: "region" as const,
+    renderPath:
+      payload.renderPath === "snapshot"
+        ? ("snapshot" as const)
+        : ("incremental" as const),
+    publicationId,
+  };
+  for (const [name, field] of [
+    ["panel_render_inserted_rows", "insertedRows"],
+    ["panel_render_updated_rows", "updatedRows"],
+    ["panel_render_removed_rows", "removedRows"],
+    ["panel_render_measured_rows", "measuredRows"],
+  ] as const) {
+    const value = Math.min(
+      10_000,
+      Math.max(0, Math.floor(Number(payload[field]) || 0)),
+    );
+    incrementAcpRuntimeMetric(lifecycle.ownerKey, name, labels, value);
   }
 }
 

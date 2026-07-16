@@ -25,6 +25,11 @@ import {
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import {
+  getAssistantExecutionDisplayMode,
+  setAssistantExecutionDisplayMode,
+  type AssistantExecutionDisplayMode,
+} from "../../src/modules/assistantExecutionDisplayPolicy";
+import {
   getAcpRuntimeDiagnosticsMode,
   resetAcpRuntimeDiagnosticsModeForTests,
 } from "../../src/modules/acpRuntimeDiagnosticsMode";
@@ -255,8 +260,10 @@ describe("ACP runtime replay profiler", function () {
   this.timeout(10_000);
 
   let tempRoot = "";
+  let previousExecutionDisplayMode: AssistantExecutionDisplayMode;
 
   beforeEach(async function () {
+    previousExecutionDisplayMode = getAssistantExecutionDisplayMode();
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-replay-"));
     setDebugModeOverrideForTests(true);
     resetAcpRuntimeDiagnosticsModeForTests();
@@ -325,6 +332,7 @@ describe("ACP runtime replay profiler", function () {
   });
 
   afterEach(async function () {
+    setAssistantExecutionDisplayMode(previousExecutionDisplayMode);
     await discardAcpRuntimeSemanticTracePartialForTests();
     resetAcpRuntimeDiagnosticsModeForTests();
     setDebugModeOverrideForTests();
@@ -621,6 +629,19 @@ describe("ACP runtime replay profiler", function () {
       metric("host_response_bytes").counter.total,
       result.responseBytes,
     );
+  });
+
+  it("records the configured execution display mode in production profiles", async function () {
+    setAssistantExecutionDisplayMode("boundary");
+    const profiler = createAcpRuntimeReplayProductionProfilerPort();
+    await profiler.start({
+      surface: "closed",
+      sourceKind: "acp-chat-conversation",
+      syntheticRootId: "display-mode-profile",
+    });
+
+    const profile = (await profiler.finish()) as any;
+    assert.equal(profile.displayMode, "boundary");
   });
 
   it("runs exactly three warm-ups and six formal profiles with fresh owners and restores Workspace", async function () {
