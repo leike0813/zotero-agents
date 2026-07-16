@@ -2,6 +2,10 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import {
+  createInProcessSynthesisCitationGraphLayoutEngine,
+  type SynthesisCitationGraphLayoutEngine,
+} from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
   buildSynthesisKnowledgeGraphPaths,
@@ -1809,6 +1813,136 @@ describe("Synthesis Layer v1 integration service", function () {
       ["edge-a-b"],
     );
   });
+
+  it("discards a delayed layout when the graph basis changes before promotion", async function () {
+    const root = await makeRoot();
+    await writeDbGraphState(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const baselineService = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+    });
+    await baselineService.recomputeCitationGraphLayout({
+      algorithm: "force",
+      force: true,
+    });
+    const before = repository.getCitationGraphLayoutState({
+      viewKey: "workbench_overview",
+      preset: "force",
+    });
+    const inProcess = createInProcessSynthesisCitationGraphLayoutEngine();
+    let releaseEngine!: () => void;
+    let announceStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseEngine = resolve;
+    });
+    const delayedEngine: SynthesisCitationGraphLayoutEngine = {
+      async compute(request) {
+        announceStarted();
+        await release;
+        return inProcess.compute(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      citationGraphLayoutEngine: delayedEngine,
+    });
+
+    const pending = service.recomputeCitationGraphLayout({
+      algorithm: "force",
+      force: true,
+    });
+    await started;
+    repository.upsertCitationNode({
+      literatureItemId: "1:D",
+      nodeStatus: "active",
+      hasZoteroBinding: true,
+      title: "Delta",
+    });
+    releaseEngine();
+    const result = await pending;
+    const after = repository.getCitationGraphLayoutState({
+      viewKey: "workbench_overview",
+      preset: "force",
+    });
+
+    assert.equal(result.completed, 0);
+    assert.equal(result.failed, 0);
+    assert.include(
+      result.diagnostics.map((entry) => entry.code),
+      "citation_graph_layout_basis_superseded",
+    );
+    assert.equal(after?.layoutJson, before?.layoutJson);
+    assert.equal(after?.graphHash, before?.graphHash);
+    assert.equal(after?.status, before?.status);
+  });
+
+  for (const failure of ["throw", "malformed"] as const) {
+    it(`preserves prior layout content when the engine ${failure}s`, async function () {
+      const root = await makeRoot();
+      await writeDbGraphState(root);
+      const repository = createSynthesisRepository({ runtimeRoot: root });
+      const baselineService = createSynthesisService({
+        root,
+        libraryId: 1,
+        synthesisRepository: repository,
+      });
+      await baselineService.recomputeCitationGraphLayout({
+        algorithm: "force",
+        force: true,
+      });
+      const before = repository.getCitationGraphLayoutState({
+        viewKey: "workbench_overview",
+        preset: "force",
+      });
+      const engine: SynthesisCitationGraphLayoutEngine = {
+        async compute(request) {
+          if (failure === "throw") {
+            throw new Error("secret local/path must not escape");
+          }
+          return {
+            graphHash: request.graphHash,
+            algorithm: request.algorithm,
+            layoutEngine: "d3-force",
+            layoutVersion: 1.2,
+            params: {},
+            nodes: [],
+          };
+        },
+      };
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        synthesisRepository: repository,
+        citationGraphLayoutEngine: engine,
+      });
+
+      const result = await service.recomputeCitationGraphLayout({
+        algorithm: "force",
+        force: true,
+      });
+      const after = repository.getCitationGraphLayoutState({
+        viewKey: "workbench_overview",
+        preset: "force",
+      });
+
+      assert.equal(result.failed, 1);
+      assert.deepEqual(
+        result.diagnostics.map((entry) => entry.code),
+        ["citation_graph_layout_failed"],
+      );
+      assert.notInclude(JSON.stringify(result.diagnostics), "secret");
+      assert.notInclude(JSON.stringify(result.diagnostics), "local/path");
+      assert.equal(after?.layoutJson, before?.layoutJson);
+      assert.equal(after?.status, "failed");
+    });
+  }
 
   it("reports missing and oversized citation graph layout reads without recomputing", async function () {
     const root = await makeRoot();

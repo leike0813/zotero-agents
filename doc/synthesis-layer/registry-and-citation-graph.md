@@ -190,6 +190,8 @@ The graph cache primitive must not scan artifacts, extract references, repair bi
 
 Graph cache rebuild must not read old Registry/literature-index tables as truth. It may produce nodes, edges, and metrics for speed, but those outputs remain stale-tolerant projections. Layout rebuild is a separate operation that computes coordinates for an existing graph hash and must not rebuild graph data.
 
+Layout kernels live in the environment-neutral `packages/synthesis-engine` package and consume canonical JSON-safe graph slices capped at 5,000 nodes and 20,000 edges. The application supplies current deterministic seed coordinates, owns canonical layout hashing, and computes through an injectable engine outside the library write lock. Promotion reacquires the lock, rereads the DB graph hash, and writes only when it still equals the compute basis. A superseded, throwing, malformed, or oversized result must not replace the previous layout content. The default engine remains in-process; the Node worker path is test-only process-readiness evidence.
+
 Graph display rules:
 
 - Library source nodes use current Zotero reads for display facts when available.

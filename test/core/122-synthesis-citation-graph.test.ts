@@ -2,10 +2,10 @@ import { assert } from "chai";
 import {
   buildUnifiedCitationGraph,
   computeCitationGraphMetrics,
-  computeCitationGraphLayout,
   normalizeCitationLayoutAlgorithm,
   provisionalReferenceKey,
 } from "../../src/modules/synthesis/citationGraph";
+import { computeCitationGraphLayout } from "../../src/modules/synthesis/citationGraphLayoutEngineAdapter";
 import { buildCitationGraphInputsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 

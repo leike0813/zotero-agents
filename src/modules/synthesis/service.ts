@@ -1,5 +1,11 @@
 import { joinPath } from "../../utils/path";
 import {
+  SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX,
+  SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
+  createInProcessSynthesisCitationGraphLayoutEngine,
+  type SynthesisCitationGraphLayoutEngine,
+} from "../../../packages/synthesis-engine/src/index";
+import {
   SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
   SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
   SynthesisClientError,
@@ -61,7 +67,6 @@ import {
   buildUnifiedCitationGraph,
   CITATION_GRAPH_LAYOUT_VERSION,
   computeCitationGraphMetrics,
-  computeCitationGraphLayout,
   normalizeCitationLayoutAlgorithm,
   type CitationGraph,
   type CitationGraphEdge,
@@ -72,6 +77,7 @@ import {
   type CitationGraphPaperInput,
   type CitationLayoutAlgorithm,
 } from "./citationGraph";
+import { computeCitationGraphLayoutWithEngine } from "./citationGraphLayoutEngineAdapter";
 import {
   buildCitationGraphInputsFromRegistryInputs,
   buildLibraryIndexFromRegistryInputs,
@@ -524,6 +530,7 @@ export type SynthesisServiceOptions = {
   hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort | null;
   hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
   hostTagEffectPort?: SynthesisHostTagEffectPort | null;
+  citationGraphLayoutEngine?: SynthesisCitationGraphLayoutEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -3041,8 +3048,8 @@ function normalizeGraphSliceArgs(args: Record<string, unknown>) {
 
 const CITATION_LAYOUT_DEFAULT_MAX_NODES = 200;
 const CITATION_LAYOUT_DEFAULT_MAX_EDGES = 500;
-const CITATION_LAYOUT_HARD_MAX_NODES = 5000;
-const CITATION_LAYOUT_HARD_MAX_EDGES = 20000;
+const CITATION_LAYOUT_HARD_MAX_NODES = SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX;
+const CITATION_LAYOUT_HARD_MAX_EDGES = SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX;
 
 function normalizeCitationGraphLayoutArgs(args: Record<string, unknown>) {
   const warnings: string[] = [];
@@ -6132,6 +6139,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const now = options.now || nowIso;
   const runtimeRoot = cleanString(options.runtimeRoot) || root;
   const runtimeLogAppender = options.runtimeLogAppender || appendRuntimeLog;
+  const citationGraphLayoutEngine =
+    options.citationGraphLayoutEngine ||
+    createInProcessSynthesisCitationGraphLayoutEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -17142,31 +17152,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         totalCount: graph.nodes.length,
         progressMode: "indeterminate",
       });
-      const layout = await lock.runExclusive(libraryId, () =>
-        computeCitationGraphLayout(graph, algorithm),
+      const { request, layout } = await computeCitationGraphLayoutWithEngine(
+        graph,
+        algorithm,
+        citationGraphLayoutEngine,
       );
-      const promotedLayout = synthesisRepository.upsertCitationGraphLayoutState(
-        {
+      const promotion = await lock.runExclusive(libraryId, () => {
+        const currentGraph = readDbCitationGraphOverview();
+        if (currentGraph.graph_hash !== request.graphHash) {
+          return { promoted: false };
+        }
+        synthesisRepository.upsertCitationGraphLayoutState({
           layoutKey: synthesisRepository.citationLayoutKey({
             viewKey,
             preset: algorithm,
           }),
           viewKey,
           preset: algorithm,
-          graphHash: graph.graph_hash,
+          graphHash: request.graphHash,
           status: "ready",
           layoutJson: JSON.stringify(layout),
           diagnosticsJson: JSON.stringify(diagnostics),
           updatedAt: now(),
-        },
-      );
-      const promotion = { promoted: Boolean(promotedLayout) };
+        });
+        return { promoted: true };
+      });
       if (!promotion.promoted) {
         const diagnostic = {
           code: "citation_graph_layout_basis_superseded",
           severity: "warning" as const,
           message:
-            "Citation graph layout output was discarded because the Registry basis changed.",
+            "Citation graph layout output was discarded because the graph basis changed.",
         };
         diagnostics.push(diagnostic);
         supersedeSynthesisJobProgress({
@@ -17180,7 +17196,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           processedCount: graph.nodes.length,
           totalCount: graph.nodes.length,
           progressMode: "determinate",
-          message: "Registry basis changed before layout promotion.",
+          message: "Graph basis changed before layout promotion.",
           diagnosticsJson: JSON.stringify([diagnostic]),
           completedAt: now(),
         });
@@ -17211,11 +17227,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         failed: 0,
         diagnostics,
       };
-    } catch (error) {
+    } catch {
       const diagnostic = {
         code: "citation_graph_layout_failed",
         severity: "error" as const,
-        message: errorMessage(error),
+        message: "Citation graph layout engine failed.",
       };
       diagnostics.push(diagnostic);
       synthesisRepository.markCitationGraphLayoutFailed({

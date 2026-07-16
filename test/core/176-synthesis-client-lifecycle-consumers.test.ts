@@ -139,4 +139,17 @@ describe("Synthesis lifecycle client consumers", function () {
     assert.include(legacyComposition, "hostExportDeliveryPort");
     assert.notInclude(readonlyComposition, "hostExportDeliveryPort");
   });
+
+  it("injects the in-process Citation Graph layout engine in production composition", function () {
+    const legacyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
+      "utf8",
+    );
+
+    assert.include(
+      legacyComposition,
+      "createInProcessSynthesisCitationGraphLayoutEngine",
+    );
+    assert.include(legacyComposition, "citationGraphLayoutEngine");
+  });
 });

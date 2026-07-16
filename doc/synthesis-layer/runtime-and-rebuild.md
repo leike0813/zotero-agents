@@ -8,6 +8,8 @@ The approved Stage 1 sidecar direction is documented in `artifact/synthesis_side
 
 Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
 
+Citation Graph layout computation crosses the environment-neutral `SynthesisCitationGraphLayoutEngine` seam. The application projects one graph hash plus at most 5,000 nodes and 20,000 edges into canonical compute DTOs, awaits the in-process engine without holding the library write lock, then reacquires a short lock and promotes only if the current DB graph hash still matches. Superseded or failed results preserve the previous layout content. A Node worker is exercised only as a test canary; production remains in the Zotero plugin process and does not enforce a mid-compute wall-clock timeout.
+
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
 ## Runtime Principles
@@ -16,6 +18,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Source artifact scans return descriptors only; content is read one opaque locator at a time with the scanned hash.
 - Representative-image enrichment is opt-in and best-effort. It reads only a requested digest note, requires a note-child image attachment, limits decoded content to 2 MiB, and never makes digest markdown availability depend on the image result.
 - Remote export delivery accepts at most 256 text entries, 5 MiB per entry, and 50 MiB total; archive paths are relative and unique, and no local temporary path crosses the Host port.
+- Citation Graph layout compute accepts at most 5,000 nodes and 20,000 edges, never holds the library write lock during kernel execution, and requires a matching graph hash at promotion.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.
@@ -48,7 +51,7 @@ Broad maintenance is explicit:
 | Reference binding repair/review | user starts review flow | accepted/rejected binding, merge, dedupe, or retarget decisions | silently rewrite Zotero item metadata or run from ordinary refresh |
 | Citation graph cache incremental refresh | user refreshes a stale graph, or Advanced Matching / proposal review changes graph-affecting sidecar facts | affected source-slice graph nodes, edges, incoming groups, source ownership, light metrics, and complex metrics; `citation-graph:library=ready` on success | scan artifacts, extract references, run matcher, rebuild layout, or topic work |
 | Citation graph cache rebuild | user opens Graph rebuild/debug command, or allowed bootstrap after Advanced Matching when graph cache is missing | graph nodes, edges, and light metrics from active raw references, effective canonical references, and bindings; `citation-graph:library=ready` | scan artifacts, extract references, run binding review, rebuild layout, mark topics changed |
-| Citation graph layout rebuild | user opens layout/debug command | layout coordinates for an existing graph hash and preset | rebuild graph data or refresh reference sidecar |
+| Citation graph layout rebuild | user opens layout/debug command | bounded engine coordinates for an existing graph hash and preset, promoted under a short hash-check lock | rebuild graph data, refresh reference sidecar, or activate a production worker |
 | Topic source check | user/debug/maintenance request for selected topic | source-check diagnostic from direct Zotero/artifact reads | read reference or graph cache as truth |
 | Topic discovery repair | user/debug bounded repair | bounded hint rows | global LLM n x m judging |
 | Related-items sync | successful manual stale graph refresh, Advanced Matching fact changes, proposal review fact changes, or explicit/debug command | Zotero native relation effect rows and diagnostics from accepted library-to-library citation edges | rebuild graph cache, extract references, run matcher, mutate sidecar facts, or delete unproven user-created Zotero relations |

@@ -119,6 +119,21 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesis/exportDeliveryAdapter.ts"),
       "utf8",
     );
+    const citationGraphSource = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/citationGraph.ts"),
+      "utf8",
+    );
+    const citationGraphLayoutAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/citationGraphLayoutEngineAdapter.ts",
+      ),
+      "utf8",
+    );
+    const citationGraphLayoutEngine = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-engine/src/index.ts"),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -207,6 +222,38 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(serviceSource, "createStoreZipBytes");
     assert.notInclude(serviceSource, "remoteExportRoot");
     assert.notInclude(serviceSource, "registerRemoteExportBundle");
+    assert.include(serviceSource, "citationGraphLayoutEngine");
+    assert.include(serviceSource, "computeCitationGraphLayoutWithEngine");
+    assert.include(
+      serviceSource,
+      "currentGraph.graph_hash !== request.graphHash",
+    );
+    assert.notMatch(
+      serviceSource,
+      /lock\.runExclusive[\s\S]{0,240}computeCitationGraphLayoutWithEngine/,
+    );
+    assert.include(
+      legacyComposition,
+      "createInProcessSynthesisCitationGraphLayoutEngine",
+    );
+    assert.include(legacyComposition, "citationGraphLayoutEngine");
+    assert.notInclude(citationGraphSource, 'from "d3-force"');
+    assert.notInclude(citationGraphSource, 'from "graphology"');
+    assert.notInclude(citationGraphSource, "computeCitationGraphLayout(");
+    assert.include(
+      citationGraphLayoutAdapter,
+      "buildCitationGraphLayoutEngineRequest",
+    );
+    assert.include(citationGraphLayoutAdapter, "hashCanonicalJson(base)");
+    for (const forbidden of [
+      "node:",
+      "Zotero",
+      "runtimePersistence",
+      "repository",
+      "foundation",
+    ]) {
+      assert.notInclude(citationGraphLayoutEngine, forbidden);
+    }
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(
