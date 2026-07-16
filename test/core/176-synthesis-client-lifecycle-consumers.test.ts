@@ -156,6 +156,20 @@ describe("Synthesis lifecycle client consumers", function () {
       "createInProcessSynthesisCitationGraphMetricsEngine",
     );
     assert.include(legacyComposition, "citationGraphMetricsEngine");
+    assert.include(
+      legacyComposition,
+      "createInProcessSynthesisCitationGraphBuildEngine",
+    );
+    assert.include(legacyComposition, "citationGraphBuildEngine");
+    const readonlyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
+      "utf8",
+    );
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisCitationGraphBuildEngine",
+    );
+    assert.include(readonlyComposition, "citationGraphBuildEngine");
   });
 
   it("composes Sync Host runtimes explicitly for production and readonly", function () {

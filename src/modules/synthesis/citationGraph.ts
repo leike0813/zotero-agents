@@ -1,4 +1,10 @@
 import { SYNTHESIS_CITATION_GRAPH_LAYOUT_VERSION } from "../../../packages/synthesis-engine/src/index";
+import {
+  SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
+  computeSynthesisCitationGraphBuild,
+  type SynthesisCitationGraphBuildLibraryNode,
+  type SynthesisCitationGraphBuildReference,
+} from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { hashCanonicalJson, sha256 } from "./foundation";
 
 export type CitationGraphReferenceInput = {
@@ -394,69 +400,6 @@ function edgeId(source: string, target: string) {
   });
 }
 
-function choosePrimaryRole(
-  roleCounts: Map<string, number>,
-  rolePriority: string[],
-) {
-  if (roleCounts.size === 0) {
-    return "unspecified";
-  }
-  const priority = new Map(rolePriority.map((role, index) => [role, index]));
-  return [...roleCounts.entries()].sort((left, right) => {
-    const count = right[1] - left[1];
-    if (count !== 0) {
-      return count;
-    }
-    const leftPriority = priority.has(left[0]) ? priority.get(left[0])! : 9999;
-    const rightPriority = priority.has(right[0])
-      ? priority.get(right[0])!
-      : 9999;
-    if (leftPriority !== rightPriority) {
-      return leftPriority - rightPriority;
-    }
-    return left[0].localeCompare(right[0]);
-  })[0][0];
-}
-
-function finalizeEdges(
-  aggregate: Map<
-    string,
-    {
-      source: string;
-      target: string;
-      mentionCount: number;
-      sourceRefs: string[];
-      roleCounts: Map<string, number>;
-    }
-  >,
-  rolePriority: string[],
-) {
-  return [...aggregate.values()]
-    .map((entry): CitationGraphEdge => {
-      const primary = choosePrimaryRole(entry.roleCounts, rolePriority);
-      const roleEvidence = [...entry.roleCounts.entries()]
-        .map(([role, count]) => ({ role, count }))
-        .sort(
-          (left, right) =>
-            right.count - left.count || left.role.localeCompare(right.role),
-        );
-      return {
-        edge_id: edgeId(entry.source, entry.target),
-        source: entry.source,
-        target: entry.target,
-        kind: "citation",
-        mention_count: entry.mentionCount,
-        primary_role: primary,
-        aux_roles: roleEvidence
-          .filter((role) => role.role !== primary)
-          .map((role) => ({ role: role.role, count: role.count })),
-        role_evidence: roleEvidence,
-        source_refs: entry.sourceRefs,
-      };
-    })
-    .sort((left, right) => left.edge_id.localeCompare(right.edge_id));
-}
-
 export function buildUnifiedCitationGraph(args: {
   papers: CitationGraphPaperInput[];
   rolePriority?: string[];
@@ -465,7 +408,11 @@ export function buildUnifiedCitationGraph(args: {
     paperNodeId(left).localeCompare(paperNodeId(right)),
   );
   const { canonicalByKey, duplicateDiagnostics } = groupCanonicalPapers(papers);
-  const nodes = new Map<string, CitationGraphNode>();
+  const libraryNodesById = new Map<
+    string,
+    SynthesisCitationGraphBuildLibraryNode
+  >();
+  const legacyLibraryNodesById = new Map<string, CitationGraphNode>();
   const promotions: CitationGraph["diagnostics"]["promotions"] = [];
   const referenceStats: CitationGraph["diagnostics"]["reference_stats"] = {
     total: 0,
@@ -478,20 +425,22 @@ export function buildUnifiedCitationGraph(args: {
   };
   const externalTargets = new Set<string>();
   const unresolvedTargets = new Set<string>();
-  for (const paper of papers) {
-    nodes.set(paperNodeId(paper), basePaperNode(paper));
-  }
-
-  const edgeAggregate = new Map<
+  const legacyTargetMetadata = new Map<
     string,
-    {
-      source: string;
-      target: string;
-      mentionCount: number;
-      sourceRefs: string[];
-      roleCounts: Map<string, number>;
-    }
+    { title: string; year: string; authors: string[] }
   >();
+  for (const paper of papers) {
+    const legacyNode = basePaperNode(paper);
+    legacyLibraryNodesById.set(legacyNode.node_id, legacyNode);
+    libraryNodesById.set(legacyNode.node_id, {
+      nodeId: legacyNode.node_id,
+      ...(legacyNode.title ? { title: legacyNode.title } : {}),
+      ...(legacyNode.year ? { year: legacyNode.year } : {}),
+      authors: (legacyNode.authors || []).map(normalizeText).filter(Boolean),
+      aliases: [...legacyNode.aliases],
+    });
+  }
+  const references: SynthesisCitationGraphBuildReference[] = [];
 
   for (const paper of papers) {
     const source = paperNodeId(paper);
@@ -502,10 +451,15 @@ export function buildUnifiedCitationGraph(args: {
       if (refKey && canonicalByKey.has(refKey)) {
         const targetPaper = canonicalByKey.get(refKey)!;
         target = paperNodeId(targetPaper);
-        const targetNode = nodes.get(target);
+        const targetNode = libraryNodesById.get(target);
+        const legacyTargetNode = legacyLibraryNodesById.get(target);
         if (targetNode && !targetNode.aliases.includes(refKey)) {
           targetNode.aliases.push(refKey);
-          targetNode.aliases.sort((left, right) => left.localeCompare(right));
+          targetNode.aliases.sort();
+        }
+        if (legacyTargetNode && !legacyTargetNode.aliases.includes(refKey)) {
+          legacyTargetNode.aliases.push(refKey);
+          legacyTargetNode.aliases.sort();
         }
         if (
           !promotions.some(
@@ -524,17 +478,11 @@ export function buildUnifiedCitationGraph(args: {
       } else if (refKey) {
         target = refKey;
         const rawFallback = refKey.startsWith("ref:raw:");
-        if (!nodes.has(target)) {
-          nodes.set(target, {
-            node_id: target,
-            kind: rawFallback ? "unresolved_reference" : "external_reference",
-            target_state: rawFallback ? "unresolved" : "external",
-            provisional_key: refKey,
-            aliases: [],
+        if (!legacyTargetMetadata.has(target)) {
+          legacyTargetMetadata.set(target, {
             title: normalizeText(reference.title),
             year: normalizeText(reference.year),
             authors: [...(reference.authors || [])],
-            low_signal: rawFallback,
           });
         }
         if (rawFallback) {
@@ -549,40 +497,92 @@ export function buildUnifiedCitationGraph(args: {
         continue;
       }
 
-      const id = `${source}->${target}`;
-      const existing = edgeAggregate.get(id) || {
-        source,
-        target,
-        mentionCount: 0,
-        sourceRefs: [],
-        roleCounts: new Map<string, number>(),
-      };
-      existing.mentionCount += 1;
-      existing.sourceRefs.push(`${source}#ref:${index}`);
-      for (const role of reference.roles || []) {
-        const label = normalizeText(role) || "unspecified";
-        existing.roleCounts.set(
-          label,
-          (existing.roleCounts.get(label) || 0) + 1,
-        );
-      }
-      edgeAggregate.set(id, existing);
+      const targetLibraryNode = libraryNodesById.get(target);
+      const title = normalizeText(reference.title);
+      const year = normalizeText(reference.year);
+      references.push({
+        referenceId: `${source}#ref:${String(index).padStart(8, "0")}`,
+        edgeId: hashCanonicalJson({
+          kind: "citation-reference-instance",
+          source,
+          target,
+          index,
+        }),
+        sourceId: source,
+        sourceRef: `${source}#ref:${index}`,
+        targetId: target,
+        targetKind: targetLibraryNode
+          ? "library_paper"
+          : refKey.startsWith("ref:raw:")
+            ? "unresolved_reference"
+            : "external_reference",
+        ...(title ? { targetTitle: title } : {}),
+        ...(year ? { targetYear: year } : {}),
+        targetAuthors: (reference.authors || [])
+          .map(normalizeText)
+          .filter(Boolean),
+        targetAliases: [],
+        roles: (reference.roles || [])
+          .map((role) => normalizeText(role) || "unspecified")
+          .filter(Boolean),
+        weight: 1,
+      });
     }
   }
 
-  const nodeList = [...nodes.values()].sort((left, right) =>
-    left.node_id.localeCompare(right.node_id),
-  );
-  const edgeList = finalizeEdges(edgeAggregate, args.rolePriority || []);
+  const built = computeSynthesisCitationGraphBuild({
+    contractVersion: SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
+    scope: {
+      kind: "full",
+      sourceIds: Array.from(libraryNodesById.keys()).sort(),
+    },
+    rolePriority: (args.rolePriority || []).map(normalizeText).filter(Boolean),
+    libraryNodes: Array.from(libraryNodesById.values()),
+    references,
+  });
+  const nodeList = built.nodes.map((node): CitationGraphNode => {
+    const libraryNode = legacyLibraryNodesById.get(node.nodeId);
+    if (libraryNode) {
+      return {
+        ...libraryNode,
+        aliases: [...node.aliases],
+      };
+    }
+    const rawFallback = node.kind === "unresolved_reference";
+    const legacyMetadata = legacyTargetMetadata.get(node.nodeId);
+    return {
+      node_id: node.nodeId,
+      kind: node.kind,
+      target_state: rawFallback
+        ? "unresolved"
+        : node.kind === "external_reference"
+          ? "external"
+          : "library",
+      provisional_key: node.nodeId,
+      aliases: [...node.aliases],
+      title: legacyMetadata?.title || node.title || "",
+      year: legacyMetadata?.year || node.year || "",
+      authors: legacyMetadata?.authors || [...node.authors],
+      low_signal: rawFallback,
+    };
+  });
+  const edgeList = built.aggregateEdges
+    .map(
+      (entry): CitationGraphEdge => ({
+        edge_id: edgeId(entry.sourceId, entry.targetId),
+        source: entry.sourceId,
+        target: entry.targetId,
+        kind: "citation",
+        mention_count: entry.mentionCount,
+        primary_role: entry.primaryRole,
+        aux_roles: entry.auxRoles,
+        role_evidence: entry.roleEvidence,
+        source_refs: entry.sourceRefs,
+      }),
+    )
+    .sort((left, right) => left.edge_id.localeCompare(right.edge_id));
   const nodeCounts = {
-    library_paper: nodeList.filter((node) => node.kind === "library_paper")
-      .length,
-    external_reference: nodeList.filter(
-      (node) => node.kind === "external_reference",
-    ).length,
-    unresolved_reference: nodeList.filter(
-      (node) => node.kind === "unresolved_reference",
-    ).length,
+    ...built.diagnostics.nodeCounts,
   };
   referenceStats.merged_external_nodes =
     referenceStats.external - externalTargets.size;

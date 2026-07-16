@@ -3,6 +3,20 @@ description: Current public Synthesis service migration inventory and direct-con
 service_source: src/modules/synthesis/service.ts
 service_factory: createSynthesisService
 
+internal_engines:
+  - id: citation_graph_build
+    contract: SynthesisCitationGraphBuildEngine
+    implementation: in_process
+    production_worker: false
+  - id: citation_graph_layout
+    contract: SynthesisCitationGraphLayoutEngine
+    implementation: in_process
+    production_worker: false
+  - id: citation_graph_metrics
+    contract: SynthesisCitationGraphMetricsEngine
+    implementation: in_process
+    production_worker: false
+
 direct_consumers:
   - path: src/modules/synthesisClient/legacyComposition.ts
     role: client_composition

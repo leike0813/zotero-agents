@@ -175,6 +175,8 @@ and capped raw support as documented in
 
 ## Citation Graph Cache Refresh and Rebuild
 
+Full graph rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback share `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical redirects, accepted bindings, and a deterministic durable-fact basis under the library lock, then releases the lock before Host metadata reads and graph assembly. The strict JSON-safe engine contract is capped at 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets and returns nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics. Full and source-slice writes recapture the same basis immediately before promotion; a superseded or failed build leaves the last-good graph and cache basis untouched. Related-items fallback reads accepted engine edges without persisting graph rows.
+
 Citation graph structure is derived from:
 
 1. active raw references;

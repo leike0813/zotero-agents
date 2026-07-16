@@ -3,6 +3,7 @@ import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
 } from "../../../packages/synthesis-engine/src/index";
+import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
@@ -58,6 +59,8 @@ function createDefaultLegacyService(
       createInProcessSynthesisCitationGraphLayoutEngine(),
     citationGraphMetricsEngine:
       createInProcessSynthesisCitationGraphMetricsEngine(),
+    citationGraphBuildEngine:
+      createInProcessSynthesisCitationGraphBuildEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

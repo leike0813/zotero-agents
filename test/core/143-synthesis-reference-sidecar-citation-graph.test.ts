@@ -3,6 +3,11 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
+import { LibraryWriteLock } from "../../src/modules/synthesis/foundation";
+import {
+  createInProcessSynthesisCitationGraphBuildEngine,
+  type SynthesisCitationGraphBuildEngine,
+} from "../../packages/synthesis-engine/src/citationGraphBuild";
 import {
   SYNTHESIS_ALLOWED_CITATION_FUNCTIONS,
   createSynthesisService,
@@ -31,6 +36,8 @@ function makeService(args: {
   citationGraphPapers?: any[];
   hostReadPort?: any;
   hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort;
+  citationGraphBuildEngine?: SynthesisCitationGraphBuildEngine;
+  writeLock?: LibraryWriteLock;
 }) {
   const repository =
     args.repository || createSynthesisRepository({ runtimeRoot: args.root });
@@ -44,6 +51,8 @@ function makeService(args: {
     citationGraphPapers: args.citationGraphPapers,
     hostReadPort: args.hostReadPort,
     hostRelatedItemsEffectPort: args.hostRelatedItemsEffectPort,
+    citationGraphBuildEngine: args.citationGraphBuildEngine,
+    writeLock: args.writeLock,
   });
   return { service, repository };
 }
@@ -1340,4 +1349,169 @@ describe("Synthesis sidecar cache hard cut", function () {
       "related_items_sync",
     );
   });
+
+  it("computes graph builds outside the write lock and preserves a superseded last-good graph", async function () {
+    const root = await makeRuntimeRoot();
+    const writeLock = new LibraryWriteLock();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const registryInputs = [
+      {
+        libraryId: 1,
+        itemKey: "AAA",
+        title: "Source",
+        notes: [
+          {
+            key: "NREFS",
+            title: "References",
+            html: renderPayloadBlock({
+              payloadType: "references-json",
+              payload: {
+                references: [{ title: "Target", year: "2024" }],
+              },
+            }),
+          },
+        ],
+      },
+    ];
+    const baseline = makeService({
+      root,
+      repository,
+      registryInputs,
+      writeLock,
+    }).service;
+    await baseline.refreshReferenceSidecarNow();
+    await baseline.rebuildCitationGraphCacheNow();
+    const beforeNodes = repository.listCitationNodes();
+    const beforeEdges = repository.listCitationEdges();
+    const beforeBasis = repository.getCacheBasis("citation-graph:library");
+    const inProcess = createInProcessSynthesisCitationGraphBuildEngine();
+    const engine: SynthesisCitationGraphBuildEngine = {
+      async compute(request) {
+        await writeLock.runExclusive(1, () => {
+          const raw = repository.listRawReferences()[0];
+          repository.upsertRawReference({
+            ...raw,
+            parsedTitle: `${raw.parsedTitle || ""} concurrent`,
+            updatedAt: "2026-07-16T12:00:00.000Z",
+          });
+        });
+        return inProcess.compute(request);
+      },
+    };
+    const service = makeService({
+      root,
+      repository,
+      registryInputs,
+      writeLock,
+      citationGraphBuildEngine: engine,
+    }).service;
+
+    let error: unknown;
+    try {
+      await service.rebuildCitationGraphCacheNow();
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.instanceOf(error, Error);
+    assert.equal(
+      (error as Error).message,
+      "citation_graph_build_basis_superseded",
+    );
+    assert.deepEqual(repository.listCitationNodes(), beforeNodes);
+    assert.deepEqual(repository.listCitationEdges(), beforeEdges);
+    assert.deepEqual(
+      repository.getCacheBasis("citation-graph:library"),
+      beforeBasis,
+    );
+  });
+
+  for (const failure of ["throw", "malformed"] as const) {
+    it(`preserves a last-good graph when the build engine ${failure}s`, async function () {
+      const root = await makeRuntimeRoot();
+      const repository = createSynthesisRepository({ runtimeRoot: root });
+      const registryInputs = [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Source",
+          notes: [
+            {
+              key: "NREFS",
+              title: "References",
+              html: renderPayloadBlock({
+                payloadType: "references-json",
+                payload: {
+                  references: [{ title: "Target", year: "2024" }],
+                },
+              }),
+            },
+          ],
+        },
+      ];
+      const baseline = makeService({
+        root,
+        repository,
+        registryInputs,
+      }).service;
+      await baseline.refreshReferenceSidecarNow();
+      await baseline.rebuildCitationGraphCacheNow();
+      const beforeNodes = repository.listCitationNodes();
+      const beforeEdges = repository.listCitationEdges();
+      const beforeBasis = repository.getCacheBasis("citation-graph:library");
+      const engine: SynthesisCitationGraphBuildEngine = {
+        async compute(request) {
+          if (failure === "throw") {
+            throw new Error("secret local/path must not escape");
+          }
+          return {
+            contractVersion: request.contractVersion,
+            scope: request.scope,
+            nodes: [],
+            resolvedEdges: [],
+            aggregateEdges: [],
+            sourceOwnership: [],
+            incomingGroups: [],
+            lightMetrics: [],
+            diagnostics: {
+              nodeCounts: {
+                library_paper: 0,
+                external_reference: 0,
+                unresolved_reference: 0,
+              },
+              referenceCount: 0,
+              aggregateEdgeCount: 0,
+            },
+          };
+        },
+      };
+      const service = makeService({
+        root,
+        repository,
+        registryInputs,
+        citationGraphBuildEngine: engine,
+      }).service;
+
+      let error: unknown;
+      try {
+        await service.rebuildCitationGraphCacheNow();
+      } catch (caught) {
+        error = caught;
+      }
+
+      assert.instanceOf(error, Error);
+      assert.equal(
+        (error as Error).message,
+        "citation_graph_build_engine_failed",
+      );
+      assert.notInclude((error as Error).message, "secret");
+      assert.notInclude((error as Error).message, "local/path");
+      assert.deepEqual(repository.listCitationNodes(), beforeNodes);
+      assert.deepEqual(repository.listCitationEdges(), beforeEdges);
+      assert.deepEqual(
+        repository.getCacheBasis("citation-graph:library"),
+        beforeBasis,
+      );
+    });
+  }
 });

@@ -101,7 +101,7 @@ strategy.
 | Advanced reference matching | unbound active references by default | 3000 ms per slice | Indexed papers, processed references, auto-accepted matches, proposals created, rejected proposals preserved. |
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
 | Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
-| Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
+| Citation graph cache rebuild | full or source slice; build contract capped at 25,000 sources / 1,250,000 references / 750,000 external targets | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, ownership, incoming groups, and light metrics. Durable facts are captured under a short lock; Host reads and build-engine compute run outside it; promotion recaptures the basis. |
 | Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 3000 ms phase budget; no current mid-compute cutoff | Fixed phases or metric rows. PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
 | Citation graph layout rebuild | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 2000 ms pre-start soft check; no current mid-compute cutoff | Layout nodes for one existing graph hash. Compute runs outside the write lock; promotion rechecks the hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
 | Zotero related-items sync | scoped source refs or batched full accepted edges | 2000 ms per 100 accepted library edges | Accepted library-to-library citation edges resolved from ready graph cache or sidecar fallback. |
@@ -112,7 +112,7 @@ strategy.
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-Citation Graph layout and complex metrics are the current process-readiness exceptions to slice cancellation: their inputs are hard-bounded and their kernels are isolated from the write lock, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Mid-compute cancellation and worker termination require a later runtime change with explicit normal/target/stress policy.
+Citation Graph build, layout, and complex metrics are the current process-readiness exceptions to slice cancellation: their inputs are hard-bounded and their kernels are isolated from the write lock, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Build checkpoints exist for a future cancellable runtime, while production cancellation and worker termination require a later topology change with explicit normal/target/stress policy.
 
 ## External Source Drift Policy
 

@@ -15,6 +15,10 @@ import {
   createSyntheticSynthesisBenchmarkRepositoryState,
 } from "../fixtures/synthesisSyntheticDatasets";
 import { createTestSynthesisHostReadPort } from "../helpers/synthesisHostReadPort";
+import {
+  SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
+  computeSynthesisCitationGraphBuild,
+} from "../../packages/synthesis-engine/src/citationGraphBuild";
 
 type BudgetMeasurement = {
   name: string;
@@ -130,6 +134,51 @@ describe("Synthesis performance budgets", function () {
     assert.include(message, "Synthesis budget timing breakdown");
     assert.include(message, "workbench index surface input: 200ms / 2500ms");
     assert.include(message, "citation graph metrics read: 1600ms / 1500ms");
+  });
+
+  it("keeps a representative Citation Graph build kernel inside its phase budget", function () {
+    const sourceCount = 2_000;
+    const referenceCount = 20_000;
+    const startedAt = Date.now();
+    const result = computeSynthesisCitationGraphBuild({
+      contractVersion: SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
+      scope: {
+        kind: "full",
+        sourceIds: Array.from(
+          { length: sourceCount },
+          (_, index) => `paper:${index}`,
+        ),
+      },
+      rolePriority: ["background", "method"],
+      libraryNodes: Array.from({ length: sourceCount }, (_, index) => ({
+        nodeId: `paper:${index}`,
+        title: `Paper ${index}`,
+        authors: [],
+        aliases: [],
+      })),
+      references: Array.from({ length: referenceCount }, (_, index) => ({
+        referenceId: `reference:${String(index).padStart(8, "0")}`,
+        edgeId: `edge:${String(index).padStart(8, "0")}`,
+        sourceId: `paper:${index % sourceCount}`,
+        targetId: `external:${index % 500}`,
+        targetKind: "external_reference" as const,
+        targetTitle: `External ${index % 500}`,
+        targetAuthors: [],
+        targetAliases: [],
+        roles: index % 2 ? ["background"] : ["method"],
+        weight: 1,
+      })),
+    });
+    const durationMs = Date.now() - startedAt;
+
+    assert.equal(result.resolvedEdges.length, referenceCount);
+    assert.equal(result.diagnostics.nodeCounts.library_paper, sourceCount);
+    assert.equal(result.diagnostics.nodeCounts.external_reference, 500);
+    assert.isAtMost(
+      durationMs,
+      2_000,
+      `Citation Graph build exceeded 2000ms with ${durationMs}ms elapsed`,
+    );
   });
 
   it("keeps 10k-paper read and review paths inside bounded budgets", async function () {

@@ -12,6 +12,8 @@ Citation Graph layout computation crosses the environment-neutral `SynthesisCita
 
 Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsEngine` seam with the same graph bounds. The application captures graph rows and persistence mappings under a short lock, computes metrics v2 outside the lock, then rechecks the DB graph hash before replacing complex metrics. Full rebuild, source-slice incremental refresh, and explicit metrics refresh use this one path. A superseded or failed result preserves previous metrics; graph structure and its ready cache basis remain readable while metrics report their existing stale or missing state. Canonical metrics hashing remains in the application adapter, and the Node worker remains test-only.
 
+Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the Node worker remains test-only.
+
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
 ## Runtime Principles
@@ -22,6 +24,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Remote export delivery accepts at most 256 text entries, 5 MiB per entry, and 50 MiB total; archive paths are relative and unique, and no local temporary path crosses the Host port.
 - Citation Graph layout compute accepts at most 5,000 nodes and 20,000 edges, never holds the library write lock during kernel execution, and requires a matching graph hash at promotion.
 - Citation Graph metrics compute uses the same limits, never holds the library write lock during PageRank/component/role computation, and replaces rows only for the captured graph hash.
+- Citation Graph build compute accepts at most 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets, keeps Host reads and assembly outside the write lock, and replaces rows only for the captured durable sidecar-fact basis.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

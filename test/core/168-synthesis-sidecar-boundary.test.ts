@@ -149,6 +149,20 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const citationGraphBuildAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/citationGraphBuildEngineAdapter.ts",
+      ),
+      "utf8",
+    );
+    const citationGraphBuildEngine = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "packages/synthesis-engine/src/citationGraphBuild.ts",
+      ),
+      "utf8",
+    );
     const citationGraphLayoutEngine = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-engine/src/index.ts"),
       "utf8",
@@ -293,6 +307,9 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "computeCitationGraphLayoutWithEngine");
     assert.include(serviceSource, "citationGraphMetricsEngine");
     assert.include(serviceSource, "computeCitationGraphMetricsWithEngine");
+    assert.include(serviceSource, "citationGraphBuildEngine");
+    assert.include(serviceSource, "buildProductionCitationGraphWithEngine");
+    assert.include(serviceSource, "citation_graph_build_basis_superseded");
     assert.include(
       serviceSource,
       "currentGraph.graph_hash !== request.graphHash",
@@ -311,6 +328,16 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisCitationGraphMetricsEngine",
     );
     assert.include(legacyComposition, "citationGraphMetricsEngine");
+    assert.include(
+      legacyComposition,
+      "createInProcessSynthesisCitationGraphBuildEngine",
+    );
+    assert.include(legacyComposition, "citationGraphBuildEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisCitationGraphBuildEngine",
+    );
+    assert.include(readonlyComposition, "citationGraphBuildEngine");
     assert.notInclude(citationGraphSource, 'from "d3-force"');
     assert.notInclude(citationGraphSource, 'from "graphology"');
     assert.notInclude(citationGraphSource, "computeCitationGraphLayout(");
@@ -325,6 +352,14 @@ describe("Synthesis sidecar migration boundary", function () {
       "buildCitationGraphMetricsEngineRequest",
     );
     assert.include(citationGraphMetricsAdapter, "hashCanonicalJson(base)");
+    assert.include(
+      citationGraphBuildAdapter,
+      "buildProductionCitationGraphEngineRequest",
+    );
+    assert.notMatch(
+      citationGraphBuildEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation))/,
+    );
     const engineImports = [
       ...citationGraphLayoutEngine.matchAll(/from\s+["']([^"']+)["']/g),
     ].map((match) => match[1]);

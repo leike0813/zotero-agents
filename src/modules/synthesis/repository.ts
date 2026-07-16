@@ -363,6 +363,7 @@ export type SynthesisCitationGraphStateReplacement = {
   incomingGroups?: SynthesisCitationIncomingGroupRecord[];
   lightweightMetrics?: SynthesisCitationLightMetricsRecord[];
   complexMetrics?: SynthesisCitationComplexMetricsRecord[];
+  cacheBasis?: SynthesisCacheBasisRecord;
 };
 
 export type SynthesisCitationGraphSourceSliceReplacement = {
@@ -372,6 +373,7 @@ export type SynthesisCitationGraphSourceSliceReplacement = {
   sourceOwnership?: SynthesisCitationSourceOwnershipRecord[];
   incomingGroups?: SynthesisCitationIncomingGroupRecord[];
   updatedAt?: string;
+  cacheBasis?: SynthesisCacheBasisRecord;
 };
 
 export type SynthesisLiteratureMatchingMetadataRecord = {
@@ -5749,6 +5751,9 @@ export class SynthesisRepository {
   replaceCitationGraphState(state: SynthesisCitationGraphStateReplacement) {
     this.transaction(() => {
       this.replaceCitationGraphStateRows(state);
+      if (state.cacheBasis) {
+        this.upsertCacheBasis(state.cacheBasis);
+      }
     });
   }
 
@@ -5910,6 +5915,9 @@ export class SynthesisRepository {
       }
       this.cleanupCitationOrphanExternalNodes(oldTargetIds, sourceIds);
       this.recomputeCitationLightMetricsRows(affectedNodeIds, timestamp);
+      if (state.cacheBasis) {
+        this.upsertCacheBasis(state.cacheBasis);
+      }
     });
   }
 

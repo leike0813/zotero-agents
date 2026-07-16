@@ -7,13 +7,14 @@ on top of the Synthesis sidecar cache. It provides a canonical file-based asset
 store, a projection/index system for runtime queries, and a WebDAV durable
 bundle service for cross-instance knowledge sharing.
 
-Eight modules implement this subsystem:
+Nine modules implement this subsystem:
 
 | Module | File | Role |
 |--------|------|------|
 | Foundation | `src/modules/synthesis/foundation.ts` | Canonical store, envelopes, sharding, transaction support, projection registry |
 | WebDAV Sync | `src/modules/synthesis/webDavSync.ts` | Durable bundle synchronization through the Host WebDAV port |
-| Citation Graph | `src/modules/synthesis/citationGraph.ts` | Citation graph building, metrics, layout |
+| Citation Graph | `src/modules/synthesis/citationGraph.ts` | Legacy paper identity adapter and canonical graph envelope |
+| Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
 | Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | Tag vocabulary with protocol enforcement |
@@ -204,7 +205,7 @@ Each knowledge domain follows a similar service pattern:
 
 | Domain | Entry Function | Core Operations |
 |--------|---------------|-----------------|
-| Citation Graph | `buildUnifiedCitationGraph()` | Bounded metrics v2 and force/radial/components layout engines through application adapters |
+| Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
 | Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |
