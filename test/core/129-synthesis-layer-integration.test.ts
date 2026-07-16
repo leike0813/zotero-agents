@@ -8,11 +8,13 @@ import {
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
+  createInProcessSynthesisTopicGraphIndexEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisConceptKbIndexEngine,
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
+  type SynthesisTopicGraphIndexEngine,
 } from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
@@ -5752,5 +5754,27 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       result.diagnostics.map((entry: any) => entry.code),
       "bounded_read_only",
     );
+  });
+
+  it("routes Topic Graph projection computation through the configured engine", async function () {
+    const root = await makeRoot();
+    const defaultEngine = createInProcessSynthesisTopicGraphIndexEngine();
+    let buildIndexCalls = 0;
+    const engine: SynthesisTopicGraphIndexEngine = {
+      async buildIndex(request) {
+        buildIndexCalls += 1;
+        return defaultEngine.buildIndex(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      topicGraphIndexEngine: engine,
+    });
+
+    await service.loadTopicGraph();
+    assert.equal(buildIndexCalls, 0);
+    await service.rebuildTopicGraphIndex();
+    assert.equal(buildIndexCalls, 1);
   });
 });

@@ -7,7 +7,7 @@ on top of the Synthesis sidecar cache. It provides a canonical file-based asset
 store, a projection/index system for runtime queries, and a WebDAV durable
 bundle service for cross-instance knowledge sharing.
 
-Eleven modules implement this subsystem:
+Twelve modules implement this subsystem:
 
 | Module | File | Role |
 |--------|------|------|
@@ -15,7 +15,8 @@ Eleven modules implement this subsystem:
 | WebDAV Sync | `src/modules/synthesis/webDavSync.ts` | Durable bundle synchronization through the Host WebDAV port |
 | Citation Graph | `src/modules/synthesis/citationGraph.ts` | Legacy paper identity adapter and canonical graph envelope |
 | Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
-| Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
+| Topic Graph | `src/modules/synthesis/topicGraph.ts` | SQLite, canonical, relation, review, proposal, mutation, and projection orchestration |
+| Topic Graph Index Engine | `packages/synthesis-engine/src/topicGraphIndex.ts` | Bounded environment-neutral root and unplaced-topic derivation |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | SQLite, canonical, proposal, review, mutation, projection, and public query orchestration |
 | Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
 | Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | SQLite, transaction, import, staged-suggestion, Host-effect, and projection orchestration |
@@ -208,7 +209,7 @@ Each knowledge domain follows a similar service pattern:
 | Domain | Entry Function | Core Operations |
 |--------|---------------|-----------------|
 | Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
-| Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
+| Topic Graph | `SynthesisTopicGraphIndexEngine` plus application adapter | Strict asynchronous `buildIndex()` placement computation; application-owned upsert, relation decisions, review, proposal ingestion, checkpoint export, manifests, and projection registration |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `SynthesisTagVocabularyEngine` plus application adapter | Strict synchronous `validate()` and `buildIndex()` computation; application-owned import, transactions, staged suggestions, Host effects, manifests, and projection registration |
 | Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
@@ -224,6 +225,16 @@ type SynthesisTopicGraphRelation =
 
 Proposals enter via `ingestRelationProposals()`: low-confidence proposals route
 to review items, high-confidence proposals become edges directly.
+
+The rebuildable Topic Graph projection derives only `roots` and `unplaced`
+through the environment-neutral `SynthesisTopicGraphIndexEngine`. Requests are
+strictly JSON-safe and capped at 25,000 nodes, 100,000 edges, and 4,096 code
+units per string. The application rejoins those identifiers with complete
+node, edge, review, and diagnostic rows, then promotes projection registry
+state only after strict result validation. Proposal ingestion, cycle checks,
+review decisions, mutations, and Workbench neighborhood/search filtering do
+not cross this compute boundary. Production remains in-process; the Node
+worker is test-only.
 
 ### Concept KB Structure
 

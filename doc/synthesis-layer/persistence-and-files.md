@@ -101,6 +101,15 @@ merge/create/review outcomes. Failed, cancelled, oversized, or malformed
 results leave durable rows and the existing projection registry state
 unchanged.
 
+Topic Graph nodes, edges, review items, and relation decisions remain
+SQLite-owned. The environment-neutral Topic Graph index engine receives only
+bounded placement fields, edge relation/status fields, and the current
+manifest basis. It returns sorted root and unplaced identifiers; it never
+opens SQLite, writes canonical files, owns proposal/review transitions,
+assembles Workbench filters, or updates the projection registry. Failed,
+cancelled, oversized, or malformed results leave graph rows and existing
+projection registry state unchanged.
+
 ## `data/synthesis` Boundary
 
 Normal startup and Workbench snapshot may read `data/synthesis/topics` and

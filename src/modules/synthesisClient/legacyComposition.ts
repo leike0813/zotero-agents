@@ -5,6 +5,7 @@ import {
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
+  createInProcessSynthesisTopicGraphIndexEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
@@ -67,6 +68,7 @@ function createDefaultLegacyService(
     referenceMatcherEngine: createInProcessSynthesisReferenceMatcherEngine(),
     tagVocabularyEngine: createInProcessSynthesisTagVocabularyEngine(),
     conceptKbIndexEngine: createInProcessSynthesisConceptKbIndexEngine(),
+    topicGraphIndexEngine: createInProcessSynthesisTopicGraphIndexEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

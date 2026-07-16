@@ -7,12 +7,14 @@ import {
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
+  createInProcessSynthesisTopicGraphIndexEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisConceptKbIndexEngine,
   type SynthesisReferenceBindingResult,
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
+  type SynthesisTopicGraphIndexEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import {
   createInProcessSynthesisCitationGraphBuildEngine,
@@ -529,6 +531,7 @@ export type SynthesisServiceOptions = {
   referenceMatcherEngine?: SynthesisReferenceMatcherEngine;
   tagVocabularyEngine?: SynthesisTagVocabularyEngine;
   conceptKbIndexEngine?: SynthesisConceptKbIndexEngine;
+  topicGraphIndexEngine?: SynthesisTopicGraphIndexEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -6164,6 +6167,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const conceptKbIndexEngine =
     options.conceptKbIndexEngine ||
     createInProcessSynthesisConceptKbIndexEngine();
+  const topicGraphIndexEngine =
+    options.topicGraphIndexEngine ||
+    createInProcessSynthesisTopicGraphIndexEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -6186,6 +6192,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     root,
     now,
     repository: synthesisRepository,
+    engine: topicGraphIndexEngine,
   });
   const jsonImport = createSynthesisJsonImportService({
     root,

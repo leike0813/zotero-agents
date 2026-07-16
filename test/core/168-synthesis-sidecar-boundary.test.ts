@@ -200,6 +200,17 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const topicGraphIndexEngine = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-engine/src/topicGraphIndex.ts"),
+      "utf8",
+    );
+    const topicGraphIndexAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/topicGraphIndexEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -346,6 +357,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "referenceMatcherEngine");
     assert.include(serviceSource, "tagVocabularyEngine");
     assert.include(serviceSource, "conceptKbIndexEngine");
+    assert.include(serviceSource, "topicGraphIndexEngine");
     assert.include(
       serviceSource,
       "computeSynthesisReferenceBindingsWithEngine",
@@ -392,6 +404,11 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "conceptKbIndexEngine");
     assert.include(
+      legacyComposition,
+      "createInProcessSynthesisTopicGraphIndexEngine",
+    );
+    assert.include(legacyComposition, "topicGraphIndexEngine");
+    assert.include(
       readonlyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",
     );
@@ -411,6 +428,11 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisConceptKbIndexEngine",
     );
     assert.include(readonlyComposition, "conceptKbIndexEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisTopicGraphIndexEngine",
+    );
+    assert.include(readonlyComposition, "topicGraphIndexEngine");
     assert.isFalse(
       fs.existsSync(
         path.join(ROOT_DIR, "src/modules/synthesis/referenceMatcher.ts"),
@@ -427,6 +449,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notMatch(
       conceptKbIndexEngine,
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.notMatch(
+      topicGraphIndexEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.include(
+      topicGraphIndexAdapter,
+      "rebuildSynthesisTopicGraphIndexResult",
     );
     assert.include(
       tagVocabularyAdapter,
@@ -483,6 +513,7 @@ describe("Synthesis sidecar migration boundary", function () {
       "./conceptKbIndex",
       "./referenceMatcher",
       "./tagVocabulary",
+      "./topicGraphIndex",
     ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");

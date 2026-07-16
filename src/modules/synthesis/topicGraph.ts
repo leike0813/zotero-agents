@@ -17,6 +17,12 @@ import {
   type SynthesisTopicGraphNodeRecord,
   type SynthesisTopicGraphReviewItemRecord,
 } from "./repository";
+import {
+  SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION as ENGINE_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
+  createInProcessSynthesisTopicGraphIndexEngine,
+  type SynthesisTopicGraphIndexEngine,
+} from "../../../packages/synthesis-engine/src/topicGraphIndex";
+import { buildSynthesisTopicGraphIndexWithEngine } from "./topicGraphIndexEngineAdapter";
 
 export const SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET = "topic-graph-index";
 export const SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID =
@@ -27,7 +33,8 @@ export const SYNTHESIS_TOPIC_GRAPH_REVIEW_ITEM_SCHEMA_ID =
   "synthesis.topic_graph_review_item";
 export const SYNTHESIS_TOPIC_GRAPH_MANIFEST_SCHEMA_ID =
   "synthesis.topic_graph_manifest";
-export const SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION = "1.0.0";
+export const SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION =
+  ENGINE_TOPIC_GRAPH_INDEX_SCHEMA_VERSION;
 
 export type SynthesisTopicGraphRelation =
   | "broader_than"
@@ -184,6 +191,7 @@ type ServiceOptions = {
   root: string;
   now?: () => string;
   repository?: SynthesisRepository;
+  engine?: SynthesisTopicGraphIndexEngine;
 };
 
 const DIRECTIONAL_RELATIONS = new Set<SynthesisTopicGraphRelation>([
@@ -797,6 +805,8 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
     throw new Error("Synthesis topic graph service requires a storage root");
   }
   const now = options.now || nowIso;
+  const engine =
+    options.engine || createInProcessSynthesisTopicGraphIndexEngine();
   const repository =
     options.repository ||
     createSynthesisRepository({
@@ -1587,40 +1597,13 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
       `${snapshot.nodes.length} nodes loaded`,
     );
     const rebuiltAt = now();
-    const parented = new Set(
-      snapshot.edges
-        .filter(
-          (edge) =>
-            edge.relation === "broader_than" && edge.status !== "rejected",
-        )
-        .map((edge) => edge.target_topic_id),
-    );
     await options.yieldControl?.();
     await reportProgress("build_projection", "Build projection", 2);
-    const projection: SynthesisTopicGraphIndexProjection = {
-      schema_id: "synthesis.topic_graph_index_projection",
-      schema_version: SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
-      source_manifest_hash: snapshot.manifest.manifest_hash,
-      rebuilt_at: rebuiltAt,
-      nodes: snapshot.nodes,
-      edges: snapshot.edges,
-      review_items: snapshot.review_items,
-      roots: snapshot.nodes
-        .filter((node) => node.is_root || node.level === "top")
-        .map((node) => node.topic_id)
-        .sort((left, right) => left.localeCompare(right)),
-      unplaced: snapshot.nodes
-        .filter(
-          (node) =>
-            !node.is_root &&
-            node.level !== "top" &&
-            node.definition_status !== "deleted" &&
-            !parented.has(node.topic_id),
-        )
-        .map((node) => node.topic_id)
-        .sort((left, right) => left.localeCompare(right)),
-      diagnostics: snapshot.diagnostics,
-    };
+    const projection = await buildSynthesisTopicGraphIndexWithEngine({
+      engine,
+      snapshot,
+      rebuiltAt,
+    });
     await options.yieldControl?.();
     await reportProgress("write_projection", "Write projection", 3);
     await options.yieldControl?.();
@@ -1637,38 +1620,11 @@ export function createSynthesisTopicGraphService(options: ServiceOptions) {
 
   async function readTopicGraphIndexProjection() {
     const snapshot = await loadTopicGraph();
-    const parented = new Set(
-      snapshot.edges
-        .filter(
-          (edge) =>
-            edge.relation === "broader_than" && edge.status !== "rejected",
-        )
-        .map((edge) => edge.target_topic_id),
-    );
-    return {
-      schema_id: "synthesis.topic_graph_index_projection",
-      schema_version: SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
-      source_manifest_hash: snapshot.manifest.manifest_hash,
-      rebuilt_at: now(),
-      nodes: snapshot.nodes,
-      edges: snapshot.edges,
-      review_items: snapshot.review_items,
-      roots: snapshot.nodes
-        .filter((node) => node.is_root || node.level === "top")
-        .map((node) => node.topic_id)
-        .sort((left, right) => left.localeCompare(right)),
-      unplaced: snapshot.nodes
-        .filter(
-          (node) =>
-            !node.is_root &&
-            node.level !== "top" &&
-            node.definition_status !== "deleted" &&
-            !parented.has(node.topic_id),
-        )
-        .map((node) => node.topic_id)
-        .sort((left, right) => left.localeCompare(right)),
-      diagnostics: snapshot.diagnostics,
-    };
+    return buildSynthesisTopicGraphIndexWithEngine({
+      engine,
+      snapshot,
+      rebuiltAt: now(),
+    });
   }
 
   return {

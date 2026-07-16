@@ -554,4 +554,22 @@ describe("Synthesis invariant guards", function () {
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
     );
   });
+
+  it("keeps Topic Graph index compute behind the environment-neutral engine boundary", function () {
+    const serviceSource = readRepoText("src/modules/synthesis/topicGraph.ts");
+    const adapterSource = readRepoText(
+      "src/modules/synthesis/topicGraphIndexEngineAdapter.ts",
+    );
+    const engineSource = readRepoText(
+      "packages/synthesis-engine/src/topicGraphIndex.ts",
+    );
+
+    assert.include(serviceSource, "buildSynthesisTopicGraphIndexWithEngine");
+    assert.notInclude(serviceSource, "const parented = new Set(");
+    assert.include(adapterSource, "rebuildSynthesisTopicGraphIndexResult");
+    assert.notMatch(
+      engineSource,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+  });
 });

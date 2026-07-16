@@ -96,6 +96,12 @@ Discovery candidate counts are topic-graph aware in the read model. A higher-lev
 - If the same literature is open for both parent and child, it counts once.
 - An open hint wins over a rejected duplicate for the same literature identity when deriving aggregate `discovery_status`.
 
+Topic Graph projection placement is a separate rebuildable concern. The
+environment-neutral Topic Graph index engine derives sorted root and unplaced
+topic identifiers from bounded node/edge DTOs. It does not own this confirmed
+hierarchy cascade, proposal/review decisions, graph mutations, or Workbench
+search and neighborhood filtering.
+
 The cascade affects:
 
 - Topics/Home list `candidate_count` and `discovery_status`;

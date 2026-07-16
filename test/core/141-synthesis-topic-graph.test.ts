@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
+import { readProjectionRegistryState } from "../../src/modules/synthesis/foundation";
 import {
   createSynthesisTopicGraphService,
   deterministicTopicGraphEdgeId,
@@ -13,6 +14,10 @@ import {
   readRuntimeTextFile,
   runtimePathExists,
 } from "../../src/modules/runtimePersistence";
+import {
+  createInProcessSynthesisTopicGraphIndexEngine,
+  type SynthesisTopicGraphIndexEngine,
+} from "../../packages/synthesis-engine/src/topicGraphIndex";
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-topic-graph-"));
@@ -730,6 +735,82 @@ describe("Synthesis topic graph", function () {
     const projection = await service.readTopicGraphIndexProjection();
     assert.deepEqual(projection.roots, ["topic-root"]);
     assert.deepEqual(projection.unplaced, ["topic-free"]);
+  });
+
+  it("preserves projection registry and graph rows when engine output is malformed", async function () {
+    const root = await makeRuntimeRoot();
+    const stable = createSynthesisTopicGraphService({ root });
+    await stable.upsertMaterializedTopic({
+      topicId: "topic-root",
+      title: "Root",
+      isRoot: true,
+      level: "top",
+    });
+    await stable.rebuildTopicGraphIndexProjection();
+    const before = await readProjectionRegistryState(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const nodeCount = repository.countRows("synt_topic_graph_node");
+    const defaultEngine = createInProcessSynthesisTopicGraphIndexEngine();
+    const malformed: SynthesisTopicGraphIndexEngine = {
+      async buildIndex(request) {
+        return {
+          ...(await defaultEngine.buildIndex(request)),
+          roots: [],
+        };
+      },
+    };
+    const service = createSynthesisTopicGraphService({
+      root,
+      repository,
+      engine: malformed,
+    });
+
+    let failure: unknown;
+    try {
+      await service.rebuildTopicGraphIndexProjection();
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, Error);
+    assert.deepEqual(
+      (await readProjectionRegistryState(root)).projections,
+      before.projections,
+    );
+    assert.equal(repository.countRows("synt_topic_graph_node"), nodeCount);
+  });
+
+  it("keeps raw graph loads and mutations independent from the index engine", async function () {
+    const root = await makeRuntimeRoot();
+    let calls = 0;
+    const service = createSynthesisTopicGraphService({
+      root,
+      engine: {
+        async buildIndex() {
+          calls += 1;
+          throw new Error("index unavailable");
+        },
+      },
+    });
+
+    await service.saveTopicGraph({
+      nodes: [{ topic_id: "topic-a", title: "A" }],
+    });
+    const snapshot = await service.loadTopicGraph();
+    assert.deepEqual(
+      snapshot.nodes.map((node) => node.topic_id),
+      ["topic-a"],
+    );
+    assert.equal(calls, 0);
+
+    let failure: unknown;
+    try {
+      await service.readTopicGraphIndexProjection();
+    } catch (error) {
+      failure = error;
+    }
+    assert.equal((failure as Error)?.message, "index unavailable");
+    assert.equal(calls, 1);
   });
 
   it("writes sanitized diagnostics for malformed sidecars", async function () {
