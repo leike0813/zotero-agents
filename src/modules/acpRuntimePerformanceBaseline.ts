@@ -233,6 +233,10 @@ function sanitizeLabels(labels: AcpRuntimeMetricLabels) {
     "publicationKind",
     "publicationCausality",
     "publicationPhase",
+    "publicationSurface",
+    "publicationForm",
+    "materializationSource",
+    "renderPath",
   ] as const) {
     const value = labels[key];
     if (value) {

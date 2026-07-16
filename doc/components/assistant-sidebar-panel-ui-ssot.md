@@ -3,6 +3,11 @@
 This document is the single source of truth for the shared UI/UX model of the
 Assistant sidebar panels: ACP Chat, ACP Skills, and SkillRunner.
 
+The ACP Chat/ACP Skills Host, publication, browser-state, and rendering runtime
+boundary is defined by `doc/components/assistant-workspace-acp-surface-ssot.md`.
+This document owns visible UI semantics; the ACP surface SSOT owns delivery and
+state ownership.
+
 ## Goals
 
 - Use one visible Assistant sidebar entry for all assistant surfaces.

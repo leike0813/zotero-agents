@@ -3,6 +3,10 @@ import {
   getAssistantExecutionDisplayMode,
   type AssistantExecutionDisplayMode,
 } from "./assistantExecutionDisplayPolicy";
+import {
+  acpChatTranscriptPageKey,
+  type AcpChatTranscriptPageRequest,
+} from "./acpChatWorkspaceSurface";
 import { isAssistantTranscriptPaginationVirtualizationEnabled } from "./assistantTranscriptRenderingPreference";
 import {
   getAcpConversationUiSnapshot,
@@ -24,17 +28,8 @@ import {
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
   createReadyTranscriptRegion,
-  type AssistantWorkspacePublicationKind,
 } from "./assistantWorkspacePublication";
 import { createAssistantWorkspaceTranscriptPage } from "./assistantWorkspaceTranscriptPublication";
-
-export type AcpChatTranscriptPageRequest = {
-  backendId?: string;
-  conversationId?: string;
-  requestId?: string;
-  cursor?: number;
-  limit?: number;
-};
 
 export type AcpChatPanelSnapshotReadTranscriptPage = (
   args: Parameters<typeof readAcpConversationTranscriptMirrorPage>[0],
@@ -51,24 +46,6 @@ export type AcpChatPanelSnapshotArgs = {
   transcriptPage?: AcpChatTranscriptPageRequest;
   readTranscriptPage?: AcpChatPanelSnapshotReadTranscriptPage;
 };
-
-export type AcpChatPanelPublicationArgs = AcpChatPanelSnapshotArgs & {
-  kind: AssistantWorkspacePublicationKind;
-};
-
-export type AcpChatSnapshotRefreshState = {
-  activeTab: "skillrunner" | "acp-chat" | "acp-skills";
-  hasActiveTarget: boolean;
-  transcriptPaginationVirtualizationEnabled: boolean;
-  executionDisplayMode: AssistantExecutionDisplayMode;
-};
-
-export function acpChatTranscriptPageKey(
-  backendId: string,
-  conversationId: string,
-) {
-  return `${String(backendId || "").trim()}\n${String(conversationId || "").trim()}`;
-}
 
 function finitePageNumber(value: unknown) {
   const numeric = Number(value);
@@ -239,8 +216,8 @@ function emptyAcpChatTranscriptRegion(
       anchor: "tail",
       cursor: 0,
       limit: Math.max(1, Math.floor(Number(limit || 80) || 80)),
-      totalItemCount: 0,
-      eventSeq: 0,
+      totalVisibleItemCount: 0,
+      sourceEventSeq: 0,
       items: [],
     }),
     0,
@@ -307,8 +284,8 @@ export async function prepareAcpChatPanelSnapshot(
         anchor: "tail",
         cursor: 0,
         limit: Math.max(items.length, 1),
-        totalItemCount: items.length,
-        eventSeq: Number(payload.transcriptEventSeq) || 0,
+        totalVisibleItemCount: items.length,
+        sourceEventSeq: Number(payload.transcriptEventSeq) || 0,
         items: items as Array<Record<string, unknown>>,
       }),
       0,
@@ -342,10 +319,10 @@ export async function prepareAcpChatPanelSnapshot(
           anchor: args.transcriptPage?.cursor === undefined ? "tail" : "cursor",
           cursor: page.cursor,
           limit: page.limit,
-          totalItemCount: page.total,
+          totalVisibleItemCount: page.total,
           previousCursor: page.prevCursor,
           nextCursor: page.nextCursor,
-          eventSeq: page.eventSeq,
+          sourceEventSeq: page.eventSeq,
           items: page.items as Array<Record<string, unknown>>,
         }),
         0,
@@ -387,274 +364,3 @@ export async function prepareAcpChatPanelSnapshot(
   }
   return payload;
 }
-
-export async function prepareAcpChatPanelPublicationDto(
-  args: AcpChatPanelPublicationArgs,
-) {
-  if (args.kind === "message-counts") {
-    const { backendId, conversationId } = getActiveAcpChatOwner();
-    const progress = getAcpChatExecutionProgress(backendId, conversationId);
-    return {
-      activeBackendId: backendId,
-      backendId,
-      activeConversationId: conversationId,
-      conversationId,
-      messageCounts: progress
-        ? {
-            scopeKey: progress.scopeKey,
-            executionKey: progress.executionKey,
-            active: progress.active,
-            current: { ...progress.current },
-            cumulative: { ...progress.cumulative },
-            revision: progress.revision,
-            completeness: progress.completeness,
-          }
-        : undefined,
-    };
-  }
-  if (args.kind === "transcript") {
-    const active = getActiveAcpChatOwner();
-    const backendId = String(
-      args.transcriptPage?.backendId || active.backendId,
-    ).trim();
-    const conversationId = String(
-      args.transcriptPage?.conversationId || active.conversationId,
-    ).trim();
-    if (!backendId || !conversationId) {
-      return { transcriptRegion: createIdleTranscriptRegion() };
-    }
-    const owner = createAcpChatWorkspaceOwner(backendId, conversationId);
-    if (args.transcriptReadMode === "loading-first") {
-      return { transcriptRegion: createLoadingTranscriptRegion(owner) };
-    }
-    try {
-      const page = await readSelectedAcpChatTranscriptPage({
-        activeBackendId: backendId,
-        activeConversationId: conversationId,
-        request: args.transcriptPage,
-        readTranscriptPage: args.readTranscriptPage,
-        executionDisplayMode: getAssistantExecutionDisplayMode(),
-      });
-      if (!page) {
-        const snapshot = getAcpConversationUiSnapshot(
-          backendId,
-          conversationId,
-          { itemMode: "structural" },
-        );
-        if (
-          Math.max(
-            Number(snapshot.transcriptRevision) || 0,
-            Number(snapshot.transcriptEventSeq) || 0,
-            Number(snapshot.transcriptItemCount) || 0,
-          ) > 0
-        ) {
-          return { transcriptRegion: createLoadingTranscriptRegion(owner) };
-        }
-        return {
-          transcriptRegion: createReadyTranscriptRegion(
-            owner,
-            createAssistantWorkspaceTranscriptPage({
-              owner,
-              anchor: "tail",
-              cursor: 0,
-              limit: Math.max(
-                1,
-                Math.floor(Number(args.transcriptPage?.limit || 80) || 80),
-              ),
-              totalItemCount: 0,
-              eventSeq: 0,
-              items: [],
-            }),
-            0,
-          ),
-        };
-      }
-      return {
-        transcriptRegion: createReadyTranscriptRegion(
-          owner,
-          createAssistantWorkspaceTranscriptPage({
-            owner,
-            anchor:
-              args.transcriptPage?.cursor === undefined ? "tail" : "cursor",
-            cursor: page.cursor,
-            limit: page.limit,
-            totalItemCount: page.total,
-            previousCursor: page.prevCursor,
-            nextCursor: page.nextCursor,
-            eventSeq: page.eventSeq,
-            items: page.items as Array<Record<string, unknown>>,
-          }),
-          0,
-        ),
-      };
-    } catch (error) {
-      return {
-        transcriptRegion: createFailedTranscriptRegion(owner, {
-          code: "transcript-page-read-failed",
-          message: error instanceof Error ? error.message : String(error),
-        }),
-      };
-    }
-  }
-
-  const active = getActiveAcpChatOwner();
-  const snapshot = getAcpConversationUiSnapshot(
-    active.backendId,
-    active.conversationId,
-    { itemMode: "structural" },
-  );
-  const ownerFields = {
-    activeBackendId: active.backendId,
-    backendId: active.backendId,
-    activeConversationId: active.conversationId,
-    conversationId: active.conversationId,
-  };
-  if (args.kind === "plan") {
-    return {
-      ...ownerFields,
-      status: snapshot.status,
-      busy: snapshot.busy,
-      items: snapshot.items.filter((item) => item.kind === "plan"),
-    };
-  }
-  if (args.kind === "permission") {
-    return {
-      ...ownerFields,
-      status: snapshot.status,
-      busy: snapshot.busy,
-      pendingPermissionRequest: snapshot.pendingPermissionRequest,
-      lastError: snapshot.lastError,
-    };
-  }
-  if (args.kind === "reply-hint") {
-    return {
-      ...ownerFields,
-      status: snapshot.status,
-      busy: snapshot.busy,
-      currentMode: snapshot.currentMode,
-      modeOptions: snapshot.modeOptions,
-      currentModel: snapshot.currentModel,
-      modelOptions: snapshot.modelOptions,
-      currentDisplayModel: snapshot.currentDisplayModel,
-      displayModelOptions: snapshot.displayModelOptions,
-      currentReasoningEffort: snapshot.currentReasoningEffort,
-      reasoningEffortOptions: snapshot.reasoningEffortOptions,
-      availableCommands: snapshot.availableCommands,
-      usage: snapshot.usage,
-    };
-  }
-  if (args.kind === "context-details") {
-    return {
-      ...ownerFields,
-      sessionTitle: snapshot.sessionTitle,
-      sessionUpdatedAt: snapshot.sessionUpdatedAt,
-    };
-  }
-  return {
-    ...ownerFields,
-    status: snapshot.status,
-    busy: snapshot.busy,
-    lastError: snapshot.lastError,
-  };
-}
-
-function normalizedAcpChatPanelChangeKinds(change: AcpChatPanelSnapshotChange) {
-  return (change.kinds || []).filter(Boolean);
-}
-
-function hasAnyAcpChatPanelChangeKind(
-  change: AcpChatPanelSnapshotChange,
-  kinds: AcpChatPanelSnapshotChangeKind[],
-) {
-  const set = new Set(normalizedAcpChatPanelChangeKinds(change));
-  return kinds.some((kind) => set.has(kind));
-}
-
-export function isPureAcpChatBackgroundChange(
-  change: AcpChatPanelSnapshotChange,
-) {
-  if (change.global || change.active === true) {
-    return false;
-  }
-  const kinds = normalizedAcpChatPanelChangeKinds(change);
-  return (
-    kinds.length > 0 &&
-    kinds.every(
-      (kind) => kind === "transcript-append" || kind === "transcript-boundary",
-    )
-  );
-}
-
-export function shouldRefreshAcpChatSnapshotForChange(
-  state: AcpChatSnapshotRefreshState,
-  change: AcpChatPanelSnapshotChange,
-) {
-  if (!state.hasActiveTarget || state.activeTab !== "acp-chat") {
-    return false;
-  }
-  if (change.global === true) {
-    return true;
-  }
-  if (change.active !== true) {
-    return false;
-  }
-  if (
-    hasAnyAcpChatPanelChangeKind(change, [
-      "active-scope",
-      "backend",
-      "global",
-      "permission",
-      "runtime-options",
-      "session-list",
-      "status",
-      "message-counts",
-      "plan",
-      "reply-hint",
-      "context-details",
-      "transcript-boundary",
-      "transcript-progress",
-    ])
-  ) {
-    return true;
-  }
-  if (hasAnyAcpChatPanelChangeKind(change, ["transcript-append"])) {
-    return state.executionDisplayMode === "live";
-  }
-  return false;
-}
-
-export function resolveAcpChatPublicationKindsForChange(
-  state: AcpChatSnapshotRefreshState,
-  change: AcpChatPanelSnapshotChange,
-): AssistantWorkspacePublicationKind[] {
-  if (!shouldRefreshAcpChatSnapshotForChange(state, change)) {
-    return [];
-  }
-  return Array.from(
-    new Set(
-      normalizedAcpChatPanelChangeKinds(change).map(
-        (kind) => ACP_CHAT_CHANGE_PUBLICATION_MAPPING[kind],
-      ),
-    ),
-  );
-}
-
-export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
-  "active-scope": "baseline-status",
-  status: "baseline-status",
-  permission: "permission",
-  "session-list": "baseline-status",
-  "transcript-boundary": "transcript",
-  "transcript-append": "transcript",
-  "transcript-progress": "transcript",
-  "message-counts": "message-counts",
-  plan: "plan",
-  "reply-hint": "reply-hint",
-  "context-details": "context-details",
-  "runtime-options": "reply-hint",
-  backend: "baseline-status",
-  global: "baseline-status",
-} as const satisfies Record<
-  AcpChatPanelSnapshotChangeKind,
-  AssistantWorkspacePublicationKind
->;

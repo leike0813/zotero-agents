@@ -20,15 +20,14 @@
     toolActivityExpandedSignature: "",
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
-    pendingRenderSnapshots: [],
-    pendingPublications: [],
-    renderScheduled: false,
     panelRenderKey: "",
     drawerGroupCollapsed: new Map(),
-    pendingTranscriptOwnerKey: "",
-    pendingTranscriptBackendId: "",
-    pendingTranscriptPreviousOwnerKey: "",
-    publicationClient: null,
+    acpSurfaceController: null,
+    surfaceConfiguration: {
+      executionDisplayMode: "live",
+      transcriptPaginationVirtualizationEnabled: true,
+    },
+    surfaceLabels: {},
   };
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsAcpSidebarBridge";
@@ -154,7 +153,7 @@
             status: safeText(region.status),
             pageKey: safeText(page && page.pageKey),
             cursor: Number((page && page.startCursor) || 0),
-            total: Number((page && page.totalItemCount) || 0),
+            total: Number((page && page.totalVisibleItemCount) || 0),
             items: page && Array.isArray(page.items) ? page.items.length : 0,
           }
         : null,
@@ -237,101 +236,47 @@
     return Math.max(0, Math.floor(Number(value || 0) || 0));
   }
 
-  function transcriptPageKey(backendId, conversationId) {
+  function transcriptOwnerKey(backendId, conversationId) {
     return safeText(backendId) && safeText(conversationId)
       ? safeText(backendId) + "\n" + safeText(conversationId)
       : "";
   }
 
   function snapshotBackendId(snapshot) {
-    return safeText(
-      snapshot && (snapshot.activeBackendId || snapshot.backendId),
-    );
+    const owner = snapshot && snapshot.owner;
+    return owner && owner.source === "acp-chat"
+      ? safeText(owner.backendId)
+      : "";
   }
 
   function snapshotConversationId(snapshot) {
-    return safeText(
-      snapshot && (snapshot.activeConversationId || snapshot.conversationId),
-    );
+    const owner = snapshot && snapshot.owner;
+    return owner && owner.source === "acp-chat"
+      ? safeText(owner.conversationId)
+      : "";
   }
 
   function snapshotTranscriptOwnerKey(snapshot) {
-    return transcriptPageKey(
+    return transcriptOwnerKey(
       snapshotBackendId(snapshot),
       snapshotConversationId(snapshot),
     );
   }
 
-  function clearPendingTranscriptOwner() {
-    state.pendingTranscriptOwnerKey = "";
-    state.pendingTranscriptBackendId = "";
-    state.pendingTranscriptPreviousOwnerKey = "";
-  }
-
-  function shouldAcceptSnapshot(snapshot) {
-    const backendId = snapshotBackendId(snapshot || {});
-    const ownerKey = snapshotTranscriptOwnerKey(snapshot || {});
-    if (state.pendingTranscriptOwnerKey) {
-      if (ownerKey !== state.pendingTranscriptOwnerKey) {
-        trace("snapshot-reject-pending-owner", {
-          expectedOwnerKey: state.pendingTranscriptOwnerKey,
-          ownerKey,
-          summary: snapshotSummary(snapshot || {}),
-        });
-        return false;
-      }
-      clearPendingTranscriptOwner();
-      return true;
-    }
-    if (state.pendingTranscriptPreviousOwnerKey) {
-      if (ownerKey && ownerKey === state.pendingTranscriptPreviousOwnerKey) {
-        trace("snapshot-reject-previous-owner", {
-          previousOwnerKey: state.pendingTranscriptPreviousOwnerKey,
-          ownerKey,
-          summary: snapshotSummary(snapshot || {}),
-        });
-        return false;
-      }
-      if (
-        state.pendingTranscriptBackendId &&
-        backendId !== state.pendingTranscriptBackendId
-      ) {
-        trace("snapshot-reject-pending-backend", {
-          expectedBackendId: state.pendingTranscriptBackendId,
-          backendId,
-          summary: snapshotSummary(snapshot || {}),
-        });
-        return false;
-      }
-      clearPendingTranscriptOwner();
-      return true;
-    }
-    if (state.pendingTranscriptBackendId) {
-      if (backendId !== state.pendingTranscriptBackendId) {
-        trace("snapshot-reject-pending-backend", {
-          expectedBackendId: state.pendingTranscriptBackendId,
-          backendId,
-          summary: snapshotSummary(snapshot || {}),
-        });
-        return false;
-      }
-      clearPendingTranscriptOwner();
-    }
-    return true;
-  }
-
   function transcriptPageSignature(page) {
     if (!page) return "";
     return [
-      safeText(page.requestId),
-      String(transcriptRevisionNumber(page.cursor)),
-      String(transcriptRevisionNumber(page.prevCursor)),
+      safeText(page.ownerKey),
+      safeText(page.pageKey),
+      String(transcriptRevisionNumber(page.startCursor)),
+      String(transcriptRevisionNumber(page.previousCursor)),
       String(transcriptRevisionNumber(page.nextCursor)),
-      String(transcriptRevisionNumber(page.total)),
+      String(transcriptRevisionNumber(page.totalVisibleItemCount)),
+      String(transcriptRevisionNumber(page.sourceEventSeq)),
       String(transcriptRevisionNumber(page.transcriptRevision)),
       (Array.isArray(page.items) ? page.items : [])
         .map(function (item) {
-          return safeText(item && item.id);
+          return safeText(item && item.itemId);
         })
         .join(","),
     ].join("|");
@@ -339,40 +284,23 @@
 
   function snapshotTranscriptPaginationVirtualizationEnabled(snapshot) {
     return (
-      !!snapshot && snapshot.transcriptPaginationVirtualizationEnabled === true
+      state.surfaceConfiguration.transcriptPaginationVirtualizationEnabled !==
+      false
     );
   }
 
-  function snapshotBackendAvailable(snapshot, backendId) {
-    const availability = safeText(snapshot && snapshot.backendAvailability);
-    if (availability) {
-      return availability === "selected" && Boolean(safeText(backendId));
-    }
-    return Boolean(safeText(backendId));
-  }
-
-  function snapshotConversationAvailable(snapshot, conversationId) {
-    const availability = safeText(
-      snapshot && snapshot.conversationAvailability,
-    );
-    if (availability) {
-      return availability === "selected" && Boolean(safeText(conversationId));
-    }
-    return Boolean(safeText(conversationId));
-  }
-
-  function resetTranscriptVirtualState(pageKey) {
+  function resetTranscriptVirtualState(ownerKey) {
     const renderer = assistantTranscriptRenderer();
     if (
       renderer &&
       typeof renderer.resetAssistantTranscriptVirtualState === "function"
     ) {
-      renderer.resetAssistantTranscriptVirtualState(transcriptEl, pageKey);
+      renderer.resetAssistantTranscriptVirtualState(transcriptEl, ownerKey);
     }
   }
 
   function transcriptLoadingSignature(kind, backendId, conversationId) {
-    const owner = transcriptPageKey(backendId, conversationId);
+    const owner = transcriptOwnerKey(backendId, conversationId);
     return owner ? [owner, safeText(kind) || "loading"].join("|") : "";
   }
 
@@ -409,10 +337,22 @@
       : null;
   }
 
-  function assistantTranscriptPublication() {
-    return window.AssistantTranscriptPublication &&
-      typeof window.AssistantTranscriptPublication === "object"
-      ? window.AssistantTranscriptPublication
+  function assistantWorkspaceAcpSurface() {
+    return window.AssistantWorkspaceAcpSurface &&
+      typeof window.AssistantWorkspaceAcpSurface === "object"
+      ? window.AssistantWorkspaceAcpSurface
+      : null;
+  }
+
+  function workspacePanelPresentation(snapshot) {
+    const shared = assistantWorkspaceAcpSurface();
+    return shared && typeof shared.createPanelPresentation === "function"
+      ? shared.createPanelPresentation(snapshot || {}, {
+          source: "acp-chat",
+          chatDisplayMode: state.chatDisplayMode,
+          configuration: state.surfaceConfiguration,
+          labels: state.surfaceLabels,
+        })
       : null;
   }
 
@@ -604,7 +544,7 @@
 
   function handlePanelAction(action, payload) {
     const data = payload && typeof payload === "object" ? payload : {};
-    const snapshot = state.snapshot || {};
+    const snapshot = workspacePanelPresentation(state.snapshot || {}) || {};
     if (action === "open-context-drawer") {
       state.sessionDrawerOpen = true;
       render(snapshot);
@@ -645,9 +585,6 @@
     if (action === "set-active-backend") {
       const backendId = safeText(data.backendId || data.value);
       if (!backendId) return;
-      state.pendingTranscriptOwnerKey = "";
-      state.pendingTranscriptPreviousOwnerKey = "";
-      state.pendingTranscriptBackendId = backendId;
       sendAction("set-active-backend", {
         backendId,
       });
@@ -669,12 +606,6 @@
       );
       const conversationId = safeText(data.conversationId || data.value);
       if (!backendId || !conversationId) return;
-      state.pendingTranscriptOwnerKey = transcriptPageKey(
-        backendId,
-        conversationId,
-      );
-      state.pendingTranscriptBackendId = backendId;
-      state.pendingTranscriptPreviousOwnerKey = "";
       sendAction("set-active-conversation", {
         conversationId,
         backendId,
@@ -686,10 +617,6 @@
         data.backendId || snapshot.activeBackendId || snapshot.backendId,
       );
       if (!backendId) return;
-      state.pendingTranscriptOwnerKey = "";
-      state.pendingTranscriptBackendId = backendId;
-      state.pendingTranscriptPreviousOwnerKey =
-        snapshotTranscriptOwnerKey(snapshot);
       sendAction("new-conversation", {
         backendId,
       });
@@ -864,7 +791,8 @@
       typeof renderer.renderAssistantPanelSnapshot !== "function"
     )
       return;
-    const panelSnapshot = projectPanelSnapshot(snapshot || {});
+    const presentation = workspacePanelPresentation(snapshot || {}) || {};
+    const panelSnapshot = projectPanelSnapshot(presentation);
     renderer.renderAssistantPanelSnapshot(panelSnapshot, {
       managed: true,
       managedRegions: { messageCounter: true },
@@ -873,7 +801,7 @@
         messageCounter: document.getElementById("acp-chat-message-counter"),
       },
     });
-    const renderKey = compactPanelRenderKey(snapshot || {});
+    const renderKey = compactPanelRenderKey(presentation);
     if (state.panelRenderKey === renderKey) {
       syncDrawerVisibility();
       return;
@@ -881,7 +809,7 @@
     state.panelRenderKey = renderKey;
     trace("render-panel", { summary: snapshotSummary(snapshot || {}) });
     applyDrawerGroupCollapseState(panelSnapshot);
-    if (!snapshot || !snapshot.pendingPermissionRequest) {
+    if (!presentation.pendingPermissionRequest) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
     }
@@ -945,16 +873,11 @@
   }
 
   function renderTranscript(snapshot) {
-    const backendId = safeText(
-      snapshot && (snapshot.activeBackendId || snapshot.backendId),
-    );
-    const conversationId = safeText(
-      snapshot && (snapshot.activeConversationId || snapshot.conversationId),
-    );
-    const hasBackend = snapshotBackendAvailable(snapshot, backendId);
-    const hasConversation =
-      hasBackend && snapshotConversationAvailable(snapshot, conversationId);
-    const pageKey = transcriptPageKey(backendId, conversationId);
+    const backendId = snapshotBackendId(snapshot);
+    const conversationId = snapshotConversationId(snapshot);
+    const hasBackend = Boolean(backendId);
+    const hasConversation = hasBackend && Boolean(conversationId);
+    const ownerKey = transcriptOwnerKey(backendId, conversationId);
     if (
       backendId !== state.transcriptBackendId ||
       conversationId !== state.transcriptConversationId
@@ -962,19 +885,19 @@
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
       resetTranscriptRenderState();
-      resetTranscriptVirtualState(pageKey);
+      resetTranscriptVirtualState(ownerKey);
       state.transcriptBackendId = backendId;
       state.transcriptConversationId = conversationId;
     }
     const virtualized =
       hasConversation &&
       snapshotTranscriptPaginationVirtualizationEnabled(snapshot);
-    const publication = assistantTranscriptPublication();
+    const publication = assistantWorkspaceAcpSurface();
     const region = publication
       ? publication.readRegion(
           snapshot || {},
           "acp-chat",
-          transcriptPageKey(backendId, conversationId),
+          transcriptOwnerKey(backendId, conversationId),
         )
       : null;
     const regionPage = publication ? publication.rendererPage(region) : null;
@@ -996,7 +919,7 @@
       );
       return;
     }
-    if (virtualized && pageKey && !page) {
+    if (virtualized && ownerKey && !page) {
       renderTranscriptLoading("page-missing", backendId, conversationId);
       return;
     }
@@ -1004,7 +927,7 @@
     const renderer = assistantTranscriptRenderer();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     const revision = region
-      ? transcriptRevisionNumber(region.uiRevision)
+      ? transcriptRevisionNumber(region.transcriptRevision)
       : Number(snapshot && snapshot.transcriptRevision) || 0;
     if (isStaleTranscriptRevision(revision)) {
       return;
@@ -1050,7 +973,7 @@
       container: transcriptEl,
       items: Array.isArray(view.items) ? view.items : [],
       virtualized: !!page,
-      pageKey: page ? pageKey : undefined,
+      ownerKey: page ? ownerKey : undefined,
       page: page || undefined,
       transcriptRevision: revision,
       mode,
@@ -1074,11 +997,11 @@
         if (!page) {
           return;
         }
-        const requestPageKey = safeText(request && request.pageKey);
+        const requestOwnerKey = safeText(request && request.ownerKey);
         const cursor = Number(request && request.cursor);
         if (
-          !pageKey ||
-          requestPageKey !== pageKey ||
+          !ownerKey ||
+          requestOwnerKey !== ownerKey ||
           !Number.isFinite(cursor)
         ) {
           return;
@@ -1112,15 +1035,8 @@
   function render(snapshot) {
     state.snapshot = snapshot && typeof snapshot === "object" ? snapshot : {};
     trace("render", { summary: snapshotSummary(state.snapshot) });
-    document.title =
-      safeText(state.snapshot.title) ||
-      safeText(state.snapshot.labels && state.snapshot.labels.title);
-    if (
-      state.snapshot.chatDisplayMode === "bubble" ||
-      state.snapshot.chatDisplayMode === "plain"
-    ) {
-      state.chatDisplayMode = state.snapshot.chatDisplayMode;
-    }
+    const presentation = workspacePanelPresentation(state.snapshot) || {};
+    document.title = safeText(presentation.title) || "ACP Chat";
     renderPanel(state.snapshot);
     renderTranscript(state.snapshot);
   }
@@ -1136,8 +1052,8 @@
   }
 
   function renderPublicationResult(result, publication) {
-    const nextSnapshot = result.snapshot || {};
-    const shared = assistantTranscriptPublication();
+    const nextSnapshot = (result && result.snapshot) || {};
+    const shared = assistantWorkspaceAcpSurface();
     const mode = state.chatDisplayMode === "bubble" ? "bubble" : "plain";
     const rendered = !!(
       shared &&
@@ -1189,19 +1105,19 @@
         snapshotTranscriptOwnerKey(nextSnapshot),
       );
       state.transcriptRevision = transcriptRevisionNumber(
-        region && region.uiRevision,
+        region && region.transcriptRevision,
       );
       state.transcriptRenderedMode = mode;
     }
     return rendered;
   }
 
-  function publicationClient() {
-    if (state.publicationClient) return state.publicationClient;
-    const shared = assistantTranscriptPublication();
-    state.publicationClient =
+  function surfaceController() {
+    if (state.acpSurfaceController) return state.acpSurfaceController;
+    const shared = assistantWorkspaceAcpSurface();
+    state.acpSurfaceController =
       shared &&
-      shared.createClient({
+      shared.createController({
         source: "acp-chat",
         getSnapshot: function () {
           return state.snapshot || {};
@@ -1211,58 +1127,18 @@
         },
         getOwnerKey: snapshotTranscriptOwnerKey,
         ack: publicationAck,
-        requestPage: function (publication) {
-          const request = shared.createPageRequest(publication.owner, null, 80);
-          if (request) sendAction("load-transcript-page", request);
-        },
         render: renderPublicationResult,
       });
-    return state.publicationClient;
+    return state.acpSurfaceController;
   }
 
   function applyPublication(publication) {
-    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0) {
-      state.pendingPublications.push(publication);
-      return;
-    }
-    const client = publicationClient();
-    if (!client) {
+    const controller = surfaceController();
+    if (!controller) {
       publicationAck(publication || {}, "child-apply", "rejected", "invalid");
       return;
     }
-    client.apply(publication);
-  }
-
-  function flushPendingPublications() {
-    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0)
-      return;
-    const pending = state.pendingPublications.splice(0);
-    pending.forEach(applyPublication);
-  }
-
-  function queueRender(snapshot) {
-    const nextSnapshot =
-      snapshot && typeof snapshot === "object" ? snapshot : {};
-    state.pendingRenderSnapshots.push(nextSnapshot);
-    trace("queue-render", {
-      summary: snapshotSummary(nextSnapshot),
-    });
-    if (state.renderScheduled) return;
-    state.renderScheduled = true;
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : function (callback) {
-            return setTimeout(callback, 0);
-          };
-    schedule(function () {
-      state.renderScheduled = false;
-      const pendingSnapshots = state.pendingRenderSnapshots.splice(0);
-      pendingSnapshots.forEach(function (pendingSnapshot) {
-        render(pendingSnapshot);
-      });
-      flushPendingPublications();
-    });
+    controller.applyPublication(publication);
   }
 
   function closeAllDrawers() {
@@ -1294,6 +1170,27 @@
       closeAllDrawers();
       return;
     }
+    if (data && data.type === "assistant-workspace:surface-bootstrap") {
+      const bootstrap =
+        data.payload && typeof data.payload === "object" ? data.payload : {};
+      const configuration =
+        bootstrap.configuration && typeof bootstrap.configuration === "object"
+          ? bootstrap.configuration
+          : {};
+      const mode = safeText(configuration.executionDisplayMode);
+      state.surfaceConfiguration = {
+        executionDisplayMode:
+          mode === "boundary" || mode === "silent" ? mode : "live",
+        transcriptPaginationVirtualizationEnabled:
+          configuration.transcriptPaginationVirtualizationEnabled !== false,
+      };
+      state.surfaceLabels =
+        bootstrap.labels && typeof bootstrap.labels === "object"
+          ? bootstrap.labels
+          : {};
+      renderPanel(state.snapshot || {});
+      return;
+    }
     if (!data) return;
     const payload =
       data.payload && typeof data.payload === "object" ? data.payload : {};
@@ -1301,16 +1198,6 @@
       applyPublication(payload);
       return;
     }
-    if (!data || (data.type !== "acp:init" && data.type !== "acp:snapshot"))
-      return;
-    trace("message-received", {
-      type: data.type,
-      summary: snapshotSummary(payload),
-    });
-    if (!shouldAcceptSnapshot(payload)) {
-      return;
-    }
-    queueRender(payload);
   });
 
   trace("ready-send", {});

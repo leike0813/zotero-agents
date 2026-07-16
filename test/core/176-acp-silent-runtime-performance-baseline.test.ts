@@ -63,7 +63,35 @@ describe("ACP silent runtime performance baseline", function () {
       durations: 0,
     });
     assert.deepEqual(r3("closed").metrics, []);
-    for (const surface of ["open-inactive", "acp-active"] as const) {
+    const inactiveProfile =
+      bySurface.get("open-inactive")!.snapshot.completed[0];
+    assert.equal(
+      r3("open-inactive").metrics.find(
+        (metric) => metric.name === "panel_requested",
+      )?.counter,
+      2,
+    );
+    assert.equal(
+      r3("open-inactive").metrics.find(
+        (metric) => metric.name === "panel_dropped_before_build",
+      )?.counter,
+      2,
+    );
+    assert.equal(
+      r3("open-inactive").metrics.find(
+        (metric) => metric.name === "panel_dropped_before_build",
+      )?.labels.publicationCausality,
+      "opposite-active",
+    );
+    assert.isUndefined(
+      r3("open-inactive").metrics.find(
+        (metric) => metric.name === "panel_prepare",
+      ),
+    );
+    assert.deepEqual(inactiveProfile.publicationLifecycles, []);
+
+    {
+      const surface = "acp-active" as const;
       const profile = bySurface.get(surface)!.snapshot.completed[0];
       assert.equal(
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
@@ -72,8 +100,8 @@ describe("ACP silent runtime performance baseline", function () {
       );
       assert.equal(
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
-          ?.labels.surfaceState,
-        surface,
+          ?.labels.publicationSurface,
+        "acp-skills",
       );
       assert.isAbove(
         r3(surface).metrics.find((metric) => metric.name === "panel_post_bytes")

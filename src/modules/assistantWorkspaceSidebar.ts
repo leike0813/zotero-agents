@@ -20,14 +20,18 @@ import {
 } from "./dashboardToolbarButton";
 import { buildAcpHostContext } from "./acpContextBuilder";
 import {
+  ACP_CHAT_WORKSPACE_SURFACE_ADAPTER,
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
-  prepareAcpChatPanelSnapshot,
-  prepareAcpChatPanelPublicationDto,
-  resolveAcpChatPublicationKindsForChange,
-  type AcpChatTranscriptReadMode,
   type AcpChatTranscriptPageRequest,
-} from "./acpChatPanelReadModel";
+} from "./acpChatWorkspaceSurface";
+import {
+  initializeAssistantWorkspaceAcpSurface,
+  scheduleAssistantWorkspaceAcpSurfaceChange,
+  type AssistantWorkspaceAcpSurfaceConfiguration,
+  type AssistantWorkspaceAcpSurfaceScheduleArgs,
+} from "./assistantWorkspaceAcpSurface";
+import { buildAssistantWorkspaceAcpSurfaceLabels } from "./assistantWorkspaceAcpSurfaceLabels";
 import {
   authenticateAcpConversation,
   archiveAcpConversation,
@@ -35,7 +39,6 @@ import {
   cancelAcpConversationPrompt,
   connectAcpConversation,
   disconnectAcpConversation,
-  getAcpFrontendSnapshot,
   getActiveAcpChatOwner,
   refreshAcpConversationBackends,
   reconnectAcpConversation,
@@ -59,6 +62,7 @@ import { openBackendManagerDialog } from "./backendManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
   type AcpSkillRunSnapshotChange,
+  type AcpSkillRunTranscriptPageRequest,
   archiveAcpSkillRun,
   cancelAcpSkillRun,
   connectAcpSkillRun,
@@ -76,10 +80,7 @@ import {
   setAcpSkillRunReasoningEffort,
   subscribeAcpSkillRunSnapshots,
 } from "./acpSkillRunStore";
-import {
-  mapAcpSkillRunChangeToPublicationKinds,
-  prepareAcpSkillRunPublication,
-} from "./acpSkillRunPanelReadModel";
+import { ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER } from "./acpSkillsWorkspaceSurface";
 import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
@@ -125,9 +126,9 @@ import {
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationAck,
   type AssistantWorkspaceDomainChange,
+  type AssistantWorkspaceOwner,
   type AssistantWorkspacePublicationKind,
   type AssistantWorkspacePublicationLifecycle,
-  type AssistantWorkspacePublicationPayload,
 } from "./assistantWorkspacePublication";
 import { AssistantWorkspacePublicationCoordinator } from "./assistantWorkspacePublicationCoordinator";
 import {
@@ -181,8 +182,6 @@ type AssistantWorkspaceHostRuntime = {
   pendingSkillRunnerRefresh?: SkillRunnerSidebarRefreshRequest;
   scopeKey: string;
   snapshotRevision: number;
-  acpChatSnapshotBuildSeq: number;
-  acpSkillRunSnapshotBuildSeq: number;
   workspaceInitDelivery?: {
     frameWindow: Window;
     target: AcpSidebarTarget;
@@ -200,13 +199,16 @@ type AssistantWorkspaceHostRuntime = {
   childInitInFlight: Map<AssistantWorkspaceTab, Promise<boolean>>;
   streamingRenderPreferenceInitialized: boolean;
   streamingRenderPreferenceLocalWriteDepth: number;
-  lastAcpSkillRunSnapshotSignature?: string | null;
-  pendingWorkspacePublication?: {
-    source: "acp-chat" | "acp-skills";
-    target: AcpSidebarTarget;
-    ownerKey: string;
-    kinds: Set<AssistantWorkspacePublicationKind>;
-  };
+  pendingWorkspacePublications: Map<
+    string,
+    {
+      source: "acp-chat" | "acp-skills";
+      target: AcpSidebarTarget;
+      ownerKey: string;
+      kinds: Set<AssistantWorkspacePublicationKind>;
+    }
+  >;
+  publicationOwners: Map<"acp-chat" | "acp-skills", AssistantWorkspaceOwner>;
   pendingSnapshotTab?: AssistantWorkspaceTab;
   publicationLifecycles: Map<
     string,
@@ -256,11 +258,13 @@ type AssistantWorkspaceBridge = {
 type AcpChatSnapshotPostOptions = {
   force?: boolean;
   requestRecorded?: boolean;
-  transcriptReadMode?: AcpChatTranscriptReadMode;
+  transcriptCause?: "diagnostic" | "rebase";
+  transcriptReadMode?: "loading-first" | "page-first";
   transcriptPage?: AcpChatTranscriptPageRequest;
 };
 type AcpSkillRunSnapshotPostOptions = {
   force?: boolean;
+  transcriptCause?: "diagnostic" | "rebase";
   transcriptReadMode?: "loading-first" | "page-first";
   transcriptPage?: {
     requestId?: string;
@@ -285,111 +289,6 @@ const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
 const MAX_WORKSPACE_PUBLICATION_LIFECYCLES = 256;
 const localize = getStringOrFallback;
 
-function countArray(value: unknown) {
-  return Array.isArray(value) ? value.length : 0;
-}
-
-function summarizeAcpChatPanelSnapshot(snapshot: Record<string, unknown>) {
-  const region =
-    snapshot.transcriptRegion && typeof snapshot.transcriptRegion === "object"
-      ? (snapshot.transcriptRegion as Record<string, unknown>)
-      : null;
-  const page =
-    region?.page && typeof region.page === "object"
-      ? (region.page as Record<string, unknown>)
-      : null;
-  return {
-    backendAvailability: String(snapshot.backendAvailability || ""),
-    conversationAvailability: String(snapshot.conversationAvailability || ""),
-    activeBackendId: String(
-      snapshot.activeBackendId || snapshot.backendId || "",
-    ),
-    activeConversationId: String(
-      snapshot.activeConversationId || snapshot.conversationId || "",
-    ),
-    status: String(snapshot.status || ""),
-    backendOptions: countArray(snapshot.backendOptions),
-    chatSessions: countArray(snapshot.chatSessions),
-    backendChatSessions: countArray(snapshot.backendChatSessions),
-    transcriptPaginationVirtualizationEnabled:
-      snapshot.transcriptPaginationVirtualizationEnabled === true,
-    executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
-    transcriptRegion: region
-      ? {
-          status: String(region.status || ""),
-          pageKey: String(page?.pageKey || ""),
-          cursor: Number(page?.startCursor || 0),
-          total: Number(page?.totalItemCount || 0),
-          items: countArray(page?.items),
-        }
-      : null,
-  };
-}
-
-function summarizeChildSnapshot(
-  tab: AssistantWorkspaceTab,
-  snapshot: Record<string, unknown>,
-) {
-  if (tab === "acp-chat") {
-    return summarizeAcpChatPanelSnapshot(snapshot);
-  }
-  if (tab === "acp-skills") {
-    const selectedRun =
-      snapshot.selectedRun && typeof snapshot.selectedRun === "object"
-        ? (snapshot.selectedRun as Record<string, unknown>)
-        : null;
-    const region =
-      snapshot.transcriptRegion && typeof snapshot.transcriptRegion === "object"
-        ? (snapshot.transcriptRegion as Record<string, unknown>)
-        : null;
-    const page =
-      region?.page && typeof region.page === "object"
-        ? (region.page as Record<string, unknown>)
-        : null;
-    return {
-      selectedRequestId: String(snapshot.selectedRequestId || ""),
-      selectedRunRequestId: String(selectedRun?.requestId || ""),
-      selectedRunStatus: String(selectedRun?.status || ""),
-      runs: countArray(snapshot.runs),
-      transcriptPaginationVirtualizationEnabled:
-        snapshot.transcriptPaginationVirtualizationEnabled === true,
-      executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
-      transcriptRegion: region
-        ? {
-            status: String(region.status || ""),
-            pageKey: String(page?.pageKey || ""),
-            cursor: Number(page?.startCursor || 0),
-            total: Number(page?.totalItemCount || 0),
-            items: countArray(page?.items),
-          }
-        : null,
-    };
-  }
-  const session =
-    snapshot.session && typeof snapshot.session === "object"
-      ? (snapshot.session as Record<string, unknown>)
-      : null;
-  const workspace =
-    snapshot.workspace && typeof snapshot.workspace === "object"
-      ? (snapshot.workspace as Record<string, unknown>)
-      : null;
-  return {
-    hostMode: String(snapshot.hostMode || ""),
-    sessionRequestId: String(session?.requestId || ""),
-    sessionStatus: String(session?.status || ""),
-    selectedTaskKey: String(workspace?.selectedTaskKey || ""),
-    groups: countArray(workspace?.groups),
-    drawerSections: countArray(
-      snapshot.drawer && typeof snapshot.drawer === "object"
-        ? (snapshot.drawer as Record<string, unknown>).sections
-        : undefined,
-    ),
-    transcriptPaginationVirtualizationEnabled:
-      snapshot.transcriptPaginationVirtualizationEnabled === true,
-    executionDisplayMode: String(snapshot.executionDisplayMode || "live"),
-  };
-}
-
 function logAssistantWorkspaceDebug(
   host: AssistantWorkspaceHostRuntime,
   stage: string,
@@ -412,8 +311,6 @@ function logAssistantWorkspaceDebug(
       shellWindowKnown: !!host.shell.frameWindow,
       readyTabs: Array.from(host.readyTabs),
       snapshotRevision: host.snapshotRevision,
-      acpChatSnapshotBuildSeq: host.acpChatSnapshotBuildSeq,
-      acpSkillRunSnapshotBuildSeq: host.acpSkillRunSnapshotBuildSeq,
       acpChatBackendRefreshInFlight: host.acpChatBackendRefreshInFlight,
       acpChatBackendRefreshRepostQueued: host.acpChatBackendRefreshRepostQueued,
       ...(details || {}),
@@ -616,40 +513,52 @@ async function postAcpSkillRunPublication(
   kind: AssistantWorkspacePublicationKind,
   options?: AcpSkillRunSnapshotPostOptions,
 ) {
-  if (
-    !host.activeTarget ||
-    host.activeTab !== "acp-skills" ||
-    getSelectedAcpSkillRunRequestId() !== requestId
-  ) {
-    return;
-  }
   const profilingEnabled =
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__);
-  const labels = {
-    operationClass: "panel" as const,
-    publicationKind: kind,
-    publicationCausality: "matching-target" as const,
-    publicationPhase: "steady-state" as const,
-    publicationSurface: "acp-skills" as const,
-    publicationForm:
-      kind === "transcript" ? ("delta" as const) : ("region" as const),
-    materializationSource:
-      kind === "transcript"
-        ? ("transcript-page" as const)
-        : ("region" as const),
-  };
-  const startedAt = profilingEnabled ? readAcpRuntimePerformanceClockMs() : 0;
+  const selectedRequestId = getSelectedAcpSkillRunRequestId();
+  const causality = !host.activeTarget
+    ? "inactive-source"
+    : host.activeTab !== "acp-skills"
+      ? "opposite-active"
+      : selectedRequestId !== requestId
+        ? "owner-mismatch"
+        : "matching-target";
+  const labels = assistantWorkspacePublicationMetricLabels(
+    "acp-skills",
+    kind,
+    causality,
+  );
   if (profilingEnabled) {
     incrementAcpRuntimeMetric(requestId, "panel_requested", labels);
   }
-  const payload = await prepareAcpSkillRunPublication({
-    requestId,
+  if (
+    !host.activeTarget ||
+    host.activeTab !== "acp-skills" ||
+    selectedRequestId !== requestId
+  ) {
+    if (profilingEnabled) {
+      incrementAcpRuntimeMetric(
+        requestId,
+        "panel_dropped_before_build",
+        labels,
+      );
+    }
+    return;
+  }
+  const owner = createAcpSkillsWorkspaceOwner(requestId);
+  synchronizeWorkspacePublicationOwner(host, owner);
+  const startedAt = profilingEnabled ? readAcpRuntimePerformanceClockMs() : 0;
+  const payload = await ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER.readPublication({
+    owner,
     publicationKind: kind,
-    transcriptReadMode: options?.transcriptReadMode,
-    transcriptPage: options?.transcriptPage,
+    context: undefined,
+    options: {
+      transcriptReadMode: options?.transcriptReadMode,
+      transcriptPage: options?.transcriptPage,
+    },
   });
   if (profilingEnabled) {
     incrementAcpRuntimeMetric(requestId, "panel_materialization", labels);
@@ -662,15 +571,16 @@ async function postAcpSkillRunPublication(
     );
   }
   if (!payload || getSelectedAcpSkillRunRequestId() !== requestId) return;
-  const owner = createAcpSkillsWorkspaceOwner(requestId);
   let publication: AssistantWorkspacePublication | undefined;
   if (kind === "transcript") {
     const region = payload as AssistantWorkspaceTranscriptRegion;
-    const cause = options?.force
-      ? "diagnostic"
-      : options?.transcriptPage
-        ? "page-request"
-        : "owner-switch";
+    const cause =
+      options?.transcriptCause ||
+      (options?.force
+        ? "diagnostic"
+        : options?.transcriptPage
+          ? "page-request"
+          : "owner-switch");
     publication = host.publicationCoordinator?.publishDomainChange({
       owner,
       kind: "transcript",
@@ -679,62 +589,183 @@ async function postAcpSkillRunPublication(
       force: options?.force,
     });
   } else if (kind !== "plan") {
-    publication = host.publicationCoordinator?.publishDomainChange({
-      owner,
+    publication = publishAssistantWorkspaceRegion(host, requestId, labels, {
+      owner:
+        kind === "owner-navigation"
+          ? createAssistantWorkspaceUnownedScope("acp-skills")
+          : owner,
       kind,
       cause: options?.force ? "diagnostic" : "steady-state",
       payload,
       force: options?.force,
-    } as AssistantWorkspaceDomainChange);
+    } as Exclude<AssistantWorkspaceDomainChange, { kind: "transcript" }>);
   }
   return publication?.publicationId;
+}
+
+/**
+ * Narrow performance-test seam for the production ACP Skills
+ * read/signature/coordinator/post path.
+ */
+export async function postAcpSkillRunPublicationForPerformanceTests(
+  host: unknown,
+) {
+  const runtime = host as AssistantWorkspaceHostRuntime;
+  runtime.pendingWorkspacePublications ||= new Map();
+  runtime.publicationOwners ||= new Map();
+  runtime.publicationLifecycles ||= new Map();
+  if (!runtime.publicationCoordinator) {
+    runtime.publicationCoordinator =
+      new AssistantWorkspacePublicationCoordinator({
+        scopeKey: runtime.scopeKey || "assistant-workspace-performance-test",
+        getActiveOwner(source) {
+          if (source !== "acp-skills") return null;
+          const requestId = getSelectedAcpSkillRunRequestId();
+          return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
+        },
+        post(publication) {
+          const posted = postShellMessage(
+            runtime,
+            "assistant-workspace:child-publication",
+            { tab: publication.owner.source, publication },
+          );
+          if (posted) {
+            registerWorkspacePublication(
+              runtime,
+              publication.owner.source,
+              publication.publicationId,
+              publication,
+            );
+          }
+          return posted;
+        },
+      });
+  }
+  const requestId = getSelectedAcpSkillRunRequestId();
+  if (!requestId) return undefined;
+  return postAcpSkillRunPublication(runtime, requestId, "baseline-status");
 }
 
 function scheduleAcpSkillRunPublications(
   host: AssistantWorkspaceHostRuntime,
   change?: AcpSkillRunSnapshotChange,
 ) {
-  if (!change || change.global === true) {
-    schedulePostSnapshot(host, "acp-skills");
-    return;
-  }
-  const kinds = acpSkillRunChangeKinds(change);
-  if (!host.activeTarget || host.activeTab !== "acp-skills") return;
-  const requestId = getSelectedAcpSkillRunRequestId();
-  const requestIds = change.requestIds || [];
+  if (!change || !host.publicationCoordinator) return;
+  const activity = !host.activeTarget
+    ? ("inactive-source" as const)
+    : host.activeTab === "acp-skills"
+      ? ("matching-target" as const)
+      : ("opposite-active" as const);
+  const scheduleArgs = {
+    adapter: ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER,
+    coordinator: host.publicationCoordinator,
+    change,
+    context: undefined,
+    activity,
+    synchronizeOwner: (owner) =>
+      synchronizeWorkspacePublicationOwner(host, owner),
+    initialize: (cause) => {
+      void initializeAcpSkillsWorkspaceSurface(host, cause);
+    },
+    queueRegions: (owner, kinds) => {
+      queueWorkspacePublications(host, "acp-skills", owner.ownerKey, kinds);
+    },
+  } satisfies AssistantWorkspaceAcpSurfaceScheduleArgs<
+    "acp-skills",
+    AcpSkillRunSnapshotChange,
+    undefined,
+    AcpSkillRunTranscriptPageRequest
+  >;
   if (
-    !requestId ||
-    (requestIds.length > 0 && !requestIds.includes(requestId))
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
   ) {
-    return;
-  }
-  if (kinds.includes("transcript")) {
-    host.publicationCoordinator?.publishDomainChange({
-      owner: createAcpSkillsWorkspaceOwner(requestId),
-      kind: "transcript",
-      cause: "steady-state",
-      transcript: {
-        form: "mutations",
-        events: change.transcriptEvents || [],
-        eventSeq: change.transcriptEventSeq || 0,
-        totalItemCount: change.transcriptItemCount || 0,
-        visibility: getAssistantExecutionDisplayMode(),
+    scheduleAssistantWorkspaceAcpSurfaceChange({
+      ...scheduleArgs,
+      onRequested: ({ owner, kinds, causality }) => {
+        if (!owner) return;
+        for (const kind of kinds) {
+          incrementAcpRuntimeMetric(
+            owner.ownerKey,
+            "panel_requested",
+            assistantWorkspacePublicationMetricLabels(
+              "acp-skills",
+              kind,
+              causality,
+            ),
+          );
+        }
+      },
+      onDropped: ({ owner, kinds, reason }) => {
+        if (!owner) return;
+        for (const kind of kinds) {
+          incrementAcpRuntimeMetric(
+            owner.ownerKey,
+            "panel_dropped_before_build",
+            assistantWorkspacePublicationMetricLabels(
+              "acp-skills",
+              kind,
+              reason,
+            ),
+          );
+        }
       },
     });
-  }
-  if (
-    kinds.length === 0 ||
-    kinds.some(
-      (kind) => kind === "selection" || kind === "archive" || kind === "global",
-    )
-  ) {
-    schedulePostSnapshot(host, "acp-skills");
     return;
   }
-  const publicationKinds = mapAcpSkillRunChangeToPublicationKinds(kinds).filter(
-    (kind) => kind !== "transcript",
-  );
-  queueWorkspacePublications(host, "acp-skills", requestId, publicationKinds);
+  scheduleAssistantWorkspaceAcpSurfaceChange(scheduleArgs);
+}
+
+function synchronizeWorkspacePublicationOwner(
+  host: AssistantWorkspaceHostRuntime,
+  owner: AssistantWorkspaceOwner,
+) {
+  const previous = host.publicationOwners.get(owner.source);
+  if (previous?.ownerKey === owner.ownerKey) return false;
+  if (previous) {
+    host.publicationCoordinator?.clearOwner(previous);
+    for (const [key, pending] of host.pendingWorkspacePublications) {
+      if (
+        pending.source === previous.source &&
+        pending.ownerKey === previous.ownerKey
+      ) {
+        host.pendingWorkspacePublications.delete(key);
+      }
+    }
+    for (const [publicationId, lifecycle] of host.publicationLifecycles) {
+      if (
+        lifecycle.source === previous.source &&
+        lifecycle.ownerKey === previous.ownerKey
+      ) {
+        host.publicationLifecycles.delete(publicationId);
+      }
+    }
+  }
+  host.publicationOwners.set(owner.source, owner);
+  return true;
+}
+
+function transcriptRebasePageRequest(
+  owner: AssistantWorkspaceOwner,
+  pageKey: string,
+) {
+  const suffix = pageKey.startsWith(`${owner.ownerKey}\n`)
+    ? pageKey.slice(owner.ownerKey.length + 1)
+    : "";
+  const tail = /^tail:(\d+)$/.exec(suffix);
+  if (tail) {
+    return { cursor: undefined, limit: Math.max(1, Number(tail[1]) || 80) };
+  }
+  const cursor = /^cursor:(\d+):(\d+)$/.exec(suffix);
+  if (cursor) {
+    return {
+      cursor: Math.max(0, Number(cursor[1]) || 0),
+      limit: Math.max(1, Number(cursor[2]) || 80),
+    };
+  }
+  return { cursor: undefined, limit: 80 };
 }
 
 function queueWorkspacePublications(
@@ -744,16 +775,17 @@ function queueWorkspacePublications(
   kinds: readonly AssistantWorkspacePublicationKind[],
 ) {
   if (!host.activeTarget || kinds.length === 0) return;
-  const pending = host.pendingWorkspacePublication;
-  if (pending && pending.source === source && pending.ownerKey === ownerKey) {
+  const laneKey = `${source}\n${ownerKey}`;
+  const pending = host.pendingWorkspacePublications.get(laneKey);
+  if (pending) {
     for (const kind of kinds) pending.kinds.add(kind);
   } else {
-    host.pendingWorkspacePublication = {
+    host.pendingWorkspacePublications.set(laneKey, {
       source,
       target: host.activeTarget,
       ownerKey,
       kinds: new Set(kinds),
-    };
+    });
   }
   if (host.postSnapshotTimer) return;
   host.postSnapshotTimer = setTimeout(() => {
@@ -767,6 +799,23 @@ function updateAssistantAttentionIndicator(
 ) {
   const waitingCount = countWaitingTasks();
   updateAssistantToolbarAttention(host.win, waitingCount);
+}
+
+function resetWorkspacePublicationRuntime(host: AssistantWorkspaceHostRuntime) {
+  if (host.postSnapshotTimer) {
+    clearTimeout(host.postSnapshotTimer);
+    host.postSnapshotTimer = null;
+  }
+  host.pendingSnapshotTab = undefined;
+  host.pendingWorkspacePublications.clear();
+  host.publicationOwners.clear();
+  host.publicationCoordinator?.reset();
+  for (const lifecycle of host.publicationLifecycles.values()) {
+    if (lifecycle.state !== "pending") continue;
+    lifecycle.state = "rejected";
+    lifecycle.reason = "superseded";
+  }
+  trimWorkspacePublicationLifecycles(host);
 }
 
 function deactivateTarget(
@@ -793,6 +842,7 @@ function deactivateTarget(
     setButtonSelected(host.reader.button, false);
   }
   if (host.activeTarget === target) {
+    resetWorkspacePublicationRuntime(host);
     host.drawerOpen = false;
     host.activeTarget = null;
     setShellActiveTarget(host, null);
@@ -1083,7 +1133,8 @@ function postShellMessage(
   const profilerLabels = {
     ...(metricPublication
       ? {
-          ...acpChatPublicationMetricLabels(
+          ...assistantWorkspacePublicationMetricLabels(
+            metricPublication.owner.source,
             metricPublication.publicationKind,
             "matching-target",
             metricPublication.publicationCause === "initialization"
@@ -1636,57 +1687,8 @@ function registerWorkspacePublication(
   trimWorkspacePublicationLifecycles(host);
 }
 
-function postChildSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  tab: AssistantWorkspaceTab,
-  phase: "init" | "snapshot",
-  snapshot: Record<string, unknown>,
-) {
-  host.snapshotRevision += 1;
-  logAssistantWorkspaceDebug(
-    host,
-    "child-snapshot-post",
-    "Assistant Workspace child snapshot prepared for shell delivery.",
-    {
-      tab,
-      phase,
-      full: tab === host.activeTab,
-      nextRevision: host.snapshotRevision,
-      summary: summarizeChildSnapshot(tab, snapshot),
-    },
-  );
-  const payload = decorateAssistantSidebarChildSnapshot({
-    scopeKey: host.scopeKey,
-    activeTab: host.activeTab,
-    tab,
-    revision: host.snapshotRevision,
-    waitingCount: countWaitingTasks(),
-    full: tab === host.activeTab,
-    snapshot,
-  });
-  const posted = postShellMessage(host, "assistant-workspace:child-snapshot", {
-    tab,
-    phase,
-    snapshot: payload,
-  });
-  if (!posted || (tab !== "acp-chat" && tab !== "acp-skills")) {
-    return undefined;
-  }
-  const transcriptRegion =
-    snapshot.transcriptRegion && typeof snapshot.transcriptRegion === "object"
-      ? (snapshot.transcriptRegion as AssistantWorkspaceTranscriptRegion)
-      : null;
-  if (!transcriptRegion) return undefined;
-  const publicationOwner =
-    transcriptRegion.owner || createAssistantWorkspaceUnownedScope(tab);
-  return host.publicationCoordinator?.publishTranscriptSnapshot({
-    owner: publicationOwner,
-    cause: phase === "init" ? "initialization" : "activation",
-    region: transcriptRegion,
-  })?.publicationId;
-}
-
-function acpChatPublicationMetricLabels(
+function assistantWorkspacePublicationMetricLabels(
+  surface: "acp-chat" | "acp-skills",
   kind: AssistantWorkspacePublicationKind,
   causality:
     | "matching-target"
@@ -1700,7 +1702,7 @@ function acpChatPublicationMetricLabels(
     publicationKind: kind,
     publicationCausality: causality,
     publicationPhase: phase,
-    publicationSurface: "acp-chat" as const,
+    publicationSurface: surface,
     publicationForm:
       phase === "initialization"
         ? ("initialization" as const)
@@ -1714,121 +1716,40 @@ function acpChatPublicationMetricLabels(
   };
 }
 
-function buildAcpChatPublicationPayload(
-  kind: AssistantWorkspacePublicationKind,
-  dto: Record<string, unknown>,
-): AssistantWorkspacePublicationPayload {
-  if (kind === "transcript") {
-    return dto.transcriptRegion as AssistantWorkspacePublicationPayload;
+function publishAssistantWorkspaceRegion(
+  host: AssistantWorkspaceHostRuntime,
+  requestId: string,
+  labels: ReturnType<typeof assistantWorkspacePublicationMetricLabels>,
+  change: Exclude<AssistantWorkspaceDomainChange, { kind: "transcript" }>,
+) {
+  const profilingEnabled =
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__);
+  const startedAt = profilingEnabled ? readAcpRuntimePerformanceClockMs() : 0;
+  if (profilingEnabled) {
+    incrementAcpRuntimeMetric(requestId, "panel_signature", labels);
+    incrementAcpRuntimeMetric(
+      requestId,
+      "panel_signature_bytes",
+      labels,
+      new TextEncoder().encode(JSON.stringify(change.payload)).byteLength,
+    );
   }
-  if (kind === "message-counts") {
-    return {
-      counts:
-        dto.messageCounts && typeof dto.messageCounts === "object"
-          ? (dto.messageCounts as never)
-          : null,
-    };
+  const publication = host.publicationCoordinator?.publishDomainChange(change);
+  if (profilingEnabled) {
+    observeAcpRuntimeDuration(
+      requestId,
+      "panel_signature_duration",
+      labels,
+      readAcpRuntimePerformanceClockMs() - startedAt,
+    );
+    if (!publication) {
+      incrementAcpRuntimeMetric(requestId, "panel_signature_skip", labels);
+    }
   }
-  if (kind === "plan") {
-    const items = (Array.isArray(dto.items) ? dto.items : [])
-      .filter(
-        (item) =>
-          item &&
-          typeof item === "object" &&
-          (item as Record<string, unknown>).kind === "plan",
-      )
-      .flatMap((item) => {
-        const source = item as Record<string, unknown>;
-        return (Array.isArray(source.entries) ? source.entries : []).map(
-          (entry, index) => {
-            const value = entry as Record<string, unknown>;
-            return {
-              itemId: `${String(source.id || "plan")}:${index}`,
-              content: String(value.content || ""),
-              priority: value.priority ? String(value.priority) : null,
-              status: value.status ? String(value.status) : null,
-            };
-          },
-        );
-      });
-    return { items };
-  }
-  if (kind === "permission") {
-    const pending =
-      dto.pendingPermissionRequest &&
-      typeof dto.pendingPermissionRequest === "object"
-        ? (dto.pendingPermissionRequest as Record<string, unknown>)
-        : null;
-    return {
-      request: pending
-        ? {
-            requestId: String(pending.requestId || ""),
-            title: String(pending.toolTitle || ""),
-            summary: String(pending.summary || ""),
-            options: (Array.isArray(pending.options)
-              ? pending.options
-              : []
-            ).map((option) => {
-              const value = option as Record<string, unknown>;
-              return {
-                optionId: String(value.optionId || ""),
-                label: String(value.name || value.label || ""),
-                description: value.description
-                  ? String(value.description)
-                  : null,
-              };
-            }),
-          }
-        : null,
-    };
-  }
-  if (kind === "reply-hint") {
-    const optionGroup = (optionsRaw: unknown, selectedRaw: unknown) => {
-      const selected =
-        selectedRaw && typeof selectedRaw === "object"
-          ? (selectedRaw as Record<string, unknown>)
-          : null;
-      return {
-        selectedOptionId: selected ? String(selected.id || "") || null : null,
-        options: (Array.isArray(optionsRaw) ? optionsRaw : []).map((option) => {
-          const value = option as Record<string, unknown>;
-          return {
-            optionId: String(value.id || ""),
-            label: String(value.label || value.id || ""),
-            description: value.description ? String(value.description) : null,
-          };
-        }),
-      };
-    };
-    return {
-      reply: {
-        status: dto.busy === true ? "busy" : "enabled",
-        hint: null,
-      },
-      runtimeOptions: {
-        mode: optionGroup(dto.modeOptions, dto.currentMode),
-        model: optionGroup(
-          Array.isArray(dto.displayModelOptions) &&
-            dto.displayModelOptions.length
-            ? dto.displayModelOptions
-            : dto.modelOptions,
-          dto.currentDisplayModel || dto.currentModel,
-        ),
-        reasoningEffort: optionGroup(
-          dto.reasoningEffortOptions,
-          dto.currentReasoningEffort,
-        ),
-      },
-    };
-  }
-  if (kind === "context-details") {
-    return { context: [], details: [] };
-  }
-  return {
-    status: String(dto.status || "idle"),
-    busy: dto.busy === true,
-    message: dto.lastError ? String(dto.lastError) : null,
-  };
+  return publication;
 }
 
 async function postAcpChatPanelPublication(
@@ -1847,7 +1768,7 @@ async function postAcpChatPanelPublication(
     incrementAcpRuntimeMetric(
       ownerKey,
       "panel_requested",
-      acpChatPublicationMetricLabels(kind),
+      assistantWorkspacePublicationMetricLabels("acp-chat", kind),
     );
   }
   if (
@@ -1860,7 +1781,8 @@ async function postAcpChatPanelPublication(
       incrementAcpRuntimeMetric(
         ownerKey,
         "panel_dropped_before_build",
-        acpChatPublicationMetricLabels(
+        assistantWorkspacePublicationMetricLabels(
+          "acp-chat",
           kind,
           getActiveAcpChatOwnerKey() === ownerKey
             ? "inactive-source"
@@ -1870,31 +1792,44 @@ async function postAcpChatPanelPublication(
     }
     return;
   }
+  const [backendId, conversationId] = ownerKey.split("\n", 2);
+  const owner = createAcpChatWorkspaceOwner(backendId, conversationId);
+  synchronizeWorkspacePublicationOwner(host, owner);
 
   const prepareStartedAt = profilingEnabled
     ? readAcpRuntimePerformanceClockMs()
     : 0;
-  const dto = await prepareAcpChatPanelPublicationDto({
-    target,
-    kind,
-    transcriptReadMode: options?.transcriptReadMode,
-    transcriptPage: options?.transcriptPage,
+  const payload = await ACP_CHAT_WORKSPACE_SURFACE_ADAPTER.readPublication({
+    owner,
+    publicationKind: kind,
+    context: {
+      target,
+      activeTab: host.activeTab,
+      hasActiveTarget: !!host.activeTarget,
+      transcriptPaginationVirtualizationEnabled:
+        isAssistantTranscriptPaginationVirtualizationEnabled(),
+      executionDisplayMode: getAssistantExecutionDisplayMode(),
+    },
+    options: {
+      transcriptReadMode: options?.transcriptReadMode,
+      transcriptPage: options?.transcriptPage,
+    },
   });
   if (profilingEnabled) {
     incrementAcpRuntimeMetric(
       ownerKey,
       "panel_materialization",
-      acpChatPublicationMetricLabels(kind),
+      assistantWorkspacePublicationMetricLabels("acp-chat", kind),
     );
     incrementAcpRuntimeMetric(
       ownerKey,
       "panel_prepare",
-      acpChatPublicationMetricLabels(kind),
+      assistantWorkspacePublicationMetricLabels("acp-chat", kind),
     );
     observeAcpRuntimeDuration(
       ownerKey,
       "panel_prepare_duration",
-      acpChatPublicationMetricLabels(kind),
+      assistantWorkspacePublicationMetricLabels("acp-chat", kind),
       readAcpRuntimePerformanceClockMs() - prepareStartedAt,
     );
   }
@@ -1907,40 +1842,17 @@ async function postAcpChatPanelPublication(
     return;
   }
 
-  const signatureStartedAt = profilingEnabled
-    ? readAcpRuntimePerformanceClockMs()
-    : 0;
-  const signature = JSON.stringify(dto);
-  if (profilingEnabled) {
-    incrementAcpRuntimeMetric(
-      ownerKey,
-      "panel_signature",
-      acpChatPublicationMetricLabels(kind),
-    );
-    incrementAcpRuntimeMetric(
-      ownerKey,
-      "panel_signature_bytes",
-      acpChatPublicationMetricLabels(kind),
-      new TextEncoder().encode(signature).byteLength,
-    );
-    observeAcpRuntimeDuration(
-      ownerKey,
-      "panel_signature_duration",
-      acpChatPublicationMetricLabels(kind),
-      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
-    );
-  }
-  const [backendId, conversationId] = ownerKey.split("\n", 2);
-  const owner = createAcpChatWorkspaceOwner(backendId, conversationId);
-  const payload = buildAcpChatPublicationPayload(kind, dto);
+  if (!payload) return;
   let publication: AssistantWorkspacePublication | undefined;
   if (kind === "transcript") {
     const region = payload as AssistantWorkspaceTranscriptRegion;
-    const cause = options?.force
-      ? "diagnostic"
-      : options?.transcriptPage
-        ? "page-request"
-        : "owner-switch";
+    const cause =
+      options?.transcriptCause ||
+      (options?.force
+        ? "diagnostic"
+        : options?.transcriptPage
+          ? "page-request"
+          : "owner-switch");
     publication = host.publicationCoordinator?.publishDomainChange({
       owner,
       kind: "transcript",
@@ -1949,233 +1861,150 @@ async function postAcpChatPanelPublication(
       force: options?.force,
     });
   } else {
-    publication = host.publicationCoordinator?.publishDomainChange({
-      owner,
-      kind,
-      cause: options?.force ? "diagnostic" : "steady-state",
-      payload,
-      force: options?.force,
-    } as AssistantWorkspaceDomainChange);
+    publication = publishAssistantWorkspaceRegion(
+      host,
+      ownerKey,
+      assistantWorkspacePublicationMetricLabels("acp-chat", kind),
+      {
+        owner:
+          kind === "owner-navigation"
+            ? createAssistantWorkspaceUnownedScope("acp-chat")
+            : owner,
+        kind,
+        cause: options?.force ? "diagnostic" : "steady-state",
+        payload,
+        force: options?.force,
+      } as Exclude<AssistantWorkspaceDomainChange, { kind: "transcript" }>,
+    );
   }
   return publication?.publicationId;
 }
 
-function scheduleAcpChatPublications(
+function acpChatWorkspaceSurfaceContext(
   host: AssistantWorkspaceHostRuntime,
-  change: AcpChatPanelSnapshotChange,
+  target: AcpSidebarTarget,
 ) {
-  const profilingEnabled =
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__);
-  const refreshState = {
+  return {
+    target,
     activeTab: host.activeTab,
     hasActiveTarget: !!host.activeTarget,
     transcriptPaginationVirtualizationEnabled:
       isAssistantTranscriptPaginationVirtualizationEnabled(),
     executionDisplayMode: getAssistantExecutionDisplayMode(),
   };
-  const requestedKinds = resolveAcpChatPublicationKindsForChange(
-    {
-      ...refreshState,
-      activeTab: "acp-chat",
-      hasActiveTarget: true,
-    },
-    { ...change, active: true },
-  );
-  const changeBackendId = String(change.backendId || "").trim();
-  const changeConversationId = String(change.conversationId || "").trim();
-  if (!changeBackendId || !changeConversationId) {
-    if (host.activeTarget && host.activeTab === "acp-chat") {
-      void postAcpChatLoadingFirstSnapshot(host, host.activeTarget, "snapshot");
-    }
-    return;
-  }
-  const owner = createAcpChatWorkspaceOwner(
-    changeBackendId,
-    changeConversationId,
-  );
-  const causality = !host.activeTarget
+}
+
+async function initializeAcpChatWorkspaceSurface(
+  host: AssistantWorkspaceHostRuntime,
+  target: AcpSidebarTarget,
+  cause: "initialization" | "activation" | "owner-switch",
+) {
+  const coordinator = host.publicationCoordinator;
+  if (!coordinator) return undefined;
+  const owner = ACP_CHAT_WORKSPACE_SURFACE_ADAPTER.getActiveOwner();
+  if (owner) synchronizeWorkspacePublicationOwner(host, owner);
+  const publicationIds = await initializeAssistantWorkspaceAcpSurface({
+    adapter: ACP_CHAT_WORKSPACE_SURFACE_ADAPTER,
+    coordinator,
+    context: acpChatWorkspaceSurfaceContext(host, target),
+    cause,
+  });
+  return publicationIds.at(-1);
+}
+
+async function initializeAcpSkillsWorkspaceSurface(
+  host: AssistantWorkspaceHostRuntime,
+  cause: "initialization" | "activation" | "owner-switch",
+) {
+  const coordinator = host.publicationCoordinator;
+  if (!coordinator) return undefined;
+  const owner = ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER.getActiveOwner();
+  if (owner) synchronizeWorkspacePublicationOwner(host, owner);
+  const publicationIds = await initializeAssistantWorkspaceAcpSurface({
+    adapter: ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER,
+    coordinator,
+    context: undefined,
+    cause,
+  });
+  return publicationIds.at(-1);
+}
+
+function scheduleAcpChatPublications(
+  host: AssistantWorkspaceHostRuntime,
+  change: AcpChatPanelSnapshotChange,
+) {
+  if (!host.publicationCoordinator) return;
+  const context = {
+    target: host.activeTarget || ("library" as const),
+    activeTab: host.activeTab,
+    hasActiveTarget: !!host.activeTarget,
+    transcriptPaginationVirtualizationEnabled:
+      isAssistantTranscriptPaginationVirtualizationEnabled(),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+  };
+  const activity = !host.activeTarget
     ? "inactive-source"
     : host.activeTab !== "acp-chat"
       ? "opposite-active"
-      : change.active !== true
-        ? "owner-mismatch"
-        : "matching-target";
-  if (profilingEnabled) {
-    for (const kind of requestedKinds) {
-      incrementAcpRuntimeMetric(
-        owner.ownerKey,
-        "panel_requested",
-        acpChatPublicationMetricLabels(kind, causality),
-      );
-    }
-  }
-  const kinds = resolveAcpChatPublicationKindsForChange(refreshState, change);
-  if (
-    kinds.length === 0 ||
-    !host.activeTarget ||
-    owner.ownerKey !== getActiveAcpChatOwnerKey()
-  ) {
-    if (profilingEnabled) {
-      for (const kind of requestedKinds) {
-        incrementAcpRuntimeMetric(
-          owner.ownerKey,
-          "panel_dropped_before_build",
-          acpChatPublicationMetricLabels(
-            kind,
-            kinds.length === 0 ? causality : "owner-mismatch",
-          ),
-        );
-      }
-    }
-    return;
-  }
-  if (kinds.includes("transcript")) {
-    host.publicationCoordinator?.publishDomainChange({
-      owner,
-      kind: "transcript",
-      cause: "steady-state",
-      transcript: {
-        form: "mutations",
-        events: change.transcriptEvents || [],
-        eventSeq: change.transcriptEventSeq || 0,
-        totalItemCount: change.transcriptItemCount || 0,
-        visibility: getAssistantExecutionDisplayMode(),
-      },
-    });
-  }
-  queueWorkspacePublications(
-    host,
+      : "matching-target";
+  const scheduleArgs = {
+    adapter: ACP_CHAT_WORKSPACE_SURFACE_ADAPTER,
+    coordinator: host.publicationCoordinator,
+    change,
+    context,
+    activity,
+    synchronizeOwner: (owner) =>
+      synchronizeWorkspacePublicationOwner(host, owner),
+    initialize: (cause) => {
+      if (!host.activeTarget) return;
+      void initializeAcpChatWorkspaceSurface(host, host.activeTarget, cause);
+    },
+    queueRegions: (owner, kinds) => {
+      if (!host.activeTarget) return;
+      queueWorkspacePublications(host, "acp-chat", owner.ownerKey, kinds);
+    },
+  } satisfies AssistantWorkspaceAcpSurfaceScheduleArgs<
     "acp-chat",
-    owner.ownerKey,
-    kinds.filter((kind) => kind !== "transcript"),
-  );
-}
-
-async function postAcpChatPanelSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
-  phase: "init" | "snapshot" = "snapshot",
-  options?: AcpChatSnapshotPostOptions,
-) {
-  host.acpChatSnapshotBuildSeq += 1;
-  const buildSeq = host.acpChatSnapshotBuildSeq;
-  logAssistantWorkspaceDebug(
-    host,
-    "acp-chat-snapshot-start",
-    "ACP Chat panel snapshot build started.",
-    {
-      target,
-      phase,
-      buildSeq,
-      transcriptReadMode: options?.transcriptReadMode || "page-first",
-      transcriptPage: options?.transcriptPage || null,
-    },
-  );
-  const profileRequestId = getActiveAcpChatOwnerKey();
+    AcpChatPanelSnapshotChange,
+    ReturnType<typeof acpChatWorkspaceSurfaceContext>,
+    AcpChatTranscriptPageRequest
+  >;
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    incrementAcpRuntimeMetric(profileRequestId, "panel_requested", {
-      surfaceState:
-        host.activeTab === "acp-chat" ? "acp-active" : "open-inactive",
-      publicationKind: "baseline-status",
-      publicationCausality:
-        host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
-      publicationPhase: phase === "init" ? "initialization" : "steady-state",
-      publicationSurface: "acp-chat",
-      publicationForm: phase === "init" ? "initialization" : "snapshot",
-      materializationSource: "panel-snapshot",
-    });
-  }
-  const prepareStartedAt =
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-      ? readAcpRuntimePerformanceClockMs()
-      : 0;
-  const snapshot = await prepareAcpChatPanelSnapshot({
-    target,
-    transcriptReadMode: options?.transcriptReadMode,
-    transcriptPage: options?.transcriptPage,
-  });
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    const surfaceState =
-      host.activeTab === "acp-chat" ? "acp-active" : "open-inactive";
-    incrementAcpRuntimeMetric(profileRequestId, "panel_materialization", {
-      surfaceState,
-      publicationKind: "baseline-status",
-      publicationCausality:
-        host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
-      publicationPhase: phase === "init" ? "initialization" : "steady-state",
-      publicationSurface: "acp-chat",
-      publicationForm: phase === "init" ? "initialization" : "snapshot",
-      materializationSource: "panel-snapshot",
-    });
-    incrementAcpRuntimeMetric(profileRequestId, "panel_prepare", {
-      surfaceState,
-      publicationKind: "baseline-status",
-      publicationCausality:
-        host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
-      publicationPhase: phase === "init" ? "initialization" : "steady-state",
-      publicationSurface: "acp-chat",
-      publicationForm: phase === "init" ? "initialization" : "snapshot",
-      materializationSource: "panel-snapshot",
-    });
-    observeAcpRuntimeDuration(
-      profileRequestId,
-      "panel_prepare_duration",
-      {
-        surfaceState,
-        publicationKind: "baseline-status",
-        publicationCausality:
-          host.activeTab === "acp-chat" ? "matching-target" : "opposite-active",
-        publicationPhase: phase === "init" ? "initialization" : "steady-state",
-        publicationSurface: "acp-chat",
-        publicationForm: phase === "init" ? "initialization" : "snapshot",
-        materializationSource: "panel-snapshot",
+    scheduleAssistantWorkspaceAcpSurfaceChange({
+      ...scheduleArgs,
+      onRequested: ({ owner, kinds, causality }) => {
+        if (!owner) return;
+        for (const kind of kinds) {
+          incrementAcpRuntimeMetric(
+            owner.ownerKey,
+            "panel_requested",
+            assistantWorkspacePublicationMetricLabels(
+              "acp-chat",
+              kind,
+              causality,
+            ),
+          );
+        }
       },
-      readAcpRuntimePerformanceClockMs() - prepareStartedAt,
-    );
-  }
-  if (host.acpChatSnapshotBuildSeq !== buildSeq) {
-    logAssistantWorkspaceDebug(
-      host,
-      "acp-chat-snapshot-stale",
-      "ACP Chat panel snapshot build discarded because a newer build exists.",
-      {
-        target,
-        phase,
-        buildSeq,
-        currentBuildSeq: host.acpChatSnapshotBuildSeq,
-        summary: summarizeAcpChatPanelSnapshot(snapshot),
+      onDropped: ({ owner, kinds, reason }) => {
+        if (!owner) return;
+        for (const kind of kinds) {
+          incrementAcpRuntimeMetric(
+            owner.ownerKey,
+            "panel_dropped_before_build",
+            assistantWorkspacePublicationMetricLabels("acp-chat", kind, reason),
+          );
+        }
       },
-    );
+    });
     return;
   }
-  logAssistantWorkspaceDebug(
-    host,
-    "acp-chat-snapshot-ready",
-    "ACP Chat panel snapshot build completed.",
-    {
-      target,
-      phase,
-      buildSeq,
-      summary: summarizeAcpChatPanelSnapshot(snapshot),
-    },
-  );
-  return postChildSnapshot(host, "acp-chat", phase, snapshot);
+  scheduleAssistantWorkspaceAcpSurfaceChange(scheduleArgs);
 }
 
 function getActiveAcpChatOwnerKey() {
@@ -2186,346 +2015,6 @@ function getActiveAcpChatOwnerKey() {
   return conversationId
     ? acpChatTranscriptPageKey(backendId, conversationId)
     : `${backendId}\n`;
-}
-
-function queueAcpChatPageFirstSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
-  phase: "init" | "snapshot" = "snapshot",
-) {
-  const ownerKey = getActiveAcpChatOwnerKey();
-  if (!ownerKey) {
-    return;
-  }
-  if (
-    hosts.get(host.win) !== host ||
-    host.activeTarget !== target ||
-    host.activeTab !== "acp-chat"
-  ) {
-    return;
-  }
-  void postAcpChatPanelPublication(host, target, ownerKey, "transcript", {
-    transcriptReadMode: "page-first",
-  });
-}
-
-async function postAcpChatLoadingFirstSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget,
-  phase: "init" | "snapshot" = "snapshot",
-) {
-  const publicationId = await postAcpChatPanelSnapshot(host, target, phase, {
-    transcriptReadMode: "loading-first",
-  });
-  queueAcpChatPageFirstSnapshot(host, target, "snapshot");
-  return publicationId;
-}
-
-function canonicalizeAcpSkillRunSummaryForSignature(
-  run: unknown,
-  selectedRequestId: string,
-  transcriptLoading: boolean,
-) {
-  if (!run || typeof run !== "object" || Array.isArray(run)) {
-    return run;
-  }
-  const source = run as Record<string, unknown>;
-  const requestId = String(source.requestId || "").trim();
-  if (!transcriptLoading || requestId === selectedRequestId) {
-    return source;
-  }
-  const canonical = { ...source };
-  delete canonical.transcriptRevision;
-  delete canonical.transcriptEventSeq;
-  delete canonical.transcriptItemCount;
-  delete canonical.transcriptPreview;
-  return canonical;
-}
-
-function canonicalizeAcpSkillRunSnapshotForSignature(
-  snapshot: Record<string, unknown>,
-) {
-  const signatureSource = { ...snapshot };
-  delete signatureSource.generatedAt;
-  const selectedRun =
-    signatureSource.selectedRun &&
-    typeof signatureSource.selectedRun === "object"
-      ? (signatureSource.selectedRun as Record<string, unknown>)
-      : null;
-  const transcriptRegion =
-    signatureSource.transcriptRegion &&
-    typeof signatureSource.transcriptRegion === "object"
-      ? (signatureSource.transcriptRegion as Record<string, unknown>)
-      : null;
-  const selectedRequestId = String(
-    signatureSource.selectedRequestId ||
-      selectedRun?.requestId ||
-      (transcriptRegion?.owner as Record<string, unknown> | undefined)
-        ?.requestId ||
-      "",
-  ).trim();
-  const transcriptLoading =
-    !!selectedRequestId && transcriptRegion?.status === "loading";
-  if (Array.isArray(signatureSource.runs)) {
-    signatureSource.runs = signatureSource.runs.map((run) =>
-      canonicalizeAcpSkillRunSummaryForSignature(
-        run,
-        selectedRequestId,
-        transcriptLoading,
-      ),
-    );
-  }
-  return signatureSource;
-}
-
-function buildAcpSkillRunSnapshotSignature(snapshot: Record<string, unknown>) {
-  return JSON.stringify(canonicalizeAcpSkillRunSnapshotForSignature(snapshot));
-}
-
-async function postAcpSkillRunSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  phase: "init" | "snapshot" = "snapshot",
-  options?: AcpSkillRunSnapshotPostOptions,
-) {
-  host.acpSkillRunSnapshotBuildSeq += 1;
-  const buildSeq = host.acpSkillRunSnapshotBuildSeq;
-  logAssistantWorkspaceDebug(
-    host,
-    "acp-skills-snapshot-start",
-    "ACP Skills panel snapshot build started.",
-    {
-      phase,
-      buildSeq,
-      transcriptPage: options?.transcriptPage || null,
-      force: options?.force === true,
-    },
-  );
-  const selectedBeforeBuild = getSelectedAcpSkillRunRequestId();
-  const profileRequestId = selectedBeforeBuild;
-  const skillPublicationLabels = {
-    surfaceState:
-      host.activeTab === "acp-skills"
-        ? ("acp-active" as const)
-        : ("open-inactive" as const),
-    publicationKind: "baseline-status" as const,
-    publicationCausality:
-      host.activeTab === "acp-skills"
-        ? ("matching-target" as const)
-        : ("opposite-active" as const),
-    publicationPhase:
-      phase === "init"
-        ? ("initialization" as const)
-        : ("steady-state" as const),
-    publicationSurface: "acp-skills" as const,
-    publicationForm:
-      phase === "init" ? ("initialization" as const) : ("snapshot" as const),
-    materializationSource: "panel-snapshot" as const,
-  };
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_requested",
-      skillPublicationLabels,
-    );
-  }
-  const prepareStartedAt =
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-      ? readAcpRuntimePerformanceClockMs()
-      : 0;
-  const snapshot = await prepareAcpSkillRunPanelSnapshot({
-    transcriptPage: options?.transcriptPage,
-    transcriptReadMode: options?.transcriptReadMode,
-  });
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_materialization",
-      skillPublicationLabels,
-    );
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_prepare",
-      skillPublicationLabels,
-    );
-    observeAcpRuntimeDuration(
-      profileRequestId,
-      "panel_prepare_duration",
-      skillPublicationLabels,
-      readAcpRuntimePerformanceClockMs() - prepareStartedAt,
-    );
-  }
-  if (host.acpSkillRunSnapshotBuildSeq !== buildSeq) {
-    logAssistantWorkspaceDebug(
-      host,
-      "acp-skills-snapshot-stale",
-      "ACP Skills panel snapshot build discarded because a newer build exists.",
-      {
-        phase,
-        buildSeq,
-        currentBuildSeq: host.acpSkillRunSnapshotBuildSeq,
-        summary: summarizeChildSnapshot("acp-skills", snapshot),
-      },
-    );
-    return;
-  }
-  const currentSelectedRequestId = getSelectedAcpSkillRunRequestId();
-  if (
-    currentSelectedRequestId &&
-    String(snapshot.selectedRequestId || "").trim() !== currentSelectedRequestId
-  ) {
-    logAssistantWorkspaceDebug(
-      host,
-      "acp-skills-snapshot-scope-mismatch",
-      "ACP Skills panel snapshot discarded because selected request changed.",
-      {
-        phase,
-        buildSeq,
-        currentSelectedRequestId,
-        snapshotSelectedRequestId: String(snapshot.selectedRequestId || ""),
-      },
-    );
-    return;
-  }
-  const payload = {
-    ...(snapshot as unknown as Record<string, unknown>),
-    executionDisplayMode: getAssistantExecutionDisplayMode(),
-    transcriptPaginationVirtualizationEnabled:
-      isAssistantTranscriptPaginationVirtualizationEnabled(),
-  };
-  const signatureStartedAt =
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-      ? readAcpRuntimePerformanceClockMs()
-      : 0;
-  const signature = buildAcpSkillRunSnapshotSignature(payload);
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_signature",
-      skillPublicationLabels,
-    );
-    incrementAcpRuntimeMetric(
-      profileRequestId,
-      "panel_signature_bytes",
-      skillPublicationLabels,
-      new TextEncoder().encode(signature).byteLength,
-    );
-    observeAcpRuntimeDuration(
-      profileRequestId,
-      "panel_signature_duration",
-      skillPublicationLabels,
-      readAcpRuntimePerformanceClockMs() - signatureStartedAt,
-    );
-  }
-  const force = options?.force === true || phase === "init";
-  if (
-    !force &&
-    host.lastAcpSkillRunSnapshotSignature &&
-    host.lastAcpSkillRunSnapshotSignature === signature
-  ) {
-    if (
-      __acp_runtime_performance_profiler_enabled__ &&
-      (typeof __debug_mode__ === "undefined"
-        ? isDebugModeEnabled()
-        : __debug_mode__)
-    ) {
-      incrementAcpRuntimeMetric(
-        profileRequestId,
-        "panel_signature_skip",
-        skillPublicationLabels,
-      );
-    }
-    logAssistantWorkspaceDebug(
-      host,
-      "acp-skills-snapshot-signature-skip",
-      "ACP Skills panel snapshot skipped because the signature is unchanged.",
-      {
-        phase,
-        buildSeq,
-        force,
-        summary: summarizeChildSnapshot("acp-skills", payload),
-      },
-    );
-    return;
-  }
-  host.lastAcpSkillRunSnapshotSignature = signature;
-  logAssistantWorkspaceDebug(
-    host,
-    "acp-skills-snapshot-ready",
-    "ACP Skills panel snapshot build completed.",
-    {
-      phase,
-      buildSeq,
-      force,
-      summary: summarizeChildSnapshot("acp-skills", payload),
-    },
-  );
-  return postChildSnapshot(host, "acp-skills", phase, payload);
-}
-
-/**
- * Narrow test adapter for exercising the production ACP Skills
- * prepare/signature/post pipeline. Test fixtures provide a minimal host shape;
- * no publication logic is duplicated here.
- */
-export async function postAcpSkillRunSnapshotForPerformanceTests(
-  host: unknown,
-  options?: AcpSkillRunSnapshotPostOptions,
-) {
-  await postAcpSkillRunSnapshot(
-    host as AssistantWorkspaceHostRuntime,
-    "snapshot",
-    options,
-  );
-}
-
-function queueAcpSkillRunPageFirstSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  phase: "init" | "snapshot" = "snapshot",
-) {
-  const selectedRequestId = getSelectedAcpSkillRunRequestId();
-  if (!selectedRequestId) {
-    return;
-  }
-  if (host.activeTab !== "acp-skills" || !host.activeTarget) {
-    return;
-  }
-  void postAcpSkillRunSnapshot(host, phase, {
-    force: true,
-    transcriptReadMode: "page-first",
-  });
-}
-
-async function postAcpSkillRunLoadingFirstSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  phase: "init" | "snapshot" = "snapshot",
-) {
-  const publicationId = await postAcpSkillRunSnapshot(host, phase, {
-    force: true,
-    transcriptReadMode: "loading-first",
-  });
-  queueAcpSkillRunPageFirstSnapshot(host, "snapshot");
-  return publicationId;
 }
 
 async function runAcpChatBackendRefreshBoundary(
@@ -2703,7 +2192,11 @@ async function postSnapshotForTab(
 ) {
   if (tab === "acp-chat") {
     if (options?.force === true || phase === "init") {
-      return !!(await postAcpChatLoadingFirstSnapshot(host, target, phase));
+      return !!(await initializeAcpChatWorkspaceSurface(
+        host,
+        target,
+        phase === "init" ? "initialization" : "activation",
+      ));
     }
     const ownerKey = getActiveAcpChatOwnerKey();
     if (ownerKey) {
@@ -2717,9 +2210,12 @@ async function postSnapshotForTab(
   }
   if (tab === "acp-skills") {
     if (options?.force === true || phase === "init") {
-      return !!(await postAcpSkillRunLoadingFirstSnapshot(host, phase));
+      return !!(await initializeAcpSkillsWorkspaceSurface(
+        host,
+        phase === "init" ? "initialization" : "activation",
+      ));
     }
-    return !!(await postAcpSkillRunSnapshot(host, phase));
+    return !!(await initializeAcpSkillsWorkspaceSurface(host, "activation"));
   }
   postSkillRunnerSnapshot(host, phase, options);
   return true;
@@ -2746,6 +2242,27 @@ function postShellInit(
     activeTab,
     activeTarget: host.activeTarget,
     scopeKey: host.scopeKey,
+    surfaceConfiguration: assistantWorkspaceAcpSurfaceConfiguration(),
+    surfaceLabels: {
+      "acp-chat": buildAssistantWorkspaceAcpSurfaceLabels("acp-chat"),
+      "acp-skills": buildAssistantWorkspaceAcpSurfaceLabels("acp-skills"),
+    },
+  });
+}
+
+function assistantWorkspaceAcpSurfaceConfiguration(): AssistantWorkspaceAcpSurfaceConfiguration {
+  return {
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+    transcriptPaginationVirtualizationEnabled:
+      isAssistantTranscriptPaginationVirtualizationEnabled(),
+  };
+}
+
+function postAssistantWorkspaceAcpSurfaceConfiguration(
+  host: AssistantWorkspaceHostRuntime,
+) {
+  return postShellMessage(host, "assistant-workspace:surface-config", {
+    configuration: assistantWorkspaceAcpSurfaceConfiguration(),
   });
 }
 
@@ -2828,9 +2345,9 @@ async function publishAssistantWorkspaceStatePulse(
 }
 
 function flushScheduledWorkspacePost(host: AssistantWorkspaceHostRuntime) {
-  const publication = host.pendingWorkspacePublication;
-  host.pendingWorkspacePublication = undefined;
-  if (publication) {
+  const publications = [...host.pendingWorkspacePublications.values()];
+  host.pendingWorkspacePublications.clear();
+  for (const publication of publications) {
     for (const kind of publication.kinds) {
       if (publication.source === "acp-chat") {
         void postAcpChatPanelPublication(
@@ -2912,10 +2429,10 @@ export function inspectAssistantWorkspaceReplayPostSnapshotTimer(args: {
   }
   let ownerKey = "";
   if (args.expectedChatOwner) {
-    const chat = getAcpFrontendSnapshot({ itemMode: "structural" });
+    const chat = getActiveAcpChatOwner();
     if (
-      chat.activeBackendId !== args.expectedChatOwner.backendId ||
-      chat.activeConversationId !== args.expectedChatOwner.conversationId
+      chat.backendId !== args.expectedChatOwner.backendId ||
+      chat.conversationId !== args.expectedChatOwner.conversationId
     ) {
       return {
         timers: [],
@@ -3008,7 +2525,18 @@ function setAssistantWorkspaceExecutionDisplayMode(
   }
   host.streamingRenderPreferenceLocalWriteDepth += 1;
   try {
-    return setAssistantExecutionDisplayMode(mode);
+    const next = setAssistantExecutionDisplayMode(mode);
+    postAssistantWorkspaceAcpSurfaceConfiguration(host);
+    if (host.activeTarget && host.activeTab === "acp-chat") {
+      void initializeAcpChatWorkspaceSurface(
+        host,
+        host.activeTarget,
+        "activation",
+      );
+    } else if (host.activeTarget && host.activeTab === "acp-skills") {
+      void initializeAcpSkillsWorkspaceSurface(host, "activation");
+    }
+    return next;
   } finally {
     host.streamingRenderPreferenceLocalWriteDepth = Math.max(
       0,
@@ -3512,7 +3040,7 @@ async function handleChildAction(
   if (tab === "acp-skills") {
     if (action === "select-run") {
       await selectAcpSkillRun(String(childPayload.requestId || "").trim());
-      await postAcpSkillRunLoadingFirstSnapshot(host, "snapshot");
+      await initializeAcpSkillsWorkspaceSurface(host, "owner-switch");
       return;
     }
     await handleAcpSkillRunAction(host, action, childPayload);
@@ -3534,7 +3062,7 @@ async function handleChildAction(
       action === "new-conversation"
     ) {
       await handleAcpChatAction(host, target, action, childPayload);
-      await postAcpChatLoadingFirstSnapshot(host, target, "snapshot");
+      await initializeAcpChatWorkspaceSurface(host, target, "owner-switch");
       return;
     }
   }
@@ -4378,8 +3906,8 @@ export function installAssistantWorkspaceSidebarShell(
     drawerGroupCollapsed: new Map<string, boolean>(),
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
-    acpChatSnapshotBuildSeq: 0,
-    acpSkillRunSnapshotBuildSeq: 0,
+    pendingWorkspacePublications: new Map(),
+    publicationOwners: new Map(),
     publicationLifecycles: new Map(),
     workspaceInitDelivery: null,
     workspaceInitInFlight: null,
@@ -4435,6 +3963,44 @@ export function installAssistantWorkspaceSidebarShell(
       }
       return posted;
     },
+    onTranscriptRebaseRequired({ owner, pageKey }) {
+      const target = host.activeTarget;
+      if (!target || host.activeTab !== owner.source) return;
+      const request = transcriptRebasePageRequest(owner, pageKey);
+      if (owner.source === "acp-chat") {
+        if (getActiveAcpChatOwnerKey() !== owner.ownerKey) return;
+        void postAcpChatPanelPublication(
+          host,
+          target,
+          owner.ownerKey,
+          "transcript",
+          {
+            force: true,
+            transcriptCause: "rebase",
+            transcriptReadMode: "page-first",
+            transcriptPage: {
+              backendId: owner.backendId,
+              conversationId: owner.conversationId,
+              requestId: owner.ownerKey,
+              cursor: request.cursor,
+              limit: request.limit,
+            },
+          },
+        );
+        return;
+      }
+      if (getSelectedAcpSkillRunRequestId() !== owner.requestId) return;
+      void postAcpSkillRunPublication(host, owner.requestId, "transcript", {
+        force: true,
+        transcriptCause: "rebase",
+        transcriptReadMode: "page-first",
+        transcriptPage: {
+          requestId: owner.requestId,
+          cursor: request.cursor,
+          limit: request.limit,
+        },
+      });
+    },
   });
   mountLibraryPane(host);
   mountReaderPane(host);
@@ -4488,6 +4054,7 @@ export function installAssistantWorkspaceSidebarShell(
         );
         return;
       }
+      postAssistantWorkspaceAcpSurfaceConfiguration(host);
       if (host.activeTab === "skillrunner" && host.activeTarget) {
         scheduleSkillRunnerSidebarRefresh(host, host.activeTarget, {
           selectionChanged: false,
@@ -4495,19 +4062,18 @@ export function installAssistantWorkspaceSidebarShell(
         return;
       }
       if (host.activeTab === "acp-chat" && host.activeTarget) {
-        const [backendId, conversationId] = getActiveAcpChatOwnerKey().split(
-          "\n",
-          2,
+        void initializeAcpChatWorkspaceSurface(
+          host,
+          host.activeTarget,
+          "activation",
         );
-        scheduleAcpChatPublications(host, {
-          backendId,
-          conversationId,
-          active: true,
-          kinds: ["runtime-options", "transcript-boundary"],
-        });
         return;
       }
-      schedulePostSnapshot(host);
+      if (host.activeTab === "acp-skills") {
+        void initializeAcpSkillsWorkspaceSurface(host, "activation");
+        return;
+      }
+      schedulePostSnapshot(host, "skillrunner");
     });
   updateAssistantAttentionIndicator(host);
   hosts.set(win, host);
@@ -4530,6 +4096,11 @@ export function removeAssistantWorkspaceSidebarShell(
     clearTimeout(host.postSnapshotTimer);
     host.postSnapshotTimer = null;
   }
+  for (const owner of host.publicationOwners.values()) {
+    host.publicationCoordinator?.clearOwner(owner);
+  }
+  host.publicationOwners.clear();
+  host.pendingWorkspacePublications.clear();
   clearShellHandshake(host, "remove-shell");
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
@@ -4642,10 +4213,10 @@ function assistantWorkspaceDiagnosticsReadinessDetail(
   if (!host.shell.ready) return "workspace-shell-not-ready";
   if (!host.readyTabs.has(args.tab)) return "workspace-child-not-ready";
   if (args.expectedChatOwner) {
-    const chat = getAcpFrontendSnapshot({ itemMode: "structural" });
+    const chat = getActiveAcpChatOwner();
     if (
-      chat.activeBackendId !== args.expectedChatOwner.backendId ||
-      chat.activeConversationId !== args.expectedChatOwner.conversationId
+      chat.backendId !== args.expectedChatOwner.backendId ||
+      chat.conversationId !== args.expectedChatOwner.conversationId
     ) {
       return "workspace-owner-not-ready";
     }
@@ -4733,10 +4304,10 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
   if (args.tab === "acp-chat") {
     const ownerKey = getActiveAcpChatOwnerKey();
     if (!ownerKey) {
-      const publicationId = await postAcpChatLoadingFirstSnapshot(
+      const publicationId = await initializeAcpChatWorkspaceSurface(
         host,
         activeTarget,
-        "snapshot",
+        "activation",
       );
       return publicationId ? barrier(publicationId) : undefined;
     }
@@ -4754,7 +4325,7 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
       ? await postAcpSkillRunPublication(host, requestId, "transcript", {
           force: true,
         })
-      : await postAcpSkillRunLoadingFirstSnapshot(host, "snapshot");
+      : await initializeAcpSkillsWorkspaceSurface(host, "activation");
     return publicationId ? barrier(publicationId) : undefined;
   } else {
     postSnapshotForTab(host, activeTarget, args.tab, "snapshot", {

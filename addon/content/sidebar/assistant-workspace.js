@@ -24,6 +24,14 @@
     hostReadyAttempts: 0,
     childReplayTimer: null,
     childReplayAttempts: 0,
+    surfaceConfiguration: {
+      executionDisplayMode: "live",
+      transcriptPaginationVirtualizationEnabled: true,
+    },
+    surfaceLabels: {
+      "acp-chat": {},
+      "acp-skills": {},
+    },
   };
 
   const hostReadyRetryDelayMs = 250;
@@ -618,6 +626,40 @@
     return retained && forwardPendingChildPublications(tab);
   }
 
+  function normalizeSurfaceConfiguration(value) {
+    const source = value && typeof value === "object" ? value : {};
+    const mode = String(source.executionDisplayMode || "");
+    return {
+      executionDisplayMode:
+        mode === "boundary" || mode === "silent" ? mode : "live",
+      transcriptPaginationVirtualizationEnabled:
+        source.transcriptPaginationVirtualizationEnabled !== false,
+    };
+  }
+
+  function postSurfaceConfigurationToChild(tab) {
+    if (tab === "skillrunner") return true;
+    const frame = frameForTab(tab);
+    const frameWindow = frame && frame.contentWindow;
+    if (!frameWindow) return false;
+    frameWindow.postMessage(
+      {
+        type: "assistant-workspace:surface-bootstrap",
+        payload: {
+          configuration: state.surfaceConfiguration,
+          labels: state.surfaceLabels[tab] || {},
+        },
+      },
+      "*",
+    );
+    return true;
+  }
+
+  function postSurfaceConfigurationToAcpChildren() {
+    postSurfaceConfigurationToChild("acp-chat");
+    postSurfaceConfigurationToChild("acp-skills");
+  }
+
   function closeDrawersForTab(tab) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
@@ -867,6 +909,7 @@
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     state.initializedFrames.add(normalizedTab);
+    postSurfaceConfigurationToChild(normalizedTab);
     traceAction("child-ready", {
       tab: normalizedTab,
       firstReady,
@@ -965,11 +1008,38 @@
         summary: payloadSummary(data.payload || {}),
       });
       syncScopeKeyFromPayload(data.payload || {});
+      state.surfaceConfiguration = normalizeSurfaceConfiguration(
+        data.payload && data.payload.surfaceConfiguration,
+      );
+      const labels =
+        data.payload &&
+        data.payload.surfaceLabels &&
+        typeof data.payload.surfaceLabels === "object"
+          ? data.payload.surfaceLabels
+          : {};
+      state.surfaceLabels = {
+        "acp-chat":
+          labels["acp-chat"] && typeof labels["acp-chat"] === "object"
+            ? labels["acp-chat"]
+            : {},
+        "acp-skills":
+          labels["acp-skills"] && typeof labels["acp-skills"] === "object"
+            ? labels["acp-skills"]
+            : {},
+      };
+      postSurfaceConfigurationToAcpChildren();
       setActiveTab(data.payload && data.payload.activeTab, {
         notify: false,
         fallback: state.activeTab,
       });
       requestAllChildrenReady("host-init");
+      return;
+    }
+    if (data.type === "assistant-workspace:surface-config") {
+      state.surfaceConfiguration = normalizeSurfaceConfiguration(
+        data.payload && data.payload.configuration,
+      );
+      postSurfaceConfigurationToAcpChildren();
       return;
     }
     if (data.type === "assistant-workspace:set-tab") {

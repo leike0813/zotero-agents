@@ -3,18 +3,18 @@ import type {
   AssistantWorkspaceTranscriptDelta,
   AssistantWorkspaceTranscriptPage,
   AssistantWorkspaceTranscriptRegion,
-  AssistantWorkspaceTranscriptResync,
   AssistantWorkspaceTranscriptMutationEvent,
 } from "./assistantWorkspaceTranscriptPublication";
 
 export const ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA =
-  "zotero-agents.assistant-workspace-publication.v3" as const;
+  "zotero-agents.assistant-workspace-publication.v4" as const;
 
 export type AssistantWorkspacePublicationSource = "acp-chat" | "acp-skills";
 
 export type AssistantWorkspacePublicationKind =
   | "baseline-status"
   | "message-counts"
+  | "owner-navigation"
   | "transcript"
   | "plan"
   | "permission"
@@ -43,11 +43,7 @@ export type AssistantWorkspacePublicationOwner =
   | AssistantWorkspaceOwner
   | AssistantWorkspaceUnownedScope;
 
-export type AssistantWorkspacePublicationForm =
-  | "region"
-  | "snapshot"
-  | "delta"
-  | "resync-required";
+export type AssistantWorkspacePublicationForm = "region" | "snapshot" | "delta";
 
 export type AssistantWorkspacePublicationCause =
   | "initialization"
@@ -62,10 +58,40 @@ export type AssistantWorkspaceBaselineStatus = {
   status: string;
   busy: boolean;
   message: string | null;
+  connection: {
+    status: string;
+    sessionAvailable: boolean;
+    connected: boolean;
+    canConnect: boolean;
+    canDisconnect: boolean;
+  };
+  execution: {
+    canCancel: boolean;
+    canInterrupt: boolean;
+  };
 };
 
 export type AssistantWorkspaceMessageCounts = {
   counts: AssistantMessageCountsSnapshot | null;
+};
+
+export type AssistantWorkspaceOwnerNavigation = {
+  selectedOwner: AssistantWorkspaceOwner | null;
+  selectedGroupId: string | null;
+  groups: Array<{
+    groupId: string;
+    label: string;
+    status: string;
+  }>;
+  entries: Array<{
+    owner: AssistantWorkspaceOwner;
+    groupId: string | null;
+    label: string;
+    description: string | null;
+    groupLabel: string | null;
+    status: string;
+  }>;
+  canCreateOwner: boolean;
 };
 
 export type AssistantWorkspacePlanEntry = {
@@ -125,21 +151,21 @@ export type AssistantWorkspaceContextDetails = {
 export type AssistantWorkspacePublicationPayload =
   | AssistantWorkspaceBaselineStatus
   | AssistantWorkspaceMessageCounts
+  | AssistantWorkspaceOwnerNavigation
   | AssistantWorkspacePlan
   | AssistantWorkspacePermission
   | AssistantWorkspaceReply
   | AssistantWorkspaceContextDetails
   | AssistantWorkspaceTranscriptRegion
-  | AssistantWorkspaceTranscriptDelta
-  | AssistantWorkspaceTranscriptResync;
+  | AssistantWorkspaceTranscriptDelta;
 
 export type AssistantWorkspacePublicationPayloadByKind = {
   "baseline-status": AssistantWorkspaceBaselineStatus;
   "message-counts": AssistantWorkspaceMessageCounts;
+  "owner-navigation": AssistantWorkspaceOwnerNavigation;
   transcript:
     | AssistantWorkspaceTranscriptRegion
-    | AssistantWorkspaceTranscriptDelta
-    | AssistantWorkspaceTranscriptResync;
+    | AssistantWorkspaceTranscriptDelta;
   plan: AssistantWorkspacePlan;
   permission: AssistantWorkspacePermission;
   "reply-hint": AssistantWorkspaceReply;
@@ -168,11 +194,6 @@ type AssistantWorkspaceTranscriptPublication =
           publicationForm: "delta";
           payload: AssistantWorkspaceTranscriptDelta;
         }
-      | {
-          publicationKind: "transcript";
-          publicationForm: "resync-required";
-          payload: AssistantWorkspaceTranscriptResync;
-        }
     );
 
 type AssistantWorkspaceNonTranscriptPublication = {
@@ -190,18 +211,31 @@ export type AssistantWorkspacePublication =
   | AssistantWorkspaceTranscriptPublication
   | AssistantWorkspaceNonTranscriptPublication;
 
-type AssistantWorkspaceRegionDomainChange = {
-  [K in Exclude<AssistantWorkspacePublicationKind, "transcript">]: {
+type AssistantWorkspaceOwnedRegionDomainChange = {
+  [K in Exclude<
+    AssistantWorkspacePublicationKind,
+    "transcript" | "owner-navigation"
+  >]: {
     owner: AssistantWorkspaceOwner;
     kind: K;
     cause: AssistantWorkspacePublicationCause;
     payload: AssistantWorkspacePublicationPayloadByKind[K];
     force?: boolean;
   };
-}[Exclude<AssistantWorkspacePublicationKind, "transcript">];
+}[Exclude<
+  AssistantWorkspacePublicationKind,
+  "transcript" | "owner-navigation"
+>];
 
 export type AssistantWorkspaceDomainChange =
-  | AssistantWorkspaceRegionDomainChange
+  | AssistantWorkspaceOwnedRegionDomainChange
+  | {
+      owner: AssistantWorkspacePublicationOwner;
+      kind: "owner-navigation";
+      cause: AssistantWorkspacePublicationCause;
+      payload: AssistantWorkspaceOwnerNavigation;
+      force?: boolean;
+    }
   | {
       owner: AssistantWorkspaceOwner;
       kind: "transcript";
@@ -219,8 +253,7 @@ export type AssistantWorkspaceDomainChange =
       transcript: {
         form: "mutations";
         events: AssistantWorkspaceTranscriptMutationEvent[];
-        eventSeq: number;
-        totalItemCount: number;
+        sourceEventSeq: number;
         visibility: "live" | "boundary" | "silent";
       };
     };
@@ -266,6 +299,7 @@ export type AssistantWorkspaceDomainMapping = Record<
 export const ACP_CHAT_WORKSPACE_DOMAIN_MAPPING = {
   "baseline-status": "baseline-status",
   "message-counts": "message-counts",
+  "owner-navigation": "owner-navigation",
   transcript: "transcript",
   plan: "plan",
   permission: "permission",
@@ -276,6 +310,7 @@ export const ACP_CHAT_WORKSPACE_DOMAIN_MAPPING = {
 export const ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING = {
   "baseline-status": "baseline-status",
   "message-counts": "message-counts",
+  "owner-navigation": "owner-navigation",
   transcript: "transcript",
   plan: "not-applicable",
   permission: "permission",
@@ -322,41 +357,56 @@ export function createIdleTranscriptRegion(): AssistantWorkspaceTranscriptRegion
     status: "idle",
     error: null,
     page: null,
-    uiRevision: 0,
+    transcriptRevision: 0,
   };
 }
 
 export function createLoadingTranscriptRegion(
   owner: AssistantWorkspaceOwner,
-  uiRevision = 0,
+  transcriptRevision = 0,
 ): AssistantWorkspaceTranscriptRegion {
-  return { owner, status: "loading", error: null, page: null, uiRevision };
+  return {
+    owner,
+    status: "loading",
+    error: null,
+    page: null,
+    transcriptRevision,
+  };
 }
 
 export function createReadyTranscriptRegion(
   owner: AssistantWorkspaceOwner,
   page: AssistantWorkspaceTranscriptPage,
-  uiRevision: number,
+  transcriptRevision: number,
 ): AssistantWorkspaceTranscriptRegion {
-  return { owner, status: "ready", error: null, page, uiRevision };
+  return { owner, status: "ready", error: null, page, transcriptRevision };
 }
 
 export function createFailedTranscriptRegion(
   owner: AssistantWorkspaceOwner,
   error: { code: string; message: string },
-  uiRevision = 0,
+  transcriptRevision = 0,
 ): AssistantWorkspaceTranscriptRegion {
-  return { owner, status: "failed", error, page: null, uiRevision };
+  return {
+    owner,
+    status: "failed",
+    error,
+    page: null,
+    transcriptRevision,
+  };
 }
 
 const forbiddenWireFields = new Set([
   "selectedTranscript",
   "selectedTranscriptPage",
   "transcriptState",
-  "transcriptRevision",
   "deliveryRevision",
   "initialization",
   "tab",
+  "totalItemCount",
+  "eventSeq",
+  "uiRevision",
+  "baseUiRevision",
 ]);
 
 export function assertAssistantWorkspacePublication(
@@ -418,16 +468,13 @@ export function assertAssistantWorkspacePublication(
   }
   if (
     !publication.publicationForm ||
-    !["region", "snapshot", "delta", "resync-required"].includes(
-      publication.publicationForm,
-    )
+    !["region", "snapshot", "delta"].includes(publication.publicationForm)
   ) {
     throw new Error("assistant-workspace-publication-form");
   }
   if (
     publication.publicationKind !== "transcript" &&
-    (publication.publicationForm === "delta" ||
-      publication.publicationForm === "resync-required")
+    publication.publicationForm === "delta"
   ) {
     throw new Error("assistant-workspace-publication-form-kind");
   }
@@ -453,16 +500,16 @@ export function assertAssistantWorkspacePublication(
   ) {
     throw new Error("assistant-workspace-publication-revision");
   }
-  if (
-    unowned &&
-    !(
-      publication.publicationKind === "transcript" &&
-      publication.publicationForm === "snapshot" &&
-      publication.payload &&
-      "status" in publication.payload &&
-      publication.payload.status === "idle"
-    )
-  ) {
+  const validUnownedTranscript =
+    publication.publicationKind === "transcript" &&
+    publication.publicationForm === "snapshot" &&
+    publication.payload &&
+    "status" in publication.payload &&
+    publication.payload.status === "idle";
+  const validUnownedNavigation =
+    publication.publicationKind === "owner-navigation" &&
+    publication.publicationForm === "region";
+  if (unowned && !validUnownedTranscript && !validUnownedNavigation) {
     throw new Error("assistant-workspace-publication-unowned-scope");
   }
   assertPublicationPayloadInvariant(
@@ -481,7 +528,7 @@ function assertPublicationPayloadInvariant(
     if (form === "snapshot") {
       assertExactObjectKeys(
         payload,
-        ["owner", "status", "error", "page", "uiRevision"],
+        ["owner", "status", "error", "page", "transcriptRevision"],
         "assistant-workspace-transcript-region",
       );
       assertTranscriptRegionInvariant(payload);
@@ -490,7 +537,7 @@ function assertPublicationPayloadInvariant(
     if (form === "delta") {
       assertExactObjectKeys(
         payload,
-        ["page", "baseUiRevision", "uiRevision", "mutations"],
+        ["page", "baseTranscriptRevision", "transcriptRevision", "mutations"],
         "assistant-workspace-transcript-delta",
       );
       if (
@@ -500,29 +547,21 @@ function assertPublicationPayloadInvariant(
       }
       return;
     }
-    if (form === "resync-required") {
-      assertExactObjectKeys(
-        payload,
-        ["pageKey", "expectedUiRevision", "reason"],
-        "assistant-workspace-transcript-resync",
-      );
-      if (
-        !["gap", "overflow", "render-failed", "superseded"].includes(
-          String((payload as AssistantWorkspaceTranscriptResync).reason || ""),
-        )
-      ) {
-        throw new Error("assistant-workspace-transcript-resync-reason");
-      }
-      return;
-    }
     throw new Error("assistant-workspace-transcript-form");
   }
   const keysByKind: Record<
     Exclude<AssistantWorkspacePublicationKind, "transcript">,
     readonly string[]
   > = {
-    "baseline-status": ["status", "busy", "message"],
+    "baseline-status": ["status", "busy", "message", "connection", "execution"],
     "message-counts": ["counts"],
+    "owner-navigation": [
+      "selectedOwner",
+      "selectedGroupId",
+      "groups",
+      "entries",
+      "canCreateOwner",
+    ],
     plan: ["items"],
     permission: ["request"],
     "reply-hint": ["reply", "runtimeOptions"],
@@ -533,6 +572,25 @@ function assertPublicationPayloadInvariant(
     keysByKind[kind],
     `assistant-workspace-${kind}-payload`,
   );
+  if (kind === "baseline-status") {
+    const baseline = payload as AssistantWorkspaceBaselineStatus;
+    assertExactObjectKeys(
+      baseline.connection,
+      [
+        "status",
+        "sessionAvailable",
+        "connected",
+        "canConnect",
+        "canDisconnect",
+      ],
+      "assistant-workspace-baseline-status-connection",
+    );
+    assertExactObjectKeys(
+      baseline.execution,
+      ["canCancel", "canInterrupt"],
+      "assistant-workspace-baseline-status-execution",
+    );
+  }
 }
 
 function assertExactObjectKeys(
@@ -610,7 +668,8 @@ function assertWireValue(value: unknown, path: string): void {
 function assertTranscriptRegionInvariant(
   payload: AssistantWorkspacePublicationPayload | undefined,
 ) {
-  if (!payload || !("status" in payload) || !("uiRevision" in payload)) return;
+  if (!payload || !("status" in payload) || !("transcriptRevision" in payload))
+    return;
   const region = payload as AssistantWorkspaceTranscriptRegion;
   const valid =
     (region.status === "idle" &&

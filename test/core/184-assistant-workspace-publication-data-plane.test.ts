@@ -2,6 +2,8 @@ import { assert } from "chai";
 import { readFile } from "fs/promises";
 import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
+  ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
   assertAssistantWorkspacePublication,
   createAssistantWorkspaceUnownedScope,
   createAcpChatWorkspaceOwner,
@@ -11,7 +13,13 @@ import {
   createReadyTranscriptRegion,
   type AssistantWorkspacePublication,
 } from "../../src/modules/assistantWorkspacePublication";
+import {
+  defineAssistantWorkspaceAcpSurfaceAdapter,
+  initializeAssistantWorkspaceAcpSurface,
+  scheduleAssistantWorkspaceAcpSurfaceChange,
+} from "../../src/modules/assistantWorkspaceAcpSurface";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
+import { mapAcpSkillRunChangeToPublicationKinds } from "../../src/modules/acpSkillsWorkspaceSurface";
 import {
   AssistantWorkspaceTranscriptProjection,
   createAssistantWorkspaceTranscriptMutation,
@@ -27,7 +35,8 @@ const productionVocabularyFiles = [
   "src/modules/acpSkillRunStore.ts",
   "src/modules/assistantWorkspaceSidebar.ts",
   "addon/content/shared/assistant/assistant-panel-model.js",
-  "addon/content/shared/assistant/assistant-transcript-publication.js",
+  "addon/content/shared/assistant/assistant-transcript-renderer.js",
+  "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
   "addon/content/sidebar/acp-chat.js",
   "addon/content/sidebar/acp-skill-run.js",
 ];
@@ -37,10 +46,10 @@ function page(ownerKey: string): AssistantWorkspaceTranscriptPage {
     pageKey: `${ownerKey}\ntail:80`,
     startCursor: 0,
     limit: 80,
-    totalItemCount: 1,
+    totalVisibleItemCount: 1,
     previousCursor: null,
     nextCursor: null,
-    eventSeq: 1,
+    sourceEventSeq: 1,
     items: [
       {
         itemId: "message-1",
@@ -53,7 +62,36 @@ function page(ownerKey: string): AssistantWorkspaceTranscriptPage {
   };
 }
 
-describe("Assistant Workspace publication data plane v3", function () {
+function browserSnapshot(
+  transcript: ReturnType<typeof createReadyTranscriptRegion>,
+) {
+  return { regions: { transcript } };
+}
+
+function browserTranscript(snapshot: any) {
+  return snapshot.regions.transcript;
+}
+
+function baselineStatus(status = "running", busy = true) {
+  return {
+    status,
+    busy,
+    message: null,
+    connection: {
+      status: busy ? "connected" : "idle",
+      sessionAvailable: true,
+      connected: true,
+      canConnect: false,
+      canDisconnect: !busy,
+    },
+    execution: {
+      canCancel: busy,
+      canInterrupt: busy,
+    },
+  };
+}
+
+describe("Assistant Workspace ACP surface v4", function () {
   it("uses one owner and transcript region vocabulary for Chat and Skills", function () {
     const chat = createAcpChatWorkspaceOwner("backend", "conversation");
     const skills = createAcpSkillsWorkspaceOwner("request");
@@ -75,7 +113,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         status: "ready",
         error: null,
         page: page(chat.ownerKey),
-        uiRevision: 7,
+        transcriptRevision: 7,
       },
     );
     assert.throws(() => createAcpChatWorkspaceOwner("backend", ""));
@@ -101,6 +139,24 @@ describe("Assistant Workspace publication data plane v3", function () {
         cursor: 0,
         limit: 80,
       }),
+    );
+  });
+
+  it("maps broad ACP Skills run changes to every affected canonical region", function () {
+    assert.sameMembers(mapAcpSkillRunChangeToPublicationKinds(["run"]), [
+      "baseline-status",
+      "owner-navigation",
+      "permission",
+      "reply-hint",
+      "context-details",
+    ]);
+    assert.deepEqual(
+      mapAcpSkillRunChangeToPublicationKinds([
+        "transcript",
+        "progress",
+        "runtime-options",
+      ]),
+      ["transcript", "message-counts", "reply-hint"],
     );
   });
 
@@ -142,7 +198,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         ...valid,
         publicationKind: "baseline-status",
         publicationForm: "region",
-        payload: { status: "running", busy: true, message: null },
+        payload: baselineStatus(),
       }),
     );
     assert.doesNotThrow(() =>
@@ -153,11 +209,87 @@ describe("Assistant Workspace publication data plane v3", function () {
         payload: createIdleTranscriptRegion(),
       }),
     );
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication({
+        ...valid,
+        owner: createAssistantWorkspaceUnownedScope("acp-skills"),
+        publicationKind: "owner-navigation",
+        publicationForm: "region",
+        payload: {
+          selectedOwner: owner,
+          selectedGroupId: null,
+          groups: [],
+          entries: [
+            {
+              owner,
+              groupId: null,
+              label: "Run",
+              description: null,
+              groupLabel: null,
+              status: "running",
+            },
+          ],
+          canCreateOwner: false,
+        },
+      }),
+    );
     assert.throws(() =>
       assertAssistantWorkspacePublication({
         ...valid,
         owner: createAssistantWorkspaceUnownedScope("acp-skills"),
+        publicationKind: "baseline-status",
+        publicationForm: "region",
+        payload: baselineStatus(),
       }),
+    );
+  });
+
+  it("selects the canonical child owner through unowned navigation", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
+    const owner = createAcpSkillsWorkspaceOwner("request");
+    const receiver = api.createReceiver({ source: owner.source });
+    const result = receiver.apply(
+      {},
+      {
+        schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+        publicationId: "owner-navigation-1",
+        owner: createAssistantWorkspaceUnownedScope(owner.source),
+        publicationKind: "owner-navigation",
+        publicationForm: "region",
+        publicationCause: "initialization",
+        regionRevision: 1,
+        deliverySequence: 1,
+        payload: {
+          selectedOwner: owner,
+          selectedGroupId: null,
+          groups: [],
+          entries: [
+            {
+              owner,
+              groupId: null,
+              label: "Run",
+              description: null,
+              groupLabel: null,
+              status: "running",
+            },
+          ],
+          canCreateOwner: false,
+        },
+      },
+      "",
+    );
+    assert.isTrue(result.accepted);
+    assert.deepEqual(result.snapshot.owner, owner);
+    assert.deepEqual(
+      result.snapshot.regions.ownerNavigation.selectedOwner,
+      owner,
     );
   });
 
@@ -176,6 +308,7 @@ describe("Assistant Workspace publication data plane v3", function () {
             itemId: "message-1",
             text: " world",
           },
+          cardinality: "retain",
           visibility: "boundary",
         }),
         [],
@@ -349,15 +482,137 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.equal(posts[1].publicationId, ready?.publicationId);
   });
 
+  it("initializes Chat and Skills through the same typed owner-first chain", async function () {
+    for (const owner of [
+      createAcpChatWorkspaceOwner("backend", "conversation"),
+      createAcpSkillsWorkspaceOwner("request"),
+    ]) {
+      const posts: AssistantWorkspacePublication[] = [];
+      const reads: string[] = [];
+      const coordinator = new AssistantWorkspacePublicationCoordinator({
+        scopeKey: owner.source,
+        getActiveOwner: () => owner,
+        post(publication) {
+          posts.push(publication);
+          return true;
+        },
+      });
+      const adapter = defineAssistantWorkspaceAcpSurfaceAdapter({
+        source: owner.source,
+        domainMapping:
+          owner.source === "acp-chat"
+            ? ACP_CHAT_WORKSPACE_DOMAIN_MAPPING
+            : ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
+        getActiveOwner: () => owner,
+        async readOwnerNavigation() {
+          reads.push("owner-navigation");
+          return {
+            selectedOwner: owner,
+            selectedGroupId: null,
+            groups: [],
+            entries: [
+              {
+                owner,
+                groupId: null,
+                label: "Owner",
+                description: null,
+                groupLabel: null,
+                status: "running",
+              },
+            ],
+            canCreateOwner: false,
+          };
+        },
+        mapChange: () => ({
+          owner,
+          targetsActiveOwner: true,
+          publicationKinds: [],
+        }),
+        async readPublication(args: any) {
+          reads.push(args.publicationKind);
+          if (args.publicationKind === "transcript") {
+            return createReadyTranscriptRegion(owner, page(owner.ownerKey), 0);
+          }
+          if (args.publicationKind === "baseline-status") {
+            return baselineStatus();
+          }
+          if (args.publicationKind === "message-counts") {
+            return { counts: null };
+          }
+          if (args.publicationKind === "plan") return { items: [] };
+          if (args.publicationKind === "permission") {
+            return { request: null };
+          }
+          if (args.publicationKind === "reply-hint") {
+            const optionGroup = { selectedOptionId: null, options: [] };
+            return {
+              reply: { status: "enabled", hint: null },
+              runtimeOptions: {
+                mode: optionGroup,
+                model: optionGroup,
+                reasoningEffort: optionGroup,
+              },
+            };
+          }
+          if (args.publicationKind === "context-details") {
+            return { context: [], details: [] };
+          }
+          return null;
+        },
+      } as any);
+
+      const publicationIds = await initializeAssistantWorkspaceAcpSurface({
+        adapter,
+        coordinator,
+        context: undefined,
+        cause: "initialization",
+      });
+
+      assert.equal(posts[0].publicationKind, "owner-navigation");
+      assert.equal(posts[0].owner.ownerKey, null);
+      assert.equal(posts[1].publicationKind, "transcript");
+      assert.equal(posts[1].publicationForm, "snapshot");
+      assert.equal((posts[1].payload as any).status, "loading");
+      assert.notInclude(
+        posts.slice(2).map((publication) => publication.publicationKind),
+        "transcript",
+      );
+      assert.include(reads, "transcript");
+      const loadingId = posts[1].publicationId;
+      coordinator.acknowledge({
+        publicationId: loadingId,
+        stage: "render-complete",
+        outcome: "accepted",
+        reason: null,
+      });
+      const ready = posts.at(-1)!;
+      assert.equal(ready.publicationKind, "transcript");
+      assert.equal((ready.payload as any).status, "ready");
+      assert.include(publicationIds, ready.publicationId);
+    }
+  });
+
   it("rebases the owner lane after a child render failure", function () {
     const owner = createAcpChatWorkspaceOwner("backend", "conversation");
     const posts: AssistantWorkspacePublication[] = [];
+    const rebases: Array<{
+      ownerKey: string;
+      pageKey: string;
+      reason: string;
+    }> = [];
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "test",
       getActiveOwner: () => owner,
       post(publication) {
         posts.push(publication);
         return true;
+      },
+      onTranscriptRebaseRequired(args) {
+        rebases.push({
+          ownerKey: args.owner.ownerKey,
+          pageKey: args.pageKey,
+          reason: args.reason,
+        });
       },
     });
     const snapshot = coordinator.publishTranscriptSnapshot({
@@ -372,10 +627,14 @@ describe("Assistant Workspace publication data plane v3", function () {
       outcome: "rejected",
       reason: "render-failed",
     });
-    assert.equal(posts.length, 2);
-    assert.equal(posts[1].publicationForm, "resync-required");
-    assert.equal(posts[1].publicationCause, "rebase");
-    assert.equal((posts[1].payload as any).reason, "render-failed");
+    assert.lengthOf(posts, 1);
+    assert.deepEqual(rebases, [
+      {
+        ownerKey: owner.ownerKey,
+        pageKey: page(owner.ownerKey).pageKey,
+        reason: "render-failed",
+      },
+    ]);
   });
 
   it("does not consume transcript mutations or revisions when post fails", function () {
@@ -399,13 +658,13 @@ describe("Assistant Workspace publication data plane v3", function () {
     allowPost = true;
     coordinator.publishTranscriptMutations({
       owner,
-      eventSeq: 2,
-      totalItemCount: 1,
+      sourceEventSeq: 2,
       visibility: "live",
       events: [
         {
           boundary: "text-continuation",
           mutation: { op: "append_text", itemId: "message-1", text: "!" },
+          cardinality: "retain",
         },
       ],
     });
@@ -420,8 +679,8 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.deepEqual((posts[1].payload as any).mutations, [
       { op: "append_text", itemId: "message-1", text: "!" },
     ]);
-    assert.equal((posts[1].payload as any).baseUiRevision, 0);
-    assert.equal((posts[1].payload as any).uiRevision, 1);
+    assert.equal((posts[1].payload as any).baseTranscriptRevision, 0);
+    assert.equal((posts[1].payload as any).transcriptRevision, 1);
   });
 
   it("does not commit a region signature when delivery fails", function () {
@@ -459,6 +718,55 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.lengthOf(posts, 1);
   });
 
+  it("clears every owner-scoped publication lane and signature on owner switch", async function () {
+    const firstOwner = createAcpChatWorkspaceOwner("backend", "first");
+    const secondOwner = createAcpChatWorkspaceOwner("backend", "second");
+    let activeOwner = firstOwner;
+    const posts: AssistantWorkspacePublication[] = [];
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "owner-cleanup",
+      getActiveOwner: () => activeOwner,
+      post(publication) {
+        posts.push(publication);
+        return true;
+      },
+    });
+    const regionPayload = { completed: 1, total: 2 };
+    const region = coordinator.publishRegion({
+      owner: firstOwner,
+      publicationKind: "message-counts",
+      cause: "steady-state",
+      payload: regionPayload,
+    });
+    const snapshot = coordinator.publishTranscriptSnapshot({
+      owner: firstOwner,
+      cause: "initialization",
+      region: createReadyTranscriptRegion(
+        firstOwner,
+        page(firstOwner.ownerKey),
+        0,
+      ),
+    });
+    assert.isDefined(region);
+    assert.isDefined(snapshot);
+
+    activeOwner = secondOwner;
+    coordinator.clearOwner(firstOwner);
+    activeOwner = firstOwner;
+    const republished = coordinator.publishRegion({
+      owner: firstOwner,
+      publicationKind: "message-counts",
+      cause: "owner-switch",
+      payload: regionPayload,
+    });
+
+    assert.isDefined(republished);
+    assert.equal(republished?.regionRevision, 1);
+    assert.isUndefined(
+      await coordinator.waitForPostedPublication(snapshot!.publicationId),
+    );
+  });
+
   it("lets a queued snapshot supersede mutations already represented by it", function () {
     const owner = createAcpSkillsWorkspaceOwner("request");
     const posts: AssistantWorkspacePublication[] = [];
@@ -484,7 +792,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       ...page(owner.ownerKey),
       pageKey: `${owner.ownerKey}\n0:80`,
       items: [{ ...page(owner.ownerKey).items[0], text: "hello!" }],
-      eventSeq: 2,
+      sourceEventSeq: 2,
     };
     const replacement = coordinator.publishTranscriptSnapshot({
       owner,
@@ -588,6 +896,45 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.isUndefined(await posted);
   });
 
+  it("terminates posted and queued publication state when the target closes", async function () {
+    const owner = createAcpSkillsWorkspaceOwner("request");
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "test",
+      getActiveOwner: () => owner,
+      post: () => true,
+    });
+    const initial = coordinator.publishTranscriptSnapshot({
+      owner,
+      cause: "initialization",
+      region: createReadyTranscriptRegion(owner, page(owner.ownerKey), 0),
+    });
+    const queued = coordinator.publishTranscriptSnapshot({
+      owner,
+      cause: "diagnostic",
+      region: createReadyTranscriptRegion(owner, page(owner.ownerKey), 0),
+      force: true,
+    });
+    const posted = coordinator.waitForPostedPublication(queued!.publicationId);
+
+    coordinator.reset();
+
+    assert.isUndefined(await posted);
+    assert.isFalse(
+      coordinator.acknowledge({
+        publicationId: initial!.publicationId,
+        stage: "render-complete",
+        outcome: "accepted",
+        reason: null,
+      }),
+    );
+    const replacement = coordinator.publishTranscriptSnapshot({
+      owner,
+      cause: "activation",
+      region: createReadyTranscriptRegion(owner, page(owner.ownerKey), 0),
+    });
+    assert.equal(replacement?.regionRevision, 3);
+  });
+
   it("lets an initialization snapshot replace undelivered transcript work", function () {
     const owner = createAcpChatWorkspaceOwner("backend", "conversation");
     const posts: AssistantWorkspacePublication[] = [];
@@ -604,8 +951,7 @@ describe("Assistant Workspace publication data plane v3", function () {
 
     coordinator.publishTranscriptMutations({
       owner,
-      eventSeq: 1,
-      totalItemCount: 1,
+      sourceEventSeq: 1,
       visibility: "live",
       events: [],
     });
@@ -684,8 +1030,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       });
       coordinator.publishTranscriptMutations({
         owner,
-        eventSeq: 2,
-        totalItemCount: 1,
+        sourceEventSeq: 2,
         visibility: "live",
         events: [
           {
@@ -695,6 +1040,7 @@ describe("Assistant Workspace publication data plane v3", function () {
               itemId: "message-1",
               text: " world",
             },
+            cardinality: "retain",
           },
           {
             boundary: "hard-boundary",
@@ -703,6 +1049,7 @@ describe("Assistant Workspace publication data plane v3", function () {
               itemId: "message-1",
               patch: { role: "assistant", status: "complete" },
             },
+            cardinality: "retain",
           },
         ],
       });
@@ -723,15 +1070,77 @@ describe("Assistant Workspace publication data plane v3", function () {
     }
   });
 
+  it("schedules Chat and Skills changes through one source-neutral runtime", function () {
+    for (const owner of [
+      createAcpChatWorkspaceOwner("backend", "conversation"),
+      createAcpSkillsWorkspaceOwner("request"),
+    ]) {
+      const queued: string[][] = [];
+      const dropped: string[] = [];
+      const coordinator = new AssistantWorkspacePublicationCoordinator({
+        scopeKey: owner.source,
+        getActiveOwner: () => owner,
+        post: () => true,
+      });
+      const adapter = defineAssistantWorkspaceAcpSurfaceAdapter({
+        source: owner.source,
+        domainMapping:
+          owner.source === "acp-chat"
+            ? ACP_CHAT_WORKSPACE_DOMAIN_MAPPING
+            : ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
+        getActiveOwner: () => owner,
+        async readOwnerNavigation() {
+          throw new Error("not-used");
+        },
+        mapChange() {
+          return {
+            owner,
+            targetsActiveOwner: true,
+            publicationKinds: ["message-counts"],
+          };
+        },
+        async readPublication() {
+          throw new Error("not-used");
+        },
+      });
+      const scheduled = scheduleAssistantWorkspaceAcpSurfaceChange({
+        adapter,
+        coordinator,
+        change: {},
+        context: undefined,
+        activity: "matching-target",
+        synchronizeOwner: () => false,
+        initialize: () => assert.fail("unexpected initialization"),
+        queueRegions: (_owner, kinds) => queued.push([...kinds]),
+      });
+      assert.equal(scheduled.status, "scheduled");
+      assert.deepEqual(queued, [["message-counts"]]);
+
+      const inactive = scheduleAssistantWorkspaceAcpSurfaceChange({
+        adapter,
+        coordinator,
+        change: {},
+        context: undefined,
+        activity: "opposite-active",
+        synchronizeOwner: () => false,
+        initialize: () => assert.fail("unexpected initialization"),
+        queueRegions: () => assert.fail("unexpected publication"),
+        onDropped: ({ reason }) => dropped.push(reason),
+      });
+      assert.equal(inactive.status, "dropped");
+      assert.deepEqual(dropped, ["opposite-active"]);
+    }
+  });
+
   it("keeps the selected tail page bounded while its cursor advances", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
 
     for (const owner of [
       createAcpChatWorkspaceOwner("backend", "conversation"),
@@ -742,7 +1151,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         ...page(owner.ownerKey),
         pageKey: `${owner.ownerKey}\ntail:2`,
         limit: 2,
-        totalItemCount: 2,
+        totalVisibleItemCount: 2,
         items: [
           page(owner.ownerKey).items[0],
           {
@@ -754,7 +1163,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       };
       const region = createReadyTranscriptRegion(owner, initialPage, 0);
       const adopted = receiver.apply(
-        { transcriptRegion: region },
+        browserSnapshot(region),
         {
           schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
           publicationId: `${owner.source}-bounded-snapshot`,
@@ -784,13 +1193,13 @@ describe("Assistant Workspace publication data plane v3", function () {
               pageKey: `${owner.ownerKey}\ntail:2`,
               startCursor: 1,
               limit: 2,
-              totalItemCount: 3,
+              totalVisibleItemCount: 3,
               previousCursor: 0,
               nextCursor: null,
-              eventSeq: 2,
+              sourceEventSeq: 2,
             },
-            baseUiRevision: 0,
-            uiRevision: 1,
+            baseTranscriptRevision: 0,
+            transcriptRevision: 1,
             mutations: [
               {
                 op: "upsert_item",
@@ -807,15 +1216,140 @@ describe("Assistant Workspace publication data plane v3", function () {
       );
 
       assert.isTrue(applied.accepted);
-      assert.equal(applied.snapshot.transcriptRegion.page.startCursor, 1);
+      assert.equal(browserTranscript(applied.snapshot).page.startCursor, 1);
       assert.deepEqual(
         Array.from(
-          applied.snapshot.transcriptRegion.page.items,
+          browserTranscript(applied.snapshot).page.items,
           (item: any) => item.itemId,
         ),
         ["message-2", "message-3"],
       );
-      assert.lengthOf(applied.snapshot.transcriptRegion.page.items, 2);
+      assert.lengthOf(browserTranscript(applied.snapshot).page.items, 2);
+    }
+  });
+
+  it("commits an inserted item to the index before the next delta", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
+
+    for (const owner of [
+      createAcpChatWorkspaceOwner("backend", "conversation"),
+      createAcpSkillsWorkspaceOwner("request"),
+    ]) {
+      const receiver = api.createReceiver({ source: owner.source });
+      const initialPage = {
+        ...page(owner.ownerKey),
+        items: [],
+        totalVisibleItemCount: 0,
+      };
+      const region = createReadyTranscriptRegion(owner, initialPage, 0);
+      const adopted = receiver.apply(
+        browserSnapshot(region),
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `${owner.source}-continuity-snapshot`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "snapshot",
+          publicationCause: "initialization",
+          regionRevision: 1,
+          deliverySequence: 1,
+          payload: region,
+        },
+        owner.ownerKey,
+      );
+      const inserted = receiver.apply(
+        adopted.snapshot,
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `${owner.source}-continuity-insert`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "delta",
+          publicationCause: "steady-state",
+          regionRevision: 2,
+          deliverySequence: 2,
+          payload: {
+            page: {
+              pageKey: `${owner.ownerKey}\ntail:80`,
+              startCursor: 0,
+              limit: 80,
+              totalVisibleItemCount: 1,
+              previousCursor: null,
+              nextCursor: null,
+              sourceEventSeq: 2,
+            },
+            baseTranscriptRevision: 0,
+            transcriptRevision: 1,
+            mutations: [
+              {
+                op: "upsert_item",
+                item: {
+                  itemId: "new-message",
+                  itemKind: "message",
+                  role: "assistant",
+                  text: "hello",
+                  status: "streaming",
+                },
+              },
+            ],
+          },
+        },
+        owner.ownerKey,
+      );
+      assert.isTrue(inserted.accepted);
+
+      const patched = receiver.apply(
+        inserted.snapshot,
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `${owner.source}-continuity-patch`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "delta",
+          publicationCause: "steady-state",
+          regionRevision: 3,
+          deliverySequence: 3,
+          payload: {
+            page: {
+              pageKey: `${owner.ownerKey}\ntail:80`,
+              startCursor: 0,
+              limit: 80,
+              totalVisibleItemCount: 1,
+              previousCursor: null,
+              nextCursor: null,
+              sourceEventSeq: 3,
+            },
+            baseTranscriptRevision: 1,
+            transcriptRevision: 2,
+            mutations: [
+              { op: "append_text", itemId: "new-message", text: " world" },
+              {
+                op: "patch_item",
+                itemId: "new-message",
+                patch: { status: "complete" },
+              },
+            ],
+          },
+        },
+        owner.ownerKey,
+      );
+
+      assert.isTrue(patched.accepted);
+      assert.equal(
+        browserTranscript(patched.snapshot).page.items[0].text,
+        "hello world",
+      );
+      assert.equal(
+        browserTranscript(patched.snapshot).page.items[0].status,
+        "complete",
+      );
     }
   });
 
@@ -834,7 +1368,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       ...page(owner.ownerKey),
       pageKey: `${owner.ownerKey}\ntail:2`,
       limit: 2,
-      totalItemCount: 2,
+      totalVisibleItemCount: 2,
       items: [
         page(owner.ownerKey).items[0],
         {
@@ -856,8 +1390,7 @@ describe("Assistant Workspace publication data plane v3", function () {
     });
     coordinator.publishTranscriptMutations({
       owner,
-      eventSeq: 2,
-      totalItemCount: 3,
+      sourceEventSeq: 2,
       visibility: "live",
       events: [
         {
@@ -869,29 +1402,30 @@ describe("Assistant Workspace publication data plane v3", function () {
               itemId: "message-3",
             },
           },
+          cardinality: "insert",
         },
       ],
     });
 
     assert.equal((posts[1].payload as any).page.startCursor, 1);
     assert.equal((posts[1].payload as any).page.previousCursor, 0);
-    assert.equal((posts[1].payload as any).page.totalItemCount, 3);
+    assert.equal((posts[1].payload as any).page.totalVisibleItemCount, 3);
   });
 
   it("rejects a mixed invalid mutation batch atomically", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
     const owner = createAcpChatWorkspaceOwner("backend", "conversation");
     const receiver = api.createReceiver({ source: owner.source });
     const region = createReadyTranscriptRegion(owner, page(owner.ownerKey), 0);
     const adopted = receiver.apply(
-      { transcriptRegion: region },
+      browserSnapshot(region),
       {
         schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
         publicationId: "atomic-snapshot",
@@ -921,13 +1455,13 @@ describe("Assistant Workspace publication data plane v3", function () {
             pageKey: `${owner.ownerKey}\ntail:80`,
             startCursor: 0,
             limit: 80,
-            totalItemCount: 2,
+            totalVisibleItemCount: 2,
             previousCursor: null,
             nextCursor: null,
-            eventSeq: 2,
+            sourceEventSeq: 2,
           },
-          baseUiRevision: 0,
-          uiRevision: 1,
+          baseTranscriptRevision: 0,
+          transcriptRevision: 1,
           mutations: [
             {
               op: "upsert_item",
@@ -946,12 +1480,11 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.deepInclude(result, {
       accepted: false,
       reason: "gap",
-      reloadPage: true,
     });
     assert.strictEqual(result.snapshot, adopted.snapshot);
     assert.deepEqual(
       Array.from(
-        adopted.snapshot.transcriptRegion.page.items,
+        browserTranscript(adopted.snapshot).page.items,
         (item: any) => item.itemId,
       ),
       ["message-1"],
@@ -961,12 +1494,12 @@ describe("Assistant Workspace publication data plane v3", function () {
   it("requests rebase when a tail delete needs an unloaded head item", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
     const owner = createAcpSkillsWorkspaceOwner("request");
     const receiver = api.createReceiver({ source: owner.source });
     const selectedPage = {
@@ -974,7 +1507,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       pageKey: `${owner.ownerKey}\ntail:2`,
       startCursor: 1,
       limit: 2,
-      totalItemCount: 3,
+      totalVisibleItemCount: 3,
       previousCursor: 0,
       items: [
         {
@@ -989,7 +1522,7 @@ describe("Assistant Workspace publication data plane v3", function () {
     };
     const region = createReadyTranscriptRegion(owner, selectedPage, 0);
     const adopted = receiver.apply(
-      { transcriptRegion: region },
+      browserSnapshot(region),
       {
         schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
         publicationId: "delete-snapshot",
@@ -1019,13 +1552,13 @@ describe("Assistant Workspace publication data plane v3", function () {
             pageKey: `${owner.ownerKey}\ntail:2`,
             startCursor: 0,
             limit: 2,
-            totalItemCount: 2,
+            totalVisibleItemCount: 2,
             previousCursor: null,
             nextCursor: null,
-            eventSeq: 2,
+            sourceEventSeq: 2,
           },
-          baseUiRevision: 0,
-          uiRevision: 1,
+          baseTranscriptRevision: 0,
+          transcriptRevision: 1,
           mutations: [{ op: "delete_item", itemId: "message-3" }],
         },
       },
@@ -1035,7 +1568,6 @@ describe("Assistant Workspace publication data plane v3", function () {
     assert.deepInclude(result, {
       accepted: false,
       reason: "gap",
-      reloadPage: true,
     });
     assert.strictEqual(result.snapshot, adopted.snapshot);
   });
@@ -1043,12 +1575,12 @@ describe("Assistant Workspace publication data plane v3", function () {
   it("applies owner, revision, and gap rules through one browser receiver", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
     for (const owner of [
       createAcpChatWorkspaceOwner("backend", "conversation"),
       createAcpSkillsWorkspaceOwner("request"),
@@ -1064,7 +1596,7 @@ describe("Assistant Workspace publication data plane v3", function () {
           ? createAcpChatWorkspaceOwner("backend", "other-conversation")
           : createAcpSkillsWorkspaceOwner("other-request");
       const invalid = receiver.apply(
-        { transcriptRegion: region },
+        browserSnapshot(region),
         {
           schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
           publicationId: `${owner.source}-invalid-snapshot`,
@@ -1083,7 +1615,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         owner.ownerKey,
       );
       assert.deepInclude(invalid, { accepted: false, reason: "invalid" });
-      const snapshot = { transcriptRegion: region };
+      const snapshot = browserSnapshot(region);
       const adopted = receiver.apply(
         snapshot,
         {
@@ -1116,13 +1648,13 @@ describe("Assistant Workspace publication data plane v3", function () {
               pageKey: `${owner.ownerKey}\ntail:80`,
               startCursor: 0,
               limit: 80,
-              totalItemCount: 1,
+              totalVisibleItemCount: 1,
               previousCursor: null,
               nextCursor: null,
-              eventSeq: 2,
+              sourceEventSeq: 2,
             },
-            baseUiRevision: 0,
-            uiRevision: 1,
+            baseTranscriptRevision: 0,
+            transcriptRevision: 1,
             mutations: [
               { op: "append_text", itemId: "message-1", text: " world" },
               {
@@ -1152,13 +1684,13 @@ describe("Assistant Workspace publication data plane v3", function () {
               pageKey: `${owner.ownerKey}\ntail:80`,
               startCursor: 0,
               limit: 80,
-              totalItemCount: 1,
+              totalVisibleItemCount: 1,
               previousCursor: null,
               nextCursor: null,
-              eventSeq: 2,
+              sourceEventSeq: 2,
             },
-            baseUiRevision: 0,
-            uiRevision: 1,
+            baseTranscriptRevision: 0,
+            transcriptRevision: 1,
             mutations: [
               { op: "append_text", itemId: "message-1", text: " world" },
             ],
@@ -1201,7 +1733,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         evictedItemIds: [],
       });
       assert.equal(
-        applied.snapshot.transcriptRegion.page.items[0].text,
+        browserTranscript(applied.snapshot).page.items[0].text,
         "hello world",
       );
       const gap = receiver.apply(
@@ -1220,13 +1752,13 @@ describe("Assistant Workspace publication data plane v3", function () {
               pageKey: `${owner.ownerKey}\ntail:80`,
               startCursor: 0,
               limit: 80,
-              totalItemCount: 1,
+              totalVisibleItemCount: 1,
               previousCursor: null,
               nextCursor: null,
-              eventSeq: 3,
+              sourceEventSeq: 3,
             },
-            baseUiRevision: 99,
-            uiRevision: 100,
+            baseTranscriptRevision: 99,
+            transcriptRevision: 100,
             mutations: [],
           },
         },
@@ -1245,7 +1777,7 @@ describe("Assistant Workspace publication data plane v3", function () {
         },
       };
       const historySnapshot = historyReceiver.apply(
-        { transcriptRegion: historyRegion },
+        browserSnapshot(historyRegion),
         {
           schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
           publicationId: `${owner.source}-history-snapshot`,
@@ -1275,13 +1807,13 @@ describe("Assistant Workspace publication data plane v3", function () {
               pageKey: `${owner.ownerKey}\ntail:80`,
               startCursor: 80,
               limit: 80,
-              totalItemCount: 2,
+              totalVisibleItemCount: 2,
               previousCursor: 0,
               nextCursor: null,
-              eventSeq: 4,
+              sourceEventSeq: 4,
             },
-            baseUiRevision: 0,
-            uiRevision: 1,
+            baseTranscriptRevision: 0,
+            transcriptRevision: 1,
             mutations: [
               {
                 op: "upsert_item",
@@ -1298,33 +1830,79 @@ describe("Assistant Workspace publication data plane v3", function () {
       );
       assert.isTrue(offPage.accepted);
       assert.equal(
-        offPage.snapshot.transcriptRegion.page.pageKey,
+        browserTranscript(offPage.snapshot).page.pageKey,
         `${owner.ownerKey}\ncursor:0:80`,
       );
-      assert.equal(offPage.snapshot.transcriptRegion.page.items.length, 1);
-      assert.equal(offPage.snapshot.transcriptRegion.page.totalItemCount, 2);
+      assert.equal(browserTranscript(offPage.snapshot).page.items.length, 1);
+      assert.equal(
+        browserTranscript(offPage.snapshot).page.totalVisibleItemCount,
+        2,
+      );
     }
+  });
+
+  it("drops prior owner revision state when the selected owner changes", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
+    const first = createAcpChatWorkspaceOwner("backend", "first");
+    const second = createAcpChatWorkspaceOwner("backend", "second");
+    const receiver = api.createReceiver({ source: "acp-chat" });
+    let snapshot: any = {};
+    let sequence = 0;
+
+    const applyOwner = (owner: typeof first, regionRevision: number) => {
+      sequence += 1;
+      const result = receiver.apply(
+        snapshot,
+        {
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId: `owner-switch-${sequence}`,
+          owner,
+          publicationKind: "transcript",
+          publicationForm: "snapshot",
+          publicationCause: "owner-switch",
+          regionRevision,
+          deliverySequence: sequence,
+          payload: createReadyTranscriptRegion(owner, page(owner.ownerKey), 0),
+        },
+        owner.ownerKey,
+      );
+      if (result.accepted) snapshot = result.snapshot;
+      return result;
+    };
+
+    assert.isTrue(applyOwner(first, 3).accepted);
+    assert.isTrue(applyOwner(second, 1).accepted);
+    assert.isTrue(applyOwner(first, 1).accepted);
   });
 
   it("reports render failure through the shared child client for both surfaces", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
     for (const owner of [
       createAcpChatWorkspaceOwner("backend", "conversation"),
       createAcpSkillsWorkspaceOwner("request"),
     ]) {
       let snapshot: any = {
-        transcriptRegion: createReadyTranscriptRegion(
-          owner,
-          page(owner.ownerKey),
-          0,
-        ),
+        regions: {
+          transcript: createReadyTranscriptRegion(
+            owner,
+            page(owner.ownerKey),
+            0,
+          ),
+        },
       };
       const acknowledgements: any[] = [];
       const client = api.createClient({
@@ -1364,13 +1942,13 @@ describe("Assistant Workspace publication data plane v3", function () {
             pageKey: `${owner.ownerKey}\ntail:80`,
             startCursor: 0,
             limit: 80,
-            totalItemCount: 1,
+            totalVisibleItemCount: 1,
             previousCursor: null,
             nextCursor: null,
-            eventSeq: 2,
+            sourceEventSeq: 2,
           },
-          baseUiRevision: 0,
-          uiRevision: 1,
+          baseTranscriptRevision: 0,
+          transcriptRevision: 1,
           mutations: [{ op: "append_text", itemId: "message-1", text: "!" }],
         },
       });
@@ -1380,19 +1958,75 @@ describe("Assistant Workspace publication data plane v3", function () {
         outcome: "rejected",
         reason: "render-failed",
       });
-      assert.equal(snapshot.transcriptRegion.page.items[0].text, "hello");
+      assert.equal(browserTranscript(snapshot).page.items[0].text, "hello");
     }
+  });
+
+  it("does not commit transcript continuity until rendering succeeds", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
+    const owner = createAcpChatWorkspaceOwner("backend", "conversation");
+    let snapshot: any = browserSnapshot(
+      createReadyTranscriptRegion(owner, page(owner.ownerKey), 0),
+    );
+    let renderAttempt = 0;
+    const client = api.createClient({
+      source: owner.source,
+      getSnapshot: () => snapshot,
+      setSnapshot: (next: unknown) => {
+        snapshot = next;
+      },
+      getOwnerKey: () => owner.ownerKey,
+      ack: () => undefined,
+      render: () => {
+        renderAttempt += 1;
+        return renderAttempt > 1;
+      },
+    });
+    const publication = (publicationId: string, deliverySequence: number) => ({
+      schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+      publicationId,
+      owner,
+      publicationKind: "transcript",
+      publicationForm: "delta",
+      publicationCause: "steady-state",
+      regionRevision: deliverySequence,
+      deliverySequence,
+      payload: {
+        page: {
+          ...page(owner.ownerKey),
+          sourceEventSeq: deliverySequence + 1,
+        },
+        baseTranscriptRevision: 0,
+        transcriptRevision: 1,
+        mutations: [{ op: "append_text", itemId: "message-1", text: " world" }],
+      },
+    });
+
+    client.apply(publication("render-fails", 1));
+    assert.equal(browserTranscript(snapshot).transcriptRevision, 0);
+    assert.equal(browserTranscript(snapshot).page.items[0].text, "hello");
+
+    client.apply(publication("render-succeeds", 2));
+    assert.equal(browserTranscript(snapshot).transcriptRevision, 1);
+    assert.equal(browserTranscript(snapshot).page.items[0].text, "hello world");
   });
 
   it("never turns a failed steady structural effect into a snapshot render", async function () {
     const vm = await import("vm");
     const code = await readFile(
-      "addon/content/shared/assistant/assistant-transcript-publication.js",
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
       "utf8",
     );
     const context = { window: {} as Record<string, unknown> };
     vm.runInNewContext(code, context);
-    const api = (context.window as any).AssistantTranscriptPublication;
+    const api = (context.window as any).AssistantWorkspaceAcpSurface;
 
     for (const owner of [
       createAcpChatWorkspaceOwner("backend", "conversation"),
@@ -1407,7 +2041,7 @@ describe("Assistant Workspace publication data plane v3", function () {
       const rendered = api.renderResult(
         {
           publicationKind: "transcript",
-          snapshot: { transcriptRegion: region },
+          snapshot: browserSnapshot(region),
           effect: {
             kind: "mutations",
             onSelectedPage: true,
@@ -1452,6 +2086,11 @@ describe("Assistant Workspace publication data plane v3", function () {
         "selectedTranscript",
         "selectedTranscriptPage",
         "transcriptState",
+        "totalItemCount",
+        "baseUiRevision",
+        "uiRevision",
+        "AssistantTranscriptPublication",
+        "assistant-transcript-publication",
       ]) {
         assert.notInclude(source, forbidden, `${relativePath}: ${forbidden}`);
       }
@@ -1459,19 +2098,23 @@ describe("Assistant Workspace publication data plane v3", function () {
   });
 
   it("keeps steady adapters free of full panel and frontend materialization", async function () {
-    const chat = await readFile("src/modules/acpChatPanelReadModel.ts", "utf8");
-    const chatAdapter = chat.slice(
-      chat.indexOf("export async function prepareAcpChatPanelPublicationDto"),
-      chat.indexOf("function normalizedAcpChatPanelChangeKinds"),
-    );
-    assert.notInclude(chatAdapter, "prepareAcpChatPanelSnapshot(");
-    assert.notInclude(chatAdapter, "getAcpFrontendSnapshot(");
-
-    const skills = await readFile(
-      "src/modules/acpSkillRunPanelReadModel.ts",
+    const chatSurface = await readFile(
+      "src/modules/acpChatWorkspaceSurface.ts",
       "utf8",
     );
-    assert.notInclude(skills, "prepareAcpSkillRunPanelSnapshot(");
+    const skillsSurface = await readFile(
+      "src/modules/acpSkillsWorkspaceSurface.ts",
+      "utf8",
+    );
+    for (const surface of [chatSurface, skillsSurface]) {
+      assert.notInclude(surface, "prepareAcpChatPanelSnapshot(");
+      assert.notInclude(surface, "getAcpFrontendSnapshot(");
+      assert.notInclude(surface, "prepareAcpSkillRunPanelSnapshot(");
+    }
+
+    assert.notInclude(chatSurface, "prepareAcpChatPanelPublicationDto");
+    assert.include(chatSurface, "readAcpChatWorkspacePublication");
+    assert.include(chatSurface, "getAcpConversationUiSnapshot(");
 
     const coordinator = await readFile(
       "src/modules/assistantWorkspacePublicationCoordinator.ts",
@@ -1484,17 +2127,115 @@ describe("Assistant Workspace publication data plane v3", function () {
       "src/modules/assistantWorkspaceSidebar.ts",
       "utf8",
     );
+    const replayPorts = await readFile(
+      "src/modules/acpRuntimeReplayProductionPorts.ts",
+      "utf8",
+    );
+    assert.notInclude(host, "getAcpFrontendSnapshot");
+    assert.notInclude(replayPorts, "getAcpFrontendSnapshot");
+    assert.include(host, "getActiveAcpChatOwner()");
+    assert.include(replayPorts, "getActiveAcpChatOwner()");
     const chatSchedule = host.slice(
       host.indexOf("function scheduleAcpChatPublications"),
-      host.indexOf("async function postAcpChatPanelSnapshot"),
+      host.indexOf("function getActiveAcpChatOwnerKey"),
     );
     const skillsSchedule = host.slice(
       host.indexOf("function scheduleAcpSkillRunPublications"),
       host.indexOf("function queueWorkspacePublications"),
     );
     for (const schedule of [chatSchedule, skillsSchedule]) {
-      assert.notInclude(schedule, "change.transcriptEvents?.length &&");
-      assert.include(schedule, 'kind !== "transcript"');
+      assert.include(schedule, "scheduleAssistantWorkspaceAcpSurfaceChange({");
+      assert.notInclude(schedule, "schedulePostSnapshot(");
+      assert.notInclude(schedule, "publishDomainChange({");
     }
+    assert.include(host, "ACP_CHAT_WORKSPACE_SURFACE_ADAPTER");
+    assert.include(host, "ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER");
+  });
+
+  it("keeps one publication FIFO and canonical child state", async function () {
+    const shared = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-surface.js",
+      "utf8",
+    );
+    assert.include(shared, "function createController(options)");
+    assert.include(
+      shared,
+      "function createPanelPresentation(snapshot, options)",
+    );
+    assert.include(shared, "createController,");
+    assert.include(shared, "createPanelPresentation,");
+    assert.include(shared, "pendingPublications.shift()");
+    assert.notInclude(shared, "queueSnapshot");
+    assert.notInclude(shared, "prepareSnapshot");
+    assert.notInclude(shared, "acceptSnapshot");
+    assert.notInclude(shared, "function applyRegionPayload");
+
+    for (const relativePath of [
+      "addon/content/sidebar/acp-chat.js",
+      "addon/content/sidebar/acp-skill-run.js",
+    ]) {
+      const source = await readFile(relativePath, "utf8");
+      for (const duplicateState of [
+        "pendingRenderSnapshots",
+        "pendingPublications",
+        "renderScheduled",
+        "publicationClient",
+      ]) {
+        assert.notInclude(
+          source,
+          duplicateState,
+          `${relativePath}: ${duplicateState}`,
+        );
+      }
+      assert.include(source, "shared.createController({");
+      assert.include(source, "shared.createPanelPresentation(snapshot || {},");
+      assert.include(source, "function workspacePanelPresentation(snapshot)");
+      assert.notInclude(source, "function createAcpChatPanelPresentation");
+      assert.notInclude(source, "function createAcpSkillsPanelPresentation");
+      assert.notInclude(source, "bindAcpChatPublicationSnapshot");
+      assert.notInclude(source, "bindAcpSkillsPublicationSnapshot");
+      assert.notInclude(source, "prepareAcpChatSurfaceSnapshot");
+      assert.notInclude(source, "prepareAcpSkillsSurfaceSnapshot");
+    }
+  });
+
+  it("uses one localized surface bootstrap and one shared panel presentation builder", async function () {
+    const host = await readFile(
+      "src/modules/assistantWorkspaceSidebar.ts",
+      "utf8",
+    );
+    const labels = await readFile(
+      "src/modules/assistantWorkspaceAcpSurfaceLabels.ts",
+      "utf8",
+    );
+    const chatReadModel = await readFile(
+      "src/modules/acpSidebarModel.ts",
+      "utf8",
+    );
+    const skillsStore = await readFile(
+      "src/modules/acpSkillRunStore.ts",
+      "utf8",
+    );
+    const shell = await readFile(
+      "addon/content/sidebar/assistant-workspace.js",
+      "utf8",
+    );
+    assert.include(host, "surfaceLabels:");
+    assert.include(host, 'buildAssistantWorkspaceAcpSurfaceLabels("acp-chat")');
+    assert.include(
+      host,
+      'buildAssistantWorkspaceAcpSurfaceLabels("acp-skills")',
+    );
+    assert.include(shell, '"assistant-workspace:surface-bootstrap"');
+    assert.include(shell, "labels: state.surfaceLabels[tab] || {}");
+    assert.include(labels, "buildAssistantPanelLabels()");
+    assert.include(
+      chatReadModel,
+      'buildAssistantWorkspaceAcpSurfaceLabels("acp-chat")',
+    );
+    assert.include(
+      skillsStore,
+      'buildAssistantWorkspaceAcpSurfaceLabels("acp-skills")',
+    );
   });
 });

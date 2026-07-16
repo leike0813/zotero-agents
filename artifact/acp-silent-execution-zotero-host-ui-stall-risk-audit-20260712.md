@@ -2024,7 +2024,8 @@ page request、diagnostic 和 rebase 路径。
 
 本次同时修复了 cold page 已读取但 full mirror `loading` 覆盖 page-ready 的
 问题。`pageKey` 区分 tail 与 cursor page；历史页收到 tail delta 时只推进
-`totalItemCount/eventSeq/uiRevision`，不改写历史页 identity 或插入 tail item。
+`totalVisibleItemCount/sourceEventSeq/transcriptRevision`，不改写历史页
+identity 或插入 tail item。
 
 Node 门禁覆盖两侧 producer boundary、side-channel、cold page-first、共享
 receiver、ACK/gap、字段词汇和禁止 materialization。正式 Replay 与 Zotero

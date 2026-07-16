@@ -145,10 +145,10 @@ export type AssistantWorkspaceTranscriptPageMetadata = {
   pageKey: string;
   startCursor: number;
   limit: number;
-  totalItemCount: number;
+  totalVisibleItemCount: number;
   previousCursor: number | null;
   nextCursor: number | null;
-  eventSeq: number;
+  sourceEventSeq: number;
 };
 
 export type AssistantWorkspaceTranscriptPage =
@@ -161,7 +161,7 @@ export type AssistantWorkspaceTranscriptRegion = {
   status: "idle" | "loading" | "ready" | "failed";
   error: { code: string; message: string } | null;
   page: AssistantWorkspaceTranscriptPage | null;
-  uiRevision: number;
+  transcriptRevision: number;
 };
 
 export type AssistantWorkspaceTranscriptMutation =
@@ -176,15 +176,9 @@ export type AssistantWorkspaceTranscriptMutation =
 
 export type AssistantWorkspaceTranscriptDelta = {
   page: AssistantWorkspaceTranscriptPageMetadata;
-  baseUiRevision: number;
-  uiRevision: number;
+  baseTranscriptRevision: number;
+  transcriptRevision: number;
   mutations: AssistantWorkspaceTranscriptMutation[];
-};
-
-export type AssistantWorkspaceTranscriptResync = {
-  pageKey: string;
-  expectedUiRevision: number;
-  reason: "gap" | "overflow" | "render-failed" | "superseded";
 };
 
 export type AssistantWorkspaceTranscriptBoundary =
@@ -195,11 +189,17 @@ export type AssistantWorkspaceTranscriptBoundary =
 export type AssistantWorkspaceTranscriptMutationEvent = {
   boundary: AssistantWorkspaceTranscriptBoundary;
   mutation: AssistantWorkspaceTranscriptMutation;
+  cardinality: "insert" | "retain" | "delete";
 };
 
 type ProjectionState = {
-  held: AssistantWorkspaceTranscriptMutation[];
+  held: AssistantWorkspaceTranscriptMutationEvent[];
   visibleItemIds: Set<string>;
+};
+
+export type AssistantWorkspaceTranscriptProjectionResult = {
+  mutations: AssistantWorkspaceTranscriptMutation[];
+  visibleItemCountDelta: number;
 };
 
 export class AssistantWorkspaceTranscriptProjection {
@@ -220,35 +220,84 @@ export class AssistantWorkspaceTranscriptProjection {
     args: {
       boundary: AssistantWorkspaceTranscriptBoundary;
       mutation: AssistantWorkspaceTranscriptMutation;
+      cardinality: "insert" | "retain" | "delete";
       visibility: "live" | "boundary" | "silent";
     },
   ) {
+    return this.project(owner, args).mutations;
+  }
+
+  project(
+    owner: AssistantWorkspaceOwner,
+    args: {
+      boundary: AssistantWorkspaceTranscriptBoundary;
+      mutation: AssistantWorkspaceTranscriptMutation;
+      cardinality: "insert" | "retain" | "delete";
+      visibility: "live" | "boundary" | "silent";
+    },
+  ): AssistantWorkspaceTranscriptProjectionResult {
     const state = this.state(owner);
-    if (args.visibility === "silent") return [];
+    const cardinality =
+      args.cardinality || inferMutationCardinality(args.mutation);
+    if (args.visibility === "silent") {
+      return { mutations: [], visibleItemCountDelta: 0 };
+    }
     if (
       args.visibility === "boundary" &&
       args.boundary === "text-continuation"
     ) {
-      enqueueMerged(state.held, args.mutation);
-      return [];
+      state.held.push({
+        boundary: args.boundary,
+        mutation: cloneMutation(args.mutation),
+        cardinality,
+      });
+      return { mutations: [], visibleItemCountDelta: 0 };
     }
     if (args.boundary === "soft-side-channel") {
       const itemId = mutationItemId(args.mutation);
-      if (!itemId || !state.visibleItemIds.has(itemId)) return [];
-      return [cloneMutation(args.mutation)];
+      if (!itemId || !state.visibleItemIds.has(itemId)) {
+        return { mutations: [], visibleItemCountDelta: 0 };
+      }
+      return {
+        mutations: [cloneMutation(args.mutation)],
+        visibleItemCountDelta: 0,
+      };
     }
     const released =
-      args.boundary === "hard-boundary" ? this.release(owner) : [];
-    applyVisibility(state, args.mutation);
-    return [...released, cloneMutation(args.mutation)];
+      args.boundary === "hard-boundary"
+        ? this.releaseProjected(owner)
+        : { mutations: [], visibleItemCountDelta: 0 };
+    const event = {
+      boundary: args.boundary,
+      mutation: cloneMutation(args.mutation),
+      cardinality,
+    } satisfies AssistantWorkspaceTranscriptMutationEvent;
+    applyVisibility(state, event);
+    return {
+      mutations: [...released.mutations, event.mutation],
+      visibleItemCountDelta:
+        released.visibleItemCountDelta + cardinalityDelta(event.cardinality),
+    };
   }
 
   release(owner: AssistantWorkspaceOwner) {
+    return this.releaseProjected(owner).mutations;
+  }
+
+  releaseProjected(
+    owner: AssistantWorkspaceOwner,
+  ): AssistantWorkspaceTranscriptProjectionResult {
     const state = this.state(owner);
-    const released = state.held.map(cloneMutation);
+    const released = state.held.map(cloneMutationEvent);
     state.held = [];
-    for (const mutation of released) applyVisibility(state, mutation);
-    return released;
+    for (const event of released) applyVisibility(state, event);
+    return {
+      mutations: released.map((event) => event.mutation),
+      visibleItemCountDelta: released.reduce(
+        (total, event) => total + cardinalityDelta(event.cardinality),
+        0,
+      ),
+    };
   }
 
   clear(owner: AssistantWorkspaceOwner) {
@@ -331,11 +380,40 @@ function mutationItemId(mutation: AssistantWorkspaceTranscriptMutation) {
 
 function applyVisibility(
   state: ProjectionState,
-  mutation: AssistantWorkspaceTranscriptMutation,
+  event: AssistantWorkspaceTranscriptMutationEvent,
 ) {
+  const mutation = event.mutation;
   const itemId = mutationItemId(mutation);
-  if (mutation.op === "delete_item") state.visibleItemIds.delete(itemId);
-  else if (itemId) state.visibleItemIds.add(itemId);
+  if (event.cardinality === "delete") state.visibleItemIds.delete(itemId);
+  else if (event.cardinality === "insert" && itemId) {
+    state.visibleItemIds.add(itemId);
+  }
+}
+
+function cardinalityDelta(
+  cardinality: AssistantWorkspaceTranscriptMutationEvent["cardinality"],
+) {
+  return cardinality === "insert" ? 1 : cardinality === "delete" ? -1 : 0;
+}
+
+function inferMutationCardinality(
+  mutation: AssistantWorkspaceTranscriptMutation,
+): AssistantWorkspaceTranscriptMutationEvent["cardinality"] {
+  return mutation.op === "upsert_item"
+    ? "insert"
+    : mutation.op === "delete_item"
+      ? "delete"
+      : "retain";
+}
+
+function cloneMutationEvent(
+  event: AssistantWorkspaceTranscriptMutationEvent,
+): AssistantWorkspaceTranscriptMutationEvent {
+  return {
+    boundary: event.boundary,
+    mutation: cloneMutation(event.mutation),
+    cardinality: event.cardinality,
+  };
 }
 
 function enqueueMerged(
@@ -518,7 +596,7 @@ export function createAssistantWorkspaceTranscriptMutation(args: {
   if (args.op === "delete_item") return { op: "delete_item", itemId };
   if (!args.afterItem) return null;
   const after = normalizeAssistantWorkspaceTranscriptItem(args.afterItem);
-  if (args.op === "upsert_item" || !args.beforeItem) {
+  if (!args.beforeItem) {
     return { op: "upsert_item", item: after };
   }
   const before = normalizeAssistantWorkspaceTranscriptItem(args.beforeItem);
@@ -550,10 +628,10 @@ export function createAssistantWorkspaceTranscriptPage(args: {
   anchor: "tail" | "cursor";
   cursor: number;
   limit: number;
-  totalItemCount: number;
+  totalVisibleItemCount: number;
   previousCursor?: number | null;
   nextCursor?: number | null;
-  eventSeq: number;
+  sourceEventSeq: number;
   items: Array<Record<string, unknown>>;
 }): AssistantWorkspaceTranscriptPage {
   const limit = Math.max(1, Math.floor(Number(args.limit) || 80));
@@ -565,11 +643,14 @@ export function createAssistantWorkspaceTranscriptPage(args: {
         : `${args.owner.ownerKey}\ncursor:${startCursor}:${limit}`,
     startCursor,
     limit,
-    totalItemCount: Math.max(0, Math.floor(Number(args.totalItemCount) || 0)),
+    totalVisibleItemCount: Math.max(
+      0,
+      Math.floor(Number(args.totalVisibleItemCount) || 0),
+    ),
     previousCursor:
       args.previousCursor === undefined ? null : args.previousCursor,
     nextCursor: args.nextCursor === undefined ? null : args.nextCursor,
-    eventSeq: Math.max(0, Math.floor(Number(args.eventSeq) || 0)),
+    sourceEventSeq: Math.max(0, Math.floor(Number(args.sourceEventSeq) || 0)),
     items: args.items.map(normalizeAssistantWorkspaceTranscriptItem),
   };
 }

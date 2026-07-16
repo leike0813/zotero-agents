@@ -7157,7 +7157,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         thought: 0,
         tool: 1,
       });
-      assert.equal(active.transcriptRegion.page?.totalItemCount, 0);
+      assert.equal(active.transcriptRegion.page?.totalVisibleItemCount, 0);
 
       projectAcpSkillRunOutputEnvelopeToTranscript({
         requestId: "run-silent",
@@ -7191,9 +7191,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       runtimeDir: path.join(root, ".acp"),
     });
     let notifications = 0;
+    const notificationKinds: string[][] = [];
     const transcriptBoundaries: string[] = [];
     const unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
       notifications += 1;
+      notificationKinds.push([...(change?.kinds || [])]);
       transcriptBoundaries.push(
         ...(change?.transcriptEvents || []).map((event) => event.boundary),
       );
@@ -7214,7 +7216,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         },
       } as any);
       await delay(120);
-      assert.equal(notifications, 0);
+      assert.equal(notifications, 1);
+      assert.deepEqual(notificationKinds, [["progress"]]);
+      assert.deepEqual(transcriptBoundaries, []);
 
       recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
         sessionId: "session-1",
@@ -7226,7 +7230,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         },
       } as any);
       await delay(120);
-      assert.equal(notifications, 1);
+      assert.equal(notifications, 2);
+      assert.include(notificationKinds[1], "transcript");
+      assert.include(notificationKinds[1], "progress");
       assert.include(transcriptBoundaries, "text-continuation");
       assert.include(transcriptBoundaries, "hard-boundary");
 

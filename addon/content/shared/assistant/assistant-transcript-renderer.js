@@ -53,7 +53,7 @@
     let state = virtualTranscriptStates.get(container);
     if (!state) {
       state = {
-        pageKey: "",
+        ownerKey: "",
         pages: new Map(),
         loadingCursors: new Set(),
         renderScheduled: false,
@@ -79,8 +79,8 @@
     container.setAttribute("data-assistant-transcript-last-scroll-top", "0");
   }
 
-  function resetVirtualTranscriptState(state, pageKey) {
-    state.pageKey = pageKey || "";
+  function resetVirtualTranscriptState(state, ownerKey) {
+    state.ownerKey = ownerKey || "";
     state.pages = new Map();
     state.loadingCursors = new Set();
     state.renderScheduled = false;
@@ -93,67 +93,74 @@
     state.virtualSourceMode = "page";
   }
 
-  function resetAssistantTranscriptVirtualState(container, pageKey) {
+  function resetAssistantTranscriptVirtualState(container, ownerKey) {
     if (!container) return;
     const state = getVirtualTranscriptState(container);
-    const normalizedPageKey = String(pageKey || "").trim();
-    resetVirtualTranscriptState(state, normalizedPageKey);
+    const normalizedOwnerKey = String(ownerKey || "").trim();
+    resetVirtualTranscriptState(state, normalizedOwnerKey);
     resetTranscriptScrollState(container);
     container.setAttribute(
-      "data-assistant-transcript-page-key",
-      normalizedPageKey,
+      "data-assistant-transcript-owner-key",
+      normalizedOwnerKey,
     );
   }
 
-  function normalizeVirtualTranscriptPage(page, pageKey, fallbackLimit) {
+  function normalizeVirtualTranscriptPage(page, ownerKey, fallbackLimit) {
     if (!page || typeof page !== "object" || !Array.isArray(page.items)) {
       return null;
     }
-    const requestId = String(page.requestId || "").trim();
-    if (requestId && pageKey && requestId !== pageKey) {
+    const pageOwnerKey = String(page.ownerKey || "").trim();
+    if (pageOwnerKey && ownerKey && pageOwnerKey !== ownerKey) {
       return null;
     }
-    const cursor = nonNegativeInteger(page.cursor, 0);
+    const pageKey = String(page.pageKey || "").trim();
+    if (!pageOwnerKey || !pageKey.startsWith(pageOwnerKey + "\n")) {
+      return null;
+    }
+    const startCursor = nonNegativeInteger(page.startCursor, 0);
     return {
-      requestId,
-      cursor,
+      ownerKey: pageOwnerKey,
+      pageKey,
+      startCursor,
       items: page.items.slice(),
-      prevCursor:
-        typeof page.prevCursor === "number"
-          ? nonNegativeInteger(page.prevCursor, 0)
-          : undefined,
+      previousCursor:
+        typeof page.previousCursor === "number"
+          ? nonNegativeInteger(page.previousCursor, 0)
+          : null,
       nextCursor:
         typeof page.nextCursor === "number"
           ? nonNegativeInteger(page.nextCursor, 0)
-          : undefined,
-      total: nonNegativeInteger(page.total, page.items.length),
-      eventSeq: nonNegativeInteger(page.eventSeq, 0),
+          : null,
+      totalVisibleItemCount: nonNegativeInteger(
+        page.totalVisibleItemCount,
+        page.items.length,
+      ),
+      sourceEventSeq: nonNegativeInteger(page.sourceEventSeq, 0),
       transcriptRevision: nonNegativeInteger(page.transcriptRevision, 0),
       limit: positiveInteger(page.limit, fallbackLimit),
-      stableTail: page.stableTail === true,
     };
   }
 
   function mergeVirtualTranscriptPage(state, page, options) {
-    const pageKey =
-      String(options.pageKey || "").trim() ||
-      String(page && page.requestId ? page.requestId : "").trim();
-    if (state.pageKey !== pageKey || state.virtualSourceMode !== "page") {
-      resetVirtualTranscriptState(state, pageKey);
+    const ownerKey =
+      String(options.ownerKey || "").trim() ||
+      String(page && page.ownerKey ? page.ownerKey : "").trim();
+    if (state.ownerKey !== ownerKey || state.virtualSourceMode !== "page") {
+      resetVirtualTranscriptState(state, ownerKey);
     }
     state.virtualSourceMode = "page";
     const normalized = normalizeVirtualTranscriptPage(
       page,
-      state.pageKey,
+      state.ownerKey,
       positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
     );
     if (!normalized) return null;
-    state.loadingCursors.delete(normalized.cursor);
-    if (normalized.stableTail) {
+    state.loadingCursors.delete(normalized.startCursor);
+    if (/\ntail:\d+$/.test(normalized.pageKey)) {
       state.pages.clear();
       state.itemLocations.clear();
     }
-    const previousPage = state.pages.get(normalized.cursor);
+    const previousPage = state.pages.get(normalized.startCursor);
     if (previousPage) {
       previousPage.items.forEach(function (item) {
         const itemId = String(item && item.itemId ? item.itemId : "").trim();
@@ -163,7 +170,7 @@
         }
       });
     }
-    state.pages.set(normalized.cursor, normalized);
+    state.pages.set(normalized.startCursor, normalized);
     normalized.items.forEach(function (item, index) {
       const itemId = String(item && item.itemId ? item.itemId : "").trim();
       if (itemId) {
@@ -171,24 +178,27 @@
       }
     });
     trimVirtualTranscriptPages(state, options);
-    if (normalized.stableTail) pruneVirtualTranscriptRowHeights(state);
+    if (/\ntail:\d+$/.test(normalized.pageKey)) {
+      pruneVirtualTranscriptRowHeights(state);
+    }
     return normalized;
   }
 
   function setVirtualTranscriptItemsSource(state, items, options) {
-    const pageKey = String(options.pageKey || "").trim();
-    if (state.pageKey !== pageKey || state.virtualSourceMode !== "items") {
-      resetVirtualTranscriptState(state, pageKey);
+    const ownerKey = String(options.ownerKey || "").trim();
+    if (state.ownerKey !== ownerKey || state.virtualSourceMode !== "items") {
+      resetVirtualTranscriptState(state, ownerKey);
     }
     state.virtualSourceMode = "items";
     const sourceItems = Array.isArray(items) ? items.slice() : [];
     state.loadingCursors.clear();
     state.pages.set(0, {
-      requestId: pageKey,
-      cursor: 0,
+      ownerKey,
+      pageKey: ownerKey ? ownerKey + "\ntail:" + sourceItems.length : "",
+      startCursor: 0,
       items: sourceItems,
-      total: sourceItems.length,
-      eventSeq: nonNegativeInteger(options.transcriptRevision, 0),
+      totalVisibleItemCount: sourceItems.length,
+      sourceEventSeq: nonNegativeInteger(options.transcriptRevision, 0),
       transcriptRevision: nonNegativeInteger(options.transcriptRevision, 0),
       limit: Math.max(1, sourceItems.length || 1),
     });
@@ -389,12 +399,12 @@
     const sentinelHeight = Math.min(estimatedHeight, 96);
     const topGapHeight = Math.max(0, finiteNumber(firstPosition.top, 0));
     if (
-      typeof cache.prevCursor === "number" &&
+      typeof cache.previousCursor === "number" &&
       topGapHeight > 0 &&
       viewportTop < topGapHeight &&
       viewportBottom > 0
     ) {
-      requestVirtualTranscriptPage(state, options, cache.prevCursor);
+      requestVirtualTranscriptPage(state, options, cache.previousCursor);
       const height = Math.min(sentinelHeight, topGapHeight);
       const top = Math.max(
         0,
@@ -402,7 +412,7 @@
       );
       return {
         placement: "top",
-        cursor: cache.prevCursor,
+        cursor: cache.previousCursor,
         before: top,
         height,
         after: Math.max(0, topGapHeight - top - height),
@@ -532,19 +542,22 @@
 
   function virtualTranscriptCacheEntries(state) {
     const pages = Array.from(state.pages.values()).sort(function (a, b) {
-      return a.cursor - b.cursor;
+      return a.startCursor - b.startCursor;
     });
     const byIndex = new Map();
-    let total = 0;
+    let totalVisibleItemCount = 0;
     let revision = 0;
     pages.forEach(function (page) {
-      total = Math.max(total, nonNegativeInteger(page.total, 0));
+      totalVisibleItemCount = Math.max(
+        totalVisibleItemCount,
+        nonNegativeInteger(page.totalVisibleItemCount, 0),
+      );
       revision = Math.max(
         revision,
-        nonNegativeInteger(page.transcriptRevision || page.eventSeq, 0),
+        nonNegativeInteger(page.transcriptRevision || page.sourceEventSeq, 0),
       );
       page.items.forEach(function (item, offset) {
-        byIndex.set(page.cursor + offset, item);
+        byIndex.set(page.startCursor + offset, item);
       });
     });
     const entries = Array.from(byIndex.entries())
@@ -558,16 +571,16 @@
     const lastPage = pages[pages.length - 1] || null;
     return {
       entries,
-      total: Math.max(total, entries.length),
+      totalVisibleItemCount: Math.max(totalVisibleItemCount, entries.length),
       revision,
-      prevCursor:
-        firstPage && typeof firstPage.prevCursor === "number"
-          ? firstPage.prevCursor
-          : undefined,
+      previousCursor:
+        firstPage && typeof firstPage.previousCursor === "number"
+          ? firstPage.previousCursor
+          : null,
       nextCursor:
         lastPage && typeof lastPage.nextCursor === "number"
           ? lastPage.nextCursor
-          : undefined,
+          : null,
     };
   }
 
@@ -581,7 +594,7 @@
         endIndex: 0,
         cachedStartIndex: 0,
         cachedEndIndex: 0,
-        total: 0,
+        totalRowCount: 0,
         totalHeight: 0,
         topSpacerHeight: 0,
         bottomSpacerHeight: 0,
@@ -605,7 +618,10 @@
       entries,
       state,
       options,
-      Math.max(cache.total, entries[entries.length - 1].index + 1),
+      Math.max(
+        cache.totalVisibleItemCount,
+        entries[entries.length - 1].index + 1,
+      ),
     );
     const scrollTop = finiteNumber(container.scrollTop, 0);
     const viewportHeight = Math.max(1, finiteNumber(container.clientHeight, 0));
@@ -682,7 +698,7 @@
       endIndex,
       cachedStartIndex: entries[0].index,
       cachedEndIndex: entries[entries.length - 1].index + 1,
-      total: layout.rowCount,
+      totalRowCount: layout.rowCount,
       totalHeight: layout.totalHeight,
       topSpacerHeight: firstPosition.top,
       bottomSpacerHeight: Math.max(0, layout.totalHeight - lastPosition.bottom),
@@ -691,13 +707,13 @@
         layout.positions[layout.positions.length - 1].bottom,
       positions: layout.positions,
       revision: cache.revision,
-      prevCursor: cache.prevCursor,
+      previousCursor: cache.previousCursor,
       nextCursor: cache.nextCursor,
       loadingGap,
       signature: [
         startIndex,
         endIndex,
-        cache.total,
+        cache.totalVisibleItemCount,
         Math.round(firstPosition.top),
         Math.round(layout.totalHeight - lastPosition.bottom),
         loadingGap
@@ -737,7 +753,7 @@
       return;
     }
     const cursorKey = nonNegativeInteger(cursor, 0);
-    if (!state.pageKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
+    if (!state.ownerKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
       return;
     }
     if (typeof options.onRequestPage !== "function") {
@@ -745,7 +761,7 @@
     }
     state.loadingCursors.add(cursorKey);
     options.onRequestPage({
-      pageKey: state.pageKey,
+      ownerKey: state.ownerKey,
       cursor: cursorKey,
       limit: positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
     });
@@ -768,10 +784,10 @@
     const topBoundary = finiteNumber(virtual.cachedTopBoundary, 0);
     const bottomBoundary = finiteNumber(virtual.cachedBottomBoundary, 0);
     if (
-      typeof virtual.prevCursor === "number" &&
+      typeof virtual.previousCursor === "number" &&
       finiteNumber(container.scrollTop, 0) - topBoundary < threshold
     ) {
-      requestVirtualTranscriptPage(state, options, virtual.prevCursor);
+      requestVirtualTranscriptPage(state, options, virtual.previousCursor);
     }
     if (
       typeof virtual.nextCursor === "number" &&
@@ -911,12 +927,12 @@
     if (state.renderScheduled || !state.latestOptions) return;
     state.renderScheduled = true;
     if (reason === "measure") state.pendingMeasureRender = true;
-    const scheduledPageKey = state.pageKey;
+    const scheduledOwnerKey = state.ownerKey;
     transcriptAnimationFrame(function () {
       state.renderScheduled = false;
       state.pendingMeasureRender = false;
       if (!state.latestOptions) return;
-      if (scheduledPageKey !== state.pageKey) return;
+      if (scheduledOwnerKey !== state.ownerKey) return;
       renderAssistantTranscript(
         Object.assign({}, state.latestOptions, {
           _virtualScrollRender: true,
@@ -1574,6 +1590,21 @@
         : function (value) {
             return String(value || "");
           };
+    const formattedTime = function (value) {
+      try {
+        return formatTime(value);
+      } catch (_error) {
+        return String(value || "");
+      }
+    };
+    const renderMarkdownBody = function (target, value) {
+      try {
+        target.innerHTML = renderMarkdown(String(value || ""));
+        decorateMarkdownCodeBlocks(target, options);
+      } catch (_error) {
+        target.textContent = String(value || "");
+      }
+    };
     const meta = row.querySelector(".assistant-transcript-meta");
     const body = row.querySelector("[data-assistant-transcript-body]");
     updateTranscriptClasses(row, item, options);
@@ -1597,15 +1628,14 @@
       );
       renderRevisionBadge(meta, item.revision, undefined, options);
       meta.appendChild(
-        el("span", "assistant-transcript-time", formatTime(item.createdAt)),
+        el("span", "assistant-transcript-time", formattedTime(item.createdAt)),
       );
       if (String(item.status || "").trim() === "streaming") {
         body.textContent = String(item.text || "");
         return;
       }
       body.classList.add("assistant-transcript-markdown-body");
-      body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body, options);
+      renderMarkdownBody(body, item.text);
       return;
     }
     if (item.rowKind === "thought") {
@@ -1617,8 +1647,7 @@
         return;
       }
       body.classList.add("assistant-transcript-markdown-body");
-      body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body, options);
+      renderMarkdownBody(body, item.text);
       return;
     }
     if (item.rowKind === "permission") {
@@ -2068,14 +2097,14 @@
     let previousVirtual = null;
     let rawItems = opts.items || [];
     if (virtualized) {
-      const nextPageKey =
-        String(opts.pageKey || "").trim() ||
+      const nextOwnerKey =
+        String(opts.ownerKey || "").trim() ||
         String(
-          opts.page && opts.page.requestId ? opts.page.requestId : "",
+          opts.page && opts.page.ownerKey ? opts.page.ownerKey : "",
         ).trim();
       virtualState = getVirtualTranscriptState(container);
-      if (virtualState.pageKey !== nextPageKey) {
-        resetAssistantTranscriptVirtualState(container, nextPageKey);
+      if (virtualState.ownerKey !== nextOwnerKey) {
+        resetAssistantTranscriptVirtualState(container, nextOwnerKey);
         virtualState = getVirtualTranscriptState(container);
       }
       previousVirtual = virtualState.lastVirtual;
@@ -2092,7 +2121,7 @@
         : null;
       const pageRejected = hasIncomingPage && !mergedPage;
       if (pageRejected) {
-        resetAssistantTranscriptVirtualState(container, opts.pageKey);
+        resetAssistantTranscriptVirtualState(container, opts.ownerKey);
         virtualState = getVirtualTranscriptState(container);
         rawItems = [];
       } else {
@@ -2160,7 +2189,7 @@
       virtualized ? "virtual" : "items",
       variant,
       mode,
-      virtualized ? String(opts.pageKey || "") : "",
+      virtualized ? String(opts.ownerKey || "") : "",
     ].join("|");
     const orderKey = contextKey + "\u001e" + itemOrderKey;
     const nodeMap = opts.nodeMap;

@@ -52,7 +52,6 @@ import {
   setActiveAcpConversation,
   setAssistantStreamingRenderEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
-  shouldRefreshAcpChatSnapshotForChange,
   shutdownAcpSessionManager,
   startNewAcpConversation,
   subscribeAcpChatPanelSnapshots,

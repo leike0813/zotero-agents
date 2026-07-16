@@ -36,6 +36,10 @@ import type {
 } from "./assistantWorkspaceTranscriptPublication";
 import { createAssistantWorkspaceTranscriptMutation } from "./assistantWorkspaceTranscriptPublication";
 import {
+  createAcpChatWorkspaceOwner,
+  type AssistantWorkspaceOwnerNavigation,
+} from "./assistantWorkspacePublication";
+import {
   AcpAuthRequiredError,
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
@@ -186,7 +190,7 @@ export type AcpChatSessionRuntime = {
   adapter: AcpConnectionAdapter | null;
   snapshot: AcpConversationSnapshot;
   uiSnapshot: AcpConversationSnapshot | null;
-  uiRevision: number;
+  frontendSnapshotRevision: number;
   uiTranscriptRevision: number;
   uiHasUnpublishedTranscript: boolean;
   uiPendingPublishMode: AcpUiPublishMode | null;
@@ -589,7 +593,7 @@ function getOrCreateSessionRuntime(
     adapter: null,
     snapshot: hydrateSnapshot(backendId, conversationId || undefined),
     uiSnapshot: null,
-    uiRevision: 0,
+    frontendSnapshotRevision: 0,
     uiTranscriptRevision: 0,
     uiHasUnpublishedTranscript: false,
     uiPendingPublishMode: null,
@@ -766,6 +770,57 @@ export function getActiveAcpChatOwner() {
   };
 }
 
+export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
+  ensureInitialized();
+  const active = getActiveAcpChatOwner();
+  const foreground = getOrCreateSessionRuntime(active.backendId);
+  const foregroundBackend = foreground.snapshot.backend;
+  const backends: BackendInstance[] = [
+    ...(foregroundBackend &&
+    !cachedAcpBackends.some((entry) => entry.id === foregroundBackend.id)
+      ? [foregroundBackend]
+      : []),
+    ...cachedAcpBackends,
+  ];
+  const entries = backends.flatMap((backend) => {
+    const sessions =
+      backend.id === active.backendId
+        ? listAcpChatSessions(backend.id)
+        : listStoredVisibleAcpChatSessions(backend.id);
+    return sessions.map((session) => {
+      const summary = projectAcpChatSessionSummary(backend.id, session);
+      return {
+        owner: createAcpChatWorkspaceOwner(backend.id, summary.conversationId),
+        groupId: backend.id,
+        label: String(summary.title || "").trim() || summary.conversationId,
+        description: String(summary.lastError || "").trim() || null,
+        groupLabel:
+          String(backend.displayName || backend.id).trim() || backend.id,
+        status: String(summary.status || "idle"),
+      };
+    });
+  });
+  const selectedOwner =
+    active.backendId && active.conversationId
+      ? createAcpChatWorkspaceOwner(active.backendId, active.conversationId)
+      : null;
+  return {
+    selectedOwner,
+    selectedGroupId: active.backendId || null,
+    groups: backends.map((backend) => ({
+      groupId: backend.id,
+      label: String(backend.displayName || backend.id).trim() || backend.id,
+      status: String(
+        backend.id === active.backendId
+          ? foreground.snapshot.status || "idle"
+          : "idle",
+      ),
+    })),
+    entries,
+    canCreateOwner: backends.length > 0,
+  };
+}
+
 function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   const activeConversationId = resolveActiveConversationId(activeBackendId);
   return (
@@ -821,6 +876,7 @@ function notifyAcpChatPanelSnapshotListeners(
     transcriptEvents: change.transcriptEvents?.map((event) => ({
       boundary: event.boundary,
       mutation: JSON.parse(JSON.stringify(event.mutation)),
+      cardinality: event.cardinality,
     })),
     transcriptEventSeq: change.transcriptEventSeq,
     transcriptItemCount: change.transcriptItemCount,
@@ -1063,7 +1119,7 @@ function applyPublishedSessionRuntimeSnapshotMetadata(
   sessionRuntime: AcpChatSessionRuntime,
   cloned: AcpConversationSnapshot & Record<string, unknown>,
 ) {
-  cloned.uiRevision = sessionRuntime.uiRevision;
+  cloned.frontendSnapshotRevision = sessionRuntime.frontendSnapshotRevision;
   cloned.transcriptRevision = sessionRuntime.snapshot.transcriptRevision;
   cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
   cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
@@ -1169,7 +1225,7 @@ function updatePublishedSessionRuntimeSnapshot(
       : [];
   }
   sessionRuntime.uiSnapshot = next;
-  sessionRuntime.uiRevision += 1;
+  sessionRuntime.frontendSnapshotRevision += 1;
   if (publishMode !== "metadata") {
     sessionRuntime.uiTranscriptRevision =
       sessionRuntime.snapshot.transcriptRevision;
@@ -1912,6 +1968,12 @@ function queueChatTranscriptEvent(
     sessionRuntime.workspaceTranscriptEvents.push({
       boundary: args.boundary || "hard-boundary",
       mutation,
+      cardinality:
+        !previousItem && currentItem
+          ? "insert"
+          : previousItem && !currentItem
+            ? "delete"
+            : "retain",
     });
   }
   enqueueAcpChatTranscriptEvent({

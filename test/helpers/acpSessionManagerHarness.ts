@@ -87,14 +87,15 @@ import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExe
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import { setAssistantTranscriptPaginationVirtualizationEnabled } from "../../src/modules/assistantTranscriptRenderingPreference";
+import { createAcpChatWorkspaceOwner } from "../../src/modules/assistantWorkspacePublication";
+import { prepareAcpChatPanelSnapshot } from "../../src/modules/acpChatPanelReadModel";
 import {
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
-  prepareAcpChatPanelSnapshot,
-  prepareAcpChatPanelPublicationDto,
-  resolveAcpChatPublicationKindsForChange,
-  shouldRefreshAcpChatSnapshotForChange,
-} from "../../src/modules/acpChatPanelReadModel";
+  readAcpChatWorkspacePublication,
+  resolveAcpChatWorkspacePublicationKinds,
+  shouldPublishAcpChatWorkspaceChange,
+} from "../../src/modules/acpChatWorkspaceSurface";
 
 export {
   assert,
@@ -157,12 +158,13 @@ export {
   joinPath,
   setAssistantStreamingRenderEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
+  createAcpChatWorkspaceOwner,
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
   prepareAcpChatPanelSnapshot,
-  prepareAcpChatPanelPublicationDto,
-  resolveAcpChatPublicationKindsForChange,
-  shouldRefreshAcpChatSnapshotForChange,
+  readAcpChatWorkspacePublication,
+  resolveAcpChatWorkspacePublicationKinds,
+  shouldPublishAcpChatWorkspaceChange,
 };
 export type {
   AcpChatPanelSnapshotChange,

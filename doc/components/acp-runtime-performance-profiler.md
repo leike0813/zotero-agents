@@ -273,7 +273,7 @@ not part of semantic trace replay.
 
 ACP Chat and ACP Skills now share one internal publication protocol and one
 transcript receiver. Publications use `publicationSurface=acp-chat|acp-skills`,
-`publicationForm=initialization|snapshot|delta|resync-required`, and
+`publicationForm=initialization|snapshot|delta`, and
 `materializationSource=region|transcript-page|frontend-snapshot|panel-snapshot`.
 The last two materialization sources are valid only for explicit initialization,
 activation, page request, diagnostic, or rebase work; steady transcript and
@@ -281,7 +281,8 @@ message-count/progress updates must not record them.
 
 Steady transcript deltas originate at each store's transcript event seam and
 pass through the shared boundary projection and coordinator. They no longer
-read or diff a complete selected page. Store `eventSeq`, page `uiRevision`,
+read or diff a complete selected page. Store `sourceEventSeq`, page
+`transcriptRevision`,
 region `regionRevision`, and Shell `deliverySequence` are separate continuity
 domains. A publication remains in flight until `render-complete` or an explicit
 terminal rejection; Shell receive and forward acknowledgements are
@@ -313,7 +314,7 @@ The v3 field vocabulary is current-state only: `owner`, `transcriptRegion`,
 Workspace transcript aliases and `undefined` wire values.
 
 Selected tail pages are bounded by their declared `limit`; `startCursor`
-advances as `totalItemCount` grows. Steady render work uses presentation
+advances as `totalVisibleItemCount` grows. Steady render work uses presentation
 `rowKey + itemIds` without inventing a second item identity. The profiler
 records the user's actual execution display mode and accepts Shell/child/render
 stages only for publication identities posted inside the current profile

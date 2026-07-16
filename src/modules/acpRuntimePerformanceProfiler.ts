@@ -120,6 +120,7 @@ export type AcpRuntimeMetricLabels = Partial<{
   publicationKind:
     | "baseline-status"
     | "message-counts"
+    | "owner-navigation"
     | "transcript"
     | "plan"
     | "permission"
@@ -132,12 +133,7 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "owner-mismatch";
   publicationPhase: "initialization" | "steady-state";
   publicationSurface: "acp-chat" | "acp-skills";
-  publicationForm:
-    | "initialization"
-    | "snapshot"
-    | "delta"
-    | "resync-required"
-    | "region";
+  publicationForm: "initialization" | "snapshot" | "delta" | "region";
   materializationSource:
     | "region"
     | "transcript-page"

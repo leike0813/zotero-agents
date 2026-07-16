@@ -16,7 +16,8 @@ import {
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { appendRuntimeLog, listRuntimeLogs } from "./runtimeLogManager";
-import { buildAssistantPanelLabels } from "./assistantPanelLabels";
+import { buildAssistantWorkspaceAcpSurfaceLabels } from "./assistantWorkspaceAcpSurfaceLabels";
+import type { AssistantPanelLabels } from "./assistantPanelLabels";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
@@ -478,7 +479,7 @@ export type AcpSkillRunPanelSnapshot = {
     scope: string;
   }>;
   labels?: {
-    assistantPanel: ReturnType<typeof buildAssistantPanelLabels>;
+    assistantPanel: AssistantPanelLabels;
     title?: string;
     runningTasksTitle?: string;
     completedTasksTitle?: string;
@@ -1451,6 +1452,12 @@ function queueTranscriptEvent(
     state.workspaceTranscriptEvents.push({
       boundary: args.boundary || "hard-boundary",
       mutation,
+      cardinality:
+        !previousItem && currentItem
+          ? "insert"
+          : previousItem && !currentItem
+            ? "delete"
+            : "retain",
     });
   }
   if (!normalizeString(record.runtimeDir)) {
@@ -2992,6 +2999,7 @@ function normalizeAcpSkillRunSnapshotChange(
     transcriptEvents: change.transcriptEvents?.map((event) => ({
       boundary: event.boundary,
       mutation: JSON.parse(JSON.stringify(event.mutation)),
+      cardinality: event.cardinality,
     })),
     transcriptEventSeq: change.transcriptEventSeq,
     transcriptItemCount: change.transcriptItemCount,
@@ -4402,10 +4410,20 @@ export function recordAcpSkillRunSessionUpdate(
   if (isTextChunkUpdate) {
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
       scheduleSoftRunPersist(next);
+      if (progressChange.countChanged) {
+        emitChanged(acpSkillRunSnapshotChange(requestId, ["progress"]));
+      }
       return;
     }
     scheduleSoftRunPersist(next);
-    emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+    emitChanged(
+      acpSkillRunSnapshotChange(
+        requestId,
+        progressChange.countChanged
+          ? ["transcript", "progress"]
+          : ["transcript"],
+      ),
+    );
     return;
   }
   if (kind === "tool_call" || kind === "tool_call_update" || kind === "plan") {
@@ -4414,7 +4432,14 @@ export function recordAcpSkillRunSessionUpdate(
     } else {
       persistRun(next);
     }
-    emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+    emitChanged(
+      acpSkillRunSnapshotChange(
+        requestId,
+        progressChange.countChanged
+          ? ["transcript", "progress"]
+          : ["transcript"],
+      ),
+    );
     return;
   }
   if (softPersist) {
@@ -6104,10 +6129,10 @@ function buildAcpSkillsTranscriptRegion(
       anchor: request?.cursor === undefined ? "tail" : "cursor",
       cursor,
       limit,
-      totalItemCount: Number(page?.total) || 0,
+      totalVisibleItemCount: Number(page?.total) || 0,
       previousCursor: page?.prevCursor,
       nextCursor: page?.nextCursor,
-      eventSeq: Math.max(
+      sourceEventSeq: Math.max(
         Number(page?.eventSeq) || 0,
         Number(record.transcriptEventSeq) || 0,
       ),
@@ -6167,33 +6192,7 @@ function buildAcpSkillRunPanelSnapshotFromRuns(
         scope: entry.scope,
       }))
     : [];
-  const labels = {
-    assistantPanel: buildAssistantPanelLabels(),
-    title: getStringOrFallback(
-      "task-dashboard-home-acp-skill-runs-title" as any,
-      "ACP Skill Runs",
-    ),
-    runningTasksTitle: getStringOrFallback(
-      "task-dashboard-run-running-tasks-title" as any,
-      "Running",
-    ),
-    completedTasksTitle: getStringOrFallback(
-      "task-dashboard-run-completed-tasks-title" as any,
-      "Completed Tasks",
-    ),
-    panelRendererUnavailable: getStringOrFallback(
-      "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
-      "ACP Skills panel renderer unavailable.",
-    ),
-    panelRendererFailed: getStringOrFallback(
-      "task-dashboard-acp-skill-run-panel-renderer-failed" as any,
-      "ACP Skills panel renderer failed",
-    ),
-    transcriptRendererUnavailable: getStringOrFallback(
-      "task-dashboard-acp-transcript-renderer-unavailable" as any,
-      "Transcript renderer unavailable.",
-    ),
-  };
+  const labels = buildAssistantWorkspaceAcpSurfaceLabels("acp-skills");
   return {
     generatedAt: nowIso(),
     executionDisplayMode: getAssistantExecutionDisplayMode(),

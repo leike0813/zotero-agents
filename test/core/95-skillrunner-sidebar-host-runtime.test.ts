@@ -43,7 +43,9 @@ describe("skillrunner sidebar host runtime", function () {
     assert.include(ts, "assistant-workspace:init");
     assert.include(ts, "assistant-workspace:child-snapshot");
     assert.include(ts, "dispatchRunWorkspaceAction");
-    assert.include(ts, "prepareAcpChatPanelSnapshot");
+    assert.include(ts, "ACP_CHAT_WORKSPACE_SURFACE_ADAPTER");
+    assert.include(ts, "scheduleAssistantWorkspaceAcpSurfaceChange");
+    assert.notInclude(ts, "prepareAcpChatPanelSnapshot");
     assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
     assert.include(ts, "readyTabs");
     assert.include(ts, "postInitialSnapshotsForAllTabs");

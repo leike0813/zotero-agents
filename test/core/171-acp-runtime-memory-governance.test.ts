@@ -590,7 +590,7 @@ describe("ACP runtime memory governance", function () {
       });
       assert.notProperty(tail.selectedRun || {}, "transcriptItems");
       assert.isAtMost(tail.transcriptRegion.page?.items.length || 0, 80);
-      assert.equal(tail.transcriptRegion.page?.totalItemCount, 210);
+      assert.equal(tail.transcriptRegion.page?.totalVisibleItemCount, 210);
       assert.equal(tail.transcriptRegion.page?.startCursor, 130);
       assert.isTrue(
         (tail.transcriptRegion.page?.items || []).some((item) =>

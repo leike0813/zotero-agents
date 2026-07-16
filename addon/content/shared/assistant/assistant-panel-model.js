@@ -1032,7 +1032,7 @@
     const sourcePanel = panel && typeof panel === "object" ? panel : {};
     const sourceRun = run && typeof run === "object" ? run : {};
     const runRequestId = safeText(sourceRun && sourceRun.requestId);
-    const publication = window.AssistantTranscriptPublication;
+    const publication = window.AssistantWorkspaceAcpSurface;
     if (publication && typeof publication.readRegion === "function") {
       const region = publication.readRegion(
         sourcePanel,
@@ -1275,303 +1275,341 @@
   function buildAcpChatDetails(snap) {
     const labels = snap.labels || {};
     const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
-    return [
-      detailSection(labelFrom(snap, "details.session", "Session"), [
-        detailEntry(
-          labelFrom(snap, "fields.target", labels.target || "Target"),
-          snap.targetLabel,
-        ),
-        detailEntry(
-          labelFrom(snap, "fields.agent", labels.agent || "Agent"),
-          snap.agentLabel || snap.agentVersion,
-        ),
-        detailEntry(
-          labelFrom(snap, "fields.session", labels.session || "Session"),
-          snap.sessionId || snap.remoteSessionId,
-        ),
-        detailEntry(
+    return buildWorkspaceContextDetails(snap).concat(
+      [
+        detailSection(labelFrom(snap, "details.session", "Session"), [
+          detailEntry(
+            labelFrom(snap, "fields.target", labels.target || "Target"),
+            snap.targetLabel,
+          ),
+          detailEntry(
+            labelFrom(snap, "fields.agent", labels.agent || "Agent"),
+            snap.agentLabel || snap.agentVersion,
+          ),
+          detailEntry(
+            labelFrom(snap, "fields.session", labels.session || "Session"),
+            snap.sessionId || snap.remoteSessionId,
+          ),
+          detailEntry(
+            labelFrom(
+              snap,
+              "fields.remoteSession",
+              labels.remoteSession || "Remote session",
+            ),
+            snap.remoteSessionId,
+          ),
+          detailEntry(
+            labelFrom(
+              snap,
+              "fields.remoteRestore",
+              labels.remoteRestore || "Remote restore",
+            ),
+            snap.remoteSessionRestoreStatus,
+          ),
+          detailEntry(
+            labelFrom(
+              snap,
+              "fields.stopReason",
+              labels.stopReason || "Stop reason",
+            ),
+            snap.lastStopReason,
+          ),
+        ]),
+        detailSection(labelFrom(snap, "details.paths", "Paths"), [
+          detailEntry(
+            labelFrom(
+              snap,
+              "fields.workspace",
+              labels.workspace || "Workspace",
+            ),
+            snap.agentWorkspaceDir || snap.sessionCwd,
+          ),
+          detailEntry(
+            labelFrom(
+              snap,
+              "fields.hostContext",
+              labels.hostContext || "Host Context",
+            ),
+            snap.hostContextSummary,
+          ),
+        ]),
+        detailSection(
           labelFrom(
             snap,
-            "fields.remoteSession",
-            labels.remoteSession || "Remote session",
+            "details.diagnostics",
+            labels.diagnostics || "Diagnostics",
           ),
-          snap.remoteSessionId,
-        ),
-        detailEntry(
-          labelFrom(
-            snap,
-            "fields.remoteRestore",
-            labels.remoteRestore || "Remote restore",
-          ),
-          snap.remoteSessionRestoreStatus,
-        ),
-        detailEntry(
-          labelFrom(
-            snap,
-            "fields.stopReason",
-            labels.stopReason || "Stop reason",
-          ),
-          snap.lastStopReason,
-        ),
-      ]),
-      detailSection(labelFrom(snap, "details.paths", "Paths"), [
-        detailEntry(
-          labelFrom(snap, "fields.workspace", labels.workspace || "Workspace"),
-          snap.agentWorkspaceDir || snap.sessionCwd,
-        ),
-        detailEntry(
-          labelFrom(
-            snap,
-            "fields.hostContext",
-            labels.hostContext || "Host Context",
-          ),
-          snap.hostContextSummary,
-        ),
-      ]),
-      detailSection(
-        labelFrom(
-          snap,
-          "details.diagnostics",
-          labels.diagnostics || "Diagnostics",
-        ),
-        diagnostics
-          .slice(-12)
-          .map(function (entry) {
-            return detailEntry(
-              safeText(entry.kind || entry.level || "diagnostic"),
-              truncateText(
-                entry.message ||
-                  entry.detail ||
-                  entry.error ||
-                  JSON.stringify(entry),
-                600,
+          diagnostics
+            .slice(-12)
+            .map(function (entry) {
+              return detailEntry(
+                safeText(entry.kind || entry.level || "diagnostic"),
+                truncateText(
+                  entry.message ||
+                    entry.detail ||
+                    entry.error ||
+                    JSON.stringify(entry),
+                  600,
+                ),
+                entry.detail ? "code" : "text",
+              );
+            })
+            .concat([
+              detailEntry(
+                labelFrom(
+                  snap,
+                  "fields.commandLine",
+                  labels.commandLine || "Command line",
+                ),
+                snap.commandLine,
+                "code",
               ),
-              entry.detail ? "code" : "text",
-            );
-          })
-          .concat([
-            detailEntry(
-              labelFrom(
-                snap,
-                "fields.commandLine",
-                labels.commandLine || "Command line",
+              detailEntry(
+                labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"),
+                snap.stderrTail,
+                "code",
               ),
-              snap.commandLine,
-              "code",
+              detailEntry(
+                labelFrom(snap, "fields.error", labels.errorPrefix || "Error"),
+                snap.lastError || snap.prerequisiteError,
+              ),
+            ]),
+          {
+            kind: "diagnostics",
+            summary: labelFrom(
+              snap,
+              "details.recentDiagnostics",
+              "Recent runtime diagnostics",
             ),
-            detailEntry(
-              labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"),
-              snap.stderrTail,
-              "code",
-            ),
-            detailEntry(
-              labelFrom(snap, "fields.error", labels.errorPrefix || "Error"),
-              snap.lastError || snap.prerequisiteError,
-            ),
-          ]),
-        {
-          kind: "diagnostics",
-          summary: labelFrom(
-            snap,
-            "details.recentDiagnostics",
-            "Recent runtime diagnostics",
-          ),
-          collapsible: true,
-          defaultCollapsed: true,
-        },
-      ),
-    ].filter(Boolean);
+            collapsible: true,
+            defaultCollapsed: true,
+          },
+        ),
+      ].filter(Boolean),
+    );
   }
 
   function buildAcpSkillDetails(run, logs, source) {
-    if (!run) return [];
+    const workspaceDetails = buildWorkspaceContextDetails(source);
+    if (!run) return workspaceDetails;
     const revisions = Array.isArray(run.outputRevisions)
       ? run.outputRevisions
       : [];
-    return [
-      detailSection(labelFrom(source, "details.runPaths", "Run paths"), [
-        detailEntry(
-          labelFrom(source, "fields.workspace", "Workspace"),
-          run.workspaceDir,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.runtimeState", "Runtime state"),
-          run.runtimeDir,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.auditArtifact", "Audit artifact"),
-          run.inputManifestPath,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.resultArtifact", "Result artifact"),
-          run.resultJsonPath,
-        ),
-      ]),
-      detailSection(labelFrom(source, "details.runner", "Runner"), [
-        detailEntry(
-          labelFrom(source, "fields.backend", "Backend"),
-          run.backendLabel || run.backendId,
-        ),
-        detailEntry("Agent family", run.agentFamily),
-        detailEntry(
-          "ACP " + labelFrom(source, "fields.mode", "mode"),
-          run.acpModeId,
-        ),
-        detailEntry(
-          "ACP " + labelFrom(source, "fields.model", "model"),
-          run.acpModelId,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.reasoning", "Reasoning"),
-          run.acpReasoningEffort,
-        ),
-        detailEntry("Raw model", run.acpRawModelId),
-        detailEntry("Skill", run.skillId),
-        detailEntry(
-          "Skill roots",
-          Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "",
-          "code",
-        ),
-        detailEntry(
-          labelFrom(source, "fields.session", "Session"),
-          run.sessionId,
-        ),
-      ]),
-      detailSection(labelFrom(source, "details.validation", "Validation"), [
-        detailEntry(
-          labelFrom(source, "fields.status", "Status"),
-          run.validationStatus,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.repairRounds", "Repair rounds"),
-          String(run.repairRounds || 0),
-        ),
-        detailEntry(
-          labelFrom(source, "fields.errors", "Errors"),
-          Array.isArray(run.validationErrors)
-            ? run.validationErrors.join("\n")
-            : "",
-          "code",
-        ),
-        detailEntry("Run error", run.error),
-        detailEntry(
-          labelFrom(source, "fields.conversation", "Conversation"),
-          run.conversationState,
-        ),
-        detailEntry("Conversation error", run.conversationError),
-        detailEntry(
-          labelFrom(source, "fields.applyResult", "Apply result"),
-          run.applyResultState,
-        ),
-        detailEntry(
-          labelFrom(source, "fields.appliedAt", "Applied at"),
-          run.appliedAt,
-        ),
-      ]),
-      detailSection(
-        labelFrom(
-          source,
-          "details.runtimeDependencies",
-          "Runtime Dependencies",
-        ),
-        [
+    return workspaceDetails.concat(
+      [
+        detailSection(labelFrom(source, "details.runPaths", "Run paths"), [
           detailEntry(
-            labelFrom(source, "fields.status", "Status"),
-            run.runtimeDependencyStatus,
+            labelFrom(source, "fields.workspace", "Workspace"),
+            run.workspaceDir,
           ),
           detailEntry(
-            labelFrom(
-              source,
-              "fields.runtimeDependencies",
-              "Runtime Dependencies",
-            ),
-            Array.isArray(run.runtimeDependencies)
-              ? run.runtimeDependencies.join("\n")
+            labelFrom(source, "fields.runtimeState", "Runtime state"),
+            run.runtimeDir,
+          ),
+          detailEntry(
+            labelFrom(source, "fields.auditArtifact", "Audit artifact"),
+            run.inputManifestPath,
+          ),
+          detailEntry(
+            labelFrom(source, "fields.resultArtifact", "Result artifact"),
+            run.resultJsonPath,
+          ),
+        ]),
+        detailSection(labelFrom(source, "details.runner", "Runner"), [
+          detailEntry(
+            labelFrom(source, "fields.backend", "Backend"),
+            run.backendLabel || run.backendId,
+          ),
+          detailEntry("Agent family", run.agentFamily),
+          detailEntry(
+            "ACP " + labelFrom(source, "fields.mode", "mode"),
+            run.acpModeId,
+          ),
+          detailEntry(
+            "ACP " + labelFrom(source, "fields.model", "model"),
+            run.acpModelId,
+          ),
+          detailEntry(
+            labelFrom(source, "fields.reasoning", "Reasoning"),
+            run.acpReasoningEffort,
+          ),
+          detailEntry("Raw model", run.acpRawModelId),
+          detailEntry("Skill", run.skillId),
+          detailEntry(
+            "Skill roots",
+            Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "",
+            "code",
+          ),
+          detailEntry(
+            labelFrom(source, "fields.session", "Session"),
+            run.sessionId,
+          ),
+        ]),
+        detailSection(labelFrom(source, "details.validation", "Validation"), [
+          detailEntry(
+            labelFrom(source, "fields.status", "Status"),
+            run.validationStatus,
+          ),
+          detailEntry(
+            labelFrom(source, "fields.repairRounds", "Repair rounds"),
+            String(run.repairRounds || 0),
+          ),
+          detailEntry(
+            labelFrom(source, "fields.errors", "Errors"),
+            Array.isArray(run.validationErrors)
+              ? run.validationErrors.join("\n")
               : "",
             "code",
           ),
+          detailEntry("Run error", run.error),
           detailEntry(
-            labelFrom(source, "fields.error", "Error"),
-            run.runtimeDependencyError,
+            labelFrom(source, "fields.conversation", "Conversation"),
+            run.conversationState,
           ),
-        ],
-      ),
-      detailSection(
-        labelFrom(source, "details.outputRevisions", "Output Revisions"),
-        revisions
-          .slice()
-          .reverse()
-          .map(function (revision) {
+          detailEntry("Conversation error", run.conversationError),
+          detailEntry(
+            labelFrom(source, "fields.applyResult", "Apply result"),
+            run.applyResultState,
+          ),
+          detailEntry(
+            labelFrom(source, "fields.appliedAt", "Applied at"),
+            run.appliedAt,
+          ),
+        ]),
+        detailSection(
+          labelFrom(
+            source,
+            "details.runtimeDependencies",
+            "Runtime Dependencies",
+          ),
+          [
+            detailEntry(
+              labelFrom(source, "fields.status", "Status"),
+              run.runtimeDependencyStatus,
+            ),
+            detailEntry(
+              labelFrom(
+                source,
+                "fields.runtimeDependencies",
+                "Runtime Dependencies",
+              ),
+              Array.isArray(run.runtimeDependencies)
+                ? run.runtimeDependencies.join("\n")
+                : "",
+              "code",
+            ),
+            detailEntry(
+              labelFrom(source, "fields.error", "Error"),
+              run.runtimeDependencyError,
+            ),
+          ],
+        ),
+        detailSection(
+          labelFrom(source, "details.outputRevisions", "Output Revisions"),
+          revisions
+            .slice()
+            .reverse()
+            .map(function (revision) {
+              return detailEntry(
+                "round " +
+                  String(Number(revision.repairRound || 0)) +
+                  " · " +
+                  safeText(revision.status || "unknown"),
+                [
+                  Array.isArray(revision.errors) && revision.errors.length > 0
+                    ? revision.errors.join("\n")
+                    : "",
+                  revision.replacementReason || "",
+                  truncateText(revision.candidateText, 600),
+                ]
+                  .filter(Boolean)
+                  .join("\n\n"),
+                "code",
+              );
+            }),
+          {
+            kind: "revisions",
+            summary:
+              String(revisions.length) +
+              " " +
+              labelFrom(
+                source,
+                "details.revisionCandidates",
+                "revision candidates",
+              ),
+            collapsible: true,
+            defaultCollapsed: true,
+          },
+        ),
+        detailSection(
+          labelFrom(source, "details.runtimeLogs", "Runtime Logs"),
+          (Array.isArray(logs) ? logs : []).slice(-20).map(function (log) {
             return detailEntry(
-              "round " +
-                String(Number(revision.repairRound || 0)) +
-                " · " +
-                safeText(revision.status || "unknown"),
-              [
-                Array.isArray(revision.errors) && revision.errors.length > 0
-                  ? revision.errors.join("\n")
-                  : "",
-                revision.replacementReason || "",
-                truncateText(revision.candidateText, 600),
-              ]
-                .filter(Boolean)
-                .join("\n\n"),
+              safeText(log.level || log.stage || "log"),
+              truncateText(log.message || JSON.stringify(log), 600),
               "code",
             );
           }),
-        {
-          kind: "revisions",
-          summary:
-            String(revisions.length) +
-            " " +
-            labelFrom(
+          {
+            kind: "logs",
+            summary: labelFrom(
               source,
-              "details.revisionCandidates",
-              "revision candidates",
+              "details.recentLogs",
+              "Recent runtime log entries",
             ),
-          collapsible: true,
-          defaultCollapsed: true,
-        },
-      ),
-      detailSection(
-        labelFrom(source, "details.runtimeLogs", "Runtime Logs"),
-        (Array.isArray(logs) ? logs : []).slice(-20).map(function (log) {
+            collapsible: true,
+            defaultCollapsed: true,
+          },
+        ),
+        detailSection(
+          labelFrom(source, "details.resultJson", "Result JSON"),
+          [
+            detailEntry(
+              "result",
+              run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "",
+              "code",
+            ),
+          ],
+          {
+            kind: "result",
+            summary: labelFrom(
+              source,
+              "details.validatedOutput",
+              "Validated workflow output",
+            ),
+            collapsible: true,
+            defaultCollapsed: true,
+          },
+        ),
+      ].filter(Boolean),
+    );
+  }
+
+  function buildWorkspaceContextDetails(source) {
+    const region =
+      source &&
+      source.workspaceContextDetails &&
+      typeof source.workspaceContextDetails === "object"
+        ? source.workspaceContextDetails
+        : {};
+    function regionEntries(entries) {
+      return (Array.isArray(entries) ? entries : [])
+        .map(function (entry) {
           return detailEntry(
-            safeText(log.level || log.stage || "log"),
-            truncateText(log.message || JSON.stringify(log), 600),
-            "code",
+            safeText(entry && entry.label),
+            entry && entry.value,
           );
-        }),
-        {
-          kind: "logs",
-          summary: labelFrom(
-            source,
-            "details.recentLogs",
-            "Recent runtime log entries",
-          ),
-          collapsible: true,
-          defaultCollapsed: true,
-        },
+        })
+        .filter(Boolean);
+    }
+    return [
+      detailSection(
+        labelFrom(source, "details.context", "Context"),
+        regionEntries(region.context),
       ),
       detailSection(
-        labelFrom(source, "details.resultJson", "Result JSON"),
-        [
-          detailEntry(
-            "result",
-            run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "",
-            "code",
-          ),
-        ],
-        {
-          kind: "result",
-          summary: labelFrom(
-            source,
-            "details.validatedOutput",
-            "Validated workflow output",
-          ),
-          collapsible: true,
-          defaultCollapsed: true,
-        },
+        labelFrom(source, "details.details", "Details"),
+        regionEntries(region.details),
       ),
     ].filter(Boolean);
   }

@@ -15,6 +15,7 @@ import {
   configureNoAcpBackendForTests,
   configureZoteroMcpServerForTests,
   connectAcpConversation,
+  createAcpChatWorkspaceOwner,
   createAcpBackendFromPreset,
   createBackendsPrefsDocument,
   deleteActiveAcpConversation,
@@ -33,8 +34,8 @@ import {
   os,
   path,
   prepareAcpChatPanelSnapshot,
-  prepareAcpChatPanelPublicationDto,
-  resolveAcpChatPublicationKindsForChange,
+  readAcpChatWorkspacePublication,
+  resolveAcpChatWorkspacePublicationKinds,
   readActiveTranscriptItems,
   readAcpConversationTranscriptPage,
   readTranscriptItemsForConversation,
@@ -56,7 +57,7 @@ import {
   setActiveAcpConversation,
   setAssistantStreamingRenderEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
-  shouldRefreshAcpChatSnapshotForChange,
+  shouldPublishAcpChatWorkspaceChange,
   shutdownAcpSessionManager,
   startNewAcpConversation,
   subscribeAcpChatPanelSnapshots,
@@ -1798,25 +1799,25 @@ describe("acp session manager", function () {
     };
 
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["status"],
       }),
     );
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["transcript-boundary"],
       }),
     );
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["transcript-append"],
       }),
     );
     assert.isFalse(
-      shouldRefreshAcpChatSnapshotForChange(
+      shouldPublishAcpChatWorkspaceChange(
         {
           ...base,
           executionDisplayMode: "boundary" as const,
@@ -1828,7 +1829,7 @@ describe("acp session manager", function () {
       ),
     );
     assert.isFalse(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: false,
         kinds: ["transcript-append"],
       }),
@@ -1850,7 +1851,7 @@ describe("acp session manager", function () {
     };
 
     assert.deepEqual(
-      resolveAcpChatPublicationKindsForChange(base, {
+      resolveAcpChatWorkspacePublicationKinds(base, {
         backendId: "backend-a",
         conversationId: "conversation-a",
         active: true,
@@ -1859,7 +1860,7 @@ describe("acp session manager", function () {
       ["message-counts"],
     );
     assert.deepEqual(
-      resolveAcpChatPublicationKindsForChange(base, {
+      resolveAcpChatWorkspacePublicationKinds(base, {
         backendId: "backend-a",
         conversationId: "conversation-a",
         active: true,
@@ -1868,7 +1869,7 @@ describe("acp session manager", function () {
       ["transcript"],
     );
     assert.deepEqual(
-      resolveAcpChatPublicationKindsForChange(base, {
+      resolveAcpChatWorkspacePublicationKinds(base, {
         backendId: "backend-a",
         conversationId: "conversation-a",
         active: true,
@@ -1877,7 +1878,7 @@ describe("acp session manager", function () {
       ["baseline-status"],
     );
     assert.deepEqual(
-      resolveAcpChatPublicationKindsForChange(base, {
+      resolveAcpChatWorkspacePublicationKinds(base, {
         backendId: "backend-a",
         conversationId: "conversation-a",
         active: false,
@@ -1887,25 +1888,25 @@ describe("acp session manager", function () {
     );
   });
 
-  it("builds bounded count and baseline DTOs without transcript page state", async function () {
+  it("builds canonical count and baseline regions without transcript state", async function () {
     await startNewAcpConversation();
-    const counts = await prepareAcpChatPanelPublicationDto({
-      target: "library",
-      kind: "message-counts",
+    const active = getAcpFrontendSnapshot({ itemMode: "structural" });
+    const owner = createAcpChatWorkspaceOwner(
+      active.activeBackendId,
+      active.activeConversationId,
+    );
+    const counts = await readAcpChatWorkspacePublication({
+      owner,
+      publicationKind: "message-counts",
     });
-    assert.hasAllKeys(counts, [
-      "activeBackendId",
-      "backendId",
-      "activeConversationId",
-      "conversationId",
-      "messageCounts",
-    ]);
+    assert.hasAllKeys(counts, ["counts"]);
+    assert.isObject(counts?.counts);
     assert.notProperty(counts, "selectedTranscriptPage");
     assert.notProperty(counts, "transcriptRevision");
 
-    const baseline = await prepareAcpChatPanelPublicationDto({
-      target: "library",
-      kind: "baseline-status",
+    const baseline = await readAcpChatWorkspacePublication({
+      owner,
+      publicationKind: "baseline-status",
     });
     for (const field of [
       "selectedTranscriptPage",
@@ -1913,11 +1914,26 @@ describe("acp session manager", function () {
       "transcriptRevision",
       "transcriptEventSeq",
       "transcriptItemCount",
-      "messageCounts",
+      "counts",
       "items",
     ]) {
       assert.notProperty(baseline, field);
     }
+    assert.hasAllKeys(baseline, [
+      "status",
+      "busy",
+      "message",
+      "connection",
+      "execution",
+    ]);
+    assert.hasAllKeys(baseline?.connection, [
+      "status",
+      "sessionAvailable",
+      "connected",
+      "canConnect",
+      "canDisconnect",
+    ]);
+    assert.hasAllKeys(baseline?.execution, ["canCancel", "canInterrupt"]);
   });
 
   it("emits typed ACP chat panel snapshot changes from existing publish boundaries", async function () {

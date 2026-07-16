@@ -36,7 +36,7 @@ import {
   waitAcpRuntimeReplayWorkspaceReadiness,
 } from "./acpRuntimeReplayPublicationSidecar";
 import {
-  getAcpFrontendSnapshot,
+  getActiveAcpChatOwner,
   inspectSyntheticAcpChatReplayTimers,
 } from "./acpSessionManager";
 import {
@@ -404,11 +404,11 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
   return {
     snapshot: async () => {
       const workspace = getAssistantWorkspaceReplayState();
-      const chat = getAcpFrontendSnapshot({ itemMode: "structural" });
+      const chat = getActiveAcpChatOwner();
       return {
         ...workspace,
-        chatBackendId: chat.activeBackendId,
-        chatConversationId: chat.activeConversationId,
+        chatBackendId: chat.backendId,
+        chatConversationId: chat.conversationId,
         skillRequestId: getSelectedAcpSkillRunRequestId(),
       };
     },

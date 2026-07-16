@@ -918,7 +918,7 @@
       container: transcriptEl,
       items,
       virtualized,
-      pageKey: virtualized ? state.transcriptContextKey : undefined,
+      ownerKey: virtualized ? state.transcriptContextKey : undefined,
       transcriptRevision: Number(raw && raw.transcriptRevision) || 0,
       mode: state.chatDisplayMode,
       variant: "skillrunner",

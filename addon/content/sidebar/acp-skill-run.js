@@ -16,9 +16,6 @@
     transcriptPageSignature: "",
     transcriptLoadingSignature: "",
     transcriptPaginationVirtualizationEnabled: true,
-    sidebarScopeKey: "",
-    sidebarRevision: 0,
-    pendingSelectedRequestId: "",
     toolActivityExpandedIds: new Set(),
     toolActivityExpandedSignature: "",
     drawerCompletedCollapsed: true,
@@ -27,11 +24,13 @@
     permissionRequestDetails: null,
     permissionRequestDrawerOpen: false,
     panelRenderKey: "",
-    pendingRenderSnapshots: [],
-    pendingPublications: [],
-    renderScheduled: false,
     drawerGroupCollapsed: new Map(),
-    publicationClient: null,
+    acpSurfaceController: null,
+    surfaceConfiguration: {
+      executionDisplayMode: "live",
+      transcriptPaginationVirtualizationEnabled: true,
+    },
+    surfaceLabels: {},
   };
   const CHILD_DOCUMENT_GENERATION =
     "acp-skills-" +
@@ -195,7 +194,7 @@
             status: safeText(region.status),
             pageKey: safeText(page && page.pageKey),
             cursor: Number((page && page.startCursor) || 0),
-            total: Number((page && page.totalItemCount) || 0),
+            total: Number((page && page.totalVisibleItemCount) || 0),
             items: page && Array.isArray(page.items) ? page.items.length : 0,
           }
         : null,
@@ -204,70 +203,14 @@
 
   function snapshotSelectedRequestId(snapshot) {
     const source = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const selectedRun =
-      source.selectedRun && typeof source.selectedRun === "object"
-        ? source.selectedRun
-        : {};
-    return safeText(source.selectedRequestId || selectedRun.requestId);
-  }
-
-  function snapshotSidebarRevision(snapshot) {
-    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const sidebar =
-      source.sidebar && typeof source.sidebar === "object"
-        ? source.sidebar
-        : {};
-    const panes =
-      sidebar.panes && typeof sidebar.panes === "object" ? sidebar.panes : {};
-    const pane =
-      panes["acp-skills"] && typeof panes["acp-skills"] === "object"
-        ? panes["acp-skills"]
-        : {};
-    const revision = Number(pane.revision || 0);
-    return Number.isFinite(revision) ? Math.max(0, Math.floor(revision)) : 0;
-  }
-
-  function shouldAcceptSnapshot(snapshot) {
-    const source = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const sidebar =
-      source.sidebar && typeof source.sidebar === "object"
-        ? source.sidebar
-        : {};
-    const scopeKey = safeText(sidebar.scopeKey);
-    if (scopeKey && scopeKey !== state.sidebarScopeKey) {
-      state.sidebarScopeKey = scopeKey;
-      state.sidebarRevision = 0;
-      state.pendingSelectedRequestId = "";
-    }
-    const revision = snapshotSidebarRevision(source);
-    if (
-      revision > 0 &&
-      state.sidebarRevision > 0 &&
-      revision < state.sidebarRevision
-    ) {
-      return false;
-    }
-    const selectedRequestId = snapshotSelectedRequestId(source);
-    if (
-      state.pendingSelectedRequestId &&
-      selectedRequestId !== state.pendingSelectedRequestId
-    ) {
-      return false;
-    }
-    if (revision > state.sidebarRevision) {
-      state.sidebarRevision = revision;
-    }
-    if (
-      state.pendingSelectedRequestId &&
-      selectedRequestId === state.pendingSelectedRequestId
-    ) {
-      state.pendingSelectedRequestId = "";
-    }
-    return true;
+    const owner = source.owner;
+    return owner && owner.source === "acp-skills"
+      ? safeText(owner.requestId)
+      : "";
   }
 
   function transcriptRegionForRun(run, snapshot) {
-    const publication = assistantTranscriptPublication();
+    const publication = assistantWorkspaceAcpSurface();
     return publication
       ? publication.readRegion(
           snapshot || state.snapshot || {},
@@ -278,7 +221,7 @@
   }
 
   function transcriptRendererPageForRun(run, snapshot) {
-    const publication = assistantTranscriptPublication();
+    const publication = assistantWorkspaceAcpSurface();
     return publication
       ? publication.rendererPage(transcriptRegionForRun(run, snapshot))
       : null;
@@ -297,11 +240,15 @@
     const page = transcriptRendererPageForRun(run, snapshot);
     if (!page) return "";
     return [
-      safeText(page.requestId),
-      String(Math.max(0, Math.floor(Number(page.cursor || 0) || 0))),
-      String(Math.max(0, Math.floor(Number(page.prevCursor || 0) || 0))),
+      safeText(page.ownerKey),
+      safeText(page.pageKey),
+      String(Math.max(0, Math.floor(Number(page.startCursor || 0) || 0))),
+      String(Math.max(0, Math.floor(Number(page.previousCursor || 0) || 0))),
       String(Math.max(0, Math.floor(Number(page.nextCursor || 0) || 0))),
-      String(Math.max(0, Math.floor(Number(page.total || 0) || 0))),
+      String(
+        Math.max(0, Math.floor(Number(page.totalVisibleItemCount || 0) || 0)),
+      ),
+      String(Math.max(0, Math.floor(Number(page.sourceEventSeq || 0) || 0))),
       String(transcriptRevisionNumber(page.transcriptRevision)),
       (Array.isArray(page.items) ? page.items : [])
         .map(function (item) {
@@ -312,21 +259,15 @@
   }
 
   function snapshotTranscriptPaginationVirtualizationEnabled() {
-    const snapshot = state.snapshot || {};
-    if (
-      Object.prototype.hasOwnProperty.call(
-        snapshot,
-        "transcriptPaginationVirtualizationEnabled",
-      )
-    ) {
-      return snapshot.transcriptPaginationVirtualizationEnabled !== false;
-    }
-    return true;
+    return (
+      state.surfaceConfiguration.transcriptPaginationVirtualizationEnabled !==
+      false
+    );
   }
 
   function incomingTranscriptRevision(run, snapshot) {
     const region = transcriptRegionForRun(run, snapshot);
-    if (region) return transcriptRevisionNumber(region.uiRevision);
+    if (region) return transcriptRevisionNumber(region.transcriptRevision);
     return transcriptRevisionNumber(run && run.transcriptRevision);
   }
 
@@ -420,10 +361,22 @@
       : null;
   }
 
-  function assistantTranscriptPublication() {
-    return window.AssistantTranscriptPublication &&
-      typeof window.AssistantTranscriptPublication === "object"
-      ? window.AssistantTranscriptPublication
+  function assistantWorkspaceAcpSurface() {
+    return window.AssistantWorkspaceAcpSurface &&
+      typeof window.AssistantWorkspaceAcpSurface === "object"
+      ? window.AssistantWorkspaceAcpSurface
+      : null;
+  }
+
+  function workspacePanelPresentation(snapshot) {
+    const shared = assistantWorkspaceAcpSurface();
+    return shared && typeof shared.createPanelPresentation === "function"
+      ? shared.createPanelPresentation(snapshot || {}, {
+          source: "acp-skills",
+          chatDisplayMode: state.chatDisplayMode,
+          configuration: state.surfaceConfiguration,
+          labels: state.surfaceLabels,
+        })
       : null;
   }
 
@@ -516,7 +469,7 @@
   }
 
   function selectedRunFromSnapshot() {
-    return (state.snapshot && state.snapshot.selectedRun) || null;
+    return (workspacePanelPresentation(state.snapshot || {}) || {}).selectedRun;
   }
 
   function captureReplyDraft() {
@@ -622,7 +575,6 @@
     }
     if (action === "select-run") {
       state.runDrawerOpen = false;
-      state.pendingSelectedRequestId = requestId;
       sendAction("select-run", { requestId: requestId });
       return;
     }
@@ -663,7 +615,8 @@
   }
 
   function renderAssistantPanelRuntime(snapshot) {
-    const rawSelectedRun = snapshot && snapshot.selectedRun;
+    const presentation = workspacePanelPresentation(snapshot || {}) || {};
+    const rawSelectedRun = presentation.selectedRun;
     if (!rawSelectedRun || !rawSelectedRun.pendingPermission) {
       state.permissionRequestDetails = null;
       state.permissionRequestDrawerOpen = false;
@@ -675,15 +628,13 @@
     ) {
       renderPanelRuntimeFailure(
         safeText(
-          snapshot &&
-            snapshot.labels &&
-            snapshot.labels.panelRendererUnavailable,
+          presentation.labels && presentation.labels.panelRendererUnavailable,
         ),
       );
       return;
     }
     try {
-      const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {});
+      const panelSnapshot = projectAssistantPanelSnapshot(presentation);
       renderer.renderAssistantPanelSnapshot(panelSnapshot, {
         managed: true,
         managedRegions: { messageCounter: true },
@@ -692,7 +643,7 @@
           messageCounter: $("acp-skill-run-message-counter"),
         },
       });
-      const renderKey = buildPanelRenderKey(snapshot || {});
+      const renderKey = buildPanelRenderKey(presentation);
       if (state.panelRenderKey === renderKey) {
         return;
       }
@@ -754,7 +705,7 @@
     } catch (error) {
       renderPanelRuntimeFailure(
         safeText(
-          snapshot && snapshot.labels && snapshot.labels.panelRendererFailed,
+          presentation.labels && presentation.labels.panelRendererFailed,
         ) +
           ": " +
           (error && error.message ? error.message : String(error)),
@@ -870,7 +821,7 @@
     const requestId = syncTranscriptRun(run, transcript);
     let revision = incomingTranscriptRevision(run, sourceSnapshot);
     const region = transcriptRegionForRun(run, sourceSnapshot);
-    const publication = assistantTranscriptPublication();
+    const publication = assistantWorkspaceAcpSurface();
     if (region && region.status === "loading") {
       if (isStaleLoadingTranscriptRevision(revision)) {
         renderChatDisplayMode();
@@ -940,7 +891,7 @@
       container: transcript,
       items: Array.isArray(view.items) ? view.items : [],
       virtualized,
-      pageKey: requestId,
+      ownerKey: requestId,
       page,
       mode: state.chatDisplayMode,
       variant: "skillrunner",
@@ -962,9 +913,9 @@
         if (!virtualized) {
           return;
         }
-        const pageKey = safeText(request && request.pageKey);
+        const ownerKey = safeText(request && request.ownerKey);
         const cursor = Number(request && request.cursor);
-        if (!requestId || pageKey !== requestId || !Number.isFinite(cursor)) {
+        if (!requestId || ownerKey !== requestId || !Number.isFinite(cursor)) {
           return;
         }
         const pageRequest = publication.createPageRequest(
@@ -995,7 +946,7 @@
   }
 
   function renderSelectedRun(snapshot) {
-    const run = snapshot.selectedRun || null;
+    const run = (workspacePanelPresentation(snapshot || {}) || {}).selectedRun;
     const empty = $("acp-skill-run-empty");
     const main = $("acp-skill-run-main");
     if (!run) {
@@ -1040,17 +991,16 @@
   }
 
   function renderPublicationResult(result, publication) {
-    const nextSnapshot = result.snapshot || {};
-    const shared = assistantTranscriptPublication();
-    const run = (nextSnapshot && nextSnapshot.selectedRun) || {};
+    const nextSnapshot = (result && result.snapshot) || {};
+    const shared = assistantWorkspaceAcpSurface();
+    const run =
+      (workspacePanelPresentation(nextSnapshot) || {}).selectedRun || {};
     const rendered = !!(
       shared &&
       typeof shared.renderResult === "function" &&
       shared.renderResult(result, {
         source: "acp-skills",
-        getOwnerKey: function (snapshot) {
-          return safeText(snapshot && snapshot.selectedRun?.requestId);
-        },
+        getOwnerKey: snapshotSelectedRequestId,
         panelRenderer: assistantPanelRenderer(),
         messageCountContainer: $("acp-skill-run-message-counter"),
         transcriptRenderer: assistantTranscriptRenderer(),
@@ -1092,7 +1042,7 @@
     if (rendered && result.publicationKind === "transcript") {
       const region = transcriptRegionForRun(run, nextSnapshot);
       state.transcriptRevision = transcriptRevisionNumber(
-        region && region.uiRevision,
+        region && region.transcriptRevision,
       );
       state.transcriptRenderedMode = state.chatDisplayMode;
       renderChatDisplayMode();
@@ -1100,12 +1050,12 @@
     return rendered;
   }
 
-  function publicationClient() {
-    if (state.publicationClient) return state.publicationClient;
-    const shared = assistantTranscriptPublication();
-    state.publicationClient =
+  function surfaceController() {
+    if (state.acpSurfaceController) return state.acpSurfaceController;
+    const shared = assistantWorkspaceAcpSurface();
+    state.acpSurfaceController =
       shared &&
-      shared.createClient({
+      shared.createController({
         source: "acp-skills",
         getSnapshot: function () {
           return state.snapshot || {};
@@ -1115,62 +1065,18 @@
         },
         getOwnerKey: snapshotSelectedRequestId,
         ack: publicationAck,
-        requestPage: function (publication) {
-          const request = shared.createPageRequest(publication.owner, null, 80);
-          if (request) sendAction("load-transcript-page", request);
-        },
         render: renderPublicationResult,
       });
-    return state.publicationClient;
+    return state.acpSurfaceController;
   }
 
   function applyPublication(publication) {
-    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0) {
-      state.pendingPublications.push(publication);
-      return;
-    }
-    const client = publicationClient();
-    if (!client) {
+    const controller = surfaceController();
+    if (!controller) {
       publicationAck(publication || {}, "child-apply", "rejected", "invalid");
       return;
     }
-    client.apply(publication);
-  }
-
-  function flushPendingPublications() {
-    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0)
-      return;
-    const pending = state.pendingPublications.splice(0);
-    pending.forEach(applyPublication);
-  }
-
-  function queueRender(snapshot) {
-    const nextSnapshot =
-      snapshot && typeof snapshot === "object" ? snapshot : {};
-    if (!shouldAcceptSnapshot(nextSnapshot)) {
-      trace("queue-render-drop-stale", {
-        summary: snapshotSummary(nextSnapshot),
-      });
-      return;
-    }
-    state.pendingRenderSnapshots.push(nextSnapshot);
-    trace("queue-render", { summary: snapshotSummary(nextSnapshot) });
-    if (state.renderScheduled) return;
-    state.renderScheduled = true;
-    const schedule =
-      typeof window.requestAnimationFrame === "function"
-        ? window.requestAnimationFrame.bind(window)
-        : function (callback) {
-            return setTimeout(callback, 0);
-          };
-    schedule(function () {
-      state.renderScheduled = false;
-      const pendingSnapshots = state.pendingRenderSnapshots.splice(0);
-      pendingSnapshots.forEach(function (pendingSnapshot) {
-        render(pendingSnapshot);
-      });
-      flushPendingPublications();
-    });
+    controller.applyPublication(publication);
   }
 
   function closeAllDrawers() {
@@ -1192,19 +1098,29 @@
       closeAllDrawers();
       return;
     }
-    if (data.type === "acp-skill-run:publication") {
-      applyPublication(data.payload || {});
+    if (data.type === "assistant-workspace:surface-bootstrap") {
+      const bootstrap =
+        data.payload && typeof data.payload === "object" ? data.payload : {};
+      const configuration =
+        bootstrap.configuration && typeof bootstrap.configuration === "object"
+          ? bootstrap.configuration
+          : {};
+      const mode = safeText(configuration.executionDisplayMode);
+      state.surfaceConfiguration = {
+        executionDisplayMode:
+          mode === "boundary" || mode === "silent" ? mode : "live",
+        transcriptPaginationVirtualizationEnabled:
+          configuration.transcriptPaginationVirtualizationEnabled !== false,
+      };
+      state.surfaceLabels =
+        bootstrap.labels && typeof bootstrap.labels === "object"
+          ? bootstrap.labels
+          : {};
+      renderAssistantPanelRuntime(state.snapshot || {});
       return;
     }
-    if (
-      data.type === "acp-skill-run:init" ||
-      data.type === "acp-skill-run:snapshot"
-    ) {
-      trace("message-received", {
-        type: data.type,
-        summary: snapshotSummary(data.payload || {}),
-      });
-      queueRender(data.payload || {});
+    if (data.type === "acp-skill-run:publication") {
+      applyPublication(data.payload || {});
       return;
     }
   });

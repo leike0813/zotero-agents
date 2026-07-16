@@ -24,16 +24,22 @@ type CoordinatorOptions = {
   ) => AssistantWorkspaceOwner | null;
   post: (publication: AssistantWorkspacePublication) => boolean;
   onDroppedBeforeBuild?: (owner: AssistantWorkspaceOwner) => void;
+  onTranscriptRebaseRequired?: (args: {
+    owner: AssistantWorkspaceOwner;
+    pageKey: string;
+    reason: "gap" | "overflow" | "render-failed";
+  }) => void | Promise<void>;
 };
 
 type TranscriptState = {
   owner: AssistantWorkspaceOwner;
   page: AssistantWorkspaceTranscriptPage | null;
-  uiRevision: number;
+  transcriptRevision: number;
   accumulator: AssistantWorkspaceTranscriptAccumulator;
   inFlight: AssistantWorkspacePublication | null;
   pendingSnapshots: AssistantWorkspacePublication[];
   pendingMetadata: boolean;
+  rebasePending: boolean;
 };
 
 export class AssistantWorkspacePublicationCoordinator {
@@ -80,14 +86,13 @@ export class AssistantWorkspacePublicationCoordinator {
     return this.publishTranscriptMutations({
       owner: change.owner,
       events: change.transcript.events,
-      eventSeq: change.transcript.eventSeq,
-      totalItemCount: change.transcript.totalItemCount,
+      sourceEventSeq: change.transcript.sourceEventSeq,
       visibility: change.transcript.visibility,
     });
   }
 
   publishRegion(args: {
-    owner: AssistantWorkspaceOwner;
+    owner: AssistantWorkspacePublicationOwner;
     publicationKind: Exclude<
       AssistantWorkspacePublication["publicationKind"],
       "transcript"
@@ -96,7 +101,9 @@ export class AssistantWorkspacePublicationCoordinator {
     payload: AssistantWorkspacePublication["payload"];
     force?: boolean;
   }) {
-    if (!this.isActive(args.owner)) return this.drop(args.owner);
+    if (args.owner.ownerKey !== null && !this.isActive(args.owner)) {
+      return this.drop(args.owner);
+    }
     const signatureKey = `${args.owner.source}\n${args.owner.ownerKey}\n${args.publicationKind}`;
     const signature = JSON.stringify(args.payload);
     if (!args.force && this.regionSignatures.get(signatureKey) === signature) {
@@ -144,7 +151,8 @@ export class AssistantWorkspacePublicationCoordinator {
     state.accumulator.drain();
     state.pendingMetadata = false;
     state.page = args.region.page;
-    state.uiRevision = args.region.uiRevision;
+    state.transcriptRevision = args.region.transcriptRevision;
+    state.rebasePending = false;
     this.transcriptProjection.clear(args.owner);
     if (args.region.page) {
       this.transcriptProjection.registerSnapshot(args.owner, args.region.page);
@@ -167,49 +175,53 @@ export class AssistantWorkspacePublicationCoordinator {
   publishTranscriptMutations(args: {
     owner: AssistantWorkspaceOwner;
     events: readonly AssistantWorkspaceTranscriptMutationEvent[];
-    eventSeq: number;
-    totalItemCount: number;
+    sourceEventSeq: number;
     visibility: "live" | "boundary" | "silent";
   }) {
     if (!this.isActive(args.owner)) return this.drop(args.owner);
     const state = this.transcripts.get(ownerIdentity(args.owner));
     if (!state || !state.page) {
-      const publication = this.createPublication({
-        owner: args.owner,
-        publicationKind: "transcript",
-        publicationForm: "resync-required",
-        publicationCause: "rebase",
-        payload: {
-          pageKey: `${args.owner.ownerKey}\ntail:80`,
-          expectedUiRevision: 0,
-          reason: "gap",
-        },
-      });
       const lane = state || this.transcriptLane(args.owner);
-      lane.pendingSnapshots.push(publication);
-      this.pumpTranscriptLane(lane);
-      return publication;
+      this.requestRebase(lane, "gap");
+      return undefined;
     }
-    const totalItemCount = Math.max(0, Math.floor(args.totalItemCount || 0));
+    const projected = args.events.reduce(
+      (result, event) => {
+        const next = this.transcriptProjection.project(args.owner, {
+          boundary: event.boundary,
+          mutation: event.mutation,
+          cardinality: event.cardinality,
+          visibility: args.visibility,
+        });
+        result.mutations.push(...next.mutations);
+        result.visibleItemCountDelta += next.visibleItemCountDelta;
+        return result;
+      },
+      {
+        mutations: [] as AssistantWorkspaceTranscriptMutation[],
+        visibleItemCountDelta: 0,
+      },
+    );
+    const mutations = projected.mutations;
+    const totalVisibleItemCount = Math.max(
+      0,
+      state.page.totalVisibleItemCount + projected.visibleItemCountDelta,
+    );
     const startCursor = isTailPage(state.page)
-      ? Math.max(0, totalItemCount - state.page.limit)
+      ? Math.max(0, totalVisibleItemCount - state.page.limit)
       : state.page.startCursor;
     state.page = {
       ...state.page,
-      eventSeq: Math.max(state.page.eventSeq, Math.floor(args.eventSeq || 0)),
-      totalItemCount,
+      sourceEventSeq: Math.max(
+        state.page.sourceEventSeq,
+        Math.floor(args.sourceEventSeq || 0),
+      ),
+      totalVisibleItemCount,
       startCursor,
       previousCursor:
         startCursor > 0 ? Math.max(0, startCursor - state.page.limit) : null,
       nextCursor: isTailPage(state.page) ? null : state.page.nextCursor,
     };
-    const mutations = args.events.flatMap((event) =>
-      this.transcriptProjection.record(args.owner, {
-        boundary: event.boundary,
-        mutation: event.mutation,
-        visibility: args.visibility,
-      }),
-    );
     if (isTailPage(state.page)) {
       state.accumulator.enqueue(mutations);
     } else {
@@ -257,32 +269,19 @@ export class AssistantWorkspacePublicationCoordinator {
     }
     if (
       ack.outcome === "rejected" &&
-      publication.publicationForm !== "resync-required" &&
       (ack.reason === "old-owner" ||
         ack.reason === "gap" ||
         ack.reason === "render-failed" ||
         ack.reason === "stale" ||
         ack.reason === "superseded")
     ) {
-      state.accumulator.drain();
-      state.pendingMetadata = false;
-      this.replacePendingSnapshots(state, [
-        this.createPublication({
-          owner: state.owner,
-          publicationKind: "transcript",
-          publicationForm: "resync-required",
-          publicationCause: "rebase",
-          payload: {
-            pageKey: state.page?.pageKey || `${state.owner.ownerKey}\ntail:80`,
-            expectedUiRevision: state.uiRevision,
-            reason:
-              ack.reason === "gap" || ack.reason === "render-failed"
-                ? ack.reason
-                : "superseded",
-          },
-        }),
-      ]);
-      this.pumpTranscriptLane(state);
+      if (ack.reason === "gap" || ack.reason === "render-failed") {
+        this.requestRebase(state, ack.reason);
+      } else {
+        state.accumulator.drain();
+        state.pendingMetadata = false;
+        this.pumpTranscriptLane(state);
+      }
       return true;
     }
     if (ack.outcome === "rejected") {
@@ -315,6 +314,19 @@ export class AssistantWorkspacePublicationCoordinator {
     });
   }
 
+  reset() {
+    for (const state of this.transcripts.values()) {
+      state.accumulator.drain();
+      this.transcriptProjection.clear(state.owner);
+    }
+    for (const publicationId of this.publicationPostWaiters.keys()) {
+      this.settlePublicationPost(publicationId, undefined);
+    }
+    this.publications.clear();
+    this.transcripts.clear();
+    this.regionSignatures.clear();
+  }
+
   private settlePublicationPost(
     publicationId: string,
     publication: AssistantWorkspacePublication | undefined,
@@ -344,13 +356,30 @@ export class AssistantWorkspacePublicationCoordinator {
 
   clearOwner(owner: AssistantWorkspaceOwner) {
     const key = ownerIdentity(owner);
+    const regionPrefix = `${key}\n`;
     const state = this.transcripts.get(key);
     if (state) {
       if (state.inFlight) {
         this.publications.delete(state.inFlight.publicationId);
+        this.settlePublicationPost(state.inFlight.publicationId, undefined);
       }
       this.replacePendingSnapshots(state, []);
       state.accumulator.drain();
+    }
+    for (const [publicationId, publication] of this.publications) {
+      if (
+        publication.owner.source === owner.source &&
+        publication.owner.ownerKey === owner.ownerKey
+      ) {
+        this.publications.delete(publicationId);
+        this.settlePublicationPost(publicationId, undefined);
+      }
+    }
+    for (const key of this.regionRevisions.keys()) {
+      if (key.startsWith(regionPrefix)) this.regionRevisions.delete(key);
+    }
+    for (const key of this.regionSignatures.keys()) {
+      if (key.startsWith(regionPrefix)) this.regionSignatures.delete(key);
     }
     this.transcripts.delete(key);
     this.transcriptProjection.clear(owner);
@@ -363,11 +392,12 @@ export class AssistantWorkspacePublicationCoordinator {
       state = {
         owner,
         page: null,
-        uiRevision: 0,
+        transcriptRevision: 0,
         accumulator: new AssistantWorkspaceTranscriptAccumulator(),
         inFlight: null,
         pendingSnapshots: [],
         pendingMetadata: false,
+        rebasePending: false,
       };
       this.transcripts.set(key, state);
     }
@@ -375,6 +405,7 @@ export class AssistantWorkspacePublicationCoordinator {
   }
 
   private pumpTranscriptLane(state: TranscriptState) {
+    if (state.rebasePending) return undefined;
     if (state.inFlight) return state.inFlight;
     const pendingSnapshot = state.pendingSnapshots[0];
     if (pendingSnapshot) {
@@ -389,26 +420,13 @@ export class AssistantWorkspacePublicationCoordinator {
   private flush(state: TranscriptState) {
     if (!state.page) return undefined;
     if (state.accumulator.requiresResync) {
-      const publication = this.createPublication({
-        owner: state.owner,
-        publicationKind: "transcript",
-        publicationForm: "resync-required",
-        publicationCause: "rebase",
-        payload: {
-          pageKey: state.page.pageKey,
-          expectedUiRevision: state.uiRevision,
-          reason: "overflow",
-        },
-      });
-      if (!this.postPrepared(publication)) return undefined;
-      state.accumulator.drain();
-      state.inFlight = publication;
-      return publication;
+      this.requestRebase(state, "overflow");
+      return undefined;
     }
     const mutations = state.accumulator.read();
     if (!mutations.length && !state.pendingMetadata) return undefined;
-    const baseUiRevision = state.uiRevision;
-    const uiRevision = baseUiRevision + 1;
+    const baseTranscriptRevision = state.transcriptRevision;
+    const transcriptRevision = baseTranscriptRevision + 1;
     const publication = this.createPublication({
       owner: state.owner,
       publicationKind: "transcript",
@@ -416,17 +434,33 @@ export class AssistantWorkspacePublicationCoordinator {
       publicationCause: "steady-state",
       payload: {
         page: transcriptPageMetadata(state.page),
-        baseUiRevision,
-        uiRevision,
+        baseTranscriptRevision,
+        transcriptRevision,
         mutations,
       },
     });
     if (!this.postPrepared(publication)) return undefined;
     state.accumulator.drain();
     state.pendingMetadata = false;
-    state.uiRevision = uiRevision;
+    state.transcriptRevision = transcriptRevision;
     state.inFlight = publication;
     return publication;
+  }
+
+  private requestRebase(
+    state: TranscriptState,
+    reason: "gap" | "overflow" | "render-failed",
+  ) {
+    if (state.rebasePending) return;
+    state.rebasePending = true;
+    state.accumulator.drain();
+    state.pendingMetadata = false;
+    this.replacePendingSnapshots(state, []);
+    void this.options.onTranscriptRebaseRequired?.({
+      owner: state.owner,
+      pageKey: state.page?.pageKey || `${state.owner.ownerKey}\ntail:80`,
+      reason,
+    });
   }
 
   private postPrepared(publication: AssistantWorkspacePublication) {

@@ -17,7 +17,7 @@ import {
   selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
-import { postAcpSkillRunSnapshotForPerformanceTests } from "../../src/modules/assistantWorkspaceSidebar";
+import { postAcpSkillRunPublicationForPerformanceTests } from "../../src/modules/assistantWorkspaceSidebar";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -229,14 +229,13 @@ async function exerciseR3ProductionSeam(
   await selectAcpSkillRun(requestId);
   const frameWindow = { postMessage() {} };
   const host = {
-    activeTarget: null,
+    activeTarget: "library",
     activeTab: surfaceState === "acp-active" ? "acp-skills" : "acp-chat",
     scopeKey: "fixture-scope",
     snapshotRevision: 0,
-    acpChatSnapshotBuildSeq: 0,
-    acpSkillRunSnapshotBuildSeq: 0,
-    publicationSeq: 0,
     publicationLifecycles: new Map(),
+    publicationOwners: new Map(),
+    pendingWorkspacePublications: new Map(),
     acpChatBackendRefreshInFlight: false,
     acpChatBackendRefreshRepostQueued: false,
     shell: {
@@ -247,10 +246,9 @@ async function exerciseR3ProductionSeam(
     },
     readyTabs: new Set(["acp-skills"]),
     publishedChildInitScopeKeys: new Set<string>(),
-    lastAcpSkillRunSnapshotSignature: null,
   };
-  await postAcpSkillRunSnapshotForPerformanceTests(host);
-  await postAcpSkillRunSnapshotForPerformanceTests(host);
+  await postAcpSkillRunPublicationForPerformanceTests(host);
+  await postAcpSkillRunPublicationForPerformanceTests(host);
 }
 
 async function exerciseBufferedWriteProductionSeam(requestId: string) {
