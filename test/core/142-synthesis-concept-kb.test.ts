@@ -2,9 +2,16 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
+import {
+  buildSynthesisKnowledgeGraphPaths,
+  readProjectionRegistryState,
+} from "../../src/modules/synthesis/foundation";
 import { createSynthesisConceptKbService } from "../../src/modules/synthesis/conceptKb";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
+import {
+  createInProcessSynthesisConceptKbIndexEngine,
+  type SynthesisConceptKbIndexEngine,
+} from "../../packages/synthesis-engine/src/conceptKbIndex";
 import {
   readRuntimeTextFile,
   runtimePathExists,
@@ -490,6 +497,119 @@ describe("Synthesis concept KB", function () {
       ["Object Detection"],
     );
     assert.isFalse(await runtimePathExists(indexPath));
+  });
+
+  it("preserves projection registry and Concept KB rows when engine output is malformed", async function () {
+    const root = await makeRuntimeRoot();
+    const stable = createSynthesisConceptKbService({ root });
+    await stable.ingestConceptCardProposals({
+      topicId: "topic-stable",
+      payload: {
+        cards: [
+          {
+            label: "Stable Concept",
+            concept_type: "task",
+            domain: "computer vision",
+            short_definition: "Stable.",
+            definition: "Stable concept definition.",
+            confidence: 0.9,
+          },
+        ],
+      },
+    });
+    await stable.rebuildConceptKbIndexProjection();
+    const before = await readProjectionRegistryState(root);
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const rowCount = repository.countRows("synt_concept");
+    const defaultEngine = createInProcessSynthesisConceptKbIndexEngine();
+    const malformed: SynthesisConceptKbIndexEngine = {
+      async buildIndex(request) {
+        return {
+          ...(await defaultEngine.buildIndex(request)),
+          overlayEntries: [],
+        };
+      },
+      query(request) {
+        return defaultEngine.query(request);
+      },
+    };
+    const service = createSynthesisConceptKbService({
+      root,
+      repository,
+      engine: malformed,
+    });
+
+    let failure: unknown;
+    try {
+      await service.rebuildConceptKbIndexProjection();
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, Error);
+    assert.deepEqual(
+      (await readProjectionRegistryState(root)).projections,
+      before.projections,
+    );
+    assert.equal(repository.countRows("synt_concept"), rowCount);
+  });
+
+  it("preserves exact, alias, sense-candidate, and ambiguity query shapes", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisConceptKbService({ root });
+    await service.ingestConceptCardProposals({
+      topicId: "topic-query",
+      payload: {
+        cards: [
+          {
+            label: "Object Detection",
+            aliases: ["Detection"],
+            concept_type: "task",
+            domain: "computer vision",
+            short_definition: "Find objects.",
+            definition: "Detect objects.",
+            confidence: 0.9,
+          },
+        ],
+      },
+    });
+
+    const result = await service.queryConceptKbCandidates({
+      labels: ["Object Detection", "Detection", "Missing"],
+    });
+
+    assert.deepEqual(
+      result.matches.map((match) => ({
+        label: match.label,
+        exact: match.exact_matches.length,
+        aliases: match.alias_matches.length,
+        senses: match.sense_candidates.length,
+        ambiguous: match.ambiguous,
+      })),
+      [
+        {
+          label: "Object Detection",
+          exact: 1,
+          aliases: 1,
+          senses: 1,
+          ambiguous: false,
+        },
+        {
+          label: "Detection",
+          exact: 0,
+          aliases: 1,
+          senses: 1,
+          ambiguous: false,
+        },
+        {
+          label: "Missing",
+          exact: 0,
+          aliases: 0,
+          senses: 0,
+          ambiguous: false,
+        },
+      ],
+    );
   });
 
   it("writes sanitized diagnostics for malformed proposal sidecars", async function () {

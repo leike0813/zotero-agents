@@ -91,6 +91,16 @@ does not open SQLite, write files, compute canonical manifests, or update the
 projection registry. A failed or malformed index result leaves the existing
 registry state unchanged.
 
+Concept KB concepts, senses, aliases, relations, review items, and topic links
+also remain SQLite-owned. The environment-neutral Concept KB index engine
+receives only bounded concept, sense, alias, manifest-basis, and query-label
+DTOs. It returns search rows, unambiguous overlay entries, or exact-match
+identifiers; it never opens SQLite, writes canonical files, owns projection
+registry state, assembles public compatibility DTOs, or decides proposal
+merge/create/review outcomes. Failed, cancelled, oversized, or malformed
+results leave durable rows and the existing projection registry state
+unchanged.
+
 ## `data/synthesis` Boundary
 
 Normal startup and Workbench snapshot may read `data/synthesis/topics` and

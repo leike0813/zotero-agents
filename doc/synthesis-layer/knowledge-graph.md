@@ -7,7 +7,7 @@ on top of the Synthesis sidecar cache. It provides a canonical file-based asset
 store, a projection/index system for runtime queries, and a WebDAV durable
 bundle service for cross-instance knowledge sharing.
 
-Nine modules implement this subsystem:
+Eleven modules implement this subsystem:
 
 | Module | File | Role |
 |--------|------|------|
@@ -16,7 +16,8 @@ Nine modules implement this subsystem:
 | Citation Graph | `src/modules/synthesis/citationGraph.ts` | Legacy paper identity adapter and canonical graph envelope |
 | Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
-| Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
+| Concept KB | `src/modules/synthesis/conceptKb.ts` | SQLite, canonical, proposal, review, mutation, projection, and public query orchestration |
+| Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
 | Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | SQLite, transaction, import, staged-suggestion, Host-effect, and projection orchestration |
 | Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
 | Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
@@ -241,6 +242,15 @@ type SynthesisConcept = {
 
 Concepts link to topics via `SynthesisTopicConceptLink` entries, forming the
 bridge between the concept KB and the topic system.
+
+Concept search rows, overlay entries, and bounded exact label/alias queries run
+through the environment-neutral `SynthesisConceptKbIndexEngine`. Its strict
+JSON-safe requests are capped at 25,000 concepts, 100,000 senses, 250,000
+aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per
+string. The application continues to own SQLite reads and writes, manifest
+basis, relations and review rows, projection registry promotion, diagnostics,
+public snake_case DTO assembly, and all proposal merge/create/review decisions.
+The production engine remains in-process; the Node worker is test-only.
 
 ### Tag Vocabulary Facets
 

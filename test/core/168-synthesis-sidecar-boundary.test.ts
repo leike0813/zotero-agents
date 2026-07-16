@@ -189,6 +189,17 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const conceptKbIndexEngine = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-engine/src/conceptKbIndex.ts"),
+      "utf8",
+    );
+    const conceptKbIndexAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/conceptKbIndexEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -334,6 +345,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "citation_graph_build_basis_superseded");
     assert.include(serviceSource, "referenceMatcherEngine");
     assert.include(serviceSource, "tagVocabularyEngine");
+    assert.include(serviceSource, "conceptKbIndexEngine");
     assert.include(
       serviceSource,
       "computeSynthesisReferenceBindingsWithEngine",
@@ -375,6 +387,11 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "tagVocabularyEngine");
     assert.include(
+      legacyComposition,
+      "createInProcessSynthesisConceptKbIndexEngine",
+    );
+    assert.include(legacyComposition, "conceptKbIndexEngine");
+    assert.include(
       readonlyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",
     );
@@ -389,6 +406,11 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisTagVocabularyEngine",
     );
     assert.include(readonlyComposition, "tagVocabularyEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisConceptKbIndexEngine",
+    );
+    assert.include(readonlyComposition, "conceptKbIndexEngine");
     assert.isFalse(
       fs.existsSync(
         path.join(ROOT_DIR, "src/modules/synthesis/referenceMatcher.ts"),
@@ -402,6 +424,10 @@ describe("Synthesis sidecar migration boundary", function () {
       tagVocabularyEngine,
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
     );
+    assert.notMatch(
+      conceptKbIndexEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
     assert.include(
       tagVocabularyAdapter,
       "rebuildSynthesisTagVocabularyValidationResult",
@@ -409,6 +435,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(
       tagVocabularyAdapter,
       "rebuildSynthesisTagVocabularyIndexResult",
+    );
+    assert.include(
+      conceptKbIndexAdapter,
+      "rebuildSynthesisConceptKbIndexResult",
+    );
+    assert.include(
+      conceptKbIndexAdapter,
+      "rebuildSynthesisConceptKbQueryResult",
     );
     assert.include(
       referenceMatcherAdapter,
@@ -446,6 +480,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(engineImports, [
       "d3-force",
       "./canonicalJson",
+      "./conceptKbIndex",
       "./referenceMatcher",
       "./tagVocabulary",
     ]);

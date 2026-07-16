@@ -2,6 +2,7 @@ import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
 } from "../../../packages/synthesis-engine/src/index";
@@ -65,6 +66,7 @@ function createDefaultLegacyService(
       createInProcessSynthesisCitationGraphBuildEngine(),
     referenceMatcherEngine: createInProcessSynthesisReferenceMatcherEngine(),
     tagVocabularyEngine: createInProcessSynthesisTagVocabularyEngine(),
+    conceptKbIndexEngine: createInProcessSynthesisConceptKbIndexEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

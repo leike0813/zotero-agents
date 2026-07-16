@@ -41,6 +41,22 @@ Ingestion behavior:
 
 Concept ingestion failure should not roll back a successfully applied topic artifact unless the host apply command explicitly chose all-or-nothing behavior. Partial Concept facts may be committed only after validation; invalid proposals remain diagnostics/review inputs.
 
+## Index and Query Engine
+
+Concept KB search rows, overlay selection, and bounded exact label/alias
+matching use the environment-neutral `SynthesisConceptKbIndexEngine`.
+Application code converts SQLite-owned concept, sense, and alias rows into
+strict camelCase DTOs and strictly rebuilds every result before use.
+
+The engine does not own proposal matching. Token-overlap candidate scoring and
+the resulting merge/create/review decision remain in Concept KB application
+logic because they can materialize durable facts and review items.
+
+Index and query computation is capped at 25,000 concepts, 100,000 senses,
+250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code
+units per string. Engine failure, cancellation, bounds rejection, or malformed
+output cannot advance projection registry state or modify Concept KB rows.
+
 ## Overlay Context
 
 Topics can read Concept KB through a read facade that returns `concept_overlay_context`.
@@ -88,4 +104,4 @@ These actions may mark Concept overlay/cache projections stale or recommend expl
 
 ## Performance
 
-Concept overlay reads should follow the general UI budgets in [Performance and Scale](./performance-and-scale.md). Proposal ingestion should use bounded candidate pools and indexed label/alias keys; all-pairs concept scans are forbidden on normal apply.
+Concept overlay reads should follow the general UI budgets in [Performance and Scale](./performance-and-scale.md). Search, overlay, and exact queries use the bounded engine contract. Proposal ingestion should use bounded candidate pools and indexed label/alias keys; all-pairs concept scans are forbidden on normal apply.

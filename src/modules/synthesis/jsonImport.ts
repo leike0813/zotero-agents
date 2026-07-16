@@ -39,6 +39,7 @@ import {
   type SynthesisTagVocabularyEntry,
 } from "./tagVocabulary";
 import type { SynthesisTagVocabularyEngine } from "../../../packages/synthesis-engine/src/tagVocabulary";
+import type { SynthesisConceptKbIndexEngine } from "../../../packages/synthesis-engine/src/conceptKbIndex";
 import {
   createSynthesisTopicGraphService,
   SYNTHESIS_TOPIC_GRAPH_EDGE_SCHEMA_ID,
@@ -79,6 +80,7 @@ type ServiceOptions = {
   now?: () => string;
   repository?: SynthesisRepository;
   tagVocabularyEngine?: SynthesisTagVocabularyEngine;
+  conceptKbIndexEngine?: SynthesisConceptKbIndexEngine;
 };
 
 type CanonicalEnvelopeRecord = {
@@ -527,6 +529,7 @@ export function createSynthesisJsonImportService(options: ServiceOptions) {
     root,
     now: options.now,
     repository,
+    engine: options.conceptKbIndexEngine,
   });
   const tagVocabulary = createSynthesisTagVocabularyService({
     root,

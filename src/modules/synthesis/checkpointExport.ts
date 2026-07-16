@@ -9,6 +9,7 @@ import {
   type SynthesisRepository,
 } from "./repository";
 import { createSynthesisTagVocabularyService } from "./tagVocabulary";
+import type { SynthesisConceptKbIndexEngine } from "../../../packages/synthesis-engine/src/conceptKbIndex";
 import type { SynthesisTagVocabularyEngine } from "../../../packages/synthesis-engine/src/tagVocabulary";
 import { createSynthesisTopicGraphService } from "./topicGraph";
 import {
@@ -23,6 +24,7 @@ type ServiceOptions = {
   now?: () => string;
   repository?: SynthesisRepository;
   tagVocabularyEngine?: SynthesisTagVocabularyEngine;
+  conceptKbIndexEngine?: SynthesisConceptKbIndexEngine;
 };
 
 function cleanString(value: unknown) {
@@ -240,6 +242,7 @@ export function createSynthesisCheckpointExportService(
     root,
     now,
     repository,
+    engine: options.conceptKbIndexEngine,
   });
   const tagVocabulary = createSynthesisTagVocabularyService({
     root,

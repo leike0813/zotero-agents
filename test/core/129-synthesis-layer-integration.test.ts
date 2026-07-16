@@ -5,10 +5,12 @@ import path from "path";
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
+  type SynthesisConceptKbIndexEngine,
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
 } from "../../packages/synthesis-engine/src/index";
@@ -5715,5 +5717,40 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
 
     assert.isAtLeast(calls.validate, 2);
     assert.equal(calls.buildIndex, 1);
+  });
+
+  it("routes Concept KB index and query computation through the configured engine", async function () {
+    const root = await makeRoot();
+    const defaultEngine = createInProcessSynthesisConceptKbIndexEngine();
+    const calls = { buildIndex: 0, query: 0 };
+    const engine: SynthesisConceptKbIndexEngine = {
+      async buildIndex(request) {
+        calls.buildIndex += 1;
+        return defaultEngine.buildIndex(request);
+      },
+      async query(request) {
+        calls.query += 1;
+        return defaultEngine.query(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      conceptKbIndexEngine: engine,
+    });
+
+    await service.loadConceptKb();
+    const result = await service.queryConceptKb({
+      concept_candidate_labels: ["DETR"],
+    });
+
+    assert.equal(calls.buildIndex, 1);
+    assert.equal(calls.query, 1);
+    assert.deepEqual(result.labels, ["DETR"]);
+    assert.equal(result.matches[0]?.ambiguous, false);
+    assert.include(
+      result.diagnostics.map((entry: any) => entry.code),
+      "bounded_read_only",
+    );
   });
 });

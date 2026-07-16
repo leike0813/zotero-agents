@@ -14,6 +14,16 @@ Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsE
 
 Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the Node worker remains test-only.
 
+Concept KB search, overlay, and bounded exact label/alias queries cross
+`SynthesisConceptKbIndexEngine`. The application reads and sorts SQLite-owned
+concept, sense, and alias rows, supplies the current manifest basis for index
+construction, and strictly rebuilds the asynchronous result before projection
+promotion or public DTO assembly. Relations, review items, proposal
+merge/create/review, manifests, diagnostics, and mutations stay application
+owned. Failed, cancelled, malformed, or oversized computation preserves the
+last projection registry state and durable rows. Production remains in-process;
+the Node worker is test-only.
+
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
 ## Runtime Principles
@@ -27,6 +37,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Citation Graph build compute accepts at most 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets, keeps Host reads and assembly outside the write lock, and replaces rows only for the captured durable sidecar-fact basis.
 - Advanced Reference Matching uses one bounded engine with separate binding and canonical-dedupe contracts. It captures repository facts under a short lock, computes both passes outside the lock, recaptures Host and repository basis, and atomically promotes accepted facts and proposals only when the basis remains current.
 - Tag Vocabulary validation and index construction use one strict synchronous engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. Canonical mutation validation remains inside the existing repository transaction; index failure or malformed output cannot advance projection registry state.
+- Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. Projection promotion remains application-owned; proposal matching is not part of the engine.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

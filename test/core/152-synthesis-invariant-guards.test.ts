@@ -530,4 +530,28 @@ describe("Synthesis invariant guards", function () {
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
     );
   });
+
+  it("keeps Concept KB index compute behind the environment-neutral engine boundary", function () {
+    const serviceSource = readRepoText("src/modules/synthesis/conceptKb.ts");
+    const publicServiceSource = readRepoText(
+      "src/modules/synthesis/service.ts",
+    );
+    const adapterSource = readRepoText(
+      "src/modules/synthesis/conceptKbIndexEngineAdapter.ts",
+    );
+    const engineSource = readRepoText(
+      "packages/synthesis-engine/src/conceptKbIndex.ts",
+    );
+
+    assert.include(serviceSource, "buildSynthesisConceptKbIndexWithEngine");
+    assert.include(serviceSource, "querySynthesisConceptKbWithEngine");
+    assert.notInclude(serviceSource, "function buildOverlayEntries(");
+    assert.notInclude(publicServiceSource, "function normalizedConceptKey(");
+    assert.include(adapterSource, "rebuildSynthesisConceptKbIndexResult");
+    assert.include(adapterSource, "rebuildSynthesisConceptKbQueryResult");
+    assert.notMatch(
+      engineSource,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+  });
 });

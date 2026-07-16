@@ -20,6 +20,14 @@ import {
   type SynthesisRepository,
   type SynthesisTopicConceptLinkRecord,
 } from "./repository";
+import {
+  createInProcessSynthesisConceptKbIndexEngine,
+  type SynthesisConceptKbIndexEngine,
+} from "../../../packages/synthesis-engine/src/conceptKbIndex";
+import {
+  buildSynthesisConceptKbIndexWithEngine,
+  querySynthesisConceptKbWithEngine,
+} from "./conceptKbIndexEngineAdapter";
 
 export const SYNTHESIS_CONCEPT_INDEX_TARGET = "concept-kb-index";
 export const SYNTHESIS_CONCEPT_SCHEMA_ID = "synthesis.concept";
@@ -194,6 +202,11 @@ export type SynthesisConceptKbSnapshot = {
   overlay_entries: SynthesisConceptOverlayEntry[];
 };
 
+type SynthesisConceptKbState = Omit<
+  SynthesisConceptKbSnapshot,
+  "overlay_entries"
+>;
+
 export type SynthesisConceptIndexProjection = {
   schema_id: "synthesis.concept_kb_index_projection";
   schema_version: string;
@@ -265,6 +278,7 @@ type ServiceOptions = {
   root: string;
   now?: () => string;
   repository?: SynthesisRepository;
+  engine?: SynthesisConceptKbIndexEngine;
 };
 
 function cleanString(value: unknown) {
@@ -678,56 +692,6 @@ function normalizeProposal(
   };
 }
 
-function buildOverlayEntries(args: {
-  concepts: SynthesisConcept[];
-  senses: SynthesisConceptSense[];
-  aliases: SynthesisConceptAlias[];
-}) {
-  const conceptsById = new Map(
-    args.concepts.map((entry) => [entry.concept_id, entry]),
-  );
-  const sensesById = new Map(
-    args.senses.map((entry) => [entry.sense_id, entry]),
-  );
-  const aliasesByNormalized = new Map<string, SynthesisConceptAlias[]>();
-  for (const alias of args.aliases) {
-    aliasesByNormalized.set(alias.normalized, [
-      ...(aliasesByNormalized.get(alias.normalized) || []),
-      alias,
-    ]);
-  }
-  const entries: SynthesisConceptOverlayEntry[] = [];
-  for (const alias of args.aliases) {
-    if (alias.status !== "active" || alias.confidence === "low") {
-      continue;
-    }
-    const matching = aliasesByNormalized.get(alias.normalized) || [];
-    const uniqueConcepts = new Set(matching.map((entry) => entry.concept_id));
-    if (uniqueConcepts.size > 1) {
-      continue;
-    }
-    const concept = conceptsById.get(alias.concept_id);
-    const sense = alias.sense_id ? sensesById.get(alias.sense_id) : undefined;
-    if (!concept || concept.status !== "active") {
-      continue;
-    }
-    entries.push({
-      concept_id: concept.concept_id,
-      sense_id: alias.sense_id,
-      alias: alias.alias,
-      label: concept.label,
-      short_definition: sense?.short_definition || concept.short_definition,
-      definition: sense?.definition || concept.definition,
-      confidence: alias.confidence,
-    });
-  }
-  return entries.sort(
-    (left, right) =>
-      right.alias.length - left.alias.length ||
-      left.alias.localeCompare(right.alias),
-  );
-}
-
 function jsonArrayText(values: unknown[]) {
   return JSON.stringify(Array.isArray(values) ? values : []);
 }
@@ -1020,30 +984,30 @@ function topicLinkFromRecord(
   };
 }
 
-function conceptProjectionFromSnapshot(args: {
-  snapshot: SynthesisConceptKbSnapshot;
+async function conceptProjectionFromState(args: {
+  engine: SynthesisConceptKbIndexEngine;
+  state: SynthesisConceptKbState;
   rebuiltAt: string;
-}): SynthesisConceptIndexProjection {
+}): Promise<SynthesisConceptIndexProjection> {
+  const index = await buildSynthesisConceptKbIndexWithEngine({
+    engine: args.engine,
+    source: args.state,
+    sourceManifestHash: args.state.manifest.manifest_hash,
+    rebuiltAt: args.rebuiltAt,
+  });
   return {
     schema_id: "synthesis.concept_kb_index_projection",
-    schema_version: SYNTHESIS_CONCEPT_INDEX_SCHEMA_VERSION,
-    source_manifest_hash: args.snapshot.manifest.manifest_hash,
-    rebuilt_at: args.rebuiltAt,
-    concepts: args.snapshot.concepts,
-    senses: args.snapshot.senses,
-    aliases: args.snapshot.aliases,
-    relations: args.snapshot.relations,
-    review_items: args.snapshot.review_items,
-    search: args.snapshot.concepts.map((concept) => ({
-      concept_id: concept.concept_id,
-      label: concept.label,
-      normalized:
-        `${concept.label} ${concept.aliases.join(" ")} ${concept.short_definition || ""} ${concept.definition || ""}`.toLowerCase(),
-      concept_type: concept.concept_type,
-      domain: concept.domain,
-    })),
-    overlay_entries: args.snapshot.overlay_entries,
-    diagnostics: args.snapshot.diagnostics,
+    schema_version: index.schemaVersion,
+    source_manifest_hash: index.sourceManifestHash,
+    rebuilt_at: index.rebuiltAt,
+    concepts: args.state.concepts,
+    senses: args.state.senses,
+    aliases: args.state.aliases,
+    relations: args.state.relations,
+    review_items: args.state.review_items,
+    search: index.search,
+    overlay_entries: index.overlayEntries,
+    diagnostics: args.state.diagnostics,
   };
 }
 
@@ -1053,6 +1017,8 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     throw new Error("Synthesis concept KB service requires a storage root");
   }
   const now = options.now || nowIso;
+  const engine =
+    options.engine || createInProcessSynthesisConceptKbIndexEngine();
   const repository =
     options.repository ||
     createSynthesisRepository({
@@ -1087,9 +1053,9 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     });
   }
 
-  async function loadConceptKb(
+  async function readConceptKbState(
     options: IndexRebuildOptions = {},
-  ): Promise<SynthesisConceptKbSnapshot> {
+  ): Promise<SynthesisConceptKbState> {
     await ensureConceptStore();
     const concepts = sortConcepts(
       repository.listConcepts().map(conceptFromRecord),
@@ -1126,7 +1092,22 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       manifest,
       projection: projectionState.projections[SYNTHESIS_CONCEPT_INDEX_TARGET],
       diagnostics: [],
-      overlay_entries: buildOverlayEntries({ concepts, senses, aliases }),
+    };
+  }
+
+  async function loadConceptKb(
+    options: IndexRebuildOptions = {},
+  ): Promise<SynthesisConceptKbSnapshot> {
+    const state = await readConceptKbState(options);
+    const index = await buildSynthesisConceptKbIndexWithEngine({
+      engine,
+      source: state,
+      sourceManifestHash: state.manifest.manifest_hash,
+      rebuiltAt: now(),
+    });
+    return {
+      ...state,
+      overlay_entries: index.overlayEntries,
     };
   }
 
@@ -2115,15 +2096,19 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
         message,
       });
     await reportProgress("load_source", "Load source", 0);
-    const snapshot = await loadConceptKb(options);
+    const state = await readConceptKbState(options);
     await reportProgress(
       "build_projection",
       "Build projection",
       1,
-      `${snapshot.concepts.length} concepts loaded`,
+      `${state.concepts.length} concepts loaded`,
     );
     const rebuiltAt = now();
-    const projection = conceptProjectionFromSnapshot({ snapshot, rebuiltAt });
+    const projection = await conceptProjectionFromState({
+      engine,
+      state,
+      rebuiltAt,
+    });
     await options.yieldControl?.();
     await reportProgress("write_projection", "Write projection", 2);
     await options.yieldControl?.();
@@ -2132,16 +2117,26 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
       root,
       target: SYNTHESIS_CONCEPT_INDEX_TARGET,
       schemaVersion: SYNTHESIS_CONCEPT_INDEX_SCHEMA_VERSION,
-      sourceManifestHash: snapshot.manifest.manifest_hash,
+      sourceManifestHash: state.manifest.manifest_hash,
       diagnostics: projection.diagnostics,
       now: rebuiltAt,
     });
   }
 
   async function readConceptKbIndexProjection() {
-    return conceptProjectionFromSnapshot({
-      snapshot: await loadConceptKb(),
+    return conceptProjectionFromState({
+      engine,
+      state: await readConceptKbState(),
       rebuiltAt: now(),
+    });
+  }
+
+  async function queryConceptKbCandidates(args: { labels: string[] }) {
+    const state = await readConceptKbState();
+    return querySynthesisConceptKbWithEngine({
+      engine,
+      source: state,
+      labels: args.labels,
     });
   }
 
@@ -2156,6 +2151,7 @@ export function createSynthesisConceptKbService(options: ServiceOptions) {
     exportConceptKbCheckpoint,
     rebuildConceptKbIndexProjection,
     readConceptKbIndexProjection,
+    queryConceptKbCandidates,
   };
 }
 

@@ -4,10 +4,12 @@ import {
   SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
+  type SynthesisConceptKbIndexEngine,
   type SynthesisReferenceBindingResult,
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
@@ -526,6 +528,7 @@ export type SynthesisServiceOptions = {
   citationGraphBuildEngine?: SynthesisCitationGraphBuildEngine;
   referenceMatcherEngine?: SynthesisReferenceMatcherEngine;
   tagVocabularyEngine?: SynthesisTagVocabularyEngine;
+  conceptKbIndexEngine?: SynthesisConceptKbIndexEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -6158,6 +6161,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const tagVocabularyEngine =
     options.tagVocabularyEngine ||
     createInProcessSynthesisTagVocabularyEngine();
+  const conceptKbIndexEngine =
+    options.conceptKbIndexEngine ||
+    createInProcessSynthesisConceptKbIndexEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -6174,6 +6180,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     root,
     now,
     repository: synthesisRepository,
+    engine: conceptKbIndexEngine,
   });
   const topicGraph = createSynthesisTopicGraphService({
     root,
@@ -6185,12 +6192,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     now,
     repository: synthesisRepository,
     tagVocabularyEngine,
+    conceptKbIndexEngine,
   });
   const checkpointExport = createSynthesisCheckpointExportService({
     root,
     now,
     repository: synthesisRepository,
     tagVocabularyEngine,
+    conceptKbIndexEngine,
   });
   let tagImportPreviewState:
     | {
@@ -20260,10 +20269,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  function normalizedConceptKey(value: unknown) {
-    return cleanString(value).toLocaleLowerCase().replace(/\s+/g, " ");
-  }
-
   async function queryConceptKb(args: Record<string, unknown> = {}) {
     const labels = Array.from(
       new Set(
@@ -20278,69 +20283,33 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           .filter(Boolean),
       ),
     ).slice(0, parsePositiveInteger(args.limit, 50, 100));
-    const snapshot = await conceptKb.loadConceptKb().catch((error) => ({
-      concepts: [],
-      senses: [],
-      aliases: [],
-      diagnostics: [
+    let results: Awaited<
+      ReturnType<typeof conceptKb.queryConceptKbCandidates>
+    >["matches"];
+    let diagnostics: unknown[] = [];
+    try {
+      results = (await conceptKb.queryConceptKbCandidates({ labels })).matches;
+    } catch (error) {
+      results = labels.map((label) => ({
+        label,
+        exact_matches: [],
+        alias_matches: [],
+        sense_candidates: [],
+        ambiguous: false,
+      }));
+      diagnostics = [
         {
           code: "concept_kb_unavailable",
           message: String((error as Error)?.message || error),
         },
-      ],
-    }));
-    const concepts = Array.isArray(snapshot.concepts)
-      ? snapshot.concepts.filter(isRecord)
-      : [];
-    const senses = Array.isArray((snapshot as Record<string, unknown>).senses)
-      ? ((snapshot as Record<string, unknown>).senses as unknown[]).filter(
-          isRecord,
-        )
-      : [];
-    const aliases = Array.isArray((snapshot as Record<string, unknown>).aliases)
-      ? ((snapshot as Record<string, unknown>).aliases as unknown[]).filter(
-          isRecord,
-        )
-      : [];
-    const conceptById = new Map(
-      concepts.map((concept) => [cleanString(concept.concept_id), concept]),
-    );
-    const results = labels.map((label) => {
-      const key = normalizedConceptKey(label);
-      const exact = concepts.filter(
-        (concept) => normalizedConceptKey(concept.label) === key,
-      );
-      const aliasMatches = aliases
-        .filter((alias) => normalizedConceptKey(alias.alias) === key)
-        .map((alias) => ({
-          alias,
-          concept: conceptById.get(cleanString(alias.concept_id)) || null,
-        }));
-      const candidateConceptIds = new Set<string>();
-      exact.forEach((concept) =>
-        candidateConceptIds.add(cleanString(concept.concept_id)),
-      );
-      aliasMatches.forEach((entry) =>
-        candidateConceptIds.add(cleanString(entry.alias.concept_id)),
-      );
-      const candidateSenses = senses.filter((sense) =>
-        candidateConceptIds.has(cleanString(sense.concept_id)),
-      );
-      return {
-        label,
-        exact_matches: exact,
-        alias_matches: aliasMatches,
-        sense_candidates: candidateSenses,
-        ambiguous: candidateConceptIds.size > 1,
-      };
-    });
+      ];
+    }
     return {
       ok: true,
       labels,
       matches: results,
       diagnostics: [
-        ...(((snapshot as Record<string, unknown>).diagnostics as unknown[]) ||
-          []),
+        ...diagnostics,
         {
           code: "bounded_read_only",
           message:

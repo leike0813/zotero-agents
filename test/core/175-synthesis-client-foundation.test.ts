@@ -3195,6 +3195,13 @@ describe("Synthesis client foundation", function () {
   it("classifies Host Bridge client boundary failures", async function () {
     const missing: any = createInProcessSynthesisClient({} as any);
     try {
+      await missing.concepts.query({});
+      assert.fail("expected unavailable Concept query");
+    } catch (error) {
+      assert.instanceOf(error, SynthesisClientError);
+      assert.equal((error as SynthesisClientError).code, "unavailable");
+    }
+    try {
       await missing.debug.snapshot({});
       assert.fail("expected unavailable");
     } catch (error) {

@@ -9,6 +9,7 @@ import {
 } from "d3-force";
 
 export * from "./canonicalJson";
+export * from "./conceptKbIndex";
 export * from "./referenceMatcher";
 export * from "./tagVocabulary";
 
