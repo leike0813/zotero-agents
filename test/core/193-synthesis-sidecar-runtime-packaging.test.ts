@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -17,6 +18,7 @@ import {
 import {
   computeSynthesisSidecarRuntimeBuildFingerprint,
   runtimeArchiveName,
+  SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -130,6 +132,58 @@ describe("Synthesis sidecar runtime packaging", function () {
         files: [...manifest.files, { ...manifest.files[0] }],
       }),
     );
+  });
+
+  it("assembles the compiled worker, engine, D3 runtime, and licenses", function () {
+    execFileSync(
+      process.execPath,
+      [
+        path.join(ROOT, "node_modules/typescript/bin/tsc"),
+        "-p",
+        path.join(ROOT, "apps/synthesis-service/tsconfig.build.json"),
+      ],
+      { cwd: ROOT, stdio: "pipe" },
+    );
+    const tempRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-sidecar-package-compute-"),
+    );
+    const nodeRoot = path.join(tempRoot, "node");
+    const outputRoot = path.join(tempRoot, "bundle");
+    fs.mkdirSync(path.join(nodeRoot, "bin"), { recursive: true });
+    fs.writeFileSync(path.join(nodeRoot, "bin", "node"), "node-runtime");
+    fs.writeFileSync(path.join(nodeRoot, "LICENSE"), "Node license\n");
+    execFileSync(
+      process.execPath,
+      [
+        path.join(ROOT, "node_modules/tsx/dist/cli.mjs"),
+        path.join(ROOT, "scripts/package-synthesis-sidecar-runtime.ts"),
+        "--target=linux-x64",
+        `--node-root=${nodeRoot}`,
+        `--output=${outputRoot}`,
+        `--upstream-sha256=${"a".repeat(64)}`,
+        "--upstream-signature=verified",
+        "--platform-signature=not-applicable",
+      ],
+      { cwd: ROOT, stdio: "pipe" },
+    );
+    const manifest = rebuildSynthesisSidecarRuntimeBundleManifest(
+      JSON.parse(
+        fs.readFileSync(path.join(outputRoot, "manifest.json"), "utf8"),
+      ),
+    );
+    const files = manifest.files.map((entry) => entry.path);
+    for (const required of [
+      "service/apps/synthesis-service/src/computeWorker.js",
+      "service/apps/synthesis-service/src/computeWorkerPool.js",
+      "service/packages/synthesis-engine/src/index.js",
+      "service/node_modules/d3-force/LICENSE",
+      "service/node_modules/d3-force/src/index.js",
+      "service/node_modules/d3-dispatch/LICENSE",
+      "service/node_modules/d3-quadtree/LICENSE",
+      "service/node_modules/d3-timer/LICENSE",
+    ]) {
+      assert.include(files, required);
+    }
   });
 
   it("installs a verified bundle without consulting system Node or PATH", async function () {
@@ -328,6 +382,37 @@ describe("Synthesis sidecar runtime packaging", function () {
     const second = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
     assert.equal(first.fingerprint, second.fingerprint);
     assert.include(first.inputs, "apps/synthesis-service/src/entrypoint.ts");
+    assert.include(first.inputs, "apps/synthesis-service/src/computeWorker.ts");
+    assert.include(
+      first.inputs,
+      "apps/synthesis-service/src/computeWorkerPool.ts",
+    );
+    assert.include(first.inputs, "packages/synthesis-engine/src/index.ts");
+    assert.include(first.inputs, "package-lock.json");
+    assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
+      "d3-dispatch",
+      "d3-force",
+      "d3-quadtree",
+      "d3-timer",
+    ]);
+    for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
+      assert.include(first.inputs, `node_modules/${packageName}/package.json`);
+      assert.include(first.inputs, `node_modules/${packageName}/LICENSE`);
+    }
+
+    const packageScript = fs.readFileSync(
+      path.join(ROOT, "scripts/package-synthesis-sidecar-runtime.ts"),
+      "utf8",
+    );
+    assert.include(packageScript, "copyComputeRuntimeDependencies");
+    assert.include(packageScript, 'path.join(targetRoot, "src")');
+    const xpiCheck = fs.readFileSync(
+      path.join(ROOT, "scripts/check-synthesis-sidecar-runtime-xpi.ts"),
+      "utf8",
+    );
+    assert.include(xpiCheck, "computeWorker.js");
+    assert.include(xpiCheck, "packages/synthesis-engine/src/index.js");
+    assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(
       runtimeArchiveName("linux-arm64"),

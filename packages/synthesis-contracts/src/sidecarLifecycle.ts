@@ -1,5 +1,9 @@
 import { SynthesisClientError, toSynthesisJsonObject } from "./common.js";
-import { SYNTHESIS_SIDECAR_PROTOCOL } from "./sidecarSystem.js";
+import {
+  SYNTHESIS_SIDECAR_CAPABILITIES,
+  SYNTHESIS_SIDECAR_PROTOCOL,
+  type SynthesisSidecarCapability,
+} from "./sidecarSystem.js";
 
 export const SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA =
   "synthesis-sidecar-launch-config.v1" as const;
@@ -67,6 +71,7 @@ export type SynthesisSidecarDiscovery = {
   pid: number;
   lifecycleState: "ready";
   tokenLocator: "supervisor-session";
+  capabilities: SynthesisSidecarCapability[];
 };
 
 function invalid(location: string): never {
@@ -328,6 +333,7 @@ export function rebuildSynthesisSidecarDiscovery(
       "pid",
       "lifecycleState",
       "tokenLocator",
+      "capabilities",
     ],
     "sidecarDiscovery",
   );
@@ -339,6 +345,16 @@ export function rebuildSynthesisSidecarDiscovery(
     record.tokenLocator !== "supervisor-session"
   ) {
     invalid("sidecarDiscovery.identity");
+  }
+  const capabilities = record.capabilities;
+  if (
+    !Array.isArray(capabilities) ||
+    capabilities.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => capabilities[index] === capability,
+    )
+  ) {
+    invalid("sidecarDiscovery.capabilities");
   }
   return Object.freeze({
     schema: SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA,
@@ -378,5 +394,6 @@ export function rebuildSynthesisSidecarDiscovery(
     pid: strictInteger(record.pid, "sidecarDiscovery.pid", 2),
     lifecycleState: "ready",
     tokenLocator: "supervisor-session",
+    capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
   });
 }

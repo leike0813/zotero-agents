@@ -19,12 +19,22 @@ export const SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION =
   SYNTHESIS_SIDECAR_NODE_VERSION;
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX =
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS;
+export const SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES = [
+  "d3-dispatch",
+  "d3-force",
+  "d3-quadtree",
+  "d3-timer",
+] as const;
 
 const FINGERPRINT_STATIC_INPUTS = [
   ".github/workflows/build-synthesis-sidecar-runtime.yml",
   "apps/synthesis-service/package.json",
   "apps/synthesis-service/tsconfig.json",
   "apps/synthesis-service/tsconfig.build.json",
+  "package.json",
+  "package-lock.json",
+  "packages/synthesis-engine/package.json",
+  "packages/synthesis-engine/tsconfig.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -53,14 +63,25 @@ async function collectFiles(root: string, relativeDir: string) {
 export async function synthesisSidecarRuntimeFingerprintInputs(
   root = process.cwd(),
 ) {
+  const computeRuntimeInputs = (
+    await Promise.all(
+      SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES.map(async (packageName) => [
+        `node_modules/${packageName}/package.json`,
+        `node_modules/${packageName}/LICENSE`,
+        ...(await collectFiles(root, `node_modules/${packageName}/src`)),
+      ]),
+    )
+  ).flat();
   const dynamicInputs = [
     ...(await collectFiles(root, "apps/synthesis-service/src")),
+    ...(await collectFiles(root, "packages/synthesis-engine/src")),
     ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
       (file) =>
         file.endsWith("/sidecarLifecycle.ts") ||
         file.endsWith("/sidecarSystem.ts") ||
         file.endsWith("/sidecarRuntimeBundle.ts"),
     ),
+    ...computeRuntimeInputs,
   ];
   return Array.from(
     new Set([...FINGERPRINT_STATIC_INPUTS, ...dynamicInputs]),

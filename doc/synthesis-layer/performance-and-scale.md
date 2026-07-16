@@ -116,7 +116,17 @@ strategy.
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-Citation Graph build, layout, complex metrics, and Tag Vocabulary index construction are current process-readiness exceptions to slice cancellation: their inputs are hard-bounded, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Tag canonical validation intentionally remains synchronous inside the repository transaction. Checkpoints support future cancellable runtimes; production cancellation and worker termination require a later topology change with explicit normal/target/stress policy.
+Citation Graph build, layout, complex metrics, and Tag Vocabulary index
+construction remain production process-readiness exceptions to slice
+cancellation: their in-process inputs are hard-bounded, but the production
+engines complete one deterministic computation after the applicable pre-start
+or phase budget check. The separate layout worker canary is constrained by the
+existing 1 MiB / 50,000 JSON-node wire policy, one active task, two waiting
+tasks, a five-second hard deadline, 100 ms cancellation grace, and a 500 ms pool
+shutdown budget. Its lazy worker and O(1) health snapshot keep supervisor
+steady-state overhead low; it does not change production layout performance or
+ownership. Tag canonical validation remains synchronous inside the repository
+transaction.
 
 ## External Source Drift Policy
 

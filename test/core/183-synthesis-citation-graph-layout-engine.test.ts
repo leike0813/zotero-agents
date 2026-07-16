@@ -305,7 +305,13 @@ describe("Synthesis Citation Graph layout engine", function () {
     const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
       (match) => match[1],
     );
-    assert.deepEqual(imports, ["d3-force"]);
+    assert.include(imports, "d3-force");
+    for (const specifier of imports) {
+      assert.notMatch(
+        specifier,
+        /^(?:node:|zotero-)|(?:repository|foundation|runtimePersistence|libraryAdapter|src\/modules)/,
+      );
+    }
   });
 
   it("returns the same canonical result through the Node worker canary", async function () {

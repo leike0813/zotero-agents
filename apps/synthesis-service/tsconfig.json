@@ -9,6 +9,8 @@
     "noEmit": true,
     "skipLibCheck": false,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "rootDir": "../.."
   },
   "include": [

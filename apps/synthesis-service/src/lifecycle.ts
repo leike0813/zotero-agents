@@ -10,6 +10,7 @@ import {
 } from "../../../packages/synthesis-contracts/src/sidecarLifecycle.js";
 import type { SynthesisSidecarRuntimeConfig } from "./runtimeConfig.js";
 import { writeServiceLog } from "./logging.js";
+import { SYNTHESIS_SIDECAR_CAPABILITIES } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 
 const DEFAULT_LEASE_CHECK_MS = 15_000;
 const DEFAULT_LEASE_TIMEOUT_MS = 120_000;
@@ -286,6 +287,7 @@ export function acquireSynthesisSidecarServiceLifecycle(args: {
         pid: process.pid,
         lifecycleState: "ready",
         tokenLocator: "supervisor-session",
+        capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
       };
       writeJsonAtomically(acquired.paths.discoveryPath, discovery);
     },

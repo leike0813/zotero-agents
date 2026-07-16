@@ -9,6 +9,7 @@ import {
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_BUILD_ROOT,
+  SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
   SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION,
   computeSynthesisSidecarRuntimeBuildFingerprint,
   computeSynthesisSidecarRuntimeBundleId,
@@ -78,6 +79,28 @@ async function copyServiceTree(root: string, outputRoot: string) {
   });
 }
 
+async function copyComputeRuntimeDependencies(
+  root: string,
+  outputRoot: string,
+) {
+  const modulesRoot = path.join(outputRoot, "service", "node_modules");
+  for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
+    const sourceRoot = path.join(root, "node_modules", packageName);
+    const targetRoot = path.join(modulesRoot, packageName);
+    await fs.mkdir(targetRoot, { recursive: true });
+    for (const entry of ["package.json", "LICENSE"]) {
+      await fs.copyFile(
+        path.join(sourceRoot, entry),
+        path.join(targetRoot, entry),
+      );
+    }
+    await fs.cp(path.join(sourceRoot, "src"), path.join(targetRoot, "src"), {
+      recursive: true,
+      dereference: false,
+    });
+  }
+}
+
 async function main() {
   const root = process.cwd();
   const target = targetArgument();
@@ -118,6 +141,7 @@ async function main() {
     path.join(outputRoot, "LICENSE-node.txt"),
   );
   await copyServiceTree(root, outputRoot);
+  await copyComputeRuntimeDependencies(root, outputRoot);
 
   const servicePackage = JSON.parse(
     await fs.readFile(

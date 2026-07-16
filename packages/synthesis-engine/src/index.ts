@@ -8,12 +8,12 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 
-export * from "./canonicalJson";
-export * from "./conceptKbIndex";
-export * from "./referenceMatcher";
-export * from "./tagVocabulary";
-export * from "./topicGraphIndex";
-export * from "./topicStructuredArtifact";
+export * from "./canonicalJson.ts";
+export * from "./conceptKbIndex.ts";
+export * from "./referenceMatcher.ts";
+export * from "./tagVocabulary.ts";
+export * from "./topicGraphIndex.ts";
+export * from "./topicStructuredArtifact.ts";
 
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX = 5000 as const;
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX = 20000 as const;

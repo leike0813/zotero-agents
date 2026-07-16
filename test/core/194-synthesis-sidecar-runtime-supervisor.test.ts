@@ -6,7 +6,10 @@ import {
   SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA,
   type SynthesisSidecarLaunchConfig,
 } from "../../packages/synthesis-contracts/src/sidecarLifecycle";
-import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import {
+  SYNTHESIS_SIDECAR_CAPABILITIES,
+  SYNTHESIS_SIDECAR_PROTOCOL,
+} from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   createSynthesisSidecarRuntimeSupervisor,
   synthesisSidecarRuntimeSupervisorInternalsForTests,
@@ -121,6 +124,7 @@ function createHarness(options?: {
           pid: 12345 + processes.length,
           lifecycleState: "ready",
           tokenLocator: "supervisor-session",
+          capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
         })}\n`,
         "utf8",
       );
@@ -325,6 +329,30 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.isTrue(harness.processes[0]!.stdinClosed());
     assert.isTrue(harness.processes[0]!.killed());
     assert.equal(harness.supervisor.getSnapshot().status, "stopped");
+  });
+
+  it("routes every service stop signal through bounded compute-pool termination", function () {
+    const entrypoint = fs.readFileSync(
+      path.join(process.cwd(), "apps/synthesis-service/src/entrypoint.ts"),
+      "utf8",
+    );
+    const server = fs.readFileSync(
+      path.join(process.cwd(), "apps/synthesis-service/src/server.ts"),
+      "utf8",
+    );
+    const pool = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "apps/synthesis-service/src/computeWorkerPool.ts",
+      ),
+      "utf8",
+    );
+    assert.include(entrypoint, 'runtime.beginShutdown("host_lease")');
+    assert.include(entrypoint, 'runtime.beginShutdown("host_pipe_eof")');
+    assert.include(server, "computePool.shutdown()");
+    assert.include(pool, "shutdownTimeoutMs: 500");
+    assert.include(pool, "target.terminate()");
+    assert.notInclude(pool, "node:child_process");
   });
 
   it("bounds retained diagnostic tails", function () {

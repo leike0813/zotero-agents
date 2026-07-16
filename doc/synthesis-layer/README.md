@@ -13,12 +13,13 @@ This directory is the canonical design anchor for the Synthesis Layer. It replac
 7. [Concepts](./concepts.md) defines Concept KB proposal ingestion, overlay context, review actions, and failure semantics.
 8. [Runtime and Rebuild](./runtime-and-rebuild.md) defines explicit cache refresh/review operations, reset/import/export, and failure recovery.
 9. [Sidecar Runtime Packaging](./sidecar-runtime-packaging.md) defines the product-owned Node bundle, managed installation, and rollback boundary.
-10. [Durable Bundle Sync](./webdav-durable-sync.md) defines WebDAV as the sole durable-state exchange transport and SQLite as the local materialized store.
-11. [Performance and Scale](./performance-and-scale.md) defines scale tiers, p95 targets, explicit operation budgets, and degraded-cache behavior.
-12. [State Machines](./state-machines.md) defines canonical object lifecycle transitions and forbidden transitions.
-13. [Sequences](./sequences.md) defines canonical cross-domain runtime flows.
-14. [Persistence and Files](./persistence-and-files.md) defines sidecar runtime state and the file write boundary.
-15. [Workbench UI](./workbench-ui.md) defines user-facing cache state, graph, review, explicit refresh, and dangerous action behavior.
+10. [Sidecar Runtime Supervision](./sidecar-runtime-supervision.md) defines profile lifecycle, low-interference monitoring, bounded layout compute, fault isolation, and shutdown.
+11. [Durable Bundle Sync](./webdav-durable-sync.md) defines WebDAV as the sole durable-state exchange transport and SQLite as the local materialized store.
+12. [Performance and Scale](./performance-and-scale.md) defines scale tiers, p95 targets, explicit operation budgets, and degraded-cache behavior.
+13. [State Machines](./state-machines.md) defines canonical object lifecycle transitions and forbidden transitions.
+14. [Sequences](./sequences.md) defines canonical cross-domain runtime flows.
+15. [Persistence and Files](./persistence-and-files.md) defines sidecar runtime state and the file write boundary.
+16. [Workbench UI](./workbench-ui.md) defines user-facing cache state, graph, review, explicit refresh, and dangerous action behavior.
 
 Related active contracts outside this directory:
 

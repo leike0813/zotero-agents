@@ -18,7 +18,10 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  isSynthesisSidecarComputeCapability,
+  isSynthesisSidecarSystemCapability,
   rebuildSynthesisSidecarCallRequest,
+  rebuildSynthesisSidecarComputePoolSnapshot,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { acquireSynthesisSidecarServiceLifecycle } from "../../apps/synthesis-service/src/lifecycle";
 
@@ -263,7 +266,40 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.deepEqual(SYNTHESIS_SIDECAR_CAPABILITIES, [
       "system.handshake",
       "system.shutdown",
+      "compute.citation_graph_layout",
     ]);
+    assert.isTrue(isSynthesisSidecarSystemCapability("system.handshake"));
+    assert.isFalse(
+      isSynthesisSidecarSystemCapability("compute.citation_graph_layout"),
+    );
+    assert.isTrue(
+      isSynthesisSidecarComputeCapability("compute.citation_graph_layout"),
+    );
+    assert.deepEqual(
+      rebuildSynthesisSidecarComputePoolSnapshot({
+        state: "idle",
+        active: 0,
+        queued: 0,
+        restartCount: 0,
+        failureCount: 0,
+      }),
+      {
+        state: "idle",
+        active: 0,
+        queued: 0,
+        restartCount: 0,
+        failureCount: 0,
+      },
+    );
+    assert.throws(() =>
+      rebuildSynthesisSidecarComputePoolSnapshot({
+        state: "busy",
+        active: 2,
+        queued: 0,
+        restartCount: 0,
+        failureCount: 0,
+      }),
+    );
     assert.equal(SYNTHESIS_SIDECAR_HEALTH_PATH, "/synthesis/v1/health");
     assert.equal(SYNTHESIS_SIDECAR_CALL_PATH, "/synthesis/v1/call");
     assert.deepEqual(
@@ -306,6 +342,13 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.equal(health.lifecycleState, "ready");
     assert.equal(health.supervisorInstanceId, SUPERVISOR_INSTANCE_ID);
     assert.equal(health.bundleId, BUNDLE_ID);
+    assert.deepEqual(health.computePool, {
+      state: "idle",
+      active: 0,
+      queued: 0,
+      restartCount: 0,
+      failureCount: 0,
+    });
     assert.isString(health.serviceInstanceId);
     assert.notProperty(health, "profileId");
     assert.notProperty(health, "runtimeRootId");
@@ -336,10 +379,12 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.equal(data.supervisorInstanceId, SUPERVISOR_INSTANCE_ID);
     assert.equal(data.mutationEnabled, false);
     assert.deepEqual(data.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
+    assert.deepEqual(data.computePool, health.computePool);
     assert.isFalse(fs.existsSync(service.configPath));
     const discovery = rebuildSynthesisSidecarDiscovery(
       JSON.parse(fs.readFileSync(service.discoveryPath, "utf8")),
     );
+    assert.deepEqual(discovery.capabilities, data.capabilities);
     assert.equal(discovery.profileId, PROFILE_ID);
     assert.equal(discovery.serviceInstanceId, data.serviceInstanceId);
     assert.notProperty(discovery, "clientToken");
@@ -349,6 +394,19 @@ describe("Synthesis sidecar runtime foundation", function () {
   it("fails closed on identity mismatch, unknown calls, and bounded input", async function () {
     const service = await startService();
     services.push(service);
+
+    const computeEnvelope = handshakeRequest({
+      requestId: "request:compute",
+      capability: "compute.citation_graph_layout",
+      payload: {},
+    });
+    assert.equal((await call(service, "", computeEnvelope)).status, 401);
+    const invalidCompute = await call(service, CLIENT_TOKEN, computeEnvelope);
+    assert.equal(invalidCompute.status, 400);
+    assert.equal(
+      (invalidCompute.body.error as Record<string, unknown>).code,
+      "invalid_request",
+    );
 
     const mismatchCases = [
       {

@@ -11,9 +11,30 @@ internal_engines:
   - id: citation_graph_layout
     contract: SynthesisCitationGraphLayoutEngine
     implementation: in_process
+    sidecar_worker_canary: true
     production_worker: false
   - id: citation_graph_metrics
     contract: SynthesisCitationGraphMetricsEngine
+    implementation: in_process
+    production_worker: false
+  - id: reference_matcher
+    contract: SynthesisReferenceMatcherEngine
+    implementation: in_process
+    production_worker: false
+  - id: tag_vocabulary
+    contract: SynthesisTagVocabularyEngine
+    implementation: in_process
+    production_worker: false
+  - id: concept_kb_index
+    contract: SynthesisConceptKbIndexEngine
+    implementation: in_process
+    production_worker: false
+  - id: topic_graph_index
+    contract: SynthesisTopicGraphIndexEngine
+    implementation: in_process
+    production_worker: false
+  - id: topic_structured_artifact
+    contract: SynthesisTopicStructuredArtifactEngine
     implementation: in_process
     production_worker: false
 

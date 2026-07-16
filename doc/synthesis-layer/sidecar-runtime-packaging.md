@@ -15,8 +15,9 @@ The current target matrix is:
 Prebuild CI verifies the Node release's signed SHASUMS with the official Node
 release keyring, checks the selected archive hash, and validates Authenticode
 or macOS signing/notarization where applicable. It then combines the minimal
-Node executable and license with the current compiled
-`apps/synthesis-service` JavaScript tree.
+Node executable and license with the compiled service worker, the
+`packages/synthesis-engine` JavaScript graph, and the exact runtime source and
+licenses for `d3-force`, `d3-dispatch`, `d3-quadtree`, and `d3-timer`.
 
 Each platform directory contains one strict
 `synthesis-sidecar-runtime-bundle.v1` manifest. The manifest identifies the
@@ -24,6 +25,12 @@ Node, service, protocol, target, build fingerprint, upstream archive, and every
 runtime file's size, SHA-256, and executable state. Unsafe relative paths,
 unknown fields, duplicate paths, symlinks, and incomplete runtime entrypoints
 are rejected.
+
+The build fingerprint covers service and worker sources, synthesis-engine
+sources, D3 runtime package metadata and files, root package metadata, and the
+lockfile. Runtime assembly never runs npm or downloads dependencies. Source
+verification checks these inputs without publishing the five platform
+prebuilds; publication remains part of the separate release pipeline.
 
 ## Managed Installation
 
@@ -55,7 +62,7 @@ runtime under the profile-scoped supervisor described in
 `sidecar-runtime-supervision.md`. The launcher uses no system Node, PATH, npm,
 or user shell.
 
-Activation is not production routing. The service remains mutation-disabled,
-has no workers or domain capabilities, and does not access production
-`synthesis.db` or Topic canonical current files. The default
-`SynthesisClient` remains in-process.
+Activation is not production routing. The service remains mutation-disabled
+and carries one lazy bounded Citation Graph layout worker canary, but it does
+not access production `synthesis.db` or Topic canonical current files. The
+default `SynthesisClient` and all eight production engines remain in-process.

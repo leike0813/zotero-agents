@@ -6,9 +6,10 @@ service entrypoint returned by the runtime installer. It does not inspect
 system Node, PATH, npm, a login shell, or the ACP process-control registry.
 
 The service is still mutation-disabled. It does not open production
-`synthesis.db`, Topic canonical files, Host capabilities, workers, or domain
-methods. The default production `SynthesisClient` remains the in-process
-composition.
+`synthesis.db`, Topic canonical files, or Host capabilities. It exposes one
+authenticated Citation Graph layout compute canary through a service-owned
+worker; the default production `SynthesisClient` and all production engine
+composition remain in-process.
 
 ## Profile Lifecycle
 
@@ -53,6 +54,23 @@ is 120 seconds, with a resume grace for long scheduling gaps. This fallback is
 for addon-realm failure; host process death normally arrives immediately as
 stdin EOF.
 
+## Bounded Compute Canary
+
+`compute.citation_graph_layout` is the only worker operation. The pool is lazy,
+runs one task, retains at most two waiting tasks, and rejects additional work
+with `worker_busy`; it is not an operation queue and writes no persistent state.
+The HTTP main thread, worker, and main-thread result boundary all use the strict
+layout rebuilders from `packages/synthesis-engine`.
+
+Each layout has a five-second hard deadline. Active cancellation gets 100 ms of
+cooperative grace before worker termination. The worker is limited to 256 MiB
+old generation, 32 MiB young generation, and a 4 MiB stack and has no database,
+canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or
+invalid output fails the active task and replaces the worker; three consecutive
+runtime faults degrade compute until service restart while health, handshake,
+and shutdown remain available. Health and handshake read an incrementally
+maintained O(1) pool snapshot.
+
 ## Recovery and Shutdown
 
 Transient launch, exit, or health failures restart after 1, 5, and 15 seconds.
@@ -61,11 +79,8 @@ Owner conflicts, unsupported or corrupt runtimes, private-file failures, and
 identity incompatibility require explicit recovery.
 
 stdout and stderr are continuously drained with bounded retained tails and do
-not drive per-chunk state updates. Controlled shutdown cancels deadlines,
-requests lifecycle-token shutdown, closes stdin, waits within the plugin
-shutdown budget, and directly kills the service process if required.
-
-The service is statically forbidden from creating descendants in this stage,
-so direct process termination covers the complete process tree. The worker-pool
-change must add service-owned worker drain and termination before enabling
-workers.
+not drive per-chunk state updates. Controlled shutdown stops compute admission,
+cancels queued and active tasks, and terminates the worker within one 500 ms pool
+budget before closing the server. The plugin then waits within its own shutdown
+budget and directly kills the service process if required; terminating that Node
+process also terminates its worker threads.

@@ -119,8 +119,10 @@ describe("Synthesis invariant guards", function () {
       .join("\n");
     assert.notMatch(
       sources,
-      /(?:src\/modules\/synthesis|synthesis\/service|repository|canonical|hostEffect|webDavSync|synthesis-engine|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|repository|hostEffect|webDavSync|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
     );
+    assert.include(sources, "citation_graph_layout.v1");
+    assert.include(sources, "SYNTHESIS_SIDECAR_COMPUTE_LIMITS");
     assert.include(
       readRepoText("src/modules/synthesisClient/defaultClient.ts"),
       "createDefaultLegacySynthesisClientComposition",

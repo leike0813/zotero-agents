@@ -1,0 +1,458 @@
+import { assert } from "chai";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { Worker, type WorkerOptions } from "node:worker_threads";
+import {
+  createInProcessSynthesisCitationGraphLayoutEngine,
+  rebuildSynthesisCitationGraphLayoutRequest,
+  type SynthesisCitationGraphLayoutRequest,
+} from "../../packages/synthesis-engine/src/index";
+import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import {
+  ComputeWorkerPoolError,
+  createSynthesisSidecarComputeWorkerPool,
+  SYNTHESIS_SIDECAR_COMPUTE_LIMITS,
+} from "../../apps/synthesis-service/src/computeWorkerPool";
+import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
+import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
+import { createSynthesisSidecarComputeClient } from "../../src/modules/synthesisSidecarComputeClient";
+
+const ROOT = path.resolve(import.meta.dirname, "../..");
+const BUILT_WORKER = new URL(
+  "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
+  import.meta.url,
+);
+const FIXTURE_WORKER = new URL(
+  "../fixtures/synthesis-sidecar-compute-worker.mjs",
+  import.meta.url,
+);
+const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
+
+function request(prefix = "0"): SynthesisCitationGraphLayoutRequest {
+  return rebuildSynthesisCitationGraphLayoutRequest({
+    graphHash: `sha256:${prefix}${"0".repeat(63)}`,
+    algorithm: "components",
+    nodes: [
+      {
+        nodeId: "zotero:item:AAAA1111",
+        kind: "library_paper",
+        title: "Paper",
+        year: "2024",
+        initialX: 0,
+        initialY: 0,
+      },
+    ],
+    edges: [],
+  });
+}
+
+function errorCode(error: unknown) {
+  return error instanceof ComputeWorkerPoolError ? error.code : "unknown";
+}
+
+function fixturePool(
+  overrides: {
+    executionTimeoutMs?: number;
+    cancellationGraceMs?: number;
+    shutdownTimeoutMs?: number;
+  } = {},
+) {
+  return createSynthesisSidecarComputeWorkerPool({
+    workerUrl: FIXTURE_WORKER,
+    executionTimeoutMs: overrides.executionTimeoutMs ?? 250,
+    cancellationGraceMs: overrides.cancellationGraceMs ?? 20,
+    shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 100,
+  });
+}
+
+function runtimeConfig(): SynthesisSidecarRuntimeConfig {
+  return {
+    schema: "synthesis-sidecar-launch-config.v1",
+    profileId: "1".repeat(64),
+    profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-profile"),
+    runtimeRootId: "2".repeat(64),
+    dataRootId: "3".repeat(64),
+    bundleId: "4".repeat(64),
+    nodeVersion: "24.18.0",
+    serviceVersion: "0.1.0-test",
+    protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
+    schemaVersion: "synthesis-schema.test.v1",
+    supervisorInstanceId: "supervisor-test",
+    leaseNonce: "lease-test",
+    clientToken: CLIENT_TOKEN,
+    lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
+    mutationEnabled: false,
+    port: 0,
+  };
+}
+
+async function httpCall(args: {
+  baseUrl: string;
+  config: SynthesisSidecarRuntimeConfig;
+  capability: string;
+  payload: Record<string, unknown>;
+  lifecycle?: boolean;
+  signal?: AbortSignal;
+}) {
+  const response = await fetch(`${args.baseUrl}/synthesis/v1/call`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${
+        args.lifecycle ? args.config.lifecycleToken : args.config.clientToken
+      }`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+      requestId: `request:${args.capability}:${Date.now()}`,
+      profileId: args.config.profileId,
+      capability: args.capability,
+      payload: args.payload,
+    }),
+    signal: args.signal,
+  });
+  return {
+    status: response.status,
+    body: (await response.json()) as Record<string, unknown>,
+  };
+}
+
+describe("Synthesis sidecar compute worker pool", function () {
+  this.timeout(15_000);
+
+  before(function () {
+    execFileSync(
+      process.execPath,
+      [
+        path.join(ROOT, "node_modules/typescript/bin/tsc"),
+        "-p",
+        path.join(ROOT, "apps/synthesis-service/tsconfig.build.json"),
+      ],
+      { cwd: ROOT, stdio: "pipe" },
+    );
+  });
+
+  it("lazily spawns one resource-bounded worker and matches direct layout", async function () {
+    assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_LIMITS, {
+      concurrency: 1,
+      maxQueued: 2,
+      executionTimeoutMs: 5_000,
+      cancellationGraceMs: 100,
+      shutdownTimeoutMs: 500,
+      resourceLimits: {
+        maxOldGenerationSizeMb: 256,
+        maxYoungGenerationSizeMb: 32,
+        stackSizeMb: 4,
+      },
+    });
+    let spawns = 0;
+    let options: WorkerOptions | undefined;
+    const pool = createSynthesisSidecarComputeWorkerPool({
+      workerUrl: BUILT_WORKER,
+      workerFactory(url, workerOptions) {
+        spawns += 1;
+        options = workerOptions;
+        return new Worker(url, workerOptions);
+      },
+    });
+    assert.equal(spawns, 0);
+    assert.deepEqual(pool.snapshot(), {
+      state: "idle",
+      active: 0,
+      queued: 0,
+      restartCount: 0,
+      failureCount: 0,
+    });
+    try {
+      const input = request();
+      const [workerResult, directResult] = await Promise.all([
+        pool.runCitationGraphLayout(input),
+        createInProcessSynthesisCitationGraphLayoutEngine().compute(input),
+      ]);
+      assert.deepEqual(workerResult, directResult);
+      assert.equal(spawns, 1);
+      assert.deepEqual(options?.resourceLimits, {
+        maxOldGenerationSizeMb: 256,
+        maxYoungGenerationSizeMb: 32,
+        stackSizeMb: 4,
+      });
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("bounds admission, removes queued aborts, and terminates active aborts", async function () {
+    const pool = fixturePool();
+    const activeAbort = new AbortController();
+    const queuedAbort = new AbortController();
+    const active = pool
+      .runCitationGraphLayout(request("a"), { signal: activeAbort.signal })
+      .catch(errorCode);
+    const queued = pool
+      .runCitationGraphLayout(request("a"), { signal: queuedAbort.signal })
+      .catch(errorCode);
+    const secondQueued = pool
+      .runCitationGraphLayout(request())
+      .then(() => "success")
+      .catch(errorCode);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(pool.snapshot(), {
+      state: "busy",
+      active: 1,
+      queued: 2,
+      restartCount: 0,
+      failureCount: 0,
+    });
+    assert.equal(
+      await pool.runCitationGraphLayout(request("a")).catch(errorCode),
+      "worker_busy",
+    );
+    queuedAbort.abort();
+    assert.equal(await queued, "worker_canceled");
+    activeAbort.abort();
+    assert.equal(await active, "worker_canceled");
+    assert.equal(await secondQueued, "success");
+    await pool.shutdown();
+
+    const timeoutPool = fixturePool();
+    assert.equal(
+      await timeoutPool.runCitationGraphLayout(request("a")).catch(errorCode),
+      "worker_timeout",
+    );
+    assert.equal(timeoutPool.snapshot().restartCount, 1);
+    assert.equal(timeoutPool.snapshot().failureCount, 1);
+    await timeoutPool.shutdown();
+  });
+
+  it("replaces runtime faults and degrades after three consecutive failures", async function () {
+    const pool = fixturePool({ executionTimeoutMs: 500 });
+    assert.equal(
+      await pool.runCitationGraphLayout(request("d")).catch(errorCode),
+      "worker_crashed",
+    );
+    assert.equal(
+      (await pool.runCitationGraphLayout(request())).nodes.length,
+      1,
+    );
+    for (let index = 1; index <= 3; index += 1) {
+      assert.equal(
+        await pool.runCitationGraphLayout(request("b")).catch(errorCode),
+        "worker_crashed",
+      );
+      assert.equal(pool.snapshot().failureCount, index + 1);
+    }
+    assert.deepEqual(pool.snapshot(), {
+      state: "degraded",
+      active: 0,
+      queued: 0,
+      restartCount: 4,
+      failureCount: 4,
+    });
+    assert.equal(
+      await pool.runCitationGraphLayout(request()).catch(errorCode),
+      "worker_unavailable",
+    );
+    await pool.shutdown();
+
+    const restarted = createSynthesisSidecarComputeWorkerPool({
+      workerUrl: BUILT_WORKER,
+    });
+    try {
+      assert.equal(restarted.snapshot().state, "idle");
+      assert.equal(
+        (await restarted.runCitationGraphLayout(request())).nodes.length,
+        1,
+      );
+    } finally {
+      await restarted.shutdown();
+    }
+  });
+
+  it("classifies invalid results and clears a full pool within shutdown budget", async function () {
+    const invalidPool = fixturePool({ executionTimeoutMs: 500 });
+    assert.equal(
+      await invalidPool.runCitationGraphLayout(request("c")).catch(errorCode),
+      "worker_result_invalid",
+    );
+    await invalidPool.shutdown();
+
+    const pool = fixturePool({ shutdownTimeoutMs: 100 });
+    const tasks = [
+      pool.runCitationGraphLayout(request("a")).catch(errorCode),
+      pool.runCitationGraphLayout(request("a")).catch(errorCode),
+      pool.runCitationGraphLayout(request("a")).catch(errorCode),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const startedAt = Date.now();
+    await pool.shutdown();
+    assert.isAtMost(Date.now() - startedAt, 150);
+    assert.deepEqual(await Promise.all(tasks), [
+      "worker_canceled",
+      "worker_canceled",
+      "worker_canceled",
+    ]);
+    assert.equal(pool.snapshot().state, "stopping");
+  });
+
+  it("keeps real HTTP health and handshake responsive and supports the strict internal client", async function () {
+    const config = runtimeConfig();
+    const pool = createSynthesisSidecarComputeWorkerPool({
+      workerUrl: BUILT_WORKER,
+    });
+    const runtime = await startSynthesisSidecarServer(config, "service-test", {
+      computePool: pool,
+    });
+    const baseUrl = `http://${runtime.host}:${runtime.port}`;
+    try {
+      const client = createSynthesisSidecarComputeClient();
+      const compute = client.computeCitationGraphLayout(
+        {
+          baseUrl,
+          profileId: config.profileId,
+          clientToken: config.clientToken,
+        },
+        request(),
+      );
+      const [health, result] = await Promise.all([
+        fetch(`${baseUrl}/synthesis/v1/health`).then((response) =>
+          response.json(),
+        ) as Promise<Record<string, unknown>>,
+        compute,
+      ]);
+      assert.equal(health.status, "ok");
+      assert.property(health, "computePool");
+      assert.equal(result.nodes.length, 1);
+    } finally {
+      runtime.beginShutdown("test_complete");
+      await runtime.stopped;
+    }
+  });
+
+  it("makes the internal compute client deadline-aware and strict about results", async function () {
+    const connection = {
+      baseUrl: "http://127.0.0.1:1",
+      profileId: "1".repeat(64),
+      clientToken: CLIENT_TOKEN,
+    };
+    const invalidClient = createSynthesisSidecarComputeClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ ok: true, data: {} }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    let invalidResultRejected = false;
+    try {
+      await invalidClient.computeCitationGraphLayout(connection, request());
+    } catch {
+      invalidResultRejected = true;
+    }
+    assert.isTrue(invalidResultRejected);
+
+    let deadlineObserved = false;
+    const deadlineClient = createSynthesisSidecarComputeClient({
+      deadlineMs: 20,
+      fetch: async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              deadlineObserved = true;
+              reject(init.signal?.reason);
+            },
+            { once: true },
+          );
+        }),
+    });
+    await deadlineClient
+      .computeCitationGraphLayout(connection, request())
+      .catch(() => undefined);
+    assert.isTrue(deadlineObserved);
+  });
+
+  it("keeps health, handshake, disconnect cancellation, and shutdown responsive under saturation", async function () {
+    const config = runtimeConfig();
+    const pool = fixturePool({
+      executionTimeoutMs: 5_000,
+      cancellationGraceMs: 20,
+      shutdownTimeoutMs: 100,
+    });
+    const runtime = await startSynthesisSidecarServer(config, "service-busy", {
+      computePool: pool,
+    });
+    const baseUrl = `http://${runtime.host}:${runtime.port}`;
+    const controller = new AbortController();
+    const disconnected = httpCall({
+      baseUrl,
+      config,
+      capability: "compute.citation_graph_layout",
+      payload: request("a"),
+      signal: controller.signal,
+    }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await disconnected;
+    const disconnectDeadline = Date.now() + 500;
+    while (pool.snapshot().active && Date.now() < disconnectDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.deepEqual(pool.snapshot(), {
+      state: "idle",
+      active: 0,
+      queued: 0,
+      restartCount: 0,
+      failureCount: 0,
+    });
+
+    const computes = [0, 1, 2].map(() =>
+      httpCall({
+        baseUrl,
+        config,
+        capability: "compute.citation_graph_layout",
+        payload: request("a"),
+      }).catch(() => undefined),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(pool.snapshot().queued, 2);
+    const startedAt = Date.now();
+    const [health, handshake] = await Promise.all([
+      fetch(`${baseUrl}/synthesis/v1/health`).then((response) =>
+        response.json(),
+      ) as Promise<{ computePool: { state: string; queued: number } }>,
+      httpCall({
+        baseUrl,
+        config,
+        capability: "system.handshake",
+        payload: {
+          schemaVersion: config.schemaVersion,
+          bundleId: config.bundleId,
+          supervisorInstanceId: config.supervisorInstanceId,
+        },
+      }),
+    ]);
+    assert.isBelow(Date.now() - startedAt, 250);
+    assert.deepEqual(health.computePool, {
+      state: "busy",
+      active: 1,
+      queued: 2,
+      restartCount: 0,
+      failureCount: 0,
+    });
+    assert.equal(handshake.status, 200);
+    assert.deepEqual(
+      (handshake.body.data as { computePool: unknown }).computePool,
+      health.computePool,
+    );
+    const shutdown = await httpCall({
+      baseUrl,
+      config,
+      capability: "system.shutdown",
+      payload: {},
+      lifecycle: true,
+    });
+    assert.equal(shutdown.status, 200);
+    await runtime.stopped;
+    await Promise.all(computes);
+    assert.equal(pool.snapshot().state, "stopping");
+  });
+});

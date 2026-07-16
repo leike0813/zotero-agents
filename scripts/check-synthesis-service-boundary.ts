@@ -55,6 +55,11 @@ const INVENTORY_PATH = path.join(
   "doc/synthesis-layer/contracts/service-api-migration.yaml",
 );
 const CONTRACTS_ROOT = path.join(ROOT_DIR, "packages/synthesis-contracts/src");
+const SIDECAR_APP_ROOT = path.join(ROOT_DIR, "apps/synthesis-service/src");
+const WORKER_THREAD_ALLOWLIST = new Set([
+  "apps/synthesis-service/src/computeWorker.ts",
+  "apps/synthesis-service/src/computeWorkerPool.ts",
+]);
 const VALID_CATEGORIES = new Set<MethodCategory>([
   "query",
   "command",
@@ -226,6 +231,50 @@ export function findSynthesisContractBoundaryViolations(): string[] {
   return violations.sort();
 }
 
+export function findSynthesisSidecarAppBoundaryViolations(): string[] {
+  const violations: string[] = [];
+  for (const filePath of walkTypeScriptFiles(SIDECAR_APP_ROOT)) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    if (
+      /from\s+["']node:worker_threads["']/.test(source) &&
+      !WORKER_THREAD_ALLOWLIST.has(relativePath)
+    ) {
+      violations.push(`${relativePath}: worker_threads import is not allowed`);
+    }
+    if (
+      /\bnew\s+Worker\s*\(/.test(source) &&
+      !relativePath.endsWith("/computeWorkerPool.ts")
+    ) {
+      violations.push(`${relativePath}: Worker construction is not allowed`);
+    }
+    for (const forbidden of [
+      /node:child_process/,
+      /src\/modules\/synthesis/,
+      /synthesis\/repository/,
+      /synthesis\/service/,
+      /hostEffect|hostRead|webDavSync/,
+      /globalThis\.Zotero|zotero-plugin/,
+    ]) {
+      if (forbidden.test(source)) {
+        violations.push(
+          `${relativePath}: forbidden service authority ${forbidden.source}`,
+        );
+      }
+    }
+  }
+  for (const filePath of walkTypeScriptFiles(
+    path.join(ROOT_DIR, "packages/synthesis-engine/src"),
+  )) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    if (/node:worker_threads|node:child_process/.test(source)) {
+      violations.push(`${relativePath}: forbidden Node process authority`);
+    }
+  }
+  return violations.sort();
+}
+
 function duplicates(values: string[]): string[] {
   const seen = new Set<string>();
   const duplicateValues = new Set<string>();
@@ -244,6 +293,7 @@ export function inspectSynthesisServiceBoundary() {
   const inventoryMethodNames = inventory.methods.map((method) => method.name);
   const directConsumers = findSynthesisDirectConsumers();
   const contractViolations = findSynthesisContractBoundaryViolations();
+  const sidecarAppViolations = findSynthesisSidecarAppBoundaryViolations();
   const inventoryConsumers = inventory.direct_consumers
     .map((consumer) => consumer.path)
     .sort();
@@ -282,6 +332,7 @@ export function inspectSynthesisServiceBoundary() {
       (consumer) => !directConsumerSet.has(consumer),
     ),
     contractViolations,
+    sidecarAppViolations,
   };
 }
 
@@ -294,6 +345,7 @@ function runCli() {
     missingConsumers: report.missingConsumers,
     unknownConsumers: report.unknownConsumers,
     contractViolations: report.contractViolations,
+    sidecarAppViolations: report.sidecarAppViolations,
   };
   const hasErrors = Object.values(errors).some((values) => values.length > 0);
   process.stdout.write(

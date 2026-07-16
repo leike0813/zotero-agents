@@ -992,10 +992,15 @@ graph layout 作为第一条 process canary，因为：
 - 已交付 `package-synthesis-sidecar-runtime`：固定 Node `24.18.0` 的五平台
   product-owned runtime、严格 bundle manifest、上游签名与文件哈希门禁、版本化
   staged install、atomic active/previous pointer、repair 和 rollback。
-- 当前 packaged runtime 尚未由插件启动、发现或监督，也不加载 engine、不提供
-  remote `SynthesisClient`、不访问 SQLite/canonical/Host 数据。
-- 后续按完整 launcher/supervisor、bounded worker pool、remote system client 的
-  顺序继续；production owner 仍是 Zotero 插件内的 in-process composition。
+- 已交付 `supervise-synthesis-sidecar-runtime`：插件按 profile 非阻塞启动、发现和
+  监督 verified runtime，以低频单 scheduler 维护 lease/health，并提供 bounded
+  shutdown、restart backoff 与 crash-loop fuse。
+- 已交付 `add-synthesis-sidecar-compute-worker-pool`：service 懒启动单 worker，固定
+  一项 active、两项 waiting、五秒 deadline、100ms cancel grace、500ms shutdown
+  预算和三次连续故障熔断；Citation Graph layout 是首个 authenticated canary。
+- runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
+  数据。八个 production engine 和 production owner 仍在 Zotero 插件内的
+  in-process composition；layout 尚未切 production route。
 
 #### 任务
 

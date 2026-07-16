@@ -3,6 +3,7 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  rebuildSynthesisSidecarComputePoolSnapshot,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarHandshakeResult,
   type SynthesisSidecarHealth,
@@ -57,6 +58,14 @@ function validateHealth(
   connection: SynthesisSidecarControlConnection,
 ): SynthesisSidecarHealth {
   const health = value as Partial<SynthesisSidecarHealth>;
+  let computePool;
+  try {
+    computePool = rebuildSynthesisSidecarComputePoolSnapshot(
+      health.computePool,
+    );
+  } catch {
+    throw new Error("sidecar_health_identity_mismatch");
+  }
   if (
     !health ||
     health.status !== "ok" ||
@@ -69,7 +78,7 @@ function validateHealth(
   ) {
     throw new Error("sidecar_health_identity_mismatch");
   }
-  return health as SynthesisSidecarHealth;
+  return { ...(health as SynthesisSidecarHealth), computePool };
 }
 
 function validateHandshake(
@@ -82,6 +91,12 @@ function validateHandshake(
     data?: Partial<SynthesisSidecarHandshakeResult>;
   };
   const data = response.data;
+  let computePool;
+  try {
+    computePool = rebuildSynthesisSidecarComputePoolSnapshot(data?.computePool);
+  } catch {
+    throw new Error("sidecar_handshake_identity_mismatch");
+  }
   if (
     response.ok !== true ||
     response.serviceInstanceId !== connection.discovery.serviceInstanceId ||
@@ -106,7 +121,7 @@ function validateHandshake(
   ) {
     throw new Error("sidecar_handshake_identity_mismatch");
   }
-  return data as SynthesisSidecarHandshakeResult;
+  return { ...(data as SynthesisSidecarHandshakeResult), computePool };
 }
 
 async function callSystem(args: {

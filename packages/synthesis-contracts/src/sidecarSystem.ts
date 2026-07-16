@@ -8,9 +8,16 @@ export const SYNTHESIS_SIDECAR_PROTOCOL = "synthesis-sidecar.v1" as const;
 export const SYNTHESIS_SIDECAR_HEALTH_PATH = "/synthesis/v1/health" as const;
 export const SYNTHESIS_SIDECAR_CALL_PATH = "/synthesis/v1/call" as const;
 
-export const SYNTHESIS_SIDECAR_CAPABILITIES = [
+export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
   "system.handshake",
   "system.shutdown",
+] as const;
+export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
+  "compute.citation_graph_layout",
+] as const;
+export const SYNTHESIS_SIDECAR_CAPABILITIES = [
+  ...SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES,
 ] as const;
 
 export const SYNTHESIS_SIDECAR_LIMITS = {
@@ -24,9 +31,26 @@ export const SYNTHESIS_SIDECAR_LIMITS = {
 } as const;
 
 export type SynthesisSidecarSystemCapability =
+  (typeof SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES)[number];
+export type SynthesisSidecarComputeCapability =
+  (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
+export type SynthesisSidecarCapability =
   (typeof SYNTHESIS_SIDECAR_CAPABILITIES)[number];
 
 export type SynthesisSidecarLifecycleState = "starting" | "ready" | "stopping";
+export type SynthesisSidecarComputePoolState =
+  | "idle"
+  | "busy"
+  | "degraded"
+  | "stopping";
+
+export type SynthesisSidecarComputePoolSnapshot = {
+  state: SynthesisSidecarComputePoolState;
+  active: 0 | 1;
+  queued: number;
+  restartCount: number;
+  failureCount: number;
+};
 
 export type SynthesisSidecarCallRequest = {
   protocol: string;
@@ -44,6 +68,7 @@ export type SynthesisSidecarHealth = {
   supervisorInstanceId: string;
   bundleId: string;
   lifecycleState: SynthesisSidecarLifecycleState;
+  computePool: SynthesisSidecarComputePoolSnapshot;
 };
 
 export type SynthesisSidecarHandshakePayload = {
@@ -63,9 +88,10 @@ export type SynthesisSidecarHandshakeResult = {
   schemaVersion: string;
   runtimeRootId: string;
   dataRootId: string;
-  capabilities: SynthesisSidecarSystemCapability[];
+  capabilities: SynthesisSidecarCapability[];
   mutationEnabled: false;
   lifecycleState: "ready";
+  computePool: SynthesisSidecarComputePoolSnapshot;
 };
 
 export type SynthesisSidecarShutdownResult = {
@@ -91,6 +117,12 @@ export type SynthesisSidecarErrorCode =
   | "runtime_mismatch"
   | "capability_not_found"
   | "service_not_ready"
+  | "worker_busy"
+  | "worker_timeout"
+  | "worker_canceled"
+  | "worker_crashed"
+  | "worker_result_invalid"
+  | "worker_unavailable"
   | "internal_error";
 
 export type SynthesisSidecarError = {
@@ -166,5 +198,86 @@ export function rebuildSynthesisSidecarCallRequest(
 export function isSynthesisSidecarSystemCapability(
   value: string,
 ): value is SynthesisSidecarSystemCapability {
+  return (SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarComputeCapability(
+  value: string,
+): value is SynthesisSidecarComputeCapability {
+  return (SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarCapability(
+  value: string,
+): value is SynthesisSidecarCapability {
   return (SYNTHESIS_SIDECAR_CAPABILITIES as readonly string[]).includes(value);
+}
+
+export function rebuildSynthesisSidecarComputePoolSnapshot(
+  value: unknown,
+): SynthesisSidecarComputePoolSnapshot {
+  const json = toSynthesisJsonObject(value, "sidecarComputePoolSnapshot");
+  const expected = [
+    "state",
+    "active",
+    "queued",
+    "restartCount",
+    "failureCount",
+  ];
+  const keys = Object.keys(json).sort();
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== [...expected].sort()[index])
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarComputePoolSnapshot fields are invalid",
+      { location: "sidecarComputePoolSnapshot" },
+    );
+  }
+  if (
+    json.state !== "idle" &&
+    json.state !== "busy" &&
+    json.state !== "degraded" &&
+    json.state !== "stopping"
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarComputePoolSnapshot.state is invalid",
+      { location: "sidecarComputePoolSnapshot.state" },
+    );
+  }
+  const integer = (entry: unknown, location: string, max?: number) => {
+    if (
+      typeof entry !== "number" ||
+      !Number.isSafeInteger(entry) ||
+      entry < 0 ||
+      (max !== undefined && entry > max)
+    ) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `${location} is invalid`,
+        { location },
+      );
+    }
+    return entry;
+  };
+  const active = integer(json.active, "sidecarComputePoolSnapshot.active", 1);
+  return {
+    state: json.state,
+    active: active as 0 | 1,
+    queued: integer(json.queued, "sidecarComputePoolSnapshot.queued", 2),
+    restartCount: integer(
+      json.restartCount,
+      "sidecarComputePoolSnapshot.restartCount",
+    ),
+    failureCount: integer(
+      json.failureCount,
+      "sidecarComputePoolSnapshot.failureCount",
+    ),
+  };
 }

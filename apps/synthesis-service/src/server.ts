@@ -11,12 +11,23 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  isSynthesisSidecarCapability,
+  isSynthesisSidecarComputeCapability,
   isSynthesisSidecarSystemCapability,
   type SynthesisSidecarHealth,
   type SynthesisSidecarLifecycleState,
   type SynthesisSidecarSuccess,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
-import type { SynthesisJsonObject } from "../../../packages/synthesis-contracts/src/common.js";
+import {
+  toSynthesisJsonObject,
+  type SynthesisJsonObject,
+} from "../../../packages/synthesis-contracts/src/common.js";
+import { rebuildSynthesisCitationGraphLayoutRequest } from "../../../packages/synthesis-engine/src/index.js";
+import {
+  ComputeWorkerPoolError,
+  createSynthesisSidecarComputeWorkerPool,
+  type SynthesisSidecarComputeWorkerPool,
+} from "./computeWorkerPool.js";
 import {
   buildFailure,
   SidecarRuntimeError,
@@ -35,6 +46,10 @@ export type SynthesisSidecarRuntime = {
   serviceInstanceId: string;
   beginShutdown(reason: string): void;
   stopped: Promise<void>;
+};
+
+type SynthesisSidecarServerOptions = {
+  computePool?: SynthesisSidecarComputeWorkerPool;
 };
 
 function bearerToken(request: IncomingMessage): string {
@@ -126,9 +141,27 @@ function requireEmptyPayload(payload: SynthesisJsonObject) {
   }
 }
 
+function computeRuntimeError(error: ComputeWorkerPoolError) {
+  const statusByCode = {
+    worker_busy: 429,
+    worker_timeout: 504,
+    worker_canceled: 499,
+    worker_crashed: 503,
+    worker_result_invalid: 502,
+    worker_unavailable: 503,
+  } as const;
+  return new SidecarRuntimeError({
+    status: statusByCode[error.code],
+    code: error.code,
+    message: "The Synthesis sidecar compute request failed.",
+    retryable: error.retryable,
+  });
+}
+
 export async function startSynthesisSidecarServer(
   config: SynthesisSidecarRuntimeConfig,
   serviceInstanceId: string,
+  options: SynthesisSidecarServerOptions = {},
 ): Promise<SynthesisSidecarRuntime> {
   let lifecycleState: SynthesisSidecarLifecycleState = "starting";
   let shutdownStarted = false;
@@ -138,6 +171,8 @@ export async function startSynthesisSidecarServer(
     resolveStopped = resolve;
   });
   const server: Server = createServer();
+  const computePool =
+    options.computePool ?? createSynthesisSidecarComputeWorkerPool();
 
   const beginShutdown = (reason: string) => {
     if (shutdownStarted) {
@@ -149,19 +184,21 @@ export async function startSynthesisSidecarServer(
       reason,
       serviceInstanceId,
     });
-    const forceTimer = setTimeout(() => {
-      for (const socket of sockets) {
-        socket.destroy();
-      }
-      server.closeAllConnections?.();
-    }, SHUTDOWN_GRACE_MS);
-    forceTimer.unref();
-    server.close(() => {
-      clearTimeout(forceTimer);
-      writeServiceLog("service_stopped", { serviceInstanceId });
-      resolveStopped();
+    void computePool.shutdown().finally(() => {
+      const forceTimer = setTimeout(() => {
+        for (const socket of sockets) {
+          socket.destroy();
+        }
+        server.closeAllConnections?.();
+      }, SHUTDOWN_GRACE_MS);
+      forceTimer.unref();
+      server.close(() => {
+        clearTimeout(forceTimer);
+        writeServiceLog("service_stopped", { serviceInstanceId });
+        resolveStopped();
+      });
+      server.closeIdleConnections?.();
     });
-    server.closeIdleConnections?.();
   };
 
   server.on("request", async (request, response) => {
@@ -185,6 +222,7 @@ export async function startSynthesisSidecarServer(
           supervisorInstanceId: config.supervisorInstanceId,
           bundleId: config.bundleId,
           lifecycleState,
+          computePool: computePool.snapshot(),
         };
         writeJson(response, 200, health);
         return;
@@ -246,7 +284,7 @@ export async function startSynthesisSidecarServer(
           message: "The Synthesis sidecar profile does not match.",
         });
       }
-      if (!isSynthesisSidecarSystemCapability(call.capability)) {
+      if (!isSynthesisSidecarCapability(call.capability)) {
         throw new SidecarRuntimeError({
           status: 404,
           code: "capability_not_found",
@@ -260,6 +298,59 @@ export async function startSynthesisSidecarServer(
           code: "service_not_ready",
           message: "The Synthesis sidecar service is not ready.",
           retryable: true,
+        });
+      }
+      if (isSynthesisSidecarComputeCapability(call.capability)) {
+        let layoutRequest;
+        try {
+          layoutRequest = rebuildSynthesisCitationGraphLayoutRequest(
+            call.payload,
+          );
+        } catch {
+          throw new SidecarRuntimeError({
+            status: 400,
+            code: "invalid_request",
+            message: "The Citation Graph layout payload is invalid.",
+          });
+        }
+        const controller = new AbortController();
+        const disconnect = () => {
+          if (!response.writableEnded) {
+            controller.abort();
+          }
+        };
+        request.once("aborted", disconnect);
+        response.once("close", disconnect);
+        try {
+          const result = await computePool.runCitationGraphLayout(
+            layoutRequest,
+            { signal: controller.signal },
+          );
+          writeJson(
+            response,
+            200,
+            success({
+              requestId: call.requestId,
+              serviceInstanceId,
+              data: toSynthesisJsonObject(result, "layoutResult"),
+            }),
+          );
+        } catch (error) {
+          if (error instanceof ComputeWorkerPoolError) {
+            throw computeRuntimeError(error);
+          }
+          throw error;
+        } finally {
+          request.off("aborted", disconnect);
+          response.off("close", disconnect);
+        }
+        return;
+      }
+      if (!isSynthesisSidecarSystemCapability(call.capability)) {
+        throw new SidecarRuntimeError({
+          status: 404,
+          code: "capability_not_found",
+          message: "The Synthesis sidecar capability was not found.",
         });
       }
       if (call.capability === "system.handshake") {
@@ -306,6 +397,7 @@ export async function startSynthesisSidecarServer(
               capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
               mutationEnabled: false,
               lifecycleState: "ready",
+              computePool: computePool.snapshot(),
             },
           }),
         );
@@ -313,8 +405,7 @@ export async function startSynthesisSidecarServer(
       }
 
       requireEmptyPayload(call.payload);
-      lifecycleState = "stopping";
-      response.once("finish", () => beginShutdown("system.shutdown"));
+      beginShutdown("system.shutdown");
       writeJson(
         response,
         200,

@@ -45,10 +45,41 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     const rawInventory = parseYaml(fs.readFileSync(INVENTORY_FILE, "utf8")) as {
       method_groups: Array<{ id: string }>;
+      internal_engines: Array<{
+        id: string;
+        implementation: string;
+        production_worker: boolean;
+        sidecar_worker_canary?: boolean;
+      }>;
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
       "workbench_warmup",
+    );
+    assert.deepEqual(
+      rawInventory.internal_engines.map((engine) => engine.id),
+      [
+        "citation_graph_build",
+        "citation_graph_layout",
+        "citation_graph_metrics",
+        "reference_matcher",
+        "tag_vocabulary",
+        "concept_kb_index",
+        "topic_graph_index",
+        "topic_structured_artifact",
+      ],
+    );
+    assert.isTrue(
+      rawInventory.internal_engines.every(
+        (engine) =>
+          engine.implementation === "in_process" &&
+          engine.production_worker === false,
+      ),
+    );
+    assert.isTrue(
+      rawInventory.internal_engines.find(
+        (engine) => engine.id === "citation_graph_layout",
+      )?.sidecar_worker_canary,
     );
   });
 
@@ -58,6 +89,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.invalidMethods, []);
     assert.deepEqual(report.contractViolations, []);
+    assert.deepEqual(report.sidecarAppViolations, []);
     for (const method of report.inventory.methods) {
       assert.match(method.name, /^[A-Za-z][A-Za-z0-9]*$/);
       assert.match(method.category, /^(query|command|host_effect|debug)$/);
@@ -315,12 +347,23 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
-      /(?:src\/modules\/synthesis|synthesis\/service|repository|canonical|hostEffect|webDavSync|synthesis-engine|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|repository|hostEffect|webDavSync|globalThis\.Zotero|zotero-plugin)/i,
     );
-    assert.notMatch(
-      sidecarAppSource,
-      /(?:node:child_process|node:worker_threads|new\s+Worker\s*\()/,
-    );
+    assert.notInclude(sidecarAppSource, "node:child_process");
+    const workerThreadUsers = fs
+      .readdirSync(path.join(sidecarAppRoot, "src"))
+      .filter(
+        (entry) =>
+          entry.endsWith(".ts") &&
+          fs
+            .readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8")
+            .includes("node:worker_threads"),
+      )
+      .sort();
+    assert.deepEqual(workerThreadUsers, [
+      "computeWorker.ts",
+      "computeWorkerPool.ts",
+    ]);
     const runtimeSupervisor = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
       "utf8",
@@ -445,6 +488,8 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisCitationGraphLayoutEngine",
     );
     assert.include(legacyComposition, "citationGraphLayoutEngine");
+    assert.notInclude(legacyComposition, "synthesisSidecarComputeClient");
+    assert.notInclude(workbench, "synthesisSidecarComputeClient");
     assert.include(
       legacyComposition,
       "createInProcessSynthesisCitationGraphMetricsEngine",
@@ -607,12 +652,12 @@ describe("Synthesis sidecar migration boundary", function () {
     ].map((match) => match[1]);
     assert.deepEqual(engineImports, [
       "d3-force",
-      "./canonicalJson",
-      "./conceptKbIndex",
-      "./referenceMatcher",
-      "./tagVocabulary",
-      "./topicGraphIndex",
-      "./topicStructuredArtifact",
+      "./canonicalJson.ts",
+      "./conceptKbIndex.ts",
+      "./referenceMatcher.ts",
+      "./tagVocabulary.ts",
+      "./topicGraphIndex.ts",
+      "./topicStructuredArtifact.ts",
     ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
@@ -1080,7 +1125,10 @@ describe("Synthesis sidecar migration boundary", function () {
       storage,
       "No external process requirement just to keep a local index current.",
     );
-    assert.include(runtime, "The current implementation runs inside");
+    assert.include(
+      runtime,
+      "The production Synthesis application still runs inside",
+    );
     assert.include(
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
