@@ -123,6 +123,8 @@ describe("Synthesis invariant guards", function () {
     );
     assert.include(sources, "citation_graph_layout.v1");
     assert.include(sources, "SYNTHESIS_SIDECAR_COMPUTE_LIMITS");
+    assert.include(sources, "computeRequestBodyBytes");
+    assert.include(sources, "computeResponseBodyBytes");
     assert.include(
       readRepoText("src/modules/synthesisClient/defaultClient.ts"),
       "createDefaultLegacySynthesisClientComposition",

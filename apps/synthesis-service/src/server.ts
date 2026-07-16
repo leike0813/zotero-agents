@@ -10,6 +10,7 @@ import {
   SYNTHESIS_SIDECAR_CALL_PATH,
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
+  SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarCapability,
   isSynthesisSidecarComputeCapability,
@@ -34,7 +35,11 @@ import {
   toSidecarRuntimeError,
 } from "./errors.js";
 import { writeServiceLog } from "./logging.js";
-import { parseCallRequest, readRequestBody } from "./request.js";
+import {
+  findSynthesisSidecarJsonBoundViolation,
+  parseCallRequest,
+  readRequestBody,
+} from "./request.js";
 import type { SynthesisSidecarRuntimeConfig } from "./runtimeConfig.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
@@ -74,14 +79,42 @@ function writeJson(
   status: number,
   body: unknown,
   extraHeaders: Record<string, string> = {},
+  limits?: { maxBytes: number; maxJsonNodes: number },
 ) {
   if (response.headersSent || response.destroyed) {
     return;
   }
+  if (limits) {
+    const violation = findSynthesisSidecarJsonBoundViolation(body, {
+      maxDepth: SYNTHESIS_SIDECAR_LIMITS.jsonDepth,
+      maxNodes: limits.maxJsonNodes,
+      maxStringLength: SYNTHESIS_SIDECAR_LIMITS.stringLength,
+    });
+    if (violation) {
+      throw new SidecarRuntimeError({
+        status: 502,
+        code: "response_body_too_large",
+        message: "The Synthesis sidecar response body is too large.",
+        details: {
+          limit: violation.limit,
+          limitKind: violation.kind,
+        },
+      });
+    }
+  }
   const source = JSON.stringify(body);
+  const byteLength = Buffer.byteLength(source);
+  if (limits && byteLength > limits.maxBytes) {
+    throw new SidecarRuntimeError({
+      status: 502,
+      code: "response_body_too_large",
+      message: "The Synthesis sidecar response body is too large.",
+      details: { maxBytes: limits.maxBytes },
+    });
+  }
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
-    "content-length": String(Buffer.byteLength(source)),
+    "content-length": String(byteLength),
     "cache-control": "no-store",
     ...extraHeaders,
   });
@@ -334,6 +367,11 @@ export async function startSynthesisSidecarServer(
               serviceInstanceId,
               data: toSynthesisJsonObject(result, "layoutResult"),
             }),
+            {},
+            {
+              maxBytes: SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
+              maxJsonNodes: SYNTHESIS_SIDECAR_LIMITS.computeResponseJsonNodes,
+            },
           );
         } catch (error) {
           if (error instanceof ComputeWorkerPoolError) {

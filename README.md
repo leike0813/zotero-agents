@@ -565,7 +565,7 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 
 | Limitation | Description | Plan |
 |------------|-------------|------|
-| **Synthesis heavy computation blocks UI** | Production refresh, Citation Graph rebuild, and Advanced Matching still run in the Zotero process and can briefly freeze the UI. The supervised sidecar now has a bounded Citation Graph layout worker canary, but production routing has not switched to it. | Production kernels will migrate through separate verified changes |
+| **Synthesis heavy computation blocks UI** | Production refresh, Citation Graph rebuild, and Advanced Matching still run in the Zotero process and can briefly freeze the UI. The supervised sidecar now has a bounded Citation Graph layout worker canary with 8 MiB request/response envelopes, but production routing has not switched to it. | Production kernels will migrate through separate verified changes |
 | **WebDAV sync not fully tested** | The auto-sync feature has not been thoroughly tested; if using it, stick to manual sync as much as possible | Will be improved in a future release |
 | **Large library performance** | Performance has not been sufficiently tested on large-scale libraries | To be addressed in future updates |
 

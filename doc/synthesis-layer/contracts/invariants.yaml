@@ -43,8 +43,8 @@ invariants:
 
   - id: inv.runtime.sidecar_foundation_isolated
     severity: fatal
-    statement: The independent Node sidecar runtime is a loopback-only mutation-disabled control plane with one bounded Citation Graph layout worker canary; it cannot access Zotero, Synthesis repositories, canonical writers, Host effects, sync runtime, child processes, or any other production engine route.
-    evidence: Service application/worker import-boundary and production-composition guards.
+    statement: The independent Node sidecar runtime is a loopback-only mutation-disabled control plane with one 8 MiB-envelope bounded Citation Graph layout worker canary; it cannot access Zotero, Synthesis repositories, canonical writers, Host effects, sync runtime, child processes, or any other production engine route.
+    evidence: Service application/worker import-boundary, compute wire-capacity, and production-composition guards.
     test_refs:
       - file: test/core/152-synthesis-invariant-guards.test.ts
         marker: "[inv.runtime.sidecar_foundation_isolated]"

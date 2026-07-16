@@ -22,8 +22,12 @@ export const SYNTHESIS_SIDECAR_CAPABILITIES = [
 
 export const SYNTHESIS_SIDECAR_LIMITS = {
   requestBodyBytes: 1024 * 1024,
+  computeRequestBodyBytes: 8 * 1024 * 1024,
+  computeResponseBodyBytes: 8 * 1024 * 1024,
   jsonDepth: 32,
   jsonNodes: 50_000,
+  computeRequestJsonNodes: 250_000,
+  computeResponseJsonNodes: 50_000,
   stringLength: 64 * 1024,
   requestIdLength: 512,
   profileIdLength: 512,
@@ -99,31 +103,36 @@ export type SynthesisSidecarShutdownResult = {
   lifecycleState: "stopping";
 };
 
+export const SYNTHESIS_SIDECAR_ERROR_CODES = [
+  "invalid_request",
+  "malformed_json",
+  "request_body_too_large",
+  "response_body_too_large",
+  "request_json_too_deep",
+  "request_json_too_large",
+  "request_string_too_long",
+  "request_timeout",
+  "method_not_allowed",
+  "not_found",
+  "unauthorized",
+  "lifecycle_forbidden",
+  "protocol_mismatch",
+  "profile_mismatch",
+  "schema_mismatch",
+  "runtime_mismatch",
+  "capability_not_found",
+  "service_not_ready",
+  "worker_busy",
+  "worker_timeout",
+  "worker_canceled",
+  "worker_crashed",
+  "worker_result_invalid",
+  "worker_unavailable",
+  "internal_error",
+] as const;
+
 export type SynthesisSidecarErrorCode =
-  | "invalid_request"
-  | "malformed_json"
-  | "request_body_too_large"
-  | "request_json_too_deep"
-  | "request_json_too_large"
-  | "request_string_too_long"
-  | "request_timeout"
-  | "method_not_allowed"
-  | "not_found"
-  | "unauthorized"
-  | "lifecycle_forbidden"
-  | "protocol_mismatch"
-  | "profile_mismatch"
-  | "schema_mismatch"
-  | "runtime_mismatch"
-  | "capability_not_found"
-  | "service_not_ready"
-  | "worker_busy"
-  | "worker_timeout"
-  | "worker_canceled"
-  | "worker_crashed"
-  | "worker_result_invalid"
-  | "worker_unavailable"
-  | "internal_error";
+  (typeof SYNTHESIS_SIDECAR_ERROR_CODES)[number];
 
 export type SynthesisSidecarError = {
   code: SynthesisSidecarErrorCode;
@@ -215,6 +224,15 @@ export function isSynthesisSidecarCapability(
   value: string,
 ): value is SynthesisSidecarCapability {
   return (SYNTHESIS_SIDECAR_CAPABILITIES as readonly string[]).includes(value);
+}
+
+export function isSynthesisSidecarErrorCode(
+  value: unknown,
+): value is SynthesisSidecarErrorCode {
+  return (
+    typeof value === "string" &&
+    (SYNTHESIS_SIDECAR_ERROR_CODES as readonly string[]).includes(value)
+  );
 }
 
 export function rebuildSynthesisSidecarComputePoolSnapshot(

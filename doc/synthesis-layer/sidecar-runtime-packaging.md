@@ -26,11 +26,12 @@ runtime file's size, SHA-256, and executable state. Unsafe relative paths,
 unknown fields, duplicate paths, symlinks, and incomplete runtime entrypoints
 are rejected.
 
-The build fingerprint covers service and worker sources, synthesis-engine
-sources, D3 runtime package metadata and files, root package metadata, and the
-lockfile. Runtime assembly never runs npm or downloads dependencies. Source
-verification checks these inputs without publishing the five platform
-prebuilds; publication remains part of the separate release pipeline.
+The build fingerprint covers service and worker sources, shared sidecar
+contracts including wire-capacity constants, synthesis-engine sources, D3
+runtime package metadata and files, root package metadata, and the lockfile.
+Runtime assembly never runs npm or downloads dependencies. Source verification
+checks these inputs without publishing the five platform prebuilds; publication
+remains part of the separate release pipeline.
 
 ## Managed Installation
 
@@ -64,5 +65,7 @@ or user shell.
 
 Activation is not production routing. The service remains mutation-disabled
 and carries one lazy bounded Citation Graph layout worker canary, but it does
-not access production `synthesis.db` or Topic canonical current files. The
-default `SynthesisClient` and all eight production engines remain in-process.
+not access production `synthesis.db` or Topic canonical current files. Its
+compute JSON request and response envelopes are capped at 8 MiB and require no
+additional runtime dependency or asset. The default `SynthesisClient` and all
+eight production engines remain in-process.

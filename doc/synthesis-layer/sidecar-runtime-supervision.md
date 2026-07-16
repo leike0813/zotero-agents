@@ -60,7 +60,11 @@ stdin EOF.
 runs one task, retains at most two waiting tasks, and rejects additional work
 with `worker_busy`; it is not an operation queue and writes no persistent state.
 The HTTP main thread, worker, and main-thread result boundary all use the strict
-layout rebuilders from `packages/synthesis-engine`.
+layout rebuilders from `packages/synthesis-engine`. Compute request and response
+envelopes are each capped at 8 MiB, with 250,000 request and 50,000 response JSON
+structural nodes; the shared endpoint continues to cap general and system
+requests at 1 MiB. Oversized uploads are rejected before queue admission, and
+oversized results are transport failures rather than worker runtime faults.
 
 Each layout has a five-second hard deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The worker is limited to 256 MiB

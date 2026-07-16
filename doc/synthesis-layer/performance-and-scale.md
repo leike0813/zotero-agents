@@ -120,13 +120,16 @@ Citation Graph build, layout, complex metrics, and Tag Vocabulary index
 construction remain production process-readiness exceptions to slice
 cancellation: their in-process inputs are hard-bounded, but the production
 engines complete one deterministic computation after the applicable pre-start
-or phase budget check. The separate layout worker canary is constrained by the
-existing 1 MiB / 50,000 JSON-node wire policy, one active task, two waiting
-tasks, a five-second hard deadline, 100 ms cancellation grace, and a 500 ms pool
-shutdown budget. Its lazy worker and O(1) health snapshot keep supervisor
-steady-state overhead low; it does not change production layout performance or
-ownership. Tag canonical validation remains synchronous inside the repository
-transaction.
+or phase budget check. The separate layout worker canary uses 8 MiB UTF-8
+request and response envelopes, at most 250,000 request and 50,000 response JSON
+structural nodes, one active task, two waiting tasks, a five-second hard
+deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
+and system requests retain the 1 MiB cap. The byte envelope remains independent
+from the layout engine's 5,000-node/20,000-edge bounds, so an engine-valid but
+wire-oversized DTO fails closed. The lazy worker and O(1) health snapshot keep
+supervisor steady-state overhead low; it does not change production layout
+performance or ownership. Tag canonical validation remains synchronous inside
+the repository transaction.
 
 ## External Source Drift Policy
 

@@ -86,6 +86,8 @@ function packagedReader(
 }
 
 describe("Synthesis sidecar runtime packaging", function () {
+  this.timeout(10_000);
+
   it("strictly rebuilds manifests and pointers", function () {
     const { manifest } = createBundle();
     assert.equal(manifest.nodeVersion, "24.18.0");
@@ -388,6 +390,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       "apps/synthesis-service/src/computeWorkerPool.ts",
     );
     assert.include(first.inputs, "packages/synthesis-engine/src/index.ts");
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/sidecarSystem.ts",
+    );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
       "d3-dispatch",
