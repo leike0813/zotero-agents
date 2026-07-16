@@ -302,10 +302,10 @@ describe("Synthesis Citation Graph layout engine", function () {
       )
     ).join("\n");
 
-    assert.notMatch(
-      source,
-      /(?:node:|Zotero|zotero-plugin|runtimePersistence|repository|foundation|\bfs\b|filesystem|document\.|window\.)/,
+    const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
+      (match) => match[1],
     );
+    assert.deepEqual(imports, ["d3-force"]);
   });
 
   it("returns the same canonical result through the Node worker canary", async function () {

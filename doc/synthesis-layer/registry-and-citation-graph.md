@@ -192,6 +192,8 @@ Graph cache rebuild must not read old Registry/literature-index tables as truth.
 
 Layout kernels live in the environment-neutral `packages/synthesis-engine` package and consume canonical JSON-safe graph slices capped at 5,000 nodes and 20,000 edges. The application supplies current deterministic seed coordinates, owns canonical layout hashing, and computes through an injectable engine outside the library write lock. Promotion reacquires the lock, rereads the DB graph hash, and writes only when it still equals the compute basis. A superseded, throwing, malformed, or oversized result must not replace the previous layout content. The default engine remains in-process; the Node worker path is test-only process-readiness evidence.
 
+Metrics v2 kernels live in the same environment-neutral package and consume only node identity/metadata plus weighted edges. The application owns canonical metrics hashing and persistence mapping. Full rebuild, incremental refresh, and explicit metrics refresh capture one graph basis under a short lock, compute PageRank, weak components, normalization, and role hints outside the lock, then replace complex metrics only when the current DB graph hash still matches. Superseded, throwing, malformed, or oversized computation preserves prior metrics while the committed graph structure remains readable. The default engine is in-process and its Node worker is also test-only.
+
 Graph display rules:
 
 - Library source nodes use current Zotero reads for display facts when available.

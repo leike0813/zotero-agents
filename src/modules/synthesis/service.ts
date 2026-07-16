@@ -3,7 +3,9 @@ import {
   SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX,
   SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
   createInProcessSynthesisCitationGraphLayoutEngine,
+  createInProcessSynthesisCitationGraphMetricsEngine,
   type SynthesisCitationGraphLayoutEngine,
+  type SynthesisCitationGraphMetricsEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import {
   SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
@@ -67,7 +69,6 @@ import {
 import {
   buildUnifiedCitationGraph,
   CITATION_GRAPH_LAYOUT_VERSION,
-  computeCitationGraphMetrics,
   normalizeCitationLayoutAlgorithm,
   type CitationGraph,
   type CitationGraphEdge,
@@ -79,6 +80,7 @@ import {
   type CitationLayoutAlgorithm,
 } from "./citationGraph";
 import { computeCitationGraphLayoutWithEngine } from "./citationGraphLayoutEngineAdapter";
+import { computeCitationGraphMetricsWithEngine } from "./citationGraphMetricsEngineAdapter";
 import {
   buildCitationGraphInputsFromRegistryInputs,
   buildLibraryIndexFromRegistryInputs,
@@ -504,6 +506,7 @@ export type SynthesisServiceOptions = {
   hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
   hostTagEffectPort?: SynthesisHostTagEffectPort | null;
   citationGraphLayoutEngine?: SynthesisCitationGraphLayoutEngine;
+  citationGraphMetricsEngine?: SynthesisCitationGraphMetricsEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -6115,6 +6118,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const citationGraphLayoutEngine =
     options.citationGraphLayoutEngine ||
     createInProcessSynthesisCitationGraphLayoutEngine();
+  const citationGraphMetricsEngine =
+    options.citationGraphMetricsEngine ||
+    createInProcessSynthesisCitationGraphMetricsEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -7610,42 +7616,54 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
-  function refreshCitationGraphComplexMetricsFromCurrentGraph(args: {
+  async function refreshCitationGraphComplexMetricsFromCurrentGraph(args: {
     timestamp: string;
   }) {
-    const {
-      graph,
-      nodes,
-      edges,
-      metrics: lightMetrics,
-    } = readFullDbCitationGraphForMetrics();
-    if (!nodes.length || !graph.nodes.length) {
+    const captured = await lock.runExclusive(libraryId, () => {
+      const current = readFullDbCitationGraphForMetrics();
+      const structureVersionByItem = new Map(
+        current.metrics.map(
+          (metric) =>
+            [metric.literatureItemId, metric.sourceStructureVersion] as const,
+        ),
+      );
+      const literatureItemIdByNodeId = new Map(
+        Array.from(citationGraphNodeIdMap(current.nodes).entries()).map(
+          ([literatureItemId, nodeId]) => [nodeId, literatureItemId] as const,
+        ),
+      );
+      return {
+        ...current,
+        structureVersionByItem,
+        literatureItemIdByNodeId,
+      };
+    });
+    if (!captured.nodes.length || !captured.graph.nodes.length) {
       return {
         ok: true,
         status: "skipped",
         skipped_reason: "citation_graph_cache_empty",
-        graph_hash: graph.graph_hash,
+        graph_hash: captured.graph.graph_hash,
         metrics_hash: "",
         node_count: 0,
-        edge_count: edges.length,
+        edge_count: captured.edges.length,
         metric_count: 0,
       };
     }
-    const structureVersionByItem = new Map(
-      lightMetrics.map(
-        (metric) =>
-          [metric.literatureItemId, metric.sourceStructureVersion] as const,
-      ),
-    );
-    const literatureItemIdByNodeId = new Map(
-      Array.from(citationGraphNodeIdMap(nodes).entries()).map(
-        ([literatureItemId, nodeId]) => [nodeId, literatureItemId] as const,
-      ),
-    );
-    const metrics = computeCitationGraphMetrics(graph);
+    let metrics: CitationGraphMetrics;
+    try {
+      ({ metrics } = await computeCitationGraphMetricsWithEngine(
+        captured.graph,
+        citationGraphMetricsEngine,
+      ));
+    } catch {
+      throw new Error("citation_graph_metrics_engine_failed");
+    }
     const records = metrics.library_node_metrics
       .map((metric) => {
-        const literatureItemId = literatureItemIdByNodeId.get(metric.node_id);
+        const literatureItemId = captured.literatureItemIdByNodeId.get(
+          metric.node_id,
+        );
         if (!literatureItemId) {
           return null;
         }
@@ -7653,7 +7671,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           metric,
           literatureItemId,
           sourceStructureVersion:
-            structureVersionByItem.get(literatureItemId) || 0,
+            captured.structureVersionByItem.get(literatureItemId) || 0,
           sourceGraphHash: metrics.graph_hash,
           metricsHash: metrics.metrics_hash,
           timestamp: args.timestamp,
@@ -7662,16 +7680,32 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       .filter((record): record is SynthesisCitationComplexMetricsRecord =>
         Boolean(record),
       );
-    synthesisRepository.replaceCitationComplexMetrics(records);
-    return {
-      ok: true,
-      status: "completed",
-      graph_hash: metrics.graph_hash,
-      metrics_hash: metrics.metrics_hash,
-      node_count: graph.nodes.length,
-      edge_count: graph.edges.length,
-      metric_count: records.length,
-    };
+    return lock.runExclusive(libraryId, () => {
+      const currentGraph = readFullDbCitationGraphForMetrics().graph;
+      if (currentGraph.graph_hash !== metrics.graph_hash) {
+        return {
+          ok: true,
+          status: "superseded",
+          diagnostic_code: "citation_graph_metrics_basis_superseded",
+          graph_hash: metrics.graph_hash,
+          current_graph_hash: currentGraph.graph_hash,
+          metrics_hash: metrics.metrics_hash,
+          node_count: captured.graph.nodes.length,
+          edge_count: captured.graph.edges.length,
+          metric_count: 0,
+        };
+      }
+      synthesisRepository.replaceCitationComplexMetrics(records);
+      return {
+        ok: true,
+        status: "completed",
+        graph_hash: metrics.graph_hash,
+        metrics_hash: metrics.metrics_hash,
+        node_count: captured.graph.nodes.length,
+        edge_count: captured.graph.edges.length,
+        metric_count: records.length,
+      };
+    });
   }
 
   function readDbCitationGraphSlice(
@@ -11097,17 +11131,51 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     await runProfiledSynthesisPhase({
       profileRun: args.profileRun,
       phaseName: "replace_graph_cache",
-      run: () => {
-        synthesisRepository.replaceCitationGraphState({
-          nodes: Array.from(built.nodes.values()),
-          edges: built.edges,
-          lightweightMetrics: built.lightweightMetrics,
-          sourceOwnership: built.sourceOwnership,
-          incomingGroups: built.incomingGroups,
-        });
-        return { nodes: built.nodes.size, edges: built.edges.length };
-      },
+      run: () =>
+        lock.runExclusive(libraryId, () => {
+          synthesisRepository.replaceCitationGraphState({
+            nodes: Array.from(built.nodes.values()),
+            edges: built.edges,
+            lightweightMetrics: built.lightweightMetrics,
+            sourceOwnership: built.sourceOwnership,
+            incomingGroups: built.incomingGroups,
+          });
+          return { nodes: built.nodes.size, edges: built.edges.length };
+        }),
       counters: (result) => result,
+    });
+    const sourceHash = await runProfiledSynthesisPhase({
+      profileRun: args.profileRun,
+      phaseName: "hash_and_commit",
+      run: async () => {
+        const sourceHash = hashCanonicalJson({
+          sidecar: loaded.artifactSidecars,
+          raw: loaded.rawReferences,
+          bindings: loaded.acceptedBindings,
+        });
+        await lock.runExclusive(libraryId, () => {
+          synthesisRepository.upsertCacheBasis({
+            cacheKey: "citation-graph:library",
+            cacheKind: "citation_graph",
+            scopeKind: "library",
+            scopeRef: String(libraryId),
+            status: "ready",
+            basisKind: "reference_sidecar",
+            basisValue: args.operationId || "",
+            sourceHash,
+            policyVersion: CITATION_GRAPH_CACHE_POLICY_VERSION,
+            refreshedAt: timestamp,
+            diagnosticsJson: "[]",
+            updatedAt: timestamp,
+          });
+        });
+        return sourceHash;
+      },
+      counters: (sourceHash) => ({
+        source_hash: sourceHash,
+        node_count: built.nodes.size,
+        edge_count: built.edges.length,
+      }),
     });
     const metricsResult = await runProfiledSynthesisPhase({
       profileRun: args.profileRun,
@@ -11120,38 +11188,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         graph_hash: result.graph_hash,
         metrics_hash: result.metrics_hash,
         metric_count: result.metric_count,
-      }),
-    });
-    const sourceHash = await runProfiledSynthesisPhase({
-      profileRun: args.profileRun,
-      phaseName: "hash_and_commit",
-      run: () => {
-        const sourceHash = hashCanonicalJson({
-          sidecar: loaded.artifactSidecars,
-          raw: loaded.rawReferences,
-          bindings: loaded.acceptedBindings,
-        });
-        synthesisRepository.upsertCacheBasis({
-          cacheKey: "citation-graph:library",
-          cacheKind: "citation_graph",
-          scopeKind: "library",
-          scopeRef: String(libraryId),
-          status: "ready",
-          basisKind: "reference_sidecar",
-          basisValue: args.operationId || "",
-          sourceHash,
-          policyVersion: CITATION_GRAPH_CACHE_POLICY_VERSION,
-          refreshedAt: timestamp,
-          diagnosticsJson: "[]",
-          updatedAt: timestamp,
-        });
-        return sourceHash;
-      },
-      counters: (sourceHash) => ({
-        source_hash: sourceHash,
-        node_count: built.nodes.size,
-        edge_count: built.edges.length,
-        metric_count: metricsResult.metric_count,
       }),
     });
     return {
@@ -11296,12 +11332,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           totalCount: 0,
           progressMode: "indeterminate",
         });
-        const result = await lock.runExclusive(libraryId, () =>
-          rebuildCitationGraphCacheFromSidecar({
-            timestamp: now(),
-            operationId: runId,
-          }),
-        );
+        const result = await rebuildCitationGraphCacheFromSidecar({
+          timestamp: now(),
+          operationId: runId,
+        });
         phaseIndex = 1;
         completeSynthesisJobProgress({
           jobName,
@@ -11333,16 +11367,34 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         totalCount: affectedSourceRefs.length,
       });
       phaseIndex = 1;
-      const built = await lock.runExclusive(libraryId, async () => {
-        const timestamp = now();
-        const records = await buildCitationGraphCacheRecordsFromSidecar({
-          timestamp,
-          sourceRefs: affectedSourceRefs,
-        });
-        await reportPhase("build_source_slice", phaseIndex, {
-          processedCount: records.built.edges.length,
-          totalCount: Math.max(records.built.edges.length, 1),
-        });
+      const timestamp = now();
+      const records = await buildCitationGraphCacheRecordsFromSidecar({
+        timestamp,
+        sourceRefs: affectedSourceRefs,
+      });
+      await reportPhase("build_source_slice", phaseIndex, {
+        processedCount: records.built.edges.length,
+        totalCount: Math.max(records.built.edges.length, 1),
+      });
+      const sourceHash = hashCanonicalJson({
+        previous_graph_basis: previousBasis?.sourceHash || "",
+        reason: cleanString(args.reason),
+        affected_source_refs: affectedSourceRefs,
+        changed_canonical_ids: (args.changedCanonicalIds || [])
+          .map(cleanString)
+          .filter(Boolean)
+          .sort(),
+        changed_binding_canonical_ids: (args.changedBindingCanonicalIds || [])
+          .map(cleanString)
+          .filter(Boolean)
+          .sort(),
+        changed_redirect_canonical_ids: (args.changedRedirectCanonicalIds || [])
+          .map(cleanString)
+          .filter(Boolean)
+          .sort(),
+        policy: CITATION_GRAPH_CACHE_POLICY_VERSION,
+      });
+      await lock.runExclusive(libraryId, () => {
         synthesisRepository.replaceCitationGraphSourceSlice({
           sourceLiteratureItemIds: affectedSourceRefs,
           nodes: Array.from(records.built.nodes.values()),
@@ -11350,26 +11402,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           sourceOwnership: records.built.sourceOwnership,
           incomingGroups: records.built.incomingGroups,
           updatedAt: timestamp,
-        });
-        const sourceHash = hashCanonicalJson({
-          previous_graph_basis: previousBasis?.sourceHash || "",
-          reason: cleanString(args.reason),
-          affected_source_refs: affectedSourceRefs,
-          changed_canonical_ids: (args.changedCanonicalIds || [])
-            .map(cleanString)
-            .filter(Boolean)
-            .sort(),
-          changed_binding_canonical_ids: (args.changedBindingCanonicalIds || [])
-            .map(cleanString)
-            .filter(Boolean)
-            .sort(),
-          changed_redirect_canonical_ids: (
-            args.changedRedirectCanonicalIds || []
-          )
-            .map(cleanString)
-            .filter(Boolean)
-            .sort(),
-          policy: CITATION_GRAPH_CACHE_POLICY_VERSION,
         });
         synthesisRepository.upsertCacheBasis({
           cacheKey: "citation-graph:library",
@@ -11385,23 +11417,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           diagnosticsJson: "[]",
           updatedAt: timestamp,
         });
-        phaseIndex = 2;
-        await reportPhase("compute_complex_metrics", phaseIndex, {
-          processedCount: records.built.nodes.size,
-          totalCount: Math.max(records.built.nodes.size, 1),
-        });
-        const metricsResult =
-          refreshCitationGraphComplexMetricsFromCurrentGraph({
-            timestamp,
-          });
-        return {
-          nodes: records.built.nodes.size,
-          edges: records.built.edges.length,
-          sourceHash,
-          metricsHash: metricsResult.metrics_hash,
-          metrics: metricsResult.metric_count,
-        };
       });
+      phaseIndex = 2;
+      await reportPhase("compute_complex_metrics", phaseIndex, {
+        processedCount: records.built.nodes.size,
+        totalCount: Math.max(records.built.nodes.size, 1),
+      });
+      const metricsResult =
+        await refreshCitationGraphComplexMetricsFromCurrentGraph({
+          timestamp,
+        });
+      const built = {
+        nodes: records.built.nodes.size,
+        edges: records.built.edges.length,
+        sourceHash,
+        metricsHash: metricsResult.metrics_hash,
+        metrics: metricsResult.metric_count,
+      };
       phaseIndex = 3;
       completeSynthesisJobProgress({
         jobName,
@@ -11458,30 +11490,37 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const timestamp = now();
       const hasRows =
         synthesisRepository.listCitationNodes({ limit: 1 }).length > 0;
-      synthesisRepository.upsertCacheBasis({
-        cacheKey: "citation-graph:library",
-        cacheKind: "citation_graph",
-        scopeKind: "library",
-        scopeRef: String(libraryId),
-        status: hasRows ? "stale" : "failed",
-        basisKind: "reference_sidecar_incremental",
-        basisValue: runId,
-        sourceHash: previousBasis?.sourceHash || "",
-        policyVersion: CITATION_GRAPH_CACHE_POLICY_VERSION,
-        staleReason: hasRows ? "incremental_refresh_failed" : undefined,
-        activeOperationId: runId,
-        diagnosticsJson: JSON.stringify(
-          citationGraphStaleDiagnostics({
-            source: "incremental_refresh_failed",
-            diagnostics: [diagnostic],
-            sourceRefs: affectedSourceRefs,
-            changedCanonicalIds: args.changedCanonicalIds,
-            changedBindingCanonicalIds: args.changedBindingCanonicalIds,
-            changedRedirectCanonicalIds: args.changedRedirectCanonicalIds,
-          }),
-        ),
-        updatedAt: timestamp,
-      });
+      const currentBasis = synthesisRepository.getCacheBasis(
+        "citation-graph:library",
+      );
+      const committedGraphRemainsReady =
+        currentBasis?.status === "ready" && currentBasis.basisValue === runId;
+      if (!committedGraphRemainsReady) {
+        synthesisRepository.upsertCacheBasis({
+          cacheKey: "citation-graph:library",
+          cacheKind: "citation_graph",
+          scopeKind: "library",
+          scopeRef: String(libraryId),
+          status: hasRows ? "stale" : "failed",
+          basisKind: "reference_sidecar_incremental",
+          basisValue: runId,
+          sourceHash: previousBasis?.sourceHash || "",
+          policyVersion: CITATION_GRAPH_CACHE_POLICY_VERSION,
+          staleReason: hasRows ? "incremental_refresh_failed" : undefined,
+          activeOperationId: runId,
+          diagnosticsJson: JSON.stringify(
+            citationGraphStaleDiagnostics({
+              source: "incremental_refresh_failed",
+              diagnostics: [diagnostic],
+              sourceRefs: affectedSourceRefs,
+              changedCanonicalIds: args.changedCanonicalIds,
+              changedBindingCanonicalIds: args.changedBindingCanonicalIds,
+              changedRedirectCanonicalIds: args.changedRedirectCanonicalIds,
+            }),
+          ),
+          updatedAt: timestamp,
+        });
+      }
       await progressOptions.onProgress?.();
       return {
         ok: false,
@@ -13885,13 +13924,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         totalCount: activeRawCount,
         progressMode: "determinate",
       });
-      const result = await lock.runExclusive(libraryId, () =>
-        rebuildCitationGraphCacheFromSidecar({
-          timestamp: now(),
-          operationId: runId,
-          profileRun,
-        }),
-      );
+      const result = await rebuildCitationGraphCacheFromSidecar({
+        timestamp: now(),
+        operationId: runId,
+        profileRun,
+      });
       phaseIndex = 4;
       completeSynthesisJobProgress({
         jobName,
@@ -14083,23 +14120,27 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         return result;
       }
       await report("compute_metrics", 1);
-      const result = await lock.runExclusive(libraryId, () =>
-        refreshCitationGraphComplexMetricsFromCurrentGraph({
-          timestamp: now(),
-        }),
-      );
+      const result = await refreshCitationGraphComplexMetricsFromCurrentGraph({
+        timestamp: now(),
+      });
       completeSynthesisJobProgress({
         jobName,
         runId,
         source,
         label,
-        phase: result.status === "skipped" ? "skipped" : "completed",
-        phaseLabel: result.status === "skipped" ? "Skipped" : "Completed",
+        phase:
+          result.status === "skipped" || result.status === "superseded"
+            ? "skipped"
+            : "completed",
+        phaseLabel:
+          result.status === "skipped" || result.status === "superseded"
+            ? "Skipped"
+            : "Completed",
         processedCount: result.metric_count,
         totalCount: result.metric_count,
         progressMode: "determinate",
         message:
-          result.status === "skipped"
+          result.status === "skipped" || result.status === "superseded"
             ? "Citation graph metrics refresh skipped."
             : "Citation graph metrics refresh completed.",
         diagnosticsJson: JSON.stringify([
@@ -14108,8 +14149,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             graph_hash: result.graph_hash,
             metrics_hash: result.metrics_hash,
             metric_count: result.metric_count,
+            diagnostic_code:
+              "diagnostic_code" in result ? result.diagnostic_code : undefined,
             skipped_reason:
-              result.status === "skipped" ? result.skipped_reason : undefined,
+              "skipped_reason" in result ? result.skipped_reason : undefined,
           },
         ]),
       });

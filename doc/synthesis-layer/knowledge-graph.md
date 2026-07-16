@@ -204,7 +204,7 @@ Each knowledge domain follows a similar service pattern:
 
 | Domain | Entry Function | Core Operations |
 |--------|---------------|-----------------|
-| Citation Graph | `buildUnifiedCitationGraph()` | `computeCitationGraphMetrics()`, `computeCitationGraphLayout()` (force/radial/components) |
+| Citation Graph | `buildUnifiedCitationGraph()` | Bounded metrics v2 and force/radial/components layout engines through application adapters |
 | Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |

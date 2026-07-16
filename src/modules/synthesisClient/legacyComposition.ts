@@ -1,5 +1,8 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
-import { createInProcessSynthesisCitationGraphLayoutEngine } from "../../../packages/synthesis-engine/src/index";
+import {
+  createInProcessSynthesisCitationGraphLayoutEngine,
+  createInProcessSynthesisCitationGraphMetricsEngine,
+} from "../../../packages/synthesis-engine/src/index";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
@@ -53,6 +56,8 @@ function createDefaultLegacyService(
     hostTagEffectPort: createZoteroSynthesisTagEffectPort(),
     citationGraphLayoutEngine:
       createInProcessSynthesisCitationGraphLayoutEngine(),
+    citationGraphMetricsEngine:
+      createInProcessSynthesisCitationGraphMetricsEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

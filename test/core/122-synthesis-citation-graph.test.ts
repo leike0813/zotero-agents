@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import {
   buildUnifiedCitationGraph,
-  computeCitationGraphMetrics,
   normalizeCitationLayoutAlgorithm,
   provisionalReferenceKey,
 } from "../../src/modules/synthesis/citationGraph";
@@ -352,107 +351,5 @@ describe("Synthesis Citation Graph", function () {
       Math.hypot(isolated.x - source.x, isolated.y - source.y),
       800,
     );
-  });
-
-  it("computes deterministic library-only citation metrics", function () {
-    const graph = buildUnifiedCitationGraph({
-      papers: [
-        {
-          libraryId: 1,
-          itemKey: "A",
-          title: "Foundation Paper",
-          year: "2020",
-          references: [
-            { title: "Middle Paper", year: "2022", authors: ["B"] },
-            { title: "External Method", year: "2019", authors: ["External"] },
-            { raw: "unresolved method note" },
-          ],
-        },
-        {
-          libraryId: 1,
-          itemKey: "B",
-          title: "Middle Paper",
-          year: "2022",
-          authors: ["B"],
-          references: [
-            { title: "Foundation Paper", year: "2020", authors: ["A"] },
-          ],
-        },
-        {
-          libraryId: 1,
-          itemKey: "C",
-          title: "Frontier Paper",
-          year: "2024",
-          authors: ["C"],
-          references: [{ title: "Middle Paper", year: "2022", authors: ["B"] }],
-        },
-        {
-          libraryId: 1,
-          itemKey: "D",
-          title: "Old Isolated Paper",
-          year: "2020",
-        },
-        {
-          libraryId: 1,
-          itemKey: "E",
-          title: "Recent Isolated Paper",
-          year: "2024",
-        },
-      ],
-    });
-
-    const first = computeCitationGraphMetrics(graph);
-    const second = computeCitationGraphMetrics(graph);
-    const byId = new Map(
-      first.library_node_metrics.map((entry) => [entry.node_id, entry]),
-    );
-
-    assert.equal(first.metrics_hash, second.metrics_hash);
-    assert.equal(first.graph_hash, graph.graph_hash);
-    assert.equal(first.graph_year, 2024);
-    assert.equal(first.diagnostics.library_node_count, 5);
-    assert.equal(first.diagnostics.component_count, 3);
-    assert.equal(byId.get("zotero:item:B")?.internal_in_degree, 2);
-    assert.equal(byId.get("zotero:item:A")?.internal_out_degree, 1);
-    assert.equal(byId.get("zotero:item:A")?.external_reference_count, 1);
-    assert.equal(byId.get("zotero:item:A")?.unresolved_reference_count, 1);
-    assert.equal(byId.get("zotero:item:D")?.is_isolated, true);
-    assert.include(
-      byId.get("zotero:item:D")?.synthesis_role_hints || [],
-      "isolated",
-    );
-    assert.equal(byId.get("zotero:item:E")?.is_isolated, true);
-    assert.isAbove(byId.get("zotero:item:D")?.internal_pagerank || 0, 0);
-    assert.equal(byId.get("zotero:item:D")?.foundation_score, 0.15);
-    assert.equal(byId.get("zotero:item:D")?.frontier_score, 0);
-    assert.equal(byId.get("zotero:item:E")?.foundation_score, 0);
-    assert.equal(byId.get("zotero:item:E")?.frontier_score, 0.55);
-    assert.isAbove(byId.get("zotero:item:B")?.internal_pagerank || 0, 0);
-    assert.isAtLeast(byId.get("zotero:item:C")?.recency_norm || 0, 1);
-  });
-
-  it("keeps external and unresolved nodes out of formal metric rows", function () {
-    const graph = buildUnifiedCitationGraph({
-      papers: [
-        {
-          libraryId: 1,
-          itemKey: "A",
-          title: "Source",
-          references: [
-            { title: "External", year: "2020", authors: ["External"] },
-            { raw: "unresolved" },
-          ],
-        },
-      ],
-    });
-
-    const metrics = computeCitationGraphMetrics(graph);
-
-    assert.deepEqual(
-      metrics.library_node_metrics.map((entry) => entry.node_id),
-      ["zotero:item:A"],
-    );
-    assert.equal(metrics.diagnostics.external_reference_count, 1);
-    assert.equal(metrics.diagnostics.unresolved_reference_count, 1);
   });
 });

@@ -4,7 +4,9 @@ import os from "os";
 import path from "path";
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
+  createInProcessSynthesisCitationGraphMetricsEngine,
   type SynthesisCitationGraphLayoutEngine,
+  type SynthesisCitationGraphMetricsEngine,
 } from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
@@ -12,6 +14,7 @@ import {
   buildSynthesisStoragePaths,
   createCanonicalEnvelope,
   hashMarkdown,
+  LibraryWriteLock,
 } from "../../src/modules/synthesis/foundation";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
@@ -3660,6 +3663,192 @@ describe("Synthesis Layer v1 integration service", function () {
     assert.isAbove(ready.items[0].internal_pagerank, 0);
     assert.deepEqual(repository.listCitationEdges(), beforeEdges);
     assert.deepEqual(repository.listCitationGraphLayoutStates(), beforeLayouts);
+  });
+
+  it("computes metrics outside the library lock and discards a superseded basis", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const writeLock = new LibraryWriteLock();
+    const papers = [
+      {
+        libraryId: 1,
+        itemKey: "A",
+        title: "Alpha",
+        references: [{ title: "Beta", authors: ["Beta"] }],
+      },
+      {
+        libraryId: 1,
+        itemKey: "B",
+        title: "Beta",
+        authors: ["Beta"],
+      },
+    ];
+    const baseline = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      writeLock,
+      citationGraphPapers: papers,
+    });
+    await baseline.refreshReferenceSidecarNow();
+    await baseline.rebuildCitationGraphCacheNow();
+    const before = repository.listCitationComplexMetrics();
+    const inProcess = createInProcessSynthesisCitationGraphMetricsEngine();
+    const engine: SynthesisCitationGraphMetricsEngine = {
+      async compute(request) {
+        await writeLock.runExclusive(1, () => {
+          repository.upsertCitationNode({
+            literatureItemId: "1:C",
+            nodeStatus: "active",
+            hasZoteroBinding: true,
+            title: "Concurrent graph change",
+          });
+        });
+        return inProcess.compute(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      writeLock,
+      citationGraphMetricsEngine: engine,
+    });
+
+    const result = await service.refreshCitationGraphMetricsNow();
+
+    assert.equal(result.status, "superseded");
+    assert.equal(
+      result.diagnostic_code,
+      "citation_graph_metrics_basis_superseded",
+    );
+    assert.deepEqual(repository.listCitationComplexMetrics(), before);
+  });
+
+  for (const failure of ["throw", "malformed"] as const) {
+    it(`preserves prior metrics when the metrics engine ${failure}s`, async function () {
+      const root = await makeRoot();
+      const repository = createSynthesisRepository({ runtimeRoot: root });
+      const papers = [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha",
+          references: [{ title: "Beta", authors: ["Beta"] }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta",
+          authors: ["Beta"],
+        },
+      ];
+      const baseline = createSynthesisService({
+        root,
+        libraryId: 1,
+        synthesisRepository: repository,
+        citationGraphPapers: papers,
+      });
+      await baseline.refreshReferenceSidecarNow();
+      await baseline.rebuildCitationGraphCacheNow();
+      const before = repository.listCitationComplexMetrics();
+      const engine: SynthesisCitationGraphMetricsEngine = {
+        async compute(request) {
+          if (failure === "throw") {
+            throw new Error("secret local/path must not escape");
+          }
+          return {
+            graphHash: request.graphHash,
+            metricsVersion: 2,
+            params: {} as never,
+            graphYear: null,
+            libraryNodeMetrics: [],
+            diagnostics: {
+              libraryNodeCount: 0,
+              externalReferenceCount: 0,
+              unresolvedReferenceCount: 0,
+              componentCount: 0,
+              isolatedLibraryNodeCount: 0,
+              missingYearCount: 0,
+            },
+          };
+        },
+      };
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        synthesisRepository: repository,
+        citationGraphMetricsEngine: engine,
+      });
+
+      let error: unknown;
+      try {
+        await service.refreshCitationGraphMetricsNow();
+      } catch (caught) {
+        error = caught;
+      }
+
+      assert.instanceOf(error, Error);
+      assert.equal(
+        (error as Error).message,
+        "citation_graph_metrics_engine_failed",
+      );
+      assert.notInclude((error as Error).message, "secret");
+      assert.notInclude((error as Error).message, "local/path");
+      assert.deepEqual(repository.listCitationComplexMetrics(), before);
+      assert.equal((await service.getCitationGraphMetrics()).status, "ready");
+    });
+  }
+
+  it("keeps a committed graph ready when rebuild metrics computation fails", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      citationGraphPapers: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Alpha",
+          references: [{ title: "Beta", authors: ["Beta"] }],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Beta",
+          authors: ["Beta"],
+        },
+      ],
+      citationGraphMetricsEngine: {
+        async compute() {
+          throw new Error("engine unavailable");
+        },
+      },
+    });
+    await service.refreshReferenceSidecarNow();
+
+    let error: unknown;
+    try {
+      await service.rebuildCitationGraphCacheNow();
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.instanceOf(error, Error);
+    assert.equal(
+      (error as Error).message,
+      "citation_graph_metrics_engine_failed",
+    );
+    assert.equal(
+      repository.getCacheBasis("citation-graph:library")?.status,
+      "ready",
+    );
+    assert.isAbove(repository.listCitationNodes().length, 0);
+    const metrics = await service.getCitationGraphMetrics();
+    assert.equal(metrics.status, "stale");
+    assert.equal(metrics.diagnostics.metrics_found, false);
   });
 });
 

@@ -142,6 +142,13 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const citationGraphMetricsAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/citationGraphMetricsEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const citationGraphLayoutEngine = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-engine/src/index.ts"),
       "utf8",
@@ -284,6 +291,8 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(serviceSource, "citationGraphLayoutEngine");
     assert.include(serviceSource, "computeCitationGraphLayoutWithEngine");
+    assert.include(serviceSource, "citationGraphMetricsEngine");
+    assert.include(serviceSource, "computeCitationGraphMetricsWithEngine");
     assert.include(
       serviceSource,
       "currentGraph.graph_hash !== request.graphHash",
@@ -297,23 +306,29 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisCitationGraphLayoutEngine",
     );
     assert.include(legacyComposition, "citationGraphLayoutEngine");
+    assert.include(
+      legacyComposition,
+      "createInProcessSynthesisCitationGraphMetricsEngine",
+    );
+    assert.include(legacyComposition, "citationGraphMetricsEngine");
     assert.notInclude(citationGraphSource, 'from "d3-force"');
     assert.notInclude(citationGraphSource, 'from "graphology"');
     assert.notInclude(citationGraphSource, "computeCitationGraphLayout(");
+    assert.notInclude(citationGraphSource, "computeCitationGraphMetrics(");
     assert.include(
       citationGraphLayoutAdapter,
       "buildCitationGraphLayoutEngineRequest",
     );
     assert.include(citationGraphLayoutAdapter, "hashCanonicalJson(base)");
-    for (const forbidden of [
-      "node:",
-      "Zotero",
-      "runtimePersistence",
-      "repository",
-      "foundation",
-    ]) {
-      assert.notInclude(citationGraphLayoutEngine, forbidden);
-    }
+    assert.include(
+      citationGraphMetricsAdapter,
+      "buildCitationGraphMetricsEngineRequest",
+    );
+    assert.include(citationGraphMetricsAdapter, "hashCanonicalJson(base)");
+    const engineImports = [
+      ...citationGraphLayoutEngine.matchAll(/from\s+["']([^"']+)["']/g),
+    ].map((match) => match[1]);
+    assert.deepEqual(engineImports, ["d3-force"]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(

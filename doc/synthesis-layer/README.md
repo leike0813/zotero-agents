@@ -138,6 +138,7 @@ Dirty events, WorkItems, WorkRuns, startup reconcile, queue drain, and Registry 
 | Reference and binding cache | hard-cut target | Artifact sidecar, raw references, canonical references, redirects, and binding decisions replace Registry-as-library-index. |
 | Citation Graph cache | hard-cut target | Structure, metrics, and layout are cache projections refreshed explicitly. |
 | Citation Graph layout engine | process-ready in-process boundary | Force, radial, and components kernels run through the bounded environment-neutral `packages/synthesis-engine` contract. Application orchestration computes outside the library write lock and promotes only after rechecking the current graph hash; production does not yet use a worker process. |
+| Citation Graph metrics engine | process-ready in-process boundary | Metrics v2 PageRank, weak components, normalization, and role scoring run through the same bounded environment-neutral package. Full, incremental, and manual refresh share lock-free compute plus graph-hash-guarded promotion; canonical metrics hashing remains application-owned. |
 | Topics | hard-cut target | Topic source check/discovery read Zotero/artifacts directly and remain soft-coupled from graph cache. |
 | Concepts | unchanged target | Concept KB remains a sibling domain; proposal ingestion and overlay remain bounded and optional. |
 | Discovery | hard-cut target | Normal discovery is digest-apply-time token/phrase overlap, not global n x m matching. |

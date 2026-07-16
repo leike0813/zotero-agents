@@ -102,7 +102,7 @@ strategy.
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
 | Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
 | Citation graph cache rebuild | selected cache scope | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, and light metrics. |
-| Citation graph complex metrics | phase bounded | 3000 ms | Fixed phases or metric rows. |
+| Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 3000 ms phase budget; no current mid-compute cutoff | Fixed phases or metric rows. PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
 | Citation graph layout rebuild | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 2000 ms pre-start soft check; no current mid-compute cutoff | Layout nodes for one existing graph hash. Compute runs outside the write lock; promotion rechecks the hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
 | Zotero related-items sync | scoped source refs or batched full accepted edges | 2000 ms per 100 accepted library edges | Accepted library-to-library citation edges resolved from ready graph cache or sidecar fallback. |
 | Topic discovery apply-time match | active topics for one literature | 2000 ms | Active topic count. |
@@ -112,7 +112,7 @@ strategy.
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-Citation Graph layout is the current process-readiness exception to slice cancellation: its input is hard-bounded and its kernel is isolated from the write lock, but the production in-process engine still completes one deterministic computation after the pre-start budget check. Mid-compute cancellation and worker termination require a later runtime change with explicit normal/target/stress policy.
+Citation Graph layout and complex metrics are the current process-readiness exceptions to slice cancellation: their inputs are hard-bounded and their kernels are isolated from the write lock, but the production in-process engines still complete one deterministic computation after the applicable pre-start or phase budget check. Mid-compute cancellation and worker termination require a later runtime change with explicit normal/target/stress policy.
 
 ## External Source Drift Policy
 
