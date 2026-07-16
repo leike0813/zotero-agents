@@ -32,7 +32,8 @@ import {
 } from "../../src/modules/synthesis/gitSyncCommandAdapter";
 import { resolveSynthesisGitExecutable } from "../../src/modules/synthesis/gitExecutableResolver";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
-import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { createSynthesisService as createBaseSynthesisService } from "../../src/modules/synthesis/service";
+import { createPrefsConfiguredSynthesisGitSyncRuntimeBinding } from "../../src/modules/synthesis/syncRuntimeAdapter";
 import {
   readRuntimeTextFile,
   runtimePathExists,
@@ -54,6 +55,46 @@ function createSynthesisGitSyncService(
   return createBaseSynthesisGitSyncService({
     allowRepositoryCreateForTests: true,
     ...options,
+  });
+}
+
+type ServiceOptions = Parameters<typeof createBaseSynthesisService>[0];
+type LegacyGitTestOptions = Omit<ServiceOptions, "gitSyncRuntime"> & {
+  gitSyncAdapter?: SynthesisGitSyncAdapter;
+  gitSyncCommandRunner?: SynthesisGitCommandRunner;
+  gitSyncAutoSyncEnabled?: boolean;
+  gitSyncAutoRetryEnabled?: boolean;
+};
+
+function createSynthesisService(options: LegacyGitTestOptions) {
+  const {
+    gitSyncAdapter,
+    gitSyncCommandRunner,
+    gitSyncAutoSyncEnabled,
+    gitSyncAutoRetryEnabled,
+    ...serviceOptions
+  } = options;
+  const gitSyncRuntime = gitSyncCommandRunner
+    ? createPrefsConfiguredSynthesisGitSyncRuntimeBinding({
+        commandRunner: gitSyncCommandRunner,
+      })
+    : gitSyncAdapter ||
+        gitSyncAutoSyncEnabled !== undefined ||
+        gitSyncAutoRetryEnabled !== undefined
+      ? {
+          adapter: gitSyncAdapter,
+          autoSyncEnabled: gitSyncAutoSyncEnabled === true,
+          autoRetryEnabled: gitSyncAutoRetryEnabled !== false,
+          readConfigStatus: () => ({
+            config_status: gitSyncAdapter
+              ? ("configured" as const)
+              : ("disabled" as const),
+          }),
+        }
+      : undefined;
+  return createBaseSynthesisService({
+    ...serviceOptions,
+    ...(gitSyncRuntime ? { gitSyncRuntime } : {}),
   });
 }
 

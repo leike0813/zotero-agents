@@ -31,6 +31,7 @@ import {
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
   type SynthesisHostRepresentativeImageReadPort,
+  type SynthesisHostWebDavSyncPort,
   type SynthesisWorkflowTopicOption,
   type SynthesisWorkflowTopicOptionsResult,
 } from "../../../packages/synthesis-contracts/src/index";
@@ -167,32 +168,13 @@ import {
   type SynthesisReviewItemRecord,
   type SynthesisRepositoryTableName,
 } from "./repository";
-import {
-  createSynthesisGitSyncService,
-  type SynthesisGitSyncAdapter,
-} from "./gitSync";
+import { createSynthesisGitSyncService } from "./gitSync";
 import { createSynthesisWebDavSyncService } from "./webDavSync";
-import { type SynthesisWebDavHttpClient } from "./webDavSyncClient";
 import {
-  createPrefsConfiguredSynthesisGitSyncAdapter,
-  getSynthesisGitSyncPrefsConfig,
-  type SynthesisGitCommandRunner,
-} from "./gitSyncCommandAdapter";
-import {
-  clearGitSyncToken,
-  getGitSyncPrefsStatus,
-  getSynthesisGitSyncAutoSyncEnabled,
-  saveGitSyncPrefs,
-  saveGitSyncToken,
-  testGitSyncConfiguration,
-} from "./gitSyncPrefs";
-import {
-  clearWebDavSyncCredential,
-  getWebDavSyncPrefsStatus,
-  saveWebDavSyncCredential,
-  saveWebDavSyncPrefs,
-  testWebDavSyncConfiguration,
-} from "./webDavSyncPrefs";
+  createDisabledSynthesisGitSyncRuntimeBinding,
+  createDisabledSynthesisHostWebDavSyncPort,
+  type SynthesisGitSyncRuntimeBinding,
+} from "./syncRuntime";
 import {
   decideSynthesisApply,
   validateSynthesisResultBundle,
@@ -519,14 +501,10 @@ export type SynthesisServiceOptions = {
   hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort;
   registryInputs?: ReferenceSidecarInput[];
   citationGraphPapers?: CitationGraphPaperInput[];
-  gitSyncAdapter?: SynthesisGitSyncAdapter;
-  gitSyncCommandRunner?: SynthesisGitCommandRunner;
-  gitSyncAutoSyncEnabled?: boolean;
+  gitSyncRuntime?: SynthesisGitSyncRuntimeBinding;
   gitSyncDebounceMs?: number;
   gitSyncRetryDelaysMs?: number[];
-  gitSyncAutoRetryEnabled?: boolean;
-  onConfigurationChanged?: () => void;
-  webDavSyncClient?: SynthesisWebDavHttpClient;
+  hostWebDavSyncPort?: SynthesisHostWebDavSyncPort;
   hostRelatedItemsEffectPort?: SynthesisHostRelatedItemsEffectPort | null;
   hostStagedTagBindingMigrationPort?: SynthesisHostStagedTagBindingMigrationPort | null;
   hostTagEffectPort?: SynthesisHostTagEffectPort | null;
@@ -6179,24 +6157,19 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         preview: Awaited<ReturnType<typeof tagVocabulary.previewImport>>;
       }
     | undefined;
-  const prefsGitSyncConfig = getSynthesisGitSyncPrefsConfig();
-  const gitSyncAutoSyncEnabled =
-    options.gitSyncAutoSyncEnabled ?? getSynthesisGitSyncAutoSyncEnabled();
+  const gitSyncRuntime =
+    options.gitSyncRuntime || createDisabledSynthesisGitSyncRuntimeBinding();
+  const gitSyncAutoSyncEnabled = gitSyncRuntime.autoSyncEnabled;
   const gitSync = createSynthesisGitSyncService({
     root,
     persistenceRoot: runtimeRoot,
     repository: synthesisRepository,
     now,
-    adapter:
-      options.gitSyncAdapter ||
-      createPrefsConfiguredSynthesisGitSyncAdapter({
-        commandRunner: options.gitSyncCommandRunner,
-      }),
+    adapter: gitSyncRuntime.adapter,
     debounceMs: options.gitSyncDebounceMs,
     retryDelaysMs: options.gitSyncRetryDelaysMs,
-    autoRetryEnabled:
-      options.gitSyncAutoRetryEnabled ?? prefsGitSyncConfig.autoRetryEnabled,
-    configStatusProvider: getGitSyncPrefsStatus,
+    autoRetryEnabled: gitSyncRuntime.autoRetryEnabled,
+    configStatusProvider: gitSyncRuntime.readConfigStatus,
     progressReporter: (report) => {
       if (report.status === "completed") {
         completeSynthesisJobProgress(report);
@@ -6215,7 +6188,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     persistenceRoot: runtimeRoot,
     repository: synthesisRepository,
     now,
-    client: options.webDavSyncClient,
+    hostPort:
+      options.hostWebDavSyncPort || createDisabledSynthesisHostWebDavSyncPort(),
     progressReporter: (report) => {
       if (report.status === "completed") {
         completeSynthesisJobProgress(report);
@@ -18498,71 +18472,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     );
   }
 
-  function getGitSyncPrefsConfigurationStatus() {
-    return getGitSyncPrefsStatus();
-  }
-
-  function saveGitSyncPrefsConfiguration(
-    args: Parameters<typeof saveGitSyncPrefs>[0],
-  ) {
-    const result = saveGitSyncPrefs(args);
-    if (result.ok) {
-      options.onConfigurationChanged?.();
-    }
-    return result;
-  }
-
-  async function saveGitSyncAccessToken(token: string) {
-    const result = await saveGitSyncToken(token);
-    options.onConfigurationChanged?.();
-    return result;
-  }
-
-  async function clearGitSyncAccessToken() {
-    const result = await clearGitSyncToken();
-    options.onConfigurationChanged?.();
-    return result;
-  }
-
-  async function testGitSyncPrefsConfiguration() {
-    return testGitSyncConfiguration({
-      commandRunner: options.gitSyncCommandRunner,
-      cwd: root,
-    });
-  }
-
-  function getWebDavSyncPrefsConfigurationStatus() {
-    return getWebDavSyncPrefsStatus();
-  }
-
-  function saveWebDavSyncPrefsConfiguration(
-    args: Parameters<typeof saveWebDavSyncPrefs>[0],
-  ) {
-    const result = saveWebDavSyncPrefs(args);
-    if (result.ok) {
-      options.onConfigurationChanged?.();
-    }
-    return result;
-  }
-
-  async function saveWebDavSyncAccessCredential(credential: string) {
-    const result = await saveWebDavSyncCredential(credential);
-    options.onConfigurationChanged?.();
-    return result;
-  }
-
-  async function clearWebDavSyncAccessCredential() {
-    const result = await clearWebDavSyncCredential();
-    options.onConfigurationChanged?.();
-    return result;
-  }
-
-  async function testWebDavSyncPrefsConfiguration() {
-    return testWebDavSyncConfiguration({
-      client: options.webDavSyncClient,
-    });
-  }
-
   async function getReviewInput(
     args: Record<string, unknown>,
   ): Promise<ReviewWorkflowInput> {
@@ -21000,16 +20909,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     resumeWebDavSync,
     retryWebDavSync,
     resolveWebDavSyncConflict,
-    getGitSyncPrefsConfigurationStatus,
-    saveGitSyncPrefsConfiguration,
-    saveGitSyncAccessToken,
-    clearGitSyncAccessToken,
-    testGitSyncPrefsConfiguration,
-    getWebDavSyncPrefsConfigurationStatus,
-    saveWebDavSyncPrefsConfiguration,
-    saveWebDavSyncAccessCredential,
-    clearWebDavSyncAccessCredential,
-    testWebDavSyncPrefsConfiguration,
   };
 }
 

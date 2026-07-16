@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
+import { createPrefsConfiguredSynthesisWebDavSyncPort } from "../../src/modules/synthesis/webDavSyncAdapter";
 import {
   clearWebDavSyncCredential,
   getWebDavSyncPrefsStatus,
@@ -180,7 +181,9 @@ describe("Synthesis WebDAV sync", function () {
     const service = createSynthesisService({
       root,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     });
 
     await service.saveTagVocabulary({
@@ -203,7 +206,9 @@ describe("Synthesis WebDAV sync", function () {
     const service = createSynthesisService({
       root,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     });
 
     const state = await service.syncWebDavNow();
@@ -272,7 +277,9 @@ describe("Synthesis WebDAV sync", function () {
     const state = await createSynthesisService({
       root,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
       now: () => "2026-06-16T00:10:01.000Z",
     }).loadWebDavSyncState();
 
@@ -295,14 +302,18 @@ describe("Synthesis WebDAV sync", function () {
     await createSynthesisService({
       root: sourceRoot,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     }).syncWebDavNow();
 
     const targetRoot = await makeRuntimeRoot();
     const targetService = createSynthesisService({
       root: targetRoot,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     });
     const state = await targetService.syncWebDavNow();
     const concepts = createSynthesisRepository({
@@ -325,7 +336,9 @@ describe("Synthesis WebDAV sync", function () {
     await createSynthesisService({
       root,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     }).syncWebDavNow();
     seedConcept(root, "Local changed concept");
     client.mutateBeforeHeadPut = () => {
@@ -344,7 +357,9 @@ describe("Synthesis WebDAV sync", function () {
     const state = await createSynthesisService({
       root,
       libraryId: 1,
-      webDavSyncClient: client,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
     }).syncWebDavNow();
 
     assert.equal(state.queue_state, "failed_retryable");

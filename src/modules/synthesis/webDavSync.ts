@@ -1,5 +1,12 @@
 import { joinPath } from "../../utils/path";
 import {
+  rebuildSynthesisHostWebDavSyncDescription,
+  rebuildSynthesisHostWebDavSyncEnsureCollectionResult,
+  rebuildSynthesisHostWebDavSyncReadResult,
+  rebuildSynthesisHostWebDavSyncWriteResult,
+  type SynthesisHostWebDavSyncPort,
+} from "../../../packages/synthesis-contracts/src/index";
+import {
   collectRuntimeFiles,
   ensureRuntimeDirectory,
   readRuntimeTextFile,
@@ -20,19 +27,11 @@ import {
   getSynthesisRepositoryDatabasePath,
   type SynthesisRepository,
 } from "./repository";
+import { sanitizeWebDavUrl } from "./webDavSyncRemote";
 import {
-  createDefaultSynthesisWebDavHttpClient,
-  sanitizeWebDavUrl,
-  webDavCredentialForRequest,
-  webDavRemoteUrl,
-  type SynthesisWebDavHttpClient,
-} from "./webDavSyncClient";
-import {
-  getSynthesisWebDavSyncPrefsConfig,
-  getWebDavSyncPrefsStatus,
   type SynthesisWebDavSyncConfigStatus,
   type SynthesisWebDavSyncDiagnostic,
-} from "./webDavSyncPrefs";
+} from "./webDavSyncTypes";
 
 export type SynthesisWebDavSyncQueueState =
   | "idle"
@@ -142,7 +141,7 @@ type ServiceOptions = {
   root: string;
   persistenceRoot?: string;
   repository?: SynthesisRepository;
-  client?: SynthesisWebDavHttpClient;
+  hostPort: SynthesisHostWebDavSyncPort;
   now?: () => string;
   progressReporter?: (
     report: SynthesisWebDavSyncProgressReport,
@@ -310,22 +309,46 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   const root = cleanString(options.root);
   const persistenceRoot = cleanString(options.persistenceRoot) || root;
   const now = options.now || nowIso;
-  const client = options.client || createDefaultSynthesisWebDavHttpClient();
+  const hostPort = options.hostPort;
   const repository = options.repository;
 
-  function prefs() {
-    return getSynthesisWebDavSyncPrefsConfig();
+  async function describeHost() {
+    try {
+      return rebuildSynthesisHostWebDavSyncDescription(
+        await hostPort.describe(),
+      );
+    } catch {
+      return rebuildSynthesisHostWebDavSyncDescription({
+        status: "unavailable",
+        configStatus: "invalid",
+        baseUrl: "",
+        remotePath: "",
+        username: "",
+        diagnostics: ["webdav_sync_host_description_failed"],
+      });
+    }
+  }
+
+  function hostDiagnostic(code: string) {
+    return diagnostic({
+      code,
+      severity: code === "webdav_sync_disabled" ? "info" : "error",
+      message: code,
+    });
+  }
+
+  function hostFailure(diagnostics: string[], fallback: string): never {
+    throw new Error(cleanString(diagnostics[0]) || fallback);
   }
 
   async function loadWebDavSyncState() {
     const timestamp = now();
     const paths = syncPaths(persistenceRoot);
     await ensureRuntimeDirectory(paths.syncRoot);
-    const config = prefs();
-    const prefsStatus = getWebDavSyncPrefsStatus();
+    const host = await describeHost();
     const configured =
-      config.enabled &&
-      prefsStatus.config_status === "configured" &&
+      host.status === "available" &&
+      host.configStatus === "configured" &&
       Boolean(repository);
     const fallback: SynthesisWebDavSyncState = {
       schema_id: "synthesis.webdav_sync_state",
@@ -333,16 +356,16 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       queue_state: configured ? "idle" : "disabled",
       paused: false,
       adapter_configured: configured,
-      config_status: prefsStatus.config_status,
-      base_url: sanitizeWebDavUrl(config.baseUrl),
-      remote_path: config.remotePath,
-      username: config.username || undefined,
-      credential_updated_at: prefsStatus.credential_updated_at,
-      connection_test: prefsStatus.connection_test,
+      config_status: host.configStatus,
+      base_url: sanitizeWebDavUrl(host.baseUrl),
+      remote_path: host.remotePath,
+      username: host.username || undefined,
+      credential_updated_at: host.credentialUpdatedAt,
+      connection_test: host.connectionTest,
       diagnostics: configured
         ? []
         : [
-            ...prefsStatus.diagnostics,
+            ...host.diagnostics.map(hostDiagnostic),
             ...(repository
               ? []
               : [
@@ -366,12 +389,12 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       fallback,
     );
     state.adapter_configured = configured;
-    state.config_status = prefsStatus.config_status;
-    state.base_url = sanitizeWebDavUrl(config.baseUrl);
-    state.remote_path = config.remotePath;
-    state.username = config.username || undefined;
-    state.credential_updated_at = prefsStatus.credential_updated_at;
-    state.connection_test = prefsStatus.connection_test;
+    state.config_status = host.configStatus;
+    state.base_url = sanitizeWebDavUrl(host.baseUrl);
+    state.remote_path = host.remotePath;
+    state.username = host.username || undefined;
+    state.credential_updated_at = host.credentialUpdatedAt;
+    state.connection_test = host.connectionTest;
     if (!configured) {
       state.queue_state = "disabled";
       state.diagnostics = fallback.diagnostics;
@@ -463,25 +486,16 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   }
 
   async function readRemoteHead(): Promise<SynthesisWebDavRemoteHead> {
-    const config = prefs();
-    const credential = await webDavCredentialForRequest();
-    const response = await client.request({
-      method: "GET",
-      url: webDavRemoteUrl({
-        baseUrl: config.baseUrl,
-        remotePath: config.remotePath,
-        relativePath: "HEAD.json",
-      }),
-      username: config.username,
-      credential,
-    });
-    if (response.status === 404) {
+    const response = rebuildSynthesisHostWebDavSyncReadResult(
+      await hostPort.readText({ path: "HEAD.json" }),
+    );
+    if (response.status === "missing") {
       return { missing: true };
     }
-    if (!response.ok) {
-      throw new Error(`webdav HEAD read failed: HTTP ${response.status}`);
+    if (response.status === "unavailable") {
+      hostFailure(response.diagnostics, "webdav_sync_host_read_failed");
     }
-    const pointer = parseHead(response.text || "");
+    const pointer = parseHead(response.text);
     if (!pointer) {
       throw new Error("webdav HEAD is invalid");
     }
@@ -489,33 +503,23 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   }
 
   async function downloadSnapshot(pointer: SynthesisWebDavSnapshotPointer) {
-    const config = prefs();
-    const credential = await webDavCredentialForRequest();
     const paths = syncPaths(persistenceRoot);
     await removeRuntimePath(paths.importRoot);
     await ensureRuntimeDirectory(paths.importRoot);
-    const manifestResponse = await client.request({
-      method: "GET",
-      url: webDavRemoteUrl({
-        baseUrl: config.baseUrl,
-        remotePath: config.remotePath,
-        relativePath: remotePath(
-          "snapshots",
-          pointer.snapshot_id,
-          "manifest.json",
-        ),
+    const manifestResponse = rebuildSynthesisHostWebDavSyncReadResult(
+      await hostPort.readText({
+        path: remotePath("snapshots", pointer.snapshot_id, "manifest.json"),
       }),
-      username: config.username,
-      credential,
-    });
-    if (!manifestResponse.ok) {
-      throw new Error(
-        `webdav manifest download failed: HTTP ${manifestResponse.status}`,
+    );
+    if (manifestResponse.status !== "available") {
+      hostFailure(
+        manifestResponse.diagnostics,
+        "webdav_sync_manifest_download_failed",
       );
     }
     await writeRuntimeTextFile(
       joinPath(paths.importRoot, "manifest.json"),
-      manifestResponse.text || "",
+      manifestResponse.text,
     );
     const manifest = await readSynthesisDurableManifest(paths.importRoot);
     if (!manifest) {
@@ -526,28 +530,21 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       if (!safe.ok || !safe.normalizedPath.startsWith("bundles/")) {
         throw new Error("webdav durable asset path invalid");
       }
-      const response = await client.request({
-        method: "GET",
-        url: webDavRemoteUrl({
-          baseUrl: config.baseUrl,
-          remotePath: config.remotePath,
-          relativePath: remotePath(
+      const response = rebuildSynthesisHostWebDavSyncReadResult(
+        await hostPort.readText({
+          path: remotePath(
             "snapshots",
             pointer.snapshot_id,
             safe.normalizedPath,
           ),
         }),
-        username: config.username,
-        credential,
-      });
-      if (!response.ok) {
-        throw new Error(
-          `webdav bundle download failed: HTTP ${response.status}`,
-        );
+      );
+      if (response.status !== "available") {
+        hostFailure(response.diagnostics, "webdav_sync_bundle_download_failed");
       }
       await writeRuntimeTextFile(
         joinPath(paths.importRoot, safe.normalizedPath),
-        response.text || "",
+        response.text,
       );
     }
     return paths.importRoot;
@@ -563,43 +560,6 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   }
 
   async function ensureRemoteCollections(relativePaths: string[]) {
-    const config = prefs();
-    const credential = await webDavCredentialForRequest();
-    const makeCollection = async (args: {
-      remotePath: string;
-      relativePath: string;
-    }) => {
-      const result = await client.request({
-        method: "MKCOL",
-        url: webDavRemoteUrl({
-          baseUrl: config.baseUrl,
-          remotePath: args.remotePath,
-          relativePath: args.relativePath,
-        }),
-        username: config.username,
-        credential,
-      });
-      if (
-        result.ok ||
-        result.status === 200 ||
-        result.status === 201 ||
-        result.status === 204 ||
-        result.status === 405 ||
-        result.status === 409
-      ) {
-        return;
-      }
-      throw new Error(`webdav collection create failed: HTTP ${result.status}`);
-    };
-    const remoteRootParts = remotePath(config.remotePath)
-      .split("/")
-      .filter(Boolean);
-    for (let index = 1; index <= remoteRootParts.length; index += 1) {
-      await makeCollection({
-        remotePath: "",
-        relativePath: remoteRootParts.slice(0, index).join("/"),
-      });
-    }
     const collections = Array.from(
       new Set(
         relativePaths
@@ -608,10 +568,12 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       ),
     );
     for (const collection of collections) {
-      await makeCollection({
-        remotePath: config.remotePath,
-        relativePath: collection,
-      });
+      const result = rebuildSynthesisHostWebDavSyncEnsureCollectionResult(
+        await hostPort.ensureCollection({ path: collection }),
+      );
+      if (result.status !== "ready") {
+        hostFailure(result.diagnostics, "webdav_sync_host_collection_failed");
+      }
     }
   }
 
@@ -620,8 +582,6 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
     pointer: SynthesisWebDavSnapshotPointer,
     head: SynthesisWebDavRemoteHead,
   ) {
-    const config = prefs();
-    const credential = await webDavCredentialForRequest();
     const beforeHead = await readRemoteHead().catch(
       () => ({ missing: true }) as SynthesisWebDavRemoteHead,
     );
@@ -654,44 +614,31 @@ export function createSynthesisWebDavSyncService(options: ServiceOptions) {
       "HEAD.json",
     ]);
     for (const file of uploadFiles) {
-      const uploadResult = await client.request({
-        method: "PUT",
-        url: webDavRemoteUrl({
-          baseUrl: config.baseUrl,
-          remotePath: config.remotePath,
-          relativePath: remotePath(
-            "snapshots",
-            pointer.snapshot_id,
-            file.relativePath,
-          ),
+      const uploadResult = rebuildSynthesisHostWebDavSyncWriteResult(
+        await hostPort.writeText({
+          path: remotePath("snapshots", pointer.snapshot_id, file.relativePath),
+          text: await readRuntimeTextFile(file.path),
         }),
-        body: await readRuntimeTextFile(file.path),
-        username: config.username,
-        credential,
-      });
-      if (!uploadResult.ok) {
-        throw new Error(
-          `webdav snapshot upload failed: HTTP ${uploadResult.status}`,
+      );
+      if (uploadResult.status !== "written") {
+        hostFailure(
+          uploadResult.diagnostics,
+          "webdav_sync_snapshot_upload_failed",
         );
       }
     }
-    const headResult = await client.request({
-      method: "PUT",
-      url: webDavRemoteUrl({
-        baseUrl: config.baseUrl,
-        remotePath: config.remotePath,
-        relativePath: "HEAD.json",
+    const headResult = rebuildSynthesisHostWebDavSyncWriteResult(
+      await hostPort.writeText({
+        path: "HEAD.json",
+        text: JSON.stringify(pointer, null, 2),
+        ...(head.etag ? { ifMatch: head.etag } : {}),
       }),
-      body: JSON.stringify(pointer, null, 2),
-      headers: head.etag ? { "If-Match": head.etag } : undefined,
-      username: config.username,
-      credential,
-    });
-    if (!headResult.ok) {
-      if (headResult.status === 409 || headResult.status === 412) {
-        throw new Error("webdav_sync_remote_changed_during_sync");
-      }
-      throw new Error(`webdav HEAD upload failed: HTTP ${headResult.status}`);
+    );
+    if (headResult.status === "conflict") {
+      throw new Error("webdav_sync_remote_changed_during_sync");
+    }
+    if (headResult.status !== "written") {
+      hostFailure(headResult.diagnostics, "webdav_sync_head_upload_failed");
     }
   }
 

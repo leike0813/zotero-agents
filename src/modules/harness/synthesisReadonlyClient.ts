@@ -1,5 +1,9 @@
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createSynthesisRepository } from "../synthesis/repository";
+import {
+  createDisabledSynthesisGitSyncRuntimeBinding,
+  createDisabledSynthesisHostWebDavSyncPort,
+} from "../synthesis/syncRuntime";
 import { createLegacyInProcessSynthesisClient } from "../synthesisClient/legacyComposition";
 import { createReadonlySqliteAdapter } from "./sqliteReadonly";
 import { createZoteroReadonlyHostReadPort } from "./zoteroReadonlyLibraryAdapter";
@@ -49,6 +53,8 @@ export async function createSynthesisReadonlyClient(
         runtimeRoot: options.pluginRuntimeRoot,
         libraryId,
         hostReadPort,
+        gitSyncRuntime: createDisabledSynthesisGitSyncRuntimeBinding(),
+        hostWebDavSyncPort: createDisabledSynthesisHostWebDavSyncPort(),
         synthesisRepository: repository,
       });
       let closed = false;

@@ -5,10 +5,12 @@ import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../synthesis/representativeImageReadAdapter";
 import { createZoteroSynthesisRelatedItemsEffectPort } from "../synthesis/relatedItemsEffectAdapter";
+import { createPrefsConfiguredSynthesisGitSyncRuntimeBinding } from "../synthesis/syncRuntimeAdapter";
 import {
   createZoteroSynthesisStagedTagBindingMigrationPort,
   createZoteroSynthesisTagEffectPort,
 } from "../synthesis/tagEffectAdapter";
+import { createPrefsConfiguredSynthesisWebDavSyncPort } from "../synthesis/webDavSyncAdapter";
 import {
   createInProcessSynthesisClient,
   type LegacySynthesisPort,
@@ -49,7 +51,8 @@ function createDefaultLegacyService(
     hostTagEffectPort: createZoteroSynthesisTagEffectPort(),
     citationGraphLayoutEngine:
       createInProcessSynthesisCitationGraphLayoutEngine(),
-    onConfigurationChanged: invalidateDefaultLegacySynthesisService,
+    gitSyncRuntime: createPrefsConfiguredSynthesisGitSyncRuntimeBinding(),
+    hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
   });
   return defaultLegacyService;
 }

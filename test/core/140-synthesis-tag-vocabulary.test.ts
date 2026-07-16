@@ -1191,11 +1191,16 @@ describe("Synthesis tag vocabulary", function () {
       root,
       libraryId: 1,
       gitSyncDebounceMs: 0,
-      gitSyncAdapter: {
-        merge: () => {
-          syncRuns += 1;
-          return { status: "clean" };
+      gitSyncRuntime: {
+        adapter: {
+          merge: () => {
+            syncRuns += 1;
+            return { status: "clean" };
+          },
         },
+        autoSyncEnabled: false,
+        autoRetryEnabled: true,
+        readConfigStatus: () => ({ config_status: "configured" }),
       },
     });
     await service.saveTagVocabulary({

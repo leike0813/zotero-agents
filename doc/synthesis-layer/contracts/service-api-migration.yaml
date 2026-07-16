@@ -293,7 +293,6 @@ method_groups:
     methods:
       - loadGitSyncState
       - readGitSyncDiagnostics
-      - getGitSyncPrefsConfigurationStatus
 
   - id: git_sync_commands
     category: command
@@ -306,10 +305,6 @@ method_groups:
       - resumeGitSync
       - retryGitSync
       - resolveGitSyncConflict
-      - saveGitSyncPrefsConfiguration
-      - saveGitSyncAccessToken
-      - clearGitSyncAccessToken
-      - testGitSyncPrefsConfiguration
 
   - id: webdav_sync_queries
     category: query
@@ -318,7 +313,6 @@ method_groups:
     consumer_groups: [workbench, host_bridge, mcp]
     methods:
       - loadWebDavSyncState
-      - getWebDavSyncPrefsConfigurationStatus
 
   - id: webdav_sync_commands
     category: command
@@ -331,7 +325,3 @@ method_groups:
       - resumeWebDavSync
       - retryWebDavSync
       - resolveWebDavSyncConflict
-      - saveWebDavSyncPrefsConfiguration
-      - saveWebDavSyncAccessCredential
-      - clearWebDavSyncAccessCredential
-      - testWebDavSyncPrefsConfiguration

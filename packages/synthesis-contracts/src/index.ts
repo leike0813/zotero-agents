@@ -19,3 +19,4 @@ export * from "./topicGraph";
 export * from "./workflow";
 export * from "./workflowReview";
 export * from "./workbench";
+export * from "./webDavSyncPort";

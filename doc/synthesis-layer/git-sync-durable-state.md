@@ -50,9 +50,11 @@ Long-term WebDAV Sync configuration lives in Zotero Preferences, not Workbench. 
 
 The Workbench Home Sync panel shows WebDAV runtime status and manual actions, but does not edit long-term configuration. It also contains a terminal-style feedback area for pending actions, diagnostics, connection test status, and last run status.
 
+Preferences hooks directly own status, save, credential store/clear, and connection tests. Successful changes invalidate the default Synthesis client. Production composition then builds a fresh Git runtime binding and `SynthesisHostWebDavSyncPort`; the WebDAV adapter reads current configuration and credential for each remote operation, while application Sync receives only sanitized configuration and managed-relative-path results.
+
 ## Deprecated Git Sync
 
-Git Sync code is retained but hidden from user-facing UI. Its prefs keys, service facade, token storage, command adapter, and tests may remain so existing runtime state can be diagnosed and future cleanup can be staged safely.
+Git Sync code is retained but hidden from user-facing UI. Its prefs keys, token storage, command adapter, runtime binding, and tests remain so existing runtime state can be diagnosed and future cleanup can be staged safely. The removed configuration facade is not part of the retained runtime surface.
 
 Git Sync no longer has a Preferences card, Dashboard entry, or Synthesis Home action. New visible sync UX should target WebDAV durable bundle sync unless a future change explicitly restores or replaces Git Sync.
 

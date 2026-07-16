@@ -152,4 +152,34 @@ describe("Synthesis lifecycle client consumers", function () {
     );
     assert.include(legacyComposition, "citationGraphLayoutEngine");
   });
+
+  it("composes Sync Host runtimes explicitly for production and readonly", function () {
+    const legacyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
+      "utf8",
+    );
+    const readonlyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
+      "utf8",
+    );
+    assert.include(
+      legacyComposition,
+      "createPrefsConfiguredSynthesisGitSyncRuntimeBinding",
+    );
+    assert.include(
+      legacyComposition,
+      "createPrefsConfiguredSynthesisWebDavSyncPort",
+    );
+    assert.include(legacyComposition, "gitSyncRuntime");
+    assert.include(legacyComposition, "hostWebDavSyncPort");
+    assert.notInclude(legacyComposition, "onConfigurationChanged");
+    assert.include(
+      readonlyComposition,
+      "createDisabledSynthesisGitSyncRuntimeBinding",
+    );
+    assert.include(
+      readonlyComposition,
+      "createDisabledSynthesisHostWebDavSyncPort",
+    );
+  });
 });

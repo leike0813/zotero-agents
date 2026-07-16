@@ -36,7 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.lengthOf(report.publicMethods, 125);
+    assert.lengthOf(report.publicMethods, 115);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
     assert.notInclude(
@@ -119,6 +119,18 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "src/modules/synthesis/exportDeliveryAdapter.ts"),
       "utf8",
     );
+    const webDavSyncSource = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/webDavSync.ts"),
+      "utf8",
+    );
+    const webDavSyncAdapter = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/webDavSyncAdapter.ts"),
+      "utf8",
+    );
+    const syncRuntime = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/syncRuntime.ts"),
+      "utf8",
+    );
     const citationGraphSource = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/citationGraph.ts"),
       "utf8",
@@ -191,6 +203,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./relatedItemsEffect"');
     assert.include(contractIndex, 'export * from "./itemRef"');
     assert.include(contractIndex, 'export * from "./tagEffect"');
+    assert.include(contractIndex, 'export * from "./webDavSyncPort"');
     assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
     assert.notInclude(
       serviceSource,
@@ -222,6 +235,60 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(serviceSource, "createStoreZipBytes");
     assert.notInclude(serviceSource, "remoteExportRoot");
     assert.notInclude(serviceSource, "registerRemoteExportBundle");
+    for (const forbidden of [
+      "getSynthesisGitSyncPrefsConfig",
+      "getSynthesisGitSyncAutoSyncEnabled",
+      "createPrefsConfiguredSynthesisGitSyncAdapter",
+      "getGitSyncPrefsStatus",
+      "saveGitSyncPrefs",
+      "saveGitSyncToken",
+      "clearGitSyncToken",
+      "testGitSyncConfiguration",
+      "getWebDavSyncPrefsStatus",
+      "saveWebDavSyncPrefs",
+      "saveWebDavSyncCredential",
+      "clearWebDavSyncCredential",
+      "testWebDavSyncConfiguration",
+      "SynthesisWebDavHttpClient",
+      "onConfigurationChanged",
+    ]) {
+      assert.notInclude(serviceSource, forbidden);
+    }
+    for (const forbidden of [
+      "webDavSyncPrefs",
+      "webDavSyncCredentialPrefs",
+      "webDavSyncClient",
+      "webDavCredentialForRequest",
+      "getSynthesisWebDavSyncPrefsConfig",
+      "globalThis",
+      "fetch(",
+    ]) {
+      assert.notInclude(webDavSyncSource, forbidden);
+    }
+    assert.include(webDavSyncSource, "hostPort.readText");
+    assert.include(webDavSyncSource, "hostPort.writeText");
+    assert.include(webDavSyncAdapter, "webDavCredentialForRequest");
+    assert.include(webDavSyncAdapter, "getSynthesisWebDavSyncPrefsConfig");
+    assert.include(syncRuntime, "createDisabledSynthesisGitSyncRuntimeBinding");
+    assert.include(syncRuntime, "createDisabledSynthesisHostWebDavSyncPort");
+    assert.include(
+      legacyComposition,
+      "createPrefsConfiguredSynthesisGitSyncRuntimeBinding",
+    );
+    assert.include(legacyComposition, "gitSyncRuntime");
+    assert.include(
+      legacyComposition,
+      "createPrefsConfiguredSynthesisWebDavSyncPort",
+    );
+    assert.include(legacyComposition, "hostWebDavSyncPort");
+    assert.include(
+      readonlyComposition,
+      "createDisabledSynthesisGitSyncRuntimeBinding",
+    );
+    assert.include(
+      readonlyComposition,
+      "createDisabledSynthesisHostWebDavSyncPort",
+    );
     assert.include(serviceSource, "citationGraphLayoutEngine");
     assert.include(serviceSource, "computeCitationGraphLayoutWithEngine");
     assert.include(
@@ -730,7 +797,7 @@ describe("Synthesis sidecar migration boundary", function () {
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
-    assert.include(runtime, "complete 125-method service");
+    assert.include(runtime, "complete 115-method service");
   });
 
   it("registers the migration-safe single-owner invariant", function () {

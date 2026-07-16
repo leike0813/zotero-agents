@@ -217,6 +217,13 @@ export type SynthesisGitSyncAdapter = {
     | void;
 };
 
+export type SynthesisGitSyncConfigProjection = {
+  config_status?: SynthesisGitSyncConfigStatus;
+  token_masked?: string;
+  token_updated_at?: string;
+  connection_test?: SynthesisGitSyncConnectionTestProjection;
+};
+
 type ServiceOptions = {
   root: string;
   persistenceRoot?: string;
@@ -229,18 +236,8 @@ type ServiceOptions = {
   retryDelaysMs?: number[];
   autoRetryEnabled?: boolean;
   configStatusProvider?: () =>
-    | {
-        config_status?: SynthesisGitSyncConfigStatus;
-        token_masked?: string;
-        token_updated_at?: string;
-        connection_test?: SynthesisGitSyncConnectionTestProjection;
-      }
-    | Promise<{
-        config_status?: SynthesisGitSyncConfigStatus;
-        token_masked?: string;
-        token_updated_at?: string;
-        connection_test?: SynthesisGitSyncConnectionTestProjection;
-      }>;
+    | SynthesisGitSyncConfigProjection
+    | Promise<SynthesisGitSyncConfigProjection>;
   progressReporter?: (report: {
     jobName: string;
     runId: string;
