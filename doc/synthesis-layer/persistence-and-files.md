@@ -17,6 +17,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
 | Explicit exports/checkpoints | User-selected path or explicit export directory | Portable output, not UI hot path |
+| Remote Host Bridge exports | Managed `runtime/tmp/host-bridge-exports/**` owned by the Host adapter | Ephemeral ZIP materialization registered by opaque handle; never application state, a public response path, or a Synthesis rebuild source |
 | Debug dumps | Debug/runtime path | Diagnostics only |
 | Legacy `data/synthesis/state` tree | Historical cleanup residue only | Former sidecar/projection location. Current code must not create new files there; remaining files are old backups or rebuildable projection/cache artifacts. |
 

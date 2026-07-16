@@ -115,6 +115,10 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const exportDeliveryAdapter = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesis/exportDeliveryAdapter.ts"),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -167,6 +171,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./libraryIndex"');
     assert.include(contractIndex, 'export * from "./workflowReview"');
     assert.include(contractIndex, 'export * from "./hostRead"');
+    assert.include(contractIndex, 'export * from "./exportDelivery"');
     assert.include(contractIndex, 'export * from "./representativeImageRead"');
     assert.include(contractIndex, 'export * from "./relatedItemsEffect"');
     assert.include(contractIndex, 'export * from "./itemRef"');
@@ -188,6 +193,20 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(serviceSource, "rebuildMirrorFromCanonical");
     assert.notInclude(serviceSource, "recoverCanonicalFromMirror");
     assert.notInclude(serviceSource, "globalThis as { Zotero");
+    assert.include(legacyComposition, "createSynthesisHostExportDeliveryPort");
+    assert.include(legacyComposition, "hostExportDeliveryPort");
+    assert.notInclude(readonlyComposition, "hostExportDeliveryPort");
+    assert.include(
+      exportDeliveryAdapter,
+      "rebuildSynthesisHostExportDeliveryRequest",
+    );
+    assert.include(exportDeliveryAdapter, "registerHostBridgeExportFile");
+    assert.include(serviceSource, "hostExportDeliveryPort");
+    assert.notInclude(serviceSource, "createSynthesisHostExportDeliveryPort");
+    assert.notInclude(serviceSource, "registerHostBridgeExportFile");
+    assert.notInclude(serviceSource, "createStoreZipBytes");
+    assert.notInclude(serviceSource, "remoteExportRoot");
+    assert.notInclude(serviceSource, "registerRemoteExportBundle");
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(

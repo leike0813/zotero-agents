@@ -35,11 +35,16 @@ describe("Synthesis client foundation", function () {
     const rootPackage = JSON.parse(
       fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
     ) as { scripts?: Record<string, string>; workspaces?: string[] };
+    const contractIndex = fs.readFileSync(
+      path.join(packageRoot, "src/index.ts"),
+      "utf8",
+    );
 
     assert.deepEqual(tsconfig.compilerOptions?.lib, ["ES2022"]);
     assert.deepEqual(tsconfig.compilerOptions?.types, []);
     assert.include(rootPackage.workspaces, "packages/*");
     assert.include(rootPackage.scripts?.build, "check:synthesis-contracts");
+    assert.include(contractIndex, 'export * from "./exportDelivery"');
     assert.notMatch(
       source,
       /(?:from\s+|import\s*\()["'](?:node:|zotero-|\.\.\/\.\.\/src|\.\.\/\.\.\/\.\.\/src)/,

@@ -10,6 +10,7 @@ import {
   hashMarkdown,
 } from "../../src/modules/synthesis/foundation";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
 import { createSynthesisTopicGraphService } from "../../src/modules/synthesis/topicGraph";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
@@ -4911,6 +4912,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
         root,
         libraryId: 1,
         now: () => "2026-05-16T00:00:00.000Z",
+        hostExportDeliveryPort: createSynthesisHostExportDeliveryPort(),
         registryInputs: [
           registryInput({
             itemKey: "DETR",
@@ -4988,6 +4990,37 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       const zipText = Buffer.from(downloaded.bytes).toString("utf8");
       assert.include(zipText, "remote-topic-context.semantic.json");
       assert.include(zipText, "DETR introduced a set-prediction framing");
+
+      const unavailableService = createSynthesisService({
+        root,
+        libraryId: 1,
+        hostExportDeliveryPort: {
+          async publishArchive() {
+            return {
+              status: "unavailable",
+              capability: "topics.get_context",
+              diagnostics: ["host_export_delivery_failed"],
+            };
+          },
+        },
+      });
+      let unavailableError: unknown;
+      try {
+        await unavailableService.getTopicContext(
+          {
+            topicId: "object-detection",
+            view: "semantic",
+            outputPath: remotePath,
+          },
+          { mode: "remote" },
+        );
+      } catch (error) {
+        unavailableError = error;
+      }
+      assert.equal(
+        (unavailableError as { code?: unknown })?.code,
+        "unavailable",
+      );
       resetHostBridgeFileRegistryForTests();
     });
   });

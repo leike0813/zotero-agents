@@ -6,6 +6,8 @@ Workflow Topic option queries, startup runtime reconciliation, protected databas
 
 The approved Stage 1 sidecar direction is documented in `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md` and the active `define-synthesis-sidecar-service-boundary` and `introduce-synthesis-client-foundation` OpenSpec changes. Those documents govern future migration work; they do not mean that a Node service currently owns production execution, `synthesis.db`, or Topic canonical files.
 
+Remote Topic Context and filtered paper-artifact delivery cross the bounded `SynthesisHostExportDeliveryPort`. The application builds canonical text entries; the production Host adapter owns temporary ZIP bytes, integrity metadata, opaque Host Bridge file registration, and cleanup. Port absence or malformed/unavailable receipts fail the remote request without a local-path fallback. Local output-path and ACP run-root writes are unchanged. The readonly composition does not inject remote export delivery.
+
 The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library-ssot-and-sidecar-cache.md).
 
 ## Runtime Principles
@@ -13,6 +15,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Zotero Library metadata is paged or resolved by stable ref through the Host read port when correctness matters.
 - Source artifact scans return descriptors only; content is read one opaque locator at a time with the scanned hash.
 - Representative-image enrichment is opt-in and best-effort. It reads only a requested digest note, requires a note-child image attachment, limits decoded content to 2 MiB, and never makes digest markdown availability depend on the image result.
+- Remote export delivery accepts at most 256 text entries, 5 MiB per entry, and 50 MiB total; archive paths are relative and unique, and no local temporary path crosses the Host port.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.
 - Service construction and ordinary progress, chrome, client, and debug reads must not reconcile or mutate operation lifecycle state.

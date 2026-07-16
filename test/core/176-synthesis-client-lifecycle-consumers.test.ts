@@ -125,4 +125,18 @@ describe("Synthesis lifecycle client consumers", function () {
       );
     }
   });
+
+  it("composes remote export delivery only in the production legacy root", function () {
+    const legacyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
+      "utf8",
+    );
+    const readonlyComposition = fs.readFileSync(
+      path.join(ROOT, "src/modules/harness/synthesisReadonlyClient.ts"),
+      "utf8",
+    );
+    assert.include(legacyComposition, "createSynthesisHostExportDeliveryPort");
+    assert.include(legacyComposition, "hostExportDeliveryPort");
+    assert.notInclude(readonlyComposition, "hostExportDeliveryPort");
+  });
 });

@@ -2,6 +2,7 @@ export * from "./client";
 export * from "./common";
 export * from "./concepts";
 export * from "./debug";
+export * from "./exportDelivery";
 export * from "./graph";
 export * from "./hostRead";
 export * from "./itemRef";

@@ -3,6 +3,8 @@ import {
   SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
   SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
   SynthesisClientError,
+  rebuildSynthesisHostExportDeliveryRequest,
+  rebuildSynthesisHostExportDeliveryResult,
   rebuildSynthesisHostRepresentativeImageReadResult,
   rebuildSynthesisHostRelatedItemsEffectBatchResult,
   rebuildSynthesisHostStagedTagBindingResolutionResult,
@@ -17,6 +19,9 @@ import {
   type SynthesisDeliveryContext,
   type SynthesisHostArtifactDescriptor,
   type SynthesisHostArtifactReadResult,
+  type SynthesisHostExportDeliveryPort,
+  type SynthesisHostExportDeliveryProjection,
+  type SynthesisHostExportDeliveryRequest,
   type SynthesisHostLibraryItemSummary,
   type SynthesisHostReadPort,
   type SynthesisHostRepresentativeImageReadPort,
@@ -33,16 +38,12 @@ import {
   getRuntimePersistencePaths,
   listRuntimeChildren,
   copyRuntimeDirectory,
-  readRuntimeBytes,
   readRuntimeTextFile,
   removeRuntimePath,
   runtimePathExists,
-  writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "../runtimePersistence";
 import { appendRuntimeLog, type RuntimeLogInput } from "../runtimeLogManager";
-import { registerHostBridgeExportFile } from "../hostBridgeFileRegistry";
-import { createStoreZipBytes, type StoreZipEntry } from "../zipStore";
 import { clearPluginTaskRowEntries } from "../pluginStateStore";
 import {
   buildSynthesisKnowledgeGraphPaths,
@@ -508,6 +509,7 @@ export type SynthesisServiceOptions = {
   now?: () => string;
   runtimeLogAppender?: SynthesisRuntimeLogAppender;
   hostReadPort?: SynthesisHostReadPort;
+  hostExportDeliveryPort?: SynthesisHostExportDeliveryPort;
   hostRepresentativeImageReadPort?: SynthesisHostRepresentativeImageReadPort;
   registryInputs?: ReferenceSidecarInput[];
   citationGraphPapers?: CitationGraphPaperInput[];
@@ -967,45 +969,8 @@ function normalizeZipEntryPath(pathRaw: unknown, fallback: string) {
   return parts.join("/") || fallback;
 }
 
-function remoteExportRoot(kind: string) {
-  const safeKind = safeFileSegment(kind, "export");
-  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return joinPath(
-    getRuntimePersistencePaths().tmpDir,
-    "host-bridge-exports",
-    safeKind,
-    stamp,
-  );
-}
-
 function remoteExportZipName(prefix: string, suffix: string) {
   return `${safeFileSegment(prefix, "export")}-${safeFileSegment(suffix, "bundle")}.zip`;
-}
-
-async function registerRemoteExportBundle(args: {
-  capability: string;
-  root: string;
-  zipName: string;
-  entries: StoreZipEntry[];
-}) {
-  const zipPath = joinPath(args.root, args.zipName);
-  const zipBytes = createStoreZipBytes(args.entries);
-  await writeRuntimeBytes(zipPath, zipBytes);
-  const descriptor = await registerHostBridgeExportFile({
-    localPath: zipPath,
-    displayName: args.zipName,
-    contentType: "application/zip",
-    size: zipBytes.byteLength,
-    owner: {
-      capability: args.capability,
-    },
-  });
-  return {
-    mode: "bridge-download",
-    bundle: descriptor,
-    downloadCommand: `zotero-bridge file download ${descriptor.fileId} --output ${args.zipName}`,
-    unpackHint: `unzip ${args.zipName} -d .`,
-  };
 }
 
 function parseNonNegativeInteger(value: unknown, fallback: number) {
@@ -1314,8 +1279,7 @@ function citationReportMarkdown(artifact: Record<string, unknown>) {
   return "";
 }
 
-async function writeFilteredArtifactContent(args: {
-  runRoot: string;
+function buildFilteredArtifactContent(args: {
   paperRef: string;
   artifact: Record<string, unknown>;
 }) {
@@ -1330,22 +1294,22 @@ async function writeFilteredArtifactContent(args: {
       artifactMarkdown(args.artifact),
     );
     const relativePath = `${directory}/digest.md`;
-    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), markdown);
     return {
       content_file: relativePath,
       content_hash: hashMarkdown(markdown),
       diagnostics,
+      text: markdown,
     };
   }
   if (artifactType === "references") {
     const references = compactReferenceRows(args.artifact.payload);
     const text = `${JSON.stringify({ references }, null, 2)}\n`;
     const relativePath = `${directory}/references.json`;
-    await writeRuntimeTextFile(joinPath(args.runRoot, relativePath), text);
     return {
       content_file: relativePath,
       content_hash: hashMarkdown(text),
       diagnostics,
+      text,
     };
   }
   if (artifactType === "citation_analysis") {
@@ -1353,10 +1317,6 @@ async function writeFilteredArtifactContent(args: {
       citationReportMarkdown(args.artifact),
     );
     const relativePath = `${directory}/citation-analysis.md`;
-    await writeRuntimeTextFile(
-      joinPath(args.runRoot, relativePath),
-      result.markdown,
-    );
     if (result.removedTrailingSectionHeading) {
       diagnostics.push(
         `removed_trailing_section_heading:${result.removedTrailingSectionHeading}`,
@@ -1367,12 +1327,14 @@ async function writeFilteredArtifactContent(args: {
       content_hash: hashMarkdown(result.markdown),
       removed_trailing_section_heading: result.removedTrailingSectionHeading,
       diagnostics,
+      text: result.markdown,
     };
   }
   return {
     content_file: "",
     content_hash: "",
     diagnostics: [`unsupported_artifact_type:${artifactType}`],
+    text: "",
   };
 }
 
@@ -1499,6 +1461,9 @@ async function createRemoteTopicContextOutput(args: {
   view: TopicContextView;
   outputPath: string;
   payload: Record<string, unknown>;
+  publishArchive(
+    request: SynthesisHostExportDeliveryRequest,
+  ): Promise<SynthesisHostExportDeliveryProjection>;
 }) {
   const entryPath = normalizeZipEntryPath(
     args.outputPath,
@@ -1509,11 +1474,10 @@ async function createRemoteTopicContextOutput(args: {
     `topic-context-${args.topicId}`,
     args.view,
   );
-  const delivery = await registerRemoteExportBundle({
+  const delivery = await args.publishArchive({
     capability: "topics.get_context",
-    root: remoteExportRoot("topic-context"),
-    zipName,
-    entries: [{ name: entryPath, text }],
+    displayName: zipName,
+    entries: [{ path: entryPath, text }],
   });
   return {
     schema_id: "synthesis.topic_context.output",
@@ -6267,6 +6231,50 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   let referenceSidecarRefreshRunning = false;
   let advancedReferenceMatchingRunning = false;
   const readHints: SynthesisReadHint[] = [];
+
+  function exportDeliveryUnavailable(
+    capability: SynthesisHostExportDeliveryRequest["capability"],
+    diagnostics: string[] = ["host_export_delivery_unavailable"],
+  ): never {
+    throw new SynthesisClientError(
+      "unavailable",
+      "Synthesis Host export delivery is unavailable",
+      { capability, diagnostics },
+    );
+  }
+
+  async function publishHostExportArchive(
+    rawRequest: SynthesisHostExportDeliveryRequest,
+  ): Promise<SynthesisHostExportDeliveryProjection> {
+    const request = rebuildSynthesisHostExportDeliveryRequest(rawRequest);
+    if (!options.hostExportDeliveryPort) {
+      return exportDeliveryUnavailable(request.capability);
+    }
+    try {
+      const result = rebuildSynthesisHostExportDeliveryResult(
+        await options.hostExportDeliveryPort.publishArchive(request),
+      );
+      if (
+        result.capability !== request.capability ||
+        result.status !== "available" ||
+        result.delivery.bundle.displayName !== request.displayName
+      ) {
+        return exportDeliveryUnavailable(
+          request.capability,
+          result.diagnostics,
+        );
+      }
+      return result.delivery;
+    } catch (error) {
+      if (
+        error instanceof SynthesisClientError &&
+        error.code === "unavailable"
+      ) {
+        throw error;
+      }
+      return exportDeliveryUnavailable(request.capability);
+    }
+  }
 
   async function refreshTopicDiscoveryState(args: {
     topicIds: string[];
@@ -19688,6 +19696,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             view,
             outputPath,
             payload: v2Response,
+            publishArchive: publishHostExportArchive,
           });
         }
         return maybeWriteTopicContextOutput({
@@ -20682,7 +20691,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   ) {
     const remote = isRemoteDelivery(context);
     const runRoot = remote
-      ? remoteExportRoot("paper-artifacts")
+      ? ""
       : validateAcpSkillRunRoot(cleanString(args.run_root || args.runRoot));
     const paperRefs = [
       ...normalizeArray(args.paper_refs || args.paperRefs),
@@ -20708,6 +20717,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       : [];
     const exportedAt = new Date().toISOString();
     const papers: Array<Record<string, unknown>> = [];
+    const remoteEntries: SynthesisHostExportDeliveryRequest["entries"] = [];
     for (const paperRef of uniquePaperRefs) {
       const paperArtifacts = artifacts.filter((entry) => {
         const row = entry as Record<string, unknown>;
@@ -20739,12 +20749,25 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           diagnostics: artifactDiagnostics,
         };
         if (status === "available") {
-          const content = await writeFilteredArtifactContent({
-            runRoot,
+          const content = buildFilteredArtifactContent({
             paperRef,
             artifact,
           });
-          manifestEntry.content_file = content.content_file;
+          const contentFile = normalizeZipEntryPath(
+            content.content_file,
+            content.content_file,
+          );
+          if (contentFile) {
+            if (remote) {
+              remoteEntries.push({ path: contentFile, text: content.text });
+            } else {
+              await writeRuntimeTextFile(
+                joinPath(runRoot, contentFile),
+                content.text,
+              );
+            }
+          }
+          manifestEntry.content_file = contentFile;
           manifestEntry.content_hash = content.content_hash;
           const removedHeading = (content as Record<string, unknown>)
             .removed_trailing_section_heading;
@@ -20776,10 +20799,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       diagnostics,
     };
     const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-    await writeRuntimeTextFile(
-      joinPath(runRoot, manifestRelativePath),
-      manifestText,
-    );
+    if (!remote) {
+      await writeRuntimeTextFile(
+        joinPath(runRoot, manifestRelativePath),
+        manifestText,
+      );
+    }
     const artifact_statuses = papers.flatMap((paper) => {
       const paperRef = cleanString(paper.paper_ref);
       const entries = Array.isArray(paper.artifacts) ? paper.artifacts : [];
@@ -20801,34 +20826,16 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       response.paper_ref = uniquePaperRefs[0];
     }
     if (remote) {
-      const entries: StoreZipEntry[] = [
-        {
-          name: manifestRelativePath,
-          text: manifestText,
-        },
-      ];
-      for (const paper of papers) {
-        const artifacts = Array.isArray(paper.artifacts) ? paper.artifacts : [];
-        for (const artifact of artifacts.filter(isObject)) {
-          const contentFile = cleanString(artifact.content_file);
-          if (!contentFile) {
-            continue;
-          }
-          const entryPath = normalizeZipEntryPath(contentFile, contentFile);
-          entries.push({
-            name: entryPath,
-            bytes: await readRuntimeBytes(joinPath(runRoot, entryPath)),
-          });
-        }
-      }
-      response.delivery = await registerRemoteExportBundle({
+      response.delivery = await publishHostExportArchive({
         capability: "paper_artifacts.export_filtered",
-        root: remoteExportRoot("paper-artifacts-bundle"),
-        zipName: remoteExportZipName(
+        displayName: remoteExportZipName(
           "paper-artifacts",
           uniquePaperRefs.length === 1 ? uniquePaperRefs[0] : "bundle",
         ),
-        entries,
+        entries: [
+          { path: manifestRelativePath, text: manifestText },
+          ...remoteEntries,
+        ],
       });
     }
     return response;

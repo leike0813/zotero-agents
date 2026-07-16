@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
+import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
 import {
   createInProcessSynthesisClient,
   type LegacySynthesisPort,
@@ -552,6 +553,7 @@ describe("Synthesis MCP tools", function () {
     const service = createSynthesisService({
       root,
       libraryId: 1,
+      hostExportDeliveryPort: createSynthesisHostExportDeliveryPort(),
       registryInputs: [
         {
           libraryId: 1,
@@ -732,6 +734,64 @@ describe("Synthesis MCP tools", function () {
     } finally {
       resetHostBridgeFileRegistryForTests();
       await fs.rm(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("fails remote artifact delivery atomically when the Host port is unavailable", async function () {
+    const root = await makeRoot();
+    const inputs = [
+      {
+        libraryId: 1,
+        itemKey: "ABCD1234",
+        title: "Alpha Paper",
+        notes: [],
+      },
+    ];
+    const ports = [
+      undefined,
+      {
+        async publishArchive() {
+          throw new Error("/private/secret/raw export failure");
+        },
+      },
+      {
+        async publishArchive() {
+          return {
+            status: "unavailable" as const,
+            capability: "paper_artifacts.export_filtered" as const,
+            diagnostics: ["host_export_delivery_failed"],
+          };
+        },
+      },
+      {
+        async publishArchive() {
+          return {
+            status: "available" as const,
+            capability: "topics.get_context" as const,
+            delivery: {},
+            diagnostics: [],
+          } as any;
+        },
+      },
+    ];
+    for (const hostExportDeliveryPort of ports) {
+      const service = createSynthesisService({
+        root,
+        libraryId: 1,
+        registryInputs: inputs,
+        ...(hostExportDeliveryPort ? { hostExportDeliveryPort } : {}),
+      });
+      let error: unknown;
+      try {
+        await service.exportFilteredPaperArtifacts(
+          { paper_refs: ["1:ABCD1234"] },
+          { mode: "remote" },
+        );
+      } catch (caught) {
+        error = caught;
+      }
+      assert.equal((error as { code?: unknown })?.code, "unavailable");
+      assert.notInclude(JSON.stringify(error), "/private/secret");
     }
   });
 

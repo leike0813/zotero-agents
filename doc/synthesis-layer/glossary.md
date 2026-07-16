@@ -54,6 +54,7 @@ This file is the terminology SSOT. If another document needs a term, link here i
 | Explicit cache refresh | User/debug-triggered operation that refreshes selected sidecar projections. For reference sidecar refresh, the operation is two-stage: artifact sidecar scan/diff first, then changed-reference extraction/dedupe/binding. |
 | Dirty event | Removed implementation term from the old automatic synchronization model. Do not create, render, or replay dirty events in active Synthesis code. |
 | Explicit operation progress | Current or recent user-visible progress row for a bounded explicit operation. It may be determinate or indeterminate, but it is not a worker queue item. |
+| Host export delivery port | Bounded application-to-Host archive publication seam. The application supplies canonical relative text entries; the Host owns ZIP bytes, temporary paths, integrity metadata, opaque download registration, TTL, and cleanup. |
 | `registry_epoch` | Removed runtime truth marker from the old Registry rebuild model. New graph/reference cache basis uses source artifact hashes, binding decision version, policy version, scope, and refresh time. |
 | Candidate registry epoch | Legacy/cache rebuild output that has not been promoted. It must not affect Workbench reads until validation and promotion succeed. |
 | Last-known-good registry epoch | Previous promoted Registry cache basis retained so a failed or bad cache rebuild can leave or restore a usable graph/reference projection. |
