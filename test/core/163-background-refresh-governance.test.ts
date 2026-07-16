@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "../../package.json";
+import { buildAcpSkillRunPanelSnapshot } from "../helpers/acpSkillRunWorkspaceHarness";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import {
   getBackendsRegistryReadDiagnosticsForTests,
@@ -9,7 +10,6 @@ import {
   resetBackendsRegistryReadDiagnosticsForTests,
 } from "../../src/backends/registry";
 import {
-  buildAcpSkillRunPanelSnapshot,
   getAcpSkillRunSummaryDiagnosticsForTests,
   listAcpSkillRunSummaries,
   resetAcpSkillRunSummaryDiagnosticsForTests,

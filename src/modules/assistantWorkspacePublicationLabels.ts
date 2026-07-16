@@ -4,7 +4,7 @@ import type { AssistantWorkspacePublicationSource } from "./assistantWorkspacePu
 
 const localize = getStringOrFallback;
 
-export function buildAssistantWorkspaceAcpSurfaceLabels(
+export function buildAssistantWorkspacePublicationLabels(
   source: AssistantWorkspacePublicationSource,
 ) {
   if (source === "acp-skills") {

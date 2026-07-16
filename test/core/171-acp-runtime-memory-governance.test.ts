@@ -3,22 +3,24 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildAcpSkillRunPanelSnapshot,
+  prepareAcpSkillRunPanelSnapshot,
+  subscribeAcpSkillRunSnapshots,
+} from "../helpers/acpSkillRunWorkspaceHarness";
+import {
   flushAcpSkillRunRuntimeFileWritesForTests,
   appendAcpSkillRunUserReply,
-  buildAcpSkillRunPanelSnapshot,
   getAcpSkillRunSummaryDiagnosticsForTests,
   getAcpSkillRunRecord,
   hasAcpSkillRunController,
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-  prepareAcpSkillRunPanelSnapshot,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   registerAcpSkillRunController,
   resetAcpSkillRunSummaryDiagnosticsForTests,
   resetAcpSkillRunsForTests,
   shutdownAcpSkillRunConversations,
-  subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -1129,7 +1131,7 @@ describe("ACP runtime memory governance", function () {
     assert.include(stages, "apply-result-detach-error");
   });
 
-  it("builds ACP Skills panel recent runs from a bounded index", async function () {
+  it("builds bounded ACP Skills summaries without a panel-specific index", async function () {
     for (let index = 1; index <= 125; index += 1) {
       const padded = String(index).padStart(3, "0");
       upsertAcpSkillRun({
@@ -1164,9 +1166,10 @@ describe("ACP runtime memory governance", function () {
     });
     const diagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
 
-    assert.equal(diagnostics.fullRunRecordScanCount, 0);
-    assert.equal(diagnostics.recentIndexScanCount, 1);
-    assert.isAtMost(diagnostics.runCandidateReadCount, 101);
+    assert.equal(diagnostics.fullRunRecordScanCount, 1);
+    assert.isAtLeast(diagnostics.summaryQueryCount, 1);
+    assert.notProperty(diagnostics, "recentIndexScanCount");
+    assert.isAtMost(diagnostics.runCandidateReadCount, 129);
     assert.lengthOf(snapshot.runs, 100);
     assert.equal(snapshot.runs[0].requestId, "req-panel-125");
     assert.equal(snapshot.runs[99].requestId, "req-panel-026");
@@ -1187,9 +1190,10 @@ describe("ACP runtime memory governance", function () {
     });
     const selectedDiagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
 
-    assert.equal(selectedDiagnostics.fullRunRecordScanCount, 0);
-    assert.equal(selectedDiagnostics.recentIndexScanCount, 1);
-    assert.isAtMost(selectedDiagnostics.runCandidateReadCount, 101);
+    assert.equal(selectedDiagnostics.fullRunRecordScanCount, 1);
+    assert.isAtLeast(selectedDiagnostics.summaryQueryCount, 1);
+    assert.notProperty(selectedDiagnostics, "recentIndexScanCount");
+    assert.isAtMost(selectedDiagnostics.runCandidateReadCount, 129);
     assert.equal(selectedOld.selectedRun?.requestId, "req-panel-001");
     assert.equal(selectedOld.runs[0].requestId, "req-panel-001");
     assert.lengthOf(selectedOld.runs, 100);

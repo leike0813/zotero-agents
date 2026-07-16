@@ -23,7 +23,6 @@ export type AcpRuntimeReplayPublicationWindow = {
 export type AcpRuntimeReplayPublicationLifecycle = {
   publicationId: string;
   source: AcpRuntimeReplayPublicationSurface;
-  tab: AcpRuntimeReplayPublicationSurface;
   deliverySequence: number;
   state: "pending" | "render-complete" | "rejected";
   reason?: string;
@@ -37,7 +36,6 @@ export type AcpRuntimeReplayPublicationInspection = {
 
 export type AcpRuntimeReplayForcedPublication = {
   source: AcpRuntimeReplayPublicationSurface;
-  tab: AcpRuntimeReplayPublicationSurface;
   publicationId: string;
   deliverySequence: number;
 };
@@ -154,7 +152,6 @@ export function drainAcpRuntimeReplayPublication(args: {
         ? inspection.publications.filter(
             (entry) =>
               entry.source === targetSource &&
-              entry.tab === args.tab &&
               entry.deliverySequence <= targetDeliverySequence,
           )
         : inspection.publications;
@@ -202,7 +199,6 @@ export function drainAcpRuntimeReplayPublication(args: {
           const deliverySequence = Number(forced.deliverySequence);
           if (
             forced.source !== args.tab ||
-            forced.tab !== args.tab ||
             !Number.isInteger(deliverySequence) ||
             deliverySequence <= 0
           ) {

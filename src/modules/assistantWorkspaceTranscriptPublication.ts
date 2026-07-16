@@ -346,7 +346,7 @@ export class AssistantWorkspaceTranscriptAccumulator {
     return this.mutations.length;
   }
 
-  get requiresResync() {
+  get overflowedState() {
     return this.overflowed;
   }
 

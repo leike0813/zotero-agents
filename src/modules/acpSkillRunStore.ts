@@ -15,9 +15,7 @@ import {
   registerAcpSkillRunsRetentionCleaner,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { appendRuntimeLog, listRuntimeLogs } from "./runtimeLogManager";
-import { buildAssistantWorkspaceAcpSurfaceLabels } from "./assistantWorkspaceAcpSurfaceLabels";
-import type { AssistantPanelLabels } from "./assistantPanelLabels";
+import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
   canPublishAssistantWorkspaceLiveUpdates,
@@ -46,14 +44,6 @@ import {
   removeWorkflowTasksByBackendAndRequestIds,
   type WorkflowTaskRecord,
 } from "./taskRuntime";
-import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
-import {
-  getZoteroMcpHealthSnapshot,
-  getZoteroMcpServerStatus,
-  type ZoteroMcpServerStatusSnapshot,
-} from "./zoteroMcpServer";
-import { getHostBridgeServerStatus } from "./hostBridgeServer";
-import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import { isDebugModeEnabled } from "./debugMode";
 import {
   finishAcpRuntimeProfile,
@@ -73,7 +63,6 @@ import type {
   SessionNotification,
 } from "./acpProtocol";
 import type {
-  AcpMcpHealthSnapshot,
   AcpPendingPermissionRequest,
   AcpPromptInterruptState,
 } from "./acpTypes";
@@ -447,48 +436,6 @@ export type AcpSkillRunSummaryListOptions = {
   limit?: number;
 };
 
-export type AcpSkillRunPanelSnapshot = {
-  generatedAt: string;
-  executionDisplayMode: ReturnType<typeof getAssistantExecutionDisplayMode>;
-  messageCounts?: AssistantMessageCountsSnapshot;
-  selectedRequestId: string;
-  transcriptRegion: AssistantWorkspaceTranscriptRegion;
-  mcpServer?: ZoteroMcpServerStatusSnapshot;
-  mcpHealth?: AcpMcpHealthSnapshot;
-  hostBridge?: HostBridgeStatusSnapshot;
-  summary: {
-    total: number;
-    active: number;
-    failed: number;
-    recent: number;
-  };
-  drawer?: {
-    notice?: string;
-    truncated?: boolean;
-  };
-  runs: AcpSkillRunSummary[];
-  selectedRun?: AcpSkillRunRecord;
-  selectedRuntimeOptions?: AcpSkillRunRuntimeOptionsSnapshot;
-  selectedTask?: WorkflowTaskRecord;
-  logs: Array<{
-    id: string;
-    ts: string;
-    level: string;
-    stage: string;
-    message: string;
-    scope: string;
-  }>;
-  labels?: {
-    assistantPanel: AssistantPanelLabels;
-    title?: string;
-    runningTasksTitle?: string;
-    completedTasksTitle?: string;
-    panelRendererUnavailable?: string;
-    panelRendererFailed?: string;
-    transcriptRendererUnavailable?: string;
-  };
-};
-
 export type AcpSkillRunRuntimeOptionsSnapshot = {
   modeOptions: AcpSelectableOption[];
   currentMode?: AcpSelectableOption;
@@ -500,7 +447,7 @@ export type AcpSkillRunRuntimeOptionsSnapshot = {
   currentReasoningEffort?: AcpSelectableOption;
 };
 
-export type AcpSkillRunSnapshotChangeKind =
+export type AcpSkillRunWorkspaceChangeKind =
   | "run"
   | "transcript"
   | "progress"
@@ -509,14 +456,61 @@ export type AcpSkillRunSnapshotChangeKind =
   | "archive"
   | "global";
 
-export type AcpSkillRunSnapshotChange = {
-  requestIds?: string[];
-  kinds?: AcpSkillRunSnapshotChangeKind[];
+export type AcpSkillRunWorkspaceChange = Readonly<{
+  requestIds?: readonly string[];
+  kinds?: readonly AcpSkillRunWorkspaceChangeKind[];
   global?: boolean;
-  transcriptEvents?: AssistantWorkspaceTranscriptMutationEvent[];
+  transcriptEvents?: readonly AssistantWorkspaceTranscriptMutationEvent[];
   transcriptEventSeq?: number;
   transcriptItemCount?: number;
-};
+}>;
+
+export type AcpSkillRunWorkspaceReadModel = Readonly<{
+  requestId: string;
+  status: AcpSkillRunStatus;
+  backendStatus?: AcpSkillRunStatus;
+  backendId: string;
+  backendLabel?: string;
+  workflowId?: string;
+  workflowLabel?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+  taskName?: string;
+  skillName?: string;
+  skillId?: string;
+  workspaceDir?: string;
+  runtimeDir?: string;
+  sessionId?: string;
+  acpModelId?: string;
+  acpRawModelId?: string;
+  acpReasoningEffort?: string;
+  activePrompt: boolean;
+  pendingPermission: AcpPendingPermissionRequest | null;
+  pendingInteraction?: AcpSkillRunPendingInteraction;
+  conversationState?: AcpSkillRunConversationState;
+  conversationRecoveryState?: AcpSkillRunRecoveryState;
+  conversationError?: string;
+  connectionActionState?: AcpSkillRunConnectionActionState;
+  applyResultState?: "pending" | "succeeded" | "failed";
+  error?: string;
+  usage?: { used: number; size: number };
+  planEntries: AcpSkillRunPlanEntry[];
+  updatedAt: string;
+  runtimeOptions: AcpSkillRunRuntimeOptionsSnapshot;
+}>;
+
+export type AcpSkillRunDiagnosticsDto = Readonly<{
+  requestId: string;
+  status: string;
+  backendId: string;
+  workflowId: string | null;
+  skillId: string | null;
+  workspaceDir: string | null;
+  runtimeDir: string | null;
+  sessionId: string | null;
+  error: string | null;
+  updatedAt: string;
+}>;
 
 type AcpSkillRunController = {
   cancel: () => Promise<void>;
@@ -533,7 +527,9 @@ type AcpSkillRunController = {
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
 };
 
-type AcpSkillRunListener = (change?: AcpSkillRunSnapshotChange) => void;
+type AcpSkillRunWorkspaceListener = (
+  change?: AcpSkillRunWorkspaceChange,
+) => void;
 type AcpSkillRunRecoveryHandler = (args: {
   requestId: string;
   reason: "connect" | "reply";
@@ -622,18 +618,15 @@ async function waitForAcpSkillRunShutdownTask(
     }),
   ]);
 }
-const listeners = new Set<AcpSkillRunListener>();
+const workspaceListeners = new Set<AcpSkillRunWorkspaceListener>();
 let hydrated = false;
 let unsubscribeExecutionDisplayMode: (() => void) | undefined;
 let lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingChangedEmit: AcpSkillRunSnapshotChange | null = null;
+let pendingWorkspaceChange: AcpSkillRunWorkspaceChange | null = null;
 const activeRunRequestIds = new Set<string>();
-const recentVisibleRunRequestIds: string[] = [];
-const recentVisibleRunSortKeys = new Map<string, string>();
-const ACP_SKILL_RUN_PANEL_RUN_LIMIT = 100;
 const ACP_SKILL_RUN_PREVIEW_LIMIT = 8 * 1024;
 const ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
 const ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT = 200;
@@ -642,7 +635,6 @@ const acpSkillRunSummaryDiagnostics = {
   summaryQueryCount: 0,
   fullRunRecordScanCount: 0,
   activeIndexScanCount: 0,
-  recentIndexScanCount: 0,
   runCandidateReadCount: 0,
 };
 
@@ -1260,7 +1252,7 @@ export async function hydrateAcpSkillRunTranscriptMirror(requestIdRaw: string) {
     throw error;
   } finally {
     state.hydratePromise = undefined;
-    emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+    emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["transcript"]));
   }
 }
 
@@ -1302,10 +1294,6 @@ async function readSelectedTranscriptPageFromStore(
   record: AcpSkillRunRecord,
   request?: AcpSkillRunTranscriptPageRequest,
 ) {
-  const requestedPageRunId = normalizeString(request?.requestId);
-  if (requestedPageRunId && requestedPageRunId !== record.requestId) {
-    return undefined;
-  }
   if (!hasDurableAcpSkillRunTranscript(record)) {
     return undefined;
   }
@@ -1618,65 +1606,7 @@ function syncAcpSkillRunActiveIndex(record: AcpSkillRunRecord) {
   }
 }
 
-function isVisibleAcpSkillRunRecordForPanel(record: AcpSkillRunRecord) {
-  return !record.removedAt && !record.archivedAt;
-}
-
-function recentVisibleRunSortKey(record: AcpSkillRunRecord) {
-  return [record.createdAt || "", record.requestId || ""].join("\u0000");
-}
-
-function removeRecentVisibleRunRequestId(requestId: string) {
-  const index = recentVisibleRunRequestIds.indexOf(requestId);
-  if (index >= 0) {
-    recentVisibleRunRequestIds.splice(index, 1);
-  }
-  recentVisibleRunSortKeys.delete(requestId);
-}
-
-function insertRecentVisibleRunRequestId(requestId: string, sortKey: string) {
-  removeRecentVisibleRunRequestId(requestId);
-  let low = 0;
-  let high = recentVisibleRunRequestIds.length;
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    const currentKey =
-      recentVisibleRunSortKeys.get(recentVisibleRunRequestIds[mid]) || "";
-    if (sortKey > currentKey) {
-      high = mid;
-    } else {
-      low = mid + 1;
-    }
-  }
-  recentVisibleRunRequestIds.splice(low, 0, requestId);
-  recentVisibleRunSortKeys.set(requestId, sortKey);
-}
-
-function syncAcpSkillRunRecentVisibleIndex(
-  previous: AcpSkillRunRecord | undefined,
-  next: AcpSkillRunRecord,
-) {
-  const previousVisible = previous
-    ? isVisibleAcpSkillRunRecordForPanel(previous)
-    : false;
-  const nextVisible = isVisibleAcpSkillRunRecordForPanel(next);
-  const previousKey = previous ? recentVisibleRunSortKey(previous) : "";
-  const nextKey = recentVisibleRunSortKey(next);
-  if (previousVisible && (!nextVisible || previousKey !== nextKey)) {
-    removeRecentVisibleRunRequestId(next.requestId);
-  }
-  if (
-    nextVisible &&
-    (!previousVisible ||
-      previousKey !== nextKey ||
-      !recentVisibleRunSortKeys.has(next.requestId))
-  ) {
-    insertRecentVisibleRunRequestId(next.requestId, nextKey);
-  }
-}
-
 function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
-  const previous = runRecords.get(record.requestId);
   const metadata = deriveAcpSkillRunRuntimeFileMetadata(record);
   const next = {
     ...record,
@@ -1705,7 +1635,6 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
   syncAcpSkillRunActiveIndex(next);
-  syncAcpSkillRunRecentVisibleIndex(previous, next);
   syncWaitingUserDetachTimer(next);
 }
 
@@ -1778,46 +1707,12 @@ function projectAcpSkillRunMetadataRecord(record: AcpSkillRunRecord) {
   return cloned as AcpSkillRunRecord;
 }
 
-function projectAcpSkillRunRecordForPanel(record: AcpSkillRunRecord) {
-  return projectAcpSkillRunMetadataRecord(record);
-}
-
-function isSelectableAcpSkillRunRecord(record: AcpSkillRunRecord | undefined) {
-  return !!record && !record.removedAt && !record.archivedAt;
-}
-
-function resolveAcpSkillRunPanelSelectedRecord(args: {
-  requested?: string;
-  runs: AcpSkillRunSummary[];
-}) {
-  const requestedRecord = args.requested
-    ? runRecords.get(args.requested)
-    : undefined;
-  if (isSelectableAcpSkillRunRecord(requestedRecord)) {
-    return requestedRecord;
-  }
-  const fallbackId = args.runs[0]?.requestId || "";
-  return fallbackId ? runRecords.get(fallbackId) : undefined;
-}
-
-function materializeAcpSkillRunPanelSelectedRequestId(
-  runs: AcpSkillRunSummary[],
-) {
-  const selected = resolveAcpSkillRunPanelSelectedRecord({
-    requested: selectedRequestId,
-    runs,
-  });
-  selectedRequestId = selected?.requestId || "";
-  return selectedRequestId;
-}
-
 function deleteAcpSkillRunRecord(requestId: string) {
   const removed = runRecords.delete(requestId);
   transcriptLiveStates.delete(requestId);
   releaseAcpExecutionProgress(requestId);
   forgetColdAcpSkillRunTranscriptMirror(requestId);
   activeRunRequestIds.delete(requestId);
-  removeRecentVisibleRunRequestId(requestId);
   clearWaitingUserDetachTimer(requestId);
   return removed;
 }
@@ -1830,8 +1725,6 @@ function clearAcpSkillRunRecords() {
   transcriptLiveStates.clear();
   coldAcpSkillRunTranscriptMirrorLru.clear();
   activeRunRequestIds.clear();
-  recentVisibleRunRequestIds.length = 0;
-  recentVisibleRunSortKeys.clear();
   for (const timer of waitingUserDetachTimers.values()) {
     clearTimeout(timer);
   }
@@ -2575,8 +2468,8 @@ function ensureHydrated() {
           const now = nowIso();
           if (completeOpenStreamingTextItems(record, now)) {
             persistRun(record);
-            emitChanged(
-              acpSkillRunSnapshotChange(record.requestId, ["transcript"]),
+            emitWorkspaceChanged(
+              acpSkillRunWorkspaceChange(record.requestId, ["transcript"]),
             );
           }
         } else if (lastExecutionDisplayMode === "silent") {
@@ -2954,8 +2847,8 @@ export function reconcileAcpSkillRunWorkflowTasksOnStartup() {
   };
 }
 
-const ACP_SKILL_RUN_SNAPSHOT_CHANGE_KINDS =
-  new Set<AcpSkillRunSnapshotChangeKind>([
+const ACP_SKILL_RUN_WORKSPACE_CHANGE_KINDS =
+  new Set<AcpSkillRunWorkspaceChangeKind>([
     "run",
     "transcript",
     "progress",
@@ -2965,11 +2858,14 @@ const ACP_SKILL_RUN_SNAPSHOT_CHANGE_KINDS =
     "global",
   ]);
 
-function normalizeAcpSkillRunSnapshotChange(
-  change?: AcpSkillRunSnapshotChange | null,
-): AcpSkillRunSnapshotChange {
+function createAcpSkillRunWorkspaceChange(
+  change?: AcpSkillRunWorkspaceChange | null,
+): AcpSkillRunWorkspaceChange {
   if (!change) {
-    return { global: true, kinds: ["global"] };
+    return Object.freeze({
+      global: true,
+      kinds: Object.freeze(["global"] as const),
+    });
   }
   const requestIds = Array.from(
     new Set(
@@ -2981,85 +2877,93 @@ function normalizeAcpSkillRunSnapshotChange(
   const kinds = Array.from(
     new Set(
       (Array.isArray(change.kinds) ? change.kinds : []).filter(
-        (kind): kind is AcpSkillRunSnapshotChangeKind =>
-          ACP_SKILL_RUN_SNAPSHOT_CHANGE_KINDS.has(kind),
+        (kind): kind is AcpSkillRunWorkspaceChangeKind =>
+          ACP_SKILL_RUN_WORKSPACE_CHANGE_KINDS.has(kind),
       ),
     ),
   );
   const global = change.global === true || kinds.includes("global");
   if (global) {
-    return { global: true, kinds: Array.from(new Set([...kinds, "global"])) };
+    return Object.freeze({
+      global: true,
+      kinds: Object.freeze(
+        Array.from(
+          new Set<AcpSkillRunWorkspaceChangeKind>([...kinds, "global"]),
+        ),
+      ),
+    });
   }
   if (requestIds.length === 0 && kinds.length === 0) {
-    return { global: true, kinds: ["global"] };
+    return Object.freeze({
+      global: true,
+      kinds: Object.freeze(["global"] as const),
+    });
   }
-  return {
-    requestIds: requestIds.length > 0 ? requestIds : undefined,
-    kinds: kinds.length > 0 ? kinds : undefined,
-    transcriptEvents: change.transcriptEvents?.map((event) => ({
-      boundary: event.boundary,
-      mutation: JSON.parse(JSON.stringify(event.mutation)),
-      cardinality: event.cardinality,
-    })),
+  const transcriptEvents = change.transcriptEvents
+    ? [...change.transcriptEvents]
+    : undefined;
+  for (const event of transcriptEvents || []) {
+    Object.freeze(event.mutation);
+    Object.freeze(event);
+  }
+  return Object.freeze({
+    requestIds: requestIds.length > 0 ? Object.freeze(requestIds) : undefined,
+    kinds: kinds.length > 0 ? Object.freeze(kinds) : undefined,
+    transcriptEvents: transcriptEvents
+      ? Object.freeze(transcriptEvents)
+      : undefined,
     transcriptEventSeq: change.transcriptEventSeq,
     transcriptItemCount: change.transcriptItemCount,
-  };
+  });
 }
 
-function mergeAcpSkillRunSnapshotChanges(
-  current: AcpSkillRunSnapshotChange | null,
-  next?: AcpSkillRunSnapshotChange | null,
-): AcpSkillRunSnapshotChange {
-  const normalizedCurrent = current
-    ? normalizeAcpSkillRunSnapshotChange(current)
-    : null;
-  const normalizedNext = normalizeAcpSkillRunSnapshotChange(next);
-  if (!normalizedCurrent) {
-    return normalizedNext;
+function mergeAcpSkillRunWorkspaceChanges(
+  current: AcpSkillRunWorkspaceChange | null,
+  next: AcpSkillRunWorkspaceChange,
+): AcpSkillRunWorkspaceChange {
+  if (!current) {
+    return next;
   }
-  if (normalizedCurrent.global || normalizedNext.global) {
-    return {
+  if (current.global || next.global) {
+    return Object.freeze({
       global: true,
-      kinds: Array.from(
-        new Set([
-          ...(normalizedCurrent.kinds || []),
-          ...(normalizedNext.kinds || []),
-          "global",
-        ]),
+      kinds: Object.freeze(
+        Array.from(
+          new Set<AcpSkillRunWorkspaceChangeKind>([
+            ...(current.kinds || []),
+            ...(next.kinds || []),
+            "global",
+          ]),
+        ),
       ),
-    };
+    });
   }
-  return {
-    requestIds: Array.from(
-      new Set([
-        ...(normalizedCurrent.requestIds || []),
-        ...(normalizedNext.requestIds || []),
-      ]),
+  return Object.freeze({
+    requestIds: Object.freeze(
+      Array.from(
+        new Set([...(current.requestIds || []), ...(next.requestIds || [])]),
+      ),
     ),
-    kinds: Array.from(
-      new Set([
-        ...(normalizedCurrent.kinds || []),
-        ...(normalizedNext.kinds || []),
-      ]),
+    kinds: Object.freeze(
+      Array.from(new Set([...(current.kinds || []), ...(next.kinds || [])])),
     ),
-    transcriptEvents: [
-      ...(normalizedCurrent.transcriptEvents || []),
-      ...(normalizedNext.transcriptEvents || []),
-    ],
+    transcriptEvents: Object.freeze([
+      ...(current.transcriptEvents || []),
+      ...(next.transcriptEvents || []),
+    ]),
     transcriptEventSeq: Math.max(
-      normalizedCurrent.transcriptEventSeq || 0,
-      normalizedNext.transcriptEventSeq || 0,
+      current.transcriptEventSeq || 0,
+      next.transcriptEventSeq || 0,
     ),
     transcriptItemCount:
-      normalizedNext.transcriptItemCount ??
-      normalizedCurrent.transcriptItemCount,
-  };
+      next.transcriptItemCount ?? current.transcriptItemCount,
+  });
 }
 
-function acpSkillRunSnapshotChange(
+function acpSkillRunWorkspaceChange(
   requestId: string,
-  kinds: AcpSkillRunSnapshotChangeKind[],
-): AcpSkillRunSnapshotChange {
+  kinds: AcpSkillRunWorkspaceChangeKind[],
+): AcpSkillRunWorkspaceChange {
   const normalizedRequestId = normalizeString(requestId);
   const record = normalizedRequestId
     ? runRecords.get(normalizedRequestId)
@@ -3069,9 +2973,9 @@ function acpSkillRunSnapshotChange(
   const transcriptEvents = hasTranscript
     ? state?.workspaceTranscriptEvents.splice(0) || []
     : [];
-  return {
+  return createAcpSkillRunWorkspaceChange({
     requestIds: normalizedRequestId ? [normalizedRequestId] : undefined,
-    kinds,
+    kinds: Object.freeze([...kinds]),
     ...(transcriptEvents.length > 0
       ? {
           transcriptEvents,
@@ -3081,20 +2985,22 @@ function acpSkillRunSnapshotChange(
             state?.itemCount || record?.transcriptItemCount || 0,
         }
       : {}),
-  };
+  });
 }
 
-function emitChanged(change?: AcpSkillRunSnapshotChange) {
+function emitWorkspaceChanged(change?: AcpSkillRunWorkspaceChange) {
   if (changedEmitTimer) {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
-  const emittedChange = pendingChangedEmit
-    ? change
-      ? mergeAcpSkillRunSnapshotChanges(pendingChangedEmit, change)
-      : normalizeAcpSkillRunSnapshotChange(pendingChangedEmit)
-    : normalizeAcpSkillRunSnapshotChange(change);
-  pendingChangedEmit = null;
+  const emittedChange =
+    pendingWorkspaceChange && change
+      ? mergeAcpSkillRunWorkspaceChanges(
+          pendingWorkspaceChange,
+          createAcpSkillRunWorkspaceChange(change),
+        )
+      : pendingWorkspaceChange || createAcpSkillRunWorkspaceChange(change);
+  pendingWorkspaceChange = null;
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3108,15 +3014,16 @@ function emitChanged(change?: AcpSkillRunSnapshotChange) {
       });
     }
   }
-  for (const listener of listeners) {
+  for (const listener of workspaceListeners) {
     listener(emittedChange);
   }
 }
 
-function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
-  pendingChangedEmit = mergeAcpSkillRunSnapshotChanges(
-    pendingChangedEmit,
-    change,
+function scheduleWorkspaceChangedEmit(change?: AcpSkillRunWorkspaceChange) {
+  const immutableChange = createAcpSkillRunWorkspaceChange(change);
+  pendingWorkspaceChange = mergeAcpSkillRunWorkspaceChanges(
+    pendingWorkspaceChange,
+    immutableChange,
   );
   if (
     __acp_runtime_performance_profiler_enabled__ &&
@@ -3124,9 +3031,8 @@ function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    const normalized = normalizeAcpSkillRunSnapshotChange(change);
-    const requestId = normalized.requestIds?.[0];
-    for (const kind of normalized.kinds || ["global"]) {
+    const requestId = immutableChange.requestIds?.[0];
+    for (const kind of immutableChange.kinds || ["global"]) {
       incrementAcpRuntimeMetric(requestId, "change_requested", {
         changeKind: kind === "selection" ? "other" : kind,
       });
@@ -3143,7 +3049,7 @@ function scheduleChangedEmit(change?: AcpSkillRunSnapshotChange) {
     if (canPublishAssistantWorkspaceLiveUpdates()) {
       publishPendingAcpSkillRunTranscripts();
     }
-    emitChanged(pendingChangedEmit || undefined);
+    emitWorkspaceChanged();
   }, ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS);
 }
 
@@ -3176,7 +3082,8 @@ export function inspectSyntheticAcpSkillRunReplayTimers(args: {
   }
 
   if (changedEmitTimer) {
-    const pending = normalizeAcpSkillRunSnapshotChange(pendingChangedEmit);
+    const pending =
+      pendingWorkspaceChange || createAcpSkillRunWorkspaceChange();
     const pendingRequestIds = pending.requestIds || [];
     const owned =
       !pending.global &&
@@ -3203,7 +3110,7 @@ export function inspectSyntheticAcpSkillRunReplayTimers(args: {
           if (canPublishAssistantWorkspaceLiveUpdates()) {
             publishPendingAcpSkillRunTranscripts();
           }
-          emitChanged(pendingChangedEmit || undefined);
+          emitWorkspaceChanged();
           return true;
         },
         resumeNative: (remainingMs) => {
@@ -3214,7 +3121,7 @@ export function inspectSyntheticAcpSkillRunReplayTimers(args: {
               if (canPublishAssistantWorkspaceLiveUpdates()) {
                 publishPendingAcpSkillRunTranscripts();
               }
-              emitChanged(pendingChangedEmit || undefined);
+              emitWorkspaceChanged();
             },
             Math.max(0, remainingMs),
           );
@@ -3697,8 +3604,8 @@ export function upsertAcpSkillRun(update: {
       ),
     });
   }
-  emitChanged(
-    acpSkillRunSnapshotChange(requestId, [
+  emitWorkspaceChanged(
+    acpSkillRunWorkspaceChange(requestId, [
       "run",
       ...(update.event ? (["transcript"] as const) : []),
     ]),
@@ -3772,7 +3679,9 @@ export function appendAcpSkillRunUserReply(args: {
   });
   setAcpSkillRunRecord(next);
   persistRun(next);
-  scheduleChangedEmit(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+  scheduleWorkspaceChangedEmit(
+    acpSkillRunWorkspaceChange(requestId, ["transcript"]),
+  );
 }
 
 function formatFinalEnvelopeMarkdown(payload: Record<string, unknown>) {
@@ -4007,13 +3916,15 @@ export function recordAcpSkillRunOutputRevision(args: {
   });
   if (isAssistantSilentExecutionMode()) {
     setAcpSkillRunRecord(next);
-    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["run"]));
     return;
   }
   removeLatestAssistantCandidateMessage(next, args.candidateText);
   setAcpSkillRunRecord(next);
   persistRun(next);
-  emitChanged(acpSkillRunSnapshotChange(requestId, ["run", "transcript"]));
+  emitWorkspaceChanged(
+    acpSkillRunWorkspaceChange(requestId, ["run", "transcript"]),
+  );
 }
 
 export function projectAcpSkillRunOutputEnvelopeToTranscript(
@@ -4067,7 +3978,7 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
   });
   if (isAssistantSilentExecutionMode() && args.kind === "pending") {
     setAcpSkillRunRecord(next);
-    emitChanged(acpSkillRunSnapshotChange(requestId, ["run"]));
+    emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["run"]));
     return;
   }
   replaceLatestAssistantMessage({
@@ -4078,7 +3989,9 @@ export function projectAcpSkillRunOutputEnvelopeToTranscript(
   });
   setAcpSkillRunRecord(next);
   persistRun(next);
-  emitChanged(acpSkillRunSnapshotChange(requestId, ["run", "transcript"]));
+  emitWorkspaceChanged(
+    acpSkillRunWorkspaceChange(requestId, ["run", "transcript"]),
+  );
 }
 
 function completeOpenStreamingTextItems(
@@ -4332,7 +4245,7 @@ export function recordAcpSkillRunSessionUpdate(
       };
       setAcpSkillRunRecord(next);
       scheduleSoftRunPersist(next);
-      emitChanged(acpSkillRunSnapshotChange(requestId, ["progress"]));
+      emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["progress"]));
     }
     return;
   }
@@ -4411,13 +4324,15 @@ export function recordAcpSkillRunSessionUpdate(
     if (!canPublishAssistantWorkspaceLiveUpdates()) {
       scheduleSoftRunPersist(next);
       if (progressChange.countChanged) {
-        emitChanged(acpSkillRunSnapshotChange(requestId, ["progress"]));
+        emitWorkspaceChanged(
+          acpSkillRunWorkspaceChange(requestId, ["progress"]),
+        );
       }
       return;
     }
     scheduleSoftRunPersist(next);
-    emitChanged(
-      acpSkillRunSnapshotChange(
+    emitWorkspaceChanged(
+      acpSkillRunWorkspaceChange(
         requestId,
         progressChange.countChanged
           ? ["transcript", "progress"]
@@ -4432,8 +4347,8 @@ export function recordAcpSkillRunSessionUpdate(
     } else {
       persistRun(next);
     }
-    emitChanged(
-      acpSkillRunSnapshotChange(
+    emitWorkspaceChanged(
+      acpSkillRunWorkspaceChange(
         requestId,
         progressChange.countChanged
           ? ["transcript", "progress"]
@@ -4449,13 +4364,13 @@ export function recordAcpSkillRunSessionUpdate(
   }
   if (kind === "usage_update") {
     if (canPublishAssistantWorkspaceLiveUpdates()) {
-      scheduleChangedEmit(
-        acpSkillRunSnapshotChange(requestId, ["runtime-options"]),
+      scheduleWorkspaceChangedEmit(
+        acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
       );
     }
     return;
   }
-  scheduleChangedEmit(acpSkillRunSnapshotChange(requestId, ["run"]));
+  scheduleWorkspaceChangedEmit(acpSkillRunWorkspaceChange(requestId, ["run"]));
 }
 
 export function completeAcpSkillRunTranscriptTurnBoundary(
@@ -4484,7 +4399,7 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
   }
   setAcpSkillRunRecord(next);
   persistRun(next);
-  emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+  emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["transcript"]));
 }
 
 export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
@@ -4548,7 +4463,7 @@ export function appendAcpSkillRunHardTimeoutTranscriptNotice(args: {
   });
   setAcpSkillRunRecord(next);
   persistRun(next);
-  emitChanged(acpSkillRunSnapshotChange(requestId, ["transcript"]));
+  emitWorkspaceChanged(acpSkillRunWorkspaceChange(requestId, ["transcript"]));
 }
 
 export function registerAcpSkillRunController(
@@ -4613,8 +4528,8 @@ export function setAcpSkillRunRuntimeOptions(
   }
   if (!options) {
     runtimeOptionsByRequestId.delete(requestId);
-    scheduleChangedEmit(
-      acpSkillRunSnapshotChange(requestId, ["runtime-options"]),
+    scheduleWorkspaceChangedEmit(
+      acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
     );
     return;
   }
@@ -4635,8 +4550,8 @@ export function setAcpSkillRunRuntimeOptions(
       normalizeSelectableOption(options.currentReasoningEffort) || undefined,
   };
   runtimeOptionsByRequestId.set(requestId, normalized);
-  scheduleChangedEmit(
-    acpSkillRunSnapshotChange(requestId, ["runtime-options"]),
+  scheduleWorkspaceChangedEmit(
+    acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
   );
 }
 
@@ -5704,10 +5619,10 @@ export async function selectAcpSkillRun(requestIdRaw: string) {
   ensureHydrated();
   selectedRequestId = normalizeString(requestIdRaw);
   pruneInactiveAcpSkillRunTranscriptMirrors();
-  emitChanged(
+  emitWorkspaceChanged(
     selectedRequestId
-      ? acpSkillRunSnapshotChange(selectedRequestId, ["selection"])
-      : { kinds: ["selection"] },
+      ? acpSkillRunWorkspaceChange(selectedRequestId, ["selection"])
+      : createAcpSkillRunWorkspaceChange({ kinds: ["selection"] }),
   );
 }
 
@@ -5719,7 +5634,7 @@ export function getSelectedAcpSkillRunRequestId() {
 export function listAcpSkillRuns() {
   ensureHydrated();
   return Array.from(runRecords.values())
-    .map((entry) => projectAcpSkillRunRecordForPanel(entry))
+    .map((entry) => projectAcpSkillRunMetadataRecord(entry))
     .sort((a, b) => {
       const created = b.createdAt.localeCompare(a.createdAt);
       if (created !== 0) return created;
@@ -5788,26 +5703,6 @@ export function listAcpSkillRunSummaries(
       return b.requestId.localeCompare(a.requestId);
     });
   return limit ? rows.slice(0, limit) : rows;
-}
-
-function listAcpSkillRunPanelRecentSummaries(args: { limit: number }) {
-  ensureHydrated();
-  acpSkillRunSummaryDiagnostics.summaryQueryCount += 1;
-  acpSkillRunSummaryDiagnostics.recentIndexScanCount += 1;
-  const limit = normalizeSummaryListLimit(args.limit);
-  const requestIds = limit
-    ? recentVisibleRunRequestIds.slice(0, limit)
-    : [...recentVisibleRunRequestIds];
-  const rows: AcpSkillRunSummary[] = [];
-  for (const requestId of requestIds) {
-    const run = runRecords.get(requestId);
-    if (!run || !isVisibleAcpSkillRunRecordForPanel(run)) {
-      continue;
-    }
-    acpSkillRunSummaryDiagnostics.runCandidateReadCount += 1;
-    rows.push(summarizeAcpSkillRun(run));
-  }
-  return rows;
 }
 
 export function countActiveAcpSkillRunSummaries(
@@ -5881,7 +5776,6 @@ export function resetAcpSkillRunSummaryDiagnosticsForTests() {
   acpSkillRunSummaryDiagnostics.summaryQueryCount = 0;
   acpSkillRunSummaryDiagnostics.fullRunRecordScanCount = 0;
   acpSkillRunSummaryDiagnostics.activeIndexScanCount = 0;
-  acpSkillRunSummaryDiagnostics.recentIndexScanCount = 0;
   acpSkillRunSummaryDiagnostics.runCandidateReadCount = 0;
 }
 
@@ -5930,7 +5824,9 @@ export function cleanupExpiredAcpSkillRunsForRetention(args: {
     }
   }
   if (requestIds.length > 0) {
-    emitChanged({ requestIds, kinds: ["archive"] });
+    emitWorkspaceChanged(
+      createAcpSkillRunWorkspaceChange({ requestIds, kinds: ["archive"] }),
+    );
   }
   return {
     rowsDeleted: requestIds.length,
@@ -5989,7 +5885,9 @@ export async function cleanupSyntheticAcpSkillRunReplay(requestIds: string[]) {
     if (selectedRequestId === requestId) selectedRequestId = "";
   }
   if (requestIds.length > 0) {
-    emitChanged({ requestIds, kinds: ["archive"] });
+    emitWorkspaceChanged(
+      createAcpSkillRunWorkspaceChange({ requestIds, kinds: ["archive"] }),
+    );
   }
 }
 
@@ -6003,18 +5901,82 @@ export function getAcpSkillRunRecord(requestIdRaw: string) {
   return projectAcpSkillRunMetadataRecord(entry);
 }
 
+export function getAcpSkillRunWorkspaceReadModel(
+  requestIdRaw: string,
+): AcpSkillRunWorkspaceReadModel | null {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const run = requestId ? runRecords.get(requestId) : undefined;
+  if (!run) return null;
+  return Object.freeze({
+    requestId: run.requestId,
+    status: run.status,
+    backendStatus: run.backendStatus,
+    backendId: run.backendId,
+    backendLabel: run.backendLabel,
+    workflowId: run.workflowId,
+    workflowLabel: run.workflowLabel,
+    sequenceStepId: run.sequenceStepId,
+    sequenceStepIndex: run.sequenceStepIndex,
+    taskName: run.taskName,
+    skillName: run.skillName,
+    skillId: run.skillId,
+    workspaceDir: run.workspaceDir,
+    runtimeDir: run.runtimeDir,
+    sessionId: run.sessionId,
+    acpModelId: run.acpModelId,
+    acpRawModelId: run.acpRawModelId,
+    acpReasoningEffort: run.acpReasoningEffort,
+    activePrompt: run.activePrompt === true,
+    pendingPermission: run.pendingPermission
+      ? {
+          ...run.pendingPermission,
+          options: run.pendingPermission.options.map((option) => ({
+            ...option,
+          })),
+        }
+      : null,
+    pendingInteraction: run.pendingInteraction
+      ? parsePendingInteraction(run.pendingInteraction)
+      : undefined,
+    conversationState: run.conversationState,
+    conversationRecoveryState: run.conversationRecoveryState,
+    conversationError: run.conversationError,
+    connectionActionState: run.connectionActionState,
+    applyResultState: run.applyResultState,
+    error: run.error,
+    usage: run.usage ? { ...run.usage } : undefined,
+    planEntries: (run.planEntries || []).map((entry) => ({ ...entry })),
+    updatedAt: run.updatedAt,
+    runtimeOptions: runtimeOptionsForRun(run),
+  });
+}
+
+export function getAcpSkillRunDiagnostics(
+  requestIdRaw: string,
+): AcpSkillRunDiagnosticsDto | null {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const run = requestId ? runRecords.get(requestId) : undefined;
+  if (!run) return null;
+  return Object.freeze({
+    requestId: run.requestId,
+    status: run.status,
+    backendId: run.backendId,
+    workflowId: normalizeString(run.workflowId) || null,
+    skillId: normalizeString(run.skillId) || null,
+    workspaceDir: normalizeString(run.workspaceDir) || null,
+    runtimeDir: normalizeString(run.runtimeDir) || null,
+    sessionId: normalizeString(run.sessionId) || null,
+    error: normalizeString(run.error) || null,
+    updatedAt: run.updatedAt,
+  });
+}
+
 registerAcpSkillRunAutoApprovalResolver(
   (requestId) =>
     getAcpSkillRunRecord(requestId)?.hostBridgeCli?.autoApproveWrites === true,
 );
-
-function findTaskForRun(run: AcpSkillRunRecord) {
-  const requestId = normalizeString(run.requestId);
-  if (!requestId) {
-    return undefined;
-  }
-  return mapAcpSkillRunSummaryToWorkflowTask(summarizeAcpSkillRun(run));
-}
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   return {
@@ -6066,7 +6028,6 @@ function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
 }
 
 export type AcpSkillRunTranscriptPageRequest = {
-  requestId?: string;
   cursor?: number;
   limit?: number;
 };
@@ -6081,10 +6042,6 @@ function transcriptPageForRun(
   }
   const load = transcriptLoadForRun(record);
   if (load.status !== "ready") {
-    return undefined;
-  }
-  const requestedPageRunId = normalizeString(request?.requestId);
-  if (requestedPageRunId && requestedPageRunId !== record.requestId) {
     return undefined;
   }
   const page = readUiVisibleTranscriptMirrorPage({
@@ -6142,112 +6099,6 @@ function buildAcpSkillsTranscriptRegion(
   );
 }
 
-function buildAcpSkillRunPanelSnapshotFromRuns(
-  listedRuns: AcpSkillRunSummary[],
-  args?: {
-    selectedRequestId?: string;
-    transcriptPage?: AcpSkillRunTranscriptPageRequest;
-    transcriptRegionOverride?: AssistantWorkspaceTranscriptRegion;
-    transcriptPageOverride?: ReturnType<typeof transcriptPageForRun>;
-  },
-): AcpSkillRunPanelSnapshot {
-  const truncated = listedRuns.length > ACP_SKILL_RUN_PANEL_RUN_LIMIT;
-  let runs = listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
-  const requested =
-    normalizeString(args?.selectedRequestId) || selectedRequestId;
-  const requestedRecord = requested ? runRecords.get(requested) : undefined;
-  const selected = resolveAcpSkillRunPanelSelectedRecord({
-    requested,
-    runs,
-  });
-  if (
-    requestedRecord &&
-    isSelectableAcpSkillRunRecord(requestedRecord) &&
-    !runs.some((run) => run.requestId === requestedRecord.requestId)
-  ) {
-    runs = [
-      summarizeAcpSkillRun(requestedRecord),
-      ...runs.filter((run) => run.requestId !== requestedRecord.requestId),
-    ].slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT);
-  }
-  const snapshotSelectedRequestId = selected?.requestId || "";
-  const page =
-    args?.transcriptPageOverride ||
-    transcriptPageForRun(selected, args?.transcriptPage);
-  const transcriptRegion =
-    args?.transcriptRegionOverride ||
-    buildAcpSkillsTranscriptRegion(selected, page, args?.transcriptPage);
-  const selectedTask = selected ? findTaskForRun(selected) : undefined;
-  const logs = selected
-    ? listRuntimeLogs({
-        requestId: selected.requestId,
-        order: "asc",
-        limit: 120,
-      }).map((entry) => ({
-        id: entry.id,
-        ts: entry.ts,
-        level: entry.level,
-        stage: entry.stage,
-        message: entry.message,
-        scope: entry.scope,
-      }))
-    : [];
-  const labels = buildAssistantWorkspaceAcpSurfaceLabels("acp-skills");
-  return {
-    generatedAt: nowIso(),
-    executionDisplayMode: getAssistantExecutionDisplayMode(),
-    messageCounts: selected
-      ? snapshotAcpMessageCounts(selected.requestId) || selected.messageCounts
-      : undefined,
-    labels,
-    selectedRequestId: snapshotSelectedRequestId,
-    transcriptRegion,
-    mcpServer: getZoteroMcpServerStatus(),
-    mcpHealth: getZoteroMcpHealthSnapshot(),
-    hostBridge: getHostBridgeServerStatus(),
-    summary: {
-      total: runs.length,
-      active: runs.filter(
-        (run) =>
-          run.status !== "succeeded" &&
-          run.status !== "failed" &&
-          run.status !== "canceled",
-      ).length,
-      failed: runs.filter((run) => run.status === "failed").length,
-      recent: runs.slice(0, 20).length,
-    },
-    drawer: {
-      notice: truncated
-        ? getStringOrFallback(
-            "task-dashboard-panel-history-truncated" as any,
-            "Showing recent runs only. View older records in Dashboard.",
-          )
-        : undefined,
-      truncated: truncated || undefined,
-    },
-    runs,
-    selectedRun: selected
-      ? projectAcpSkillRunRecordForPanel(selected)
-      : undefined,
-    selectedRuntimeOptions: selected
-      ? runtimeOptionsForRun(selected)
-      : undefined,
-    selectedTask,
-    logs,
-  };
-}
-
-export function buildAcpSkillRunPanelSnapshot(args?: {
-  selectedRequestId?: string;
-  transcriptPage?: AcpSkillRunTranscriptPageRequest;
-}): AcpSkillRunPanelSnapshot {
-  ensureHydrated();
-  const listedRuns = listAcpSkillRunPanelRecentSummaries({
-    limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
-  });
-  return buildAcpSkillRunPanelSnapshotFromRuns(listedRuns, args);
-}
-
 export async function readAcpSkillRunTranscriptRegion(args: {
   requestId: string;
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
@@ -6284,119 +6135,26 @@ export async function readAcpSkillRunTranscriptRegion(args: {
   }
 }
 
-export async function prepareAcpSkillRunPanelSnapshot(args?: {
-  selectedRequestId?: string;
+export function readAcpSkillRunTranscriptRegionFromMemoryForTests(args: {
+  requestId: string;
   transcriptPage?: AcpSkillRunTranscriptPageRequest;
-  transcriptReadMode?: AcpSkillRunTranscriptReadMode;
-}): Promise<AcpSkillRunPanelSnapshot> {
+}): AssistantWorkspaceTranscriptRegion {
   ensureHydrated();
-  const listedRuns = listAcpSkillRunPanelRecentSummaries({
-    limit: ACP_SKILL_RUN_PANEL_RUN_LIMIT + 1,
-  });
-  const requested = normalizeString(args?.selectedRequestId);
-  const selectedRequestIdForSnapshot =
-    requested ||
-    materializeAcpSkillRunPanelSelectedRequestId(
-      listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT),
-    );
-  const selected = resolveAcpSkillRunPanelSelectedRecord({
-    requested: selectedRequestIdForSnapshot,
-    runs: listedRuns.slice(0, ACP_SKILL_RUN_PANEL_RUN_LIMIT),
-  });
-  let transcriptRegionOverride: AssistantWorkspaceTranscriptRegion | undefined;
-  let transcriptPageOverride: ReturnType<typeof transcriptPageForRun>;
-  if (selected) {
-    const state = getAcpSkillRunTranscriptLiveState(selected);
-    if (
-      !state.mirrorLoaded &&
-      hasDurableAcpSkillRunTranscript(selected, state)
-    ) {
-      if (args?.transcriptReadMode === "loading-first") {
-        transcriptRegionOverride = createLoadingTranscriptRegion(
-          createAcpSkillsWorkspaceOwner(selected.requestId),
-        );
-      } else {
-        try {
-          const pageReadStartedAt = __acp_runtime_performance_profiler_enabled__
-            ? typeof __debug_mode__ === "undefined"
-              ? isDebugModeEnabled()
-                ? readAcpRuntimePerformanceClockMs()
-                : 0
-              : __debug_mode__
-                ? readAcpRuntimePerformanceClockMs()
-                : 0
-            : 0;
-          transcriptPageOverride = await readSelectedTranscriptPageFromStore(
-            selected,
-            args?.transcriptPage,
-          );
-          if (
-            __acp_runtime_performance_profiler_enabled__ &&
-            (typeof __debug_mode__ === "undefined"
-              ? isDebugModeEnabled()
-              : __debug_mode__)
-          ) {
-            incrementAcpRuntimeMetric(
-              selected.requestId,
-              "transcript_page_read",
-            );
-            incrementAcpRuntimeMetric(
-              selected.requestId,
-              "transcript_page_scan_items",
-              {},
-              Math.max(0, Number(selected.transcriptItemCount || 0)),
-            );
-            observeAcpRuntimeDuration(
-              selected.requestId,
-              "transcript_page_read_duration",
-              {},
-              readAcpRuntimePerformanceClockMs() - pageReadStartedAt,
-            );
-          }
-          if (transcriptPageOverride) {
-            transcriptRegionOverride = buildAcpSkillsTranscriptRegion(
-              selected,
-              transcriptPageOverride,
-              args?.transcriptPage,
-            );
-            scheduleAcpSkillRunTranscriptHydrate(selected.requestId);
-          }
-        } catch (error) {
-          state.hydrateState = "failed";
-          state.hydrateError = errorText(error);
-          transcriptRegionOverride = createFailedTranscriptRegion(
-            createAcpSkillsWorkspaceOwner(selected.requestId),
-            {
-              code: "transcript-page-read-failed",
-              message: state.hydrateError,
-            },
-          );
-          appendRuntimeLog({
-            level: "warn",
-            scope: "system",
-            component: "acp-skill-run-store",
-            operation: "prepare-panel-snapshot",
-            stage: "transcript-page",
-            requestId: selected.requestId,
-            message: "ACP Skills selected transcript page could not be read.",
-            error,
-          });
-        }
-      }
-    }
-  }
-  return buildAcpSkillRunPanelSnapshotFromRuns(listedRuns, {
-    ...args,
-    selectedRequestId: selectedRequestIdForSnapshot,
-    transcriptRegionOverride,
-    transcriptPageOverride,
-  });
+  const requestId = normalizeString(args.requestId);
+  const record = requestId ? runRecords.get(requestId) : undefined;
+  return buildAcpSkillsTranscriptRegion(
+    record,
+    transcriptPageForRun(record, args.transcriptPage),
+    args.transcriptPage,
+  );
 }
 
-export function subscribeAcpSkillRunSnapshots(listener: AcpSkillRunListener) {
-  listeners.add(listener);
+export function subscribeAcpSkillRunWorkspaceChanges(
+  listener: AcpSkillRunWorkspaceListener,
+) {
+  workspaceListeners.add(listener);
   return () => {
-    listeners.delete(listener);
+    workspaceListeners.delete(listener);
   };
 }
 
@@ -6474,7 +6232,7 @@ export function resetAcpSkillRunsForTests() {
   applyResultControllerDetachPromises.clear();
   runtimeOptionsByRequestId.clear();
   permissionResolvers.clear();
-  listeners.clear();
+  workspaceListeners.clear();
   selectedRequestId = "";
   hydrated = false;
   resetAcpSkillRunSummaryDiagnosticsForTests();
@@ -6487,7 +6245,7 @@ registerAcpSkillRunsMemoryClearer(() => {
   selectedRequestId = "";
   hydrated = false;
   clearPluginRunStore("acp");
-  emitChanged();
+  emitWorkspaceChanged();
 });
 
 registerAcpSkillRunsRetentionCleaner(cleanupExpiredAcpSkillRunsForRetention);

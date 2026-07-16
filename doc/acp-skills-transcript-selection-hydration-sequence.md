@@ -184,10 +184,10 @@ Child 不因 gap 自动发送 page request；协议中没有 rebase control publ
 | --- | --- | --- |
 | Domain | `src/modules/acpSessionManager.ts`、`src/modules/acpSkillRunStore.ts` | selection、持久化、JSONL/index、mirror 与 domain change。 |
 | Adapter | `src/modules/acpChatWorkspaceSurface.ts`、`src/modules/acpSkillsWorkspaceSurface.ts` | owner lookup、change mapping、region/page read 与 canonical projection。 |
-| Shared runtime | `src/modules/assistantWorkspaceAcpSurface.ts` | initialization 与 source-neutral change scheduling。 |
+| Shared runtime | `src/modules/assistantWorkspacePublicationRuntime.ts` | initialization 与 source-neutral change scheduling。 |
 | Coordinator | `src/modules/assistantWorkspacePublicationCoordinator.ts` | signature、revision、transcript lane、ACK 与 rebase。 |
 | Host/Shell | `src/modules/assistantWorkspaceSidebar.ts`、`addon/content/sidebar/assistant-workspace.js` | lifecycle、child delivery、document generation 与 retained forwarding。 |
-| Child controller | `addon/content/shared/assistant/assistant-workspace-acp-surface.js` | canonical state、plan-render-commit transaction 与 ACK。 |
+| Child controller | `addon/content/shared/assistant/assistant-workspace-acp-child.js` | canonical state、plan-render-commit transaction 与 ACK。 |
 | Renderer | `addon/content/shared/assistant/assistant-transcript-renderer.js` | targeted row/text effects、virtual window 与 scroll anchoring。 |
 
 ## 校验重点

@@ -36,21 +36,19 @@ describe("skillrunner sidebar host runtime", function () {
     const ts = await readProjectFile(
       "src/modules/assistantWorkspaceSidebar.ts",
     );
-    const acpChatPanelReadModel = await readProjectFile(
-      "src/modules/acpChatPanelReadModel.ts",
-    );
     assert.include(ts, "__zsAssistantWorkspaceBridge");
     assert.include(ts, "assistant-workspace:init");
     assert.include(ts, "assistant-workspace:child-snapshot");
     assert.include(ts, "dispatchRunWorkspaceAction");
-    assert.include(ts, "ACP_CHAT_WORKSPACE_SURFACE_ADAPTER");
-    assert.include(ts, "scheduleAssistantWorkspaceAcpSurfaceChange");
+    assert.include(ts, "ACP_CHAT_WORKSPACE_ADAPTER");
+    assert.include(ts, "new AssistantWorkspacePublicationRuntime");
+    assert.notInclude(ts, "scheduleAssistantWorkspacePublicationChange");
+    assert.notInclude(ts, "pendingWorkspacePublications");
     assert.notInclude(ts, "prepareAcpChatPanelSnapshot");
-    assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
     assert.include(ts, "readyTabs");
-    assert.include(ts, "postInitialSnapshotsForAllTabs");
+    assert.include(ts, "postInitialSnapshotForActiveTab");
     assert.notInclude(ts, "refreshAndPostAcpChatPanelSnapshot");
-    assert.include(ts, "prepareAcpSkillRunPanelSnapshot");
+    assert.include(ts, "getAcpSkillRunDiagnostics");
     assert.include(ts, "handleAcpChatAction");
     assert.include(ts, "handleAcpSkillRunAction");
     assert.include(ts, "createSkillRunnerHostActionHandler");

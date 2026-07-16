@@ -31,9 +31,9 @@ Zotero mock.
 performance profiler, semantic Trace Recorder, and Replay Profiler. Trace
 capture never enables profiling; replay activates profiling only inside its
 fixed profile windows. The Recorder and Replay modes are mutually exclusive.
-Replay matrix v2 exposes execution and measurement completion independently;
-missing R1/R2/R3 evidence cannot be mistaken for a successful comparable
-baseline, even when all nine replay executions finish.
+Replay results expose execution completion, measurement completion, and
+acceptance independently; missing R1/R2/R3 evidence cannot be mistaken for an
+accepted comparable baseline even when every replay execution finishes.
 
 Replay supports recorded, logical, and burst cadence. Logical time is created
 only inside an active replay run and takes ownership only of explicitly scoped

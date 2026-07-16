@@ -380,7 +380,7 @@ Warning codes:
 ACP Skills and ACP Chat use the same Workspace transcript region, page, item,
 mutation, publication, acknowledgement, and receiver vocabulary. ACP Skills
 `progress` maps to the shared `message-counts` region and `runtime-options`
-maps to `reply-hint`; transcript events are normalized at the store seam and
+maps to `composer`; transcript events are normalized at the store seam and
 processed by the same boundary projection used by Chat.
 
 The Skills run store and persistence format remain Skills-specific. That

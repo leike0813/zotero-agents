@@ -154,7 +154,7 @@ Every profile window SHALL inject `ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1`: one si
 
 ### Requirement: Replay matrices preserve provenance and comparability
 
-The runner SHALL write `zotero-agents.acp-runtime-replay-matrix.v1` JSON and a three-surface Markdown summary containing trace schema/digest, source kind, cadence, R2 version, replay configuration, plugin/Zotero environment, nine records, run roles, counts, bytes, scheduler lag, warnings, and drain status. Only complete formal runs with identical provenance SHALL be compared.
+The runner SHALL write `zotero-agents.acp-runtime-replay-matrix.v2` JSON and a three-surface Markdown summary containing trace schema/digest, source kind, cadence, R2 version, replay configuration, plugin/Zotero environment, nine records, run roles, counts, bytes, scheduler lag, warnings, drain status, completion, and acceptance. Only complete formal runs with identical provenance SHALL be compared.
 
 #### Scenario: Incompatible matrices are compared
 - **WHEN** trace digest, source kind, cadence, R2 version, or replay configuration differs
@@ -163,6 +163,30 @@ The runner SHALL write `zotero-agents.acp-runtime-replay-matrix.v1` JSON and a t
 #### Scenario: R1 differs by surface
 - **WHEN** a derived R1 metric changes across surfaces
 - **THEN** the report SHALL retain the difference as a finding rather than force normalization.
+
+### Requirement: Replay separates completion from acceptance
+
+Replay completion SHALL describe execution and measurement availability only.
+Acceptance SHALL separately evaluate publication lifecycle, bytes, forbidden
+materialization, steady snapshots, target visibility, and drift.
+
+#### Scenario: Execution finishes over the byte budget
+
+- **WHEN** execution and measurement complete but posted bytes exceed budget
+- **THEN** completion remains complete
+- **AND** acceptance fails with the byte-budget reason.
+
+### Requirement: Replay uses current v5 lifecycle vocabulary
+
+Replay SHALL use exact v5 source, kind, form, cause, delivery, rebase, and
+overflow semantics. Historical matrix compatibility and governance eligibility
+fields SHALL NOT remain in current-state results.
+
+#### Scenario: A target-active run drains
+
+- **WHEN** Replay reaches its source/publication/delivery barrier
+- **THEN** every earlier matching publication has a terminal ledger result
+- **AND** unknown gaps make measurement incomplete rather than silently passing.
 
 ### Requirement: Replay preserves Workspace rendering isolation
 

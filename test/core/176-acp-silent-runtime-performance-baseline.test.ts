@@ -96,7 +96,7 @@ describe("ACP silent runtime performance baseline", function () {
       assert.equal(
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
           ?.counter,
-        2,
+        1,
       );
       assert.equal(
         r3(surface).metrics.find((metric) => metric.name === "panel_prepare")
@@ -110,21 +110,25 @@ describe("ACP silent runtime performance baseline", function () {
       );
       assert.lengthOf(
         profile.metrics.filter((metric) => metric.name === "panel_post"),
-        1,
-        "publication identity must not create high-cardinality metric series",
+        3,
+        "bounded region kinds may create series, publication identity must not",
       );
-      assert.notProperty(
-        profile.metrics.find((metric) => metric.name === "panel_post")!.labels,
-        "publicationId",
-      );
-      assert.deepEqual(
-        profile.publicationLifecycles?.map((entry) => ({
-          post: entry.post,
-          shellForward: entry.shellForward,
-          childApply: entry.childApply,
-          renderAck: entry.renderAck,
-        })),
-        [{ post: 1, shellForward: 0, childApply: 0, renderAck: 0 }],
+      for (const metric of profile.metrics.filter(
+        (entry) => entry.name === "panel_post",
+      )) {
+        assert.notProperty(metric.labels, "publicationId");
+        assert.notProperty(metric.labels, "publicationDeliverySequence");
+      }
+      assert.lengthOf(profile.publicationLifecycles || [], 4);
+      assert.isTrue(
+        (profile.publicationLifecycles || []).every(
+          (entry) =>
+            entry.post === 1 &&
+            entry.shellForward === 1 &&
+            entry.childApply === 1 &&
+            entry.renderAck === 1 &&
+            entry.terminal?.outcome === "accepted",
+        ),
       );
     }
   });

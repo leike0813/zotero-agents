@@ -20,7 +20,7 @@ import {
 } from "./assistantWorkspaceSidebar";
 import {
   listAcpSkillRunSummaries,
-  subscribeAcpSkillRunSnapshots,
+  subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { countDashboardHumanAttentionTasks } from "./dashboardActiveTasks";
 import {
@@ -904,9 +904,11 @@ export async function openZoteroSkillsWorkspaceTab(
     handshakeSuccessCount: 0,
     handshakeComplete: false,
   };
-  runtime.removeAcpSkillRunSubscription = subscribeAcpSkillRunSnapshots(() => {
-    syncWorkspaceSidebarEntry(runtime);
-  });
+  runtime.removeAcpSkillRunSubscription = subscribeAcpSkillRunWorkspaceChanges(
+    () => {
+      syncWorkspaceSidebarEntry(runtime);
+    },
+  );
   runtime.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     syncWorkspaceSidebarEntry(runtime);
   });

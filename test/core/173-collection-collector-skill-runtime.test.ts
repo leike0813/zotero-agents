@@ -49,7 +49,7 @@ async function createFakeBridge(runRoot: string) {
   const binDir = path.join(runRoot, ".zotero-bridge", "bin");
   await fs.mkdir(binDir, { recursive: true });
   const bridge = path.join(binDir, "zotero-bridge");
-const source = String.raw`#!/usr/bin/env node
+  const source = String.raw`#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args.includes("--input")) {
   console.error("semantic reads must use --query");

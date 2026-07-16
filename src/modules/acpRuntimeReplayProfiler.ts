@@ -502,6 +502,7 @@ export type AcpRuntimeReplayProfileRecord = {
   completion: "complete" | "incomplete";
   executionCompletion: "complete" | "incomplete";
   measurementCompletion: "complete" | "incomplete";
+  acceptance: AcpRuntimeReplayAcceptance;
   measurement: AcpRuntimeReplayMeasurement;
   replay: AcpRuntimeReplayResult;
   r2: AcpRuntimeR2WorkloadResult;
@@ -558,6 +559,11 @@ export type AcpRuntimeReplayMeasurement = {
   warnings: string[];
 };
 
+export type AcpRuntimeReplayAcceptance = {
+  state: "accepted" | "rejected";
+  reasons: string[];
+};
+
 export type AcpRuntimeReplayMatrix = {
   schema: typeof ACP_RUNTIME_REPLAY_MATRIX_SCHEMA;
   createdAt: string;
@@ -578,6 +584,7 @@ export type AcpRuntimeReplayMatrix = {
   completion: "complete" | "incomplete";
   executionCompletion: "complete" | "incomplete";
   measurementCompletion: "complete" | "incomplete";
+  acceptance: AcpRuntimeReplayAcceptance;
   records: AcpRuntimeReplayProfileRecord[];
   warnings: string[];
 };
@@ -607,50 +614,6 @@ function assertAcpRuntimeReplayPhaseProvenance(
   ) {
     throw new Error("ACP replay phase provenance is incomplete");
   }
-}
-
-export type AcpRuntimeReplayMatrixCompatibility = {
-  schema: string;
-  legacy: boolean;
-  executionCompletion: "complete" | "incomplete";
-  measurementCompletion: "complete" | "incomplete";
-  governanceEligible: boolean;
-};
-
-export function inspectAcpRuntimeReplayMatrixCompatibility(
-  value: unknown,
-): AcpRuntimeReplayMatrixCompatibility {
-  const record = (value && typeof value === "object" ? value : {}) as Record<
-    string,
-    unknown
-  >;
-  const schema = String(record.schema || "");
-  if (schema === "zotero-agents.acp-runtime-replay-matrix.v1") {
-    return {
-      schema,
-      legacy: true,
-      executionCompletion:
-        record.completion === "complete" ? "complete" : "incomplete",
-      measurementCompletion: "incomplete",
-      governanceEligible: false,
-    };
-  }
-  if (schema !== ACP_RUNTIME_REPLAY_MATRIX_SCHEMA) {
-    throw new Error("Unsupported ACP replay matrix schema");
-  }
-  const executionCompletion =
-    record.executionCompletion === "complete" ? "complete" : "incomplete";
-  const measurementCompletion =
-    record.measurementCompletion === "complete" ? "complete" : "incomplete";
-  return {
-    schema,
-    legacy: false,
-    executionCompletion,
-    measurementCompletion,
-    governanceEligible:
-      executionCompletion === "complete" &&
-      measurementCompletion === "complete",
-  };
 }
 
 export type AcpRuntimeReplayWorkspacePort = {
@@ -718,32 +681,6 @@ function metricDuration(
     );
 }
 
-function metricPublicationCounts(
-  profile: AcpRuntimeProfileSnapshot | undefined,
-  stage: "post" | "shellForward" | "childApply" | "renderAck",
-) {
-  const counts = new Map<string, number>();
-  for (const entry of profile?.publicationLifecycles || []) {
-    const publicationId = String(entry.publicationId || "").trim();
-    if (!publicationId) continue;
-    const count = Number(entry[stage] || 0);
-    if (count > 0) counts.set(publicationId, count);
-  }
-  return counts;
-}
-
-function publicationCountsEqual(
-  expected: ReadonlyMap<string, number>,
-  actual: ReadonlyMap<string, number>,
-) {
-  return (
-    expected.size === actual.size &&
-    [...expected].every(
-      ([publicationId, count]) => actual.get(publicationId) === count,
-    )
-  );
-}
-
 function evaluateReplayMeasurement(args: {
   profile?: AcpRuntimeProfileSnapshot;
   replay: AcpRuntimeReplayResult;
@@ -807,38 +744,44 @@ function evaluateReplayMeasurement(args: {
   const r3Lifecycle = {
     prepare: metricValue(args.profile, "panel_prepare"),
     signature: metricValue(args.profile, "panel_signature"),
-    post: metricValue(args.profile, "panel_post"),
-    shellForward: metricValue(args.profile, "panel_shell_forward"),
-    childApply: metricValue(args.profile, "panel_child_apply"),
-    renderAck: metricValue(args.profile, "panel_render_ack"),
+    post: (args.profile?.publicationLifecycles || []).length,
+    shellForward: (args.profile?.publicationLifecycles || []).reduce(
+      (total, entry) => total + entry.shellForward,
+      0,
+    ),
+    childApply: (args.profile?.publicationLifecycles || []).reduce(
+      (total, entry) => total + entry.childApply,
+      0,
+    ),
+    renderAck: (args.profile?.publicationLifecycles || []).reduce(
+      (total, entry) =>
+        total +
+        (entry.terminal?.outcome === "accepted" &&
+        entry.acknowledgements.some(
+          (ack) =>
+            ack.stage === "render-complete" && ack.outcome === "accepted",
+        )
+          ? 1
+          : 0),
+      0,
+    ),
   };
   const r3MetricCount = Object.values(r3Lifecycle).reduce(
     (total, value) => total + value,
     0,
   );
-  const r3PublicationCounts = {
-    post: metricPublicationCounts(args.profile, "post"),
-    shellForward: metricPublicationCounts(args.profile, "shellForward"),
-    childApply: metricPublicationCounts(args.profile, "childApply"),
-    renderAck: metricPublicationCounts(args.profile, "renderAck"),
-  };
   const r3PublicationIdentityComplete =
-    r3PublicationCounts.post.size > 0 &&
-    [...r3PublicationCounts.post.values()].reduce(
-      (total, count) => total + count,
-      0,
-    ) === r3Lifecycle.post &&
-    publicationCountsEqual(
-      r3PublicationCounts.post,
-      r3PublicationCounts.shellForward,
-    ) &&
-    publicationCountsEqual(
-      r3PublicationCounts.post,
-      r3PublicationCounts.childApply,
-    ) &&
-    publicationCountsEqual(
-      r3PublicationCounts.post,
-      r3PublicationCounts.renderAck,
+    r3Lifecycle.post > 0 &&
+    (args.profile?.publicationLifecycles || []).every(
+      (entry) =>
+        entry.post === 1 &&
+        entry.shellForward === 1 &&
+        entry.childApply === 1 &&
+        entry.terminal?.outcome === "accepted" &&
+        entry.acknowledgements.some(
+          (ack) =>
+            ack.stage === "render-complete" && ack.outcome === "accepted",
+        ),
     );
   const r3Complete =
     r3Lifecycle.post > 0 &&
@@ -893,6 +836,11 @@ function evaluateReplayMeasurement(args: {
     if (coverage.state === "not-run")
       warnings.push(`${family}-measurement-not-run:${coverage.detail}`);
   }
+  if (args.profile?.measurement === "incomplete") {
+    warnings.push(
+      `profile-measurement-incomplete:metric-series-drops=${args.profile.metricSeriesDrops}`,
+    );
+  }
   return {
     elapsedMs: Math.max(
       0,
@@ -911,6 +859,63 @@ function evaluateReplayMeasurement(args: {
     },
     warnings,
   } satisfies AcpRuntimeReplayMeasurement;
+}
+
+function evaluateReplayAcceptance(args: {
+  sourceKind: AcpRuntimeTraceSourceKind;
+  surface: AcpRuntimeReplaySurface;
+  executionCompletion: "complete" | "incomplete";
+  measurementCompletion: "complete" | "incomplete";
+  profile?: AcpRuntimeProfileSnapshot;
+}) {
+  const reasons: string[] = [];
+  if (args.executionCompletion !== "complete") {
+    reasons.push("execution-incomplete");
+  }
+  if (args.measurementCompletion !== "complete") {
+    reasons.push("measurement-incomplete");
+  }
+  if (args.surface === "target-active") {
+    const lifecycles = args.profile?.publicationLifecycles || [];
+    if (
+      lifecycles.length === 0 ||
+      lifecycles.some((entry) => entry.terminal?.outcome !== "accepted")
+    ) {
+      reasons.push("publication-lifecycle-incomplete");
+    }
+    const forbiddenMaterialization = (args.profile?.metrics || []).some(
+      (entry) =>
+        entry.labels.publicationCause === "steady-state" &&
+        (entry.labels.materializationSource === "frontend-snapshot" ||
+          entry.labels.materializationSource === "panel-snapshot") &&
+        (entry.counter?.total ||
+          entry.duration?.count ||
+          entry.gauge?.max ||
+          0) > 0,
+    );
+    if (forbiddenMaterialization) {
+      reasons.push("forbidden-steady-materialization");
+    }
+    const steadyTranscriptSnapshot = lifecycles.some(
+      (entry) =>
+        entry.kind === "transcript" &&
+        entry.publicationForm === "snapshot" &&
+        entry.publicationCause === "steady-state",
+    );
+    if (steadyTranscriptSnapshot) {
+      reasons.push("steady-transcript-snapshot");
+    }
+    const postedBytes = metricValue(args.profile, "panel_post_bytes");
+    const byteBudget =
+      args.sourceKind === "acp-chat-conversation" ? 2_700_000 : 557_610;
+    if (postedBytes > byteBudget) {
+      reasons.push(`posted-bytes-exceeded:${postedBytes}>${byteBudget}`);
+    }
+  }
+  return {
+    state: reasons.length === 0 ? "accepted" : "rejected",
+    reasons,
+  } satisfies AcpRuntimeReplayAcceptance;
 }
 
 let replayMatrixNonce = 0;
@@ -1201,14 +1206,26 @@ export async function runAcpRuntimeReplayMatrix(args: {
         });
         const measurementCompletion =
           measurement.warnings.length === 0 ? "complete" : "incomplete";
+        const acceptance = evaluateReplayAcceptance({
+          sourceKind: args.trace.header.sourceKind,
+          surface,
+          executionCompletion,
+          measurementCompletion,
+          profile,
+        });
         const record: AcpRuntimeReplayProfileRecord = {
           surface,
           role,
           runIndex,
           syntheticRootId,
-          completion: executionCompletion,
+          completion:
+            executionCompletion === "complete" &&
+            measurementCompletion === "complete"
+              ? "complete"
+              : "incomplete",
           executionCompletion,
           measurementCompletion,
+          acceptance,
           measurement,
           replay,
           r2,
@@ -1274,7 +1291,11 @@ export async function runAcpRuntimeReplayMatrix(args: {
     environment: { ...args.environment },
     completion:
       records.length === 9 &&
-      records.every((entry) => entry.executionCompletion === "complete")
+      records.every(
+        (entry) =>
+          entry.executionCompletion === "complete" &&
+          entry.measurementCompletion === "complete",
+      )
         ? "complete"
         : "incomplete",
     executionCompletion:
@@ -1287,6 +1308,22 @@ export async function runAcpRuntimeReplayMatrix(args: {
       records.every((entry) => entry.measurementCompletion === "complete")
         ? "complete"
         : "incomplete",
+    acceptance: {
+      state:
+        records.length === 9 &&
+        records
+          .filter((entry) => entry.role === "formal")
+          .every((entry) => entry.acceptance.state === "accepted")
+          ? "accepted"
+          : "rejected",
+      reasons: Array.from(
+        new Set(
+          records
+            .filter((entry) => entry.role === "formal")
+            .flatMap((entry) => entry.acceptance.reasons),
+        ),
+      ),
+    },
     records,
     warnings,
   };
@@ -1439,14 +1476,15 @@ export function renderAcpRuntimeReplayMatrixMarkdown(
     `- R2 workload: \`${matrix.r2WorkloadVersion}\``,
     `- Execution completion: \`${matrix.executionCompletion}\``,
     `- Measurement completion: \`${matrix.measurementCompletion}\``,
+    `- Acceptance: \`${matrix.acceptance.state}\`${matrix.acceptance.reasons.length ? ` (${matrix.acceptance.reasons.join(", ")})` : ""}`,
     "",
     "## Run coverage",
     "",
-    `| Surface | Role | Run | Execution | Measurement | ${matrix.cadence === "logical" ? "Synthetic wall ms" : "Wall ms"} | Projected | No-op | Unknown | Drain | Transport | R1 | R2 | R3 | Failure |`,
-    "| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
+    `| Surface | Role | Run | Execution | Measurement | Acceptance | ${matrix.cadence === "logical" ? "Synthetic wall ms" : "Wall ms"} | Projected | No-op | Unknown | Drain | Transport | R1 | R2 | R3 | Failure |`,
+    "| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | --- |",
     ...matrix.records.map(
       (record) =>
-        `| ${record.surface} | ${record.role} | ${record.runIndex} | ${record.executionCompletion} | ${record.measurementCompletion} | ${format(record.measurement.elapsedMs)} | ${record.replay.projectedEvents} | ${record.replay.consumedNoopEvents} | ${record.replay.unknownEvents} | ${record.replay.drain.state || (record.replay.drain.ok ? "ok" : "failed")} | ${record.measurement.families.transport.state} | ${record.measurement.families.r1.state} | ${record.measurement.families.r2.state} | ${record.measurement.families.r3.state} | ${record.failure ? `${record.failure.phase}: ${cell(record.failure.detail)}` : "—"} |`,
+        `| ${record.surface} | ${record.role} | ${record.runIndex} | ${record.executionCompletion} | ${record.measurementCompletion} | ${record.acceptance.state}${record.acceptance.reasons.length ? `: ${cell(record.acceptance.reasons.join(", "))}` : ""} | ${format(record.measurement.elapsedMs)} | ${record.replay.projectedEvents} | ${record.replay.consumedNoopEvents} | ${record.replay.unknownEvents} | ${record.replay.drain.state || (record.replay.drain.ok ? "ok" : "failed")} | ${record.measurement.families.transport.state} | ${record.measurement.families.r1.state} | ${record.measurement.families.r2.state} | ${record.measurement.families.r3.state} | ${record.failure ? `${record.failure.phase}: ${cell(record.failure.detail)}` : "—"} |`,
     ),
     "",
     "## Formal descriptive summary",

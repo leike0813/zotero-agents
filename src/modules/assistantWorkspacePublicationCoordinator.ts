@@ -419,7 +419,7 @@ export class AssistantWorkspacePublicationCoordinator {
 
   private flush(state: TranscriptState) {
     if (!state.page) return undefined;
-    if (state.accumulator.requiresResync) {
+    if (state.accumulator.overflowedState) {
       this.requestRebase(state, "overflow");
       return undefined;
     }

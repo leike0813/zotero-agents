@@ -225,9 +225,9 @@ R2 workload version, and execution-affecting replay configuration, with both
 completion dimensions complete. The governance stage is an evidence label and
 may differ between before and after matrices. Unknown events, consumer failure,
 abort, failed drain, or missing
-required measurements prevent comparison. Matrix v1 files remain readable as
-legacy execution artifacts, but are measurement-incomplete and cannot be
-compared with v2 evidence.
+required measurements prevent comparison. Replay accepts only the current
+result contract; historical versioned matrix files are not compatibility input
+and must be retained as standalone artifacts if they are still needed.
 
 ## Automated Smoke Baseline
 
@@ -269,11 +269,11 @@ have been exercised.
 Use Gecko Profiler for CPU stacks and flame graphs. It is complementary and is
 not part of semantic trace replay.
 
-## Assistant Workspace Publication Data Plane v3
+## Assistant Workspace Publication Data Plane v5
 
 ACP Chat and ACP Skills now share one internal publication protocol and one
 transcript receiver. Publications use `publicationSurface=acp-chat|acp-skills`,
-`publicationForm=initialization|snapshot|delta`, and
+`publicationForm=region|snapshot|delta`, an exact `publicationCause`, and
 `materializationSource=region|transcript-page|frontend-snapshot|panel-snapshot`.
 The last two materialization sources are valid only for explicit initialization,
 activation, page request, diagnostic, or rebase work; steady transcript and
@@ -298,8 +298,8 @@ lifecycle entry for both Chat and Skills.
 
 `panel_render_duration` measures Host-observed time from post to an accepted
 render completion. Rejected apply or render work is excluded. Replay force
-operations return a `source + tab + deliverySequence + publicationId` barrier,
-and drain waits for all same-source, same-tab work through that sequence.
+operations return a `source + deliverySequence + publicationId` barrier, and
+drain waits for all same-source work through that sequence.
 SkillRunner uses child readiness without fabricating an ACP publication
 identity.
 
@@ -308,10 +308,11 @@ Every matrix freezes the normalized `phase` together with its
 those values diverge; the saver also verifies that the same slug appears in the
 artifact stem.
 
-The v3 field vocabulary is current-state only: `owner`, `transcriptRegion`,
-`pageKey`, `itemId`, `itemKind`, `publicationId`, `publicationKind`,
-`publicationForm`, and `publicationCause`. The runtime validator rejects old
-Workspace transcript aliases and `undefined` wire values.
+The v5 field vocabulary is current-state only. Browser state uses `navigation`,
+`services`, and `selection.transcript`; publications use `owner`, `pageKey`,
+`itemId`, `itemKind`, `publicationId`, `publicationKind`, `publicationForm`,
+and `publicationCause`. The runtime validator rejects old Workspace aliases,
+unknown fields, and `undefined` wire values.
 
 Selected tail pages are bounded by their declared `limit`; `startCursor`
 advances as `totalVisibleItemCount` grows. Steady render work uses presentation

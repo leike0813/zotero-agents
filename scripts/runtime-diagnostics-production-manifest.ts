@@ -46,7 +46,7 @@ export const runtimeDiagnosticsFeatureGroups = {
       "src/modules/acpRuntimeReplayPublicationSidecar.ts",
     ],
     forbiddenRuntimeMarkers: [
-      "zotero-agents.acp-runtime-replay-matrix.v1",
+      "zotero-agents.acp-runtime-replay-matrix.v2",
       "ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1",
       "ACP_RUNTIME_LOGICAL_TIME_V1",
       "getAcpRuntimeReplayProfileContext",

@@ -43,25 +43,23 @@ describe("runtime diagnostics release elision", function () {
       [
         "src/modules/acpSkillRunStore.ts",
         "src/modules/acpSessionManager.ts",
-        "src/modules/assistantWorkspaceSidebar.ts",
+        "src/modules/assistantWorkspacePublicationRuntime.ts",
       ].map((path) => fs.readFile(path, "utf8")),
     );
     const scheduleBodies = [
       /function scheduleSoftRunPersist[\s\S]*?function flushSoftRunPersists/.exec(
         sources[0],
       )?.[0],
-      /function scheduleChangedEmit[\s\S]*?export function inspectSyntheticAcpSkillRunReplayTimers/.exec(
+      /function scheduleWorkspaceChangedEmit[\s\S]*?export function inspectSyntheticAcpSkillRunReplayTimers/.exec(
         sources[0],
       )?.[0],
-      /function schedulePersistenceFlush[\s\S]*?function scheduleUiEmit/.exec(
+      /function schedulePersistenceFlush[\s\S]*?function scheduleWorkspaceChange/.exec(
         sources[1],
       )?.[0],
-      /function scheduleUiEmit[\s\S]*?export function inspectSyntheticAcpChatReplayTimers/.exec(
+      /function scheduleWorkspaceChange[\s\S]*?export function inspectSyntheticAcpChatReplayTimers/.exec(
         sources[1],
       )?.[0],
-      /function schedulePostSnapshot[\s\S]*?export function inspectAssistantWorkspaceReplayPostSnapshotTimer/.exec(
-        sources[2],
-      )?.[0],
+      /private queue[\s\S]*?private async flushPending/.exec(sources[2])?.[0],
     ];
     for (const body of scheduleBodies) {
       assert.isString(body);

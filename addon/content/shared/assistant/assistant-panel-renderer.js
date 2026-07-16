@@ -209,6 +209,9 @@
   }
 
   function normalize(snapshot) {
+    if (snapshot && snapshot.exact === true) {
+      return withDefaultPanel(snapshot);
+    }
     const helper = model();
     if (
       helper &&
@@ -894,8 +897,8 @@
     if (!container) return;
     const panel = normalize(snapshot);
     const counts =
-      panel.raw && typeof panel.raw.messageCounts === "object"
-        ? panel.raw.messageCounts
+      panel.messageCounts && typeof panel.messageCounts === "object"
+        ? panel.messageCounts
         : null;
     return renderAssistantMessageCounts(
       container,
@@ -1770,6 +1773,10 @@
       "",
     );
     if (taskKey) row.setAttribute("data-assistant-task-key", taskKey);
+    row.setAttribute(
+      "data-assistant-task-signature",
+      workspaceTaskSignature(item),
+    );
     const button = el("button", "assistant-workspace-drawer-task-main", "");
     button.type = "button";
     button.disabled = !selectable;
@@ -1992,6 +1999,17 @@
         (item.disabled === true ? " is-disabled" : "") +
         (groupCollapsed ? " is-collapsed" : " is-expanded"),
     );
+    groupBox.setAttribute("data-assistant-group-key", groupKey);
+    groupBox.setAttribute(
+      "data-assistant-group-signature",
+      [
+        groupKey,
+        safeText(item.backendDisplayName || item.backendId || item.title),
+        item.disabled === true ? "disabled" : "enabled",
+        safeText(item.disabledReason),
+        groupCollapsed ? "collapsed" : "expanded",
+      ].join("|"),
+    );
     const header = el(
       "button",
       "assistant-workspace-drawer-group-header skillrunner-workspace-group-header",
@@ -2030,6 +2048,7 @@
       "div",
       "assistant-workspace-drawer-group-body skillrunner-workspace-group-body",
     );
+    body.setAttribute("data-assistant-group-body", "true");
     if (item.disabled === true) {
       body.appendChild(
         el(
@@ -2061,6 +2080,197 @@
     parent.appendChild(groupBox);
   }
 
+  function directChildren(parent) {
+    return parent ? Array.prototype.slice.call(parent.children || []) : [];
+  }
+
+  function keyedChildren(parent, attribute) {
+    const entries = new Map();
+    directChildren(parent).forEach(function (node) {
+      const key = safeText(node && node.getAttribute(attribute));
+      if (key) entries.set(key, node);
+    });
+    return entries;
+  }
+
+  function placeChild(parent, node, index) {
+    const current = directChildren(parent)[index] || null;
+    if (current !== node) parent.insertBefore(node, current);
+  }
+
+  function reconcileWorkspaceTaskRows(existingBody, desiredBody) {
+    const existingRows = keyedChildren(existingBody, "data-assistant-task-key");
+    const desiredRows = directChildren(desiredBody).filter(function (node) {
+      return safeText(node.getAttribute("data-assistant-task-key"));
+    });
+    const desiredKeys = new Set();
+    const taskStartIndex = directChildren(desiredBody).findIndex(
+      function (node) {
+        return safeText(node.getAttribute("data-assistant-task-key"));
+      },
+    );
+    desiredRows.forEach(function (desiredRow, taskIndex) {
+      const key = safeText(desiredRow.getAttribute("data-assistant-task-key"));
+      desiredKeys.add(key);
+      const existingRow = existingRows.get(key);
+      const reusable =
+        existingRow &&
+        existingRow.getAttribute("data-assistant-task-signature") ===
+          desiredRow.getAttribute("data-assistant-task-signature");
+      const nextRow = reusable ? existingRow : desiredRow;
+      placeChild(existingBody, nextRow, taskStartIndex + taskIndex);
+      if (existingRow && !reusable && existingRow.parentNode === existingBody) {
+        existingBody.removeChild(existingRow);
+      }
+    });
+    existingRows.forEach(function (row, key) {
+      if (!desiredKeys.has(key) && row.parentNode === existingBody) {
+        existingBody.removeChild(row);
+      }
+    });
+  }
+
+  function reconcileWorkspaceGroups(existingSection, desiredSection) {
+    const existingBody = directChildren(existingSection).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-section-body");
+    });
+    const desiredBody = directChildren(desiredSection).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-section-body");
+    });
+    if (!existingBody || !desiredBody) return;
+    const existingGroups = keyedChildren(
+      existingBody,
+      "data-assistant-group-key",
+    );
+    const desiredGroups = directChildren(desiredBody).filter(function (node) {
+      return safeText(node.getAttribute("data-assistant-group-key"));
+    });
+    const desiredKeys = new Set();
+    desiredGroups.forEach(function (desiredGroup, index) {
+      const key = safeText(
+        desiredGroup.getAttribute("data-assistant-group-key"),
+      );
+      desiredKeys.add(key);
+      const existingGroup = existingGroups.get(key);
+      const reusable =
+        existingGroup &&
+        existingGroup.getAttribute("data-assistant-group-signature") ===
+          desiredGroup.getAttribute("data-assistant-group-signature");
+      const nextGroup = reusable ? existingGroup : desiredGroup;
+      if (reusable) {
+        const existingGroupBody = directChildren(existingGroup).find(
+          function (node) {
+            return node.getAttribute("data-assistant-group-body") === "true";
+          },
+        );
+        const desiredGroupBody = directChildren(desiredGroup).find(
+          function (node) {
+            return node.getAttribute("data-assistant-group-body") === "true";
+          },
+        );
+        if (existingGroupBody && desiredGroupBody) {
+          reconcileWorkspaceTaskRows(existingGroupBody, desiredGroupBody);
+        }
+      }
+      placeChild(existingBody, nextGroup, index);
+      if (
+        existingGroup &&
+        !reusable &&
+        existingGroup.parentNode === existingBody
+      ) {
+        existingBody.removeChild(existingGroup);
+      }
+    });
+    existingGroups.forEach(function (group, key) {
+      if (!desiredKeys.has(key) && group.parentNode === existingBody) {
+        existingBody.removeChild(group);
+      }
+    });
+  }
+
+  function reconcileWorkspaceSections(existingBody, desiredBody) {
+    const existingSections = keyedChildren(
+      existingBody,
+      "data-assistant-section-id",
+    );
+    const desiredSections = directChildren(desiredBody).filter(function (node) {
+      return safeText(node.getAttribute("data-assistant-section-id"));
+    });
+    const desiredIds = new Set();
+    desiredSections.forEach(function (desiredSection, index) {
+      const id = safeText(
+        desiredSection.getAttribute("data-assistant-section-id"),
+      );
+      desiredIds.add(id);
+      const existingSection = existingSections.get(id);
+      const reusable =
+        existingSection &&
+        existingSection.getAttribute("data-assistant-section-signature") ===
+          desiredSection.getAttribute("data-assistant-section-signature");
+      const nextSection = reusable ? existingSection : desiredSection;
+      if (reusable) {
+        reconcileWorkspaceGroups(existingSection, desiredSection);
+      }
+      placeChild(existingBody, nextSection, index);
+      if (
+        existingSection &&
+        !reusable &&
+        existingSection.parentNode === existingBody
+      ) {
+        existingBody.removeChild(existingSection);
+      }
+    });
+    existingSections.forEach(function (section, id) {
+      if (!desiredIds.has(id) && section.parentNode === existingBody) {
+        existingBody.removeChild(section);
+      }
+    });
+
+    directChildren(existingBody).forEach(function (node) {
+      if (
+        !node.getAttribute("data-assistant-section-id") &&
+        node.parentNode === existingBody
+      ) {
+        existingBody.removeChild(node);
+      }
+    });
+    directChildren(desiredBody).forEach(function (node) {
+      if (!node.getAttribute("data-assistant-section-id")) {
+        existingBody.appendChild(node);
+      }
+    });
+  }
+
+  function reconcileWorkspaceDrawer(target, desired) {
+    const existingHeader = directChildren(target).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-header");
+    });
+    const desiredHeader = directChildren(desired).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-header");
+    });
+    if (
+      desiredHeader &&
+      (!existingHeader ||
+        existingHeader.getAttribute("data-assistant-header-signature") !==
+          desiredHeader.getAttribute("data-assistant-header-signature"))
+    ) {
+      if (existingHeader) target.replaceChild(desiredHeader, existingHeader);
+      else target.insertBefore(desiredHeader, target.firstChild || null);
+    }
+    const existingBody = directChildren(target).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-sections");
+    });
+    const desiredBody = directChildren(desired).find(function (node) {
+      return node.classList.contains("assistant-workspace-drawer-sections");
+    });
+    if (!desiredBody) return;
+    if (!existingBody) {
+      target.appendChild(desiredBody);
+      return;
+    }
+    reconcileWorkspaceSections(existingBody, desiredBody);
+  }
+
   function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
     const drawers = panel.drawers || {};
     const labels =
@@ -2075,17 +2285,25 @@
     const selectedTaskKey = safeText(drawers.selectedTaskKey);
     const noticeText = safeText(drawers.notice);
     const nextSignature = workspaceDrawerStableSignature(sections, noticeText);
-    if (
+    const initialized =
       target.getAttribute("data-assistant-workspace-drawer") === "true" &&
+      Boolean(
+        directChildren(target).find(function (node) {
+          return node.classList.contains("assistant-workspace-drawer-sections");
+        }),
+      );
+    if (
+      initialized &&
       target.getAttribute("data-assistant-workspace-drawer-signature") ===
         nextSignature
     ) {
       updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey);
       return;
     }
-    clear(target);
-    target.setAttribute("data-assistant-workspace-drawer", "true");
-    target.setAttribute(
+    const mount = initialized ? document.createElement("div") : target;
+    if (!initialized) clear(target);
+    mount.setAttribute("data-assistant-workspace-drawer", "true");
+    mount.setAttribute(
       "data-assistant-workspace-drawer-signature",
       nextSignature,
     );
@@ -2102,6 +2320,12 @@
         ) || labelOf(panel, "actions.runs", "Runs"),
       ),
     );
+    header.setAttribute(
+      "data-assistant-header-signature",
+      safeText(
+        drawers.contextTitle || labels.tasksToggle || labels.sessionsTitle,
+      ),
+    );
     const close = el(
       "button",
       "asst-button-compact",
@@ -2114,7 +2338,7 @@
       emit(options, "close-context-drawer", {});
     });
     header.appendChild(close);
-    target.appendChild(header);
+    mount.appendChild(header);
 
     const body = el(
       "div",
@@ -2148,6 +2372,16 @@
               ? " is-running"
               : " is-neutral") +
           (sectionCollapsed ? " is-collapsed" : " is-expanded"),
+      );
+      sectionBox.setAttribute("data-assistant-section-id", sectionId);
+      sectionBox.setAttribute(
+        "data-assistant-section-signature",
+        [
+          sectionId,
+          sectionTitle,
+          sectionCollapsed ? "collapsed" : "expanded",
+          section.hideTitle === true ? "hidden-title" : "visible-title",
+        ].join("|"),
       );
       const sectionBody = el(
         "div",
@@ -2213,7 +2447,16 @@
         ),
       );
     }
-    target.appendChild(body);
+    mount.appendChild(body);
+    if (initialized) {
+      reconcileWorkspaceDrawer(target, mount);
+      target.setAttribute("data-assistant-workspace-drawer", "true");
+      target.setAttribute(
+        "data-assistant-workspace-drawer-signature",
+        nextSignature,
+      );
+      updateWorkspaceDrawerLiveFields(target, sections, selectedTaskKey);
+    }
   }
 
   function renderAssistantContextDrawer(container, snapshot, options) {
@@ -2516,8 +2759,8 @@
     if (region.getAttribute(attr) === next) {
       return;
     }
-    region.setAttribute(attr, next);
     render();
+    region.setAttribute(attr, next);
   }
 
   function isWorkspaceTaskDrawer(panel) {
@@ -2647,7 +2890,7 @@
       );
     }
     if (shouldManageRegion(opts, "messageCounter")) {
-      const counts = panel.raw && panel.raw.messageCounts;
+      const counts = panel.messageCounts;
       renderManagedRegionIfChanged(
         opts.regions && opts.regions.messageCounter,
         "message-counter",

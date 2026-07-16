@@ -293,6 +293,20 @@ function sanitizeProfile(
       ? { finishedAtMs: finiteNumber(profile.finishedAtMs) }
       : {}),
     metrics: profile.metrics.map(sanitizeMetric),
+    publicationLifecycles: profile.publicationLifecycles.map((entry) => ({
+      ...entry,
+      acknowledgements: entry.acknowledgements.map((ack) => ({ ...ack })),
+      terminal: entry.terminal ? { ...entry.terminal } : null,
+    })),
+    metricSeriesDrops: boundedInteger(
+      profile.metricSeriesDrops,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    measurement: profile.measurement,
+    publicationDiagnostics: profile.publicationDiagnostics.map((entry) => ({
+      ...entry,
+    })),
   };
 }
 

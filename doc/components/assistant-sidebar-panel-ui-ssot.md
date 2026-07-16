@@ -140,11 +140,14 @@ details drawer body.
 The conversation window is the main scrollable surface and SHALL display only
 conversation or execution-flow messages.
 
-The shared conversation view model is `AssistantConversationView`. It is a UI
-view model, not a persistence model, and it SHALL NOT replace ACP Chat session
-storage, ACP Skills run storage, or SkillRunner run history.
+ACP Chat and ACP Skills SHALL enter the shared panel model only through
+`projectAssistantWorkspacePanel(state, uiState, labels)`. Its exact conversation
+region is a UI projection of canonical `selection.transcript`, not a persistence
+model, and it SHALL NOT replace ACP Chat session storage or ACP Skills run
+storage. SkillRunner SHALL convert its independent transport snapshot at the
+`projectSkillRunnerPanelSnapshot()` boundary before using the same renderer.
 
-`AssistantConversationView` contains:
+The shared panel conversation region contains:
 
 - `items`: conversation and execution-flow rows
 - `interaction`: current hint widget state
@@ -166,10 +169,11 @@ Skills repair or validation process notes map to `process`. SkillRunner
 rendered as reasoning text. UI copy SHOULD use one label such as `Thinking` or
 `思考过程`; separate thought/reasoning visual systems are not allowed.
 
-ACP Chat, ACP Skills, and SkillRunner SHALL be normalized to this view model
-before rendering. SkillRunner may keep SkillRunner-specific revision metadata,
-but it SHALL NOT keep a separate visible transcript layout or duplicate
-conversation control system.
+ACP Chat and ACP Skills SHALL NOT pass through a fallback conversation
+projector or arbitrary snapshot normalizer. SkillRunner may keep
+SkillRunner-specific revision metadata at its isolated projector boundary, but
+it SHALL NOT keep a separate visible transcript layout or duplicate conversation
+control system.
 
 All three panels SHALL use the same transcript renderer DOM vocabulary:
 `assistant-transcript-row`, `assistant-transcript-meta`,

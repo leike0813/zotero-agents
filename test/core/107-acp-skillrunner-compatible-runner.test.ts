@@ -9,6 +9,11 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
 } from "../../src/config/defaults";
 import {
+  buildAcpSkillRunPanelSnapshot,
+  prepareAcpSkillRunPanelSnapshot,
+  subscribeAcpSkillRunSnapshots,
+} from "../helpers/acpSkillRunWorkspaceHarness";
+import {
   buildAcpChatSkillInjectionPlan,
   buildAcpSkillInjectionPlan,
   defaultAcpChatSkillRoots,
@@ -16,7 +21,6 @@ import {
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
   appendAcpSkillRunUserReply,
-  buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   archiveAcpSkillRun,
   connectAcpSkillRun,
@@ -31,7 +35,6 @@ import {
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
-  prepareAcpSkillRunPanelSnapshot,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -47,7 +50,6 @@ import {
   setAcpSkillRunReasoningEffort,
   setAcpSkillRunRuntimeOptions,
   shutdownAcpSkillRunConversations,
-  subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { readAcpSkillRunOutputRevisions } from "../../src/modules/acpSkillRunPayloadStore";

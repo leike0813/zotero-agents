@@ -482,3 +482,15 @@ ACP Chat SHALL maintain raw persisted transcript count inside its domain store a
 - **WHEN** a Chat assistant chunk is persisted but remains hidden until a hard boundary
 - **THEN** raw storage may advance while `totalVisibleItemCount` does not
 - **AND** a visible tool patch cannot leak the held text or raw count.
+
+### Requirement: Chat cold selection is owner-first
+
+Selecting a Chat backend/conversation SHALL publish the new owner loading state
+before indexed page read or full mirror hydration. Indexed page readiness and
+full mirror readiness SHALL remain independent.
+
+#### Scenario: The cold full mirror cache misses
+
+- **WHEN** a historical conversation is selected
+- **THEN** the indexed page can render the selected page
+- **AND** full mirror cache absence does not hide the transcript.

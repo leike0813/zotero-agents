@@ -2,8 +2,6 @@
   "use strict";
 
   const PANEL_KINDS = ["acp-chat", "acp-skills", "skillrunner"];
-  const SESSION_PICKER_LIMIT = 8;
-  const SESSION_PICKER_SHOW_MORE_VALUE = "__show_more__";
   const TERMINAL_STATES = new Set([
     "succeeded",
     "failed",
@@ -23,26 +21,6 @@
 
   function safeText(value) {
     return String(value == null ? "" : value).trim();
-  }
-
-  function resolveSkillDisplayName() {
-    const sources = Array.prototype.slice.call(arguments);
-    for (const source of sources) {
-      if (!source || typeof source !== "object") continue;
-      const skillName = safeText(source.skillName || source.skill_name);
-      if (skillName) return skillName;
-    }
-    for (const source of sources) {
-      if (!source || typeof source !== "object") continue;
-      const skillLabel = safeText(source.skillLabel || source.skill_label);
-      if (skillLabel) return skillLabel;
-    }
-    for (const source of sources) {
-      if (!source || typeof source !== "object") continue;
-      const skillId = safeText(source.skillId || source.skill_id);
-      if (skillId) return skillId;
-    }
-    return "";
   }
 
   function resolveSkillSecondaryLabel() {
@@ -387,35 +365,6 @@
     };
   }
 
-  function buildDeferredApplyIndicator(source, labelSource) {
-    const state = normalizeApplyState(source);
-    if (!state || state === "idle") return null;
-    const value = applyStateLabel(labelSource || source, state, source);
-    if (!value) return null;
-    const details = [
-      safeText(source && (source.applyError || source.apply_error)),
-      safeText(
-        source && (source.applyNextRetryAt || source.apply_next_retry_at),
-      )
-        ? "next retry: " +
-          safeText(source.applyNextRetryAt || source.apply_next_retry_at)
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    return indicator(
-      "deferred-apply",
-      labelFrom(
-        labelSource || source,
-        "fields.deferredApply",
-        "Deferred apply",
-      ),
-      value,
-      applyStateTone(state),
-      details || value,
-    );
-  }
-
   function buildSkillRunnerControlIndicator(source, labelSource, statusRaw) {
     const data = source && typeof source === "object" ? source : {};
     const labels = labelSource || data;
@@ -535,13 +484,6 @@
     );
   }
 
-  function conversationHelper() {
-    return window.AssistantConversationView &&
-      typeof window.AssistantConversationView === "object"
-      ? window.AssistantConversationView
-      : null;
-  }
-
   function fallbackConversationView(items) {
     return {
       items: Array.isArray(items) ? items : [],
@@ -638,56 +580,6 @@
     return text.length > max ? text.slice(0, max) + "..." : text;
   }
 
-  function normalizeOption(entry, idKeys, labelKeys) {
-    const primitive =
-      entry === null || entry === undefined ? "" : safeText(entry);
-    const source =
-      entry && typeof entry === "object"
-        ? entry
-        : { id: primitive, value: primitive, label: primitive };
-    const id = idKeys
-      .map(function (key) {
-        return safeText(source[key]);
-      })
-      .find(Boolean);
-    const label = labelKeys
-      .map(function (key) {
-        return safeText(source[key]);
-      })
-      .find(Boolean);
-    return Object.assign({}, source, {
-      value: id || label,
-      label: label || id || "-",
-    });
-  }
-
-  function normalizeSelectableOption(entry, kind) {
-    const normalizedKind = safeText(kind);
-    const idKeys =
-      normalizedKind === "mode"
-        ? ["id", "value", "modeId"]
-        : normalizedKind === "model"
-          ? ["id", "value", "modelId", "rawModelId"]
-          : normalizedKind === "reasoning"
-            ? ["id", "value", "effortId", "reasoningEffortId"]
-            : ["id", "value"];
-    return normalizeOption(entry, idKeys, [
-      "label",
-      "name",
-      "title",
-      "displayName",
-      "id",
-      "value",
-    ]);
-  }
-
-  function selectableCurrentValue(current, kind) {
-    if (current && typeof current === "object") {
-      return normalizeSelectableOption(current, kind).value;
-    }
-    return safeText(current);
-  }
-
   function contextSelector(
     id,
     label,
@@ -748,446 +640,6 @@
     };
   }
 
-  function connectionIndicator(state, errorText, labelSource) {
-    const source = labelSource || {};
-    const label = labelFrom(source, "fields.connection", "Connection");
-    const token = normalizeStatusToken(state || "idle");
-    if (["connected", "active"].indexOf(token) >= 0) {
-      return indicator(
-        "connection",
-        label,
-        labelFrom(source, "status.connected", "Connected"),
-        "success",
-        labelFrom(
-          source,
-          "indicatorTitles.acpConnectionActive",
-          "ACP connection is active.",
-        ),
-      );
-    }
-    if (
-      ["connecting", "initializing", "checking-command", "spawning"].indexOf(
-        token,
-      ) >= 0
-    ) {
-      return indicator(
-        "connection",
-        label,
-        labelFrom(source, "status.connecting", "Connecting"),
-        "accent",
-        labelFrom(
-          source,
-          "indicatorTitles.acpBackendConnecting",
-          "ACP backend is connecting.",
-        ),
-      );
-    }
-    if (token === "disconnecting") {
-      return indicator(
-        "connection",
-        label,
-        labelFrom(source, "status.disconnecting", "Disconnecting"),
-        "accent",
-        labelFrom(
-          source,
-          "indicatorTitles.acpConnectionInactive",
-          "ACP connection is not active.",
-        ),
-      );
-    }
-    if (["failed", "error", "closed", "disconnected"].indexOf(token) >= 0) {
-      return indicator(
-        "connection",
-        label,
-        token === "disconnected"
-          ? labelFrom(source, "status.disconnected", "Disconnected")
-          : labelFrom(source, "status.error", "Error"),
-        token === "disconnected" ? "muted" : "error",
-        safeText(errorText) ||
-          labelFrom(
-            source,
-            "indicatorTitles.acpConnectionInactive",
-            "ACP connection is not active.",
-          ),
-      );
-    }
-    return indicator(
-      "connection",
-      label,
-      labelFrom(source, "status.disconnected", "Disconnected"),
-      "muted",
-      labelFrom(
-        source,
-        "indicatorTitles.acpConnectionInactive",
-        "ACP connection is not active.",
-      ),
-    );
-  }
-
-  function latestDiagnosticLike(entries, predicate) {
-    const list = Array.isArray(entries) ? entries : [];
-    for (let index = list.length - 1; index >= 0; index -= 1) {
-      const entry = list[index] || {};
-      if (predicate(entry)) return entry;
-    }
-    return null;
-  }
-
-  function indicatorToneFromSeverity(severity, fallback) {
-    const token = safeText(severity).toLowerCase();
-    if (["ok", "ready", "active", "success", "info"].indexOf(token) >= 0)
-      return "success";
-    if (["warning", "warn"].indexOf(token) >= 0) return "warning";
-    if (["error", "failed", "failure"].indexOf(token) >= 0) return "error";
-    return fallback || "muted";
-  }
-
-  function buildHostBridgeIndicator(source) {
-    const snap = source && typeof source === "object" ? source : {};
-    const bridge =
-      snap.hostBridge && typeof snap.hostBridge === "object"
-        ? snap.hostBridge
-        : null;
-    if (!bridge) {
-      return null;
-    }
-    const label = labelFrom(snap, "fields.hostBridge", "Host Bridge");
-    const status = normalizeStatusToken(bridge.status || "");
-    const portMode = normalizeStatusToken(bridge.portMode || "");
-    const endpoint = safeText(bridge.endpoint);
-    const recovery = safeText(bridge.lastRecoveryReason);
-    const title = [
-      endpoint ? "Endpoint: " + endpoint : "",
-      portMode ? "Port mode: " + portMode : "",
-      recovery,
-      safeText(bridge.lastError),
-    ]
-      .filter(Boolean)
-      .join("\n");
-    if (status === "running" && portMode === "fallback") {
-      return indicator(
-        "host-bridge",
-        label,
-        labelFrom(snap, "status.fallback", "Fallback"),
-        "warning",
-        title ||
-          labelFrom(
-            snap,
-            "indicatorTitles.hostBridgeFallback",
-            "Host Bridge is running on a fallback random port.",
-          ),
-      );
-    }
-    if (status === "running") {
-      return indicator(
-        "host-bridge",
-        label,
-        labelFrom(snap, "status.ready", "Ready"),
-        "success",
-        title ||
-          labelFrom(
-            snap,
-            "indicatorTitles.hostBridgeReady",
-            "Host Bridge is ready.",
-          ),
-      );
-    }
-    if (status === "starting") {
-      return indicator(
-        "host-bridge",
-        label,
-        labelFrom(snap, "status.starting", "Starting"),
-        "accent",
-        title ||
-          labelFrom(
-            snap,
-            "indicatorTitles.hostBridgeStarting",
-            "Host Bridge is starting.",
-          ),
-      );
-    }
-    if (recovery && status !== "error") {
-      return indicator(
-        "host-bridge",
-        label,
-        labelFrom(snap, "status.recovering", "Recovering"),
-        "accent",
-        title || recovery,
-      );
-    }
-    if (status === "error") {
-      return indicator(
-        "host-bridge",
-        label,
-        labelFrom(snap, "status.error", "Error"),
-        "error",
-        title ||
-          labelFrom(
-            snap,
-            "indicatorTitles.hostBridgeFailed",
-            "Host Bridge failed.",
-          ),
-      );
-    }
-    return indicator(
-      "host-bridge",
-      label,
-      labelFrom(snap, "status.unavailable", "Unavailable"),
-      "warning",
-      title ||
-        labelFrom(
-          snap,
-          "indicatorTitles.hostBridgeUnavailable",
-          "Host Bridge is not running.",
-        ),
-    );
-  }
-
-  function buildAcpMcpIndicator(source) {
-    const snap = source && typeof source === "object" ? source : {};
-    const label = labelFrom(snap, "fields.mcp", "MCP");
-    const health =
-      snap.mcpHealth && typeof snap.mcpHealth === "object"
-        ? snap.mcpHealth
-        : null;
-    if (health) {
-      const state = normalizeStatusToken(health.state || "");
-      const severity = safeText(health.severity || "");
-      const readyStates = [
-        "listening",
-        "injected",
-        "handshake-seen",
-        "tools-seen",
-      ];
-      const tone =
-        readyStates.indexOf(state) >= 0
-          ? "success"
-          : state === "starting"
-            ? "accent"
-            : state === "unavailable"
-              ? "warning"
-              : indicatorToneFromSeverity(severity, "muted");
-      const value =
-        tone === "success"
-          ? labelFrom(snap, "status.ready", "Ready")
-          : tone === "accent"
-            ? labelFrom(snap, "status.starting", "Starting")
-            : tone === "warning"
-              ? labelFrom(snap, "status.limited", "Limited")
-              : tone === "error"
-                ? labelFrom(snap, "status.error", "Error")
-                : labelFrom(snap, "status.pending", "Pending");
-      const tooltip = Array.isArray(health.tooltip)
-        ? health.tooltip.join("\n")
-        : safeText(
-            health.summary ||
-              health.state ||
-              labelFrom(
-                snap,
-                "indicatorTitles.zoteroMcpStatus",
-                "Zotero MCP status",
-              ),
-          );
-      return indicator("mcp", label, value, tone, tooltip);
-    }
-    const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
-    const found = latestDiagnosticLike(diagnostics, function (entry) {
-      const kind = safeText(entry.kind || entry.stage).toLowerCase();
-      const message = safeText(entry.message).toLowerCase();
-      return kind.indexOf("mcp") >= 0 || message.indexOf("mcp") >= 0;
-    });
-    if (found) {
-      const level = safeText(found.level);
-      return indicator(
-        "mcp",
-        label,
-        level === "error"
-          ? labelFrom(snap, "status.error", "Error")
-          : level === "warn" || level === "warning"
-            ? labelFrom(snap, "status.limited", "Limited")
-            : labelFrom(snap, "status.ready", "Ready"),
-        indicatorToneFromSeverity(level, "success"),
-        safeText(found.message || found.detail) ||
-          labelFrom(
-            snap,
-            "indicatorTitles.zoteroMcpDiagnostic",
-            "Zotero MCP diagnostic",
-          ),
-      );
-    }
-    return indicator(
-      "mcp",
-      label,
-      labelFrom(snap, "status.pending", "Pending"),
-      "muted",
-      labelFrom(
-        snap,
-        "indicatorTitles.zoteroMcpPending",
-        "Zotero MCP status pending.",
-      ),
-    );
-  }
-
-  function acpSkillTranscriptItemsFromPanel(panel, run) {
-    const sourcePanel = panel && typeof panel === "object" ? panel : {};
-    const sourceRun = run && typeof run === "object" ? run : {};
-    const runRequestId = safeText(sourceRun && sourceRun.requestId);
-    const publication = window.AssistantWorkspaceAcpSurface;
-    if (publication && typeof publication.readRegion === "function") {
-      const region = publication.readRegion(
-        sourcePanel,
-        "acp-skills",
-        runRequestId,
-      );
-      const page = publication.rendererPage(region);
-      if (page) return page.items;
-    }
-    return Array.isArray(sourceRun.transcriptItems)
-      ? sourceRun.transcriptItems
-      : [];
-  }
-
-  function buildAcpSkillMcpIndicator(panel, run) {
-    const snap = panel && typeof panel === "object" ? panel : {};
-    if (snap.mcpHealth && typeof snap.mcpHealth === "object") {
-      return buildAcpMcpIndicator(snap);
-    }
-    const source = run && typeof run === "object" ? run : {};
-    const entries = []
-      .concat(Array.isArray(source.events) ? source.events : [])
-      .concat(acpSkillTranscriptItemsFromPanel(snap, source));
-    const found = latestDiagnosticLike(entries, function (entry) {
-      const stage = safeText(
-        entry.stage || entry.kind || entry.label,
-      ).toLowerCase();
-      const message = safeText(entry.message || entry.text).toLowerCase();
-      return stage.indexOf("mcp") >= 0 || message.indexOf("mcp") >= 0;
-    });
-    if (!found) {
-      return indicator(
-        "mcp",
-        labelFrom(snap, "fields.mcp", "MCP"),
-        labelFrom(snap, "status.pending", "Pending"),
-        "muted",
-        labelFrom(
-          snap,
-          "indicatorTitles.zoteroMcpPending",
-          "Zotero MCP status pending.",
-        ),
-      );
-    }
-    const level = safeText(found.level);
-    return indicator(
-      "mcp",
-      labelFrom(snap, "fields.mcp", "MCP"),
-      level === "error"
-        ? labelFrom(snap, "status.error", "Error")
-        : level === "warn" || level === "warning"
-          ? labelFrom(snap, "status.limited", "Limited")
-          : labelFrom(snap, "status.ready", "Ready"),
-      indicatorToneFromSeverity(level, "success"),
-      safeText(found.message || found.text) ||
-        labelFrom(
-          snap,
-          "indicatorTitles.zoteroMcpDiagnostic",
-          "Zotero MCP diagnostic",
-        ),
-    );
-  }
-
-  function buildSessionPickerOptions(options, activeConversationId) {
-    const allOptions = (Array.isArray(options) ? options : []).map(
-      function (entry) {
-        const normalized = normalizeOption(
-          entry,
-          ["conversationId", "id", "value"],
-          ["title", "label"],
-        );
-        return {
-          value: safeText(normalized.value),
-          label: safeText(normalized.label),
-          conversationId: safeText(
-            normalized.conversationId || normalized.value,
-          ),
-          backendId: safeText(normalized.backendId),
-        };
-      },
-    );
-    if (allOptions.length <= SESSION_PICKER_LIMIT) {
-      return { options: allOptions, hasMore: false };
-    }
-    let visibleOptions = allOptions.slice(0, SESSION_PICKER_LIMIT);
-    const activeId = safeText(activeConversationId);
-    const activeVisible = visibleOptions.some(function (entry) {
-      return safeText(entry.conversationId || entry.value) === activeId;
-    });
-    if (activeId && !activeVisible) {
-      const activeEntry = allOptions.find(function (entry) {
-        return safeText(entry.conversationId || entry.value) === activeId;
-      });
-      if (activeEntry) {
-        visibleOptions = visibleOptions.slice(
-          0,
-          Math.max(0, SESSION_PICKER_LIMIT - 1),
-        );
-        visibleOptions.push(activeEntry);
-      }
-    }
-    visibleOptions.push({
-      value: SESSION_PICKER_SHOW_MORE_VALUE,
-      label: "Show more...",
-      sentinel: "show-more",
-      action: "open-context-drawer",
-    });
-    return { options: visibleOptions, hasMore: true };
-  }
-
-  function selectorPayloadKey(id, action) {
-    const normalizedId = safeText(id);
-    const normalizedAction = safeText(action);
-    if (normalizedAction === "set-mode" || normalizedId === "mode")
-      return "modeId";
-    if (normalizedAction === "set-model" || normalizedId === "model")
-      return "modelId";
-    if (
-      normalizedAction === "set-reasoning-effort" ||
-      normalizedId === "reasoning"
-    )
-      return "effortId";
-    if (normalizedAction === "set-active-backend" || normalizedId === "backend")
-      return "backendId";
-    if (
-      normalizedAction === "set-active-conversation" ||
-      normalizedId === "conversation"
-    ) {
-      return "conversationId";
-    }
-    return "";
-  }
-
-  function buildReplySelectControl(
-    id,
-    label,
-    value,
-    options,
-    action,
-    disabled,
-    payload,
-  ) {
-    return contextSelector(
-      id,
-      label,
-      selectableCurrentValue(value, id),
-      (Array.isArray(options) ? options : []).map(function (entry) {
-        return normalizeSelectableOption(entry, id);
-      }),
-      action,
-      disabled,
-      selectorPayloadKey(id, action),
-      payload,
-    );
-  }
-
   function assistantDrawerLabels(source) {
     const existing =
       source && source.labels && typeof source.labels === "object"
@@ -1214,404 +666,6 @@
       statusApply: labelFrom(source, "status.apply", "Apply"),
       emptyTasks: labelFrom(source, "drawer.emptyTasks", "No runs."),
     });
-  }
-
-  function buildAcpPermissionInteraction(snap, baseInteraction) {
-    const request = snap && snap.pendingPermissionRequest;
-    if (!request) return baseInteraction;
-    const options = Array.isArray(request.options) ? request.options : [];
-    return {
-      kind: "permission",
-      title:
-        safeText(request.source) === "zotero-mcp-write"
-          ? labelFrom(
-              snap,
-              "permission.zoteroWriteApproval",
-              "Zotero write approval",
-            )
-          : (snap.labels && snap.labels.permission) ||
-            labelFrom(snap, "permission.acpToolApproval", "ACP tool approval"),
-      message:
-        safeText(request.summary) ||
-        safeText(
-          request.title ||
-            request.toolTitle ||
-            request.command ||
-            request.commandLine,
-        ) ||
-        labelFrom(
-          snap,
-          "permission.acpBackendApproval",
-          "ACP backend requests approval.",
-        ),
-      detail: safeText(request.detail),
-      source: safeText(request.source),
-      permission: request,
-      actions: options
-        .map(function (option) {
-          return contextAction(
-            "resolve-permission",
-            safeText(option.name || option.label || option.optionId) ||
-              labelFrom(snap, "actions.approve", "Approve"),
-            {
-              outcome: "selected",
-              optionId: safeText(option.optionId || option.id),
-            },
-            true,
-          );
-        })
-        .concat([
-          contextAction(
-            "resolve-permission",
-            labelFrom(snap, "actions.cancel", "Cancel"),
-            { outcome: "cancelled" },
-            true,
-            "danger",
-          ),
-        ]),
-    };
-  }
-
-  function buildAcpChatDetails(snap) {
-    const labels = snap.labels || {};
-    const diagnostics = Array.isArray(snap.diagnostics) ? snap.diagnostics : [];
-    return buildWorkspaceContextDetails(snap).concat(
-      [
-        detailSection(labelFrom(snap, "details.session", "Session"), [
-          detailEntry(
-            labelFrom(snap, "fields.target", labels.target || "Target"),
-            snap.targetLabel,
-          ),
-          detailEntry(
-            labelFrom(snap, "fields.agent", labels.agent || "Agent"),
-            snap.agentLabel || snap.agentVersion,
-          ),
-          detailEntry(
-            labelFrom(snap, "fields.session", labels.session || "Session"),
-            snap.sessionId || snap.remoteSessionId,
-          ),
-          detailEntry(
-            labelFrom(
-              snap,
-              "fields.remoteSession",
-              labels.remoteSession || "Remote session",
-            ),
-            snap.remoteSessionId,
-          ),
-          detailEntry(
-            labelFrom(
-              snap,
-              "fields.remoteRestore",
-              labels.remoteRestore || "Remote restore",
-            ),
-            snap.remoteSessionRestoreStatus,
-          ),
-          detailEntry(
-            labelFrom(
-              snap,
-              "fields.stopReason",
-              labels.stopReason || "Stop reason",
-            ),
-            snap.lastStopReason,
-          ),
-        ]),
-        detailSection(labelFrom(snap, "details.paths", "Paths"), [
-          detailEntry(
-            labelFrom(
-              snap,
-              "fields.workspace",
-              labels.workspace || "Workspace",
-            ),
-            snap.agentWorkspaceDir || snap.sessionCwd,
-          ),
-          detailEntry(
-            labelFrom(
-              snap,
-              "fields.hostContext",
-              labels.hostContext || "Host Context",
-            ),
-            snap.hostContextSummary,
-          ),
-        ]),
-        detailSection(
-          labelFrom(
-            snap,
-            "details.diagnostics",
-            labels.diagnostics || "Diagnostics",
-          ),
-          diagnostics
-            .slice(-12)
-            .map(function (entry) {
-              return detailEntry(
-                safeText(entry.kind || entry.level || "diagnostic"),
-                truncateText(
-                  entry.message ||
-                    entry.detail ||
-                    entry.error ||
-                    JSON.stringify(entry),
-                  600,
-                ),
-                entry.detail ? "code" : "text",
-              );
-            })
-            .concat([
-              detailEntry(
-                labelFrom(
-                  snap,
-                  "fields.commandLine",
-                  labels.commandLine || "Command line",
-                ),
-                snap.commandLine,
-                "code",
-              ),
-              detailEntry(
-                labelFrom(snap, "fields.stderr", labels.stderrTail || "stderr"),
-                snap.stderrTail,
-                "code",
-              ),
-              detailEntry(
-                labelFrom(snap, "fields.error", labels.errorPrefix || "Error"),
-                snap.lastError || snap.prerequisiteError,
-              ),
-            ]),
-          {
-            kind: "diagnostics",
-            summary: labelFrom(
-              snap,
-              "details.recentDiagnostics",
-              "Recent runtime diagnostics",
-            ),
-            collapsible: true,
-            defaultCollapsed: true,
-          },
-        ),
-      ].filter(Boolean),
-    );
-  }
-
-  function buildAcpSkillDetails(run, logs, source) {
-    const workspaceDetails = buildWorkspaceContextDetails(source);
-    if (!run) return workspaceDetails;
-    const revisions = Array.isArray(run.outputRevisions)
-      ? run.outputRevisions
-      : [];
-    return workspaceDetails.concat(
-      [
-        detailSection(labelFrom(source, "details.runPaths", "Run paths"), [
-          detailEntry(
-            labelFrom(source, "fields.workspace", "Workspace"),
-            run.workspaceDir,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.runtimeState", "Runtime state"),
-            run.runtimeDir,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.auditArtifact", "Audit artifact"),
-            run.inputManifestPath,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.resultArtifact", "Result artifact"),
-            run.resultJsonPath,
-          ),
-        ]),
-        detailSection(labelFrom(source, "details.runner", "Runner"), [
-          detailEntry(
-            labelFrom(source, "fields.backend", "Backend"),
-            run.backendLabel || run.backendId,
-          ),
-          detailEntry("Agent family", run.agentFamily),
-          detailEntry(
-            "ACP " + labelFrom(source, "fields.mode", "mode"),
-            run.acpModeId,
-          ),
-          detailEntry(
-            "ACP " + labelFrom(source, "fields.model", "model"),
-            run.acpModelId,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.reasoning", "Reasoning"),
-            run.acpReasoningEffort,
-          ),
-          detailEntry("Raw model", run.acpRawModelId),
-          detailEntry("Skill", run.skillId),
-          detailEntry(
-            "Skill roots",
-            Array.isArray(run.skillRoots) ? run.skillRoots.join("\n") : "",
-            "code",
-          ),
-          detailEntry(
-            labelFrom(source, "fields.session", "Session"),
-            run.sessionId,
-          ),
-        ]),
-        detailSection(labelFrom(source, "details.validation", "Validation"), [
-          detailEntry(
-            labelFrom(source, "fields.status", "Status"),
-            run.validationStatus,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.repairRounds", "Repair rounds"),
-            String(run.repairRounds || 0),
-          ),
-          detailEntry(
-            labelFrom(source, "fields.errors", "Errors"),
-            Array.isArray(run.validationErrors)
-              ? run.validationErrors.join("\n")
-              : "",
-            "code",
-          ),
-          detailEntry("Run error", run.error),
-          detailEntry(
-            labelFrom(source, "fields.conversation", "Conversation"),
-            run.conversationState,
-          ),
-          detailEntry("Conversation error", run.conversationError),
-          detailEntry(
-            labelFrom(source, "fields.applyResult", "Apply result"),
-            run.applyResultState,
-          ),
-          detailEntry(
-            labelFrom(source, "fields.appliedAt", "Applied at"),
-            run.appliedAt,
-          ),
-        ]),
-        detailSection(
-          labelFrom(
-            source,
-            "details.runtimeDependencies",
-            "Runtime Dependencies",
-          ),
-          [
-            detailEntry(
-              labelFrom(source, "fields.status", "Status"),
-              run.runtimeDependencyStatus,
-            ),
-            detailEntry(
-              labelFrom(
-                source,
-                "fields.runtimeDependencies",
-                "Runtime Dependencies",
-              ),
-              Array.isArray(run.runtimeDependencies)
-                ? run.runtimeDependencies.join("\n")
-                : "",
-              "code",
-            ),
-            detailEntry(
-              labelFrom(source, "fields.error", "Error"),
-              run.runtimeDependencyError,
-            ),
-          ],
-        ),
-        detailSection(
-          labelFrom(source, "details.outputRevisions", "Output Revisions"),
-          revisions
-            .slice()
-            .reverse()
-            .map(function (revision) {
-              return detailEntry(
-                "round " +
-                  String(Number(revision.repairRound || 0)) +
-                  " · " +
-                  safeText(revision.status || "unknown"),
-                [
-                  Array.isArray(revision.errors) && revision.errors.length > 0
-                    ? revision.errors.join("\n")
-                    : "",
-                  revision.replacementReason || "",
-                  truncateText(revision.candidateText, 600),
-                ]
-                  .filter(Boolean)
-                  .join("\n\n"),
-                "code",
-              );
-            }),
-          {
-            kind: "revisions",
-            summary:
-              String(revisions.length) +
-              " " +
-              labelFrom(
-                source,
-                "details.revisionCandidates",
-                "revision candidates",
-              ),
-            collapsible: true,
-            defaultCollapsed: true,
-          },
-        ),
-        detailSection(
-          labelFrom(source, "details.runtimeLogs", "Runtime Logs"),
-          (Array.isArray(logs) ? logs : []).slice(-20).map(function (log) {
-            return detailEntry(
-              safeText(log.level || log.stage || "log"),
-              truncateText(log.message || JSON.stringify(log), 600),
-              "code",
-            );
-          }),
-          {
-            kind: "logs",
-            summary: labelFrom(
-              source,
-              "details.recentLogs",
-              "Recent runtime log entries",
-            ),
-            collapsible: true,
-            defaultCollapsed: true,
-          },
-        ),
-        detailSection(
-          labelFrom(source, "details.resultJson", "Result JSON"),
-          [
-            detailEntry(
-              "result",
-              run.resultJson ? JSON.stringify(run.resultJson, null, 2) : "",
-              "code",
-            ),
-          ],
-          {
-            kind: "result",
-            summary: labelFrom(
-              source,
-              "details.validatedOutput",
-              "Validated workflow output",
-            ),
-            collapsible: true,
-            defaultCollapsed: true,
-          },
-        ),
-      ].filter(Boolean),
-    );
-  }
-
-  function buildWorkspaceContextDetails(source) {
-    const region =
-      source &&
-      source.workspaceContextDetails &&
-      typeof source.workspaceContextDetails === "object"
-        ? source.workspaceContextDetails
-        : {};
-    function regionEntries(entries) {
-      return (Array.isArray(entries) ? entries : [])
-        .map(function (entry) {
-          return detailEntry(
-            safeText(entry && entry.label),
-            entry && entry.value,
-          );
-        })
-        .filter(Boolean);
-    }
-    return [
-      detailSection(
-        labelFrom(source, "details.context", "Context"),
-        regionEntries(region.context),
-      ),
-      detailSection(
-        labelFrom(source, "details.details", "Details"),
-        regionEntries(region.details),
-      ),
-    ].filter(Boolean);
   }
 
   function normalizeSkillRunnerMessageRole(role) {
@@ -2141,7 +1195,7 @@
     });
   }
 
-  function findSkillRunnerPanelTask(envelope, session) {
+  function findSkillRunnerPanelTask(envelope) {
     const workspace =
       envelope && envelope.workspace && typeof envelope.workspace === "object"
         ? envelope.workspace
@@ -2539,1171 +1593,6 @@
     };
   }
 
-  function projectAcpChatPanelSnapshot(snapshot) {
-    const snap = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const helper = conversationHelper();
-    const conversation =
-      helper && typeof helper.projectAcpChatConversationView === "function"
-        ? helper.projectAcpChatConversationView(snap)
-        : fallbackConversationView(snap.items);
-    const status = normalizeStatusToken(snap.status || "idle");
-    const effectiveStatus = status;
-    const isConnecting =
-      effectiveStatus === "checking-command" ||
-      effectiveStatus === "spawning" ||
-      effectiveStatus === "initializing" ||
-      effectiveStatus === "connecting";
-    const isDisconnecting = effectiveStatus === "disconnecting";
-    const labels = snap.labels || {};
-    const activeBackendId = safeText(snap.activeBackendId || snap.backendId);
-    const activeConversationId = safeText(
-      snap.activeConversationId || snap.conversationId,
-    );
-    const backendAvailability = safeText(snap.backendAvailability);
-    const conversationAvailability = safeText(snap.conversationAvailability);
-    const legacyConversationEvidence =
-      !conversationAvailability &&
-      (Boolean(activeConversationId) ||
-        Boolean(safeText(snap.sessionId || snap.remoteSessionId)) ||
-        snap.busy === true ||
-        [
-          "connected",
-          "prompting",
-          "permission-required",
-          "auth-required",
-        ].indexOf(status) >= 0);
-    const hasBackend =
-      backendAvailability === "selected" ||
-      (!backendAvailability &&
-        (Boolean(activeBackendId) || legacyConversationEvidence));
-    const hasConversation =
-      hasBackend &&
-      (conversationAvailability === "selected" ||
-        (!conversationAvailability && legacyConversationEvidence));
-    const connected =
-      hasConversation &&
-      (Boolean(safeText(snap.sessionId)) ||
-        [
-          "connected",
-          "prompting",
-          "permission-required",
-          "auth-required",
-        ].indexOf(status) >= 0);
-    const connectionState = isDisconnecting
-      ? "disconnecting"
-      : connected
-        ? "connected"
-        : isConnecting
-          ? "connecting"
-          : "disconnected";
-    const backendOptions = (
-      Array.isArray(snap.backendOptions) ? snap.backendOptions : []
-    ).map(function (entry) {
-      const normalized = normalizeOption(
-        entry,
-        ["backendId", "id", "value"],
-        ["displayName", "label", "backendId"],
-      );
-      const value = safeText(normalized.value);
-      const backendId = safeText(normalized.backendId || normalized.value);
-      const baseLabel = safeText(normalized.label) || backendId || value;
-      return {
-        value,
-        label: baseLabel,
-        backendId,
-        rawLabel: baseLabel,
-      };
-    });
-    const sessionOptions = buildSessionPickerOptions(
-      Array.isArray(snap.chatSessions) ? snap.chatSessions : [],
-      activeConversationId,
-    );
-    const authMethods = Array.isArray(snap.authMethods) ? snap.authMethods : [];
-    const hasAuth = authMethods.length > 0;
-    const authRequired = status === "auth-required";
-    const modeOptions = Array.isArray(snap.modeOptions) ? snap.modeOptions : [];
-    const modelOptions = Array.isArray(snap.displayModelOptions)
-      ? snap.displayModelOptions
-      : Array.isArray(snap.modelOptions)
-        ? snap.modelOptions
-        : [];
-    const reasoningOptions = Array.isArray(snap.reasoningEffortOptions)
-      ? snap.reasoningEffortOptions
-      : [];
-    const effectiveReasoningOptions =
-      reasoningOptions.length > 0
-        ? reasoningOptions
-        : [{ id: "default", label: "Default" }];
-    const effectiveReasoning =
-      snap.currentReasoningEffort || effectiveReasoningOptions[0];
-    const runtimeControlsAvailable =
-      hasConversation && connected && !isConnecting && !isDisconnecting;
-    const promptBusy = snap.busy === true;
-    const connectionOnlyStatus =
-      ["checking-command", "spawning", "initializing", "connecting"].indexOf(
-        effectiveStatus,
-      ) >= 0;
-    const interaction = buildAcpPermissionInteraction(
-      snap,
-      !hasConversation || connectionOnlyStatus
-        ? { kind: "hidden" }
-        : conversation.interaction,
-    );
-    const backendLabelById = {};
-    backendOptions.forEach(function (entry) {
-      const id = safeText(entry && entry.value);
-      if (id) {
-        backendLabelById[id] =
-          safeText(entry && (entry.rawLabel || entry.label)) || id;
-      }
-    });
-    function acpChatConversationTask(entry) {
-      const conversationId = safeText(
-        entry && (entry.conversationId || entry.id),
-      );
-      const backendId = safeText(entry && entry.backendId) || activeBackendId;
-      const backendLabel =
-        safeText(entry && (entry.backendLabel || entry.backendDisplayName)) ||
-        backendLabelById[backendId] ||
-        backendId ||
-        "Backend";
-      const statusText = safeText(entry && entry.status) || "idle";
-      const normalizedTaskStatus = normalizeStatusToken(statusText);
-      const canArchive =
-        normalizedTaskStatus === "idle" ||
-        normalizedTaskStatus === "disconnected";
-      const taskKey = [backendId, conversationId].filter(Boolean).join(":");
-      return {
-        key: taskKey || conversationId,
-        conversationId,
-        action: "set-active-conversation",
-        payload: { conversationId, backendId },
-        title:
-          safeText(entry && (entry.title || entry.sessionTitle)) ||
-          "Conversation",
-        workflowLabel: backendLabel,
-        status: statusText,
-        stateLabel: statusLabel(snap, statusText),
-        showBackendStatusBadge: false,
-        showApplyStatusBadge: false,
-        updatedAt: safeText(
-          entry &&
-            (entry.updatedAt ||
-              entry.lastUpdatedAt ||
-              entry.createdAt ||
-              conversationId),
-        ),
-        backendId,
-        backendDisplayName: backendLabel,
-        selectable: Boolean(conversationId),
-        terminal: false,
-        active: Boolean(
-          conversationId &&
-          conversationId === activeConversationId &&
-          backendId === activeBackendId,
-        ),
-        itemActions: conversationId
-          ? [
-              archiveItemAction(
-                "archive-conversation",
-                labels.archiveConversation || "归档",
-                { conversationId, backendId },
-                canArchive,
-              ),
-            ]
-          : [],
-      };
-    }
-    function acpChatDrawerSections() {
-      const groups = {};
-      const sessionGroups =
-        Array.isArray(snap.backendChatSessions) &&
-        snap.backendChatSessions.length
-          ? snap.backendChatSessions
-          : [
-              {
-                backendId: activeBackendId,
-                displayName:
-                  backendLabelById[activeBackendId] || activeBackendId,
-                sessions: Array.isArray(snap.chatSessions)
-                  ? snap.chatSessions
-                  : [],
-              },
-            ];
-      sessionGroups.forEach(function (backendGroup) {
-        const backendId = safeText(backendGroup && backendGroup.backendId);
-        const backendDisplayName =
-          safeText(backendGroup && backendGroup.displayName) ||
-          backendLabelById[backendId] ||
-          backendId ||
-          "Backend";
-        (Array.isArray(backendGroup && backendGroup.sessions)
-          ? backendGroup.sessions
-          : []
-        ).forEach(function (entry) {
-          const task = acpChatConversationTask({
-            ...(entry || {}),
-            backendId,
-            backendDisplayName,
-          });
-          const groupKey =
-            safeText(task.backendId || task.backendDisplayName) || "default";
-          if (!groups[groupKey]) {
-            groups[groupKey] = {
-              backendId: task.backendId,
-              backendDisplayName: task.backendDisplayName,
-              disabled: false,
-              activeTasks: [],
-              finishedTasks: [],
-            };
-          }
-          groups[groupKey].activeTasks.push(task);
-        });
-      });
-      return [
-        {
-          id: "sessions",
-          title: labels.sessionManager || "Sessions",
-          hideTitle: true,
-          collapsed: false,
-          groups: Object.keys(groups).map(function (key) {
-            return groups[key];
-          }),
-        },
-      ];
-    }
-    const promptInterruptRequested =
-      safeText(snap.promptInterruptState) === "requested";
-    return normalizeAssistantPanelSnapshot({
-      kind: "acp-chat",
-      labels: snap.labels || {},
-      context: {
-        id: safeText(
-          snap.sessionId || snap.remoteSessionId || snap.activeConversationId,
-        ),
-        title: safeText(snap.title) || "ACP Chat",
-        subtitle: safeText(snap.labels && snap.labels.subtitle),
-        status: effectiveStatus,
-        statusLabel:
-          safeText(snap.statusLabel) || statusLabel(snap, effectiveStatus),
-        backendId: safeText(snap.activeBackendId || snap.backendId),
-        backendLabel: safeText(snap.backendLabel || snap.agentLabel),
-        sessionId: safeText(snap.sessionId || snap.remoteSessionId),
-        metadata: compactMetadata([
-          metadataItem(
-            labelFrom(snap, "fields.backend", labels.backend || "Backend"),
-            snap.backendLabel || snap.agentLabel,
-            "backend",
-          ),
-          metadataItem(
-            labelFrom(snap, "fields.session", labels.session || "Session"),
-            snap.sessionTitle || snap.sessionId,
-            "session",
-          ),
-          metadataItem(
-            labelFrom(
-              snap,
-              "fields.workspace",
-              labels.workspace || "Workspace",
-            ),
-            snap.agentWorkspaceDir || snap.sessionCwd,
-            "workspace",
-          ),
-        ]),
-        indicators: [
-          connectionIndicator(
-            connectionState,
-            snap.lastError || snap.prerequisiteError,
-            snap,
-          ),
-          buildHostBridgeIndicator(snap),
-        ].filter(Boolean),
-        selectors: [
-          contextSelector(
-            "backend",
-            labelFrom(snap, "fields.backend", labels.backend || "Backend"),
-            activeBackendId,
-            backendOptions,
-            "set-active-backend",
-            !hasBackend || backendOptions.length === 0,
-            "backendId",
-          ),
-          contextSelector(
-            "conversation",
-            labelFrom(
-              snap,
-              "fields.conversation",
-              labels.conversation || "Conversation",
-            ),
-            activeConversationId,
-            sessionOptions.options,
-            "set-active-conversation",
-            !hasBackend ||
-              (sessionOptions.options.length <= 1 && !sessionOptions.hasMore),
-            "conversationId",
-          ),
-        ],
-        actions: [
-          contextAction(
-            "new-conversation",
-            labels.newConversation || "New",
-            {
-              backendId: activeBackendId,
-            },
-            hasBackend && !isConnecting && !isDisconnecting,
-          ),
-          contextAction(
-            "connect",
-            isConnecting
-              ? labelFrom(snap, "actions.connecting", "Connecting...")
-              : labels.connect || "Connect",
-            {
-              backendId: activeBackendId,
-              conversationId: activeConversationId,
-            },
-            hasBackend && !connected && !isConnecting && !isDisconnecting,
-          ),
-          contextAction(
-            "disconnect",
-            isDisconnecting
-              ? labelFrom(snap, "actions.disconnecting", "Disconnecting...")
-              : labels.disconnect || "Disconnect",
-            {
-              backendId: activeBackendId,
-              conversationId: activeConversationId,
-            },
-            hasConversation && connected && !isConnecting && !isDisconnecting,
-          ),
-          contextAction(
-            "authenticate",
-            labels.authenticate || "Authenticate",
-            {
-              backendId: activeBackendId,
-              conversationId: activeConversationId,
-              methodId:
-                hasAuth && authMethods[0] ? safeText(authMethods[0].id) : "",
-            },
-            hasConversation && authRequired && hasAuth,
-          ),
-          {
-            kind: "switch",
-            action: "set-auto-approve-permissions",
-            label:
-              snap.autoApproveAcpPermissions === true
-                ? labelFrom(
-                    snap,
-                    "actions.autoApproveAcpPermissionsOn",
-                    "Auto-approve on",
-                  )
-                : labelFrom(
-                    snap,
-                    "actions.autoApproveAcpPermissionsOff",
-                    "Auto-approve off",
-                  ),
-            baseLabel: labelFrom(
-              snap,
-              "actions.autoApproveAcpPermissions",
-              "Auto-approve",
-            ),
-            stateLabel:
-              snap.autoApproveAcpPermissions === true
-                ? labelFrom(
-                    snap,
-                    "actions.autoApproveAcpPermissionsOn",
-                    "Auto-approve on",
-                  )
-                : labelFrom(
-                    snap,
-                    "actions.autoApproveAcpPermissionsOff",
-                    "Auto-approve off",
-                  ),
-            checked: snap.autoApproveAcpPermissions === true,
-            enabled: hasConversation,
-            payload: {
-              enabled: snap.autoApproveAcpPermissions !== true,
-              backendId: activeBackendId,
-              conversationId: activeConversationId,
-            },
-          },
-        ],
-      },
-      lifecycle: {
-        connectionState,
-        executionState: effectiveStatus,
-        replyState: promptInterruptRequested
-          ? "cancelling"
-          : snap.busy === true
-            ? "sending"
-            : "idle",
-        terminal: false,
-      },
-      conversation,
-      plan: conversation.plan,
-      interaction,
-      usage: conversation.usage || snap.usage || null,
-      reply: {
-        enabled:
-          hasConversation &&
-          !isConnecting &&
-          !isDisconnecting &&
-          !promptInterruptRequested,
-        inputEnabled:
-          hasConversation &&
-          !isConnecting &&
-          !isDisconnecting &&
-          snap.busy !== true,
-        placeholder:
-          safeText(snap.labels && snap.labels.composerPlaceholder) ||
-          labelFrom(
-            snap,
-            "reply.placeholderAcpChat",
-            "Ask the active ACP backend about the current library or item...",
-          ),
-        submitLabel: promptInterruptRequested
-          ? labelFrom(snap, "actions.cancelling", "Cancelling...")
-          : snap.busy === true
-            ? labelFrom(snap, "actions.cancel", labels.cancel || "Cancel")
-            : labelFrom(snap, "actions.send", labels.send || "Send"),
-        sending: snap.busy === true,
-        action: snap.busy === true ? "cancel" : "send-prompt",
-        tone: snap.busy === true ? "danger" : "primary",
-        showUsageGauge: hasConversation,
-        controls: [
-          buildReplySelectControl(
-            "mode",
-            labels.mode || "Mode",
-            snap.currentMode,
-            modeOptions,
-            "set-mode",
-            !runtimeControlsAvailable || promptBusy || modeOptions.length === 0,
-          ),
-          buildReplySelectControl(
-            "model",
-            labels.model || "Model",
-            snap.currentDisplayModel || snap.currentModel,
-            modelOptions,
-            "set-model",
-            !runtimeControlsAvailable ||
-              promptBusy ||
-              modelOptions.length === 0,
-          ),
-          buildReplySelectControl(
-            "reasoning",
-            labels.reasoning || "Reasoning",
-            effectiveReasoning,
-            effectiveReasoningOptions,
-            "set-reasoning-effort",
-            !runtimeControlsAvailable ||
-              promptBusy ||
-              reasoningOptions.length === 0,
-          ),
-        ],
-      },
-      actions: {
-        toolbar: [
-          {
-            action: "open-context-drawer",
-            label: labels.sessionManager || "Sessions",
-            enabled: true,
-          },
-          {
-            action: "openDetails",
-            label:
-              labels.details || labelFrom(snap, "actions.details", "Details"),
-            enabled: true,
-          },
-          {
-            action: "open-backend-manager",
-            label:
-              labels.manageBackends ||
-              labelFrom(snap, "actions.manageBackends", "Manage"),
-            enabled: true,
-          },
-          Object.assign(buildExecutionDisplayModeAction(snap), {
-            enabled: true,
-          }),
-        ],
-        context: [],
-        details: [
-          {
-            action: "copy-diagnostics",
-            label:
-              labels.copyDiagnostics ||
-              labelFrom(snap, "actions.copyDiagnostics", "Copy Diagnostics"),
-          },
-          {
-            action: "open-workspace",
-            label: labelFrom(snap, "actions.openWorkspace", "Open Workspace"),
-            payload: {
-              workspaceDir: safeText(snap.agentWorkspaceDir || snap.sessionCwd),
-            },
-            enabled: Boolean(
-              safeText(snap.agentWorkspaceDir || snap.sessionCwd),
-            ),
-          },
-        ],
-      },
-      drawers: {
-        layout: "workspace-task-drawer",
-        contextTitle: labels.sessionManager || "Sessions",
-        detailsTitle: labels.diagnostics || "Details",
-        labels: assistantDrawerLabels(snap),
-        contexts: (Array.isArray(snap.backendChatSessions)
-          ? snap.backendChatSessions
-          : []
-        ).flatMap(function (backendGroup) {
-          const backendId = safeText(backendGroup && backendGroup.backendId);
-          const backendDisplayName =
-            safeText(backendGroup && backendGroup.displayName) ||
-            backendLabelById[backendId] ||
-            backendId;
-          return (
-            Array.isArray(backendGroup && backendGroup.sessions)
-              ? backendGroup.sessions
-              : []
-          ).map(function (entry) {
-            const conversationId = safeText(entry.conversationId);
-            return {
-              title: safeText(entry.title) || "Conversation",
-              action: "set-active-conversation",
-              payload: {
-                conversationId,
-                backendId,
-              },
-              conversationId,
-              backendId,
-              backendDisplayName,
-              status: safeText(entry.status),
-            };
-          });
-        }),
-        sections: acpChatDrawerSections(),
-        selectedTaskKey: [activeBackendId, activeConversationId]
-          .filter(Boolean)
-          .join(":"),
-        details: buildAcpChatDetails(snap),
-      },
-      raw: snap,
-    });
-  }
-
-  function projectAcpSkillRunPanelSnapshot(snapshot) {
-    const panel = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const panelLabels =
-      panel.labels && typeof panel.labels === "object" ? panel.labels : {};
-    const run =
-      panel.selectedRun && typeof panel.selectedRun === "object"
-        ? panel.selectedRun
-        : snapshot && snapshot.requestId
-          ? snapshot
-          : null;
-    const transcriptItems = acpSkillTranscriptItemsFromPanel(panel, run);
-    const helper = conversationHelper();
-    const conversationSource = Object.assign({}, run || {}, {
-      labels: panelLabels,
-      transcriptItems,
-    });
-    const conversation =
-      helper && typeof helper.projectAcpSkillRunConversationView === "function"
-        ? helper.projectAcpSkillRunConversationView(conversationSource)
-        : fallbackConversationView(transcriptItems);
-    const status = normalizeStatusToken((run && run.status) || "idle");
-    const conversationState = normalizeStatusToken(
-      (run && run.conversationState) || "unknown",
-    );
-    const recoveryState = normalizeStatusToken(
-      (run && run.conversationRecoveryState) || "unknown",
-    );
-    const connected =
-      conversationState === "active" || recoveryState === "connected";
-    const detachedRecoverableRun = Boolean(
-      run &&
-      safeText(run.sessionId) &&
-      conversationState === "closed" &&
-      recoveryState === "available" &&
-      run.activePrompt !== true &&
-      !isTerminalStatus(status),
-    );
-    const actionState = safeText(run && run.connectionActionState);
-    const canConnect =
-      Boolean(run && safeText(run.sessionId)) &&
-      !connected &&
-      actionState !== "connecting" &&
-      actionState !== "disconnecting" &&
-      conversationState !== "ended" &&
-      recoveryState !== "connecting" &&
-      recoveryState !== "unavailable" &&
-      recoveryState !== "unsupported";
-    const canDisconnect =
-      connected &&
-      actionState !== "connecting" &&
-      actionState !== "disconnecting";
-    const rawRuns = Array.isArray(panel.runs) ? panel.runs : [];
-    const runContexts = rawRuns.map(function (entry) {
-      const requestId = safeText(entry.requestId);
-      return {
-        title:
-          safeText(entry.taskName || entry.workflowLabel || entry.skillId) ||
-          "Run",
-        subtitle: safeText(entry.status) + " · " + requestId,
-        status: safeText(entry.status),
-        action: "select-run",
-        payload: { requestId },
-        requestId,
-        active: Boolean(
-          requestId && run && requestId === safeText(run.requestId),
-        ),
-      };
-    });
-    function acpSkillRunTask(entry) {
-      const requestId = safeText(entry && entry.requestId);
-      const title =
-        safeText(
-          entry && (entry.taskName || entry.workflowLabel || entry.skillId),
-        ) || "Run";
-      const backendLabel =
-        safeText(entry && (entry.backendLabel || entry.backendId)) || "Backend";
-      const workflowLabel = buildSkillRunSecondaryLabel(entry) || backendLabel;
-      const statusText = safeText(entry && entry.status) || "unknown";
-      const entryStatus = normalizeStatusToken(statusText);
-      const entryConversationState = normalizeStatusToken(
-        entry && entry.conversationState,
-      );
-      const entryRecoveryState = normalizeStatusToken(
-        entry && entry.conversationRecoveryState,
-      );
-      const entryDetachedRecoverable = Boolean(
-        entry &&
-        safeText(entry.sessionId) &&
-        entryConversationState === "closed" &&
-        entryRecoveryState === "available" &&
-        entry.activePrompt !== true &&
-        !isTerminalStatus(entryStatus),
-      );
-      const needsAttention =
-        statusText === "waiting_user" ||
-        statusText === "waiting-user" ||
-        statusText === "waiting_auth" ||
-        statusText === "waiting-auth" ||
-        entryDetachedRecoverable ||
-        Boolean(entry && entry.pendingInteraction) ||
-        Boolean(entry && entry.pendingPermission);
-      const terminal = isTerminalStatus(entryStatus);
-      return {
-        key: requestId,
-        requestId,
-        action: "select-run",
-        payload: { requestId },
-        title,
-        workflowLabel,
-        status: statusText,
-        stateLabel: statusLabel(panel, statusText),
-        attention: needsAttention ? "warning" : "",
-        attentionLabel: needsAttention
-          ? labelFrom(
-              panel,
-              "interaction.needsUserInteraction",
-              "Needs user interaction",
-            )
-          : "",
-        updatedAt: safeText(entry && entry.updatedAt),
-        backendId: safeText(entry && entry.backendId) || backendLabel,
-        backendDisplayName: backendLabel,
-        selectable: Boolean(requestId),
-        terminal,
-        backendStatus: safeText(entry && entry.backendStatus) || statusText,
-        applyStatus: safeText(entry && entry.applyResultState),
-        applyState: safeText(entry && entry.applyResultState),
-        applyStateLabel: applyStateLabel(
-          panel,
-          safeText(entry && entry.applyResultState),
-          entry,
-        ),
-        applyTone: applyStateTone(
-          normalizeStatusToken(entry && entry.applyResultState),
-        ),
-        ...taskStatusFields(
-          Object.assign({}, entry, {
-            status: statusText,
-            backendStatus: safeText(entry && entry.backendStatus) || statusText,
-            applyState: safeText(entry && entry.applyResultState),
-          }),
-          panel,
-        ),
-        active: Boolean(
-          requestId && run && requestId === safeText(run.requestId),
-        ),
-        itemActions:
-          terminal && requestId
-            ? [archiveItemAction("archive-run", "归档", { requestId }, true)]
-            : [],
-      };
-    }
-    function acpSkillRunDrawerSections() {
-      const groupsBySection = {
-        running: {},
-        completed: {},
-      };
-      rawRuns.forEach(function (entry) {
-        const task = acpSkillRunTask(entry);
-        const sectionId = task.terminal ? "completed" : "running";
-        const groupKey =
-          safeText(task.backendId || task.backendDisplayName) || "default";
-        if (!groupsBySection[sectionId][groupKey]) {
-          groupsBySection[sectionId][groupKey] = {
-            backendId: task.backendId,
-            backendDisplayName: task.backendDisplayName,
-            disabled: false,
-            activeTasks: [],
-            finishedTasks: [],
-          };
-        }
-        if (sectionId === "completed") {
-          groupsBySection[sectionId][groupKey].finishedTasks.push(task);
-        } else {
-          groupsBySection[sectionId][groupKey].activeTasks.push(task);
-        }
-      });
-      return [
-        {
-          id: "running",
-          title:
-            safeText(panel.labels && panel.labels.runningTasksTitle) ||
-            labelFrom(panel, "drawer.running", "Running"),
-          collapsed: false,
-          groups: Object.keys(groupsBySection.running).map(function (key) {
-            return groupsBySection.running[key];
-          }),
-        },
-        {
-          id: "completed",
-          title:
-            safeText(panel.labels && panel.labels.completedTasksTitle) ||
-            "Completed Tasks",
-          collapsed: true,
-          groups: Object.keys(groupsBySection.completed).map(function (key) {
-            return groupsBySection.completed[key];
-          }),
-        },
-      ];
-    }
-    let interaction =
-      run && run.pendingPermission
-        ? {
-            kind: "permission",
-            title:
-              safeText(run.pendingPermission.source) === "zotero-mcp-write"
-                ? labelFrom(
-                    panel,
-                    "permission.zoteroWriteApproval",
-                    "Zotero write approval",
-                  )
-                : labelFrom(
-                    panel,
-                    "permission.acpToolApproval",
-                    "ACP tool approval",
-                  ),
-            message:
-              safeText(run.pendingPermission.summary) ||
-              safeText(
-                run.pendingPermission.toolTitle ||
-                  run.pendingPermission.requestId,
-              ) ||
-              labelFrom(
-                panel,
-                "permission.acpSkillApproval",
-                "ACP skill run requests approval.",
-              ),
-            detail: safeText(run.pendingPermission.detail),
-            source: safeText(run.pendingPermission.source),
-            permission: run.pendingPermission,
-            actions: (Array.isArray(run.pendingPermission.options)
-              ? run.pendingPermission.options
-              : []
-            )
-              .map(function (option) {
-                return contextAction(
-                  "resolve-permission",
-                  safeText(option.name || option.label || option.optionId) ||
-                    labelFrom(panel, "actions.approve", "Approve"),
-                  {
-                    requestId: safeText(run.requestId),
-                    permissionRequestId: safeText(
-                      run.pendingPermission.requestId,
-                    ),
-                    outcome: "selected",
-                    optionId: safeText(option.optionId || option.id),
-                  },
-                  true,
-                );
-              })
-              .concat([
-                contextAction(
-                  "resolve-permission",
-                  labelFrom(panel, "actions.cancel", "Cancel"),
-                  {
-                    requestId: safeText(run.requestId),
-                    permissionRequestId: safeText(
-                      run.pendingPermission.requestId,
-                    ),
-                    outcome: "cancelled",
-                  },
-                  true,
-                  "danger",
-                ),
-              ]),
-          }
-        : conversation.interaction;
-    const activePrompt = Boolean(run && run.activePrompt === true);
-    const promptInterruptState = safeText(run && run.promptInterruptState);
-    const promptInterruptRequested = promptInterruptState === "requested";
-    const replyState = safeText(run && run.replyState);
-    const hasPendingInteraction = Boolean(run && run.pendingInteraction);
-    const activeContinuation =
-      ["submitted", "accepted", "sending"].indexOf(replyState) >= 0;
-    const interruptedTurn =
-      promptInterruptState === "confirmed" || promptInterruptState === "forced";
-    const connectedIdleRun = Boolean(
-      run &&
-      connected &&
-      !isTerminalStatus(status) &&
-      !activePrompt &&
-      !activeContinuation &&
-      replyState === "idle" &&
-      !run.pendingPermission &&
-      interruptedTurn,
-    );
-    const waitingForUser =
-      status === "waiting-user" ||
-      status === "waiting-auth" ||
-      (hasPendingInteraction && !activePrompt && !activeContinuation) ||
-      connectedIdleRun;
-    const terminalRun = isTerminalStatus(status);
-    const busyRun = !terminalRun && (activePrompt || activeContinuation);
-    const recoverableFailedRun = status === "failed-retriable";
-    const runtimeOptions =
-      panel.selectedRuntimeOptions &&
-      typeof panel.selectedRuntimeOptions === "object"
-        ? panel.selectedRuntimeOptions
-        : {};
-    const modeOptions = Array.isArray(runtimeOptions.modeOptions)
-      ? runtimeOptions.modeOptions
-      : [];
-    const modelOptions = Array.isArray(runtimeOptions.displayModelOptions)
-      ? runtimeOptions.displayModelOptions
-      : Array.isArray(runtimeOptions.modelOptions)
-        ? runtimeOptions.modelOptions
-        : [];
-    const reasoningOptions = Array.isArray(
-      runtimeOptions.reasoningEffortOptions,
-    )
-      ? runtimeOptions.reasoningEffortOptions
-      : [];
-    const currentMode =
-      (runtimeOptions.currentMode &&
-      typeof runtimeOptions.currentMode === "object"
-        ? runtimeOptions.currentMode
-        : null) ||
-      (run && run.acpModeId
-        ? { id: run.acpModeId, label: run.acpModeId }
-        : null);
-    const currentModel =
-      (runtimeOptions.currentDisplayModel &&
-      typeof runtimeOptions.currentDisplayModel === "object"
-        ? runtimeOptions.currentDisplayModel
-        : null) ||
-      (run && (run.acpModelId || run.acpRawModelId)
-        ? {
-            id: run.acpModelId || run.acpRawModelId,
-            label: run.acpModelId || run.acpRawModelId,
-          }
-        : null);
-    const currentReasoning =
-      (runtimeOptions.currentReasoningEffort &&
-      typeof runtimeOptions.currentReasoningEffort === "object"
-        ? runtimeOptions.currentReasoningEffort
-        : null) ||
-      (run && run.acpReasoningEffort
-        ? { id: run.acpReasoningEffort, label: run.acpReasoningEffort }
-        : null);
-    const runtimeControlsAvailable = Boolean(
-      run && connected && safeText(run.sessionId),
-    );
-    const runtimeControlPayload = { requestId: safeText(run && run.requestId) };
-    if (
-      run &&
-      !run.pendingPermission &&
-      safeText(interaction && interaction.kind) === "running" &&
-      connectedIdleRun
-    ) {
-      interaction = {
-        kind: "waiting_user",
-        pendingInteraction: run.pendingInteraction || null,
-      };
-    }
-    if (
-      run &&
-      !run.pendingPermission &&
-      safeText(interaction && interaction.kind) === "hidden" &&
-      waitingForUser
-    ) {
-      interaction = {
-        kind: "waiting_user",
-        pendingInteraction: run.pendingInteraction || null,
-      };
-    }
-    if (
-      run &&
-      !run.pendingPermission &&
-      safeText(interaction && interaction.kind) === "hidden" &&
-      detachedRecoverableRun
-    ) {
-      interaction = {
-        kind: "disconnected",
-        message:
-          safeText(
-            run.conversationError || run.lastRecoveryError || run.error,
-          ) ||
-          labelFrom(
-            panel,
-            "interaction.disconnectedRecoverable",
-            "Run is disconnected and recoverable. Connect to continue.",
-          ),
-      };
-    }
-    if (
-      run &&
-      !run.pendingPermission &&
-      safeText(interaction && interaction.kind) === "hidden" &&
-      (status === "failed" || recoverableFailedRun)
-    ) {
-      interaction = {
-        kind: "disconnected",
-        message:
-          safeText(
-            run.error ||
-              run.replyError ||
-              run.lastRecoveryError ||
-              run.conversationError,
-          ) || status,
-      };
-    }
-    if (
-      run &&
-      !run.pendingPermission &&
-      safeText(interaction && interaction.kind) === "hidden" &&
-      !activeContinuation &&
-      (status === "canceled" || status === "cancelled")
-    ) {
-      interaction = {
-        kind: "notice",
-        message: labelFrom(
-          panel,
-          "interaction.runCanceledContinue",
-          "Run canceled.",
-        ),
-      };
-    }
-    const canReply =
-      Boolean(run) &&
-      !run.pendingPermission &&
-      !busyRun &&
-      (waitingForUser || recoverableFailedRun) &&
-      connected;
-    return normalizeAssistantPanelSnapshot({
-      kind: "acp-skills",
-      labels: panelLabels,
-      context: {
-        id: safeText(run && run.requestId),
-        title:
-          safeText(run && (run.taskName || run.workflowLabel || run.skillId)) ||
-          "ACP Skill Run",
-        subtitle: buildSkillRunSecondaryLabel(run),
-        status,
-        statusLabel: statusLabel(panel, status),
-        backendId: safeText(run && run.backendId),
-        backendLabel: safeText(run && run.backendLabel),
-        sessionId: safeText(run && run.sessionId),
-        workspaceDir: safeText(run && run.workspaceDir),
-        metadata: compactMetadata([
-          metadataItem(
-            labelFrom(panel, "fields.backend", "Backend"),
-            run && run.backendLabel,
-            "backend",
-          ),
-          metadataItem(
-            labelFrom(panel, "fields.workspace", "Workspace"),
-            run && run.workspaceDir,
-            "workspace",
-          ),
-        ]),
-        indicators: [
-          connectionIndicator(
-            connected
-              ? "connected"
-              : recoveryState === "connecting"
-                ? "connecting"
-                : conversationState,
-            run && (run.conversationError || run.error),
-            panel,
-          ),
-          buildHostBridgeIndicator(panel),
-        ].filter(Boolean),
-        selectors: [],
-        actions: run
-          ? [
-              contextAction(
-                "connect-run",
-                actionState === "connecting"
-                  ? labelFrom(panel, "actions.connecting", "Connecting...")
-                  : labelFrom(panel, "actions.connect", "Connect"),
-                { requestId: safeText(run.requestId) },
-                canConnect,
-              ),
-              contextAction(
-                "disconnect-run",
-                actionState === "disconnecting"
-                  ? labelFrom(
-                      panel,
-                      "actions.disconnecting",
-                      "Disconnecting...",
-                    )
-                  : labelFrom(panel, "actions.disconnect", "Disconnect"),
-                { requestId: safeText(run.requestId) },
-                canDisconnect,
-              ),
-              contextAction(
-                "cancel-run",
-                labelFrom(panel, "actions.cancelRun", "Cancel Task"),
-                { requestId: safeText(run.requestId) },
-                !isTerminalStatus(status),
-                "danger",
-              ),
-            ]
-          : [],
-      },
-      lifecycle: {
-        connectionState: connected ? "connected" : conversationState,
-        executionState: status,
-        applyState: safeText(run && run.applyResultState),
-        recoveryState: safeText(run && run.conversationRecoveryState),
-        replyState: safeText(run && run.replyState),
-        terminal: terminalRun,
-      },
-      conversation,
-      plan: conversation.plan,
-      interaction,
-      usage: conversation.usage || (run && run.usage) || null,
-      reply: {
-        enabled: (busyRun || canReply) && !promptInterruptRequested,
-        inputEnabled: canReply && !busyRun,
-        placeholder: labelFrom(
-          panel,
-          "reply.placeholderAcpSkill",
-          "Reply to this ACP skill conversation...",
-        ),
-        submitLabel: promptInterruptRequested
-          ? labelFrom(panel, "actions.cancelling", "Cancelling...")
-          : busyRun
-            ? labelFrom(panel, "actions.cancel", "Cancel")
-            : labelFrom(panel, "actions.send", "Send"),
-        sending: safeText(run && run.replyState) === "sending",
-        action: busyRun ? "interrupt-run-turn" : "reply-run",
-        tone: busyRun ? "danger" : "primary",
-        clearOnSend: !busyRun,
-        hint: "",
-        showUsageGauge: true,
-        controls: [
-          buildReplySelectControl(
-            "mode",
-            labelFrom(panel, "fields.mode", "Mode"),
-            currentMode,
-            modeOptions,
-            "set-mode",
-            !runtimeControlsAvailable || modeOptions.length === 0,
-            runtimeControlPayload,
-          ),
-          buildReplySelectControl(
-            "model",
-            labelFrom(panel, "fields.model", "Model"),
-            currentModel,
-            modelOptions,
-            "set-model",
-            !runtimeControlsAvailable || busyRun || modelOptions.length === 0,
-            runtimeControlPayload,
-          ),
-          buildReplySelectControl(
-            "reasoning",
-            labelFrom(panel, "fields.reasoning", "Reasoning"),
-            currentReasoning,
-            reasoningOptions,
-            "set-reasoning-effort",
-            !runtimeControlsAvailable ||
-              busyRun ||
-              reasoningOptions.length === 0,
-            runtimeControlPayload,
-          ),
-        ],
-      },
-      drawers: {
-        layout: "workspace-task-drawer",
-        contextTitle: labelFrom(panel, "actions.runs", "Runs"),
-        detailsTitle: labelFrom(panel, "details.title", "Run Details"),
-        labels: assistantDrawerLabels(panel),
-        contexts: runContexts,
-        sections: acpSkillRunDrawerSections(),
-        selectedTaskKey: safeText(run && run.requestId),
-        notice: safeText(panel.drawer && panel.drawer.notice),
-        details: buildAcpSkillDetails(run, panel.logs, panel),
-      },
-      actions: {
-        toolbar: [
-          {
-            action: "open-context-drawer",
-            label: labelFrom(panel, "actions.runs", "Runs"),
-          },
-          {
-            action: "openDetails",
-            label: labelFrom(panel, "actions.details", "Details"),
-          },
-          {
-            action: "open-backend-manager",
-            label: labelFrom(
-              panel,
-              "actions.manageBackends",
-              "Manage Backends",
-            ),
-          },
-          buildExecutionDisplayModeAction(panel),
-        ],
-        context: [],
-        details: [
-          {
-            action: "copy-request-id",
-            label: labelFrom(panel, "actions.copyId", "Copy ID"),
-            enabled: Boolean(run && run.requestId),
-          },
-          {
-            action: "copy-diagnostics",
-            label: labelFrom(
-              panel,
-              "actions.copyDiagnostics",
-              "Copy Diagnostics",
-            ),
-            enabled: Boolean(run),
-          },
-          {
-            action: "open-workspace",
-            label: labelFrom(panel, "actions.openWorkspace", "Open Workspace"),
-            payload: { workspaceDir: safeText(run && run.workspaceDir) },
-            enabled: Boolean(run && run.workspaceDir),
-          },
-        ],
-      },
-      raw: panel,
-    });
-  }
-
   function projectSkillRunnerPanelSnapshot(snapshot) {
     const envelope = snapshot && typeof snapshot === "object" ? snapshot : {};
     const session =
@@ -3782,7 +1671,7 @@
           ]),
       };
     }
-    const selectedTask = findSkillRunnerPanelTask(envelope, session);
+    const selectedTask = findSkillRunnerPanelTask(envelope);
     const requestAssigned =
       selectedTask && typeof selectedTask.requestAssigned === "boolean"
         ? selectedTask.requestAssigned
@@ -4021,11 +1910,611 @@
     });
   }
 
-  function mapAssistantPanelAction(kind, action, payload) {
+  function exactWorkspaceOptionGroup(group, id, label, action, payloadKey) {
+    const source = group && typeof group === "object" ? group : {};
     return {
-      panelKind: normalizeKind(kind),
-      action: safeText(action),
-      payload: payload && typeof payload === "object" ? payload : {},
+      id,
+      label,
+      value: safeText(source.selectedOptionId),
+      options: (Array.isArray(source.options) ? source.options : []).map(
+        function (option) {
+          return {
+            value: safeText(option && option.optionId),
+            label: safeText(option && option.label),
+            description: safeText(option && option.description),
+          };
+        },
+      ),
+      action,
+      payloadKey,
+      disabled: !Array.isArray(source.options) || source.options.length === 0,
+    };
+  }
+
+  function exactWorkspaceIndicator(entry) {
+    const source = entry && typeof entry === "object" ? entry : {};
+    const status = safeText(source.status);
+    return {
+      id: safeText(source.serviceId || source.itemId),
+      label: safeText(source.label || source.serviceId || source.itemId),
+      value: safeText(source.value || status),
+      title: safeText(source.message),
+      tone:
+        source.available === true ||
+        status === "running" ||
+        status === "connected" ||
+        status === "ready"
+          ? "success"
+          : status === "failed" || status === "error"
+            ? "error"
+            : status === "starting" || status === "recovering"
+              ? "warning"
+              : "muted",
+      valueVisible: true,
+    };
+  }
+
+  function exactWorkspaceDetails(title, entries) {
+    const rows = (Array.isArray(entries) ? entries : [])
+      .filter(function (entry) {
+        return safeText(entry && entry.value);
+      })
+      .map(function (entry) {
+        return {
+          label: safeText(entry.label),
+          value: safeText(entry.value),
+          kind: "text",
+        };
+      });
+    return rows.length ? { title, entries: rows } : null;
+  }
+
+  function exactWorkspacePlan(plan) {
+    const entries = (plan && Array.isArray(plan.items) ? plan.items : []).map(
+      function (entry) {
+        const status = safeText(entry && entry.status) || "pending";
+        return {
+          id: safeText(entry && entry.itemId),
+          content: safeText(entry && entry.content),
+          title: safeText(entry && entry.content),
+          status,
+          terminal:
+            status === "completed" ||
+            status === "succeeded" ||
+            status === "failed" ||
+            status === "canceled",
+          toneClass:
+            status === "completed" || status === "succeeded"
+              ? "is-completed"
+              : status === "in_progress" || status === "running"
+                ? "is-running"
+                : status === "failed"
+                  ? "is-failed"
+                  : "is-pending",
+        };
+      },
+    );
+    return {
+      entries,
+      activeEntries: entries.filter(function (entry) {
+        return !entry.terminal;
+      }),
+      active: entries.some(function (entry) {
+        return !entry.terminal;
+      }),
+      totalCount: entries.length,
+      completedCount: entries.filter(function (entry) {
+        return entry.terminal;
+      }).length,
+    };
+  }
+
+  function exactWorkspaceTask(entry, selectedOwner) {
+    const owner =
+      entry && entry.owner && typeof entry.owner === "object"
+        ? entry.owner
+        : null;
+    const key = safeText(owner && owner.ownerKey);
+    const status = safeText(entry && entry.status) || "idle";
+    return {
+      key,
+      action:
+        owner && owner.source === "acp-chat"
+          ? "set-active-conversation"
+          : "select-run",
+      payload: { owner },
+      title: safeText(entry && entry.label) || key,
+      workflowLabel:
+        safeText(
+          entry && (entry.subtitle || entry.groupLabel || entry.groupId),
+        ) || "-",
+      status,
+      stateLabel: status,
+      mainStatus: status,
+      mainStatusLabel: status,
+      mainStatusTone: statusTone(status),
+      backendStatus: safeText(entry && entry.backendStatus) || status,
+      backendStatusLabel: safeText(entry && entry.backendStatus) || status,
+      backendStatusTone: statusTone(
+        safeText(entry && entry.backendStatus) || status,
+      ),
+      applyStatus: safeText(entry && entry.applyState),
+      applyStatusLabel: safeText(entry && entry.applyState) || "-",
+      applyStatusTone: statusTone(entry && entry.applyState),
+      showApplyStatusBadge: Boolean(safeText(entry && entry.applyState)),
+      updatedAt: safeText(entry && entry.updatedAt),
+      backendId: safeText(entry && entry.groupId),
+      backendDisplayName: safeText(
+        entry && (entry.groupLabel || entry.groupId),
+      ),
+      selectable: Boolean(key),
+      terminal: isTerminalStatus(status),
+      active: Boolean(
+        selectedOwner && key === safeText(selectedOwner.ownerKey),
+      ),
+      attention: safeText(entry && (entry.attention || entry.description))
+        ? "warning"
+        : "",
+      attentionLabel: safeText(entry && (entry.attention || entry.description)),
+      itemActions: key
+        ? [
+            {
+              action:
+                owner && owner.source === "acp-chat"
+                  ? "archive-conversation"
+                  : "archive-run",
+              label: "Archive",
+              icon: "archive",
+              enabled: true,
+              payload: { owner },
+            },
+          ]
+        : [],
+    };
+  }
+
+  function exactWorkspaceDrawerSections(navigation, selectedOwner, uiState) {
+    const groups = new Map();
+    (Array.isArray(navigation && navigation.groups)
+      ? navigation.groups
+      : []
+    ).forEach(function (group) {
+      groups.set(safeText(group.groupId), {
+        groupKey: safeText(group.groupId),
+        backendId: safeText(group.groupId),
+        backendDisplayName: safeText(group.label),
+        disabled: false,
+        collapsed:
+          uiState &&
+          uiState.drawerGroupCollapsed &&
+          uiState.drawerGroupCollapsed.get(safeText(group.groupId)) === true,
+        activeTasks: [],
+        finishedTasks: [],
+      });
+    });
+    (Array.isArray(navigation && navigation.entries)
+      ? navigation.entries
+      : []
+    ).forEach(function (entry) {
+      const groupKey = safeText(entry && entry.groupId) || "default";
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupKey,
+          backendId: groupKey,
+          backendDisplayName: safeText(entry && entry.groupLabel) || groupKey,
+          disabled: false,
+          collapsed:
+            uiState &&
+            uiState.drawerGroupCollapsed &&
+            uiState.drawerGroupCollapsed.get(groupKey) === true,
+          activeTasks: [],
+          finishedTasks: [],
+        });
+      }
+      const task = exactWorkspaceTask(entry, selectedOwner);
+      const target = task.terminal ? "finishedTasks" : "activeTasks";
+      groups.get(groupKey)[target].push(task);
+    });
+    const values = Array.from(groups.values());
+    return [
+      {
+        id: "active",
+        title: "Active",
+        collapsed: false,
+        groups: values.map(function (group) {
+          return Object.assign({}, group, { finishedTasks: [] });
+        }),
+      },
+      {
+        id: "completed",
+        title: "Completed",
+        collapsed: uiState && uiState.completedCollapsed === true,
+        groups: values.map(function (group) {
+          return Object.assign({}, group, { activeTasks: [] });
+        }),
+      },
+    ];
+  }
+
+  function projectAssistantWorkspacePanel(state, uiState, labels) {
+    const source = state && typeof state === "object" ? state : {};
+    const local = uiState && typeof uiState === "object" ? uiState : {};
+    const selection =
+      source.selection && typeof source.selection === "object"
+        ? source.selection
+        : {};
+    const navigation =
+      source.navigation && typeof source.navigation === "object"
+        ? source.navigation
+        : {
+            selectedOwner: null,
+            selectedGroupId: null,
+            groups: [],
+            entries: [],
+            canCreateOwner: false,
+          };
+    const owner =
+      selection.owner && selection.owner.source === source.source
+        ? selection.owner
+        : null;
+    const control =
+      selection.control && typeof selection.control === "object"
+        ? selection.control
+        : {
+            status: "idle",
+            busy: false,
+            message: null,
+            connection: {
+              status: "idle",
+              sessionAvailable: false,
+              connected: false,
+              canConnect: false,
+              canDisconnect: false,
+            },
+            execution: { canCancel: false, canInterrupt: false },
+          };
+    const presentation =
+      selection.presentation && typeof selection.presentation === "object"
+        ? selection.presentation
+        : {
+            title: source.source === "acp-chat" ? "ACP Chat" : "ACP Skills",
+            subtitle: null,
+            description: null,
+            metadata: [],
+            banner: {
+              status: "idle",
+              message: null,
+              usage: [],
+              connection: [],
+              recovery: [],
+              workspace: [],
+              details: [],
+              diagnostics: [],
+            },
+            context: [],
+            details: [],
+            tasks: [],
+          };
+    const composer =
+      selection.composer && typeof selection.composer === "object"
+        ? selection.composer
+        : {
+            reply: { status: "disabled", hint: null },
+            runtimeOptions: {},
+          };
+    const permission =
+      selection.permission && typeof selection.permission === "object"
+        ? selection.permission
+        : { request: null };
+    const request = permission.request;
+    const services =
+      source.services && Array.isArray(source.services.items)
+        ? source.services.items
+        : [];
+    const banner =
+      presentation.banner && typeof presentation.banner === "object"
+        ? presentation.banner
+        : {};
+    const indicators = services
+      .concat(
+        []
+          .concat(Array.isArray(banner.usage) ? banner.usage : [])
+          .concat(Array.isArray(banner.connection) ? banner.connection : [])
+          .concat(Array.isArray(banner.recovery) ? banner.recovery : [])
+          .concat(Array.isArray(banner.workspace) ? banner.workspace : []),
+      )
+      .map(exactWorkspaceIndicator);
+    const selectedGroupId =
+      safeText(navigation.selectedGroupId) ||
+      safeText(owner && owner.backendId);
+    const groupOptions = (
+      Array.isArray(navigation.groups) ? navigation.groups : []
+    ).map(function (group) {
+      const groupId = safeText(group.groupId);
+      const targetEntry = (
+        Array.isArray(navigation.entries) ? navigation.entries : []
+      ).find(function (entry) {
+        return safeText(entry && entry.groupId) === groupId;
+      });
+      return {
+        value: groupId,
+        label: safeText(group.label),
+        owner: targetEntry ? targetEntry.owner : null,
+      };
+    });
+    const ownerOptions = (
+      Array.isArray(navigation.entries) ? navigation.entries : []
+    )
+      .filter(function (entry) {
+        return (
+          source.source !== "acp-chat" ||
+          safeText(entry && entry.groupId) === selectedGroupId
+        );
+      })
+      .map(function (entry) {
+        return {
+          value: safeText(entry && entry.owner && entry.owner.ownerKey),
+          label: safeText(entry && entry.label),
+          owner: entry.owner,
+        };
+      });
+    const selectors =
+      source.source === "acp-chat"
+        ? [
+            {
+              id: "backend",
+              label: "Backend",
+              value: selectedGroupId,
+              options: groupOptions,
+              action: "set-active-backend",
+              disabled: groupOptions.length === 0,
+            },
+            {
+              id: "owner",
+              label: "Session",
+              value: safeText(owner && owner.ownerKey),
+              options: ownerOptions,
+              action: "set-active-conversation",
+              disabled: ownerOptions.length === 0,
+            },
+          ]
+        : [];
+    const contextActions = [];
+    if (source.source === "acp-chat" && navigation.canCreateOwner === true) {
+      contextActions.push({
+        action: "new-conversation",
+        label: "New",
+        enabled: true,
+        payload: {},
+      });
+    }
+    if (owner && control.connection) {
+      if (control.connection.canConnect === true) {
+        contextActions.push({
+          action: source.source === "acp-chat" ? "connect" : "connect-run",
+          label: "Connect",
+          enabled: true,
+          payload: {},
+        });
+      }
+      if (control.connection.canDisconnect === true) {
+        contextActions.push({
+          action:
+            source.source === "acp-chat" ? "disconnect" : "disconnect-run",
+          label: "Disconnect",
+          enabled: true,
+          payload: {},
+        });
+      }
+    }
+    const plan = exactWorkspacePlan(selection.plan);
+    const interaction = request
+      ? {
+          kind: "permission",
+          message: safeText(request.summary),
+          permission: {
+            requestId: safeText(request.requestId),
+            toolTitle: safeText(request.title),
+            summary: safeText(request.summary),
+            actions: (Array.isArray(request.options)
+              ? request.options
+              : []
+            ).map(function (option) {
+              return {
+                action: "resolve-permission",
+                label: safeText(option.label),
+                payload: {
+                  permissionRequestId: safeText(request.requestId),
+                  outcome: "selected",
+                  optionId: safeText(option.optionId),
+                },
+                enabled: true,
+              };
+            }),
+          },
+          actions: (Array.isArray(request.options) ? request.options : []).map(
+            function (option) {
+              return {
+                action: "resolve-permission",
+                label: safeText(option.label),
+                payload: {
+                  permissionRequestId: safeText(request.requestId),
+                  outcome: "selected",
+                  optionId: safeText(option.optionId),
+                },
+                enabled: true,
+              };
+            },
+          ),
+        }
+      : safeText(composer.reply && composer.reply.hint)
+        ? {
+            kind: control.busy === true ? "running" : "waiting",
+            message: safeText(composer.reply.hint),
+          }
+        : control.busy === true
+          ? { kind: "running", message: safeText(control.message) }
+          : { kind: "hidden" };
+    const runtimeOptions =
+      composer.runtimeOptions && typeof composer.runtimeOptions === "object"
+        ? composer.runtimeOptions
+        : {};
+    const replyStatus = safeText(composer.reply && composer.reply.status);
+    const replyBusy = replyStatus === "busy";
+    const replyEnabled =
+      Boolean(owner) && replyStatus !== "disabled" && !request;
+    const details = [
+      exactWorkspaceDetails("Context", presentation.context),
+      exactWorkspaceDetails("Details", presentation.details),
+      exactWorkspaceDetails("Connection", banner.connection),
+      exactWorkspaceDetails("Recovery", banner.recovery),
+      exactWorkspaceDetails("Workspace", banner.workspace),
+      exactWorkspaceDetails("Diagnostics", banner.details),
+    ].filter(Boolean);
+    const drawerSections = exactWorkspaceDrawerSections(
+      navigation,
+      owner,
+      local,
+    );
+    return {
+      exact: true,
+      kind: source.source,
+      labels: labels || {},
+      messageCounts:
+        selection.messageCounts && selection.messageCounts.counts
+          ? selection.messageCounts.counts
+          : null,
+      context: {
+        id: safeText(owner && owner.ownerKey),
+        title: safeText(presentation.title),
+        subtitle: safeText(presentation.subtitle),
+        status: safeText(control.status),
+        statusLabel: safeText(control.status),
+        statusTone: statusTone(control.status),
+        metadata: Array.isArray(presentation.metadata)
+          ? presentation.metadata
+          : [],
+        indicators,
+        selectors,
+        actions: contextActions,
+      },
+      lifecycle: {
+        connectionState:
+          control.connection && control.connection.connected === true
+            ? "connected"
+            : safeText(control.connection && control.connection.status) ||
+              "disconnected",
+        executionState: safeText(control.status),
+        applyState: "",
+        recoveryState: "",
+        replyState: replyBusy ? "sending" : "idle",
+        terminal: isTerminalStatus(control.status),
+      },
+      conversation: {
+        items: [],
+        plan,
+        interaction,
+        usage: null,
+      },
+      plan,
+      interaction,
+      usage: null,
+      reply: {
+        enabled: replyEnabled,
+        inputEnabled: replyEnabled && !replyBusy,
+        placeholder:
+          source.source === "acp-chat"
+            ? "Ask the active ACP backend…"
+            : "Reply to the selected run…",
+        hint: safeText(composer.reply && composer.reply.hint),
+        submitLabel: replyBusy ? "Cancel" : "Send",
+        sending: replyBusy,
+        action: replyBusy
+          ? source.source === "acp-chat"
+            ? "cancel"
+            : "interrupt-run-turn"
+          : source.source === "acp-chat"
+            ? "send-prompt"
+            : "reply-run",
+        tone: replyBusy ? "danger" : "primary",
+        controls: [
+          exactWorkspaceOptionGroup(
+            runtimeOptions.mode,
+            "mode",
+            "Mode",
+            "set-mode",
+            "modeId",
+          ),
+          exactWorkspaceOptionGroup(
+            runtimeOptions.model,
+            "model",
+            "Model",
+            "set-model",
+            "modelId",
+          ),
+          exactWorkspaceOptionGroup(
+            runtimeOptions.reasoningEffort,
+            "reasoning",
+            "Reasoning",
+            "set-reasoning-effort",
+            "effortId",
+          ),
+        ],
+        showUsageGauge: false,
+        value: safeText(local.replyDraft),
+      },
+      drawers: {
+        layout: "workspace-task-drawer",
+        contextTitle: source.source === "acp-chat" ? "Sessions" : "Runs",
+        detailsTitle: "Details",
+        contexts: [],
+        sections: drawerSections,
+        selectedTaskKey: safeText(owner && owner.ownerKey),
+        details,
+        permissionRequest: local.permissionRequest || null,
+        permissionRequestOpen:
+          local.permissionRequestOpen === true && !!local.permissionRequest,
+      },
+      actions: {
+        toolbar: [
+          {
+            action: "open-context-drawer",
+            label: source.source === "acp-chat" ? "Sessions" : "Runs",
+            enabled: true,
+          },
+          {
+            action: "open-details-drawer",
+            label: "Details",
+            enabled: true,
+          },
+          {
+            action: "open-backend-manager",
+            label: "Manage",
+            enabled: true,
+          },
+          {
+            kind: "display-mode",
+            action: "set-execution-display-mode",
+            label: "Updates",
+            value: safeText(local.executionDisplayMode) || "live",
+            options: [
+              { value: "live", label: "Live" },
+              { value: "boundary", label: "Turns" },
+              { value: "silent", label: "Silent" },
+            ],
+            enabled: true,
+          },
+        ],
+        context: [],
+        details: [
+          {
+            action: "copy-diagnostics",
+            label: "Copy diagnostics",
+            enabled: Boolean(owner),
+            payload: {},
+          },
+        ],
+      },
     };
   }
 
@@ -4035,13 +2524,9 @@
     normalizeStatusToken,
     statusTone,
     isTerminalStatus,
-    projectAcpChatPanelSnapshot,
-    projectAcpSkillRunPanelSnapshot,
+    projectAssistantWorkspacePanel,
     projectSkillRunnerPanelSnapshot,
-    mapAssistantPanelAction,
     contextSelector,
     contextAction,
-    buildSessionPickerOptions,
-    SESSION_PICKER_SHOW_MORE_VALUE,
   };
 })();

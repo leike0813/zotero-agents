@@ -118,14 +118,15 @@ export type AcpRuntimeMetricLabels = Partial<{
   semanticKind: string;
   disposition: "projected" | "consumed-noop" | "skipped" | "unknown";
   publicationKind:
-    | "baseline-status"
-    | "message-counts"
     | "owner-navigation"
+    | "service-status"
+    | "owner-control"
+    | "message-counts"
     | "transcript"
     | "plan"
     | "permission"
-    | "reply-hint"
-    | "context-details";
+    | "composer"
+    | "owner-presentation";
   publicationCausality:
     | "matching-target"
     | "opposite-active"
@@ -133,7 +134,16 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "owner-mismatch";
   publicationPhase: "initialization" | "steady-state";
   publicationSurface: "acp-chat" | "acp-skills";
-  publicationForm: "initialization" | "snapshot" | "delta" | "region";
+  publicationForm: "snapshot" | "delta" | "region";
+  publicationCause:
+    | "initialization"
+    | "activation"
+    | "owner-switch"
+    | "page-request"
+    | "steady-state"
+    | "rebase"
+    | "diagnostic";
+  publicationDeliverySequence: string;
   materializationSource:
     | "region"
     | "transcript-page"
@@ -167,11 +177,41 @@ export type AcpRuntimeProfileSnapshot = AcpRuntimeProfileContext & {
   startedAtMs: number;
   finishedAtMs?: number;
   metrics: readonly AcpRuntimeMetricSnapshot[];
-  publicationLifecycles?: readonly AcpRuntimePublicationLifecycleSnapshot[];
+  publicationLifecycles: readonly AcpRuntimePublicationLifecycleSnapshot[];
+  metricSeriesDrops: number;
+  measurement: "complete" | "incomplete";
+  publicationDiagnostics: readonly {
+    code: "out-of-window-ack";
+    publicationId: string;
+    stage: string;
+    outcome: string;
+    reason: string | null;
+  }[];
 };
 
 export type AcpRuntimePublicationLifecycleSnapshot = {
   publicationId: string;
+  source: "acp-chat" | "acp-skills";
+  kind: NonNullable<AcpRuntimeMetricLabels["publicationKind"]>;
+  publicationForm: "snapshot" | "delta" | "region";
+  publicationCause: NonNullable<AcpRuntimeMetricLabels["publicationCause"]>;
+  deliverySequence: number;
+  postedAtMs: number;
+  acknowledgements: readonly {
+    stage:
+      | "shell-receive"
+      | "shell-forward"
+      | "child-apply"
+      | "render-complete";
+    outcome: "accepted" | "rejected";
+    reason: string | null;
+    atMs: number;
+  }[];
+  terminal: {
+    outcome: "accepted" | "rejected";
+    reason: string | null;
+    atMs: number;
+  } | null;
   post: number;
   shellForward: number;
   childApply: number;
@@ -207,6 +247,14 @@ type ProfileState = AcpRuntimeProfileContext & {
   finishedAtMs?: number;
   metrics: Map<string, MetricSeries>;
   publicationLifecycles: Map<string, AcpRuntimePublicationLifecycleSnapshot>;
+  metricSeriesDrops: number;
+  publicationDiagnostics: Array<{
+    code: "out-of-window-ack";
+    publicationId: string;
+    stage: string;
+    outcome: string;
+    reason: string | null;
+  }>;
 };
 
 type TimerHandle = unknown;
@@ -230,7 +278,11 @@ let state: ProfilerState | null = null;
 let testOptions: ProfilerTestOptions = {};
 
 function isProfilerDebugModeEnabled() {
-  if (!ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED) {
+  const sourceEnabled =
+    typeof __acp_runtime_performance_profiler_enabled__ !== "undefined"
+      ? __acp_runtime_performance_profiler_enabled__
+      : ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED;
+  if (!sourceEnabled) {
     return false;
   }
   if (typeof __debug_mode__ !== "undefined") {
@@ -285,6 +337,8 @@ function createProfile(
     startedAtMs,
     metrics: new Map(),
     publicationLifecycles: new Map(),
+    metricSeriesDrops: 0,
+    publicationDiagnostics: [],
   };
 }
 
@@ -319,6 +373,7 @@ function normalizeLabels(labels: AcpRuntimeMetricLabels = {}) {
     "publicationPhase",
     "publicationSurface",
     "publicationForm",
+    "publicationCause",
     "materializationSource",
     "renderPath",
   ] as const) {
@@ -336,17 +391,15 @@ function recordPublicationLifecycle(
   labels: AcpRuntimeMetricLabels,
   delta: number,
 ) {
-  const stage =
-    name === "panel_post"
-      ? "post"
-      : name === "panel_shell_forward"
-        ? "shellForward"
-        : name === "panel_child_apply"
-          ? "childApply"
-          : name === "panel_render_ack"
-            ? "renderAck"
-            : null;
+  const stage = name === "panel_post" ? "post" : null;
   const publicationId = String(labels.publicationId || "").trim();
+  if (
+    name === "panel_shell_forward" ||
+    name === "panel_child_apply" ||
+    name === "panel_render_ack"
+  ) {
+    return false;
+  }
   if (!stage) return true;
   if (!publicationId) return false;
   let lifecycle = profile.publicationLifecycles.get(publicationId);
@@ -357,6 +410,21 @@ function recordPublicationLifecycle(
     }
     lifecycle = {
       publicationId,
+      source: labels.publicationSurface || "acp-chat",
+      kind: labels.publicationKind || "owner-control",
+      publicationForm:
+        labels.publicationForm === "snapshot" ||
+        labels.publicationForm === "delta"
+          ? labels.publicationForm
+          : "region",
+      publicationCause: labels.publicationCause || "steady-state",
+      deliverySequence: Math.max(
+        0,
+        Number(labels.publicationDeliverySequence) || 0,
+      ),
+      postedAtMs: readAcpRuntimePerformanceClockMs(),
+      acknowledgements: [],
+      terminal: null,
       post: 0,
       shellForward: 0,
       childApply: 0,
@@ -402,6 +470,7 @@ function getOrCreateSeries(
     return existing.kind === kind ? existing : null;
   }
   if (profile.metrics.size >= MAX_METRIC_SERIES) {
+    profile.metricSeriesDrops += 1;
     return null;
   }
   const series: MetricSeries = {
@@ -415,6 +484,77 @@ function getOrCreateSeries(
   };
   profile.metrics.set(key, series);
   return series;
+}
+
+export function recordAcpRuntimePublicationAck(
+  requestId: string | null | undefined,
+  ack: {
+    publicationId: string;
+    stage:
+      | "shell-receive"
+      | "shell-forward"
+      | "child-apply"
+      | "render-complete";
+    outcome: "accepted" | "rejected";
+    reason: string | null;
+  },
+) {
+  recordSafely(() => {
+    const profile = resolveProfile(requestId);
+    if (!profile) return;
+    const publicationId = String(ack.publicationId || "").trim();
+    const lifecycle = profile.publicationLifecycles.get(publicationId);
+    if (!lifecycle) {
+      if (profile.publicationDiagnostics.length >= 64) {
+        profile.publicationDiagnostics.splice(
+          0,
+          profile.publicationDiagnostics.length - 63,
+        );
+      }
+      profile.publicationDiagnostics.push({
+        code: "out-of-window-ack",
+        publicationId,
+        stage: ack.stage,
+        outcome: ack.outcome,
+        reason: ack.reason,
+      });
+      return;
+    }
+    const duplicate = lifecycle.acknowledgements.some(
+      (entry) =>
+        entry.stage === ack.stage &&
+        entry.outcome === ack.outcome &&
+        entry.reason === ack.reason,
+    );
+    if (!duplicate) {
+      lifecycle.acknowledgements = [
+        ...lifecycle.acknowledgements,
+        {
+          stage: ack.stage,
+          outcome: ack.outcome,
+          reason: ack.reason,
+          atMs: readAcpRuntimePerformanceClockMs(),
+        },
+      ].slice(-16);
+    }
+    if (ack.stage === "shell-forward" && ack.outcome === "accepted") {
+      lifecycle.shellForward = 1;
+    }
+    if (ack.stage === "child-apply" && ack.outcome === "accepted") {
+      lifecycle.childApply = 1;
+    }
+    const terminal =
+      ack.outcome === "rejected" || ack.stage === "render-complete";
+    if (terminal && !lifecycle.terminal) {
+      lifecycle.terminal = {
+        outcome: ack.outcome,
+        reason: ack.reason,
+        atMs: readAcpRuntimePerformanceClockMs(),
+      };
+      lifecycle.renderAck =
+        ack.stage === "render-complete" && ack.outcome === "accepted" ? 1 : 0;
+    }
+  });
 }
 
 function recordSafely(work: () => void) {
@@ -661,8 +801,17 @@ function profileSnapshot(profile: ProfileState): AcpRuntimeProfileSnapshot {
     metrics: Array.from(profile.metrics.values(), metricSnapshot),
     publicationLifecycles: Array.from(
       profile.publicationLifecycles.values(),
-      (entry) => ({ ...entry }),
+      (entry) => ({
+        ...entry,
+        acknowledgements: entry.acknowledgements.map((ack) => ({ ...ack })),
+        terminal: entry.terminal ? { ...entry.terminal } : null,
+      }),
     ),
+    metricSeriesDrops: profile.metricSeriesDrops,
+    measurement: profile.metricSeriesDrops > 0 ? "incomplete" : "complete",
+    publicationDiagnostics: profile.publicationDiagnostics.map((entry) => ({
+      ...entry,
+    })),
   };
 }
 

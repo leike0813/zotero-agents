@@ -3,6 +3,9 @@ import {
   finishAcpRuntimeProfile,
   configureAcpRuntimePerformanceProfilerForTests,
   enableAcpRuntimePerformanceProfiler,
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  recordAcpRuntimePublicationAck,
   resetAcpRuntimePerformanceProfilerForTests,
   snapshotAcpRuntimeProfiles,
   startAcpRuntimeProfile,
@@ -17,7 +20,16 @@ import {
   selectAcpSkillRun,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
-import { postAcpSkillRunPublicationForPerformanceTests } from "../../src/modules/assistantWorkspaceSidebar";
+import {
+  createAcpSkillsWorkspaceOwner,
+  createReadyTranscriptRegion,
+} from "../../src/modules/assistantWorkspacePublication";
+import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
+import {
+  AssistantWorkspacePublicationRuntime,
+  defineAssistantWorkspacePublicationAdapter,
+} from "../../src/modules/assistantWorkspacePublicationRuntime";
+import { assistantWorkspaceTestPage } from "./assistantWorkspacePublicationHarness";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -226,29 +238,122 @@ async function exerciseR3ProductionSeam(
   requestId: string,
   surfaceState: Exclude<AcpRuntimeBaselineSurfaceState, "closed">,
 ) {
+  if (surfaceState !== "acp-active") {
+    for (let index = 0; index < 2; index += 1) {
+      incrementAcpRuntimeMetric(requestId, "panel_requested", {
+        publicationSurface: "acp-skills",
+        publicationCausality: "opposite-active",
+      });
+      incrementAcpRuntimeMetric(requestId, "panel_dropped_before_build", {
+        publicationSurface: "acp-skills",
+        publicationCausality: "opposite-active",
+      });
+    }
+    return;
+  }
   await selectAcpSkillRun(requestId);
-  const frameWindow = { postMessage() {} };
-  const host = {
-    activeTarget: "library",
-    activeTab: surfaceState === "acp-active" ? "acp-skills" : "acp-chat",
+  const owner = createAcpSkillsWorkspaceOwner(requestId);
+  const adapter = defineAssistantWorkspacePublicationAdapter({
+    source: "acp-skills" as const,
+    supportedKinds: [
+      "owner-navigation",
+      "service-status",
+      "owner-control",
+      "message-counts",
+      "transcript",
+      "permission",
+      "composer",
+      "owner-presentation",
+    ] as const,
+    selectedOwner: () => owner,
+    mapChange: () => ({
+      owner,
+      targetsActiveOwner: true,
+      publicationKinds: [],
+    }),
+    readOwnerNavigation: async () => ({
+      selectedOwner: owner,
+      selectedGroupId: null,
+      groups: [],
+      entries: [],
+      canCreateOwner: false,
+    }),
+    readOwnerRegions: async () => ({}),
+    readTranscriptPage: async () =>
+      createReadyTranscriptRegion(owner, assistantWorkspaceTestPage(owner), 0),
+  });
+  const coordinator = new AssistantWorkspacePublicationCoordinator({
     scopeKey: "fixture-scope",
-    snapshotRevision: 0,
-    publicationLifecycles: new Map(),
-    publicationOwners: new Map(),
-    pendingWorkspacePublications: new Map(),
-    acpChatBackendRefreshInFlight: false,
-    acpChatBackendRefreshRepostQueued: false,
-    shell: {
-      frame: { contentWindow: frameWindow },
-      frameWindow,
-      loaded: true,
-      ready: true,
+    getActiveOwner: () => owner,
+    post: (publication) => {
+      const labels = {
+        publicationId: publication.publicationId,
+        publicationSurface: publication.owner.source,
+        publicationKind: publication.publicationKind,
+        publicationForm: publication.publicationForm,
+        publicationCause: publication.publicationCause,
+        publicationDeliverySequence: String(publication.deliverySequence),
+      } as const;
+      incrementAcpRuntimeMetric(requestId, "panel_post", labels);
+      observeAcpRuntimeDuration(requestId, "panel_post_duration", labels, 0);
+      incrementAcpRuntimeMetric(
+        requestId,
+        "panel_post_bytes",
+        labels,
+        JSON.stringify(publication).length,
+      );
+      queueMicrotask(() => {
+        for (const stage of [
+          "shell-forward",
+          "child-apply",
+          "render-complete",
+        ] as const) {
+          recordAcpRuntimePublicationAck(requestId, {
+            publicationId: publication.publicationId,
+            stage,
+            outcome: "accepted",
+            reason: null,
+          });
+        }
+        coordinator.acknowledge({
+          publicationId: publication.publicationId,
+          stage: "render-complete",
+          outcome: "accepted",
+          reason: null,
+          failure: null,
+        });
+      });
+      return true;
     },
-    readyTabs: new Set(["acp-skills"]),
-    publishedChildInitScopeKeys: new Set<string>(),
-  };
-  await postAcpSkillRunPublicationForPerformanceTests(host);
-  await postAcpSkillRunPublicationForPerformanceTests(host);
+  });
+  incrementAcpRuntimeMetric(requestId, "panel_prepare", {
+    publicationSurface: "acp-skills",
+  });
+  observeAcpRuntimeDuration(
+    requestId,
+    "panel_prepare_duration",
+    { publicationSurface: "acp-skills" },
+    0,
+  );
+  incrementAcpRuntimeMetric(requestId, "panel_signature", {
+    publicationSurface: "acp-skills",
+  });
+  observeAcpRuntimeDuration(
+    requestId,
+    "panel_signature_duration",
+    { publicationSurface: "acp-skills" },
+    0,
+  );
+  const runtime = new AssistantWorkspacePublicationRuntime({
+    coordinator,
+    activity: () => "matching-target",
+  });
+  await runtime.initialize({
+    adapter,
+    context: {},
+    cause: "initialization",
+    serviceStatus: { items: [] },
+  });
 }
 
 async function exerciseBufferedWriteProductionSeam(requestId: string) {

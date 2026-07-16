@@ -82,7 +82,7 @@ describe("ACP runtime replay logical time", function () {
         token: {},
         current: true,
         delayMs: 160,
-        domain: "acp-chat-ui-emit",
+        domain: "acp-chat-workspace-change",
         ownerKey: "chat",
         fire: () => void order.push("first"),
       },
@@ -116,7 +116,7 @@ describe("ACP runtime replay logical time", function () {
       token: {},
       current: true,
       delayMs: 10,
-      domain: "acp-chat-ui-emit",
+      domain: "acp-chat-workspace-change",
       ownerKey: "chat",
       fire: () => {
         order.push("first");
@@ -175,7 +175,7 @@ describe("ACP runtime replay logical time", function () {
       token: {},
       current: true,
       delayMs,
-      domain: "acp-chat-ui-emit" as const,
+      domain: "acp-chat-workspace-change" as const,
       ownerKey: `chat-${delayMs}`,
       fire: () => {
         fired += 1;
@@ -203,7 +203,7 @@ describe("ACP runtime replay logical time", function () {
       token: {},
       current: true,
       delayMs: 10,
-      domain: "acp-chat-ui-emit",
+      domain: "acp-chat-workspace-change",
       ownerKey: "replaced-chat",
       fire: () => void (fired += 1),
     };
@@ -290,7 +290,7 @@ describe("ACP runtime replay logical time", function () {
     });
     assert.includeMembers(
       chatInspection.timers.map((entry) => entry.domain),
-      ["acp-chat-ui-emit", "acp-chat-persist"],
+      ["acp-chat-workspace-change", "acp-chat-persist"],
     );
 
     const skill = await createAcpWorkflowRuntimeReplayTarget({

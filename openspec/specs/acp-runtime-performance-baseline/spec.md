@@ -23,7 +23,7 @@ The repository SHALL retain deterministic `closed`, `open-inactive`, and `acp-ac
 
 ### Requirement: Comparable real-workload baselines use replay matrices
 
-Real-workload governance baselines SHALL be complete `zotero-agents.acp-runtime-replay-matrix.v1` outputs. Chat and Workflow source kinds SHALL form separate baseline families, and comparison SHALL require identical trace digest, source kind, cadence, R2 workload version, and replay configuration.
+Real-workload governance baselines SHALL be complete `zotero-agents.acp-runtime-replay-matrix.v2` outputs. Chat and Workflow source kinds SHALL form separate baseline families, and comparison SHALL require identical trace digest, source kind, cadence, R2 workload version, and replay configuration.
 
 #### Scenario: Same trace is rerun
 - **WHEN** a complete trace is replayed again with identical comparison provenance

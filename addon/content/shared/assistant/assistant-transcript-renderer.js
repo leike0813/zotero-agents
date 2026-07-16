@@ -1,6 +1,25 @@
 (function () {
   "use strict";
 
+  const transcriptNodeMaps = new WeakMap();
+
+  function transcriptNodeMap(container, provided) {
+    if (
+      provided &&
+      typeof provided.get === "function" &&
+      typeof provided.set === "function"
+    ) {
+      return provided;
+    }
+    if (!container) return null;
+    let nodes = transcriptNodeMaps.get(container);
+    if (!nodes) {
+      nodes = new Map();
+      transcriptNodeMaps.set(container, nodes);
+    }
+    return nodes;
+  }
+
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -1926,7 +1945,7 @@
     const opts = options || {};
     const effect = opts.effect || {};
     const container = opts.container;
-    const nodeMap = opts.nodeMap;
+    const nodeMap = transcriptNodeMap(container, opts.nodeMap);
     if (
       effect.kind !== "mutations" ||
       effect.onSelectedPage !== true ||
@@ -2169,8 +2188,8 @@
     }
     if (items.length === 0) {
       clearNode(container);
-      if (opts.nodeMap && typeof opts.nodeMap.clear === "function")
-        opts.nodeMap.clear();
+      const emptyNodeMap = transcriptNodeMap(container, opts.nodeMap);
+      if (emptyNodeMap) emptyNodeMap.clear();
       container.appendChild(
         el(
           "div",
@@ -2192,19 +2211,29 @@
       virtualized ? String(opts.ownerKey || "") : "",
     ].join("|");
     const orderKey = contextKey + "\u001e" + itemOrderKey;
-    const nodeMap = opts.nodeMap;
+    const nodeMap = transcriptNodeMap(container, opts.nodeMap);
     const canDiff =
       nodeMap &&
       typeof nodeMap.get === "function" &&
       typeof nodeMap.set === "function";
-    const previousOrder = String(opts.orderKey || "");
+    const previousOrder = String(
+      opts.orderKey ||
+        container.getAttribute("data-assistant-transcript-order-key") ||
+        "",
+    );
     const previousSeparator = previousOrder.indexOf("\u001e");
     const previousContext =
       previousSeparator >= 0 ? previousOrder.slice(0, previousSeparator) : "";
     const previousItemOrder =
       previousSeparator >= 0 ? previousOrder.slice(previousSeparator + 1) : "";
     const needsFullRender =
-      previousContext !== contextKey || opts.modeKey !== mode || !canDiff;
+      previousContext !== contextKey ||
+      String(
+        opts.modeKey ||
+          container.getAttribute("data-assistant-transcript-mode-key") ||
+          "",
+      ) !== mode ||
+      !canDiff;
     if (needsFullRender) {
       clearNode(container);
       if (canDiff) nodeMap.clear();
@@ -2296,6 +2325,8 @@
     if (typeof opts.onRendered === "function") {
       opts.onRendered({ orderKey, modeKey: mode, items, virtual });
     }
+    container.setAttribute("data-assistant-transcript-order-key", orderKey);
+    container.setAttribute("data-assistant-transcript-mode-key", mode);
   }
 
   window.AssistantTranscriptRenderer = {

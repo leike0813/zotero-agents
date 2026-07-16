@@ -6,7 +6,6 @@ import {
   ACP_RUNTIME_REPLAY_MATRIX_SCHEMA,
   ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1,
   assertAcpRuntimeReplayMatricesComparable,
-  inspectAcpRuntimeReplayMatrixCompatibility,
   parseAcpRuntimeReplayCadence,
   replayAcpRuntimeSemanticTrace,
   renderAcpRuntimeReplayMatrixMarkdown,
@@ -167,6 +166,59 @@ function measuredProfile(args: {
     labels,
     counter: { total },
   });
+  const lifecycle = (
+    publicationId: string,
+    overrides: Partial<{
+      post: number;
+      shellForward: number;
+      childApply: number;
+      accepted: boolean;
+    }> = {},
+  ) => {
+    const accepted = overrides.accepted !== false;
+    return {
+      publicationId,
+      source: "acp-chat" as const,
+      kind: "transcript" as const,
+      publicationForm: "delta" as const,
+      publicationCause: "steady-state" as const,
+      deliverySequence: 1,
+      postedAtMs: 101,
+      acknowledgements: accepted
+        ? [
+            {
+              stage: "shell-forward" as const,
+              outcome: "accepted" as const,
+              reason: null,
+              atMs: 102,
+            },
+            {
+              stage: "child-apply" as const,
+              outcome: "accepted" as const,
+              reason: null,
+              atMs: 103,
+            },
+            {
+              stage: "render-complete" as const,
+              outcome: "accepted" as const,
+              reason: null,
+              atMs: 104,
+            },
+          ]
+        : [],
+      terminal: accepted
+        ? {
+            outcome: "accepted" as const,
+            reason: null,
+            atMs: 104,
+          }
+        : null,
+      post: overrides.post ?? 1,
+      shellForward: overrides.shellForward ?? (accepted ? 1 : 0),
+      childApply: overrides.childApply ?? (accepted ? 1 : 0),
+      renderAck: accepted ? 1 : 0,
+    };
+  };
   return {
     requestId: args.requestId,
     displayMode: "live" as const,
@@ -174,34 +226,17 @@ function measuredProfile(args: {
     zoteroMajor: 9 as const,
     startedAtMs: 100,
     finishedAtMs: 110,
+    metricSeriesDrops: 0,
+    measurement: "complete" as const,
+    publicationDiagnostics: [],
     publicationLifecycles:
       args.surface === "target-active"
         ? args.mismatchedR3Publication
           ? [
-              {
-                publicationId: "publication-1",
-                post: 1,
-                shellForward: 1,
-                childApply: 1,
-                renderAck: 0,
-              },
-              {
-                publicationId: "publication-from-prior-run",
-                post: 0,
-                shellForward: 0,
-                childApply: 0,
-                renderAck: 1,
-              },
+              lifecycle("publication-1", { accepted: false }),
+              lifecycle("publication-from-prior-run", { post: 0 }),
             ]
-          : [
-              {
-                publicationId: "publication-1",
-                post: 1,
-                shellForward: 1,
-                childApply: 1,
-                renderAck: 1,
-              },
-            ]
+          : [lifecycle("publication-1")]
         : [],
     metrics: [
       counter("semantic_event", 5),
@@ -1074,22 +1109,6 @@ describe("ACP runtime replay profiler", function () {
     assert.equal(replayApplications, 30);
     assert.equal(r2Fragments, 6 * 33);
     assert.equal(workspaceDrains, 6);
-  });
-
-  it("reads v1 matrices as legacy execution artifacts but rejects them for governance", function () {
-    assert.deepEqual(
-      inspectAcpRuntimeReplayMatrixCompatibility({
-        schema: "zotero-agents.acp-runtime-replay-matrix.v1",
-        completion: "complete",
-      }),
-      {
-        schema: "zotero-agents.acp-runtime-replay-matrix.v1",
-        legacy: true,
-        executionCompletion: "complete",
-        measurementCompletion: "incomplete",
-        governanceEligible: false,
-      },
-    );
   });
 
   it("publishes progress after cleanup and stops future runs after abort", async function () {

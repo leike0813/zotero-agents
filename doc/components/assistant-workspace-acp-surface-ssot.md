@@ -42,15 +42,18 @@ revision, delivery, child loading, rebase, or DOM state.
 The browser controller owns one source-neutral state:
 
 ```text
-owner
-regions.ownerNavigation
-regions.baselineStatus
-regions.messageCounts
-regions.transcript
-regions.plan
-regions.permission
-regions.replyHint
-regions.contextDetails
+source
+navigation
+services
+selection.owner
+selection.phase
+selection.control
+selection.messageCounts
+selection.transcript
+selection.plan
+selection.permission
+selection.composer
+selection.presentation
 ```
 
 The same field names and null semantics apply to Chat and Skills. A shared
@@ -97,7 +100,7 @@ and dual writes are prohibited.
 
 ## Adapter Contract
 
-Each domain registers one `AssistantWorkspaceAcpSurfaceAdapter`. The adapter is
+Each domain registers one `AssistantWorkspacePublicationAdapter`. The adapter is
 limited to:
 
 - O(1) lookup of the active owner;
@@ -127,9 +130,10 @@ One shared ACP surface runtime owns:
 - automatic rebase and its page read;
 - lifecycle diagnostics and exact publication barriers.
 
-Initialization is an ordered set of typed region publications. It publishes the
-owner and transcript loading state first, then owner-scoped non-transcript
-regions, then the indexed ready page. It does not build a complete Chat or
+Initialization is an ordered set of typed region publications. It publishes
+navigation and service status, then the new owner and transcript loading state,
+then the indexed ready page, and finally one batch read of the remaining
+owner-scoped regions. It does not build a complete Chat or
 Skills panel snapshot. Indexed page readiness and full mirror hydration remain
 independent.
 

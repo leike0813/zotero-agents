@@ -145,11 +145,45 @@ describe("ACP runtime replay controller", function () {
           zoteroMajor: 9 as const,
           startedAtMs: 1,
           finishedAtMs: 2,
+          metricSeriesDrops: 0,
+          measurement: "complete" as const,
+          publicationDiagnostics: [],
           publicationLifecycles:
             active?.surface === "target-active"
               ? [
                   {
                     publicationId: "publication-1",
+                    source: "acp-chat" as const,
+                    kind: "transcript" as const,
+                    publicationForm: "delta" as const,
+                    publicationCause: "steady-state" as const,
+                    deliverySequence: 1,
+                    postedAtMs: 1,
+                    acknowledgements: [
+                      {
+                        stage: "shell-forward" as const,
+                        outcome: "accepted" as const,
+                        reason: null,
+                        atMs: 1,
+                      },
+                      {
+                        stage: "child-apply" as const,
+                        outcome: "accepted" as const,
+                        reason: null,
+                        atMs: 1,
+                      },
+                      {
+                        stage: "render-complete" as const,
+                        outcome: "accepted" as const,
+                        reason: null,
+                        atMs: 2,
+                      },
+                    ],
+                    terminal: {
+                      outcome: "accepted" as const,
+                      reason: null,
+                      atMs: 2,
+                    },
                     post: 1,
                     shellForward: 1,
                     childApply: 1,

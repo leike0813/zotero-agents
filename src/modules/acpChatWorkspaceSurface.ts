@@ -5,38 +5,34 @@ import {
 import {
   getAcpChatExecutionProgress,
   getAcpChatWorkspaceOwnerNavigation,
-  getAcpConversationUiSnapshot,
+  getAcpChatWorkspaceReadModel,
   getActiveAcpChatOwner,
   readAcpConversationTranscriptMirrorPage,
   readAcpConversationTranscriptPage,
-  type AcpChatPanelSnapshotChange,
-  type AcpChatPanelSnapshotChangeKind,
+  type AcpChatWorkspaceChange,
+  type AcpChatWorkspaceChangeKind,
 } from "./acpSessionManager";
 import type { AcpSidebarTarget } from "./acpTypes";
 import {
-  ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
   createAcpChatWorkspaceOwner,
   createFailedTranscriptRegion,
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
   createReadyTranscriptRegion,
   type AssistantWorkspacePublicationKind,
-  type AssistantWorkspacePublicationPayload,
+  type AssistantWorkspacePublicationPayloadByKind,
 } from "./assistantWorkspacePublication";
 import {
   createAssistantWorkspaceTranscriptPage,
   type AssistantWorkspaceTranscriptRegion,
 } from "./assistantWorkspaceTranscriptPublication";
 import {
-  defineAssistantWorkspaceAcpSurfaceAdapter,
-  type AssistantWorkspaceAcpSurfaceAdapter,
-  type AssistantWorkspaceAcpSurfacePayloadByKind,
-} from "./assistantWorkspaceAcpSurface";
+  defineAssistantWorkspacePublicationAdapter,
+  type AssistantWorkspacePublicationAdapter,
+  type AssistantWorkspacePublicationRuntimePayloadByKind,
+} from "./assistantWorkspacePublicationRuntime";
 
 export type AcpChatTranscriptPageRequest = {
-  backendId?: string;
-  conversationId?: string;
-  requestId?: string;
   cursor?: number;
   limit?: number;
 };
@@ -63,7 +59,7 @@ export function acpChatTranscriptPageKey(
 
 export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
   "active-scope": "owner-navigation",
-  status: "baseline-status",
+  status: "owner-control",
   permission: "permission",
   "session-list": "owner-navigation",
   "transcript-boundary": "transcript",
@@ -71,31 +67,29 @@ export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
   "transcript-progress": "transcript",
   "message-counts": "message-counts",
   plan: "plan",
-  "reply-hint": "reply-hint",
-  "context-details": "context-details",
-  "runtime-options": "reply-hint",
+  composer: "composer",
+  "owner-presentation": "owner-presentation",
+  "runtime-options": "composer",
   backend: "owner-navigation",
   global: "owner-navigation",
 } as const satisfies Record<
-  AcpChatPanelSnapshotChangeKind,
+  AcpChatWorkspaceChangeKind,
   AssistantWorkspacePublicationKind
 >;
 
-function normalizedChangeKinds(change: AcpChatPanelSnapshotChange) {
+function normalizedChangeKinds(change: AcpChatWorkspaceChange) {
   return (change.kinds || []).filter(Boolean);
 }
 
 function hasAnyChangeKind(
-  change: AcpChatPanelSnapshotChange,
-  kinds: readonly AcpChatPanelSnapshotChangeKind[],
+  change: AcpChatWorkspaceChange,
+  kinds: readonly AcpChatWorkspaceChangeKind[],
 ) {
   const changed = new Set(normalizedChangeKinds(change));
   return kinds.some((kind) => changed.has(kind));
 }
 
-export function isPureAcpChatBackgroundChange(
-  change: AcpChatPanelSnapshotChange,
-) {
+export function isPureAcpChatBackgroundChange(change: AcpChatWorkspaceChange) {
   if (change.global || change.active === true) return false;
   const kinds = normalizedChangeKinds(change);
   return (
@@ -108,7 +102,7 @@ export function isPureAcpChatBackgroundChange(
 
 export function shouldPublishAcpChatWorkspaceChange(
   state: AcpChatSnapshotRefreshState,
-  change: AcpChatPanelSnapshotChange,
+  change: AcpChatWorkspaceChange,
 ) {
   if (!state.hasActiveTarget || state.activeTab !== "acp-chat") return false;
   if (change.global === true) return true;
@@ -124,8 +118,8 @@ export function shouldPublishAcpChatWorkspaceChange(
       "status",
       "message-counts",
       "plan",
-      "reply-hint",
-      "context-details",
+      "composer",
+      "owner-presentation",
       "transcript-boundary",
       "transcript-progress",
     ])
@@ -140,7 +134,7 @@ export function shouldPublishAcpChatWorkspaceChange(
 
 export function resolveAcpChatWorkspacePublicationKinds(
   state: AcpChatSnapshotRefreshState,
-  change: AcpChatPanelSnapshotChange,
+  change: AcpChatWorkspaceChange,
 ): AssistantWorkspacePublicationKind[] {
   if (!shouldPublishAcpChatWorkspaceChange(state, change)) return [];
   return mapAcpChatWorkspaceChangeKinds(state, change);
@@ -148,7 +142,7 @@ export function resolveAcpChatWorkspacePublicationKinds(
 
 export function mapAcpChatWorkspaceChangeKinds(
   state: Pick<AcpChatSnapshotRefreshState, "executionDisplayMode">,
-  change: AcpChatPanelSnapshotChange,
+  change: AcpChatWorkspaceChange,
 ): AssistantWorkspacePublicationKind[] {
   return Array.from(
     new Set(
@@ -191,20 +185,8 @@ async function readAcpChatTranscriptRegion(args: {
     ReturnType<typeof createAcpChatWorkspaceOwner>,
     { source: "acp-chat" }
   >;
-  transcriptReadMode?: "loading-first" | "page-first";
   transcriptPage?: AcpChatTranscriptPageRequest;
 }): Promise<AssistantWorkspaceTranscriptRegion> {
-  if (args.transcriptReadMode === "loading-first") {
-    return createLoadingTranscriptRegion(args.owner);
-  }
-  const requestId = String(args.transcriptPage?.requestId || "").trim();
-  if (requestId && requestId !== args.owner.ownerKey) {
-    return createFailedTranscriptRegion(args.owner, {
-      code: "transcript-page-owner-mismatch",
-      message:
-        "Transcript page owner does not match the selected conversation.",
-    });
-  }
   try {
     const readArgs = {
       backendId: args.owner.backendId,
@@ -240,24 +222,26 @@ async function readAcpChatTranscriptRegion(args: {
   }
 }
 
-export async function readAcpChatWorkspacePublication(args: {
+export async function readAcpChatWorkspaceRegions(args: {
   owner: ReturnType<typeof createAcpChatWorkspaceOwner>;
-  publicationKind: AssistantWorkspacePublicationKind;
-  transcriptReadMode?: "loading-first" | "page-first";
-  transcriptPage?: AcpChatTranscriptPageRequest;
-}): Promise<AssistantWorkspacePublicationPayload | null> {
-  if (args.publicationKind === "owner-navigation") {
-    return getAcpChatWorkspaceOwnerNavigation();
-  }
-  if (args.publicationKind === "transcript") {
-    return readAcpChatTranscriptRegion(args);
-  }
-  if (args.publicationKind === "message-counts") {
+  kinds: readonly Exclude<
+    AssistantWorkspacePublicationKind,
+    "owner-navigation" | "service-status" | "transcript"
+  >[];
+}): Promise<Partial<AssistantWorkspacePublicationRuntimePayloadByKind>> {
+  const requested = new Set(args.kinds);
+  const snapshot = getAcpChatWorkspaceReadModel(
+    args.owner.backendId,
+    args.owner.conversationId,
+  );
+  const regions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind> =
+    {};
+  if (requested.has("message-counts")) {
     const progress = getAcpChatExecutionProgress(
       args.owner.backendId,
       args.owner.conversationId,
     );
-    return {
+    regions["message-counts"] = {
       counts: progress
         ? {
             scopeKey: progress.scopeKey,
@@ -271,28 +255,19 @@ export async function readAcpChatWorkspacePublication(args: {
         : null,
     };
   }
-  const snapshot = getAcpConversationUiSnapshot(
-    args.owner.backendId,
-    args.owner.conversationId,
-    { itemMode: "structural" },
-  );
-  if (args.publicationKind === "plan") {
-    return {
-      items: snapshot.items
-        .filter((item) => item.kind === "plan")
-        .flatMap((item) =>
-          item.entries.map((entry, index) => ({
-            itemId: `${item.id}:${index}`,
-            content: String(entry.content || ""),
-            priority: entry.priority ? String(entry.priority) : null,
-            status: entry.status ? String(entry.status) : null,
-          })),
-        ),
+  if (requested.has("plan")) {
+    regions.plan = {
+      items: snapshot.planEntries.map((entry, index) => ({
+        itemId: `plan:${index}`,
+        content: String(entry.content || ""),
+        priority: entry.priority ? String(entry.priority) : null,
+        status: entry.status ? String(entry.status) : null,
+      })),
     };
   }
-  if (args.publicationKind === "permission") {
+  if (requested.has("permission")) {
     const pending = snapshot.pendingPermissionRequest;
-    return {
+    regions.permission = {
       request: pending
         ? {
             requestId: pending.requestId,
@@ -307,8 +282,8 @@ export async function readAcpChatWorkspacePublication(args: {
         : null,
     };
   }
-  if (args.publicationKind === "reply-hint") {
-    return {
+  if (requested.has("composer")) {
+    regions.composer = {
       reply: {
         status: snapshot.busy ? "busy" : "enabled",
         hint: null,
@@ -328,8 +303,89 @@ export async function readAcpChatWorkspacePublication(args: {
       },
     };
   }
-  if (args.publicationKind === "context-details") {
-    return {
+  if (requested.has("owner-presentation")) {
+    const workspace =
+      snapshot.agentWorkspaceDir ||
+      snapshot.sessionCwd ||
+      snapshot.workspaceDir ||
+      snapshot.runtimeDir;
+    regions["owner-presentation"] = {
+      title:
+        String(snapshot.sessionTitle || snapshot.conversationTitle).trim() ||
+        args.owner.conversationId,
+      subtitle:
+        String(snapshot.agentLabel || "").trim() ||
+        String(args.owner.backendId || "").trim() ||
+        null,
+      description: String(snapshot.lastError || "").trim() || null,
+      metadata: [
+        {
+          itemId: "backend",
+          label: "Backend",
+          value: args.owner.backendId,
+        },
+        {
+          itemId: "conversation",
+          label: "Conversation",
+          value: args.owner.conversationId,
+        },
+        {
+          itemId: "updated-at",
+          label: "Updated",
+          value: snapshot.sessionUpdatedAt || snapshot.updatedAt,
+        },
+      ].filter((entry) => entry.value),
+      banner: {
+        status: snapshot.status,
+        message: String(snapshot.lastError || "").trim() || null,
+        usage: snapshot.usage
+          ? [
+              {
+                itemId: "usage",
+                label: "Usage",
+                value: `${snapshot.usage.used}/${snapshot.usage.size}`,
+              },
+              ...(snapshot.usage.costText
+                ? [
+                    {
+                      itemId: "cost",
+                      label: "Cost",
+                      value: snapshot.usage.costText,
+                    },
+                  ]
+                : []),
+            ]
+          : [],
+        connection: [
+          {
+            itemId: "session",
+            label: "Session",
+            value: snapshot.sessionId || snapshot.remoteSessionId,
+          },
+        ].filter((entry) => entry.value),
+        recovery: [
+          {
+            itemId: "remote-session",
+            label: "Recovery",
+            value: snapshot.remoteSessionRestoreMessage,
+          },
+        ].filter((entry) => entry.value),
+        workspace: workspace
+          ? [{ itemId: "workspace", label: "Workspace", value: workspace }]
+          : [],
+        details: snapshot.agentVersion
+          ? [
+              {
+                itemId: "agent-version",
+                label: "Agent version",
+                value: snapshot.agentVersion,
+              },
+            ]
+          : [],
+        diagnostics: [
+          { action: "copy-diagnostics", label: "Copy diagnostics" },
+        ],
+      },
       context: [
         {
           itemId: "session-title",
@@ -343,51 +399,65 @@ export async function readAcpChatWorkspacePublication(args: {
         {
           itemId: "updated-at",
           label: "Updated",
-          value: String(snapshot.sessionUpdatedAt || ""),
+          value: String(snapshot.sessionUpdatedAt || snapshot.updatedAt || ""),
         },
         {
           itemId: "workspace",
           label: "Workspace",
-          value: String(
-            snapshot.agentWorkspaceDir || snapshot.sessionCwd || "",
-          ),
+          value: String(workspace || ""),
         },
       ].filter((entry) => entry.value),
+      tasks: [],
     };
   }
-  return {
-    status: String(snapshot.status || "idle"),
-    busy: snapshot.busy === true,
-    message: snapshot.lastError || null,
-    connection: {
+  if (requested.has("owner-control")) {
+    regions["owner-control"] = {
       status: String(snapshot.status || "idle"),
-      sessionAvailable: Boolean(snapshot.sessionId || snapshot.remoteSessionId),
-      connected:
-        Boolean(snapshot.sessionId || snapshot.remoteSessionId) ||
-        [
-          "connected",
-          "prompting",
-          "permission-required",
-          "auth-required",
-        ].includes(String(snapshot.status || "")),
-      canConnect:
-        !snapshot.busy && !snapshot.sessionId && !snapshot.remoteSessionId,
-      canDisconnect:
-        Boolean(snapshot.sessionId || snapshot.remoteSessionId) &&
-        !snapshot.busy,
-    },
-    execution: {
-      canCancel: snapshot.busy === true,
-      canInterrupt: false,
-    },
-  };
+      busy: snapshot.busy === true,
+      message: snapshot.lastError || null,
+      connection: {
+        status: String(snapshot.status || "idle"),
+        sessionAvailable: Boolean(
+          snapshot.sessionId || snapshot.remoteSessionId,
+        ),
+        connected:
+          Boolean(snapshot.sessionId || snapshot.remoteSessionId) ||
+          [
+            "connected",
+            "prompting",
+            "permission-required",
+            "auth-required",
+          ].includes(String(snapshot.status || "")),
+        canConnect:
+          !snapshot.busy && !snapshot.sessionId && !snapshot.remoteSessionId,
+        canDisconnect:
+          Boolean(snapshot.sessionId || snapshot.remoteSessionId) &&
+          !snapshot.busy,
+      },
+      execution: {
+        canCancel: snapshot.busy === true,
+        canInterrupt: false,
+      },
+    };
+  }
+  return regions;
 }
 
-export const ACP_CHAT_WORKSPACE_SURFACE_ADAPTER =
-  defineAssistantWorkspaceAcpSurfaceAdapter({
+export const ACP_CHAT_WORKSPACE_ADAPTER =
+  defineAssistantWorkspacePublicationAdapter({
     source: "acp-chat",
-    domainMapping: ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
-    getActiveOwner() {
+    supportedKinds: [
+      "owner-navigation",
+      "service-status",
+      "owner-control",
+      "message-counts",
+      "transcript",
+      "plan",
+      "permission",
+      "composer",
+      "owner-presentation",
+    ],
+    selectedOwner() {
       const active = getActiveAcpChatOwner();
       return active.backendId && active.conversationId
         ? createAcpChatWorkspaceOwner(active.backendId, active.conversationId)
@@ -397,7 +467,7 @@ export const ACP_CHAT_WORKSPACE_SURFACE_ADAPTER =
       return getAcpChatWorkspaceOwnerNavigation();
     },
     mapChange(
-      change: AcpChatPanelSnapshotChange,
+      change: AcpChatWorkspaceChange,
       context: AcpChatWorkspaceSurfaceContext,
     ) {
       const backendId = String(change.backendId || "").trim();
@@ -416,20 +486,18 @@ export const ACP_CHAT_WORKSPACE_SURFACE_ADAPTER =
         },
       };
     },
-    async readPublication(args) {
-      return readAcpChatWorkspacePublication({
-        owner: args.owner,
-        publicationKind: args.publicationKind,
-        transcriptReadMode: args.options?.transcriptReadMode,
-        transcriptPage: args.options?.transcriptPage,
-      }) as Promise<
-        | AssistantWorkspaceAcpSurfacePayloadByKind[typeof args.publicationKind]
-        | null
-      >;
+    async readOwnerRegions(args) {
+      return readAcpChatWorkspaceRegions(args);
     },
-  } satisfies AssistantWorkspaceAcpSurfaceAdapter<
+    async readTranscriptPage(args) {
+      return readAcpChatTranscriptRegion({
+        owner: args.owner,
+        transcriptPage: args.request,
+      });
+    },
+  } satisfies AssistantWorkspacePublicationAdapter<
     "acp-chat",
-    AcpChatPanelSnapshotChange,
+    AcpChatWorkspaceChange,
     AcpChatWorkspaceSurfaceContext,
     AcpChatTranscriptPageRequest
   >);

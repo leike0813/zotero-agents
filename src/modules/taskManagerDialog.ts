@@ -82,11 +82,10 @@ import {
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   listAcpSkillRunSummaries,
   selectAcpSkillRun,
-  subscribeAcpSkillRunSnapshots,
+  subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
@@ -243,7 +242,6 @@ type DashboardSnapshot = {
     quickRunEnabled: boolean;
     quickRunDisabledReason?: string;
   }>;
-  acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   productStorageView?: {
     section: "products" | "feedback";
     products: ReturnType<typeof listWorkflowProducts>;
@@ -4381,7 +4379,7 @@ export async function openTaskManagerDialog(args?: {
       activeRowsRevision += 1;
       refresh("backend-health");
     });
-    unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
+    unsubscribeAcpSkillRuns = subscribeAcpSkillRunWorkspaceChanges(() => {
       markTaskSummaryDirty();
       refresh("task-update");
     });

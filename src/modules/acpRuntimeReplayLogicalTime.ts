@@ -4,7 +4,7 @@ export const ACP_RUNTIME_LOGICAL_TIME_V1 =
 export type AcpRuntimeReplayLogicalTimerDomain =
   | "acp-skill-run-change"
   | "acp-skill-run-soft-persist"
-  | "acp-chat-ui-emit"
+  | "acp-chat-workspace-change"
   | "acp-chat-persist"
   | "assistant-workspace-post-snapshot";
 

@@ -17,11 +17,13 @@ import {
   connectAcpConversation,
   deleteActiveAcpConversation,
   disconnectAcpConversation,
-  getAcpFrontendSnapshot,
   getAcpConversationSnapshot,
+  getAcpChatExecutionProgress,
+  getAcpChatWorkspaceOwnerNavigation,
   getAcpChatTranscriptMirrorDiagnosticsForTests,
-  getAcpConversationUiSnapshot,
+  getActiveAcpChatOwner,
   refreshAcpConversationBackends,
+  readAcpConversationTranscriptMirrorPage,
   readAcpConversationTranscriptPage,
   prepareSyntheticAcpChatReplay,
   pruneAcpChatSessionRuntimesForBackends,
@@ -38,14 +40,13 @@ import {
   setAcpConversationMode,
   setAcpConversationReasoningEffort,
   shutdownAcpSessionManager,
-  subscribeAcpChatPanelSnapshots,
-  subscribeAcpConversationSnapshots,
-  subscribeAcpFrontendSnapshots,
+  subscribeAcpChatWorkspaceChanges,
+  scheduleAcpChatTranscriptHydrateForOwner,
   setAcpConnectionAdapterFactoryForTests,
   setAcpChatPromptInterruptGraceMsForTests,
   startNewAcpConversation,
   toggleAcpConversationStatusDetails,
-  type AcpChatPanelSnapshotChange,
+  type AcpChatWorkspaceChange,
 } from "../../src/modules/acpSessionManager";
 import {
   listAcpChatSessions,
@@ -83,19 +84,328 @@ import type {
 } from "../../src/modules/acpProtocol";
 import { joinPath } from "../../src/utils/path";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+import { getAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
-import { setAssistantTranscriptPaginationVirtualizationEnabled } from "../../src/modules/assistantTranscriptRenderingPreference";
-import { createAcpChatWorkspaceOwner } from "../../src/modules/assistantWorkspacePublication";
-import { prepareAcpChatPanelSnapshot } from "../../src/modules/acpChatPanelReadModel";
+import {
+  isAssistantTranscriptPaginationVirtualizationEnabled,
+  setAssistantTranscriptPaginationVirtualizationEnabled,
+} from "../../src/modules/assistantTranscriptRenderingPreference";
+import {
+  createAcpChatWorkspaceOwner,
+  createFailedTranscriptRegion,
+  createIdleTranscriptRegion,
+  createLoadingTranscriptRegion,
+  createReadyTranscriptRegion,
+} from "../../src/modules/assistantWorkspacePublication";
+import { createAssistantWorkspaceTranscriptPage } from "../../src/modules/assistantWorkspaceTranscriptPublication";
+import { buildAcpSidebarViewSnapshot } from "../../src/modules/acpSidebarModel";
 import {
   acpChatTranscriptPageKey,
   isPureAcpChatBackgroundChange,
-  readAcpChatWorkspacePublication,
+  readAcpChatWorkspaceRegions,
   resolveAcpChatWorkspacePublicationKinds,
   shouldPublishAcpChatWorkspaceChange,
 } from "../../src/modules/acpChatWorkspaceSurface";
+
+type AcpChatTestReadOptions = {
+  itemMode?: "full" | "structural";
+};
+
+function getAcpConversationUiSnapshot(
+  backendId?: string,
+  conversationId?: string,
+  options?: AcpChatTestReadOptions,
+) {
+  const snapshot = getAcpConversationSnapshot(backendId, conversationId);
+  const page =
+    snapshot.backendId && snapshot.conversationId
+      ? readAcpConversationTranscriptMirrorPage({
+          backendId: snapshot.backendId,
+          conversationId: snapshot.conversationId,
+          limit: Math.max(80, Number(snapshot.transcriptItemCount) || 0),
+          executionDisplayMode: getAssistantExecutionDisplayMode(),
+        })
+      : undefined;
+  const items = (Array.isArray(page?.items) ? page.items : []).map((entry) => ({
+    ...entry,
+    kind: "kind" in entry ? entry.kind : entry.itemKind,
+    state: "state" in entry ? entry.state : entry.status,
+  }));
+  return {
+    ...snapshot,
+    items:
+      options?.itemMode === "structural"
+        ? items.filter((entry) => entry.kind === "plan")
+        : items,
+  };
+}
+
+function getAcpFrontendSnapshot(options?: AcpChatTestReadOptions) {
+  const active = getActiveAcpChatOwner();
+  const navigation = getAcpChatWorkspaceOwnerNavigation();
+  const activeSnapshot = getAcpConversationUiSnapshot(
+    active.backendId,
+    active.conversationId,
+    options,
+  );
+  const entriesByGroup = new Map<string, typeof navigation.entries>();
+  for (const entry of navigation.entries) {
+    const groupId = String(entry.groupId || "").trim();
+    const entries = entriesByGroup.get(groupId) || [];
+    entries.push(entry);
+    entriesByGroup.set(groupId, entries);
+  }
+  const backendChatSessions = navigation.groups
+    .map((group) => ({
+      backendId: group.groupId,
+      displayName: group.label,
+      sessions: (entriesByGroup.get(group.groupId) || []).map((entry) => ({
+        backendId: group.groupId,
+        conversationId:
+          entry.owner.source === "acp-chat" ? entry.owner.conversationId : "",
+        title: entry.label,
+        messageCount: entry.messageCount,
+        status: entry.status,
+        lastError: entry.description || "",
+        updatedAt: entry.updatedAt || "",
+      })),
+    }))
+    .sort((left, right) =>
+      left.backendId === active.backendId
+        ? -1
+        : right.backendId === active.backendId
+          ? 1
+          : 0,
+    );
+  const connectedStatuses = new Set([
+    "connected",
+    "prompting",
+    "permission-required",
+    "auth-required",
+  ]);
+  const backends = navigation.groups.map((group) => {
+    const sessions = entriesByGroup.get(group.groupId) || [];
+    const selected =
+      group.groupId === active.backendId ? activeSnapshot : undefined;
+    const status =
+      String(selected?.status || "").trim() ||
+      sessions.find((entry) => connectedStatuses.has(entry.status))?.status ||
+      group.status;
+    return {
+      backendId: group.groupId,
+      displayName: group.label,
+      status,
+      connected: connectedStatuses.has(status),
+    };
+  });
+  return {
+    activeBackendId: active.backendId,
+    activeConversationId: active.conversationId,
+    activeSnapshot,
+    backends,
+    backendChatSessions,
+    connectedCount: backends.filter((entry) => entry.connected).length,
+    totalMessageCount: navigation.entries.reduce(
+      (total, entry) => total + Math.max(0, Number(entry.messageCount) || 0),
+      0,
+    ),
+  };
+}
+
+const subscribeAcpChatPanelSnapshots = subscribeAcpChatWorkspaceChanges;
+
+function subscribeAcpConversationSnapshots(
+  listener: (snapshot: ReturnType<typeof getAcpConversationUiSnapshot>) => void,
+) {
+  return subscribeAcpChatWorkspaceChanges((change) => {
+    if (change.active !== true && change.global !== true) return;
+    listener(
+      getAcpConversationUiSnapshot(change.backendId, change.conversationId),
+    );
+  });
+}
+
+function subscribeAcpFrontendSnapshots(
+  listener: (snapshot: ReturnType<typeof getAcpFrontendSnapshot>) => void,
+) {
+  return subscribeAcpChatWorkspaceChanges(() => {
+    listener(getAcpFrontendSnapshot());
+  });
+}
+
+type AcpChatPanelSnapshotChange = AcpChatWorkspaceChange;
+
+async function prepareAcpChatPanelSnapshot(args: {
+  target: "library" | "reader";
+  transcriptReadMode?: "loading-first" | "page-first";
+  transcriptPage?: {
+    backendId?: string;
+    conversationId?: string;
+    requestId?: string;
+    cursor?: number;
+    limit?: number;
+  };
+  readTranscriptPage?: (
+    args: Record<string, unknown>,
+  ) => unknown | Promise<unknown>;
+}) {
+  const virtualized = isAssistantTranscriptPaginationVirtualizationEnabled();
+  const readOptions = virtualized
+    ? ({ itemMode: "structural" } as const)
+    : undefined;
+  const snapshot = getAcpConversationUiSnapshot(
+    undefined,
+    undefined,
+    readOptions,
+  );
+  const frontendSnapshot = getAcpFrontendSnapshot(readOptions);
+  const payload = {
+    ...(buildAcpSidebarViewSnapshot({
+      target: args.target,
+      snapshot,
+      frontendSnapshot,
+    }) as unknown as Record<string, any>),
+    executionDisplayMode: getAssistantExecutionDisplayMode(),
+    transcriptPaginationVirtualizationEnabled: virtualized,
+  };
+  const backendOptions = Array.isArray(payload.backendOptions)
+    ? payload.backendOptions
+    : [];
+  const availableBackendIds = backendOptions
+    .map((entry: Record<string, unknown>) =>
+      String(entry.backendId || entry.id || entry.value || "").trim(),
+    )
+    .filter(Boolean);
+  const requestedBackendId = String(
+    payload.activeBackendId || payload.backendId || "",
+  ).trim();
+  const backendId =
+    (availableBackendIds.includes(requestedBackendId)
+      ? requestedBackendId
+      : "") ||
+    availableBackendIds[0] ||
+    "";
+  const conversationId = String(
+    payload.activeConversationId || payload.conversationId || "",
+  ).trim();
+  payload.activeBackendId = backendId;
+  payload.backendId = backendId;
+  payload.backendAvailability = backendId ? "selected" : "none";
+  payload.activeConversationId = backendId ? conversationId : "";
+  payload.conversationId = backendId ? conversationId : "";
+  payload.conversationAvailability =
+    backendId && conversationId ? "selected" : "none";
+  if (!backendId || !conversationId) {
+    payload.transcriptRegion = createIdleTranscriptRegion();
+    payload.items = [];
+    payload.busy = false;
+    if (!backendId) payload.status = "idle";
+    return payload;
+  }
+  const progress = getAcpChatExecutionProgress(backendId, conversationId);
+  payload.messageCounts = progress
+    ? {
+        scopeKey: progress.scopeKey,
+        executionKey: progress.executionKey,
+        active: progress.active,
+        current: { ...progress.current },
+        cumulative: { ...progress.cumulative },
+        revision: progress.revision,
+        completeness: progress.completeness,
+      }
+    : undefined;
+  const owner = createAcpChatWorkspaceOwner(backendId, conversationId);
+  if (!virtualized) {
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    payload.transcriptRegion = createReadyTranscriptRegion(
+      owner,
+      createAssistantWorkspaceTranscriptPage({
+        owner,
+        anchor: "tail",
+        cursor: 0,
+        limit: Math.max(1, items.length),
+        totalVisibleItemCount: items.length,
+        sourceEventSeq: Number(payload.transcriptEventSeq) || 0,
+        items,
+      }),
+      0,
+    );
+    return payload;
+  }
+  if (args.transcriptReadMode === "loading-first") {
+    payload.transcriptRegion = createLoadingTranscriptRegion(owner);
+    return payload;
+  }
+  try {
+    const request = args.transcriptPage || {};
+    const pageArgs = {
+      backendId,
+      conversationId,
+      cursor: request.cursor === undefined ? undefined : Number(request.cursor),
+      limit: request.limit === undefined ? undefined : Number(request.limit),
+      executionDisplayMode: getAssistantExecutionDisplayMode(),
+    };
+    const page = (
+      args.readTranscriptPage
+        ? await args.readTranscriptPage(pageArgs)
+        : readAcpConversationTranscriptMirrorPage(pageArgs) ||
+          (await readAcpConversationTranscriptPage(pageArgs))
+    ) as Record<string, any> | undefined;
+    if (
+      page &&
+      String(page.backendId || "") === backendId &&
+      String(page.conversationId || "") === conversationId
+    ) {
+      payload.transcriptRegion = createReadyTranscriptRegion(
+        owner,
+        createAssistantWorkspaceTranscriptPage({
+          owner,
+          anchor: request.cursor === undefined ? "tail" : "cursor",
+          cursor: Number(page.cursor) || 0,
+          limit: Number(page.limit) || 80,
+          totalVisibleItemCount: Number(page.total) || 0,
+          previousCursor: page.prevCursor,
+          nextCursor: page.nextCursor,
+          sourceEventSeq: Number(page.eventSeq) || 0,
+          items: Array.isArray(page.items) ? page.items : [],
+        }),
+        0,
+      );
+      scheduleAcpChatTranscriptHydrateForOwner({
+        backendId,
+        conversationId,
+      });
+    } else {
+      payload.transcriptRegion = createLoadingTranscriptRegion(owner);
+    }
+  } catch (error) {
+    payload.transcriptRegion = createFailedTranscriptRegion(owner, {
+      code: "transcript-page-read-failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return payload;
+}
+
+async function readAcpChatWorkspacePublication(args: {
+  owner: ReturnType<typeof createAcpChatWorkspaceOwner>;
+  publicationKind: string;
+}) {
+  if (args.publicationKind === "owner-navigation") {
+    return getAcpChatWorkspaceOwnerNavigation();
+  }
+  const publicationKind =
+    args.publicationKind === "baseline-status"
+      ? "owner-control"
+      : args.publicationKind;
+  const regions = await readAcpChatWorkspaceRegions({
+    owner: args.owner,
+    kinds: [publicationKind as any],
+  });
+  return regions[publicationKind as keyof typeof regions] || null;
+}
 
 export {
   assert,

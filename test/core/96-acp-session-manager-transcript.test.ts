@@ -1080,25 +1080,17 @@ describe("acp session manager", function () {
     );
   });
 
-  it("streams ACP chat text naturally while preserving the final transcript", async function () {
+  it("emits typed ACP chat text mutations while preserving the final transcript", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
       harness.lastAdapter.streamingChunkCount = 100;
       return harness.lastAdapter;
     });
-    let streamingAssistantSnapshotCount = 0;
-    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
-      if (
-        snapshot.items.some(
-          (entry) =>
-            entry.kind === "message" &&
-            entry.role === "assistant" &&
-            entry.state === "streaming" &&
-            entry.text.length > 0,
-        )
-      ) {
-        streamingAssistantSnapshotCount += 1;
-      }
+    let liveTextMutationCount = 0;
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      liveTextMutationCount += (change.transcriptEvents || []).filter(
+        (event) => event.boundary === "text-continuation",
+      ).length;
     });
 
     await sendAcpConversationPrompt({
@@ -1111,7 +1103,7 @@ describe("acp session manager", function () {
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
-    assert.isAbove(streamingAssistantSnapshotCount, 0);
+    assert.isAbove(liveTextMutationCount, 0);
     assert.equal(
       getAcpConversationUiSnapshot().items.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
@@ -1875,7 +1867,7 @@ describe("acp session manager", function () {
         active: true,
         kinds: ["status"],
       }),
-      ["baseline-status"],
+      ["owner-control"],
     );
     assert.deepEqual(
       resolveAcpChatWorkspacePublicationKinds(base, {
@@ -1906,7 +1898,7 @@ describe("acp session manager", function () {
 
     const baseline = await readAcpChatWorkspacePublication({
       owner,
-      publicationKind: "baseline-status",
+      publicationKind: "owner-control",
     });
     for (const field of [
       "selectedTranscriptPage",

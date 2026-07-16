@@ -537,6 +537,11 @@ ACP Chat and ACP Skills SHALL register source adapters with one shared Workspace
 - **THEN** the shared runtime terminates every pending publication lifecycle as superseded and clears queued owner work
 - **AND** reopening the same child document continues monotonic region and delivery revisions without inheriting an undeliverable identity.
 
+#### Scenario: An inactive source emits a change
+
+- **WHEN** a producer change targets a hidden or non-selected ACP source
+- **THEN** the runtime drops it before invoking any owner read-model builder.
+
 ### Requirement: ACP initialization is typed and region-scoped
 
 ACP Chat and ACP Skills initialization and activation SHALL publish an ordered set of canonical region publications and SHALL NOT build a complete panel or frontend snapshot. Transcript loading SHALL precede its ready indexed page.
@@ -547,6 +552,12 @@ ACP Chat and ACP Skills initialization and activation SHALL publish an ordered s
 - **THEN** it receives owner-first loading state followed by the current typed regions and ready transcript page
 - **AND** transcript visibility does not depend on another session or tab switch.
 
+#### Scenario: Chat backend refresh changes navigation
+
+- **WHEN** refresh completes and selects or updates a session
+- **THEN** the typed navigation change follows normal publication ordering
+- **AND** the selected historical session does not remain permanently empty.
+
 ### Requirement: Owner navigation is not lifecycle status
 
 Backend/conversation and run-list/selection changes SHALL use the canonical owner-navigation region. Baseline status SHALL contain only current owner lifecycle status.
@@ -555,4 +566,16 @@ Backend/conversation and run-list/selection changes SHALL use the canonical owne
 
 - **WHEN** Chat creates, renames, archives, or selects a conversation
 - **THEN** owner navigation updates without rebuilding transcript or masquerading as baseline status.
+
+### Requirement: Managed regions render by their own signatures
+
+The runtime SHALL commit toolbar, banner, plan, hint, reply, context, details,
+and permission signatures only after successful rendering. Transcript, loading,
+streaming, and count-only changes SHALL NOT rebuild unrelated regions.
+
+#### Scenario: A region renderer fails
+
+- **WHEN** a render throws before commit
+- **THEN** the previous signature remains uncommitted
+- **AND** the same publication content can be retried.
 

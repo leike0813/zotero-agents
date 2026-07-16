@@ -1,49 +1,46 @@
 import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
-  getAcpSkillRunRecord,
-  getAcpSkillRunRuntimeOptions,
+  getAcpSkillRunWorkspaceReadModel,
   getSelectedAcpSkillRunRequestId,
   listAcpSkillRunSummaries,
   readAcpSkillRunTranscriptRegion,
-  type AcpSkillRunSnapshotChange,
-  type AcpSkillRunSnapshotChangeKind,
+  type AcpSkillRunWorkspaceChange,
+  type AcpSkillRunWorkspaceChangeKind,
   type AcpSkillRunTranscriptPageRequest,
 } from "./acpSkillRunStore";
 import type {
   AssistantWorkspaceOwnerNavigation,
   AssistantWorkspacePublicationKind,
-  AssistantWorkspacePublicationPayload,
 } from "./assistantWorkspacePublication";
 import { createAcpSkillsWorkspaceOwner } from "./assistantWorkspacePublication";
-import { ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING } from "./assistantWorkspacePublication";
 import {
-  defineAssistantWorkspaceAcpSurfaceAdapter,
-  type AssistantWorkspaceAcpSurfaceAdapter,
-  type AssistantWorkspaceAcpSurfacePayloadByKind,
-} from "./assistantWorkspaceAcpSurface";
+  defineAssistantWorkspacePublicationAdapter,
+  type AssistantWorkspacePublicationAdapter,
+  type AssistantWorkspacePublicationRuntimePayloadByKind,
+} from "./assistantWorkspacePublicationRuntime";
 
 export const ACP_SKILL_RUN_CHANGE_PUBLICATION_MAPPING = {
   run: [
-    "baseline-status",
+    "owner-control",
     "owner-navigation",
     "permission",
-    "reply-hint",
-    "context-details",
+    "composer",
+    "owner-presentation",
   ],
   transcript: ["transcript"],
   progress: ["message-counts"],
-  "runtime-options": ["reply-hint"],
+  "runtime-options": ["composer"],
   selection: ["owner-navigation"],
   archive: ["owner-navigation"],
   global: ["owner-navigation"],
 } as const satisfies Record<
-  AcpSkillRunSnapshotChangeKind,
+  AcpSkillRunWorkspaceChangeKind,
   readonly AssistantWorkspacePublicationKind[]
 >;
 
 export function mapAcpSkillRunChangeToPublicationKinds(
-  kinds: readonly AcpSkillRunSnapshotChangeKind[],
+  kinds: readonly AcpSkillRunWorkspaceChangeKind[],
 ) {
   return Array.from(
     new Set(
@@ -52,34 +49,26 @@ export function mapAcpSkillRunChangeToPublicationKinds(
   );
 }
 
-export async function prepareAcpSkillRunPublication(args: {
-  requestId?: string;
-  publicationKind: AssistantWorkspacePublicationKind;
-  transcriptReadMode?: "loading-first" | "page-first";
-  transcriptPage?: AcpSkillRunTranscriptPageRequest;
-}): Promise<AssistantWorkspacePublicationPayload | null> {
-  if (args.publicationKind === "owner-navigation") {
-    return prepareAcpSkillsOwnerNavigation();
+export async function readAcpSkillRunWorkspaceRegions(args: {
+  requestId: string;
+  kinds: readonly Exclude<
+    AssistantWorkspacePublicationKind,
+    "owner-navigation" | "service-status" | "transcript"
+  >[];
+}): Promise<Partial<AssistantWorkspacePublicationRuntimePayloadByKind>> {
+  const record = getAcpSkillRunWorkspaceReadModel(args.requestId);
+  if (!record) return {};
+  const requested = new Set(args.kinds);
+  const regions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind> =
+    {};
+  if (requested.has("message-counts")) {
+    regions["message-counts"] = {
+      counts: snapshotAcpMessageCounts(record.requestId) || null,
+    };
   }
-  const requestId = String(
-    args.requestId || getSelectedAcpSkillRunRequestId() || "",
-  ).trim();
-  if (!requestId) return null;
-  if (args.publicationKind === "transcript") {
-    return readAcpSkillRunTranscriptRegion({
-      requestId,
-      transcriptReadMode: args.transcriptReadMode,
-      transcriptPage: args.transcriptPage,
-    });
-  }
-  if (args.publicationKind === "message-counts") {
-    return { counts: snapshotAcpMessageCounts(requestId) || null };
-  }
-  const record = getAcpSkillRunRecord(requestId);
-  if (!record) return null;
-  if (args.publicationKind === "reply-hint") {
-    const options = getAcpSkillRunRuntimeOptions(requestId);
-    return {
+  if (requested.has("composer")) {
+    const options = record.runtimeOptions;
+    regions.composer = {
       reply: {
         status: record.activePrompt ? "busy" : "enabled",
         hint: record.pendingInteraction?.message || null,
@@ -99,9 +88,9 @@ export async function prepareAcpSkillRunPublication(args: {
       },
     };
   }
-  if (args.publicationKind === "permission") {
+  if (requested.has("permission")) {
     const pending = record.pendingPermission;
-    return {
+    regions.permission = {
       request: pending
         ? {
             requestId: pending.requestId,
@@ -116,8 +105,121 @@ export async function prepareAcpSkillRunPublication(args: {
         : null,
     };
   }
-  if (args.publicationKind === "context-details") {
-    return {
+  if (requested.has("owner-presentation")) {
+    const title =
+      String(
+        record.taskName ||
+          record.workflowLabel ||
+          record.skillId ||
+          record.requestId,
+      ).trim() || record.requestId;
+    const sequencePrefix = record.sequenceStepId
+      ? `Step ${Math.max(1, Number(record.sequenceStepIndex) + 1)} · `
+      : "";
+    const subtitleValue =
+      String(record.skillName || record.skillId || record.requestId).trim() ||
+      record.requestId;
+    regions["owner-presentation"] = {
+      title,
+      subtitle: `${sequencePrefix}${subtitleValue}`,
+      description: String(record.error || "").trim() || null,
+      metadata: [
+        {
+          itemId: "backend",
+          label: "Backend",
+          value: String(record.backendLabel || record.backendId || ""),
+        },
+        {
+          itemId: "workflow",
+          label: "Workflow",
+          value: String(record.workflowLabel || record.workflowId || ""),
+        },
+        {
+          itemId: "status",
+          label: "Status",
+          value: String(record.status || ""),
+        },
+        {
+          itemId: "backend-status",
+          label: "Backend status",
+          value: String(record.backendStatus || ""),
+        },
+        {
+          itemId: "apply-state",
+          label: "Apply",
+          value: String(record.applyResultState || ""),
+        },
+        {
+          itemId: "updated-at",
+          label: "Updated",
+          value: String(record.updatedAt || ""),
+        },
+      ].filter((entry) => entry.value),
+      banner: {
+        status: record.status,
+        message:
+          String(
+            record.error ||
+              record.conversationError ||
+              record.pendingInteraction?.message ||
+              "",
+          ).trim() || null,
+        usage: record.usage
+          ? [
+              {
+                itemId: "usage",
+                label: "Usage",
+                value: `${record.usage.used}/${record.usage.size}`,
+              },
+            ]
+          : [],
+        connection: [
+          {
+            itemId: "conversation",
+            label: "Connection",
+            value: String(record.conversationState || ""),
+          },
+        ].filter((entry) => entry.value),
+        recovery: [
+          {
+            itemId: "recovery",
+            label: "Recovery",
+            value: String(record.conversationRecoveryState || ""),
+          },
+        ].filter((entry) => entry.value),
+        workspace: [
+          {
+            itemId: "workspace",
+            label: "Workspace",
+            value: String(record.workspaceDir || ""),
+          },
+          {
+            itemId: "runtime",
+            label: "Runtime",
+            value: String(record.runtimeDir || ""),
+          },
+        ].filter((entry) => entry.value),
+        details: [
+          {
+            itemId: "session",
+            label: "Session",
+            value: String(record.sessionId || ""),
+          },
+          {
+            itemId: "model",
+            label: "Model",
+            value: String(record.acpModelId || record.acpRawModelId || ""),
+          },
+          {
+            itemId: "reasoning",
+            label: "Reasoning",
+            value: String(record.acpReasoningEffort || ""),
+          },
+        ].filter((entry) => entry.value),
+        diagnostics: [
+          { action: "copy-diagnostics", label: "Copy diagnostics" },
+        ],
+      },
       context: [
         {
           itemId: "workflow",
@@ -162,48 +264,61 @@ export async function prepareAcpSkillRunPublication(args: {
           value: String(record.acpReasoningEffort || ""),
         },
       ].filter((entry) => entry.value),
+      tasks: [
+        {
+          sectionId: record.status === "succeeded" ? "completed" : "active",
+          groupKey: record.backendId || "default",
+          taskKey: record.requestId,
+          title,
+          subtitle: `${sequencePrefix}${subtitleValue}`,
+          status: record.status,
+          selected: true,
+        },
+      ],
     };
   }
-  if (args.publicationKind === "plan") return null;
-  const connected =
-    record.conversationState === "active" ||
-    record.conversationRecoveryState === "connected";
-  const connectionChanging =
-    record.connectionActionState === "connecting" ||
-    record.connectionActionState === "disconnecting";
-  return {
-    status: String(record.status || "idle"),
-    busy:
-      record.status === "running" ||
-      record.status === "repairing" ||
-      record.activePrompt === true,
-    message: record.error || null,
-    connection: {
-      status: String(
-        record.connectionActionState ||
-          record.conversationState ||
-          record.conversationRecoveryState ||
-          "idle",
-      ),
-      sessionAvailable: Boolean(record.sessionId),
-      connected,
-      canConnect:
-        Boolean(record.sessionId) &&
-        !connected &&
-        !connectionChanging &&
-        record.conversationState !== "ended" &&
-        record.conversationRecoveryState !== "unavailable" &&
-        record.conversationRecoveryState !== "unsupported",
-      canDisconnect: connected && !connectionChanging,
-    },
-    execution: {
-      canCancel:
+  if (requested.has("owner-control")) {
+    const connected =
+      record.conversationState === "active" ||
+      record.conversationRecoveryState === "connected";
+    const connectionChanging =
+      record.connectionActionState === "connecting" ||
+      record.connectionActionState === "disconnecting";
+    regions["owner-control"] = {
+      status: String(record.status || "idle"),
+      busy:
         record.status === "running" ||
         record.status === "repairing" ||
-        record.activePrompt === true,
-      canInterrupt: record.activePrompt === true,
-    },
-  };
+        record.activePrompt,
+      message: record.error || null,
+      connection: {
+        status: String(
+          record.connectionActionState ||
+            record.conversationState ||
+            record.conversationRecoveryState ||
+            "idle",
+        ),
+        sessionAvailable: Boolean(record.sessionId),
+        connected,
+        canConnect:
+          Boolean(record.sessionId) &&
+          !connected &&
+          !connectionChanging &&
+          record.conversationState !== "ended" &&
+          record.conversationRecoveryState !== "unavailable" &&
+          record.conversationRecoveryState !== "unsupported",
+        canDisconnect: connected && !connectionChanging,
+      },
+      execution: {
+        canCancel:
+          record.status === "running" ||
+          record.status === "repairing" ||
+          record.activePrompt,
+        canInterrupt: record.activePrompt,
+      },
+    };
+  }
+  return regions;
 }
 
 function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
@@ -238,31 +353,62 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       groupId: String(summary.backendId || "").trim() || "default",
       label:
         String(
-          summary.workflowLabel ||
-            summary.taskName ||
+          summary.taskName ||
+            summary.workflowLabel ||
             summary.skillId ||
             summary.requestId,
         ).trim() || summary.requestId,
+      subtitle:
+        `${
+          summary.sequenceStepId
+            ? `Step ${Math.max(
+                1,
+                Number(summary.sequenceStepIndex || 0) + 1,
+              )} · `
+            : ""
+        }${String(
+          summary.skillName ||
+            summary.skillId ||
+            summary.workflowLabel ||
+            summary.requestId,
+        ).trim()}` || null,
       description: String(summary.error || "").trim() || null,
-      groupLabel: String(summary.backendId || "").trim() || null,
+      groupLabel:
+        String(summary.backendLabel || summary.backendId || "").trim() || null,
       status: String(summary.status || "idle"),
+      backendStatus: String(summary.backendStatus || "").trim() || null,
+      applyState: String(summary.applyResultState || "").trim() || null,
+      attention:
+        String(summary.error || "").trim() ||
+        (summary.pendingPermission ? "permission-required" : null),
+      updatedAt: String(summary.updatedAt || "").trim() || null,
+      messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
     })),
     canCreateOwner: false,
   };
 }
 
-export const ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER =
-  defineAssistantWorkspaceAcpSurfaceAdapter({
+export const ACP_SKILLS_WORKSPACE_ADAPTER =
+  defineAssistantWorkspacePublicationAdapter({
     source: "acp-skills",
-    domainMapping: ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
-    getActiveOwner() {
+    supportedKinds: [
+      "owner-navigation",
+      "service-status",
+      "owner-control",
+      "message-counts",
+      "transcript",
+      "permission",
+      "composer",
+      "owner-presentation",
+    ],
+    selectedOwner() {
       const requestId = getSelectedAcpSkillRunRequestId();
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
     },
     async readOwnerNavigation() {
       return prepareAcpSkillsOwnerNavigation();
     },
-    mapChange(change: AcpSkillRunSnapshotChange, _context: undefined) {
+    mapChange(change: AcpSkillRunWorkspaceChange, _context: undefined) {
       const selectedRequestId = getSelectedAcpSkillRunRequestId();
       const publicationKinds = mapAcpSkillRunChangeToPublicationKinds(
         change.kinds || [],
@@ -290,21 +436,22 @@ export const ACP_SKILLS_WORKSPACE_SURFACE_ADAPTER =
         },
       };
     },
-    async readPublication(args) {
-      if (args.owner.source !== "acp-skills") return null;
-      return prepareAcpSkillRunPublication({
+    async readOwnerRegions(args) {
+      return readAcpSkillRunWorkspaceRegions({
         requestId: args.owner.requestId,
-        publicationKind: args.publicationKind,
-        transcriptReadMode: args.options?.transcriptReadMode,
-        transcriptPage: args.options?.transcriptPage,
-      }) as Promise<
-        | AssistantWorkspaceAcpSurfacePayloadByKind[typeof args.publicationKind]
-        | null
-      >;
+        kinds: args.kinds,
+      });
     },
-  } satisfies AssistantWorkspaceAcpSurfaceAdapter<
+    async readTranscriptPage(args) {
+      return readAcpSkillRunTranscriptRegion({
+        requestId: args.owner.requestId,
+        transcriptReadMode: "page-first",
+        transcriptPage: args.request,
+      });
+    },
+  } satisfies AssistantWorkspacePublicationAdapter<
     "acp-skills",
-    AcpSkillRunSnapshotChange,
+    AcpSkillRunWorkspaceChange,
     undefined,
     AcpSkillRunTranscriptPageRequest
   >);

@@ -59,8 +59,7 @@
 
   function bridgeKeyForTab(tab) {
     if (tab === "skillrunner") return "__zsSkillRunnerSidebarBridge";
-    if (tab === "acp-skills") return "__zsAcpSkillRunSidebarBridge";
-    return "__zsAcpSidebarBridge";
+    return "__zsAssistantWorkspaceAcpBridge";
   }
 
   function messageTypeForTab(tab, phase) {
@@ -123,13 +122,8 @@
     const panes =
       sidebar.panes && typeof sidebar.panes === "object" ? sidebar.panes : {};
     return {
-      activeBackendId: String(source.activeBackendId || source.backendId || ""),
-      activeConversationId: String(
-        source.activeConversationId || source.conversationId || "",
-      ),
       backendAvailability: String(source.backendAvailability || ""),
       conversationAvailability: String(source.conversationAvailability || ""),
-      selectedRequestId: String(source.selectedRequestId || ""),
       hostMode: String(source.hostMode || ""),
       sidebarActiveTab: String(sidebar.activeTab || ""),
       acpChatRevision:
@@ -182,22 +176,20 @@
         },
       );
     }
-    const message = { type, payload: payload || {} };
-    traceAction("post-to-host-fallback", {
+    traceAction("post-to-host-bridge-missing", {
       type,
       action: payload && payload.action,
       tab: payload && payload.tab,
       actionId: payload && payload.actionId,
     });
-    [window.parent, window.top, window.opener].forEach(function (target) {
-      if (!target || target === window) return;
-      try {
-        target.postMessage(message, "*");
-      } catch {
-        // ignored
-      }
+    document.body.setAttribute(
+      "data-assistant-workspace-failure",
+      "bridge-missing",
+    );
+    return Promise.resolve({
+      ok: false,
+      error: "bridge-missing",
     });
-    return Promise.resolve({ ok: true, fallback: true });
   }
 
   function clearHostReadyRetry(reason) {
@@ -285,7 +277,7 @@
       });
   }
 
-  function sendChildAction(tab, action, payload) {
+  function sendLegacyChildAction(tab, action, payload) {
     const actionId = nextActionId(tab, action);
     const envelope = {
       tab,
@@ -323,34 +315,114 @@
       });
   }
 
-  function handleChildAction(tab, action, payload) {
+  function handleSkillRunnerChildAction(tab, action, payload) {
     const normalizedAction = String(action || "");
     const normalizedPayload = payload || {};
     if (normalizedAction === "ready") {
       acceptChildReady(tab, normalizedPayload);
+      sendLegacyChildAction(tab, normalizedAction, normalizedPayload);
       return;
     }
-    if (normalizedAction === "publication-ack" && tab !== "skillrunner") {
-      if (!acceptChildPublicationAck(tab, normalizedPayload)) return;
-      sendChildAction(
-        tab,
-        normalizedAction,
-        canonicalPublicationAck(normalizedPayload),
-      );
+    sendLegacyChildAction(tab, normalizedAction, normalizedPayload);
+  }
+
+  function validAcpChildEnvelope(tab, value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    const owner = value.owner;
+    const validOwner =
+      owner === null ||
+      (owner &&
+        typeof owner === "object" &&
+        !Array.isArray(owner) &&
+        owner.source === tab &&
+        (tab === "acp-chat"
+          ? Object.keys(owner).sort().join(",") ===
+              "backendId,conversationId,ownerKey,source" &&
+            String(owner.ownerKey || "") ===
+              String(owner.backendId || "").trim() +
+                "\n" +
+                String(owner.conversationId || "").trim()
+          : Object.keys(owner).sort().join(",") ===
+              "ownerKey,requestId,source" &&
+            String(owner.ownerKey || "") ===
+              String(owner.requestId || "").trim()));
+    return (
+      Object.keys(value).sort().join(",") ===
+        "action,actionId,owner,payload,source" &&
+      value.source === tab &&
+      typeof value.action === "string" &&
+      value.action.trim() &&
+      typeof value.actionId === "string" &&
+      value.actionId.trim() &&
+      value.payload &&
+      typeof value.payload === "object" &&
+      !Array.isArray(value.payload) &&
+      validOwner
+    );
+  }
+
+  function handleAcpChildEnvelope(tab, envelope) {
+    if (!validAcpChildEnvelope(tab, envelope)) {
+      traceAction("drop-invalid-child-action", { tab });
       return;
     }
-    sendChildAction(tab, normalizedAction, normalizedPayload);
+    const action = String(envelope.action);
+    const payload = envelope.payload || {};
+    if (action === "ready") {
+      acceptChildReady(tab, payload);
+    } else if (action === "publication-ack") {
+      if (!acceptChildPublicationAck(tab, payload)) return;
+      envelope = Object.assign({}, envelope, {
+        payload: canonicalPublicationAck(payload),
+      });
+    }
+    traceAction("child-action-received", {
+      tab,
+      action,
+      actionId: envelope.actionId,
+    });
+    postToHost("assistant-workspace:child-action", envelope)
+      .then(function (result) {
+        traceAction(
+          result && result.ok === false
+            ? "host-action-failed"
+            : "host-action-acked",
+          {
+            tab,
+            action,
+            actionId: envelope.actionId,
+            error: result && result.error ? String(result.error) : "",
+          },
+        );
+      })
+      .catch(function (error) {
+        traceAction("host-action-failed", {
+          tab,
+          action,
+          actionId: envelope.actionId,
+          error: safeError(error),
+        });
+      });
   }
 
   function installChildBridge(tab) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) return;
-    const bridge = {
-      sendAction: function (action, payload) {
-        handleChildAction(tab, action, payload || {});
-      },
-    };
+    const bridge =
+      tab === "skillrunner"
+        ? {
+            sendAction: function (action, payload) {
+              handleSkillRunnerChildAction(tab, action, payload || {});
+            },
+          }
+        : {
+            sendAction: function (envelope) {
+              handleAcpChildEnvelope(tab, envelope);
+            },
+          };
     const direct = frameWindow;
     const wrapped =
       direct.wrappedJSObject && typeof direct.wrappedJSObject === "object"
@@ -476,6 +548,7 @@
       stage,
       outcome,
       reason: reason || null,
+      failure: null,
     });
   }
 
@@ -549,10 +622,7 @@
         }
         frameWindow.postMessage(
           {
-            type:
-              tab === "acp-skills"
-                ? "acp-skill-run:publication"
-                : "acp:publication",
+            type: "assistant-workspace:acp-publication",
             payload: publication,
           },
           "*",
@@ -612,6 +682,7 @@
       stage: payload && payload.stage,
       outcome: payload && payload.outcome,
       reason: (payload && payload.reason) || null,
+      failure: (payload && payload.failure) || null,
     };
   }
 
@@ -922,7 +993,6 @@
     }
     forwardPendingChildPublications(normalizedTab);
     updateLoadingState();
-    sendChildAction(normalizedTab, "ready", payload || {});
   }
 
   function normalizeTab(tab, fallback) {
@@ -989,16 +1059,8 @@
 
   window.addEventListener("message", function (event) {
     const data = event.data || {};
-    if (data.type === "acp:action") {
-      handleChildAction("acp-chat", data.action, data.payload);
-      return;
-    }
-    if (data.type === "acp-skill-run:action") {
-      handleChildAction("acp-skills", data.action, data.payload);
-      return;
-    }
     if (data.type === "skillrunner-sidebar:action") {
-      handleChildAction("skillrunner", data.action, data.payload);
+      handleSkillRunnerChildAction("skillrunner", data.action, data.payload);
       return;
     }
     if (data.type === "assistant-workspace:init") {
@@ -1057,21 +1119,15 @@
       ensureHostReady("host-child-snapshot");
       const payload = data.payload || {};
       const tab = normalizeTab(payload.tab, state.activeTab);
+      if (tab !== "skillrunner") {
+        traceAction("drop-child-snapshot", {
+          tab,
+          reason: "acp-publication-required",
+        });
+        return;
+      }
       const phase = payload.phase || "snapshot";
       const snapshot = payload.snapshot || {};
-      const snapshotPublication =
-        snapshot.workspacePublication &&
-        typeof snapshot.workspacePublication === "object"
-          ? snapshot.workspacePublication
-          : null;
-      if (snapshotPublication) {
-        void publicationAck(
-          snapshotPublication,
-          "shell-receive",
-          "accepted",
-          null,
-        );
-      }
       traceAction("child-snapshot-received", {
         tab,
         phase,
@@ -1089,13 +1145,19 @@
       ensureHostReady("host-child-publication");
       const payload = data.payload || {};
       const publication = payload.publication || {};
-      const tab = normalizeTab(
-        payload.tab ||
-          (publication.owner && publication.owner.source === "acp-skills"
-            ? "acp-skills"
-            : "acp-chat"),
-        state.activeTab,
+      const source = String(
+        publication.owner && publication.owner.source
+          ? publication.owner.source
+          : "",
       );
+      if (source !== "acp-chat" && source !== "acp-skills") {
+        traceAction("drop-child-publication", {
+          reason: "invalid-source",
+          publicationId: publication.publicationId,
+        });
+        return;
+      }
+      const tab = source;
       traceAction("child-publication-received", {
         tab,
         kind: publication.publicationKind,

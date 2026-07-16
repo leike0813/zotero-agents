@@ -171,7 +171,15 @@ Profiler SHALL count transcript-page, frontend-snapshot, and panel-snapshot mate
 
 ### Requirement: Publication lifecycle identity is owned by in-window post
 
-The profiler SHALL create a publication lifecycle identity only after observing that publication's `panel_post` inside the active profile window. Acknowledgements for an unknown identity SHALL be classified as bounded out-of-window diagnostics and SHALL NOT participate in post, Shell, child, or render identity completeness.
+Only an in-window post SHALL create a publication lifecycle record. The record
+SHALL retain source, kind, wire form, exact cause, delivery sequence, bounded ACK
+outcomes, and a first-write-wins terminal result.
+
+#### Scenario: A rejected render ACK arrives
+
+- **WHEN** an in-window publication receives a render-failed rejection
+- **THEN** the ledger records that terminal result
+- **AND** a later ACK cannot replace it with accepted or missing-ACK status.
 
 #### Scenario: Preparation publication acknowledges after profile start
 
@@ -236,3 +244,15 @@ Profiler transcript metadata SHALL report `totalVisibleItemCount` and SHALL NOT 
 
 - **WHEN** source event sequence advances without a visible transcript mutation
 - **THEN** profiler may record source work but does not report a visible-count or transcript-revision advance.
+
+### Requirement: Correctness evidence is independent of metric series caps
+
+Lifecycle records and correctness counters SHALL remain complete after metric
+series reach their cap. Any series drop SHALL be reported at profile top level
+and mark measurement incomplete.
+
+#### Scenario: More than 128 metric label combinations occur
+
+- **WHEN** the profiler drops additional metric series
+- **THEN** publication lifecycle evidence remains queryable
+- **AND** the profile reports structured incompleteness.

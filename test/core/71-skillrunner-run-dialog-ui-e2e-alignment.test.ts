@@ -51,7 +51,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(html, 'id="chat-mode-plain"');
     assert.include(html, 'id="chat-mode-bubble"');
     assert.include(html, "../shared/assistant/assistant-panel-shared.css");
-    assert.include(html, "../shared/assistant/assistant-conversation-view.js");
+    assert.notInclude(
+      html,
+      "../shared/assistant/assistant-conversation-view.js",
+    );
     assert.include(
       html,
       "../shared/assistant/assistant-transcript-renderer.js",

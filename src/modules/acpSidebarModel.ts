@@ -1,5 +1,5 @@
 import { getStringOrFallback } from "../utils/locale";
-import { buildAssistantWorkspaceAcpSurfaceLabels } from "./assistantWorkspaceAcpSurfaceLabels";
+import { buildAssistantWorkspacePublicationLabels } from "./assistantWorkspacePublicationLabels";
 import type {
   AcpConversationSnapshot,
   AcpFrontendSnapshot,
@@ -234,6 +234,6 @@ export function buildAcpSidebarViewSnapshot(args: {
         : {}),
     })),
     hostContextSummary: summarizeHostContext(args.snapshot, args.target),
-    labels: buildAssistantWorkspaceAcpSurfaceLabels("acp-chat"),
+    labels: buildAssistantWorkspacePublicationLabels("acp-chat"),
   };
 }

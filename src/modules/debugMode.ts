@@ -63,7 +63,11 @@ export function isDebugModeEnabled() {
 }
 
 export function isAcpRuntimePerformanceProfilerAvailable() {
-  return ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED && isDebugModeEnabled();
+  const sourceEnabled =
+    typeof __acp_runtime_performance_profiler_enabled__ !== "undefined"
+      ? __acp_runtime_performance_profiler_enabled__
+      : ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED;
+  return sourceEnabled && isDebugModeEnabled();
 }
 
 export function isAcpRuntimeSemanticTraceRecorderAvailable() {

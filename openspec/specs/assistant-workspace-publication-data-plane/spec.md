@@ -1,26 +1,53 @@
 # assistant-workspace-publication-data-plane Specification
 
 ## Purpose
-Defines the shared v4 publication vocabulary, transcript region model, mutation buffer, and page request protocol used by both ACP Chat and ACP Skills surfaces in Assistant Workspace.
+Defines the shared v5 publication vocabulary, canonical browser state, transcript region model, mutation buffer, and page request protocol used by both ACP Chat and ACP Skills surfaces in Assistant Workspace.
 ## Requirements
-### Requirement: Workspace publication uses one v4 vocabulary
+### Requirement: Workspace publication uses one strict v5 registry
 
-ACP Chat and ACP Skills SHALL use the same v4 owner, canonical region, transcript page, item, mutation, publication, and acknowledgement field names and semantics. Workspace production code SHALL NOT decode, alias, or dual-write older publication fields.
+ACP Chat and ACP Skills SHALL use the v5 region registry as the sole source of
+publication kind, scope, form, payload, browser key, managed region, and source
+support. v4 publications, unknown fields, aliases, and dual writes SHALL be
+rejected.
 
-#### Scenario: Either surface initializes transcript
+#### Scenario: A legacy publication reaches the child
 
-- **WHEN** ACP Chat or ACP Skills publishes owner-first transcript initialization
-- **THEN** both produce the same canonical transcript region shape and status invariants
-- **AND** neither emits a surface-specific transcript lifecycle field.
+- **WHEN** a publication uses the v4 schema or a removed region kind
+- **THEN** the receiver rejects it as invalid
+- **AND** canonical state and DOM remain unchanged.
 
 ### Requirement: Publication identity fields are unambiguous
 
-The v3 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, and reason.
+The v5 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, reason, and an optional bounded renderer failure stage/code.
 
 #### Scenario: Shell acknowledges a publication
 
-- **WHEN** Shell receives and forwards a v3 publication
+- **WHEN** Shell receives and forwards a v5 publication
 - **THEN** its acknowledgement does not duplicate owner, kind, revision, signature, source, tab, or initialization fields.
+
+### Requirement: Owner selection replaces the complete owned state
+
+The canonical child state SHALL contain one `selection` object for the selected
+owner. Applying owner navigation with a different owner SHALL atomically replace
+that selection with the new owner's empty loading state.
+
+#### Scenario: Skills switches runs
+
+- **WHEN** owner navigation selects another request
+- **THEN** no control, count, transcript, plan, permission, composer, or
+  presentation field from the previous request remains visible.
+
+### Requirement: Publication identity is not duplicated
+
+The publication wrapper SHALL NOT duplicate source tab identity, transcript page
+requests SHALL contain only owner plus page request, and Replay barriers SHALL
+contain only source, publication id, and delivery sequence.
+
+#### Scenario: Chat requests a historical page
+
+- **WHEN** the child requests a cursor
+- **THEN** backend and conversation identity exist only in the canonical owner
+- **AND** no request-id or active-conversation alias is accepted.
 
 ### Requirement: Transcript fields have one scope
 
@@ -105,7 +132,7 @@ ACP Chat and ACP Skills SHALL use one before/after projection for visible transc
 
 ### Requirement: Transcript owner delivery is totally ordered
 
-The coordinator SHALL place loading, ready page, delta, resync-required, page transition, and rebase publications for one owner in one ordered lane. A later publication SHALL NOT overtake an earlier publication across page keys, and only accepted render completion or a terminal rejection SHALL advance the lane.
+The coordinator SHALL place loading, ready page, delta, page transition, and rebase publications for one owner in one ordered lane. Overflow and gap SHALL request a rebase without introducing another wire publication kind. A later publication SHALL NOT overtake an earlier publication across page keys, and only accepted render completion or a terminal rejection SHALL advance the lane.
 
 #### Scenario: Indexed page becomes ready during owner initialization
 
@@ -184,7 +211,7 @@ The shared browser controller SHALL validate a complete mutation batch before re
 
 ### Requirement: ACP child state is source-neutral
 
-ACP Chat and ACP Skills SHALL use one canonical child state containing `owner` and the same named regions for owner navigation, baseline status, message counts, transcript, plan, permission, reply hint, and context details. Shared receiver/controller code SHALL NOT write source-specific panel snapshot fields.
+ACP Chat and ACP Skills SHALL use one canonical child state containing `source`, `navigation`, `services`, and `selection`. Selection SHALL contain only `owner`, `phase`, `control`, `messageCounts`, `transcript`, `plan`, `permission`, `composer`, and `presentation`. Shared receiver/controller code SHALL NOT write source-specific panel snapshot fields.
 
 #### Scenario: Equivalent publications reach both children
 
@@ -194,7 +221,7 @@ ACP Chat and ACP Skills SHALL use one canonical child state containing `owner` a
 
 ### Requirement: Automatic rebase has no wire control form
 
-Transcript publication form SHALL be `snapshot` or `delta`. Gap and overflow SHALL be host lifecycle decisions rather than a `resync-required` publication.
+Transcript publication form SHALL be `snapshot` or `delta`. Gap and overflow SHALL be host lifecycle decisions rather than another wire publication kind.
 
 #### Scenario: Valid delta stream remains steady
 

@@ -109,9 +109,9 @@ import {
   type AcpConversationToolCallItem,
   type AcpDiagnosticsBundle,
   type AcpDiagnosticsEntry,
-  type AcpFrontendSnapshot,
   type AcpHostContext,
   type AcpPendingPermissionRequest,
+  type AcpPlanEntry,
   type AcpSelectableOption,
 } from "./acpTypes";
 import type { RequestPermissionOutcome } from "./acpProtocol";
@@ -144,9 +144,7 @@ import {
   resolveAcpStartupInstructionFile,
 } from "./acpStartupPromptPreambles";
 
-type AcpSnapshotListener = (snapshot: AcpConversationSnapshot) => void;
-type AcpFrontendSnapshotListener = (snapshot: AcpFrontendSnapshot) => void;
-export type AcpChatPanelSnapshotChangeKind =
+export type AcpChatWorkspaceChangeKind =
   | "active-scope"
   | "status"
   | "permission"
@@ -156,30 +154,55 @@ export type AcpChatPanelSnapshotChangeKind =
   | "transcript-progress"
   | "message-counts"
   | "plan"
-  | "reply-hint"
-  | "context-details"
+  | "composer"
+  | "owner-presentation"
   | "runtime-options"
   | "backend"
   | "global";
-export type AcpChatPanelSnapshotChange = {
+export type AcpChatWorkspaceChange = Readonly<{
   backendId?: string;
   conversationId?: string;
   active?: boolean;
   global?: boolean;
-  kinds: AcpChatPanelSnapshotChangeKind[];
-  transcriptEvents?: AssistantWorkspaceTranscriptMutationEvent[];
+  kinds: readonly AcpChatWorkspaceChangeKind[];
+  transcriptEvents?: readonly AssistantWorkspaceTranscriptMutationEvent[];
   transcriptEventSeq?: number;
   transcriptItemCount?: number;
-};
-type AcpChatPanelSnapshotListener = (
-  change: AcpChatPanelSnapshotChange,
-) => void;
-type AcpUiPublishMode = "full" | "metadata" | "structural";
-type AcpConversationSnapshotItemMode = "full" | "structural";
-type AcpConversationUiSnapshotReadOptions = {
-  itemMode?: AcpConversationSnapshotItemMode;
-};
+}>;
+type AcpChatWorkspaceListener = (change: AcpChatWorkspaceChange) => void;
 
+export type AcpChatWorkspaceReadModel = Readonly<{
+  backendId: string;
+  conversationId: string;
+  conversationTitle: string;
+  sessionTitle: string;
+  sessionUpdatedAt: string;
+  status: string;
+  busy: boolean;
+  lastError: string;
+  sessionId: string;
+  remoteSessionId: string;
+  remoteSessionRestoreStatus: string;
+  remoteSessionRestoreMessage: string;
+  agentLabel: string;
+  agentVersion: string;
+  usage: AcpConversationSnapshot["usage"];
+  pendingPermissionRequest: AcpConversationSnapshot["pendingPermissionRequest"];
+  modeOptions: AcpConversationSnapshot["modeOptions"];
+  currentMode: AcpConversationSnapshot["currentMode"];
+  modelOptions: AcpConversationSnapshot["modelOptions"];
+  currentModel: AcpConversationSnapshot["currentModel"];
+  displayModelOptions: AcpConversationSnapshot["displayModelOptions"];
+  currentDisplayModel: AcpConversationSnapshot["currentDisplayModel"];
+  reasoningEffortOptions: AcpConversationSnapshot["reasoningEffortOptions"];
+  currentReasoningEffort: AcpConversationSnapshot["currentReasoningEffort"];
+  planEntries: AcpPlanEntry[];
+  agentWorkspaceDir: string;
+  sessionCwd: string;
+  workspaceDir: string;
+  runtimeDir: string;
+  updatedAt: string;
+}>;
 const ACP_CHAT_SHUTDOWN_DETACH_TIMEOUT_MS = 2_000;
 const DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS = 10_000;
 const ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10;
@@ -189,12 +212,7 @@ export type AcpChatSessionRuntime = {
   backendId: string;
   adapter: AcpConnectionAdapter | null;
   snapshot: AcpConversationSnapshot;
-  uiSnapshot: AcpConversationSnapshot | null;
-  frontendSnapshotRevision: number;
-  uiTranscriptRevision: number;
-  uiHasUnpublishedTranscript: boolean;
-  uiPendingPublishMode: AcpUiPublishMode | null;
-  uiPendingChangeKinds: Set<AcpChatPanelSnapshotChangeKind>;
+  pendingWorkspaceChangeKinds: Set<AcpChatWorkspaceChangeKind>;
   workspaceTranscriptEvents: AssistantWorkspaceTranscriptMutationEvent[];
   unsubscribeUpdate: (() => void) | null;
   unsubscribeClose: (() => void) | null;
@@ -238,7 +256,7 @@ export type AcpChatSessionRuntime = {
     | ((outcome: RequestPermissionOutcome) => void)
     | null;
   suppressSessionLoadReplay: boolean;
-  uiEmitTimer: ReturnType<typeof setTimeout> | null;
+  workspaceChangeTimer: ReturnType<typeof setTimeout> | null;
   persistTimer: ReturnType<typeof setTimeout> | null;
   lastLiveActivityMs: number;
 };
@@ -250,9 +268,7 @@ type AcpEmitOptions = {
   touchUpdatedAt?: boolean;
   notifyUi?: boolean;
   uiReason?: AssistantWorkspacePublishReason;
-  publishTranscript?: boolean;
-  publishMode?: AcpUiPublishMode;
-  changeKinds?: AcpChatPanelSnapshotChangeKind[];
+  changeKinds?: AcpChatWorkspaceChangeKind[];
 };
 
 let adapterFactory: (
@@ -266,9 +282,7 @@ let activeBackendId = "";
 let activeConversationId = "";
 let cachedAcpBackends: BackendInstance[] = [];
 const sessionRuntimes = new Map<string, AcpChatSessionRuntime>();
-const listeners = new Set<AcpSnapshotListener>();
-const frontendListeners = new Set<AcpFrontendSnapshotListener>();
-const acpChatPanelListeners = new Set<AcpChatPanelSnapshotListener>();
+const acpChatWorkspaceListeners = new Set<AcpChatWorkspaceListener>();
 const chatTranscriptWrites = new Set<Promise<unknown>>();
 const MAX_DIAGNOSTICS = 40;
 const MAX_LIVE_ACP_CHAT_ADAPTERS = 3;
@@ -442,7 +456,6 @@ function ensureInitialized() {
           if (hadActiveText) {
             emitSessionRuntimeSnapshot(sessionRuntime, {
               uiReason: "critical",
-              publishMode: "full",
             });
           }
         } else if (lastExecutionDisplayMode === "silent") {
@@ -592,12 +605,7 @@ function getOrCreateSessionRuntime(
     backendId,
     adapter: null,
     snapshot: hydrateSnapshot(backendId, conversationId || undefined),
-    uiSnapshot: null,
-    frontendSnapshotRevision: 0,
-    uiTranscriptRevision: 0,
-    uiHasUnpublishedTranscript: false,
-    uiPendingPublishMode: null,
-    uiPendingChangeKinds: new Set<AcpChatPanelSnapshotChangeKind>(),
+    pendingWorkspaceChangeKinds: new Set<AcpChatWorkspaceChangeKind>(),
     workspaceTranscriptEvents: [],
     unsubscribeUpdate: null,
     unsubscribeClose: null,
@@ -619,7 +627,7 @@ function getOrCreateSessionRuntime(
     transcriptWrites: new Set(),
     pendingPermissionResolver: null,
     suppressSessionLoadReplay: false,
-    uiEmitTimer: null,
+    workspaceChangeTimer: null,
     persistTimer: null,
     lastLiveActivityMs: Date.now(),
   };
@@ -793,10 +801,17 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
         owner: createAcpChatWorkspaceOwner(backend.id, summary.conversationId),
         groupId: backend.id,
         label: String(summary.title || "").trim() || summary.conversationId,
+        subtitle:
+          String(backend.displayName || backend.id).trim() || backend.id,
         description: String(summary.lastError || "").trim() || null,
         groupLabel:
           String(backend.displayName || backend.id).trim() || backend.id,
         status: String(summary.status || "idle"),
+        backendStatus: String(summary.status || "idle"),
+        applyState: null,
+        attention: String(summary.lastError || "").trim() || null,
+        updatedAt: String(summary.updatedAt || "").trim() || null,
+        messageCount: Math.max(0, Number(summary.messageCount) || 0),
       };
     });
   });
@@ -821,6 +836,73 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
   };
 }
 
+export function getAcpChatWorkspaceReadModel(
+  backendIdRaw: string,
+  conversationIdRaw: string,
+): AcpChatWorkspaceReadModel {
+  ensureInitialized();
+  const sessionRuntime = getOrCreateSessionRuntime(
+    normalizeBackendId(backendIdRaw) || activeBackendId,
+    normalizeConversationId(conversationIdRaw),
+  );
+  const snapshot = sessionRuntime.snapshot;
+  const planItem = sessionRuntime.activePlanItemId
+    ? sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId)
+    : undefined;
+  return Object.freeze({
+    backendId: sessionRuntime.backendId,
+    conversationId: snapshot.conversationId,
+    conversationTitle: snapshot.conversationTitle,
+    sessionTitle: snapshot.sessionTitle,
+    sessionUpdatedAt: snapshot.sessionUpdatedAt,
+    status: snapshot.status,
+    busy: snapshot.busy,
+    lastError: snapshot.lastError || snapshot.prerequisiteError,
+    sessionId: snapshot.sessionId,
+    remoteSessionId: snapshot.remoteSessionId,
+    remoteSessionRestoreStatus: snapshot.remoteSessionRestoreStatus,
+    remoteSessionRestoreMessage: snapshot.remoteSessionRestoreMessage,
+    agentLabel: snapshot.agentLabel,
+    agentVersion: snapshot.agentVersion,
+    usage: snapshot.usage ? { ...snapshot.usage } : null,
+    pendingPermissionRequest: snapshot.pendingPermissionRequest
+      ? {
+          ...snapshot.pendingPermissionRequest,
+          options: snapshot.pendingPermissionRequest.options.map((option) => ({
+            ...option,
+          })),
+        }
+      : null,
+    modeOptions: snapshot.modeOptions.map((option) => ({ ...option })),
+    currentMode: snapshot.currentMode ? { ...snapshot.currentMode } : undefined,
+    modelOptions: snapshot.modelOptions.map((option) => ({ ...option })),
+    currentModel: snapshot.currentModel
+      ? { ...snapshot.currentModel }
+      : undefined,
+    displayModelOptions: snapshot.displayModelOptions.map((option) => ({
+      ...option,
+    })),
+    currentDisplayModel: snapshot.currentDisplayModel
+      ? { ...snapshot.currentDisplayModel }
+      : undefined,
+    reasoningEffortOptions: snapshot.reasoningEffortOptions.map((option) => ({
+      ...option,
+    })),
+    currentReasoningEffort: snapshot.currentReasoningEffort
+      ? { ...snapshot.currentReasoningEffort }
+      : undefined,
+    planEntries:
+      planItem?.kind === "plan"
+        ? planItem.entries.map((entry) => ({ ...entry }))
+        : [],
+    agentWorkspaceDir: snapshot.agentWorkspaceDir,
+    sessionCwd: snapshot.sessionCwd,
+    workspaceDir: snapshot.workspaceDir,
+    runtimeDir: snapshot.runtimeDir,
+    updatedAt: snapshot.updatedAt,
+  });
+}
+
 function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   const activeConversationId = resolveActiveConversationId(activeBackendId);
   return (
@@ -831,11 +913,11 @@ function isForegroundSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
   );
 }
 
-function buildAcpChatPanelSnapshotChange(
+function buildAcpChatWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
-  kinds: AcpChatPanelSnapshotChangeKind[],
+  kinds: readonly AcpChatWorkspaceChangeKind[],
   options: { global?: boolean } = {},
-): AcpChatPanelSnapshotChange {
+): AcpChatWorkspaceChange {
   const hasTranscript = kinds.some(
     (kind) =>
       kind === "transcript-append" ||
@@ -845,66 +927,52 @@ function buildAcpChatPanelSnapshotChange(
   const transcriptEvents = hasTranscript
     ? sessionRuntime.workspaceTranscriptEvents.splice(0)
     : [];
-  return {
+  for (const event of transcriptEvents) {
+    Object.freeze(event.mutation);
+    Object.freeze(event);
+  }
+  return Object.freeze({
     backendId: sessionRuntime.backendId,
     conversationId: sessionRuntime.snapshot.conversationId,
     active: isForegroundSessionRuntime(sessionRuntime),
     global: options.global === true,
-    kinds,
+    kinds: Object.freeze([...new Set(kinds)]),
     ...(transcriptEvents.length > 0
       ? {
-          transcriptEvents,
+          transcriptEvents: Object.freeze(transcriptEvents),
           transcriptEventSeq: sessionRuntime.transcriptEventSeq,
           transcriptItemCount: sessionRuntime.transcriptItemCount,
         }
       : {}),
-  };
+  });
 }
 
-function notifyAcpChatPanelSnapshotListeners(
-  change: AcpChatPanelSnapshotChange | undefined,
+function notifyAcpChatWorkspaceListeners(
+  change: AcpChatWorkspaceChange | undefined,
 ) {
-  if (!change) {
-    return;
-  }
-  const cloned: AcpChatPanelSnapshotChange = {
-    backendId: change.backendId,
-    conversationId: change.conversationId,
-    active: change.active === true,
-    global: change.global === true,
-    kinds: [...change.kinds],
-    transcriptEvents: change.transcriptEvents?.map((event) => ({
-      boundary: event.boundary,
-      mutation: JSON.parse(JSON.stringify(event.mutation)),
-      cardinality: event.cardinality,
-    })),
-    transcriptEventSeq: change.transcriptEventSeq,
-    transcriptItemCount: change.transcriptItemCount,
-  };
-  for (const listener of acpChatPanelListeners) {
-    listener(cloned);
+  if (!change) return;
+  for (const listener of acpChatWorkspaceListeners) {
+    listener(change);
   }
 }
 
-function resolveAcpChatPanelChangeKindsForPublish(
+function resolveAcpChatWorkspaceChangeKinds(
   reason: AssistantWorkspacePublishReason,
-  publishMode: AcpUiPublishMode,
   sessionRuntime: AcpChatSessionRuntime,
-  explicitKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
-): AcpChatPanelSnapshotChangeKind[] {
+  explicitKinds: readonly AcpChatWorkspaceChangeKind[] = [],
+): AcpChatWorkspaceChangeKind[] {
   if (explicitKinds.length > 0) {
     return Array.from(new Set(explicitKinds));
-  }
-  if (publishMode === "metadata") {
-    if (sessionRuntime.snapshot.pendingPermissionRequest) {
-      return ["permission"];
-    }
-    return ["status"];
   }
   if (reason === "live") {
     return ["transcript-append"];
   }
-  return ["transcript-boundary"];
+  if (sessionRuntime.workspaceTranscriptEvents.length > 0) {
+    return ["transcript-boundary"];
+  }
+  return sessionRuntime.snapshot.pendingPermissionRequest
+    ? ["permission"]
+    : ["status"];
 }
 
 function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {
@@ -950,9 +1018,6 @@ function forceReleaseAcpChatTranscriptMirror(
   sessionRuntime.transcriptHydrateState = undefined;
   sessionRuntime.transcriptHydrateError = undefined;
   sessionRuntime.transcriptHydratePromise = undefined;
-  sessionRuntime.uiSnapshot = null;
-  sessionRuntime.uiHasUnpublishedTranscript = false;
-  sessionRuntime.uiPendingPublishMode = null;
 }
 
 function pruneColdAcpChatTranscriptMirrorLru() {
@@ -1109,163 +1174,14 @@ async function waitForAcpChatShutdownTask(
   ]);
 }
 
-function resolveAcpConversationSnapshotItemMode(
-  options?: AcpConversationUiSnapshotReadOptions,
-): AcpConversationSnapshotItemMode {
-  return options?.itemMode === "structural" ? "structural" : "full";
-}
-
-function applyPublishedSessionRuntimeSnapshotMetadata(
+function consumePendingAcpChatWorkspaceChangeKinds(
   sessionRuntime: AcpChatSessionRuntime,
-  cloned: AcpConversationSnapshot & Record<string, unknown>,
-) {
-  cloned.frontendSnapshotRevision = sessionRuntime.frontendSnapshotRevision;
-  cloned.transcriptRevision = sessionRuntime.snapshot.transcriptRevision;
-  cloned.transcriptEventSeq = sessionRuntime.snapshot.transcriptEventSeq;
-  cloned.transcriptItemCount = sessionRuntime.snapshot.transcriptItemCount;
-  cloned.transcriptPreview = sessionRuntime.snapshot.transcriptPreview;
-}
-
-function clonePublishedSessionRuntimeSnapshot(
-  sessionRuntime: AcpChatSessionRuntime,
-  options?: AcpConversationUiSnapshotReadOptions,
-) {
-  const itemMode = resolveAcpConversationSnapshotItemMode(options);
-  if (itemMode === "structural") {
-    const source = sessionRuntime.uiSnapshot || sessionRuntime.snapshot;
-    const cloned = cloneSnapshotValue({
-      ...source,
-      items: [],
-    }) as AcpConversationSnapshot & Record<string, unknown>;
-    applyPublishedSessionRuntimeSnapshotMetadata(sessionRuntime, cloned);
-    cloned.items = mergeStructuralConversationItems(
-      sessionRuntime,
-      sessionRuntime.uiSnapshot,
-    );
-    return cloned;
-  }
-  if (!sessionRuntime.uiSnapshot) {
-    sessionRuntime.uiSnapshot = cloneSnapshotValue(sessionRuntime.snapshot);
-  }
-  const cloned = cloneSnapshotValue(
-    sessionRuntime.uiSnapshot,
-  ) as AcpConversationSnapshot & Record<string, unknown>;
-  applyPublishedSessionRuntimeSnapshotMetadata(sessionRuntime, cloned);
-  cloned.items = sessionRuntime.transcriptMirrorLoaded
-    ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
-    : [];
-  return cloned;
-}
-
-function markSessionRuntimeTranscriptUnpublished(
-  sessionRuntime: AcpChatSessionRuntime,
-) {
-  sessionRuntime.uiHasUnpublishedTranscript = true;
-}
-
-function resolveAcpUiPublishMode(options: {
-  publishMode?: AcpUiPublishMode;
-  publishTranscript?: boolean;
-}) {
-  if (options.publishMode) {
-    return options.publishMode;
-  }
-  return options.publishTranscript === false ? "metadata" : "full";
-}
-
-function mergeAcpUiPublishMode(
-  current: AcpUiPublishMode | null,
-  next: AcpUiPublishMode,
-) {
-  if (current === "full" || next === "full") {
-    return "full";
-  }
-  if (current === "structural" || next === "structural") {
-    return "structural";
-  }
-  return "metadata";
-}
-
-function mergeStructuralConversationItems(
-  sessionRuntime: AcpChatSessionRuntime,
-  previous: AcpConversationSnapshot | null,
-) {
-  const byId = new Map<string, AcpConversationItem>();
-  const remember = (item: AcpConversationItem | undefined) => {
-    if (item?.kind !== "plan") {
-      return;
-    }
-    byId.set(item.id, cloneAcpConversationItem(item));
-  };
-  for (const item of previous?.items || []) {
-    remember(item);
-  }
-  if (sessionRuntime.activePlanItemId) {
-    remember(
-      sessionRuntime.transcriptItemsById.get(sessionRuntime.activePlanItemId),
-    );
-  }
-  for (const itemId of sessionRuntime.transcriptItemIds) {
-    remember(sessionRuntime.transcriptItemsById.get(itemId));
-  }
-  return Array.from(byId.values());
-}
-
-function updatePublishedSessionRuntimeSnapshot(
-  sessionRuntime: AcpChatSessionRuntime,
-  publishMode: AcpUiPublishMode,
-) {
-  const previous = sessionRuntime.uiSnapshot;
-  const next = cloneSnapshotValue(sessionRuntime.snapshot);
-  if (publishMode === "structural") {
-    next.items = mergeStructuralConversationItems(sessionRuntime, previous);
-  } else {
-    next.items = sessionRuntime.transcriptMirrorLoaded
-      ? readSessionRuntimeTranscriptMirrorItems(sessionRuntime)
-      : [];
-  }
-  sessionRuntime.uiSnapshot = next;
-  sessionRuntime.frontendSnapshotRevision += 1;
-  if (publishMode !== "metadata") {
-    sessionRuntime.uiTranscriptRevision =
-      sessionRuntime.snapshot.transcriptRevision;
-    if (publishMode === "full") {
-      sessionRuntime.uiHasUnpublishedTranscript = false;
-    }
-  }
-}
-
-function notifyConversationListenersNow(sessionRuntime: AcpChatSessionRuntime) {
-  if (!listeners.size || !isForegroundSessionRuntime(sessionRuntime)) {
-    return;
-  }
-  const cloned = clonePublishedSessionRuntimeSnapshot(sessionRuntime);
-  for (const listener of listeners) {
-    listener(cloned);
-  }
-}
-
-function notifyFrontendListenersNow(change?: AcpChatPanelSnapshotChange) {
-  if (frontendListeners.size) {
-    const frontend = buildFrontendSnapshot({
-      uiVisible: true,
-      itemMode: "structural",
-    });
-    for (const listener of frontendListeners) {
-      listener(frontend);
-    }
-  }
-  notifyAcpChatPanelSnapshotListeners(change);
-}
-
-function consumePendingAcpChatPanelChangeKinds(
-  sessionRuntime: AcpChatSessionRuntime,
-  additional: readonly AcpChatPanelSnapshotChangeKind[] = [],
+  additional: readonly AcpChatWorkspaceChangeKind[] = [],
 ) {
   const kinds = Array.from(
-    new Set([...sessionRuntime.uiPendingChangeKinds, ...additional]),
+    new Set([...sessionRuntime.pendingWorkspaceChangeKinds, ...additional]),
   );
-  sessionRuntime.uiPendingChangeKinds.clear();
+  sessionRuntime.pendingWorkspaceChangeKinds.clear();
   return kinds;
 }
 
@@ -1277,33 +1193,24 @@ function flushPendingPersistence(sessionRuntime: AcpChatSessionRuntime) {
   persistSessionRuntimeSnapshotNow(sessionRuntime);
 }
 
-function flushPendingUiEmit(
+function flushPendingWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
-  publishMode: AcpUiPublishMode = "full",
   reason: AssistantWorkspacePublishReason = "critical",
-  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
+  changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
 ) {
-  if (sessionRuntime.uiEmitTimer) {
-    clearTimeout(sessionRuntime.uiEmitTimer);
-    sessionRuntime.uiEmitTimer = null;
+  if (sessionRuntime.workspaceChangeTimer) {
+    clearTimeout(sessionRuntime.workspaceChangeTimer);
+    sessionRuntime.workspaceChangeTimer = null;
   }
-  const mode = mergeAcpUiPublishMode(
-    sessionRuntime.uiPendingPublishMode,
-    publishMode,
-  );
-  sessionRuntime.uiPendingPublishMode = null;
-  const pendingChangeKinds = consumePendingAcpChatPanelChangeKinds(
+  const pendingChangeKinds = consumePendingAcpChatWorkspaceChangeKinds(
     sessionRuntime,
     changeKinds,
   );
-  updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
-  notifyConversationListenersNow(sessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(
       sessionRuntime,
-      resolveAcpChatPanelChangeKindsForPublish(
+      resolveAcpChatWorkspaceChangeKinds(
         reason,
-        mode,
         sessionRuntime,
         pendingChangeKinds,
       ),
@@ -1321,36 +1228,24 @@ function schedulePersistenceFlush(sessionRuntime: AcpChatSessionRuntime) {
   }, STREAMING_PERSIST_THROTTLE_MS);
 }
 
-function scheduleUiEmit(
+function scheduleWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
-  publishMode: AcpUiPublishMode = "metadata",
   reason: AssistantWorkspacePublishReason = "live",
-  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
+  changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
 ) {
-  sessionRuntime.uiPendingPublishMode = mergeAcpUiPublishMode(
-    sessionRuntime.uiPendingPublishMode,
-    publishMode,
-  );
   for (const kind of changeKinds) {
-    sessionRuntime.uiPendingChangeKinds.add(kind);
+    sessionRuntime.pendingWorkspaceChangeKinds.add(kind);
   }
-  if (sessionRuntime.uiEmitTimer) {
-    return;
-  }
-  sessionRuntime.uiEmitTimer = setTimeout(() => {
-    sessionRuntime.uiEmitTimer = null;
-    const mode = sessionRuntime.uiPendingPublishMode || "metadata";
-    sessionRuntime.uiPendingPublishMode = null;
+  if (sessionRuntime.workspaceChangeTimer) return;
+  sessionRuntime.workspaceChangeTimer = setTimeout(() => {
+    sessionRuntime.workspaceChangeTimer = null;
     const pendingChangeKinds =
-      consumePendingAcpChatPanelChangeKinds(sessionRuntime);
-    updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
-    notifyConversationListenersNow(sessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(
+      consumePendingAcpChatWorkspaceChangeKinds(sessionRuntime);
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(
         sessionRuntime,
-        resolveAcpChatPanelChangeKindsForPublish(
+        resolveAcpChatWorkspaceChangeKinds(
           reason,
-          mode,
           sessionRuntime,
           pendingChangeKinds,
         ),
@@ -1382,18 +1277,18 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
   const ownerKey = `${args.backendId}\n${args.conversationId}`;
   const timers: AcpRuntimeReplayLogicalTimerDescriptor[] = [];
 
-  if (sessionRuntime.uiEmitTimer) {
-    const nativeToken = sessionRuntime.uiEmitTimer;
+  if (sessionRuntime.workspaceChangeTimer) {
+    const nativeToken = sessionRuntime.workspaceChangeTimer;
     let currentToken = nativeToken;
     timers.push({
-      domain: "acp-chat-ui-emit",
+      domain: "acp-chat-workspace-change",
       ownerKey,
       delayMs: ASSISTANT_WORKSPACE_LIVE_PUBLISH_MS,
       nativeToken,
       detachNative: () => {
         if (
           sessionRuntimes.get(key) !== sessionRuntime ||
-          sessionRuntime.uiEmitTimer !== currentToken
+          sessionRuntime.workspaceChangeTimer !== currentToken
         ) {
           return false;
         }
@@ -1403,23 +1298,18 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
       fireIfCurrent: () => {
         if (
           sessionRuntimes.get(key) !== sessionRuntime ||
-          sessionRuntime.uiEmitTimer !== currentToken
+          sessionRuntime.workspaceChangeTimer !== currentToken
         ) {
           return false;
         }
-        sessionRuntime.uiEmitTimer = null;
-        const mode = sessionRuntime.uiPendingPublishMode || "metadata";
-        sessionRuntime.uiPendingPublishMode = null;
+        sessionRuntime.workspaceChangeTimer = null;
         const pendingChangeKinds =
-          consumePendingAcpChatPanelChangeKinds(sessionRuntime);
-        updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
-        notifyConversationListenersNow(sessionRuntime);
-        notifyFrontendListenersNow(
-          buildAcpChatPanelSnapshotChange(
+          consumePendingAcpChatWorkspaceChangeKinds(sessionRuntime);
+        notifyAcpChatWorkspaceListeners(
+          buildAcpChatWorkspaceChange(
             sessionRuntime,
-            resolveAcpChatPanelChangeKindsForPublish(
+            resolveAcpChatWorkspaceChangeKinds(
               "live",
-              mode,
               sessionRuntime,
               pendingChangeKinds,
             ),
@@ -1430,25 +1320,20 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
       resumeNative: (remainingMs) => {
         if (
           sessionRuntimes.get(key) !== sessionRuntime ||
-          sessionRuntime.uiEmitTimer !== currentToken
+          sessionRuntime.workspaceChangeTimer !== currentToken
         ) {
           return false;
         }
         currentToken = setTimeout(
           () => {
-            sessionRuntime.uiEmitTimer = null;
-            const mode = sessionRuntime.uiPendingPublishMode || "metadata";
-            sessionRuntime.uiPendingPublishMode = null;
+            sessionRuntime.workspaceChangeTimer = null;
             const pendingChangeKinds =
-              consumePendingAcpChatPanelChangeKinds(sessionRuntime);
-            updatePublishedSessionRuntimeSnapshot(sessionRuntime, mode);
-            notifyConversationListenersNow(sessionRuntime);
-            notifyFrontendListenersNow(
-              buildAcpChatPanelSnapshotChange(
+              consumePendingAcpChatWorkspaceChangeKinds(sessionRuntime);
+            notifyAcpChatWorkspaceListeners(
+              buildAcpChatWorkspaceChange(
                 sessionRuntime,
-                resolveAcpChatPanelChangeKindsForPublish(
+                resolveAcpChatWorkspaceChangeKinds(
                   "live",
-                  mode,
                   sessionRuntime,
                   pendingChangeKinds,
                 ),
@@ -1457,7 +1342,7 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
           },
           Math.max(0, remainingMs),
         );
-        sessionRuntime.uiEmitTimer = currentToken;
+        sessionRuntime.workspaceChangeTimer = currentToken;
         return true;
       },
     });
@@ -1525,27 +1410,18 @@ export function inspectSyntheticAcpChatReplayTimers(args: {
   return { timers, warnings: [] };
 }
 
-function publishSessionRuntimeUiSnapshot(
+function publishSessionRuntimeWorkspaceChange(
   sessionRuntime: AcpChatSessionRuntime,
   reason: AssistantWorkspacePublishReason,
-  publishMode: AcpUiPublishMode,
-  changeKinds: readonly AcpChatPanelSnapshotChangeKind[] = [],
+  changeKinds: readonly AcpChatWorkspaceChangeKind[] = [],
 ) {
-  if (reason === "background") {
-    return;
-  }
+  if (reason === "background") return;
   if (reason === "live") {
-    if (!canPublishAssistantWorkspaceLiveUpdates()) {
-      return;
-    }
-    if (publishMode === "full") {
-      flushPendingUiEmit(sessionRuntime, publishMode, reason, changeKinds);
-      return;
-    }
-    scheduleUiEmit(sessionRuntime, publishMode, reason, changeKinds);
+    if (!canPublishAssistantWorkspaceLiveUpdates()) return;
+    scheduleWorkspaceChange(sessionRuntime, reason, changeKinds);
     return;
   }
-  flushPendingUiEmit(sessionRuntime, publishMode, reason, changeKinds);
+  flushPendingWorkspaceChange(sessionRuntime, reason, changeKinds);
 }
 
 function emitSessionRuntimeSnapshot(
@@ -1569,15 +1445,9 @@ function emitSessionRuntimeSnapshot(
   if (options.notifyUi !== false) {
     const reason: AssistantWorkspacePublishReason =
       options.uiReason || (options.throttleUi ? "live" : "critical");
-    const publishMode = resolveAcpUiPublishMode({
-      publishMode: options.publishMode,
-      publishTranscript:
-        options.publishTranscript ?? !sessionRuntime.uiHasUnpublishedTranscript,
-    });
-    publishSessionRuntimeUiSnapshot(
+    publishSessionRuntimeWorkspaceChange(
       sessionRuntime,
       reason,
-      publishMode,
       options.changeKinds,
     );
   }
@@ -3058,7 +2928,6 @@ function handleSessionUpdate(
           throttlePersist: true,
           touchUpdatedAt: false,
           uiReason: "critical",
-          publishMode: "metadata",
           changeKinds: ["message-counts"],
         });
       }
@@ -3083,12 +2952,10 @@ function handleSessionUpdate(
         role: "assistant",
         text: chunk,
       });
-      markSessionRuntimeTranscriptUnpublished(sessionRuntime);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         touchUpdatedAt: false,
         uiReason: "live",
-        publishMode: "full",
         changeKinds: progressChange.countChanged
           ? ["message-counts", "transcript-append"]
           : ["transcript-append"],
@@ -3111,12 +2978,10 @@ function handleSessionUpdate(
         kind: "thought",
         text: chunk,
       });
-      markSessionRuntimeTranscriptUnpublished(sessionRuntime);
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         touchUpdatedAt: false,
         uiReason: "live",
-        publishMode: "full",
         changeKinds: progressChange.countChanged
           ? ["message-counts", "transcript-append"]
           : ["transcript-append"],
@@ -3131,7 +2996,6 @@ function handleSessionUpdate(
       upsertToolCallItem(sessionRuntime, update, "hard-boundary");
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
-        publishMode: "structural",
         changeKinds: progressChange.countChanged
           ? ["message-counts", "transcript-boundary"]
           : ["transcript-boundary"],
@@ -3145,7 +3009,6 @@ function handleSessionUpdate(
         throttlePersist: transcriptBoundary === "soft-side-channel",
         uiReason:
           transcriptBoundary === "soft-side-channel" ? "live" : "boundary",
-        publishMode: "structural",
         changeKinds: [
           transcriptBoundary === "soft-side-channel"
             ? "transcript-progress"
@@ -3184,7 +3047,6 @@ function handleSessionUpdate(
       }
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
-        publishMode: "structural",
         changeKinds: ["plan", "transcript-boundary"],
       });
       return;
@@ -3205,8 +3067,7 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         uiReason: "live",
-        publishMode: "metadata",
-        changeKinds: ["reply-hint"],
+        changeKinds: ["composer"],
       });
       return;
     }
@@ -3218,8 +3079,7 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         uiReason: "live",
-        publishMode: "metadata",
-        changeKinds: ["reply-hint"],
+        changeKinds: ["composer"],
       });
       return;
     }
@@ -3242,13 +3102,12 @@ function handleSessionUpdate(
       }
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
-        publishMode: "structural",
         changeKinds:
           applied.modeApplied ||
           applied.modelApplied ||
           applied.reasoningApplied
-            ? ["reply-hint"]
-            : ["reply-hint", "transcript-boundary"],
+            ? ["composer"]
+            : ["composer", "transcript-boundary"],
       });
       return;
     }
@@ -3261,8 +3120,7 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         uiReason: "live",
-        publishMode: "metadata",
-        changeKinds: ["context-details"],
+        changeKinds: ["owner-presentation"],
       });
       return;
     }
@@ -3279,8 +3137,7 @@ function handleSessionUpdate(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         throttlePersist: true,
         uiReason: "live",
-        publishMode: "metadata",
-        changeKinds: ["reply-hint"],
+        changeKinds: ["composer"],
       });
       return;
     }
@@ -3322,7 +3179,6 @@ function bindAdapter(
       });
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
-        publishMode: "metadata",
       });
       return;
     }
@@ -3352,8 +3208,7 @@ function bindAdapter(
     emitSessionRuntimeSnapshot(sessionRuntime, {
       persist: false,
       uiReason: "live",
-      publishMode: "metadata",
-      changeKinds: ["context-details"],
+      changeKinds: ["owner-presentation"],
     });
   });
   sessionRuntime.unsubscribePermission = nextAdapter.onPermissionRequest(
@@ -3451,7 +3306,6 @@ async function forceStopAcpChatPrompt(
     finalizeStreamingItems(sessionRuntime, "error", "cancelled");
     emitSessionRuntimeSnapshot(sessionRuntime, {
       uiReason: "critical",
-      publishMode: "full",
     });
     return;
   }
@@ -3481,7 +3335,6 @@ async function forceStopAcpChatPrompt(
   finalizeStreamingItems(sessionRuntime, "complete", "cancelled");
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
-    publishMode: "full",
   });
 }
 
@@ -4038,39 +3891,6 @@ async function ensureSession(
   }
 }
 
-function buildBackendSummary(
-  backend: BackendInstance,
-  options: { ensureSession?: boolean } = {},
-) {
-  const backendActiveRuntime = getOrCreateSessionRuntime(backend.id);
-  backendActiveRuntime.snapshot.backend = backend;
-  const sessions = options.ensureSession
-    ? listAcpChatSessions(backend.id)
-    : listStoredVisibleAcpChatSessions(backend.id);
-  const projectedSessions = sessions.map((entry) =>
-    projectAcpChatSessionSummary(backend.id, entry),
-  );
-  const lastError =
-    String(backendActiveRuntime.snapshot.prerequisiteError || "").trim() ||
-    String(backendActiveRuntime.snapshot.lastError || "").trim();
-  return {
-    backendId: backend.id,
-    displayName: String(backend.displayName || backend.id).trim(),
-    status: backendActiveRuntime.snapshot.status,
-    busy: backendActiveRuntime.snapshot.busy,
-    connected:
-      backendActiveRuntime.snapshot.status === "connected" ||
-      backendActiveRuntime.snapshot.status === "prompting" ||
-      backendActiveRuntime.adapter !== null,
-    messageCount:
-      projectedSessions.reduce((sum, entry) => sum + entry.messageCount, 0) ||
-      backendActiveRuntime.snapshot.transcriptItemCount ||
-      0,
-    lastError,
-    updatedAt: backendActiveRuntime.snapshot.updatedAt,
-  };
-}
-
 function projectAcpChatSessionSummary(
   backendId: string,
   entry: AcpChatSessionSummary,
@@ -4101,104 +3921,12 @@ function projectAcpChatSessionSummary(
   };
 }
 
-function buildFrontendSnapshot(options?: {
-  uiVisible?: boolean;
-  itemMode?: AcpConversationSnapshotItemMode;
-}): AcpFrontendSnapshot {
-  ensureInitialized();
-  const foregroundSessionRuntime = getOrCreateSessionRuntime(activeBackendId);
-  const itemMode = resolveAcpConversationSnapshotItemMode(options);
-  if (options?.uiVisible === true && itemMode === "full") {
-    scheduleAcpChatTranscriptHydrate(foregroundSessionRuntime);
-  }
-  const activeSnapshot =
-    options?.uiVisible === true
-      ? clonePublishedSessionRuntimeSnapshot(foregroundSessionRuntime, {
-          itemMode,
-        })
-      : cloneSnapshotValue(foregroundSessionRuntime.snapshot);
-  activeSnapshot.mcpServer = getZoteroMcpServerStatus();
-  activeSnapshot.mcpHealth = getZoteroMcpHealthSnapshot();
-  const chatSessions = listAcpChatSessions(activeBackendId);
-  const foregroundBackend = foregroundSessionRuntime.snapshot.backend;
-  const knownBackends: BackendInstance[] = [
-    ...(foregroundBackend &&
-    !cachedAcpBackends.some((entry) => entry.id === foregroundBackend.id)
-      ? [foregroundBackend]
-      : []),
-    ...cachedAcpBackends,
-  ];
-  const summaries = knownBackends.map((backend) =>
-    buildBackendSummary(backend, {
-      ensureSession: backend.id === activeBackendId,
-    }),
-  );
-  const projectedChatSessions = chatSessions.map((entry) =>
-    projectAcpChatSessionSummary(activeBackendId, entry),
-  );
-  const sortedBackends = [
-    ...knownBackends.filter((backend) => backend.id === activeBackendId),
-    ...knownBackends.filter((backend) => backend.id !== activeBackendId),
-  ];
-  const backendChatSessions = sortedBackends
-    .map((backend) => {
-      const isActiveBackend = backend.id === activeBackendId;
-      return {
-        backendId: backend.id,
-        displayName: String(backend.displayName || backend.id || "").trim(),
-        sessions: isActiveBackend
-          ? projectedChatSessions
-          : listStoredVisibleAcpChatSessions(backend.id).map((entry) =>
-              projectAcpChatSessionSummary(backend.id, entry),
-            ),
-      };
-    })
-    .filter(
-      (entry) =>
-        entry.backendId === activeBackendId || entry.sessions.length > 0,
-    );
-  return {
-    activeBackendId,
-    activeConversationId: foregroundSessionRuntime.snapshot.conversationId,
-    chatSessions: projectedChatSessions,
-    backendChatSessions,
-    backends: summaries,
-    activeSnapshot,
-    connectedCount: summaries.filter((entry) => entry.connected).length,
-    errorCount: summaries.filter((entry) => entry.status === "error").length,
-    totalMessageCount: summaries.reduce(
-      (sum, entry) => sum + entry.messageCount,
-      0,
-    ),
-    updatedAt: nowIso(),
-  };
-}
-
-export function getAcpFrontendSnapshot(
-  options?: AcpConversationUiSnapshotReadOptions,
+export function subscribeAcpChatWorkspaceChanges(
+  listener: AcpChatWorkspaceListener,
 ) {
-  return buildFrontendSnapshot({
-    uiVisible: true,
-    itemMode: resolveAcpConversationSnapshotItemMode(options),
-  });
-}
-
-export function subscribeAcpFrontendSnapshots(
-  listener: AcpFrontendSnapshotListener,
-) {
-  frontendListeners.add(listener);
-  listener(getAcpFrontendSnapshot());
+  acpChatWorkspaceListeners.add(listener);
   return () => {
-    frontendListeners.delete(listener);
-  };
-}
-
-export function subscribeAcpChatPanelSnapshots(
-  listener: AcpChatPanelSnapshotListener,
-) {
-  acpChatPanelListeners.add(listener);
-  return () => {
-    acpChatPanelListeners.delete(listener);
+    acpChatWorkspaceListeners.delete(listener);
   };
 }
 
@@ -4211,23 +3939,6 @@ export function getAcpConversationSnapshot(
     getOrCreateSessionRuntime(backendId || activeBackendId, conversationId)
       .snapshot,
   );
-}
-
-export function getAcpConversationUiSnapshot(
-  backendId?: string,
-  conversationId?: string,
-  options?: AcpConversationUiSnapshotReadOptions,
-) {
-  ensureInitialized();
-  const sessionRuntime = getOrCreateSessionRuntime(
-    backendId || activeBackendId,
-    conversationId,
-  );
-  const itemMode = resolveAcpConversationSnapshotItemMode(options);
-  if (itemMode === "full") {
-    scheduleAcpChatTranscriptHydrate(sessionRuntime);
-  }
-  return clonePublishedSessionRuntimeSnapshot(sessionRuntime, { itemMode });
 }
 
 async function flushPendingChatTranscriptWrites(
@@ -4318,7 +4029,6 @@ function scheduleAcpChatTranscriptHydrate(
         persist: false,
         touchUpdatedAt: false,
         uiReason: "critical",
-        publishMode: "full",
       });
     });
 }
@@ -4506,16 +4216,6 @@ export function getAcpChatTranscriptMirrorDiagnosticsForTests(args?: {
   };
 }
 
-export function subscribeAcpConversationSnapshots(
-  listener: AcpSnapshotListener,
-) {
-  listeners.add(listener);
-  listener(getAcpConversationUiSnapshot());
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
 export async function setActiveAcpBackend(args: { backendId: string }) {
   ensureInitialized();
   const backendId = normalizeBackendId(args.backendId);
@@ -4533,12 +4233,8 @@ export async function setActiveAcpBackend(args: { backendId: string }) {
   sessionRuntime.snapshot.backend = backend;
   applyRuntimeOptionsCache(sessionRuntime, backend);
   pruneIdleBackgroundTranscriptMirrors();
-  notifyConversationListenersNow(sessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(sessionRuntime, [
-      "active-scope",
-      "backend",
-    ]),
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope", "backend"]),
   );
 }
 
@@ -4664,9 +4360,8 @@ export async function setActiveAcpConversation(args: {
       conversationId
   ) {
     const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
-    notifyConversationListenersNow(sessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(sessionRuntime, ["active-scope"]),
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope"]),
     );
     return;
   }
@@ -4679,9 +4374,8 @@ export async function setActiveAcpConversation(args: {
   saveActiveAcpConversationSelection(backendId, conversationId);
   const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
   pruneIdleBackgroundTranscriptMirrors();
-  notifyConversationListenersNow(sessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(sessionRuntime, ["active-scope"]),
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope"]),
   );
 }
 
@@ -4698,17 +4392,18 @@ export async function refreshAcpConversationBackends() {
   ensureInitialized();
   await refreshAcpBackends();
   if (!activeBackendId) {
-    notifyFrontendListenersNow({
-      active: false,
-      global: true,
-      kinds: ["backend"],
-    });
+    notifyAcpChatWorkspaceListeners(
+      Object.freeze({
+        active: false,
+        global: true,
+        kinds: Object.freeze(["backend"] as const),
+      }),
+    );
     return;
   }
   const sessionRuntime = getOrCreateSessionRuntime(activeBackendId);
-  notifyConversationListenersNow(sessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(sessionRuntime, ["backend"], {
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(sessionRuntime, ["backend"], {
       global: true,
     }),
   );
@@ -4768,19 +4463,16 @@ export function setAcpConversationAutoApprovePermissions(args: {
   );
   const enabled = args.enabled === true;
   if (sessionRuntime.snapshot.autoApproveAcpPermissions === enabled) {
-    notifyConversationListenersNow(sessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(sessionRuntime, ["permission"]),
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(sessionRuntime, ["permission"]),
     );
     return;
   }
   sessionRuntime.snapshot.autoApproveAcpPermissions = enabled;
   sessionRuntime.snapshot.updatedAt = nowIso();
-  updatePublishedSessionRuntimeSnapshot(sessionRuntime, "metadata");
   persistSessionRuntimeSnapshotNow(sessionRuntime);
-  notifyConversationListenersNow(sessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(sessionRuntime, ["permission"]),
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(sessionRuntime, ["permission"]),
   );
 }
 
@@ -4995,7 +4687,6 @@ export async function sendAcpConversationPrompt(args: {
     }
     emitSessionRuntimeSnapshot(sessionRuntime, {
       uiReason: "critical",
-      publishMode: "full",
     });
     await flushPendingChatTranscriptWrites(sessionRuntime);
     if (
@@ -5060,7 +4751,6 @@ export async function sendAcpConversationPrompt(args: {
     }
     emitSessionRuntimeSnapshot(sessionRuntime, {
       uiReason: "critical",
-      publishMode: "full",
     });
     await flushPendingChatTranscriptWrites(sessionRuntime);
     if (
@@ -5108,7 +4798,6 @@ export async function cancelAcpConversationPrompt(args?: {
   sessionRuntime.snapshot.promptInterruptState = "requested";
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
-    publishMode: "metadata",
   });
   try {
     await sessionRuntime.adapter.cancel({
@@ -5147,9 +4836,8 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
       existingPlaceholderConversationId,
     );
     pruneIdleBackgroundTranscriptMirrors();
-    notifyConversationListenersNow(existingRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(existingRuntime, [
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(existingRuntime, [
         "active-scope",
         "session-list",
       ]),
@@ -5232,8 +4920,8 @@ export async function renameAcpConversation(args: {
     conversationId,
     title,
   });
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(
       getOrCreateSessionRuntime(backendId, conversationId),
       ["session-list"],
     ),
@@ -5284,8 +4972,8 @@ export async function archiveAcpConversation(args: {
       sessions: updatedSessions,
     });
     releaseIdleBackgroundTranscriptMirror(sessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(sessionRuntime, ["session-list"]),
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(sessionRuntime, ["session-list"]),
     );
     return;
   }
@@ -5303,9 +4991,8 @@ export async function archiveAcpConversation(args: {
       visibleSessions[0].conversationId,
     );
     scheduleAcpChatTranscriptHydrate(nextSessionRuntime);
-    notifyConversationListenersNow(nextSessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(nextSessionRuntime, [
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(nextSessionRuntime, [
         "active-scope",
         "session-list",
       ]),
@@ -5341,9 +5028,8 @@ export async function archiveAcpConversation(args: {
   };
   rekeySessionRuntime(emptySessionRuntime);
   resetSessionRuntimeTransientState(emptySessionRuntime);
-  notifyConversationListenersNow(emptySessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(emptySessionRuntime, [
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(emptySessionRuntime, [
       "active-scope",
       "session-list",
     ]),
@@ -5382,9 +5068,8 @@ export async function deleteActiveAcpConversation(args?: {
       remaining[0].conversationId,
     );
     scheduleAcpChatTranscriptHydrate(nextSessionRuntime);
-    notifyConversationListenersNow(nextSessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(nextSessionRuntime, [
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(nextSessionRuntime, [
         "active-scope",
         "session-list",
       ]),
@@ -5417,9 +5102,8 @@ export async function deleteActiveAcpConversation(args?: {
   };
   rekeySessionRuntime(emptySessionRuntime);
   resetSessionRuntimeTransientState(emptySessionRuntime);
-  notifyConversationListenersNow(emptySessionRuntime);
-  notifyFrontendListenersNow(
-    buildAcpChatPanelSnapshotChange(emptySessionRuntime, [
+  notifyAcpChatWorkspaceListeners(
+    buildAcpChatWorkspaceChange(emptySessionRuntime, [
       "active-scope",
       "session-list",
     ]),
@@ -5811,22 +5495,21 @@ export function pruneAcpChatSessionRuntimesForBackends(
     }
     saveAcpFrontendState({ activeBackendId });
   }
-  notifyFrontendListenersNow({
-    active: true,
-    global: true,
-    kinds: ["backend"],
-  });
-  if (activeBackendId) {
-    notifyConversationListenersNow(getOrCreateSessionRuntime(activeBackendId));
-  }
+  notifyAcpChatWorkspaceListeners(
+    Object.freeze({
+      active: true,
+      global: true,
+      kinds: Object.freeze(["backend"] as const),
+    }),
+  );
 }
 
 export async function shutdownAcpSessionManager() {
   const pending: Promise<unknown>[] = [];
   for (const sessionRuntime of sessionRuntimes.values()) {
-    if (sessionRuntime.uiEmitTimer) {
-      clearTimeout(sessionRuntime.uiEmitTimer);
-      sessionRuntime.uiEmitTimer = null;
+    if (sessionRuntime.workspaceChangeTimer) {
+      clearTimeout(sessionRuntime.workspaceChangeTimer);
+      sessionRuntime.workspaceChangeTimer = null;
     }
     if (sessionRuntime.persistTimer) {
       flushPendingPersistence(sessionRuntime);
@@ -5864,9 +5547,7 @@ export async function shutdownAcpSessionManager() {
   }
   sessionRuntimes.clear();
   coldAcpChatTranscriptMirrorLru.clear();
-  listeners.clear();
-  frontendListeners.clear();
-  acpChatPanelListeners.clear();
+  acpChatWorkspaceListeners.clear();
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";
@@ -5942,18 +5623,18 @@ function publishAcpChatForegroundSelection(
   sessionRuntime?: AcpChatSessionRuntime,
 ) {
   if (sessionRuntime) {
-    updatePublishedSessionRuntimeSnapshot(sessionRuntime, "full");
-    notifyConversationListenersNow(sessionRuntime);
-    notifyFrontendListenersNow(
-      buildAcpChatPanelSnapshotChange(sessionRuntime, ["active-scope"]),
+    notifyAcpChatWorkspaceListeners(
+      buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope"]),
     );
     return;
   }
-  notifyFrontendListenersNow({
-    active: true,
-    global: true,
-    kinds: ["active-scope"],
-  });
+  notifyAcpChatWorkspaceListeners(
+    Object.freeze({
+      active: true,
+      global: true,
+      kinds: Object.freeze(["active-scope"] as const),
+    }),
+  );
 }
 
 export async function activateSyntheticAcpChatReplay(args: {
@@ -6084,7 +5765,6 @@ export function applySyntheticAcpChatReplayPermission(args: {
     : "connected";
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
-    publishMode: "metadata",
   });
 }
 
@@ -6099,7 +5779,6 @@ export async function drainSyntheticAcpChatReplay(args: {
   await flushPendingChatTranscriptWrites(sessionRuntime);
   emitSessionRuntimeSnapshot(sessionRuntime, {
     uiReason: "critical",
-    publishMode: "full",
   });
 }
 
@@ -6128,8 +5807,8 @@ export function resetAcpSessionManagerForTests() {
   unsubscribeExecutionDisplayMode = undefined;
   for (const sessionRuntime of sessionRuntimes.values()) {
     releaseAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime));
-    if (sessionRuntime.uiEmitTimer) {
-      clearTimeout(sessionRuntime.uiEmitTimer);
+    if (sessionRuntime.workspaceChangeTimer) {
+      clearTimeout(sessionRuntime.workspaceChangeTimer);
     }
     if (sessionRuntime.persistTimer) {
       clearTimeout(sessionRuntime.persistTimer);
@@ -6144,9 +5823,7 @@ export function resetAcpSessionManagerForTests() {
   resetAcpConversationHostBridgePermissionHandlersForTests();
   sessionRuntimes.clear();
   coldAcpChatTranscriptMirrorLru.clear();
-  listeners.clear();
-  frontendListeners.clear();
-  acpChatPanelListeners.clear();
+  acpChatWorkspaceListeners.clear();
   cachedAcpBackends = [];
   activeBackendId = "";
   activeConversationId = "";

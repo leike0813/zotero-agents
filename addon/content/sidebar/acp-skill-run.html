@@ -12,52 +12,37 @@
       rel="stylesheet"
       href="../shared/assistant/assistant-panel-shared.css"
     />
-    <link rel="stylesheet" href="./acp-skill-run.css" />
+    <link
+      rel="stylesheet"
+      href="../shared/assistant/assistant-workspace-acp-child.css"
+    />
   </head>
-  <body>
-    <main class="acp-skill-run-shell asst-panel-shell">
-      <header
-        id="acp-skill-run-toolbar"
-        class="acp-skill-toolbar asst-shell-toolbar"
-      ></header>
-
+  <body data-source="acp-skills">
+    <main
+      class="assistant-workspace-acp-shell asst-panel-shell"
+      data-role="root"
+    >
+      <header class="asst-shell-toolbar" data-role="toolbar"></header>
+      <section class="asst-banner" data-role="banner"></section>
       <section
-        id="acp-skill-run-banner"
-        class="acp-skill-banner asst-banner"
-      ></section>
-
-      <section
-        id="acp-skill-run-message-counter"
         class="assistant-message-counter-region hidden"
+        data-role="message-counts"
       ></section>
-
       <section
-        id="acp-skill-run-drawer"
-        class="run-drawer asst-panel-drawer-overlay hidden"
+        class="asst-panel-drawer-overlay hidden"
+        data-role="context-drawer"
       ></section>
-
-      <section id="acp-skill-run-empty" class="empty-state asst-empty-state">
+      <section class="asst-empty-state" data-role="empty">
         Select an ACP skill run to inspect its transcript.
       </section>
-
-      <section
-        id="acp-skill-run-main"
-        class="acp-skill-run-main asst-panel-main hidden"
-      >
-        <section
-          id="acp-skill-conversation-window"
-          class="acp-skill-conversation-window asst-conversation-surface"
-        >
-          <section
-            id="acp-skill-run-transcript"
-            class="run-transcript"
-          ></section>
+      <section class="asst-panel-main hidden" data-role="main">
+        <section class="asst-conversation-surface" data-role="conversation">
+          <section class="plain-mode" data-role="transcript"></section>
           <div
             class="asst-conversation-overlay-menu"
             aria-label="Conversation view"
           >
             <button
-              id="acp-skill-chat-mode-plain"
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="plain"
@@ -71,7 +56,6 @@
               <span class="asst-view-mode-label">Plain</span>
             </button>
             <button
-              id="acp-skill-chat-mode-bubble"
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="bubble"
@@ -86,36 +70,24 @@
             </button>
           </div>
         </section>
-
+        <section class="asst-plan-surface hidden" data-role="plan"></section>
         <section
-          id="acp-skill-run-plan-panel"
-          class="acp-skill-plan-region asst-plan-surface hidden"
+          class="asst-hint-surface hidden"
+          data-role="interaction"
         ></section>
-
-        <section
-          id="acp-skill-run-interaction"
-          class="acp-skill-hint-region asst-hint-surface hidden"
-        ></section>
-
-        <section
-          id="acp-skill-run-reply-form"
-          class="acp-skill-reply-zone asst-reply-surface"
-        ></section>
+        <section class="asst-reply-surface" data-role="composer"></section>
       </section>
-
       <section
-        id="acp-skill-run-details"
-        class="details-drawer asst-panel-details-overlay hidden"
+        class="asst-panel-details-overlay hidden"
+        data-role="details-drawer"
       ></section>
     </main>
     <script src="../shared/vendor/katex/katex.min.js"></script>
     <script src="../shared/vendor/markdown-it/markdown-it.min.js"></script>
     <script src="../shared/vendor/markdown-it-texmath/texmath.min.js"></script>
-    <script src="../shared/assistant/assistant-conversation-view.js"></script>
     <script src="../shared/assistant/assistant-transcript-renderer.js"></script>
-    <script src="../shared/assistant/assistant-workspace-acp-surface.js"></script>
     <script src="../shared/assistant/assistant-panel-model.js"></script>
     <script src="../shared/assistant/assistant-panel-renderer.js"></script>
-    <script src="./acp-skill-run.js"></script>
+    <script src="../shared/assistant/assistant-workspace-acp-child.js"></script>
   </body>
 </html>
