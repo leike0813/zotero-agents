@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../../.scaffold/synthesis-service",
+    "declaration": false,
+    "sourceMap": false
+  }
+}

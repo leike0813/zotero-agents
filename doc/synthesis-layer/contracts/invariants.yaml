@@ -41,6 +41,15 @@ invariants:
         marker: "[inv.runtime.single_production_owner]"
         kind: static_guard
 
+  - id: inv.runtime.sidecar_foundation_isolated
+    severity: fatal
+    statement: The independent Node sidecar runtime foundation is a loopback-only mutation-disabled control plane that is not imported by the plugin and cannot access Zotero, Synthesis repositories, canonical writers, Host effects, sync runtime, or compute engines.
+    evidence: Service application import-boundary and production-composition guards.
+    test_refs:
+      - file: test/core/152-synthesis-invariant-guards.test.ts
+        marker: "[inv.runtime.sidecar_foundation_isolated]"
+        kind: static_guard
+
   - id: inv.workflow.apply_direct_sidecar
     severity: fatal
     statement: Literature digest and reference matching apply hooks write bounded artifact sidecar, raw-reference, canonical-reference, and binding candidate state directly for the affected source_ref and do not record Synthesis update events.

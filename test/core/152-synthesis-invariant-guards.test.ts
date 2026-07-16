@@ -31,6 +31,7 @@ const VALID_SEVERITIES = new Set(["fatal", "high", "medium", "low"]);
 const VALID_TEST_KINDS = new Set(["behavior", "static_guard"]);
 const STATIC_ONLY_ALLOWED = new Set([
   "inv.discovery.no_global_llm_nxm",
+  "inv.runtime.sidecar_foundation_isolated",
   "inv.runtime.single_production_owner",
 ]);
 
@@ -107,6 +108,28 @@ function extractFunctionBlock(source: string, functionName: string): string {
 }
 
 describe("Synthesis invariant guards", function () {
+  it("keeps the sidecar runtime foundation isolated [inv.runtime.sidecar_foundation_isolated]", function () {
+    const appRoot = repoPath("apps/synthesis-service");
+    assert.isTrue(fs.existsSync(appRoot));
+    const sources = fs
+      .readdirSync(repoPath("apps/synthesis-service/src"))
+      .filter((entry) => entry.endsWith(".ts"))
+      .map((entry) => readRepoText(`apps/synthesis-service/src/${entry}`))
+      .join("\n");
+    assert.notMatch(
+      sources,
+      /(?:src\/modules\/synthesis|synthesis\/service|repository|canonical|hostEffect|webDavSync|synthesis-engine|globalThis\.Zotero|zotero-plugin)/i,
+    );
+    assert.include(
+      readRepoText("src/modules/synthesisClient/defaultClient.ts"),
+      "createDefaultLegacySynthesisClientComposition",
+    );
+    assert.include(
+      readRepoText("src/modules/synthesisClient/legacyComposition.ts"),
+      "createLegacyInProcessSynthesisClient",
+    );
+  });
+
   it("declares executable test_refs for every Synthesis invariant", function () {
     const contract = readInvariantContract();
     assert.equal(contract.schema, "synthesis.invariants.v2");

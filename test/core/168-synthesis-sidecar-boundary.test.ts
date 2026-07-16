@@ -100,6 +100,14 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/index.ts"),
       "utf8",
     );
+    const sidecarAppRoot = path.join(ROOT_DIR, "apps/synthesis-service");
+    const sidecarAppSource = fs
+      .readdirSync(path.join(sidecarAppRoot, "src"))
+      .filter((entry) => entry.endsWith(".ts"))
+      .map((entry) =>
+        fs.readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8"),
+      )
+      .join("\n");
     const serviceSource = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/service.ts"),
       "utf8",
@@ -283,6 +291,12 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./itemRef"');
     assert.include(contractIndex, 'export * from "./tagEffect"');
     assert.include(contractIndex, 'export * from "./webDavSyncPort"');
+    assert.include(contractIndex, 'export * from "./sidecarSystem"');
+    assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
+    assert.notMatch(
+      sidecarAppSource,
+      /(?:src\/modules\/synthesis|synthesis\/service|repository|canonical|hostEffect|webDavSync|synthesis-engine|globalThis\.Zotero|zotero-plugin)/i,
+    );
     assert.notInclude(serviceSource, "createZoteroSynthesisLibraryAdapter");
     assert.notInclude(
       serviceSource,

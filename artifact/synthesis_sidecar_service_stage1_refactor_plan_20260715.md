@@ -984,6 +984,16 @@ graph layout 作为第一条 process canary，因为：
 
 建立尚不接管生产数据的独立 service runtime。
 
+#### 当前进度
+
+- 已交付首个独立切片 `add-synthesis-sidecar-runtime-foundation`：私有 Node
+  workspace、loopback health、鉴权 handshake、独立 lifecycle token、严格有界
+  wire input、结构化脱敏日志和有界关闭。
+- 当前 foundation 仅用于开发/测试，尚未由插件打包、启动、发现或监督，也不加载
+  engine、不提供 remote `SynthesisClient`、不访问 SQLite/canonical/Host 数据。
+- 后续按 packaged launcher/supervisor、bounded worker pool、remote system client
+  的顺序继续；production owner 仍是 Zotero 插件内的 in-process composition。
+
 #### 任务
 
 - 独立 package/build/entrypoint；
