@@ -572,4 +572,36 @@ describe("Synthesis invariant guards", function () {
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
     );
   });
+
+  it("keeps Topic Structured Artifact compute behind the environment-neutral engine boundary", function () {
+    const serviceSource = readRepoText("src/modules/synthesis/service.ts");
+    const adapterSource = readRepoText(
+      "src/modules/synthesis/topicStructuredArtifactEngineAdapter.ts",
+    );
+    const engineSource = readRepoText(
+      "packages/synthesis-engine/src/topicStructuredArtifact.ts",
+    );
+
+    assert.include(serviceSource, "assembleTopicArtifactWithEngine");
+    assert.include(serviceSource, "validateTopicSynthesisArtifactWithEngine");
+    assert.include(serviceSource, "applyTopicSectionPatchWithEngine");
+    assert.include(
+      adapterSource,
+      "rebuildSynthesisTopicArtifactAssemblyResult",
+    );
+    assert.include(
+      adapterSource,
+      "rebuildSynthesisTopicArtifactValidationResult",
+    );
+    assert.include(adapterSource, "rebuildSynthesisTopicSectionPatchResult");
+    assert.isFalse(
+      fs.existsSync(
+        repoPath("src/modules/synthesis/topicStructuredArtifact.ts"),
+      ),
+    );
+    assert.notMatch(
+      engineSource,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+  });
 });

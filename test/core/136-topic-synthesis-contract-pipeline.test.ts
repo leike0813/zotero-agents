@@ -13,8 +13,9 @@ import {
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import {
   assembleTopicArtifact,
+  createInProcessSynthesisTopicStructuredArtifactEngine,
   validateTopicSynthesisArtifact,
-} from "../../src/modules/synthesis/topicStructuredArtifact";
+} from "../../packages/synthesis-engine/src/topicStructuredArtifact";
 
 type JsonObject = Record<string, any>;
 
@@ -1482,6 +1483,51 @@ describe("Topic synthesis contract pipeline", function () {
       assert.fail("expected current artifact not to be written");
     } catch (error: any) {
       assert.equal(error?.code, "ENOENT");
+    }
+  });
+
+  it("preserves canonical state when the configured artifact engine fails", async function () {
+    const root = await makeRoot("zs-topic-engine-failure-root-");
+    const baseEngine = createInProcessSynthesisTopicStructuredArtifactEngine();
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      now: () => "2026-05-18T00:00:00.000Z",
+      registryInputs: [registryInputForDetr()],
+      topicStructuredArtifactEngine: {
+        ...baseEngine,
+        async assembleArtifact() {
+          throw new Error("structured artifact engine failed");
+        },
+      },
+    });
+    const { runRoot, resultBundle } = await createRunWorkspace({
+      sections: baseSections(),
+    });
+
+    try {
+      await applyRunWorkspace({ service, runRoot, resultBundle });
+      assert.fail("expected engine failure");
+    } catch (error) {
+      assert.match(
+        error instanceof Error ? error.message : String(error),
+        /structured artifact engine failed/,
+      );
+    }
+
+    const paths = buildSynthesisStoragePaths(root, "object-detection") as any;
+    for (const candidate of [
+      paths.topicRoot,
+      paths.currentArtifact,
+      paths.currentManifest,
+      paths.currentMetadata,
+    ]) {
+      try {
+        await fs.stat(candidate);
+        assert.fail(`expected ${candidate} not to exist`);
+      } catch (error: any) {
+        assert.equal(error?.code, "ENOENT");
+      }
     }
   });
 

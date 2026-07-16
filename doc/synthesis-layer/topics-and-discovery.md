@@ -112,6 +112,14 @@ Accepting a suggested topic graph relation as `confirmed` may therefore change d
 
 Discovery cascade does not imply that parent topic content has consumed child candidates. It only exposes possible update work. Topic update remains an explicit workflow action.
 
+Topic create/update materialization uses the bounded Topic Structured Artifact
+engine for manifest validation, section-patch CAS/merge, artifact assembly, and
+deep content validation. The engine does not read run-workspace files, resolve
+digest locators against current literature artifacts, compute canonical hashes,
+write topic current assets, or apply Concept KB, Topic Graph, interest metadata,
+or discovery effects. Those application-owned steps run only after strict
+engine result rebuilding succeeds.
+
 ## Metadata Snapshot Semantics
 
 Discovery reads committed metadata snapshots:

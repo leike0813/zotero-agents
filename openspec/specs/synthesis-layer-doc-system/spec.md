@@ -153,3 +153,15 @@ Active Synthesis documentation SHALL describe WebDAV Sync as the only durable bu
 - **WHEN** docs discuss durable synchronization
 - **THEN** they SHALL state that Preferences and Synthesis Home expose WebDAV Sync
 - **AND** they SHALL describe canonical autosync, bounded retry, conflict gates, and lifecycle cancellation as current state.
+
+### Requirement: Documentation SHALL describe the Topic Structured Artifact engine boundary
+
+Current-state Synthesis documentation SHALL identify structured artifact
+validation, assembly, and patch computation as engine-owned and identify
+workspace IO, Host checks, hashing, canonical promotion, and downstream effects
+as application-owned.
+
+#### Scenario: Engineer reads the architecture documentation
+
+- **WHEN** an engineer reviews Synthesis engine and topic lifecycle documentation
+- **THEN** the documented dependency direction, failure behavior, bounds, and production topology SHALL match the implemented current state.

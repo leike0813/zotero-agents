@@ -6,6 +6,7 @@ import {
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
   createInProcessSynthesisTopicGraphIndexEngine,
+  createInProcessSynthesisTopicStructuredArtifactEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
@@ -69,6 +70,16 @@ function createDefaultLegacyService(
     tagVocabularyEngine: createInProcessSynthesisTagVocabularyEngine(),
     conceptKbIndexEngine: createInProcessSynthesisConceptKbIndexEngine(),
     topicGraphIndexEngine: createInProcessSynthesisTopicGraphIndexEngine(),
+    topicStructuredArtifactEngine:
+      createInProcessSynthesisTopicStructuredArtifactEngine({
+        checkpoint() {
+          if (abortController.signal.aborted) {
+            throw abortController.signal.reason instanceof Error
+              ? abortController.signal.reason
+              : new Error("Synthesis runtime was invalidated");
+          }
+        },
+      }),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

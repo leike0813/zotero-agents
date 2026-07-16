@@ -10,7 +10,7 @@ import {
   assembleTopicArtifact,
   validateTopicAnalysisManifest,
   validateTopicSynthesisArtifact,
-} from "../../src/modules/synthesis/topicStructuredArtifact";
+} from "../../packages/synthesis-engine/src/topicStructuredArtifact";
 
 const packages = {
   prepare: path.resolve("skills_builtin", "create-topic-synthesis-prepare"),

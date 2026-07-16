@@ -4,6 +4,34 @@ This document defines the active cross-domain Synthesis sequences. It is the hum
 
 Historical index sync, dirty-event drain, startup reconcile, WorkItem/WorkRun worker execution, and full Registry rebuild sequences are removed implementation targets. New behavior uses direct Zotero/artifact reads, workflow apply sidecar sync, and explicit operations.
 
+## `seq.topic.apply_structured_artifact`
+
+Topic create/update keeps pure materialization separate from application-owned
+IO and durable promotion.
+
+```mermaid
+sequenceDiagram
+  participant W as Workflow Workspace
+  participant A as Synthesis Application
+  participant E as Structured Artifact Engine
+  participant C as Topic Canonical Root
+  A->>W: read and validate manifest locators
+  A->>E: validate manifest
+  A->>W: read declared sections
+  opt update_patch
+    A->>C: read current manifest and sections
+    A->>E: apply section read-set patch
+  end
+  A->>E: assemble artifact
+  A->>E: validate artifact
+  A->>A: validate digest availability and compute hashes/metadata
+  A->>C: promote current manifest, sections, artifact, and metadata
+  A->>A: apply downstream sidecars, discovery, event log, and autosync
+```
+
+Engine throw, cancellation, bounds failure, malformed result, or patch conflict
+stops before canonical promotion and downstream durable effects.
+
 ## `seq.sidecar.digest_apply_sync`
 
 Digest apply is the normal automatic sidecar update path for one literature item.

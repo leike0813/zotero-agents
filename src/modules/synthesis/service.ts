@@ -8,6 +8,7 @@ import {
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
   createInProcessSynthesisTopicGraphIndexEngine,
+  createInProcessSynthesisTopicStructuredArtifactEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisConceptKbIndexEngine,
@@ -15,6 +16,7 @@ import {
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
   type SynthesisTopicGraphIndexEngine,
+  type SynthesisTopicStructuredArtifactEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import {
   createInProcessSynthesisCitationGraphBuildEngine,
@@ -198,14 +200,16 @@ import {
   type SynthesisResultBundle,
 } from "./workflow";
 import {
-  assembleTopicArtifact,
-  applyTopicSectionPatch,
   canonicalJsonText,
   canonicalSectionFileName,
   computeTopicCurrentHashes,
-  validateTopicAnalysisManifest,
-  validateTopicSynthesisArtifact,
-} from "./topicStructuredArtifact";
+} from "./topicArtifactPersistence";
+import {
+  applyTopicSectionPatchWithEngine,
+  assembleTopicArtifactWithEngine,
+  validateTopicAnalysisManifestWithEngine,
+  validateTopicSynthesisArtifactWithEngine,
+} from "./topicStructuredArtifactEngineAdapter";
 
 export type SynthesisApplyResult =
   | {
@@ -532,6 +536,7 @@ export type SynthesisServiceOptions = {
   tagVocabularyEngine?: SynthesisTagVocabularyEngine;
   conceptKbIndexEngine?: SynthesisConceptKbIndexEngine;
   topicGraphIndexEngine?: SynthesisTopicGraphIndexEngine;
+  topicStructuredArtifactEngine?: SynthesisTopicStructuredArtifactEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -5804,50 +5809,64 @@ function fallbackSectionsFromBundle(bundle: SynthesisResultBundle) {
 async function loadCompleteManifestAndSections(args: {
   bundle: SynthesisResultBundle;
   context?: ApplyContext;
+  engine: SynthesisTopicStructuredArtifactEngine;
 }) {
   if (!args.context) {
     const sections = fallbackSectionsFromBundle(args.bundle);
-    return {
-      manifest: {
-        schema_id: "synthesis.topic_analysis_manifest",
-        schema_version: "3.0.0",
-        operation:
-          args.bundle.operation ||
-          (args.bundle.mode === "create" ? "create" : "update_full"),
-        topic_id: topicIdFromBundle(args.bundle),
-        language: args.bundle.language || "auto",
-        sections: Object.fromEntries(
-          Object.keys(sections).map((section) => [
-            section,
-            {
-              path: `result/sections/${canonicalSectionFileName(section)}`,
-              content_type: "json",
-            },
-          ]),
-        ),
-        sidecars: {
-          topic_interest_metadata: {
-            path: "result/sidecars/topic-interest-metadata.json",
+    const manifest = {
+      schema_id: "synthesis.topic_analysis_manifest",
+      schema_version: "3.0.0",
+      operation:
+        args.bundle.operation ||
+        (args.bundle.mode === "create" ? "create" : "update_full"),
+      topic_id: topicIdFromBundle(args.bundle),
+      language: args.bundle.language || "auto",
+      sections: Object.fromEntries(
+        Object.keys(sections).map((section) => [
+          section,
+          {
+            path: `result/sections/${canonicalSectionFileName(section)}`,
             content_type: "json",
-            schema_id: "synthesis.topic_interest_metadata",
           },
-          concept_cards_proposal: {
-            path: "result/sidecars/concept-cards-proposal.json",
-            content_type: "json",
-            schema_id: "synthesis.concept_cards_proposal",
-          },
-          topic_graph_relation_proposals: {
-            path: "result/sidecars/topic-graph-relation-proposals.json",
-            content_type: "json",
-            schema_id: "synthesis.topic_graph_relation_proposals",
-          },
-          prospective_topic_relation_proposals: {
-            path: "result/sidecars/prospective-topic-relation-proposals.json",
-            content_type: "json",
-            schema_id: "synthesis.prospective_topic_relation_proposals",
-          },
+        ]),
+      ),
+      sidecars: {
+        topic_interest_metadata: {
+          path: "result/sidecars/topic-interest-metadata.json",
+          content_type: "json",
+          schema_id: "synthesis.topic_interest_metadata",
+        },
+        concept_cards_proposal: {
+          path: "result/sidecars/concept-cards-proposal.json",
+          content_type: "json",
+          schema_id: "synthesis.concept_cards_proposal",
+        },
+        topic_graph_relation_proposals: {
+          path: "result/sidecars/topic-graph-relation-proposals.json",
+          content_type: "json",
+          schema_id: "synthesis.topic_graph_relation_proposals",
+        },
+        prospective_topic_relation_proposals: {
+          path: "result/sidecars/prospective-topic-relation-proposals.json",
+          content_type: "json",
+          schema_id: "synthesis.prospective_topic_relation_proposals",
         },
       },
+    };
+    const validation = await validateTopicAnalysisManifestWithEngine({
+      engine: args.engine,
+      manifest,
+    });
+    if (!validation.ok) {
+      throw new Error(
+        topicManifestValidationMessage({
+          bundle: args.bundle,
+          errors: validation.errors,
+        }),
+      );
+    }
+    return {
+      manifest,
       sections,
     };
   }
@@ -5862,7 +5881,10 @@ async function loadCompleteManifestAndSections(args: {
       manifestKeys: ["topic_analysis", "analysis_manifest"],
     }),
   );
-  const validation = validateTopicAnalysisManifest(manifest);
+  const validation = await validateTopicAnalysisManifestWithEngine({
+    engine: args.engine,
+    manifest,
+  });
   if (!validation.ok) {
     throw new Error(
       topicManifestValidationMessage({
@@ -5965,6 +5987,7 @@ async function loadResolverManifest(args: {
 async function loadPatchManifestAndChangedSections(args: {
   bundle: SynthesisResultBundle;
   context?: ApplyContext;
+  engine: SynthesisTopicStructuredArtifactEngine;
 }) {
   if (!args.context) {
     return {
@@ -5995,7 +6018,10 @@ async function loadPatchManifestAndChangedSections(args: {
     "analysis_manifest_path",
     args.bundle.analysis_manifest_path || "",
   );
-  const validation = validateTopicAnalysisManifest(patchManifest);
+  const validation = await validateTopicAnalysisManifestWithEngine({
+    engine: args.engine,
+    manifest: patchManifest,
+  });
   if (!validation.ok) {
     throw new Error(
       `invalid topic section patch manifest: ${validation.errors.join("; ")}`,
@@ -6170,6 +6196,17 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const topicGraphIndexEngine =
     options.topicGraphIndexEngine ||
     createInProcessSynthesisTopicGraphIndexEngine();
+  const topicStructuredArtifactEngine =
+    options.topicStructuredArtifactEngine ||
+    createInProcessSynthesisTopicStructuredArtifactEngine({
+      checkpoint() {
+        if (options.runtimeAbortSignal?.aborted) {
+          throw options.runtimeAbortSignal.reason instanceof Error
+            ? options.runtimeAbortSignal.reason
+            : new Error("Synthesis runtime was invalidated");
+        }
+      },
+    });
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -14500,8 +14537,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             ? undefined
             : await loadResolverManifest({ bundle, context });
 
-        await ensureRuntimeDirectory(paths.topicRoot);
-        await ensureRuntimeDirectory(paths.sidecarRoot);
         let manifest: Record<string, unknown>;
         let sections: Record<string, unknown>;
         if (bundle.operation === "update_patch") {
@@ -14529,13 +14564,15 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           const patch = await loadPatchManifestAndChangedSections({
             bundle,
             context,
+            engine: topicStructuredArtifactEngine,
           });
-          const applied = applyTopicSectionPatch({
+          const applied = (await applyTopicSectionPatchWithEngine({
+            engine: topicStructuredArtifactEngine,
             currentManifest,
             currentSections,
             patchManifest: patch.patchManifest,
             changedSections: patch.changedSections,
-          }) as any;
+          })) as any;
           if (applied.status !== "applied") {
             return {
               ok: false,
@@ -14573,20 +14610,26 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ({ manifest, sections } = await loadCompleteManifestAndSections({
             bundle,
             context,
+            engine: topicStructuredArtifactEngine,
           }));
         } else {
           ({ manifest, sections } = await loadCompleteManifestAndSections({
             bundle,
             context,
+            engine: topicStructuredArtifactEngine,
           }));
         }
-        const artifact = assembleTopicArtifact({
+        const artifact = await assembleTopicArtifactWithEngine({
+          engine: topicStructuredArtifactEngine,
           manifest,
           sections,
-        }) as Record<string, unknown>;
-        const artifactValidation = validateTopicSynthesisArtifact(artifact, {
-          expectedLanguage: bundle.language,
         });
+        const artifactValidation =
+          await validateTopicSynthesisArtifactWithEngine({
+            engine: topicStructuredArtifactEngine,
+            artifact,
+            expectedLanguage: bundle.language,
+          });
         if (!artifactValidation.ok) {
           throw new Error(
             `invalid topic synthesis artifact: ${artifactValidation.errors.join("; ")}`,
@@ -14655,6 +14698,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
         metadataData.structured_hash = finalHashes.structured_hash;
         metadataData.artifact_hash = finalHashes.artifact_hash;
         metadataData.section_hashes = finalHashes.section_hashes;
+        await ensureRuntimeDirectory(paths.topicRoot);
+        await ensureRuntimeDirectory(paths.sidecarRoot);
         await writeV2Current({
           paths,
           manifest: {

@@ -177,3 +177,14 @@ from the complete structured section set.
 - **AND** each bibliography item SHALL define a stable `ref-n` anchor before its
   plain bracketed number
 - **AND** the body SHALL NOT be a JSON envelope or runtime diagnostic text.
+
+### Requirement: Split runtime structured output SHALL remain compatible with the Host engine
+
+The Python split runtime SHALL continue producing manifests and sections whose
+assembled artifact satisfies the current Host Topic Structured Artifact engine.
+
+#### Scenario: Final runtime output is produced
+
+- **WHEN** the finalize stage creates a complete topic-analysis manifest and sections
+- **THEN** the Host engine SHALL accept the manifest and assembled artifact
+- **AND** the runtime SHALL NOT require a Node or plugin import.

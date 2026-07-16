@@ -336,7 +336,7 @@ function structuredArtifact(overrides: Record<string, unknown> = {}) {
 describe("Topic synthesis structured artifact contract", function () {
   it("accepts complete section manifests without run-workspace markdown preview inputs [inv.topics.manifest_sidecars]", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -354,7 +354,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects complete section manifests that still declare markdown_path", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -371,7 +371,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects legacy complete sections removed from the current contract", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -393,7 +393,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("accepts section patch manifests with read-set CAS and inherit-current unchanged sections", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -413,7 +413,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects field-level patch payloads, replacement outside read set, and patch markdown dependencies", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -458,7 +458,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects embedded markdown and missing required section paths", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicAnalysisManifest = requireExport(
       module,
@@ -483,7 +483,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("validates language propagation into the materialized structured artifact", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -500,7 +500,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("validates complete topic synthesis products at the current host boundary", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -514,7 +514,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("accepts improvement dimensions and runtime timeline markers", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -567,7 +567,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects final reports without title or sufficient depth at the host boundary", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -610,7 +610,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects final reports when required source dimensions are incomplete", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -633,7 +633,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects shallow products at the current host boundary", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -676,7 +676,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("computes documented manifest, artifact, metadata, and section hashes from canonical current files", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../src/modules/synthesis/topicArtifactPersistence",
     );
     const computeTopicCurrentHashes = requireExport(
       module,
@@ -707,7 +707,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("validates claims and timeline events against source paper links", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -751,7 +751,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("requires digest_ref locators without embedding full digest bodies", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -779,7 +779,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects legacy evidence maps and external timeline evidence nodes", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,
@@ -827,7 +827,7 @@ describe("Topic synthesis structured artifact contract", function () {
 
   it("rejects shallow topic synthesis sections without route, timeline, coverage, statistics, and report depth", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
     const validateTopicSynthesisArtifact = requireExport(
       module,

@@ -211,6 +211,20 @@ describe("Synthesis sidecar migration boundary", function () {
       ),
       "utf8",
     );
+    const topicStructuredArtifactEngine = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "packages/synthesis-engine/src/topicStructuredArtifact.ts",
+      ),
+      "utf8",
+    );
+    const topicStructuredArtifactAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/topicStructuredArtifactEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -358,6 +372,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "tagVocabularyEngine");
     assert.include(serviceSource, "conceptKbIndexEngine");
     assert.include(serviceSource, "topicGraphIndexEngine");
+    assert.include(serviceSource, "topicStructuredArtifactEngine");
     assert.include(
       serviceSource,
       "computeSynthesisReferenceBindingsWithEngine",
@@ -409,6 +424,11 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "topicGraphIndexEngine");
     assert.include(
+      legacyComposition,
+      "createInProcessSynthesisTopicStructuredArtifactEngine",
+    );
+    assert.include(legacyComposition, "topicStructuredArtifactEngine");
+    assert.include(
       readonlyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",
     );
@@ -433,6 +453,11 @@ describe("Synthesis sidecar migration boundary", function () {
       "createInProcessSynthesisTopicGraphIndexEngine",
     );
     assert.include(readonlyComposition, "topicGraphIndexEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisTopicStructuredArtifactEngine",
+    );
+    assert.include(readonlyComposition, "topicStructuredArtifactEngine");
     assert.isFalse(
       fs.existsSync(
         path.join(ROOT_DIR, "src/modules/synthesis/referenceMatcher.ts"),
@@ -454,9 +479,30 @@ describe("Synthesis sidecar migration boundary", function () {
       topicGraphIndexEngine,
       /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
     );
+    assert.notMatch(
+      topicStructuredArtifactEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.isFalse(
+      fs.existsSync(
+        path.join(ROOT_DIR, "src/modules/synthesis/topicStructuredArtifact.ts"),
+      ),
+    );
     assert.include(
       topicGraphIndexAdapter,
       "rebuildSynthesisTopicGraphIndexResult",
+    );
+    assert.include(
+      topicStructuredArtifactAdapter,
+      "rebuildSynthesisTopicArtifactAssemblyResult",
+    );
+    assert.include(
+      topicStructuredArtifactAdapter,
+      "rebuildSynthesisTopicArtifactValidationResult",
+    );
+    assert.include(
+      topicStructuredArtifactAdapter,
+      "rebuildSynthesisTopicSectionPatchResult",
     );
     assert.include(
       tagVocabularyAdapter,
@@ -514,6 +560,7 @@ describe("Synthesis sidecar migration boundary", function () {
       "./referenceMatcher",
       "./tagVocabulary",
       "./topicGraphIndex",
+      "./topicStructuredArtifact",
     ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");

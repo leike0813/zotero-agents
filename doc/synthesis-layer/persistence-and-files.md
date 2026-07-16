@@ -110,6 +110,15 @@ assembles Workbench filters, or updates the projection registry. Failed,
 cancelled, oversized, or malformed results leave graph rows and existing
 projection registry state unchanged.
 
+Topic structured artifacts are computed through the environment-neutral Topic
+Structured Artifact engine. Its bounded DTOs validate complete and patch
+manifests, assemble and validate the current artifact, and apply section
+read-set CAS/merge. The application remains the sole owner of workspace file
+reads, digest availability checks, canonical file names and hashes, current
+promotion, metadata/index writes, downstream proposal ingestion, discovery,
+event logs, and WebDAV autosync. Engine failure cannot create or replace a
+topic current directory.
+
 ## `data/synthesis` Boundary
 
 Normal startup and Workbench snapshot may read `data/synthesis/topics` and

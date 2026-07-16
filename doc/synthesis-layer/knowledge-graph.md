@@ -17,6 +17,7 @@ Twelve modules implement this subsystem:
 | Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | SQLite, canonical, relation, review, proposal, mutation, and projection orchestration |
 | Topic Graph Index Engine | `packages/synthesis-engine/src/topicGraphIndex.ts` | Bounded environment-neutral root and unplaced-topic derivation |
+| Topic Structured Artifact Engine | `packages/synthesis-engine/src/topicStructuredArtifact.ts` | Bounded environment-neutral manifest validation, artifact assembly/validation, and section-patch computation |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | SQLite, canonical, proposal, review, mutation, projection, and public query orchestration |
 | Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
 | Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | SQLite, transaction, import, staged-suggestion, Host-effect, and projection orchestration |
@@ -210,6 +211,7 @@ Each knowledge domain follows a similar service pattern:
 |--------|---------------|-----------------|
 | Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
 | Topic Graph | `SynthesisTopicGraphIndexEngine` plus application adapter | Strict asynchronous `buildIndex()` placement computation; application-owned upsert, relation decisions, review, proposal ingestion, checkpoint export, manifests, and projection registration |
+| Topic artifact lifecycle | `SynthesisTopicStructuredArtifactEngine` plus application adapter | Four strict asynchronous compute methods; application-owned workspace reads, digest checks, hashes, canonical promotion, metadata/index, proposal ingestion, discovery, and autosync |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `SynthesisTagVocabularyEngine` plus application adapter | Strict synchronous `validate()` and `buildIndex()` computation; application-owned import, transactions, staged suggestions, Host effects, manifests, and projection registration |
 | Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |

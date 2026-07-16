@@ -4,6 +4,7 @@ import { createInProcessSynthesisReferenceMatcherEngine } from "../../../package
 import { createInProcessSynthesisTagVocabularyEngine } from "../../../packages/synthesis-engine/src/tagVocabulary";
 import { createInProcessSynthesisConceptKbIndexEngine } from "../../../packages/synthesis-engine/src/conceptKbIndex";
 import { createInProcessSynthesisTopicGraphIndexEngine } from "../../../packages/synthesis-engine/src/topicGraphIndex";
+import { createInProcessSynthesisTopicStructuredArtifactEngine } from "../../../packages/synthesis-engine/src/topicStructuredArtifact";
 import { createSynthesisRepository } from "../synthesis/repository";
 import { createDisabledSynthesisHostWebDavSyncPort } from "../synthesis/webDavSyncRuntime";
 import { createLegacyInProcessSynthesisClient } from "../synthesisClient/legacyComposition";
@@ -63,6 +64,8 @@ export async function createSynthesisReadonlyClient(
         tagVocabularyEngine: createInProcessSynthesisTagVocabularyEngine(),
         conceptKbIndexEngine: createInProcessSynthesisConceptKbIndexEngine(),
         topicGraphIndexEngine: createInProcessSynthesisTopicGraphIndexEngine(),
+        topicStructuredArtifactEngine:
+          createInProcessSynthesisTopicStructuredArtifactEngine(),
         synthesisRepository: repository,
       });
       let closed = false;

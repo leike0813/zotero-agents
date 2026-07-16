@@ -9,12 +9,14 @@ import {
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
   createInProcessSynthesisTopicGraphIndexEngine,
+  createInProcessSynthesisTopicStructuredArtifactEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
   type SynthesisConceptKbIndexEngine,
   type SynthesisReferenceMatcherEngine,
   type SynthesisTagVocabularyEngine,
   type SynthesisTopicGraphIndexEngine,
+  type SynthesisTopicStructuredArtifactEngine,
 } from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
@@ -5632,7 +5634,7 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
 
   it("allows non-overlapping section patches despite unrelated artifact hash drift", async function () {
     const module = await importOptional(
-      "../../src/modules/synthesis/topicStructuredArtifact",
+      "../../packages/synthesis-engine/src/topicStructuredArtifact",
     );
 
     assert.isUndefined(
@@ -5776,5 +5778,48 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
     assert.equal(buildIndexCalls, 0);
     await service.rebuildTopicGraphIndex();
     assert.equal(buildIndexCalls, 1);
+  });
+
+  it("routes topic artifact assembly and validation through the configured engine", async function () {
+    const root = await makeRoot();
+    const defaultEngine =
+      createInProcessSynthesisTopicStructuredArtifactEngine();
+    const calls = {
+      validateManifest: 0,
+      assembleArtifact: 0,
+      validateArtifact: 0,
+      applySectionPatch: 0,
+    };
+    const engine: SynthesisTopicStructuredArtifactEngine = {
+      async validateManifest(request) {
+        calls.validateManifest += 1;
+        return defaultEngine.validateManifest(request);
+      },
+      async assembleArtifact(request) {
+        calls.assembleArtifact += 1;
+        return defaultEngine.assembleArtifact(request);
+      },
+      async validateArtifact(request) {
+        calls.validateArtifact += 1;
+        return defaultEngine.validateArtifact(request);
+      },
+      async applySectionPatch(request) {
+        calls.applySectionPatch += 1;
+        return defaultEngine.applySectionPatch(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      topicStructuredArtifactEngine: engine,
+    });
+
+    const result = await service.applyTopicSynthesisResult(validBundle());
+
+    assert.equal(result.status, "persisted");
+    assert.equal(calls.validateManifest, 1);
+    assert.equal(calls.assembleArtifact, 1);
+    assert.equal(calls.validateArtifact, 1);
+    assert.equal(calls.applySectionPatch, 0);
   });
 });
