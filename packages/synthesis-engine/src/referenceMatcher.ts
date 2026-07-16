@@ -1,4 +1,7 @@
-import { hashCanonicalJson } from "./foundation";
+import {
+  canonicalizeSynthesisEngineJson,
+  hashSynthesisEngineCanonicalJson,
+} from "./canonicalJson.ts";
 
 export type ReferenceMatcherIdentifier = {
   kind: string;
@@ -1453,7 +1456,7 @@ function edgePairId(left: string, right: string) {
 }
 
 function clusterStableId(prefix: string, ids: string[]) {
-  return `${prefix}:${hashCanonicalJson(uniqueSorted(ids)).slice(0, 16)}`;
+  return `${prefix}:${hashSynthesisEngineCanonicalJson(uniqueSorted(ids)).slice(0, 16)}`;
 }
 
 function sameYearOrUnknown(
@@ -1631,7 +1634,7 @@ function canonicalDedupeEdge(args: {
     ...args.evidence,
   };
   return {
-    edgeId: `edge:${hashCanonicalJson({
+    edgeId: `edge:${hashSynthesisEngineCanonicalJson({
       source: source.canonicalReferenceId,
       target: target.canonicalReferenceId,
       edgeType: args.edgeType,
@@ -1794,8 +1797,18 @@ function semanticActionKey(action: ReferenceCanonicalDedupeClusterAction) {
 
 export function dedupeCanonicalReferencesClustered(
   inputs: ReferenceCanonicalDedupeInput[],
-  options: { maxBlockSize?: number; maxCandidatePairs?: number } = {},
+  options: {
+    maxBlockSize?: number;
+    maxCandidatePairs?: number;
+    checkpoint?: SynthesisReferenceDedupeCheckpoint;
+    checkpointInterval?: number;
+  } = {},
 ): ReferenceCanonicalDedupeClusteredResult {
+  const checkpointInterval = Math.max(
+    1,
+    Math.floor(Number(options.checkpointInterval) || 256),
+  );
+  options.checkpoint?.({ phase: "start", processed: 0, total: inputs.length });
   const maxBlockSize = Math.max(
     2,
     Math.floor(Number(options.maxBlockSize) || 30),
@@ -1805,7 +1818,16 @@ export function dedupeCanonicalReferencesClustered(
     Math.floor(Number(options.maxCandidatePairs) || 3000),
   );
   const records = inputs
-    .map(canonicalDedupeRecord)
+    .map((input, index) => {
+      if (index % checkpointInterval === 0) {
+        options.checkpoint?.({
+          phase: "records",
+          processed: index,
+          total: inputs.length,
+        });
+      }
+      return canonicalDedupeRecord(input);
+    })
     .filter((record): record is CanonicalDedupeRecord => Boolean(record))
     .sort((left, right) =>
       left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
@@ -1833,7 +1855,19 @@ export function dedupeCanonicalReferencesClustered(
   const addBlock = (key: string, record: CanonicalDedupeRecord) =>
     addClusterBlock(blocks, key, record);
 
-  for (const record of matchRecords) {
+  for (
+    let recordIndex = 0;
+    recordIndex < matchRecords.length;
+    recordIndex += 1
+  ) {
+    const record = matchRecords[recordIndex]!;
+    if (recordIndex % checkpointInterval === 0) {
+      options.checkpoint?.({
+        phase: "blocks",
+        processed: recordIndex,
+        total: matchRecords.length,
+      });
+    }
     for (const key of record.strongIdentifierKeys) {
       addBlock(`identifier:${key}`, record);
     }
@@ -1919,6 +1953,13 @@ export function dedupeCanonicalReferencesClustered(
           continue;
         }
         candidatePairCount += 1;
+        if (candidatePairCount % checkpointInterval === 0) {
+          options.checkpoint?.({
+            phase: "pairs",
+            processed: candidatePairCount,
+            total: maxCandidatePairs,
+          });
+        }
         const sameNormalized =
           compatibleYear(left, right) &&
           left.normalizedTitle === right.normalizedTitle;
@@ -2127,7 +2168,7 @@ export function dedupeCanonicalReferencesClustered(
           subclusterIds.includes(clusterRepresentative.canonicalReferenceId);
         const target = clusterRepresentative.canonicalReferenceId;
         actions.push({
-          actionId: `action:${hashCanonicalJson({
+          actionId: `action:${hashSynthesisEngineCanonicalJson({
             action: redirectEligible ? "redirect" : "review",
             source: record.canonicalReferenceId,
             target,
@@ -2210,7 +2251,7 @@ export function dedupeCanonicalReferencesClustered(
           )[0] || componentEdges[0];
       if (retargetEdge) {
         actions.push({
-          actionId: `action:${hashCanonicalJson({
+          actionId: `action:${hashSynthesisEngineCanonicalJson({
             action: "review",
             source: clusterRepresentative.canonicalReferenceId,
             target: retargetCandidate.canonicalReferenceId,
@@ -2291,7 +2332,7 @@ export function dedupeCanonicalReferencesClustered(
         continue;
       }
       actions.push({
-        actionId: `action:${hashCanonicalJson({
+        actionId: `action:${hashSynthesisEngineCanonicalJson({
           action: "review",
           source: other.canonicalReferenceId,
           target: clusterRepresentative.canonicalReferenceId,
@@ -2349,6 +2390,16 @@ export function dedupeCanonicalReferencesClustered(
         right.targetCanonicalReferenceId,
       ),
   );
+  options.checkpoint?.({
+    phase: "clusters",
+    processed: clusters.length,
+    total: clusters.length,
+  });
+  options.checkpoint?.({
+    phase: "complete",
+    processed: records.length,
+    total: records.length,
+  });
   return {
     clusters,
     edges,
@@ -2986,5 +3037,902 @@ export function evaluateReferenceResolutionFixture(
 }
 
 export function referenceMatcherFingerprint(value: unknown) {
-  return hashCanonicalJson(value);
+  return hashSynthesisEngineCanonicalJson(value);
+}
+
+export const SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION =
+  "synthesis-reference-matcher.v1" as const;
+export const SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION =
+  "reference-binding.v1" as const;
+export const SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION =
+  "canonical-cluster-dedupe.v1" as const;
+export const SYNTHESIS_REFERENCE_MATCHER_LIBRARY_PAPER_MAX = 25_000 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_BINDING_INPUT_MAX = 750_000 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_DEDUPE_INPUT_MAX = 750_000 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_AUTHOR_MAX = 64 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_IDENTIFIER_MAX = 32 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_TITLE_CANDIDATE_MAX = 16 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_SUGGESTED_CANDIDATE_MAX = 3 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX = 4096 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_STRING_MAX = 4096 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_CLUSTER_BLOCK_MAX = 30 as const;
+export const SYNTHESIS_REFERENCE_MATCHER_CANDIDATE_PAIR_MAX = 3000 as const;
+
+const SYNTHESIS_REFERENCE_MATCHER_ID_MAX = 512;
+
+export type SynthesisReferenceBindingInput = {
+  canonicalReferenceId: string;
+  reference: ReferenceMatcherReferenceInput;
+};
+
+export type SynthesisReferenceBindingRequest = {
+  contractVersion: typeof SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION;
+  algorithmVersion: typeof SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION;
+  policyId: ReferenceMatcherPolicyId;
+  papers: ReferenceMatcherPaperInput[];
+  references: SynthesisReferenceBindingInput[];
+};
+
+export type SynthesisReferenceBindingMatch = {
+  canonicalReferenceId: string;
+  result: ReferenceMatcherResult;
+};
+
+export type SynthesisReferenceBindingResult = {
+  contractVersion: typeof SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION;
+  algorithmVersion: typeof SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION;
+  policyId: ReferenceMatcherPolicyId;
+  matches: SynthesisReferenceBindingMatch[];
+};
+
+export type SynthesisReferenceDedupeRequest = {
+  contractVersion: typeof SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION;
+  algorithmVersion: typeof SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION;
+  canonicals: ReferenceCanonicalDedupeInput[];
+};
+
+export type SynthesisReferenceDedupeResult = {
+  contractVersion: typeof SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION;
+  algorithmVersion: typeof SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION;
+  clusters: ReferenceCanonicalDedupeCluster[];
+  edges: ReferenceCanonicalDedupeEdge[];
+  actions: ReferenceCanonicalDedupeClusterAction[];
+  diagnostics: unknown[];
+  counters: ReferenceCanonicalDedupeClusteredResult["counters"];
+};
+
+export type SynthesisReferenceBindingCheckpoint = (checkpoint: {
+  phase: "start" | "index" | "references" | "complete";
+  processed?: number;
+  total?: number;
+}) => void;
+
+export type SynthesisReferenceDedupeCheckpoint = (checkpoint: {
+  phase: "start" | "records" | "blocks" | "pairs" | "clusters" | "complete";
+  processed?: number;
+  total?: number;
+}) => void;
+
+export type SynthesisReferenceMatcherBounds = {
+  libraryPaperMax?: number;
+  bindingInputMax?: number;
+  dedupeInputMax?: number;
+  authorMax?: number;
+  identifierMax?: number;
+  titleCandidateMax?: number;
+  stringMax?: number;
+};
+
+export interface SynthesisReferenceMatcherEngine {
+  matchBindings(
+    request: SynthesisReferenceBindingRequest,
+  ): Promise<SynthesisReferenceBindingResult>;
+  dedupeCanonicals(
+    request: SynthesisReferenceDedupeRequest,
+  ): Promise<SynthesisReferenceDedupeResult>;
+}
+
+export class SynthesisReferenceMatcherContractError extends Error {
+  readonly code = "invalid_request";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SynthesisReferenceMatcherContractError";
+  }
+}
+
+function matcherInvalid(message: string): never {
+  throw new SynthesisReferenceMatcherContractError(message);
+}
+
+function matcherPlainObject(
+  value: unknown,
+  location: string,
+): Record<string, unknown> {
+  matcherAssertJsonSafe(value, location);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return matcherInvalid(`${location} must be an object`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return matcherInvalid(`${location} must be a plain object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function matcherAssertJsonSafe(
+  value: unknown,
+  location: string,
+  seen = new Set<object>(),
+): void {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      matcherInvalid(`${location} must contain finite numbers`);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === undefined) {
+    matcherInvalid(`${location} must be JSON-safe`);
+  }
+  const object = value as object;
+  if (seen.has(object)) {
+    matcherInvalid(`${location} must not contain cycles`);
+  }
+  seen.add(object);
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      matcherAssertJsonSafe(entry, `${location}[${index}]`, seen),
+    );
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      matcherInvalid(`${location} must contain plain objects`);
+    }
+    for (const [key, entry] of Object.entries(
+      value as Record<string, unknown>,
+    )) {
+      matcherAssertJsonSafe(entry, `${location}.${key}`, seen);
+    }
+  }
+  seen.delete(object);
+}
+
+function matcherHasControlCharacter(value: string) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matcherString(
+  value: unknown,
+  location: string,
+  options: {
+    required?: boolean;
+    max?: number;
+  } = {},
+) {
+  if (value === undefined || value === null) {
+    if (options.required) {
+      return matcherInvalid(`${location} is required`);
+    }
+    return "";
+  }
+  if (typeof value !== "string") {
+    return matcherInvalid(`${location} must be a string`);
+  }
+  const normalized = value.trim();
+  if (options.required && !normalized) {
+    return matcherInvalid(`${location} must be non-empty`);
+  }
+  const max = options.max || SYNTHESIS_REFERENCE_MATCHER_STRING_MAX;
+  if (normalized.length > max || matcherHasControlCharacter(normalized)) {
+    return matcherInvalid(`${location} is invalid`);
+  }
+  return normalized;
+}
+
+function matcherBoolean(value: unknown, location: string) {
+  if (typeof value !== "boolean") {
+    return matcherInvalid(`${location} must be boolean`);
+  }
+  return value;
+}
+
+function matcherPositiveInteger(value: unknown, location: string) {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    return matcherInvalid(`${location} must be a positive integer`);
+  }
+  return Number(value);
+}
+
+function matcherArray(
+  value: unknown,
+  location: string,
+  max: number,
+): unknown[] {
+  if (!Array.isArray(value)) {
+    return matcherInvalid(`${location} must be an array`);
+  }
+  if (value.length > max) {
+    return matcherInvalid(`${location} exceeds ${max}`);
+  }
+  return value;
+}
+
+function matcherBounds(bounds: SynthesisReferenceMatcherBounds = {}) {
+  const positive = (value: number | undefined, fallback: number) =>
+    value === undefined ? fallback : Math.max(1, Math.floor(value));
+  return {
+    libraryPaperMax: positive(
+      bounds.libraryPaperMax,
+      SYNTHESIS_REFERENCE_MATCHER_LIBRARY_PAPER_MAX,
+    ),
+    bindingInputMax: positive(
+      bounds.bindingInputMax,
+      SYNTHESIS_REFERENCE_MATCHER_BINDING_INPUT_MAX,
+    ),
+    dedupeInputMax: positive(
+      bounds.dedupeInputMax,
+      SYNTHESIS_REFERENCE_MATCHER_DEDUPE_INPUT_MAX,
+    ),
+    authorMax: positive(
+      bounds.authorMax,
+      SYNTHESIS_REFERENCE_MATCHER_AUTHOR_MAX,
+    ),
+    identifierMax: positive(
+      bounds.identifierMax,
+      SYNTHESIS_REFERENCE_MATCHER_IDENTIFIER_MAX,
+    ),
+    titleCandidateMax: positive(
+      bounds.titleCandidateMax,
+      SYNTHESIS_REFERENCE_MATCHER_TITLE_CANDIDATE_MAX,
+    ),
+    stringMax: positive(
+      bounds.stringMax,
+      SYNTHESIS_REFERENCE_MATCHER_STRING_MAX,
+    ),
+  };
+}
+
+function matcherStringArray(
+  value: unknown,
+  location: string,
+  max: number,
+  stringMax: number,
+) {
+  return uniqueSorted(
+    matcherArray(value ?? [], location, max).map((entry, index) =>
+      matcherString(entry, `${location}[${index}]`, { max: stringMax }),
+    ),
+  ).filter(Boolean);
+}
+
+function rebuildMatcherIdentifier(
+  value: unknown,
+  location: string,
+  stringMax: number,
+): ReferenceMatcherIdentifier {
+  const object = matcherPlainObject(value, location);
+  const kind = matcherString(object.kind, `${location}.kind`, {
+    required: true,
+    max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+  });
+  const identifierValue = matcherString(object.value, `${location}.value`, {
+    required: true,
+    max: stringMax,
+  });
+  return (
+    normalizeReferenceIdentifier(kind, identifierValue) ||
+    matcherInvalid(`${location} is unsupported`)
+  );
+}
+
+function rebuildMatcherIdentifiers(
+  value: unknown,
+  location: string,
+  bounds: ReturnType<typeof matcherBounds>,
+) {
+  const identifiers = matcherArray(
+    value ?? [],
+    location,
+    bounds.identifierMax,
+  ).map((entry, index) =>
+    rebuildMatcherIdentifier(entry, `${location}[${index}]`, bounds.stringMax),
+  );
+  const unique = new Map(
+    identifiers.map((identifier) => [
+      `${identifier.kind}:${identifier.value}`,
+      identifier,
+    ]),
+  );
+  return Array.from(unique.values()).sort(
+    (left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.value.localeCompare(right.value),
+  );
+}
+
+function optionalMatcherField(
+  output: Record<string, unknown>,
+  key: string,
+  value: string,
+) {
+  if (value) {
+    output[key] = value;
+  }
+}
+
+function rebuildMatcherPaper(
+  value: unknown,
+  location: string,
+  bounds: ReturnType<typeof matcherBounds>,
+): ReferenceMatcherPaperInput {
+  const object = matcherPlainObject(value, location);
+  const output: Record<string, unknown> = {
+    paperRef: matcherString(object.paperRef, `${location}.paperRef`, {
+      required: true,
+      max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+    }),
+    authors: matcherStringArray(
+      object.authors,
+      `${location}.authors`,
+      bounds.authorMax,
+      bounds.stringMax,
+    ),
+    identifiers: rebuildMatcherIdentifiers(
+      object.identifiers,
+      `${location}.identifiers`,
+      bounds,
+    ),
+  };
+  for (const key of [
+    "itemKey",
+    "literatureItemId",
+    "title",
+    "normalizedTitle",
+    "year",
+    "doi",
+    "arxiv",
+    "isbn",
+    "url",
+    "citekey",
+  ] as const) {
+    optionalMatcherField(
+      output,
+      key,
+      matcherString(object[key], `${location}.${key}`, {
+        max:
+          key === "itemKey" || key === "literatureItemId"
+            ? SYNTHESIS_REFERENCE_MATCHER_ID_MAX
+            : bounds.stringMax,
+      }),
+    );
+  }
+  return output as ReferenceMatcherPaperInput;
+}
+
+function rebuildMatcherReference(
+  value: unknown,
+  location: string,
+  bounds: ReturnType<typeof matcherBounds>,
+): ReferenceMatcherReferenceInput {
+  const object = matcherPlainObject(value, location);
+  const output: Record<string, unknown> = {
+    authors: matcherStringArray(
+      object.authors,
+      `${location}.authors`,
+      bounds.authorMax,
+      bounds.stringMax,
+    ),
+  };
+  for (const key of [
+    "referenceInstanceId",
+    "title",
+    "parsedTitle",
+    "normalizedTitle",
+    "year",
+    "rawReference",
+    "doi",
+    "arxiv",
+    "isbn",
+    "url",
+    "citekey",
+  ] as const) {
+    optionalMatcherField(
+      output,
+      key,
+      matcherString(object[key], `${location}.${key}`, {
+        max:
+          key === "referenceInstanceId"
+            ? SYNTHESIS_REFERENCE_MATCHER_ID_MAX
+            : bounds.stringMax,
+      }),
+    );
+  }
+  return output as ReferenceMatcherReferenceInput;
+}
+
+function rebuildDedupeTitleCandidate(
+  value: unknown,
+  location: string,
+  bounds: ReturnType<typeof matcherBounds>,
+): ReferenceCanonicalDedupeTitleCandidate {
+  const object = matcherPlainObject(value, location);
+  const source = matcherString(object.source, `${location}.source`, {
+    required: true,
+    max: 64,
+  });
+  if (
+    source !== "input" &&
+    source !== "effective_canonical" &&
+    source !== "physical_canonical" &&
+    source !== "raw_reference"
+  ) {
+    return matcherInvalid(`${location}.source is invalid`);
+  }
+  const output: ReferenceCanonicalDedupeTitleCandidate = {
+    title: matcherString(object.title, `${location}.title`, {
+      required: true,
+      max: bounds.stringMax,
+    }),
+    authors: matcherStringArray(
+      object.authors,
+      `${location}.authors`,
+      bounds.authorMax,
+      bounds.stringMax,
+    ),
+    identifiers: rebuildMatcherIdentifiers(
+      object.identifiers,
+      `${location}.identifiers`,
+      bounds,
+    ),
+    rawReferenceIds: matcherStringArray(
+      object.rawReferenceIds,
+      `${location}.rawReferenceIds`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+      SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+    ),
+    source,
+  };
+  const normalizedTitle = matcherString(
+    object.normalizedTitle,
+    `${location}.normalizedTitle`,
+    { max: bounds.stringMax },
+  );
+  const year = matcherString(object.year, `${location}.year`, {
+    max: bounds.stringMax,
+  });
+  const sourceCanonicalReferenceId = matcherString(
+    object.sourceCanonicalReferenceId,
+    `${location}.sourceCanonicalReferenceId`,
+    { max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX },
+  );
+  if (normalizedTitle) {
+    output.normalizedTitle = normalizedTitle;
+  }
+  if (year) {
+    output.year = year;
+  }
+  if (sourceCanonicalReferenceId) {
+    output.sourceCanonicalReferenceId = sourceCanonicalReferenceId;
+  }
+  if (object.frequency !== undefined) {
+    output.frequency = matcherPositiveInteger(
+      object.frequency,
+      `${location}.frequency`,
+    );
+  }
+  return output;
+}
+
+function rebuildDedupeCanonical(
+  value: unknown,
+  location: string,
+  bounds: ReturnType<typeof matcherBounds>,
+): ReferenceCanonicalDedupeInput {
+  const object = matcherPlainObject(value, location);
+  const output: ReferenceCanonicalDedupeInput = {
+    canonicalReferenceId: matcherString(
+      object.canonicalReferenceId,
+      `${location}.canonicalReferenceId`,
+      {
+        required: true,
+        max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+      },
+    ),
+    authors: matcherStringArray(
+      object.authors,
+      `${location}.authors`,
+      bounds.authorMax,
+      bounds.stringMax,
+    ),
+    acceptedBinding: matcherBoolean(
+      object.acceptedBinding,
+      `${location}.acceptedBinding`,
+    ),
+    stickyRepresentative: matcherBoolean(
+      object.stickyRepresentative,
+      `${location}.stickyRepresentative`,
+    ),
+    rawReferenceIds: matcherStringArray(
+      object.rawReferenceIds,
+      `${location}.rawReferenceIds`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+      SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+    ),
+    rawHashes: matcherStringArray(
+      object.rawHashes,
+      `${location}.rawHashes`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+      bounds.stringMax,
+    ),
+    rawReferences: matcherStringArray(
+      object.rawReferences,
+      `${location}.rawReferences`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+      bounds.stringMax,
+    ),
+    sourceRefs: matcherStringArray(
+      object.sourceRefs,
+      `${location}.sourceRefs`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+      SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+    ),
+    identifiers: rebuildMatcherIdentifiers(
+      object.identifiers,
+      `${location}.identifiers`,
+      bounds,
+    ),
+    titleCandidates: matcherArray(
+      object.titleCandidates ?? [],
+      `${location}.titleCandidates`,
+      bounds.titleCandidateMax,
+    )
+      .map((entry, index) =>
+        rebuildDedupeTitleCandidate(
+          entry,
+          `${location}.titleCandidates[${index}]`,
+          bounds,
+        ),
+      )
+      .sort(
+        (left, right) =>
+          left.source.localeCompare(right.source) ||
+          left.title.localeCompare(right.title) ||
+          (left.sourceCanonicalReferenceId || "").localeCompare(
+            right.sourceCanonicalReferenceId || "",
+          ),
+      ),
+  };
+  for (const key of ["title", "normalizedTitle", "year"] as const) {
+    const field = matcherString(object[key], `${location}.${key}`, {
+      max: bounds.stringMax,
+    });
+    if (field) {
+      output[key] = field;
+    }
+  }
+  return output;
+}
+
+function assertUniqueMatcherIds(values: string[], location: string) {
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) {
+      matcherInvalid(`${location} contains duplicate ${value}`);
+    }
+    seen.add(value);
+  }
+}
+
+function matcherPolicy(value: unknown, location: string) {
+  const policy = matcherString(value, location, { required: true, max: 32 });
+  if (
+    policy !== "baseline" &&
+    policy !== "policy-a" &&
+    policy !== "policy-b" &&
+    policy !== "policy-c" &&
+    policy !== "policy-d" &&
+    policy !== "production"
+  ) {
+    return matcherInvalid(`${location} is invalid`);
+  }
+  return policy;
+}
+
+function matcherJsonClone<T>(value: T): T {
+  return JSON.parse(canonicalizeSynthesisEngineJson(value)) as T;
+}
+
+export function rebuildSynthesisReferenceBindingRequest(
+  value: unknown,
+  boundsInput: SynthesisReferenceMatcherBounds = {},
+): SynthesisReferenceBindingRequest {
+  const bounds = matcherBounds(boundsInput);
+  const object = matcherPlainObject(value, "request");
+  if (
+    object.contractVersion !== SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION ||
+    object.algorithmVersion !==
+      SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION
+  ) {
+    return matcherInvalid("request matcher version is invalid");
+  }
+  const papers = matcherArray(
+    object.papers,
+    "request.papers",
+    bounds.libraryPaperMax,
+  )
+    .map((entry, index) =>
+      rebuildMatcherPaper(entry, `request.papers[${index}]`, bounds),
+    )
+    .sort((left, right) => left.paperRef.localeCompare(right.paperRef));
+  assertUniqueMatcherIds(
+    papers.map((paper) => paper.paperRef),
+    "request.papers",
+  );
+  const references = matcherArray(
+    object.references,
+    "request.references",
+    bounds.bindingInputMax,
+  )
+    .map((entry, index) => {
+      const reference = matcherPlainObject(
+        entry,
+        `request.references[${index}]`,
+      );
+      return {
+        canonicalReferenceId: matcherString(
+          reference.canonicalReferenceId,
+          `request.references[${index}].canonicalReferenceId`,
+          {
+            required: true,
+            max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+          },
+        ),
+        reference: rebuildMatcherReference(
+          reference.reference,
+          `request.references[${index}].reference`,
+          bounds,
+        ),
+      };
+    })
+    .sort((left, right) =>
+      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+    );
+  assertUniqueMatcherIds(
+    references.map((entry) => entry.canonicalReferenceId),
+    "request.references",
+  );
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION,
+    policyId: matcherPolicy(object.policyId, "request.policyId"),
+    papers,
+    references,
+  };
+}
+
+export function rebuildSynthesisReferenceDedupeRequest(
+  value: unknown,
+  boundsInput: SynthesisReferenceMatcherBounds = {},
+): SynthesisReferenceDedupeRequest {
+  const bounds = matcherBounds(boundsInput);
+  const object = matcherPlainObject(value, "request");
+  if (
+    object.contractVersion !== SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION ||
+    object.algorithmVersion !==
+      SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION
+  ) {
+    return matcherInvalid("request matcher version is invalid");
+  }
+  const canonicals = matcherArray(
+    object.canonicals,
+    "request.canonicals",
+    bounds.dedupeInputMax,
+  )
+    .map((entry, index) =>
+      rebuildDedupeCanonical(entry, `request.canonicals[${index}]`, bounds),
+    )
+    .sort((left, right) =>
+      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+    );
+  assertUniqueMatcherIds(
+    canonicals.map((entry) => entry.canonicalReferenceId),
+    "request.canonicals",
+  );
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION,
+    canonicals,
+  };
+}
+
+export function computeSynthesisReferenceBinding(
+  requestInput: SynthesisReferenceBindingRequest,
+  options: {
+    bounds?: SynthesisReferenceMatcherBounds;
+    checkpoint?: SynthesisReferenceBindingCheckpoint;
+    checkpointInterval?: number;
+  } = {},
+): SynthesisReferenceBindingResult {
+  const request = rebuildSynthesisReferenceBindingRequest(
+    requestInput,
+    options.bounds,
+  );
+  const interval = Math.max(
+    1,
+    Math.floor(Number(options.checkpointInterval) || 256),
+  );
+  options.checkpoint?.({
+    phase: "start",
+    processed: 0,
+    total: request.references.length,
+  });
+  options.checkpoint?.({
+    phase: "index",
+    processed: 0,
+    total: request.papers.length,
+  });
+  const index = buildReferenceMatcherIndex(request.papers);
+  options.checkpoint?.({
+    phase: "index",
+    processed: request.papers.length,
+    total: request.papers.length,
+  });
+  const matches = request.references.map((entry, indexValue) => {
+    if (indexValue % interval === 0) {
+      options.checkpoint?.({
+        phase: "references",
+        processed: indexValue,
+        total: request.references.length,
+      });
+    }
+    return {
+      canonicalReferenceId: entry.canonicalReferenceId,
+      result: matcherJsonClone(
+        resolveReferenceWithPolicy(entry.reference, index, request.policyId),
+      ),
+    };
+  });
+  options.checkpoint?.({
+    phase: "complete",
+    processed: matches.length,
+    total: matches.length,
+  });
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION,
+    policyId: request.policyId,
+    matches,
+  };
+}
+
+export function computeSynthesisReferenceDedupe(
+  requestInput: SynthesisReferenceDedupeRequest,
+  options: {
+    bounds?: SynthesisReferenceMatcherBounds;
+    checkpoint?: SynthesisReferenceDedupeCheckpoint;
+    checkpointInterval?: number;
+  } = {},
+): SynthesisReferenceDedupeResult {
+  const request = rebuildSynthesisReferenceDedupeRequest(
+    requestInput,
+    options.bounds,
+  );
+  const result = matcherJsonClone(
+    dedupeCanonicalReferencesClustered(request.canonicals, {
+      maxBlockSize: SYNTHESIS_REFERENCE_MATCHER_CLUSTER_BLOCK_MAX,
+      maxCandidatePairs: SYNTHESIS_REFERENCE_MATCHER_CANDIDATE_PAIR_MAX,
+      checkpoint: options.checkpoint,
+      checkpointInterval: options.checkpointInterval,
+    }),
+  );
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION,
+    ...result,
+  };
+}
+
+function projectMatcherResultToExpected(
+  value: unknown,
+  expected: unknown,
+  location: string,
+): unknown {
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(value) || value.length !== expected.length) {
+      return matcherInvalid(`${location} has invalid array length`);
+    }
+    return expected.map((entry, index) =>
+      projectMatcherResultToExpected(
+        value[index],
+        entry,
+        `${location}[${index}]`,
+      ),
+    );
+  }
+  if (expected && typeof expected === "object") {
+    const object = matcherPlainObject(value, location);
+    const output: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(
+      expected as Record<string, unknown>,
+    )) {
+      if (!(key in object)) {
+        return matcherInvalid(`${location}.${key} is required`);
+      }
+      output[key] = projectMatcherResultToExpected(
+        object[key],
+        entry,
+        `${location}.${key}`,
+      );
+    }
+    return output;
+  }
+  if (!Object.is(value, expected)) {
+    return matcherInvalid(`${location} does not match canonical result`);
+  }
+  return expected;
+}
+
+export function rebuildSynthesisReferenceBindingResult(
+  value: unknown,
+  requestInput: SynthesisReferenceBindingRequest,
+): SynthesisReferenceBindingResult {
+  matcherAssertJsonSafe(value, "result");
+  const expected = computeSynthesisReferenceBinding(requestInput);
+  return projectMatcherResultToExpected(
+    value,
+    expected,
+    "result",
+  ) as SynthesisReferenceBindingResult;
+}
+
+export function rebuildSynthesisReferenceDedupeResult(
+  value: unknown,
+  requestInput: SynthesisReferenceDedupeRequest,
+): SynthesisReferenceDedupeResult {
+  matcherAssertJsonSafe(value, "result");
+  const expected = computeSynthesisReferenceDedupe(requestInput);
+  return projectMatcherResultToExpected(
+    value,
+    expected,
+    "result",
+  ) as SynthesisReferenceDedupeResult;
+}
+
+export function createInProcessSynthesisReferenceMatcherEngine(
+  options: {
+    bounds?: SynthesisReferenceMatcherBounds;
+    bindingCheckpoint?: SynthesisReferenceBindingCheckpoint;
+    dedupeCheckpoint?: SynthesisReferenceDedupeCheckpoint;
+    checkpointInterval?: number;
+  } = {},
+): SynthesisReferenceMatcherEngine {
+  return {
+    async matchBindings(request) {
+      return computeSynthesisReferenceBinding(request, {
+        bounds: options.bounds,
+        checkpoint: options.bindingCheckpoint,
+        checkpointInterval: options.checkpointInterval,
+      });
+    },
+    async dedupeCanonicals(request) {
+      return computeSynthesisReferenceDedupe(request, {
+        bounds: options.bounds,
+        checkpoint: options.dedupeCheckpoint,
+        checkpointInterval: options.checkpointInterval,
+      });
+    },
+  };
 }

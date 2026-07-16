@@ -165,10 +165,18 @@ Two matching routes intentionally coexist:
 | Route | Trigger | Algorithm | Output |
 | --- | --- | --- | --- |
 | Lightweight Sidecar Binding | Reference Sidecar refresh and workflow apply | citeKey and exact normalized title-year map lookups | accepted binding fact or unbound derived state |
-| Advanced Reference Binding | `runAdvancedReferenceMatchingNow` binding pass | `referenceMatcher.ts` layered identifier/title/fuzzy policy against Zotero items | accepted binding facts for deterministic/high matches; proposals for suggested/ambiguous Zotero targets |
-| Advanced External Dedupe | `runAdvancedReferenceMatchingNow` dedupe pass | cluster-first canonical dedupe by identifiers, title/year subclusters, structured containment classification, sticky representatives, and bounded fuzzy review candidates | accepted canonical redirects for deterministic duplicates; `canonical_merge` proposals for fuzzy, ambiguous, retarget, or semantic-risk candidates |
+| Advanced Reference Binding | `runAdvancedReferenceMatchingNow` binding pass | `SynthesisReferenceMatcherEngine.matchBindings()` layered identifier/title/fuzzy policy against Zotero items | accepted binding facts for deterministic/high matches; proposals for suggested/ambiguous Zotero targets |
+| Advanced External Dedupe | `runAdvancedReferenceMatchingNow` dedupe pass | `SynthesisReferenceMatcherEngine.dedupeCanonicals()` cluster-first canonical dedupe by identifiers, title/year subclusters, structured containment classification, sticky representatives, and bounded fuzzy review candidates | accepted canonical redirects for deterministic duplicates; `canonical_merge` proposals for fuzzy, ambiguous, retarget, or semantic-risk candidates |
 
 Refresh and workflow apply must not call `buildReferenceMatcherIndex`, `resolveReferenceWithPolicy`, or the advanced external dedupe pass. Advanced matching must be explicit, progress-reporting, and stale-tolerant; accepted binding or redirect fact changes may trigger a separate visible Citation Graph cache incremental refresh and then related-items sync, but never layout rebuild. Related-items sync must read accepted facts only and must not run matcher logic.
+
+The application reads bounded Host metadata and captures active raw references,
+effective redirects, accepted bindings, and canonical evidence before invoking
+the engine. Binding and dedupe results are strictly rebuilt and promoted
+together in one repository transaction only after the same Host/repository
+basis is recaptured. Engine failure, cancellation, malformed output, an
+oversized request, or a superseded basis leaves existing matcher decisions
+unchanged.
 
 The external dedupe pass is precision-first and cluster-first. It builds an
 effective canonical graph from active raw references, existing redirects, title

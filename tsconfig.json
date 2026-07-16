@@ -1,5 +1,8 @@
 {
   "extends": "zotero-types/entries/sandbox/",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true
+  },
   "include": ["src", "typings", "packages/*/src"],
   "exclude": ["build", "addon", "src/**/*-safeBackup-*", ".agents"]
 }

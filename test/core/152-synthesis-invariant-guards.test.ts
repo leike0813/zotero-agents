@@ -404,11 +404,18 @@ describe("Synthesis invariant guards", function () {
     assert.notInclude(refreshBlock, "refreshCitationGraphCacheIncremental");
     assert.notInclude(refreshBlock, "syncRelatedItemsAfterSynthesisUpdate");
     assert.notInclude(refreshBlock, "replaceCitationGraphState(");
-    assert.include(advancedMatchingBlock, "buildReferenceMatcherIndex");
-    assert.include(advancedMatchingBlock, "resolveReferenceWithPolicy");
-    assert.match(
+    assert.include(
       advancedMatchingBlock,
-      /\bdedupeCanonicalReferencesClustered\s*\(/,
+      "computeSynthesisReferenceBindingsWithEngine",
+    );
+    assert.include(
+      advancedMatchingBlock,
+      "computeSynthesisReferenceDedupeWithEngine",
+    );
+    assert.include(advancedMatchingBlock, "synthesisRepository.transaction");
+    assert.include(
+      advancedMatchingBlock,
+      "reference_matching_basis_superseded",
     );
     assert.notMatch(advancedMatchingBlock, /\bdedupeCanonicalReferences\s*\(/);
     assert.include(advancedMatchingBlock, "upsertReferenceMatchProposal");
@@ -417,7 +424,7 @@ describe("Synthesis invariant guards", function () {
       "refreshCitationGraphCacheIncremental",
     );
     assert.notMatch(
-      readRepoText("src/modules/synthesis/referenceMatcher.ts"),
+      readRepoText("packages/synthesis-engine/src/referenceMatcher.ts"),
       /export function dedupeCanonicalReferences\s*\(/,
     );
     assert.notMatch(refreshBlock, /\bdedupeCanonicalReferencesClustered\s*\(/);
@@ -476,7 +483,7 @@ describe("Synthesis invariant guards", function () {
 
   it("keeps review candidate generation bounded [inv.review.queue_bounded]", function () {
     const matcherSource = readRepoText(
-      "src/modules/synthesis/referenceMatcher.ts",
+      "packages/synthesis-engine/src/referenceMatcher.ts",
     );
 
     assert.include(

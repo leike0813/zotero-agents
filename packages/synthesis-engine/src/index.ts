@@ -8,6 +8,9 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 
+export * from "./canonicalJson";
+export * from "./referenceMatcher";
+
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX = 5000 as const;
 export const SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX = 20000 as const;
 export const SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX =

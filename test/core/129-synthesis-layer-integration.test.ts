@@ -5,8 +5,10 @@ import path from "path";
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisReferenceMatcherEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
+  type SynthesisReferenceMatcherEngine,
 } from "../../packages/synthesis-engine/src/index";
 import { applyResult as applyTopicSynthesisResult } from "../../workflows_builtin/synthesis-layer/hooks/applyTopicSynthesisResult.mjs";
 import {
@@ -2245,6 +2247,124 @@ describe("Synthesis Layer v1 integration service", function () {
       repository
         .listReferenceBindings({ statuses: ["accepted"] })
         .some((binding) => binding.itemKey === deleteProposal?.targetItemKey),
+    );
+  });
+
+  it("promotes matcher results atomically and rejects a superseded basis", async function () {
+    const root = await makeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const defaultEngine = createInProcessSynthesisReferenceMatcherEngine();
+    let mutateBasis = true;
+    const engine: SynthesisReferenceMatcherEngine = {
+      async matchBindings(request) {
+        const result = await defaultEngine.matchBindings(request);
+        if (mutateBasis) {
+          mutateBasis = false;
+          const raw = repository.listRawReferences({
+            statuses: ["active"],
+          })[0];
+          assert.isOk(raw);
+          repository.upsertRawReference({
+            ...raw!,
+            rawHash: `${raw!.rawHash}:superseded`,
+          });
+        }
+        return result;
+      },
+      dedupeCanonicals(request) {
+        return defaultEngine.dedupeCanonicals(request);
+      },
+    };
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      synthesisRepository: repository,
+      referenceMatcherEngine: engine,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "A",
+          title: "Source Paper",
+          notes: [
+            artifactNote({
+              payloadType: "references-json",
+              value: JSON.stringify({
+                references: [
+                  { title: "Accepted Target Paper" },
+                  { title: "Duplicated Candidate Paper" },
+                ],
+              }),
+              format: "json",
+            }),
+          ],
+        },
+        {
+          libraryId: 1,
+          itemKey: "B",
+          title: "Accepted Target Paper",
+        },
+        {
+          libraryId: 1,
+          itemKey: "C",
+          title: "Duplicated Candidate Paper",
+        },
+        {
+          libraryId: 1,
+          itemKey: "D",
+          title: "Duplicated Candidate Paper",
+        },
+      ],
+    });
+
+    await service.refreshReferenceSidecarNow();
+    const before = {
+      bindings: repository.listReferenceBindings(),
+      redirects: repository.listCanonicalReferenceRedirects(),
+      proposals: repository.listReferenceMatchProposals(),
+    };
+    let superseded = false;
+    try {
+      await service.runAdvancedReferenceMatchingNow();
+    } catch (error) {
+      superseded = String(error).includes(
+        "reference_matching_basis_superseded",
+      );
+    }
+    assert.isTrue(superseded);
+    assert.deepEqual(repository.listReferenceBindings(), before.bindings);
+    assert.deepEqual(
+      repository.listCanonicalReferenceRedirects(),
+      before.redirects,
+    );
+    assert.deepEqual(
+      repository.listReferenceMatchProposals(),
+      before.proposals,
+    );
+
+    const originalUpsertProposal =
+      repository.upsertReferenceMatchProposal.bind(repository);
+    repository.upsertReferenceMatchProposal = () => {
+      throw new Error("forced matcher transaction failure");
+    };
+    let transactionFailed = false;
+    try {
+      await service.runAdvancedReferenceMatchingNow();
+    } catch (error) {
+      transactionFailed = String(error).includes(
+        "forced matcher transaction failure",
+      );
+    } finally {
+      repository.upsertReferenceMatchProposal = originalUpsertProposal;
+    }
+    assert.isTrue(transactionFailed);
+    assert.deepEqual(repository.listReferenceBindings(), before.bindings);
+    assert.deepEqual(
+      repository.listCanonicalReferenceRedirects(),
+      before.redirects,
+    );
+    assert.deepEqual(
+      repository.listReferenceMatchProposals(),
+      before.proposals,
     );
   });
 

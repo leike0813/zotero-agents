@@ -153,7 +153,8 @@ Advanced Reference Matching is separate from ordinary refresh because it may nee
 
 - It is started only by `runAdvancedReferenceMatchingNow` or scoped debug/test harnesses.
 - It has two passes: Zotero reference binding and external canonical-reference dedupe.
-- The binding pass uses `referenceMatcher.ts` and builds a Zotero matcher index once per operation.
+- The binding pass uses `SynthesisReferenceMatcherEngine.matchBindings()` and builds one private Zotero matcher index per operation.
+- The dedupe pass uses `SynthesisReferenceMatcherEngine.dedupeCanonicals()`. Both strict results are computed outside the write lock, then promoted in one repository transaction only when the Host/repository basis remains current.
 - The dedupe pass runs the cluster-first canonical dedupe algorithm over active
   unbound effective canonical references, using identifier evidence,
   title-candidate provenance, structured containment classification, sticky

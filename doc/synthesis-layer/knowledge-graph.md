@@ -18,7 +18,7 @@ Nine modules implement this subsystem:
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | Topic graph relations, review, proposals |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | Concept knowledge base |
 | Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | Tag vocabulary with protocol enforcement |
-| Reference Matcher | `src/modules/synthesis/referenceMatcher.ts` | Reference matching and canonical deduplication |
+| Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
 | Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
 
 Core concepts:
@@ -209,7 +209,7 @@ Each knowledge domain follows a similar service pattern:
 | Topic Graph | `createSynthesisTopicGraphService()` | upsertNode/Edge, decideRelation, applyReviewAction, ingestProposals, exportCheckpoint, rebuildIndex |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `createSynthesisTagVocabularyService()` | validate, previewImport, applyImport, stage/Promote Suggestions, rebuildIndex |
-| Reference Matcher | `buildReferenceMatcherIndex()` | `resolveReferenceWithPolicy()`, `dedupeCanonicalReferencesClustered()` (5 policies, clustering with 10 edge types) |
+| Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
 | Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
 
 ### Topic Graph Relations

@@ -2,6 +2,7 @@ import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisReferenceMatcherEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
@@ -61,6 +62,7 @@ function createDefaultLegacyService(
       createInProcessSynthesisCitationGraphMetricsEngine(),
     citationGraphBuildEngine:
       createInProcessSynthesisCitationGraphBuildEngine(),
+    referenceMatcherEngine: createInProcessSynthesisReferenceMatcherEngine(),
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });

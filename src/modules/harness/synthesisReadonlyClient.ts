@@ -1,5 +1,6 @@
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
+import { createInProcessSynthesisReferenceMatcherEngine } from "../../../packages/synthesis-engine/src/referenceMatcher";
 import { createSynthesisRepository } from "../synthesis/repository";
 import { createDisabledSynthesisHostWebDavSyncPort } from "../synthesis/webDavSyncRuntime";
 import { createLegacyInProcessSynthesisClient } from "../synthesisClient/legacyComposition";
@@ -54,6 +55,8 @@ export async function createSynthesisReadonlyClient(
         hostWebDavSyncPort: createDisabledSynthesisHostWebDavSyncPort(),
         citationGraphBuildEngine:
           createInProcessSynthesisCitationGraphBuildEngine(),
+        referenceMatcherEngine:
+          createInProcessSynthesisReferenceMatcherEngine(),
         synthesisRepository: repository,
       });
       let closed = false;

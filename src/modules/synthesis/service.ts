@@ -4,8 +4,11 @@ import {
   SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  createInProcessSynthesisReferenceMatcherEngine,
   type SynthesisCitationGraphLayoutEngine,
   type SynthesisCitationGraphMetricsEngine,
+  type SynthesisReferenceBindingResult,
+  type SynthesisReferenceMatcherEngine,
 } from "../../../packages/synthesis-engine/src/index";
 import {
   createInProcessSynthesisCitationGraphBuildEngine,
@@ -136,14 +139,17 @@ import {
   type SynthesisTopicGraphNode,
 } from "./topicGraph";
 import {
-  buildReferenceMatcherIndex,
-  dedupeCanonicalReferencesClustered,
   normalizeSynthesisLiteratureTitle,
-  resolveReferenceWithPolicy,
   type ReferenceCanonicalDedupeInput,
   type ReferenceMatcherPaperInput,
   type ReferenceMatcherReferenceInput,
-} from "./referenceMatcher";
+} from "../../../packages/synthesis-engine/src/referenceMatcher";
+import {
+  buildSynthesisReferenceBindingRequest,
+  buildSynthesisReferenceDedupeRequest,
+  computeSynthesisReferenceBindingsWithEngine,
+  computeSynthesisReferenceDedupeWithEngine,
+} from "./referenceMatcherEngineAdapter";
 import { classifySynthesisReferenceQuality } from "./referenceQualityGate";
 import { createSynthesisJsonImportService } from "./jsonImport";
 import { createSynthesisCheckpointExportService } from "./checkpointExport";
@@ -516,6 +522,7 @@ export type SynthesisServiceOptions = {
   citationGraphLayoutEngine?: SynthesisCitationGraphLayoutEngine;
   citationGraphMetricsEngine?: SynthesisCitationGraphMetricsEngine;
   citationGraphBuildEngine?: SynthesisCitationGraphBuildEngine;
+  referenceMatcherEngine?: SynthesisReferenceMatcherEngine;
   synthesisRepository?: SynthesisRepository;
   writeLock?: LibraryWriteLock;
 };
@@ -6142,6 +6149,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const citationGraphBuildEngine =
     options.citationGraphBuildEngine ||
     createInProcessSynthesisCitationGraphBuildEngine();
+  const referenceMatcherEngine =
+    options.referenceMatcherEngine ||
+    createInProcessSynthesisReferenceMatcherEngine();
   const synthesisRepository =
     options.synthesisRepository ||
     createSynthesisRepository({
@@ -12057,297 +12067,406 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       const papers = inputs
         .map(referenceMatcherPaperFromInput)
         .filter((paper) => paper.paperRef && paper.title);
-      const index = buildReferenceMatcherIndex(papers);
-      const acceptedCanonicalIds = new Set(
-        synthesisRepository
+      const hostBasis = hashCanonicalJson(papers);
+      const captureRepositoryFacts = () => {
+        const acceptedBindings = synthesisRepository
           .listReferenceBindings({ statuses: ["accepted"] })
-          .map((binding) =>
-            synthesisRepository.resolveEffectiveCanonicalReferenceId(
-              binding.canonicalReferenceId,
-            ),
-          )
-          .filter(Boolean),
-      );
-      const rawByCanonical = new Map<string, SynthesisRawReferenceRecord[]>();
-      for (const raw of synthesisRepository.listRawReferences({
-        statuses: ["active"],
-      })) {
-        const effective =
-          synthesisRepository.resolveEffectiveCanonicalReferenceId(
-            raw.canonicalReferenceId || "",
+          .slice()
+          .sort((left, right) =>
+            left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
           );
-        if (!effective || acceptedCanonicalIds.has(effective)) {
-          continue;
-        }
-        rawByCanonical.set(effective, [
-          ...(rawByCanonical.get(effective) || []),
-          raw,
-        ]);
-      }
-      const work = Array.from(rawByCanonical.entries()).sort((left, right) =>
-        left[0].localeCompare(right[0]),
-      );
-      await report("match_references", 0, work.length, {
-        indexed_paper_count: papers.length,
-        candidate_reference_count: work.length,
-      });
-      for (const [canonicalReferenceId, rows] of work) {
-        processed += 1;
-        const raw = rows
+        const rawReferences = synthesisRepository
+          .listRawReferences({ statuses: ["active"] })
           .slice()
           .sort(
             (left, right) =>
               left.sourceRef.localeCompare(right.sourceRef) ||
               left.referenceIndex - right.referenceIndex ||
               left.rawReferenceId.localeCompare(right.rawReferenceId),
-          )[0];
-        if (!raw) {
-          continue;
-        }
-        const result = resolveReferenceWithPolicy(
-          rawReferenceToMatcherInput(raw),
-          index,
-          "production",
-        );
-        const sourceHash = hashCanonicalJson({
-          canonicalReferenceId,
-          rawReferenceIds: rows.map((row) => row.rawReferenceId).sort(),
-          rawHashes: rows.map((row) => row.rawHash).sort(),
-        });
-        if (
-          result.status === "matched" &&
-          (result.confidence === "deterministic" ||
-            result.confidence === "high") &&
-          result.suggestedCandidates[0]?.itemKey
-        ) {
-          const candidate = result.suggestedCandidates[0];
-          const parsed = parsePaperRef(candidate.paperRef);
-          const basisHash = hashCanonicalJson({
-            status: result.status,
-            confidence: result.confidence,
-            target: candidate.paperRef,
-            reasons: candidate.reasons,
-            evidence: candidate.evidence,
-          });
-          synthesisRepository.upsertReferenceBinding(
-            referenceBindingFromAdvancedMatch({
-              canonicalReferenceId,
-              libraryId: parsed?.libraryId || libraryId,
-              itemKey: cleanString(candidate.itemKey),
-              confidence: result.confidence,
-              basisHash,
-              diagnostics: result.diagnostics,
-              timestamp,
-            }),
           );
-          autoAccepted += 1;
-          acceptedCanonicalIds.add(canonicalReferenceId);
-          changedBindingCanonicalIds.add(canonicalReferenceId);
-          graphFactsChanged = true;
-        } else if (
-          result.status === "suggested" ||
-          result.status === "ambiguous"
-        ) {
-          for (const candidate of result.suggestedCandidates.slice(0, 3)) {
-            if (!candidate.itemKey) {
-              continue;
-            }
-            const parsed = parsePaperRef(candidate.paperRef);
-            const basisHash = hashCanonicalJson({
-              status: result.status,
-              confidence: result.confidence,
-              target: candidate.paperRef,
-              reasons: candidate.reasons,
-              evidence: candidate.evidence,
-            });
-            if (
-              synthesisRepository.hasRejectedReferenceMatchProposal({
-                kind: "zotero_binding",
-                basisHash,
-                sourceHash,
-              })
-            ) {
-              rejectedPreserved += 1;
-              continue;
-            }
-            synthesisRepository.upsertReferenceMatchProposal(
-              referenceMatchProposalRecord({
-                kind: "zotero_binding",
-                sourceCanonicalReferenceId: canonicalReferenceId,
-                sourceRawReferenceIds: rows.map((row) => row.rawReferenceId),
-                targetLibraryId: parsed?.libraryId || libraryId,
-                targetItemKey: cleanString(candidate.itemKey),
-                confidence: result.confidence,
-                score: candidate.score,
-                reasons: candidate.reasons,
-                evidence: candidate.evidence,
-                diagnostics: result.diagnostics,
-                basisHash,
-                sourceHash,
-                timestamp,
-              }),
+        const canonicalReferences = synthesisRepository
+          .listCanonicalReferences({ statuses: ["active"] })
+          .slice()
+          .sort((left, right) =>
+            left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+          );
+        const redirects = synthesisRepository
+          .listCanonicalReferenceRedirects()
+          .slice()
+          .sort((left, right) =>
+            left.fromCanonicalReferenceId.localeCompare(
+              right.fromCanonicalReferenceId,
+            ),
+          );
+        const acceptedCanonicalIds = new Set(
+          acceptedBindings
+            .map((binding) =>
+              synthesisRepository.resolveEffectiveCanonicalReferenceId(
+                binding.canonicalReferenceId,
+              ),
+            )
+            .filter(Boolean),
+        );
+        const rawByCanonical = new Map<string, SynthesisRawReferenceRecord[]>();
+        for (const raw of rawReferences) {
+          const effective =
+            synthesisRepository.resolveEffectiveCanonicalReferenceId(
+              raw.canonicalReferenceId || "",
             );
-            proposalsCreated += 1;
-            bindingProposalsCreated += 1;
+          if (!effective || acceptedCanonicalIds.has(effective)) {
+            continue;
           }
+          rawByCanonical.set(effective, [
+            ...(rawByCanonical.get(effective) || []),
+            raw,
+          ]);
         }
-        if (processed % 25 === 0) {
-          await report("match_references", processed, work.length, {
-            indexed_paper_count: papers.length,
-            auto_accepted_count: autoAccepted,
-            proposal_created_count: proposalsCreated,
-            binding_proposal_created_count: bindingProposalsCreated,
-            rejected_preserved_count: rejectedPreserved,
-          });
+        const canonicalById = new Map(
+          canonicalReferences.map((canonical) => [
+            canonical.canonicalReferenceId,
+            canonical,
+          ]),
+        );
+        const inboundRedirectTargets = new Set(
+          redirects
+            .map((redirect) =>
+              synthesisRepository.resolveEffectiveCanonicalReferenceId(
+                redirect.toCanonicalReferenceId,
+              ),
+            )
+            .filter(Boolean),
+        );
+        const work = Array.from(rawByCanonical.entries()).sort((left, right) =>
+          left[0].localeCompare(right[0]),
+        );
+        return {
+          acceptedCanonicalIds,
+          rawByCanonical,
+          canonicalById,
+          inboundRedirectTargets,
+          work,
+          basisHash: hashCanonicalJson({
+            acceptedBindings,
+            rawReferences,
+            canonicalReferences,
+            redirects,
+            work: work.map(([canonicalReferenceId, rows]) => ({
+              canonicalReferenceId,
+              rawReferenceIds: rows.map((row) => row.rawReferenceId),
+            })),
+          }),
+        };
+      };
+      const captured = await lock.runExclusive(libraryId, async () =>
+        captureRepositoryFacts(),
+      );
+      const work = captured.work;
+      await report("match_references", 0, work.length, {
+        indexed_paper_count: papers.length,
+        candidate_reference_count: work.length,
+      });
+      const bindingRequest = buildSynthesisReferenceBindingRequest({
+        papers,
+        references: work.flatMap(([canonicalReferenceId, rows]) => {
+          const raw = rows[0];
+          return raw
+            ? [
+                {
+                  canonicalReferenceId,
+                  reference: rawReferenceToMatcherInput(raw),
+                },
+              ]
+            : [];
+        }),
+      });
+      const bindingResult = await computeSynthesisReferenceBindingsWithEngine({
+        engine: referenceMatcherEngine,
+        request: bindingRequest,
+      });
+      const bindingResultByCanonicalId = new Map(
+        bindingResult.matches.map((match) => [
+          match.canonicalReferenceId,
+          match.result,
+        ]),
+      );
+      const acceptedAfterBinding = new Set(captured.acceptedCanonicalIds);
+      for (const match of bindingResult.matches) {
+        if (
+          match.result.status === "matched" &&
+          (match.result.confidence === "deterministic" ||
+            match.result.confidence === "high") &&
+          match.result.suggestedCandidates[0]?.itemKey
+        ) {
+          acceptedAfterBinding.add(match.canonicalReferenceId);
         }
       }
-      const canonicalById = new Map(
-        synthesisRepository
-          .listCanonicalReferences({ statuses: ["active"] })
-          .map((canonical) => [canonical.canonicalReferenceId, canonical]),
-      );
-      const inboundRedirectTargets = new Set(
-        synthesisRepository
-          .listCanonicalReferenceRedirects()
-          .map((redirect) =>
-            synthesisRepository.resolveEffectiveCanonicalReferenceId(
-              redirect.toCanonicalReferenceId,
-            ),
-          )
-          .filter(Boolean),
-      );
       const dedupeInputs = work
         .filter(
           ([canonicalReferenceId]) =>
-            !acceptedCanonicalIds.has(canonicalReferenceId),
+            !acceptedAfterBinding.has(canonicalReferenceId),
         )
         .map(([canonicalReferenceId, rows]) =>
           canonicalDedupeInputFromRows({
             canonicalReferenceId,
             rows,
-            canonical: canonicalById.get(canonicalReferenceId),
-            canonicalById,
-            inboundRedirectTargets,
+            canonical: captured.canonicalById.get(canonicalReferenceId),
+            canonicalById: captured.canonicalById,
+            inboundRedirectTargets: captured.inboundRedirectTargets,
           }),
         );
       await report("dedupe_canonicals", 0, dedupeInputs.length, {
         canonical_dedupe_candidate_count: dedupeInputs.length,
-        auto_accepted_count: autoAccepted,
-        binding_proposal_created_count: bindingProposalsCreated,
       });
-      const dedupeInputById = new Map(
-        dedupeInputs.map((input) => [input.canonicalReferenceId, input]),
-      );
-      const dedupeResult = dedupeCanonicalReferencesClustered(dedupeInputs);
+      const dedupeRequest = buildSynthesisReferenceDedupeRequest(dedupeInputs);
+      const dedupeResult = await computeSynthesisReferenceDedupeWithEngine({
+        engine: referenceMatcherEngine,
+        request: dedupeRequest,
+      });
       const dedupeActions = dedupeResult.actions;
-      for (const action of dedupeActions) {
-        dedupeProcessed += 1;
-        const sourceInput = dedupeInputById.get(
-          action.sourceCanonicalReferenceId,
-        );
-        const sourceRawReferenceIds = sourceInput?.rawReferenceIds || [];
-        const evidence = {
-          ...action.evidence,
-          cluster_id: action.clusterId,
-          subcluster_id: action.subclusterId,
-          edge_type: action.edgeType,
-          risk_signals: action.riskSignals,
-          action_id: action.actionId,
-        };
-        const basisHash = hashCanonicalJson({
-          kind: "canonical_merge",
-          policy: "cluster-dedupe-v1",
-          action: action.action,
-          source: action.sourceCanonicalReferenceId,
-          target: action.targetCanonicalReferenceId,
-          clusterId: action.clusterId,
-          subclusterId: action.subclusterId,
-          edgeType: action.edgeType,
-          confidence: action.confidence,
-          score: action.score,
-          reasons: action.reasons,
-          riskSignals: action.riskSignals,
-          evidence,
-        });
-        const sourceHash = hashCanonicalJson({
-          policy: "cluster-dedupe-v1",
-          canonicalReferenceId: action.sourceCanonicalReferenceId,
-          rawReferenceIds: sourceRawReferenceIds,
-          rawHashes: sourceInput?.rawHashes || [],
-        });
-        const diagnostics = [
-          {
-            code:
-              action.action === "redirect"
-                ? "advanced_reference_cluster_dedupe_redirect"
-                : "advanced_reference_cluster_dedupe_review",
-            edge_type: action.edgeType,
-            cluster_id: action.clusterId,
-            risk_signals: action.riskSignals,
-            reasons: action.reasons,
-          },
-        ];
-        if (action.action === "redirect") {
-          synthesisRepository.upsertCanonicalReferenceRedirect({
-            fromCanonicalReferenceId: action.sourceCanonicalReferenceId,
-            toCanonicalReferenceId: action.targetCanonicalReferenceId,
-            reason: "advanced_reference_dedupe",
-            diagnosticsJson: JSON.stringify(diagnostics),
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          });
-          dedupeRedirectsCreated += 1;
-          changedRedirectCanonicalIds.add(action.sourceCanonicalReferenceId);
-          changedRedirectCanonicalIds.add(action.targetCanonicalReferenceId);
-          graphFactsChanged = true;
-        } else {
-          if (
-            synthesisRepository.hasRejectedReferenceMatchProposal({
-              kind: "canonical_merge",
-              basisHash,
-              sourceHash,
-            })
-          ) {
-            rejectedPreserved += 1;
-            continue;
+      const dedupeInputById = new Map(
+        dedupeRequest.canonicals.map((input) => [
+          input.canonicalReferenceId,
+          input,
+        ]),
+      );
+      const currentInputs = await registryInputsForService(options);
+      const currentPapers = currentInputs
+        .map(referenceMatcherPaperFromInput)
+        .filter((paper) => paper.paperRef && paper.title);
+      if (hashCanonicalJson(currentPapers) !== hostBasis) {
+        throw new Error("reference_matching_basis_superseded");
+      }
+      await lock.runExclusive(libraryId, async () => {
+        const currentCapture = captureRepositoryFacts();
+        if (currentCapture.basisHash !== captured.basisHash) {
+          throw new Error("reference_matching_basis_superseded");
+        }
+        synthesisRepository.transaction(() => {
+          for (const [canonicalReferenceId, rows] of work) {
+            processed += 1;
+            const raw = rows
+              .slice()
+              .sort(
+                (left, right) =>
+                  left.sourceRef.localeCompare(right.sourceRef) ||
+                  left.referenceIndex - right.referenceIndex ||
+                  left.rawReferenceId.localeCompare(right.rawReferenceId),
+              )[0];
+            if (!raw) {
+              continue;
+            }
+            const result = bindingResultByCanonicalId.get(canonicalReferenceId);
+            if (!result) {
+              throw new Error(
+                `reference matcher result missing ${canonicalReferenceId}`,
+              );
+            }
+            const sourceHash = hashCanonicalJson({
+              canonicalReferenceId,
+              rawReferenceIds: rows.map((row) => row.rawReferenceId).sort(),
+              rawHashes: rows.map((row) => row.rawHash).sort(),
+            });
+            if (
+              result.status === "matched" &&
+              (result.confidence === "deterministic" ||
+                result.confidence === "high") &&
+              result.suggestedCandidates[0]?.itemKey
+            ) {
+              const candidate = result.suggestedCandidates[0];
+              const parsed = parsePaperRef(candidate.paperRef);
+              const basisHash = hashCanonicalJson({
+                status: result.status,
+                confidence: result.confidence,
+                target: candidate.paperRef,
+                reasons: candidate.reasons,
+                evidence: candidate.evidence,
+              });
+              synthesisRepository.upsertReferenceBinding(
+                referenceBindingFromAdvancedMatch({
+                  canonicalReferenceId,
+                  libraryId: parsed?.libraryId || libraryId,
+                  itemKey: cleanString(candidate.itemKey),
+                  confidence: result.confidence,
+                  basisHash,
+                  diagnostics: result.diagnostics,
+                  timestamp,
+                }),
+              );
+              autoAccepted += 1;
+              changedBindingCanonicalIds.add(canonicalReferenceId);
+              graphFactsChanged = true;
+            } else if (
+              result.status === "suggested" ||
+              result.status === "ambiguous"
+            ) {
+              for (const candidate of result.suggestedCandidates.slice(0, 3)) {
+                if (!candidate.itemKey) {
+                  continue;
+                }
+                const parsed = parsePaperRef(candidate.paperRef);
+                const basisHash = hashCanonicalJson({
+                  status: result.status,
+                  confidence: result.confidence,
+                  target: candidate.paperRef,
+                  reasons: candidate.reasons,
+                  evidence: candidate.evidence,
+                });
+                if (
+                  synthesisRepository.hasRejectedReferenceMatchProposal({
+                    kind: "zotero_binding",
+                    basisHash,
+                    sourceHash,
+                  })
+                ) {
+                  rejectedPreserved += 1;
+                  continue;
+                }
+                synthesisRepository.upsertReferenceMatchProposal(
+                  referenceMatchProposalRecord({
+                    kind: "zotero_binding",
+                    sourceCanonicalReferenceId: canonicalReferenceId,
+                    sourceRawReferenceIds: rows.map(
+                      (row) => row.rawReferenceId,
+                    ),
+                    targetLibraryId: parsed?.libraryId || libraryId,
+                    targetItemKey: cleanString(candidate.itemKey),
+                    confidence: result.confidence,
+                    score: candidate.score,
+                    reasons: candidate.reasons,
+                    evidence: candidate.evidence,
+                    diagnostics: result.diagnostics,
+                    basisHash,
+                    sourceHash,
+                    timestamp,
+                  }),
+                );
+                proposalsCreated += 1;
+                bindingProposalsCreated += 1;
+              }
+            }
           }
-          synthesisRepository.upsertReferenceMatchProposal(
-            referenceMatchProposalRecord({
+          const dedupeActions = dedupeResult.actions;
+          for (const action of dedupeActions) {
+            dedupeProcessed += 1;
+            const sourceInput = dedupeInputById.get(
+              action.sourceCanonicalReferenceId,
+            );
+            const sourceRawReferenceIds = sourceInput?.rawReferenceIds || [];
+            const evidence = {
+              ...action.evidence,
+              cluster_id: action.clusterId,
+              subcluster_id: action.subclusterId,
+              edge_type: action.edgeType,
+              risk_signals: action.riskSignals,
+              action_id: action.actionId,
+            };
+            const basisHash = hashCanonicalJson({
               kind: "canonical_merge",
-              sourceCanonicalReferenceId: action.sourceCanonicalReferenceId,
-              sourceRawReferenceIds,
-              targetCanonicalReferenceId: action.targetCanonicalReferenceId,
+              policy: "cluster-dedupe-v1",
+              action: action.action,
+              source: action.sourceCanonicalReferenceId,
+              target: action.targetCanonicalReferenceId,
+              clusterId: action.clusterId,
+              subclusterId: action.subclusterId,
+              edgeType: action.edgeType,
               confidence: action.confidence,
               score: action.score,
               reasons: action.reasons,
+              riskSignals: action.riskSignals,
               evidence,
-              diagnostics,
-              basisHash,
-              sourceHash,
-              timestamp,
-            }),
-          );
-          proposalsCreated += 1;
-          dedupeProposalsCreated += 1;
-        }
-        if (dedupeProcessed % 25 === 0) {
-          await report(
-            "dedupe_canonicals",
-            dedupeProcessed,
-            dedupeActions.length,
-            {
-              canonical_dedupe_redirect_count: dedupeRedirectsCreated,
-              canonical_merge_proposal_created_count: dedupeProposalsCreated,
-              rejected_preserved_count: rejectedPreserved,
-              cluster_redirect_action_count:
-                dedupeResult.counters.redirect_action_count,
-              cluster_review_action_count:
-                dedupeResult.counters.review_action_count,
-              ...dedupeResult.counters,
-            },
-          );
-        }
-      }
+            });
+            const sourceHash = hashCanonicalJson({
+              policy: "cluster-dedupe-v1",
+              canonicalReferenceId: action.sourceCanonicalReferenceId,
+              rawReferenceIds: sourceRawReferenceIds,
+              rawHashes: sourceInput?.rawHashes || [],
+            });
+            const diagnostics = [
+              {
+                code:
+                  action.action === "redirect"
+                    ? "advanced_reference_cluster_dedupe_redirect"
+                    : "advanced_reference_cluster_dedupe_review",
+                edge_type: action.edgeType,
+                cluster_id: action.clusterId,
+                risk_signals: action.riskSignals,
+                reasons: action.reasons,
+              },
+            ];
+            if (action.action === "redirect") {
+              synthesisRepository.upsertCanonicalReferenceRedirect({
+                fromCanonicalReferenceId: action.sourceCanonicalReferenceId,
+                toCanonicalReferenceId: action.targetCanonicalReferenceId,
+                reason: "advanced_reference_dedupe",
+                diagnosticsJson: JSON.stringify(diagnostics),
+                createdAt: timestamp,
+                updatedAt: timestamp,
+              });
+              dedupeRedirectsCreated += 1;
+              changedRedirectCanonicalIds.add(
+                action.sourceCanonicalReferenceId,
+              );
+              changedRedirectCanonicalIds.add(
+                action.targetCanonicalReferenceId,
+              );
+              graphFactsChanged = true;
+            } else {
+              if (
+                synthesisRepository.hasRejectedReferenceMatchProposal({
+                  kind: "canonical_merge",
+                  basisHash,
+                  sourceHash,
+                })
+              ) {
+                rejectedPreserved += 1;
+                continue;
+              }
+              synthesisRepository.upsertReferenceMatchProposal(
+                referenceMatchProposalRecord({
+                  kind: "canonical_merge",
+                  sourceCanonicalReferenceId: action.sourceCanonicalReferenceId,
+                  sourceRawReferenceIds,
+                  targetCanonicalReferenceId: action.targetCanonicalReferenceId,
+                  confidence: action.confidence,
+                  score: action.score,
+                  reasons: action.reasons,
+                  evidence,
+                  diagnostics,
+                  basisHash,
+                  sourceHash,
+                  timestamp,
+                }),
+              );
+              proposalsCreated += 1;
+              dedupeProposalsCreated += 1;
+            }
+          }
+          if (graphFactsChanged) {
+            const changedCanonicalIds = new Set([
+              ...changedBindingCanonicalIds,
+              ...changedRedirectCanonicalIds,
+            ]);
+            for (const canonicalReferenceId of changedCanonicalIds) {
+              const rows =
+                captured.rawByCanonical.get(canonicalReferenceId) || [];
+              synthesisRepository.markCitationGraphCacheStale({
+                transactionId: runId,
+                rawReferenceIds: rows.map((row) => row.rawReferenceId),
+                timestamp,
+              });
+            }
+          }
+        });
+      });
+      await report("dedupe_canonicals", dedupeProcessed, dedupeActions.length, {
+        canonical_dedupe_redirect_count: dedupeRedirectsCreated,
+        canonical_merge_proposal_created_count: dedupeProposalsCreated,
+        rejected_preserved_count: rejectedPreserved,
+        cluster_redirect_action_count:
+          dedupeResult.counters.redirect_action_count,
+        cluster_review_action_count: dedupeResult.counters.review_action_count,
+        ...dedupeResult.counters,
+      });
       completeSynthesisJobProgress({
         jobName,
         runId,
@@ -16692,23 +16811,25 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
             frequency: sortedRows.length,
           }
         : null,
-      ...physicalCanonicals.map((canonical) => ({
-        source: "physical_canonical" as const,
-        sourceCanonicalReferenceId: canonical.canonicalReferenceId,
-        title: cleanString(canonical.title),
-        normalizedTitle: cleanString(canonical.normalizedTitle),
-        year: cleanString(canonical.year),
-        authors: parseJsonArray(canonical.authorsJson)
-          .map(cleanString)
-          .filter(Boolean),
-        identifiers: identifiersFromCanonical(canonical),
-        frequency:
-          sortedRows.filter(
-            (row) =>
-              cleanString(row.canonicalReferenceId) ===
-              canonical.canonicalReferenceId,
-          ).length || 1,
-      })),
+      ...physicalCanonicals
+        .map((canonical) => ({
+          source: "physical_canonical" as const,
+          sourceCanonicalReferenceId: canonical.canonicalReferenceId,
+          title: cleanString(canonical.title),
+          normalizedTitle: cleanString(canonical.normalizedTitle),
+          year: cleanString(canonical.year),
+          authors: parseJsonArray(canonical.authorsJson)
+            .map(cleanString)
+            .filter(Boolean),
+          identifiers: identifiersFromCanonical(canonical),
+          frequency:
+            sortedRows.filter(
+              (row) =>
+                cleanString(row.canonicalReferenceId) ===
+                canonical.canonicalReferenceId,
+            ).length || 1,
+        }))
+        .filter((candidate) => candidate.title),
       ...Array.from(rawTitleGroups.values()).map((group) => ({
         source: "raw_reference" as const,
         title: cleanString(group[0]?.parsedTitle),
@@ -16748,11 +16869,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       sourceRefs: sortedRows
         .map((row) => cleanString(row.sourceRef))
         .filter(Boolean),
-      stickyRepresentative: args.inboundRedirectTargets?.has(
-        args.canonicalReferenceId,
-      ),
+      stickyRepresentative:
+        args.inboundRedirectTargets?.has(args.canonicalReferenceId) || false,
+      acceptedBinding: false,
       identifiers: allIdentifiers,
-      titleCandidates,
+      titleCandidates: titleCandidates.slice(0, 16),
     };
   }
 

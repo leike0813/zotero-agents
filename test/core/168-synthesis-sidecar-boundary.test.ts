@@ -167,6 +167,17 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(ROOT_DIR, "packages/synthesis-engine/src/index.ts"),
       "utf8",
     );
+    const referenceMatcherEngine = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-engine/src/referenceMatcher.ts"),
+      "utf8",
+    );
+    const referenceMatcherAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/referenceMatcherEngineAdapter.ts",
+      ),
+      "utf8",
+    );
     const tagEffectAdapter = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/tagEffectAdapter.ts"),
       "utf8",
@@ -310,6 +321,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(serviceSource, "citationGraphBuildEngine");
     assert.include(serviceSource, "buildProductionCitationGraphWithEngine");
     assert.include(serviceSource, "citation_graph_build_basis_superseded");
+    assert.include(serviceSource, "referenceMatcherEngine");
+    assert.include(
+      serviceSource,
+      "computeSynthesisReferenceBindingsWithEngine",
+    );
+    assert.include(serviceSource, "computeSynthesisReferenceDedupeWithEngine");
+    assert.include(serviceSource, "reference_matching_basis_superseded");
+    assert.include(serviceSource, "synthesisRepository.transaction");
     assert.include(
       serviceSource,
       "currentGraph.graph_hash !== request.graphHash",
@@ -334,10 +353,37 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.include(legacyComposition, "citationGraphBuildEngine");
     assert.include(
+      legacyComposition,
+      "createInProcessSynthesisReferenceMatcherEngine",
+    );
+    assert.include(legacyComposition, "referenceMatcherEngine");
+    assert.include(
       readonlyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",
     );
     assert.include(readonlyComposition, "citationGraphBuildEngine");
+    assert.include(
+      readonlyComposition,
+      "createInProcessSynthesisReferenceMatcherEngine",
+    );
+    assert.include(readonlyComposition, "referenceMatcherEngine");
+    assert.isFalse(
+      fs.existsSync(
+        path.join(ROOT_DIR, "src/modules/synthesis/referenceMatcher.ts"),
+      ),
+    );
+    assert.notMatch(
+      referenceMatcherEngine,
+      /from\s+["'](?:node:|[^"']*(?:repository|foundation|runtimePersistence|libraryAdapter))/,
+    );
+    assert.include(
+      referenceMatcherAdapter,
+      "rebuildSynthesisReferenceBindingResult",
+    );
+    assert.include(
+      referenceMatcherAdapter,
+      "rebuildSynthesisReferenceDedupeResult",
+    );
     assert.notInclude(citationGraphSource, 'from "d3-force"');
     assert.notInclude(citationGraphSource, 'from "graphology"');
     assert.notInclude(citationGraphSource, "computeCitationGraphLayout(");
@@ -363,7 +409,11 @@ describe("Synthesis sidecar migration boundary", function () {
     const engineImports = [
       ...citationGraphLayoutEngine.matchAll(/from\s+["']([^"']+)["']/g),
     ].map((match) => match[1]);
-    assert.deepEqual(engineImports, ["d3-force"]);
+    assert.deepEqual(engineImports, [
+      "d3-force",
+      "./canonicalJson",
+      "./referenceMatcher",
+    ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(
