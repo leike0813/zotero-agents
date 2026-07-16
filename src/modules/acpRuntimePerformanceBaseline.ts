@@ -303,6 +303,11 @@ function sanitizeProfile(
       0,
       Number.MAX_SAFE_INTEGER,
     ),
+    publicationLifecycleDrops: boundedInteger(
+      profile.publicationLifecycleDrops,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
     measurement: profile.measurement,
     publicationDiagnostics: profile.publicationDiagnostics.map((entry) => ({
       ...entry,
@@ -327,6 +332,11 @@ function sanitizeSnapshot(
         snapshot.limits.metricSeriesPerProfile,
         0,
         4096,
+      ),
+      publicationLifecyclesPerProfile: boundedInteger(
+        snapshot.limits.publicationLifecyclesPerProfile,
+        0,
+        65_536,
       ),
       durationBucketsMs: snapshot.limits.durationBucketsMs,
     },

@@ -980,6 +980,21 @@
       meta.appendChild(pill);
     });
     target.appendChild(meta);
+    const notice =
+      panel.context &&
+      panel.context.notice &&
+      typeof panel.context.notice === "object"
+        ? panel.context.notice
+        : null;
+    if (notice && safeText(notice.text)) {
+      target.appendChild(
+        el(
+          "div",
+          "assistant-panel-banner-notice is-" + safeText(notice.tone || "info"),
+          safeText(notice.text),
+        ),
+      );
+    }
     const statusRow = el("div", "assistant-panel-banner-status-row");
     renderBannerStatusBadge(statusRow, panel);
     renderBannerIndicators(

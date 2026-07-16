@@ -56,9 +56,14 @@ separate Zotero side-pane button.
 - **AND** Assistant sidebar panels SHALL reference shared Assistant panel assets
   from `content/shared/assistant` rather than `content/dashboard`.
 
-### Requirement: ACP visual alignment
+### Requirement: ACP visual alignment preserves semantic presentation
 
-ACP Chat and ACP Skills SHALL share the same core visual semantics for running state, permission state, disconnected/error state, Host Bridge status, tool status LEDs, plan status icons, reply surfaces, and details drawers.
+ACP Chat and ACP Skills SHALL share the same core visual semantics for running
+state, permission state, disconnected/error state, service status, tool status
+LEDs, plan status icons, reply surfaces, and details drawers. The shared ACP
+panel SHALL render service availability as service indicators, numeric usage as
+a gauge, and recovery/workspace metadata in detail sections. It SHALL NOT
+convert arbitrary presentation fields into LED indicators.
 
 #### Scenario: Host Bridge indicator is visible
 
@@ -68,11 +73,17 @@ ACP Chat and ACP Skills SHALL share the same core visual semantics for running s
 - **AND** the indicator SHALL show ready, starting/recovering, fallback, or
   unavailable/error state using the shared indicator tones.
 
-#### Scenario: MCP indicator remains hidden
+#### Scenario: Zotero MCP indicator is visible
 
-- **WHEN** ACP Chat or ACP Skills receives MCP diagnostic data
-- **THEN** the normal banner indicators SHALL NOT include an MCP indicator
-- **AND** MCP diagnostic data MAY remain available in diagnostic bundles.
+- **WHEN** ACP Chat or ACP Skills receives Zotero MCP service status
+- **THEN** the normal banner indicators SHALL include the `zotero-mcp` service
+- **AND** its tone SHALL derive from the same service-status DTO as Host Bridge.
+
+#### Scenario: A run reports usage and workspace metadata
+
+- **WHEN** ACP Skills projects the selected owner
+- **THEN** usage appears in the shared gauge
+- **AND** workspace metadata appears in details without creating LEDs.
 
 ### Requirement: ACP Skills reply scaffold
 
@@ -393,10 +404,11 @@ ACP Skills workspace activity transcript rows SHALL display a concise file activ
 - **THEN** it SHALL display a file icon and the relative path
 - **AND** it SHALL NOT display the verbose workspace activity sentence.
 
-### Requirement: Assistant drawers remain interactive during live updates
+### Requirement: ACP drawers target the selected item
 
-Assistant drawer task lists SHALL preserve interactive DOM state while live
-task metadata changes.
+Chat session and Skills task drawer cards, selectors, and item actions SHALL
+remain interactive during live updates, preserve interactive DOM state while
+metadata changes, and target the item the user activated.
 
 #### Scenario: Running task timestamp updates while drawer is open
 
@@ -404,6 +416,12 @@ task metadata changes.
 - **AND** a running task only changes update metadata such as `updatedAt`
 - **THEN** the drawer SHALL remain open and interactive
 - **AND** the renderer SHALL NOT replace the whole drawer subtree.
+
+#### Scenario: User selects a historical Chat session
+
+- **WHEN** the session card is clicked
+- **THEN** the Host selects that session's canonical owner
+- **AND** owner-first loading is rendered before its indexed transcript page.
 
 ### Requirement: ACP Skills composer reflects running and waiting states
 
@@ -842,3 +860,15 @@ bridge/shared modules SHALL fail explicitly.
 - **THEN** the child reports a bounded local failure
 - **AND** it does not broadcast a postMessage fallback.
 
+### Requirement: Assistant panel layout remains mounted without an owner
+
+The shared ACP main and conversation layout containers SHALL remain mounted
+with transcript and composer through empty selection, loading, ready, and owner
+switch. The empty selection state SHALL be rendered inside the conversation
+region.
+
+#### Scenario: ACP Skills has no selected task
+
+- **WHEN** the empty state is visible
+- **THEN** transcript and reply geometry remains stable
+- **AND** selecting a task does not replace the main layout container.

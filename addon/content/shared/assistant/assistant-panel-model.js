@@ -1931,12 +1931,57 @@
     };
   }
 
-  function exactWorkspaceIndicator(entry) {
+  const workspacePresentationFieldLabels = {
+    backend: ["fields.backend", "Backend"],
+    workflow: ["fields.workflow", "Workflow"],
+    skill: ["fields.skill", "Skill"],
+    status: ["fields.status", "Status"],
+    "backend-status": ["status.backend", "Backend"],
+    "apply-state": ["status.apply", "Apply"],
+    "updated-at": ["fields.updated", "Updated"],
+    conversation: ["fields.conversation", "Conversation"],
+    session: ["fields.session", "Session"],
+    recovery: ["fields.remoteRestore", "Recovery"],
+    workspace: ["fields.workspace", "Workspace"],
+    runtime: ["fields.runtime", "Runtime"],
+    model: ["fields.model", "Model"],
+    reasoning: ["fields.reasoning", "Reasoning"],
+    "agent-version": ["fields.agentVersion", "Agent version"],
+  };
+
+  const workspacePresentationSectionLabels = {
+    context: ["details.conversationSummary", "Context"],
+    connection: ["fields.connection", "Connection"],
+    recovery: ["fields.remoteRestore", "Recovery"],
+    workspace: ["details.paths", "Workspace"],
+    session: ["details.session", "Session"],
+  };
+
+  function exactWorkspaceField(entry, labelSource) {
+    const fieldId = safeText(entry && entry.fieldId);
+    const definition = workspacePresentationFieldLabels[fieldId];
+    return {
+      itemId: fieldId,
+      label: definition
+        ? labelFrom(labelSource, definition[0], definition[1])
+        : fieldId,
+      value: safeText(entry && entry.value),
+    };
+  }
+
+  function exactWorkspaceIndicator(entry, labelSource) {
     const source = entry && typeof entry === "object" ? entry : {};
     const status = safeText(source.status);
+    const serviceId = safeText(source.serviceId);
+    const serviceLabel =
+      serviceId === "host-bridge"
+        ? labelFrom(labelSource, "fields.hostBridge", "Host Bridge")
+        : serviceId === "zotero-mcp"
+          ? labelFrom(labelSource, "fields.mcp", "Zotero MCP")
+          : safeText(source.label || serviceId);
     return {
-      id: safeText(source.serviceId || source.itemId),
-      label: safeText(source.label || source.serviceId || source.itemId),
+      id: serviceId,
+      label: serviceLabel,
       value: safeText(source.value || status),
       title: safeText(source.message),
       tone:
@@ -1954,19 +1999,28 @@
     };
   }
 
-  function exactWorkspaceDetails(title, entries) {
-    const rows = (Array.isArray(entries) ? entries : [])
+  function exactWorkspaceDetails(section, labelSource) {
+    const sectionId = safeText(section && section.sectionId);
+    const definition = workspacePresentationSectionLabels[sectionId];
+    const rows = (section && Array.isArray(section.items) ? section.items : [])
       .filter(function (entry) {
         return safeText(entry && entry.value);
       })
       .map(function (entry) {
         return {
-          label: safeText(entry.label),
+          label: exactWorkspaceField(entry, labelSource).label,
           value: safeText(entry.value),
           kind: "text",
         };
       });
-    return rows.length ? { title, entries: rows } : null;
+    return rows.length
+      ? {
+          title: definition
+            ? labelFrom(labelSource, definition[0], definition[1])
+            : sectionId,
+          entries: rows,
+        }
+      : null;
   }
 
   function exactWorkspacePlan(plan) {
@@ -2009,7 +2063,7 @@
     };
   }
 
-  function exactWorkspaceTask(entry, selectedOwner) {
+  function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     const owner =
       entry && entry.owner && typeof entry.owner === "object"
         ? entry.owner
@@ -2029,17 +2083,20 @@
           entry && (entry.subtitle || entry.groupLabel || entry.groupId),
         ) || "-",
       status,
-      stateLabel: status,
+      stateLabel: statusLabel(labelSource, status),
       mainStatus: status,
-      mainStatusLabel: status,
+      mainStatusLabel: statusLabel(labelSource, status),
       mainStatusTone: statusTone(status),
-      backendStatus: safeText(entry && entry.backendStatus) || status,
-      backendStatusLabel: safeText(entry && entry.backendStatus) || status,
-      backendStatusTone: statusTone(
-        safeText(entry && entry.backendStatus) || status,
-      ),
+      backendStatus: safeText(entry && entry.backendStatus),
+      backendStatusLabel: safeText(entry && entry.backendStatus)
+        ? statusLabel(labelSource, entry.backendStatus)
+        : "",
+      backendStatusTone: statusTone(entry && entry.backendStatus),
+      showBackendStatusBadge: Boolean(safeText(entry && entry.backendStatus)),
       applyStatus: safeText(entry && entry.applyState),
-      applyStatusLabel: safeText(entry && entry.applyState) || "-",
+      applyStatusLabel: safeText(entry && entry.applyState)
+        ? statusLabel(labelSource, entry.applyState)
+        : "",
       applyStatusTone: statusTone(entry && entry.applyState),
       showApplyStatusBadge: Boolean(safeText(entry && entry.applyState)),
       updatedAt: safeText(entry && entry.updatedAt),
@@ -2063,7 +2120,7 @@
                 owner && owner.source === "acp-chat"
                   ? "archive-conversation"
                   : "archive-run",
-              label: "Archive",
+              label: labelFrom(labelSource, "actions.archive", "Archive"),
               icon: "archive",
               enabled: true,
               payload: { owner },
@@ -2073,7 +2130,12 @@
     };
   }
 
-  function exactWorkspaceDrawerSections(navigation, selectedOwner, uiState) {
+  function exactWorkspaceDrawerSections(
+    navigation,
+    selectedOwner,
+    uiState,
+    labelSource,
+  ) {
     const groups = new Map();
     (Array.isArray(navigation && navigation.groups)
       ? navigation.groups
@@ -2111,7 +2173,7 @@
           finishedTasks: [],
         });
       }
-      const task = exactWorkspaceTask(entry, selectedOwner);
+      const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
       const target = task.terminal ? "finishedTasks" : "activeTasks";
       groups.get(groupKey)[target].push(task);
     });
@@ -2119,7 +2181,7 @@
     return [
       {
         id: "active",
-        title: "Active",
+        title: labelFrom(labelSource, "drawer.running", "Running"),
         collapsed: false,
         groups: values.map(function (group) {
           return Object.assign({}, group, { finishedTasks: [] });
@@ -2127,7 +2189,7 @@
       },
       {
         id: "completed",
-        title: "Completed",
+        title: labelFrom(labelSource, "drawer.completed", "Completed"),
         collapsed: uiState && uiState.completedCollapsed === true,
         groups: values.map(function (group) {
           return Object.assign({}, group, { activeTasks: [] });
@@ -2139,6 +2201,13 @@
   function projectAssistantWorkspacePanel(state, uiState, labels) {
     const source = state && typeof state === "object" ? state : {};
     const local = uiState && typeof uiState === "object" ? uiState : {};
+    const sourceLabels = labels && typeof labels === "object" ? labels : {};
+    const panelLabels =
+      sourceLabels.assistantPanel &&
+      typeof sourceLabels.assistantPanel === "object"
+        ? sourceLabels.assistantPanel
+        : sourceLabels;
+    const labelSource = { labels: panelLabels };
     const selection =
       source.selection && typeof source.selection === "object"
         ? source.selection
@@ -2177,23 +2246,15 @@
       selection.presentation && typeof selection.presentation === "object"
         ? selection.presentation
         : {
-            title: source.source === "acp-chat" ? "ACP Chat" : "ACP Skills",
+            title:
+              safeText(sourceLabels.title) ||
+              (source.source === "acp-chat" ? "ACP Chat" : "ACP Skills"),
             subtitle: null,
             description: null,
+            notice: null,
             metadata: [],
-            banner: {
-              status: "idle",
-              message: null,
-              usage: [],
-              connection: [],
-              recovery: [],
-              workspace: [],
-              details: [],
-              diagnostics: [],
-            },
-            context: [],
-            details: [],
-            tasks: [],
+            usage: null,
+            sections: [],
           };
     const composer =
       selection.composer && typeof selection.composer === "object"
@@ -2211,22 +2272,17 @@
       source.services && Array.isArray(source.services.items)
         ? source.services.items
         : [];
-    const banner =
-      presentation.banner && typeof presentation.banner === "object"
-        ? presentation.banner
-        : {};
-    const indicators = services
-      .concat(
-        []
-          .concat(Array.isArray(banner.usage) ? banner.usage : [])
-          .concat(Array.isArray(banner.connection) ? banner.connection : [])
-          .concat(Array.isArray(banner.recovery) ? banner.recovery : [])
-          .concat(Array.isArray(banner.workspace) ? banner.workspace : []),
-      )
-      .map(exactWorkspaceIndicator);
+    const indicators = services.map(function (entry) {
+      return exactWorkspaceIndicator(entry, labelSource);
+    });
     const selectedGroupId =
       safeText(navigation.selectedGroupId) ||
-      safeText(owner && owner.backendId);
+      safeText(owner && owner.backendId) ||
+      safeText(
+        Array.isArray(navigation.groups) &&
+          navigation.groups[0] &&
+          navigation.groups[0].groupId,
+      );
     const groupOptions = (
       Array.isArray(navigation.groups) ? navigation.groups : []
     ).map(function (group) {
@@ -2263,7 +2319,7 @@
         ? [
             {
               id: "backend",
-              label: "Backend",
+              label: labelFrom(labelSource, "fields.backend", "Backend"),
               value: selectedGroupId,
               options: groupOptions,
               action: "set-active-backend",
@@ -2271,7 +2327,7 @@
             },
             {
               id: "owner",
-              label: "Session",
+              label: labelFrom(labelSource, "fields.session", "Session"),
               value: safeText(owner && owner.ownerKey),
               options: ownerOptions,
               action: "set-active-conversation",
@@ -2283,16 +2339,18 @@
     if (source.source === "acp-chat" && navigation.canCreateOwner === true) {
       contextActions.push({
         action: "new-conversation",
-        label: "New",
+        label:
+          safeText(sourceLabels.newConversation) ||
+          labelFrom(labelSource, "actions.newConversation", "New"),
         enabled: true,
-        payload: {},
+        payload: { groupId: selectedGroupId },
       });
     }
     if (owner && control.connection) {
       if (control.connection.canConnect === true) {
         contextActions.push({
           action: source.source === "acp-chat" ? "connect" : "connect-run",
-          label: "Connect",
+          label: labelFrom(labelSource, "actions.connect", "Connect"),
           enabled: true,
           payload: {},
         });
@@ -2301,7 +2359,7 @@
         contextActions.push({
           action:
             source.source === "acp-chat" ? "disconnect" : "disconnect-run",
-          label: "Disconnect",
+          label: labelFrom(labelSource, "actions.disconnect", "Disconnect"),
           enabled: true,
           payload: {},
         });
@@ -2363,23 +2421,23 @@
     const replyBusy = replyStatus === "busy";
     const replyEnabled =
       Boolean(owner) && replyStatus !== "disabled" && !request;
-    const details = [
-      exactWorkspaceDetails("Context", presentation.context),
-      exactWorkspaceDetails("Details", presentation.details),
-      exactWorkspaceDetails("Connection", banner.connection),
-      exactWorkspaceDetails("Recovery", banner.recovery),
-      exactWorkspaceDetails("Workspace", banner.workspace),
-      exactWorkspaceDetails("Diagnostics", banner.details),
-    ].filter(Boolean);
+    const details = (
+      Array.isArray(presentation.sections) ? presentation.sections : []
+    )
+      .map(function (section) {
+        return exactWorkspaceDetails(section, labelSource);
+      })
+      .filter(Boolean);
     const drawerSections = exactWorkspaceDrawerSections(
       navigation,
       owner,
       local,
+      labelSource,
     );
     return {
       exact: true,
       kind: source.source,
-      labels: labels || {},
+      labels: panelLabels,
       messageCounts:
         selection.messageCounts && selection.messageCounts.counts
           ? selection.messageCounts.counts
@@ -2389,14 +2447,20 @@
         title: safeText(presentation.title),
         subtitle: safeText(presentation.subtitle),
         status: safeText(control.status),
-        statusLabel: safeText(control.status),
+        statusLabel: statusLabel(labelSource, control.status),
         statusTone: statusTone(control.status),
         metadata: Array.isArray(presentation.metadata)
-          ? presentation.metadata
+          ? presentation.metadata.map(function (entry) {
+              return exactWorkspaceField(entry, labelSource);
+            })
           : [],
         indicators,
         selectors,
         actions: contextActions,
+        notice:
+          presentation.notice && typeof presentation.notice === "object"
+            ? presentation.notice
+            : null,
       },
       lifecycle: {
         connectionState:
@@ -2414,20 +2478,30 @@
         items: [],
         plan,
         interaction,
-        usage: null,
+        usage: presentation.usage || null,
       },
       plan,
       interaction,
-      usage: null,
+      usage: presentation.usage || null,
       reply: {
         enabled: replyEnabled,
         inputEnabled: replyEnabled && !replyBusy,
         placeholder:
           source.source === "acp-chat"
-            ? "Ask the active ACP backend…"
-            : "Reply to the selected run…",
+            ? labelFrom(
+                labelSource,
+                "reply.placeholderAcpChat",
+                "Ask the active ACP backend…",
+              )
+            : labelFrom(
+                labelSource,
+                "reply.placeholderAcpSkill",
+                "Reply to the selected run…",
+              ),
         hint: safeText(composer.reply && composer.reply.hint),
-        submitLabel: replyBusy ? "Cancel" : "Send",
+        submitLabel: replyBusy
+          ? labelFrom(labelSource, "actions.cancel", "Cancel")
+          : labelFrom(labelSource, "actions.send", "Send"),
         sending: replyBusy,
         action: replyBusy
           ? source.source === "acp-chat"
@@ -2441,32 +2515,35 @@
           exactWorkspaceOptionGroup(
             runtimeOptions.mode,
             "mode",
-            "Mode",
+            labelFrom(labelSource, "fields.mode", "Mode"),
             "set-mode",
             "modeId",
           ),
           exactWorkspaceOptionGroup(
             runtimeOptions.model,
             "model",
-            "Model",
+            labelFrom(labelSource, "fields.model", "Model"),
             "set-model",
             "modelId",
           ),
           exactWorkspaceOptionGroup(
             runtimeOptions.reasoningEffort,
             "reasoning",
-            "Reasoning",
+            labelFrom(labelSource, "fields.reasoning", "Reasoning"),
             "set-reasoning-effort",
             "effortId",
           ),
         ],
-        showUsageGauge: false,
+        showUsageGauge: true,
         value: safeText(local.replyDraft),
       },
       drawers: {
         layout: "workspace-task-drawer",
-        contextTitle: source.source === "acp-chat" ? "Sessions" : "Runs",
-        detailsTitle: "Details",
+        contextTitle:
+          source.source === "acp-chat"
+            ? labelFrom(labelSource, "actions.sessions", "Sessions")
+            : labelFrom(labelSource, "actions.runs", "Runs"),
+        detailsTitle: labelFrom(labelSource, "details.title", "Details"),
         contexts: [],
         sections: drawerSections,
         selectedTaskKey: safeText(owner && owner.ownerKey),
@@ -2479,28 +2556,60 @@
         toolbar: [
           {
             action: "open-context-drawer",
-            label: source.source === "acp-chat" ? "Sessions" : "Runs",
+            label:
+              source.source === "acp-chat"
+                ? labelFrom(labelSource, "actions.sessions", "Sessions")
+                : labelFrom(labelSource, "actions.runs", "Runs"),
             enabled: true,
           },
           {
             action: "open-details-drawer",
-            label: "Details",
+            label: labelFrom(labelSource, "actions.details", "Details"),
             enabled: true,
           },
           {
             action: "open-backend-manager",
-            label: "Manage",
+            label: labelFrom(
+              labelSource,
+              "actions.manageBackends",
+              "Manage Backends",
+            ),
             enabled: true,
           },
           {
             kind: "display-mode",
             action: "set-execution-display-mode",
-            label: "Updates",
+            label: labelFrom(
+              labelSource,
+              "actions.executionDisplayMode",
+              "Display mode",
+            ),
             value: safeText(local.executionDisplayMode) || "live",
             options: [
-              { value: "live", label: "Live" },
-              { value: "boundary", label: "Turns" },
-              { value: "silent", label: "Silent" },
+              {
+                value: "live",
+                label: labelFrom(
+                  labelSource,
+                  "actions.executionDisplayLive",
+                  "Live",
+                ),
+              },
+              {
+                value: "boundary",
+                label: labelFrom(
+                  labelSource,
+                  "actions.executionDisplayBoundary",
+                  "By message",
+                ),
+              },
+              {
+                value: "silent",
+                label: labelFrom(
+                  labelSource,
+                  "actions.executionDisplaySilent",
+                  "Silent",
+                ),
+              },
             ],
             enabled: true,
           },
@@ -2509,7 +2618,11 @@
         details: [
           {
             action: "copy-diagnostics",
-            label: "Copy diagnostics",
+            label: labelFrom(
+              labelSource,
+              "actions.copyDiagnostics",
+              "Copy Diagnostics",
+            ),
             enabled: Boolean(owner),
             payload: {},
           },

@@ -241,11 +241,13 @@ Formal same-provenance Replay SHALL attribute Chat steady publications by typed 
 - **THEN** transcript is visible, measurement identity is complete, and valid steady gap/rebase snapshot counts are zero
 - **AND** target-active recorded-cadence overhead improves without a greater-than-100-millisecond drift regression.
 
-### Requirement: Chat presentation uses complete navigation data
+### Requirement: Chat presentation uses one actionable navigation catalog
 
-ACP Chat navigation SHALL include the complete backend and session catalog,
-session title, backend display name, status, time, message count, and error
-semantics. Runtime/session id SHALL NOT substitute for conversation id.
+ACP Chat banner, selectors, session drawer, and actions SHALL resolve the same
+complete backend/session navigation catalog and canonical owners. The catalog
+SHALL include session title, backend display name, status, time, message count,
+and error semantics. Runtime/session id SHALL NOT substitute for conversation
+id.
 
 #### Scenario: A historical session is selected
 
@@ -253,6 +255,12 @@ semantics. Runtime/session id SHALL NOT substitute for conversation id.
 - **THEN** navigation, banner, drawer, and actions resolve the same canonical
   session owner
 - **AND** its indexed transcript page is visible without a full snapshot.
+
+#### Scenario: A drawer displays another session
+
+- **WHEN** the user selects or archives that session
+- **THEN** the action targets the displayed session
+- **AND** session, runtime, and conversation identifiers are not substituted.
 
 ### Requirement: Chat steady updates do not materialize legacy snapshots
 
@@ -264,4 +272,3 @@ panel, or full-snapshot materialization.
 - **WHEN** the selected Chat owner receives one transcript mutation
 - **THEN** publication cost grows with that mutation
 - **AND** it does not grow with accumulated transcript or page size.
-

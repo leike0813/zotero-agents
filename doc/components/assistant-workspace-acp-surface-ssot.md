@@ -98,6 +98,15 @@ The internal publication protocol is current-state only. Host, Shell, both ACP
 children, profiler, and Replay migrate together; old field aliases, decoders,
 and dual writes are prohibited.
 
+The wire schema is strict v6. `ASSISTANT_WORKSPACE_REGION_REGISTRY` owns region
+shape and source support,
+`ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY` /
+`ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY` own semantic presentation,
+and `ASSISTANT_WORKSPACE_ACTION_REGISTRY` owns action scope and exact payload
+keys. Presentation usage is numeric gauge data; service LEDs come only from
+`service-status`; workspace, recovery, connection, and session metadata remain
+semantic detail sections rather than generic indicators.
+
 ## Adapter Contract
 
 Each domain registers one `AssistantWorkspacePublicationAdapter`. The adapter is
@@ -117,6 +126,10 @@ to baseline status, a complete panel snapshot, or a frontend snapshot.
 
 The adapter must not schedule publications, maintain publication revisions,
 hold child readiness, or initiate rebase.
+
+Action dispatch has five scopes: local, target-owner, selected-owner,
+navigation-group, and global. Drawer and selector item actions use the clicked
+canonical owner. Owner identity never appears again in the action payload.
 
 ## Host Runtime and Ordering
 
@@ -167,14 +180,16 @@ Delta handling follows `plan → render → commit`:
    against committed state without mutating it.
 2. Build a bounded effect for `upsert_item`, `append_text`, `patch_item`, or
    `delete_item`.
-3. Stage replacement rows outside the live DOM and apply only affected row or
-   text-node changes.
+3. Stage virtual page state and node-map changes, then apply only affected row
+   or text-node changes.
 4. Commit page metadata, item order, lookup, region state, revision, and
    accepted acknowledgement together.
 
 An item introduced by one accepted delta must be immediately addressable by the
 next delta. Validation or rendering failure leaves committed state and
-unrelated DOM unchanged.
+unrelated DOM unchanged. The renderer returns a bounded failure stage/code and
+render path. The child restores the last committed snapshot before rejecting
+the publication, so an equivalent later publication remains retryable.
 
 A selected tail page remains bounded by its declared limit. Historical pages
 receive off-page metadata changes without inserting tail rows or forcing
@@ -241,7 +256,13 @@ mode for before/after evidence. Logical cadence proves counts, bytes, forms,
 identity, and structural paths only. Recorded cadence on an available Zotero 7
 or Zotero 9 host is required for target-active overhead and drift claims.
 
+Before each profile window, Replay drains both ACP lifecycle lanes and captures
+per-source delivery watermarks. The forced target barrier is created only after
+the active source's prior epoch is terminal. ACKs for pre-window identities are
+retained as bounded out-of-window diagnostics and make measurement incomplete
+if they arrive during the profile.
+
 The Workspace surface is not accepted while either Chat or Skills has an
 invisible transcript, incomplete publication lifecycle, valid-stream gap or
-rebase snapshot, forbidden steady materialization, posted-byte regression, or
-greater-than-100-millisecond drift regression.
+rebase snapshot, `recovery-full` render path, forbidden steady materialization,
+posted-byte regression, or greater-than-100-millisecond drift regression.

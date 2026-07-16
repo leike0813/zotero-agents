@@ -151,18 +151,26 @@ Corrected pre-governance and post-governance evidence SHALL use the same live tr
 - **THEN** their trace digest, live display mode, cadence, target, and relevant provenance SHALL match
 - **AND** the report SHALL distinguish deterministic mechanism evidence from real-host timing evidence.
 
-### Requirement: Profiler vocabulary matches v3 publication semantics
+### Requirement: Profiler vocabulary matches v6 publication semantics
 
-Profiler events SHALL use bounded labels derived from v3 owner source, publication kind, form, cause, and materialization source. Profiler SHALL NOT infer form or source from surface-specific DTO fields.
+Publication lifecycle events SHALL use bounded labels derived from the v6 owner
+source, publication kind, wire form, and exact cause. Materialization events
+SHALL add a materialization source only at the actual read-model or transcript
+page builder entry. Profiler SHALL NOT infer wire form or materialization source
+from publication kind, payload shape, or surface-specific DTO fields.
 
 #### Scenario: Skills transcript delta posts
 
 - **WHEN** Skills posts a steady transcript delta
-- **THEN** profiler records source acp-skills, kind transcript, form delta, cause steady-state, and materialization source region.
+- **THEN** profiler records source acp-skills, kind transcript, form delta, and cause steady-state
+- **AND** the publication lifecycle does not invent a materialization source.
 
 ### Requirement: Forbidden materialization is measured at builder entry
 
-Profiler SHALL count transcript-page, frontend-snapshot, and panel-snapshot materialization at their actual builder entry points so steady transcript/count/progress acceptance can require zero.
+Profiler SHALL count region, transcript-page, frontend-snapshot, and
+panel-snapshot materialization at their actual builder entry points so steady
+transcript/count/progress acceptance can require zero forbidden
+materialization.
 
 #### Scenario: A forbidden builder is called
 
@@ -174,6 +182,9 @@ Profiler SHALL count transcript-page, frontend-snapshot, and panel-snapshot mate
 Only an in-window post SHALL create a publication lifecycle record. The record
 SHALL retain source, kind, wire form, exact cause, delivery sequence, bounded ACK
 outcomes, and a first-write-wins terminal result.
+The lifecycle ledger SHALL have an independent declared capacity large enough
+for formal trace windows. If that capacity is exceeded, the profile SHALL
+increment `publicationLifecycleDrops` and mark measurement incomplete.
 
 #### Scenario: A rejected render ACK arrives
 
@@ -186,6 +197,24 @@ outcomes, and a first-write-wins terminal result.
 - **WHEN** a publication posted before profile start emits child or render acknowledgement during the profile
 - **THEN** the acknowledgement is recorded as out-of-window
 - **AND** no zero-post lifecycle is added to the profile identity set.
+
+#### Scenario: A formal trace posts more than 512 publications
+
+- **WHEN** more than 512 publications are posted inside one profile window
+- **THEN** their lifecycle identities remain available up to the declared
+  independent lifecycle limit
+- **AND** the metric-series cap does not truncate the lifecycle ledger.
+
+### Requirement: Publication lifecycle retains bounded renderer diagnostics
+
+In-window publication lifecycle records SHALL retain each ACK outcome, bounded
+failure stage/code, render path, and first-write-wins terminal result.
+
+#### Scenario: Child rejects a transcript render
+
+- **WHEN** a render-failed ACK includes a bounded failure descriptor
+- **THEN** the completed profile preserves that descriptor
+- **AND** Replay does not reduce it to a generic missing ACK.
 
 ### Requirement: Publication labels come from canonical lifecycle metadata
 

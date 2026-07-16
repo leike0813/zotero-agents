@@ -36,9 +36,28 @@
 }
 
 [data-role="empty"] {
-  align-self: center;
-  justify-self: center;
-  margin: 24px;
+  position: absolute;
+  inset: 50% auto auto 50%;
+  z-index: 2;
+  width: min(360px, calc(100% - 48px));
+  margin: 0;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.assistant-panel-banner-notice {
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--asst-muted);
+  background: var(--asst-surface-alt);
+}
+
+.assistant-panel-banner-notice.is-warning {
+  color: var(--zs-warning, #8a5a00);
+}
+
+.assistant-panel-banner-notice.is-danger {
+  color: var(--zs-danger, #b3261e);
 }
 
 [data-role="toolbar"],

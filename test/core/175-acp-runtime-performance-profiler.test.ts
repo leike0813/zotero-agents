@@ -329,6 +329,70 @@ describe("ACP runtime performance profiler", function () {
     });
   });
 
+  it("retains publication lifecycle correctness beyond the former 512-record cap", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "run-long-lifecycle",
+      displayMode: "boundary",
+      transport: "unknown",
+      zoteroMajor: 9,
+    });
+    for (let index = 0; index < 600; index += 1) {
+      incrementAcpRuntimeMetric("run-long-lifecycle", "panel_post", {
+        publicationId: `publication-${index}`,
+        publicationSurface: "acp-chat",
+        publicationKind: "transcript",
+        publicationForm: "delta",
+        publicationCause: "steady-state",
+        publicationDeliverySequence: String(index + 1),
+      });
+    }
+    recordAcpRuntimePublicationAck("run-long-lifecycle", {
+      publicationId: "publication-599",
+      stage: "render-complete",
+      outcome: "accepted",
+      reason: null,
+      failure: null,
+    });
+    const profile = snapshotAcpRuntimeProfiles()?.active[0];
+    assert.lengthOf(profile?.publicationLifecycles || [], 600);
+    assert.equal(profile?.publicationLifecycleDrops, 0);
+    assert.deepInclude(profile?.publicationLifecycles[599], {
+      publicationId: "publication-599",
+      deliverySequence: 600,
+      renderAck: 1,
+    });
+    assert.deepEqual(profile?.publicationDiagnostics, []);
+  });
+
+  it("reports lifecycle-cap overflow as structured incomplete measurement", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "run-lifecycle-overflow",
+      displayMode: "boundary",
+      transport: "unknown",
+      zoteroMajor: 9,
+    });
+    const limit =
+      snapshotAcpRuntimeProfiles()?.limits.publicationLifecyclesPerProfile || 0;
+    for (let index = 0; index <= limit; index += 1) {
+      incrementAcpRuntimeMetric("run-lifecycle-overflow", "panel_post", {
+        publicationId: `publication-${index}`,
+        publicationSurface: "acp-skills",
+        publicationKind: "transcript",
+        publicationForm: "delta",
+        publicationCause: "steady-state",
+        publicationDeliverySequence: String(index + 1),
+      });
+    }
+    const profile = snapshotAcpRuntimeProfiles()?.active[0];
+    assert.lengthOf(profile?.publicationLifecycles || [], limit);
+    assert.equal(profile?.publicationLifecycleDrops, 1);
+    assert.equal(profile?.measurement, "incomplete");
+  });
+
   it("records rejected and out-of-window ACKs with first terminal wins", function () {
     setDebugModeOverrideForTests(true);
     enableAcpRuntimePerformanceProfiler();
@@ -343,6 +407,7 @@ describe("ACP runtime performance profiler", function () {
       stage: "child-apply",
       outcome: "rejected",
       reason: "invalid",
+      failure: { stage: "projection", code: "projection-failed" },
     });
     incrementAcpRuntimeMetric("run-ack-ledger", "panel_post", {
       publicationId: "publication-1",
@@ -357,22 +422,26 @@ describe("ACP runtime performance profiler", function () {
       stage: "child-apply",
       outcome: "rejected",
       reason: "render-failed",
+      failure: { stage: "transcript", code: "dom-commit-failed" },
     });
     recordAcpRuntimePublicationAck("run-ack-ledger", {
       publicationId: "publication-1",
       stage: "render-complete",
       outcome: "accepted",
       reason: null,
+      failure: null,
     });
     const profile = snapshotAcpRuntimeProfiles()?.active[0];
     assert.deepInclude(profile?.publicationDiagnostics[0], {
       code: "out-of-window-ack",
       publicationId: "before-window",
       outcome: "rejected",
+      failure: { stage: "projection", code: "projection-failed" },
     });
     assert.deepEqual(profile?.publicationLifecycles[0].terminal, {
       outcome: "rejected",
       reason: "render-failed",
+      failure: { stage: "transcript", code: "dom-commit-failed" },
       atMs: profile?.publicationLifecycles[0].terminal?.atMs,
     });
     assert.equal(profile?.publicationLifecycles[0].renderAck, 0);

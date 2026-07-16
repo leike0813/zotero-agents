@@ -392,7 +392,7 @@ page is renderable while cold mirror hydration continues in the background.
 Both producers use the same before/after item projector. New items become
 `upsert_item`; text growth becomes suffix-only `append_text`; stable items
 become minimal `patch_item`; removal becomes `delete_item`. Mutations,
-initialization snapshots, page transitions, resync, and rebase share one
+initialization snapshots, page transitions, and rebase share one
 owner-scoped coordinator lane, and only terminal child acknowledgement advances
 that lane.
 
@@ -412,3 +412,8 @@ Chat and Skills share the same bounded selected-page model, structural keyed
 reconciler, direct typed message-count renderer, render failure/rebase rule,
 and dirty-row measurement path. A steady structural mutation never falls back
 to a full transcript or panel render.
+
+Workspace task cards do not project raw run status directly. Their primary
+state comes from `resolveAcpSkillRunWorkflowTaskState`; backend status, apply
+state, recovery, connection, attention, and selected-run lifecycle remain
+independent. Missing values remain absent rather than borrowing another axis.

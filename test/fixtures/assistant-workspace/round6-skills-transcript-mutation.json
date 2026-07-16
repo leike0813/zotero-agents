@@ -1,0 +1,62 @@
+{
+  "ownerKey": "round6-skills-run",
+  "page": {
+    "ownerKey": "round6-skills-run",
+    "pageKey": "round6-skills-run\ntail:80",
+    "startCursor": 0,
+    "limit": 80,
+    "totalVisibleItemCount": 1,
+    "previousCursor": null,
+    "nextCursor": null,
+    "sourceEventSeq": 959,
+    "transcriptRevision": 41,
+    "items": [
+      {
+        "itemId": "assistant-segment-1",
+        "itemKind": "message",
+        "role": "assistant",
+        "status": "streaming",
+        "text": "Sanitized round6 assistant segment",
+        "createdAt": "2026-07-16T00:00:00.000Z"
+      }
+    ]
+  },
+  "effect": {
+    "kind": "mutations",
+    "onSelectedPage": true,
+    "mutations": [
+      {
+        "op": "upsert_item",
+        "item": {
+          "itemId": "assistant-segment-1",
+          "itemKind": "message",
+          "role": "assistant",
+          "status": "streaming",
+          "text": "Sanitized round6 assistant segment",
+          "createdAt": "2026-07-16T00:00:00.000Z"
+        }
+      }
+    ],
+    "affectedItems": [
+      {
+        "itemId": "assistant-segment-1",
+        "itemKind": "message",
+        "role": "assistant",
+        "status": "streaming",
+        "text": "Sanitized round6 assistant segment",
+        "createdAt": "2026-07-16T00:00:00.000Z"
+      }
+    ],
+    "pageItems": [
+      {
+        "itemId": "assistant-segment-1",
+        "itemKind": "message",
+        "role": "assistant",
+        "status": "streaming",
+        "text": "Sanitized round6 assistant segment",
+        "createdAt": "2026-07-16T00:00:00.000Z"
+      }
+    ],
+    "evictedItemIds": []
+  }
+}

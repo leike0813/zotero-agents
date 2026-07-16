@@ -92,6 +92,12 @@ Primary information SHOULD include the title and main status. Secondary
 The banner SHALL be flexible but height-bounded. Overflow or low-priority
 metadata belongs in a details drawer, not in the main conversation layout.
 
+Only service availability belongs in banner LED indicators. Host Bridge and
+Zotero MCP use the same service-status item projection. Numeric usage belongs
+in the managed gauge; workflow, skill, backend, recovery, connection, session,
+runtime, and workspace values remain labeled metadata or details sections and
+must not be converted into LEDs.
+
 Banner controls are split into:
 
 - `context selector`: selectors that define the current context, such as ACP
@@ -186,6 +192,11 @@ Conversation rendering preferences, such as ACP Chat `Plain transcript` versus
 `Bubble view`, belong to the conversation window. They SHALL be presented as a
 compact overlay menu in the conversation window's top-right corner, not as a
 dedicated row and not in the shell toolbar or banner.
+
+The main grid and conversation region remain mounted when no owner is selected,
+during loading, and while an owner-first switch is in progress. Empty selection
+is rendered inside the conversation region; it does not replace transcript,
+plan, hint, or reply layout anchors.
 
 ### Plan Widget
 
@@ -322,6 +333,11 @@ ACP Chat session controls have two distinct scopes:
 - the conversation selector only lists conversations for the currently selected
   backend
 
+Session drawer cards and archive actions target the owner represented by the
+clicked card, even when another session is currently selected. Backend
+selection and New conversation use a navigation-group action carrying only
+`groupId`.
+
 When the current backend has too many conversations, the conversation selector
 SHALL show only a bounded recent subset plus `Show more...`. Selecting
 `Show more...` SHALL open the all-session drawer and focus the current backend
@@ -351,6 +367,12 @@ best-effort workspace activity as `status` transcript rows so the panel does not
 look frozen. These rows SHALL be diagnostic UI feedback only; they SHALL NOT be
 treated as agent messages, output candidates, validation input, or workflow
 result content.
+
+ACP Skills task cards use workflow-task state as their main status SSOT. Run
+lifecycle, backend status, apply state, attention, recovery, and connection are
+independent axes. A missing backend/apply value stays absent and is never
+replaced with run status. Selecting or archiving a task targets the clicked run
+owner and preserves unrelated keyed task-card DOM identity.
 
 ### SkillRunner
 

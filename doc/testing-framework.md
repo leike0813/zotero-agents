@@ -404,8 +404,8 @@ ACP runtime profiling has two complementary validation layers:
   six formal profiles, interruptible cadence, progress after cleanup, early
   abort, fresh owners, drain failures, provenance, Workspace restoration,
   explicit profile aliases, semantic projected/no-op accounting, measured R2,
-  independent execution/measurement completion, legacy-v1 classification, and
-  descriptive formal report aggregation, Unicode sample/stage identity,
+  independent execution/measurement completion, formal acceptance, and
+  descriptive report aggregation, Unicode sample/stage identity,
   collision-safe paired filenames, and current-slot publication before setup.
 - `test/core/180-acp-runtime-replay-controller.test.ts` locks trace preflight
   metadata, required free-text stage validation, live current/completed

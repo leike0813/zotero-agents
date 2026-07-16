@@ -14,6 +14,7 @@ import type {
   AssistantWorkspacePublicationKind,
 } from "./assistantWorkspacePublication";
 import { createAcpSkillsWorkspaceOwner } from "./assistantWorkspacePublication";
+import { resolveAcpSkillRunWorkflowTaskState } from "./acpSkillRunTaskProjection";
 import {
   defineAssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationAdapter,
@@ -123,158 +124,125 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
       title,
       subtitle: `${sequencePrefix}${subtitleValue}`,
       description: String(record.error || "").trim() || null,
+      notice: String(
+        record.error ||
+          record.conversationError ||
+          record.pendingInteraction?.message ||
+          "",
+      ).trim()
+        ? {
+            tone:
+              record.error || record.conversationError
+                ? ("danger" as const)
+                : ("warning" as const),
+            text: String(
+              record.error ||
+                record.conversationError ||
+                record.pendingInteraction?.message ||
+                "",
+            ).trim(),
+          }
+        : null,
       metadata: [
         {
-          itemId: "backend",
-          label: "Backend",
+          fieldId: "backend" as const,
           value: String(record.backendLabel || record.backendId || ""),
         },
         {
-          itemId: "workflow",
-          label: "Workflow",
+          fieldId: "workflow" as const,
           value: String(record.workflowLabel || record.workflowId || ""),
         },
         {
-          itemId: "status",
-          label: "Status",
+          fieldId: "status" as const,
           value: String(record.status || ""),
         },
         {
-          itemId: "backend-status",
-          label: "Backend status",
+          fieldId: "backend-status" as const,
           value: String(record.backendStatus || ""),
         },
         {
-          itemId: "apply-state",
-          label: "Apply",
+          fieldId: "apply-state" as const,
           value: String(record.applyResultState || ""),
         },
         {
-          itemId: "updated-at",
-          label: "Updated",
+          fieldId: "updated-at" as const,
           value: String(record.updatedAt || ""),
         },
       ].filter((entry) => entry.value),
-      banner: {
-        status: record.status,
-        message:
-          String(
-            record.error ||
-              record.conversationError ||
-              record.pendingInteraction?.message ||
-              "",
-          ).trim() || null,
-        usage: record.usage
-          ? [
-              {
-                itemId: "usage",
-                label: "Usage",
-                value: `${record.usage.used}/${record.usage.size}`,
-              },
-            ]
-          : [],
-        connection: [
-          {
-            itemId: "conversation",
-            label: "Connection",
-            value: String(record.conversationState || ""),
-          },
-        ].filter((entry) => entry.value),
-        recovery: [
-          {
-            itemId: "recovery",
-            label: "Recovery",
-            value: String(record.conversationRecoveryState || ""),
-          },
-        ].filter((entry) => entry.value),
-        workspace: [
-          {
-            itemId: "workspace",
-            label: "Workspace",
-            value: String(record.workspaceDir || ""),
-          },
-          {
-            itemId: "runtime",
-            label: "Runtime",
-            value: String(record.runtimeDir || ""),
-          },
-        ].filter((entry) => entry.value),
-        details: [
-          {
-            itemId: "session",
-            label: "Session",
-            value: String(record.sessionId || ""),
-          },
-          {
-            itemId: "model",
-            label: "Model",
-            value: String(record.acpModelId || record.acpRawModelId || ""),
-          },
-          {
-            itemId: "reasoning",
-            label: "Reasoning",
-            value: String(record.acpReasoningEffort || ""),
-          },
-        ].filter((entry) => entry.value),
-        diagnostics: [
-          { action: "copy-diagnostics", label: "Copy diagnostics" },
-        ],
-      },
-      context: [
+      usage: record.usage
+        ? {
+            used: Math.max(0, Number(record.usage.used) || 0),
+            limit: Math.max(0, Number(record.usage.size) || 0),
+            costText: null,
+          }
+        : null,
+      sections: [
         {
-          itemId: "workflow",
-          label: "Workflow",
-          value: String(record.workflowLabel || record.workflowId || ""),
+          sectionId: "context" as const,
+          items: [
+            {
+              fieldId: "workflow" as const,
+              value: String(record.workflowLabel || record.workflowId || ""),
+            },
+            {
+              fieldId: "skill" as const,
+              value: String(record.skillName || record.skillId || ""),
+            },
+            {
+              fieldId: "backend" as const,
+              value: String(record.backendLabel || record.backendId || ""),
+            },
+          ].filter((entry) => entry.value),
         },
         {
-          itemId: "skill",
-          label: "Skill",
-          value: String(record.skillName || record.skillId || ""),
+          sectionId: "connection" as const,
+          items: [
+            {
+              fieldId: "conversation" as const,
+              value: String(record.conversationState || ""),
+            },
+          ].filter((entry) => entry.value),
         },
         {
-          itemId: "backend",
-          label: "Backend",
-          value: String(record.backendLabel || record.backendId || ""),
-        },
-      ].filter((entry) => entry.value),
-      details: [
-        {
-          itemId: "workspace",
-          label: "Workspace",
-          value: String(record.workspaceDir || ""),
+          sectionId: "recovery" as const,
+          items: [
+            {
+              fieldId: "recovery" as const,
+              value: String(record.conversationRecoveryState || ""),
+            },
+          ].filter((entry) => entry.value),
         },
         {
-          itemId: "runtime",
-          label: "Runtime",
-          value: String(record.runtimeDir || ""),
+          sectionId: "workspace" as const,
+          items: [
+            {
+              fieldId: "workspace" as const,
+              value: String(record.workspaceDir || ""),
+            },
+            {
+              fieldId: "runtime" as const,
+              value: String(record.runtimeDir || ""),
+            },
+          ].filter((entry) => entry.value),
         },
         {
-          itemId: "session",
-          label: "Session",
-          value: String(record.sessionId || ""),
+          sectionId: "session" as const,
+          items: [
+            {
+              fieldId: "session" as const,
+              value: String(record.sessionId || ""),
+            },
+            {
+              fieldId: "model" as const,
+              value: String(record.acpModelId || record.acpRawModelId || ""),
+            },
+            {
+              fieldId: "reasoning" as const,
+              value: String(record.acpReasoningEffort || ""),
+            },
+          ].filter((entry) => entry.value),
         },
-        {
-          itemId: "model",
-          label: "Model",
-          value: String(record.acpModelId || record.acpRawModelId || ""),
-        },
-        {
-          itemId: "reasoning",
-          label: "Reasoning",
-          value: String(record.acpReasoningEffort || ""),
-        },
-      ].filter((entry) => entry.value),
-      tasks: [
-        {
-          sectionId: record.status === "succeeded" ? "completed" : "active",
-          groupKey: record.backendId || "default",
-          taskKey: record.requestId,
-          title,
-          subtitle: `${sequencePrefix}${subtitleValue}`,
-          status: record.status,
-          selected: true,
-        },
-      ],
+      ].filter((section) => section.items.length > 0),
     };
   }
   if (requested.has("owner-control")) {
@@ -375,7 +343,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       description: String(summary.error || "").trim() || null,
       groupLabel:
         String(summary.backendLabel || summary.backendId || "").trim() || null,
-      status: String(summary.status || "idle"),
+      status: String(resolveAcpSkillRunWorkflowTaskState(summary)),
       backendStatus: String(summary.backendStatus || "").trim() || null,
       applyState: String(summary.applyResultState || "").trim() || null,
       attention:

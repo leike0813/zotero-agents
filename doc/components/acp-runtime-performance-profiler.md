@@ -128,12 +128,14 @@ For an open surface, setup waits for the Workspace shell handshake, the active
 child panel handshake, and the expected synthetic owner instead of treating
 frame creation as readiness. The Workspace host keeps a bounded lifecycle
 ledger keyed by publication identity. A debug-exclusive publication sidecar
-captures the target child `Window`, asks the diagnostics port to force one
-publication, and waits for that exact publication ID to reach
-`render-complete applied` at the host. It also waits for earlier same-tab
-publications to leave the pending state, so setup acknowledgements cannot leak
-into the profile and a prior replay acknowledgement cannot satisfy the next
-round. The shell gives an identified cache generation an explicit superseded
+first drains pending lifecycle work from both ACP source lanes, captures their
+delivery watermarks, then captures the target child `Window`, asks the
+diagnostics port to force one publication, and waits for that exact publication
+ID to reach `render-complete applied` at the host. The active target barrier
+starts after its source watermark and includes only current-epoch work through
+the forced delivery sequence, so setup acknowledgements cannot leak into the
+profile and a prior replay acknowledgement cannot satisfy the next round. The
+shell gives an identified cache generation an explicit superseded
 terminal state when a newer generation replaces it. If owner-first activation
 temporarily returns old-owner, or a concurrent cold build supersedes a forced
 publication, the sidecar retries the idempotent request at a bounded interval
@@ -229,6 +231,11 @@ required measurements prevent comparison. Replay accepts only the current
 result contract; historical versioned matrix files are not compatibility input
 and must be retained as standalone artifacts if they are still needed.
 
+Target-active formal acceptance also rejects any renderer rejection,
+`recovery-full` render observation, or automatic transcript rebase. Rebase
+publication bytes and bounded renderer failure stage/code remain visible in the
+result so recovery cannot disguise a valid-stream defect.
+
 ## Automated Smoke Baseline
 
 `npm run record:acp-runtime-before-baseline` remains a deterministic CI
@@ -269,15 +276,24 @@ have been exercised.
 Use Gecko Profiler for CPU stacks and flame graphs. It is complementary and is
 not part of semantic trace replay.
 
-## Assistant Workspace Publication Data Plane v5
+## Assistant Workspace Publication Data Plane v6
 
 ACP Chat and ACP Skills now share one internal publication protocol and one
 transcript receiver. Publications use `publicationSurface=acp-chat|acp-skills`,
-`publicationForm=region|snapshot|delta`, an exact `publicationCause`, and
-`materializationSource=region|transcript-page|frontend-snapshot|panel-snapshot`.
-The last two materialization sources are valid only for explicit initialization,
-activation, page request, diagnostic, or rebase work; steady transcript and
-message-count/progress updates must not record them.
+`publicationForm=region|snapshot|delta` and an exact `publicationCause`.
+Publication post, ACK, and render lifecycle metrics never infer
+`materializationSource` from those fields. The separate
+`panel_materialization` metric records
+`materializationSource=region|transcript-page|frontend-snapshot|panel-snapshot`
+only at the actual builder entry. Frontend and panel snapshots are valid only
+for explicit initialization, activation, page request, diagnostic, or rebase
+work; steady transcript and message-count/progress updates must not record
+them.
+
+The v6 owner presentation carries semantic field and section ids plus numeric
+usage. Labels remain Host bootstrap data. Service availability is not encoded
+as arbitrary presentation metadata, and action routing is governed by one
+scope/payload registry shared by child and Host.
 
 Steady transcript deltas originate at each store's transcript event seam and
 pass through the shared boundary projection and coordinator. They no longer
@@ -293,13 +309,24 @@ the child document generation to which it was delivered. A late acknowledgement
 from a replaced iframe is discarded before it reaches the Host. The Host
 lifecycle ledger is created only by an in-window `panel_post`; acknowledgements
 for unknown identities cannot create zero-post lifecycle records. Surface,
-kind, form, cause, and materialization labels are read from that canonical
-lifecycle entry for both Chat and Skills.
+kind, form, and cause labels are read from that canonical lifecycle entry for
+both Chat and Skills. Materialization labels come only from the runtime builder
+hook.
+
+Lifecycle ACK entries retain bounded renderer failure `stage + code`.
+Terminal outcome is first-write-wins. Out-of-window ACKs retain the same
+bounded descriptor as diagnostics instead of being reduced to missing ACK.
+The publication lifecycle ledger is independent of the 128 metric-series cap
+and retains up to 4,096 publication identities per profile. Capacity overflow
+increments `publicationLifecycleDrops` and makes measurement structurally
+incomplete; it is never reported as a generic missing ACK.
 
 `panel_render_duration` measures Host-observed time from post to an accepted
 render completion. Rejected apply or render work is excluded. Replay force
 operations return a `source + deliverySequence + publicationId` barrier, and
-drain waits for all same-source work through that sequence.
+preparation first drains both ACP lanes and captures per-source delivery
+watermarks. The target drain waits only for current-epoch same-source work
+through the forced sequence.
 SkillRunner uses child readiness without fabricating an ACP publication
 identity.
 
@@ -308,7 +335,7 @@ Every matrix freezes the normalized `phase` together with its
 those values diverge; the saver also verifies that the same slug appears in the
 artifact stem.
 
-The v5 field vocabulary is current-state only. Browser state uses `navigation`,
+The v6 field vocabulary is current-state only. Browser state uses `navigation`,
 `services`, and `selection.transcript`; publications use `owner`, `pageKey`,
 `itemId`, `itemKind`, `publicationId`, `publicationKind`, `publicationForm`,
 and `publicationCause`. The runtime validator rejects old Workspace aliases,
@@ -322,3 +349,5 @@ stages only for publication identities posted inside the current profile
 window. Incremental transcript renders also report bounded inserted, updated,
 removed, and measured row counters under `renderPath=incremental`; these
 counters diagnose DOM work and do not change the acknowledgement envelope.
+Any `recovery-full` render observation or automatic transcript rebase remains
+visible and causes formal target-active acceptance to fail.

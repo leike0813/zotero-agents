@@ -27,6 +27,7 @@
     surfaceConfiguration: {
       executionDisplayMode: "live",
       transcriptPaginationVirtualizationEnabled: true,
+      actionRegistry: {},
     },
     surfaceLabels: {
       "acp-chat": {},
@@ -705,6 +706,12 @@
         mode === "boundary" || mode === "silent" ? mode : "live",
       transcriptPaginationVirtualizationEnabled:
         source.transcriptPaginationVirtualizationEnabled !== false,
+      actionRegistry:
+        source.actionRegistry &&
+        typeof source.actionRegistry === "object" &&
+        !Array.isArray(source.actionRegistry)
+          ? source.actionRegistry
+          : {},
     };
   }
 

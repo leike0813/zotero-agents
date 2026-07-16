@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ACP Skill Run</title>
+    <title></title>
     <script src="../shared/theme.js"></script>
     <link rel="stylesheet" href="../shared/theme.css" />
     <link rel="stylesheet" href="../shared/icons.css?ui=20260614-icons-v1" />
@@ -32,41 +32,44 @@
         class="asst-panel-drawer-overlay hidden"
         data-role="context-drawer"
       ></section>
-      <section class="asst-empty-state" data-role="empty">
-        Select an ACP skill run to inspect its transcript.
-      </section>
-      <section class="asst-panel-main hidden" data-role="main">
+      <section class="asst-panel-main" data-role="main">
         <section class="asst-conversation-surface" data-role="conversation">
+          <section
+            class="asst-empty-state"
+            data-role="empty"
+            aria-live="polite"
+          ></section>
           <section class="plain-mode" data-role="transcript"></section>
           <div
             class="asst-conversation-overlay-menu"
-            aria-label="Conversation view"
+            role="group"
+            aria-label=""
           >
             <button
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="plain"
-              aria-label="Plain transcript view"
+              aria-label=""
               aria-pressed="true"
             >
               <span
                 class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-subject"
                 aria-hidden="true"
               ></span>
-              <span class="asst-view-mode-label">Plain</span>
+              <span class="asst-view-mode-label"></span>
             </button>
             <button
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="bubble"
-              aria-label="Bubble conversation view"
+              aria-label=""
               aria-pressed="false"
             >
               <span
                 class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-forum"
                 aria-hidden="true"
               ></span>
-              <span class="asst-view-mode-label">Bubble</span>
+              <span class="asst-view-mode-label"></span>
             </button>
           </div>
         </section>

@@ -1,29 +1,45 @@
 # assistant-workspace-publication-data-plane Specification
 
 ## Purpose
-Defines the shared v5 publication vocabulary, canonical browser state, transcript region model, mutation buffer, and page request protocol used by both ACP Chat and ACP Skills surfaces in Assistant Workspace.
+Defines the shared v6 publication vocabulary, canonical browser state, semantic
+presentation and action registries, transcript region model, mutation buffer,
+and page request protocol used by both ACP Chat and ACP Skills surfaces in
+Assistant Workspace.
 ## Requirements
-### Requirement: Workspace publication uses one strict v5 registry
+### Requirement: Workspace publication uses one strict v6 registry
 
-ACP Chat and ACP Skills SHALL use the v5 region registry as the sole source of
-publication kind, scope, form, payload, browser key, managed region, and source
-support. v4 publications, unknown fields, aliases, and dual writes SHALL be
-rejected.
+ACP Chat and ACP Skills SHALL use the v6 region and presentation registries as
+the sole source of publication kind, payload, semantic presentation fields,
+browser key, managed region, and source support. v5 publications, generic
+banner arrays, producer labels, presentation tasks, aliases, and dual writes
+SHALL be rejected.
 
-#### Scenario: A legacy publication reaches the child
+#### Scenario: A v5 presentation reaches the child
 
-- **WHEN** a publication uses the v4 schema or a removed region kind
+- **WHEN** a publication uses the v5 schema or a removed presentation field
 - **THEN** the receiver rejects it as invalid
 - **AND** canonical state and DOM remain unchanged.
 
 ### Requirement: Publication identity fields are unambiguous
 
-The v5 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, reason, and an optional bounded renderer failure stage/code.
+The v6 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, reason, and an optional bounded renderer failure stage/code.
 
 #### Scenario: Shell acknowledges a publication
 
-- **WHEN** Shell receives and forwards a v5 publication
+- **WHEN** Shell receives and forwards a v6 publication
 - **THEN** its acknowledgement does not duplicate owner, kind, revision, signature, source, tab, or initialization fields.
+
+### Requirement: ACP action scope is exact
+
+Every shared ACP action SHALL be classified as local, target-owner,
+selected-owner, navigation-group, or global. Target identity SHALL be present
+only in the action owner envelope.
+
+#### Scenario: A user selects another task
+
+- **WHEN** a drawer card for a non-selected Skills owner is activated
+- **THEN** the clicked owner is sent in the action envelope
+- **AND** the current selected owner does not replace it.
 
 ### Requirement: Owner selection replaces the complete owned state
 
@@ -193,9 +209,14 @@ The shared coordinator and receiver SHALL keep a stable tail page bounded by its
 - **THEN** the receiver requests rebase
 - **AND** it does not commit a guessed or incomplete page.
 
-### Requirement: Transcript delta application is atomic and structurally incremental
+### Requirement: Transcript delta application is transactional
 
-The shared browser controller SHALL validate a complete mutation batch before rendering and SHALL commit page metadata, item map, item order, transcript revision, canonical region state, and acknowledgement as one transaction after the bounded DOM effect succeeds. A steady delta SHALL NOT fall back to initialization or full-page rendering.
+The shared browser controller and transcript renderer SHALL validate a complete
+mutation batch before rendering and SHALL commit page metadata, item map, item
+order, transcript revision, canonical region state, virtual page state, node
+maps, signatures, DOM, and acknowledgement only after the complete bounded DOM
+effect succeeds. A steady delta SHALL NOT fall back to initialization or
+full-page rendering.
 
 #### Scenario: A later delta edits a newly inserted item
 
@@ -208,6 +229,12 @@ The shared browser controller SHALL validate a complete mutation batch before re
 - **WHEN** validation or targeted rendering cannot complete
 - **THEN** committed model, revision, and unrelated DOM remain unchanged
 - **AND** one terminal rejection enters coordinator-owned rebase.
+
+#### Scenario: A structural delta render fails
+
+- **WHEN** row reconciliation cannot complete
+- **THEN** no partial renderer state becomes committed
+- **AND** the same signature can be retried from the previous committed state.
 
 ### Requirement: ACP child state is source-neutral
 

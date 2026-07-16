@@ -7,6 +7,7 @@ import type {
   AssistantWorkspaceServiceStatus,
 } from "./assistantWorkspacePublication";
 import {
+  ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAssistantWorkspaceUnownedScope,
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
@@ -23,6 +24,7 @@ import { getZoteroMcpServerStatus } from "./zoteroMcpServer";
 export type AssistantWorkspacePublicationRuntimeConfiguration = {
   executionDisplayMode: AssistantExecutionDisplayMode;
   transcriptPaginationVirtualizationEnabled: boolean;
+  actionRegistry: typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY;
 };
 
 export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceServiceStatus {
@@ -137,6 +139,13 @@ export type AssistantWorkspacePublicationRuntimeHooks = {
     reason: AssistantWorkspacePublicationDropReason;
   }) => void;
   onOwnerCleared?: (owner: AssistantWorkspaceOwner) => void;
+  onMaterialized?: (args: {
+    owner: AssistantWorkspaceOwner;
+    kind: AssistantWorkspacePublicationKind;
+    cause: AssistantWorkspacePublicationCause;
+    publicationForm: "snapshot" | "region";
+    materializationSource: "transcript-page" | "region";
+  }) => void;
 };
 
 const INITIAL_OWNER_PUBLICATION_KINDS = [
@@ -171,6 +180,7 @@ async function publishAssistantWorkspaceInitialization<
   >;
   transcriptPage?: TPageRequest;
   serviceStatus?: AssistantWorkspaceServiceStatus;
+  hooks?: AssistantWorkspacePublicationRuntimeHooks;
 }) {
   const force = args.cause === "initialization";
   const navigation = await args.adapter.readOwnerNavigation();
@@ -228,6 +238,13 @@ async function publishAssistantWorkspaceInitialization<
     context: args.context,
     request: args.transcriptPage,
   });
+  args.hooks?.onMaterialized?.({
+    owner,
+    kind: "transcript",
+    cause: args.cause,
+    publicationForm: "snapshot",
+    materializationSource: "transcript-page",
+  });
   if (transcript) {
     const publication = args.coordinator.publishDomainChange({
       owner,
@@ -254,6 +271,13 @@ async function publishAssistantWorkspaceInitialization<
   for (const publicationKind of requestedKinds) {
     const payload = regions[publicationKind];
     if (!payload) continue;
+    args.hooks?.onMaterialized?.({
+      owner,
+      kind: publicationKind,
+      cause: args.cause,
+      publicationForm: "region",
+      materializationSource: "region",
+    });
     const publication = args.coordinator.publishDomainChange({
       owner,
       kind: publicationKind,
@@ -483,6 +507,7 @@ export class AssistantWorkspacePublicationRuntime {
     return publishAssistantWorkspaceInitialization({
       ...args,
       coordinator: this.options.coordinator,
+      hooks: this.options.hooks,
     });
   }
 
@@ -521,6 +546,13 @@ export class AssistantWorkspacePublicationRuntime {
       owner: args.owner,
       context: args.context,
       request: args.request,
+    });
+    this.options.hooks?.onMaterialized?.({
+      owner: args.owner,
+      kind: "transcript",
+      cause: args.cause,
+      publicationForm: "snapshot",
+      materializationSource: "transcript-page",
     });
     if (
       this.options.activity(args.adapter.source) !== "matching-target" ||
@@ -576,6 +608,16 @@ export class AssistantWorkspacePublicationRuntime {
       kinds: args.kinds,
       context: args.context,
     });
+    for (const kind of args.kinds) {
+      if (!regions[kind]) continue;
+      this.options.hooks?.onMaterialized?.({
+        owner: args.owner,
+        kind,
+        cause: args.cause,
+        publicationForm: "region",
+        materializationSource: "region",
+      });
+    }
     if (
       this.options.activity(args.adapter.source) !== "matching-target" ||
       args.adapter.selectedOwner()?.ownerKey !== args.owner.ownerKey
@@ -746,6 +788,18 @@ export class AssistantWorkspacePublicationRuntime {
         ? await lane.readNavigation()
         : undefined;
       const regions = await lane.read(kinds);
+      if (lane.owner) {
+        for (const kind of kinds) {
+          if (!regions[kind]) continue;
+          this.options.hooks?.onMaterialized?.({
+            owner: lane.owner,
+            kind,
+            cause: "steady-state",
+            publicationForm: "region",
+            materializationSource: "region",
+          });
+        }
+      }
       if (
         this.options.activity(lane.source) !== "matching-target" ||
         (lane.owner &&

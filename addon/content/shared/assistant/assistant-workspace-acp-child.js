@@ -64,7 +64,7 @@
         "payload",
       ]) ||
       publication.schema !==
-        "zotero-agents.assistant-workspace-publication.v5" ||
+        "zotero-agents.assistant-workspace-publication.v6" ||
       !text(publication.publicationId) ||
       !publicationKinds.has(publication.publicationKind) ||
       !Number.isInteger(publication.regionRevision) ||
@@ -746,6 +746,18 @@
 
   function createClient(options) {
     const receiver = createReceiver({ source: options && options.source });
+    function normalizedRenderOutcome(value) {
+      if (value && typeof value === "object" && typeof value.ok === "boolean") {
+        return {
+          ok: value.ok,
+          failure:
+            value.failure && typeof value.failure === "object"
+              ? value.failure
+              : null,
+        };
+      }
+      return { ok: value !== false, failure: null };
+    }
     return {
       apply: function (publication) {
         const snapshot = options.getSnapshot() || {};
@@ -769,8 +781,35 @@
           return result;
         }
         try {
-          const rendered = options.render(result, publication);
-          if (rendered === false) throw new Error("transcript-render-failed");
+          const rendered = normalizedRenderOutcome(
+            options.render(result, publication),
+          );
+          if (!rendered.ok) {
+            if (typeof options.recoverRenderFailure === "function") {
+              try {
+                options.recoverRenderFailure(
+                  result,
+                  publication,
+                  rendered.failure,
+                );
+              } catch (_recoveryError) {
+                // The original bounded renderer failure remains authoritative.
+              }
+            }
+            receiver.complete(
+              publication && publication.publicationId,
+              "rejected",
+              "render-failed",
+            );
+            options.ack(
+              publication,
+              "render-complete",
+              "rejected",
+              "render-failed",
+              rendered.failure,
+            );
+            return result;
+          }
           options.setSnapshot(result.snapshot);
           if (typeof result.commit === "function") {
             result.commit();
@@ -781,8 +820,15 @@
             "accepted",
             null,
           );
-          options.ack(publication, "render-complete", "accepted", null);
+          options.ack(publication, "render-complete", "accepted", null, null);
         } catch (_error) {
+          if (typeof options.recoverRenderFailure === "function") {
+            try {
+              options.recoverRenderFailure(result, publication, null);
+            } catch (_recoveryError) {
+              // The bounded generic render failure remains authoritative.
+            }
+          }
           receiver.complete(
             publication && publication.publicationId,
             "rejected",
@@ -793,6 +839,7 @@
             "render-complete",
             "rejected",
             "render-failed",
+            null,
           );
         }
         return result;
@@ -958,6 +1005,73 @@
     return null;
   }
 
+  function resolvePanelActionEnvelope(
+    action,
+    data,
+    selectedOwner,
+    actionRegistry,
+    source,
+  ) {
+    const route =
+      actionRegistry &&
+      typeof actionRegistry === "object" &&
+      actionRegistry[action] &&
+      typeof actionRegistry[action] === "object"
+        ? actionRegistry[action]
+        : null;
+    if (!route || route.scope === "local") return null;
+    const payloadSource =
+      source ||
+      text(selectedOwner && selectedOwner.source) ||
+      text(data && data.owner && data.owner.source) ||
+      text(
+        data && data.option && data.option.owner && data.option.owner.source,
+      );
+    if (
+      !Array.isArray(route.sources) ||
+      route.sources.indexOf(payloadSource) < 0 ||
+      !Array.isArray(route.payloadKeys)
+    ) {
+      return null;
+    }
+    const input = data && typeof data === "object" ? data : {};
+    const payload = {};
+    route.payloadKeys.forEach(function (key) {
+      if (key === "groupId") {
+        const groupId = text(
+          input.groupId || (input.option && input.option.value) || input.value,
+        );
+        if (groupId) payload.groupId = groupId;
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(input, key)) {
+        payload[key] = input[key];
+      }
+    });
+    if (
+      route.payloadKeys.some(function (key) {
+        return !Object.prototype.hasOwnProperty.call(payload, key);
+      })
+    ) {
+      return null;
+    }
+    if (route.scope === "target-owner") {
+      const target = canonicalActionOwner(
+        payloadSource,
+        input.owner || (input.option && input.option.owner),
+      );
+      return target ? { owner: target, payload } : null;
+    }
+    if (route.scope === "selected-owner") {
+      const selected = canonicalActionOwner(payloadSource, selectedOwner);
+      return selected ? { owner: selected, payload } : null;
+    }
+    if (route.scope === "navigation-group" || route.scope === "global") {
+      return { owner: null, payload };
+    }
+    return null;
+  }
+
   function createChildRuntime(source) {
     const model = childModule(
       "AssistantPanelModel",
@@ -1035,6 +1149,7 @@
       transcriptPaginationVirtualizationEnabled: true,
     };
     let labels = {};
+    let actionRegistry = {};
     let actionSequence = 0;
 
     function selectedOwner(state) {
@@ -1154,6 +1269,15 @@
       ) {
         return true;
       }
+      const owner = selectedOwner(snapshot);
+      transcriptRenderer.resetAssistantTranscriptVirtualState(
+        elements.transcript,
+        owner ? owner.ownerKey : "",
+      );
+      elements.transcript.removeAttribute(
+        "data-assistant-transcript-order-key",
+      );
+      elements.transcript.removeAttribute("data-assistant-transcript-mode-key");
       while (elements.transcript.firstChild) {
         elements.transcript.removeChild(elements.transcript.firstChild);
       }
@@ -1210,7 +1334,12 @@
             ? labels.assistantPanel.transcript
             : labels.transcript || {},
         emptyText:
-          source === "acp-chat" ? "No messages yet." : "No transcript.",
+          text(
+            labels &&
+              labels.assistantPanel &&
+              labels.assistantPanel.transcript &&
+              labels.assistantPanel.transcript.empty,
+          ) || "",
         onRequestPage: function (request) {
           const cursor = Number(request && request.cursor);
           if (!Number.isFinite(cursor)) return;
@@ -1235,29 +1364,6 @@
         },
       });
       return true;
-    }
-
-    function resolveActionOwner() {
-      return selectedOwner(snapshot);
-    }
-
-    function wireActionPayload(data) {
-      const payload =
-        data && typeof data === "object" && !Array.isArray(data)
-          ? Object.assign({}, data)
-          : {};
-      [
-        "owner",
-        "option",
-        "selectorId",
-        "value",
-        "backendId",
-        "conversationId",
-        "requestId",
-      ].forEach(function (key) {
-        delete payload[key];
-      });
-      return payload;
     }
 
     function handlePanelAction(action, data) {
@@ -1324,7 +1430,18 @@
         return;
       }
       captureReplyDraft();
-      sendAction(action, wireActionPayload(payload), resolveActionOwner());
+      const routed = resolvePanelActionEnvelope(
+        action,
+        payload,
+        selectedOwner(snapshot),
+        actionRegistry,
+        source,
+      );
+      if (!routed) {
+        fail("invalid-action-route");
+        return;
+      }
+      sendAction(action, routed.payload, routed.owner);
     }
 
     function renderPanel() {
@@ -1356,12 +1473,12 @@
       });
       const owner = selectedOwner(snapshot);
       elements.empty.classList.toggle("hidden", Boolean(owner));
-      elements.main.classList.toggle("hidden", !owner);
+      elements.main.classList.remove("hidden");
       elements.drawer.classList.toggle("hidden", !ui.contextDrawerOpen);
       elements.details.classList.toggle("hidden", !ui.detailsDrawerOpen);
       document.title =
         text(panel && panel.context && panel.context.title) ||
-        (source === "acp-chat" ? "ACP Chat" : "ACP Skills");
+        text(labels && labels.title);
       return true;
     }
 
@@ -1373,7 +1490,7 @@
         result.snapshot.selection &&
         result.snapshot.selection.transcript;
       const page = rendererPage(region);
-      const rendered = transcriptRenderer.applyAssistantTranscriptEffects({
+      return transcriptRenderer.applyAssistantTranscriptEffectsExact({
         container: elements.transcript,
         effect,
         affectedItems: effect.affectedItems || [],
@@ -1403,7 +1520,45 @@
           );
         },
       });
-      return rendered !== false;
+    }
+
+    function recoverRenderFailure(result, publication) {
+      let rendered = true;
+      if (result && result.publicationKind === "transcript") {
+        const owner = selectedOwner(snapshot);
+        transcriptRenderer.resetAssistantTranscriptVirtualState(
+          elements.transcript,
+          owner ? owner.ownerKey : "",
+        );
+        elements.transcript.removeAttribute(
+          "data-assistant-transcript-order-key",
+        );
+        elements.transcript.removeAttribute(
+          "data-assistant-transcript-mode-key",
+        );
+        while (elements.transcript.firstChild) {
+          elements.transcript.removeChild(elements.transcript.firstChild);
+        }
+        rendered = renderTranscript();
+      } else {
+        rendered = renderPanel();
+        if (result && result.publicationKind === "owner-navigation") {
+          renderTranscript();
+        }
+      }
+      sendAction(
+        "publication-render-observation",
+        {
+          publicationId: text(publication && publication.publicationId),
+          renderPath: "recovery-full",
+          insertedRows: 0,
+          updatedRows: 0,
+          removedRows: 0,
+          measuredRows: 0,
+        },
+        publication && publication.owner,
+      );
+      return rendered;
     }
 
     const controller = createController({
@@ -1422,7 +1577,7 @@
             state.selection.owner.ownerKey,
         );
       },
-      ack: function (publication, stage, outcome, reason) {
+      ack: function (publication, stage, outcome, reason, renderFailure) {
         const failureStage = {
           "owner-navigation": "projection",
           "service-status": "banner",
@@ -1439,14 +1594,16 @@
           stage,
           outcome,
           reason,
-          reason === "render-failed"
-            ? {
-                stage: failureStage || "projection",
-                code: "render-failed",
-              }
-            : null,
+          renderFailure ||
+            (reason === "render-failed"
+              ? {
+                  stage: failureStage || "projection",
+                  code: "render-failed",
+                }
+              : null),
         );
       },
+      recoverRenderFailure,
       render: function (result, publication) {
         if (result.publicationKind === "transcript") {
           return result.effect && result.effect.kind === "mutations"
@@ -1487,10 +1644,35 @@
         mode === "boundary" || mode === "silent" ? mode : "live";
       ui.transcriptPaginationVirtualizationEnabled =
         config.transcriptPaginationVirtualizationEnabled !== false;
+      actionRegistry =
+        config.actionRegistry &&
+        typeof config.actionRegistry === "object" &&
+        !Array.isArray(config.actionRegistry)
+          ? config.actionRegistry
+          : {};
       labels =
         payload && payload.labels && typeof payload.labels === "object"
           ? payload.labels
           : {};
+      const viewLabel = text(labels.view) || "";
+      const plainLabel = text(labels.plain) || "";
+      const bubbleLabel = text(labels.bubble) || "";
+      elements.empty.textContent = text(labels.emptySelection);
+      const viewGroup = document.querySelector(
+        ".asst-conversation-overlay-menu",
+      );
+      if (viewGroup) viewGroup.setAttribute("aria-label", viewLabel);
+      [
+        [elements.plain, plainLabel],
+        [elements.bubble, bubbleLabel],
+      ].forEach(function (entry) {
+        const button = entry[0];
+        const label = entry[1];
+        if (!button) return;
+        button.setAttribute("aria-label", label);
+        const node = button.querySelector(".asst-view-mode-label");
+        if (node) node.textContent = label;
+      });
       renderPanel();
     }
 
@@ -1561,6 +1743,7 @@
     readStateRegion,
     renderResult,
     rendererPage,
+    resolvePanelActionEnvelope,
   };
 
   if (typeof document !== "undefined") {

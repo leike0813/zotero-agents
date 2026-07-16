@@ -838,7 +838,14 @@ function evaluateReplayMeasurement(args: {
   }
   if (args.profile?.measurement === "incomplete") {
     warnings.push(
-      `profile-measurement-incomplete:metric-series-drops=${args.profile.metricSeriesDrops}`,
+      `profile-measurement-incomplete:metric-series-drops=${args.profile.metricSeriesDrops},publication-lifecycle-drops=${args.profile.publicationLifecycleDrops}`,
+    );
+  }
+  if ((args.profile?.publicationDiagnostics || []).length > 0) {
+    warnings.push(
+      `publication-diagnostics:${args
+        .profile!.publicationDiagnostics.map((entry) => entry.code)
+        .join(",")}`,
     );
   }
   return {
@@ -904,6 +911,26 @@ function evaluateReplayAcceptance(args: {
     );
     if (steadyTranscriptSnapshot) {
       reasons.push("steady-transcript-snapshot");
+    }
+    if (
+      lifecycles.some(
+        (entry) =>
+          entry.kind === "transcript" && entry.publicationCause === "rebase",
+      )
+    ) {
+      reasons.push("automatic-transcript-rebase");
+    }
+    if (
+      (args.profile?.metrics || []).some(
+        (entry) =>
+          entry.labels.renderPath === "recovery-full" &&
+          (entry.counter?.total ||
+            entry.duration?.count ||
+            entry.gauge?.max ||
+            0) > 0,
+      )
+    ) {
+      reasons.push("renderer-recovery-full");
     }
     const postedBytes = metricValue(args.profile, "panel_post_bytes");
     const byteBudget =

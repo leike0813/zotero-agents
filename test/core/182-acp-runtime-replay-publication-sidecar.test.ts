@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import {
   drainAcpRuntimeReplayPublication,
+  drainAcpRuntimeReplayPublicationEpoch,
   waitAcpRuntimeReplayWorkspaceReadiness,
   type AcpRuntimeReplayForcedPublication,
   type AcpRuntimeReplayPublicationInspection,
@@ -86,6 +87,32 @@ function forced(
 }
 
 describe("ACP runtime replay publication sidecar", function () {
+  it("drains both ACP lanes before capturing per-source watermarks", async function () {
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
+      lifecycle("acp-chat", "chat-before", "pending", 5),
+      lifecycle("acp-skills", "skills-before", "rejected", 8, "superseded"),
+    ];
+    let settled = false;
+    const pending = drainAcpRuntimeReplayPublicationEpoch({
+      timeoutMs: 250,
+      inspect: () => ({ childWindow: null, publications }),
+    });
+    void pending.then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(settled);
+    publications = [
+      lifecycle("acp-chat", "chat-before", "render-complete", 5),
+      lifecycle("acp-skills", "skills-before", "rejected", 8, "superseded"),
+    ];
+    assert.deepEqual(await pending, {
+      ok: true,
+      watermarks: { "acp-chat": 5, "acp-skills": 8 },
+    });
+  });
+
   it("uses readiness without an ACP publication identity for SkillRunner", async function () {
     const child = new FakePublicationWindow();
     let ready = false;
@@ -143,7 +170,7 @@ describe("ACP runtime replay publication sidecar", function () {
       tab: "acp-chat",
       timeoutMs: 250,
       inspect: () => inspection(child, publications),
-      forcePublish: async () => forced("acp-chat", "publication-target"),
+      forcePublish: async () => forced("acp-chat", "publication-target", 2),
     });
     void pending.then(() => {
       settled = true;
@@ -152,7 +179,7 @@ describe("ACP runtime replay publication sidecar", function () {
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.isFalse(settled);
     publications = [
-      lifecycle("acp-chat", "publication-target", "render-complete"),
+      lifecycle("acp-chat", "publication-target", "render-complete", 2),
     ];
     assert.deepEqual(await pending, { ok: true });
   });
@@ -162,14 +189,16 @@ describe("ACP runtime replay publication sidecar", function () {
     let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
       lifecycle("acp-skills", "publication-before", "pending", 1),
     ];
+    let forceCalls = 0;
     let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-skills",
       timeoutMs: 250,
       inspect: () => inspection(child, publications),
       forcePublish: async () => {
+        forceCalls += 1;
         publications = [
-          lifecycle("acp-skills", "publication-before", "pending", 1),
+          lifecycle("acp-skills", "publication-before", "render-complete", 1),
           lifecycle("acp-skills", "publication-target", "pending", 2),
         ];
         return forced("acp-skills", "publication-target", 2);
@@ -178,17 +207,84 @@ describe("ACP runtime replay publication sidecar", function () {
     void pending.then(() => {
       settled = true;
     });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(settled);
+    assert.equal(forceCalls, 0);
     publications = [
-      lifecycle("acp-skills", "publication-before", "pending", 1),
+      lifecycle("acp-skills", "publication-before", "render-complete", 1),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(forceCalls, 1);
+    publications = [
+      lifecycle("acp-skills", "publication-before", "render-complete", 1),
       lifecycle("acp-skills", "publication-target", "render-complete", 2),
+    ];
+    assert.deepEqual(await pending, { ok: true });
+  });
+
+  it("waits for precursor work materialized while creating the forced barrier", async function () {
+    const child = new FakePublicationWindow();
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] =
+      [];
+    let settled = false;
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-chat",
+      timeoutMs: 250,
+      inspect: () => inspection(child, publications),
+      forcePublish: async () => {
+        publications = [
+          lifecycle("acp-chat", "publication-precursor", "pending", 1),
+          lifecycle("acp-chat", "publication-target", "pending", 2),
+        ];
+        return forced("acp-chat", "publication-target", 2);
+      },
+    });
+    void pending.then(() => {
+      settled = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    publications = [
+      lifecycle("acp-chat", "publication-precursor", "pending", 1),
+      lifecycle("acp-chat", "publication-target", "render-complete", 2),
     ];
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.isFalse(settled);
-    publications = publications.map((entry) => ({
-      ...entry,
-      state: "render-complete" as const,
-    }));
+    publications = [
+      lifecycle("acp-chat", "publication-precursor", "render-complete", 1),
+      lifecycle("acp-chat", "publication-target", "render-complete", 2),
+    ];
     assert.deepEqual(await pending, { ok: true });
+  });
+
+  it("starts the forced barrier after the prior publication epoch", async function () {
+    const child = new FakePublicationWindow();
+    let forceCalls = 0;
+    let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
+      lifecycle(
+        "acp-skills",
+        "publication-prior-rejected",
+        "rejected",
+        11,
+        "render-failed",
+      ),
+    ];
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-skills",
+      timeoutMs: 250,
+      inspect: () => inspection(child, publications),
+      forcePublish: async () => {
+        forceCalls += 1;
+        publications = [
+          ...publications,
+          lifecycle("acp-skills", "publication-target", "render-complete", 12),
+        ];
+        return forced("acp-skills", "publication-target", 12);
+      },
+    });
+
+    assert.deepEqual(await pending, { ok: true });
+    assert.equal(forceCalls, 1);
   });
 
   it("reports an explicit rejection for the forced publication", async function () {

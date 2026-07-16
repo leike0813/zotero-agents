@@ -27,12 +27,14 @@ import {
   forceAssistantWorkspaceDiagnosticsPublication,
   getAssistantWorkspaceReplayState,
   inspectAssistantWorkspaceDiagnosticsPublication,
+  inspectAssistantWorkspaceDiagnosticsPublicationLanes,
   inspectAssistantWorkspaceReplayPostSnapshotTimer,
   openAssistantWorkspaceSidebar,
   type AssistantWorkspaceDiagnosticsPublicationOptions,
 } from "./assistantWorkspaceSidebar";
 import {
   drainAcpRuntimeReplayPublication,
+  drainAcpRuntimeReplayPublicationEpoch,
   waitAcpRuntimeReplayWorkspaceReadiness,
 } from "./acpRuntimeReplayPublicationSidecar";
 import {
@@ -401,6 +403,15 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
       publication: "acknowledged" as const,
     }));
   };
+  const drainPublicationEpoch = (
+    signal?: Parameters<
+      typeof drainAcpRuntimeReplayPublicationEpoch
+    >[0]["signal"],
+  ) =>
+    drainAcpRuntimeReplayPublicationEpoch({
+      signal,
+      inspect: () => inspectAssistantWorkspaceDiagnosticsPublicationLanes(),
+    });
   return {
     snapshot: async () => {
       const workspace = getAssistantWorkspaceReplayState();
@@ -423,6 +434,8 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
             sourceKind === "acp-chat-conversation" ? "acp-skills" : "acp-chat",
         });
         if (!opened) return { ok: false, detail: "workspace-open-failed" };
+        const epoch = await drainPublicationEpoch(signal);
+        if (!epoch.ok) return epoch;
         return drainSurface({
           surface,
           sourceKind,
@@ -444,6 +457,8 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
         });
         if (!opened) return { ok: false, detail: "workspace-open-failed" };
       }
+      const epoch = await drainPublicationEpoch(signal);
+      if (!epoch.ok) return epoch;
       return drainSurface({
         surface,
         sourceKind,

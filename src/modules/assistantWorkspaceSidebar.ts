@@ -38,6 +38,7 @@ import {
   connectAcpConversation,
   disconnectAcpConversation,
   getActiveAcpChatOwner,
+  getAcpChatWorkspaceOwnerNavigation,
   refreshAcpConversationBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -117,6 +118,7 @@ import {
   decorateAssistantSidebarChildSnapshot,
 } from "./assistantSidebarViewModel";
 import {
+  ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAcpChatWorkspaceOwner,
   createAcpSkillsWorkspaceOwner,
   createAssistantWorkspaceUnownedScope,
@@ -836,10 +838,6 @@ function postShellMessage(
           publicationDeliverySequence: String(
             metricPublication.deliverySequence,
           ),
-          materializationSource:
-            metricPublication.publicationForm === "snapshot"
-              ? ("transcript-page" as const)
-              : ("region" as const),
         }
       : {
           operationClass: "panel" as const,
@@ -1358,6 +1356,7 @@ function registerWorkspacePublication(
     publicationId,
     state: "pending",
     reason: null,
+    failure: null,
     acknowledgements: new Set<string>(),
     ownerKey: publication?.owner.ownerKey || "",
     source: publication?.owner.source || source,
@@ -1392,8 +1391,6 @@ function assistantWorkspacePublicationMetricLabels(
     publicationCausality: causality,
     publicationPhase: phase,
     publicationSurface: surface,
-    publicationForm:
-      kind === "transcript" ? ("delta" as const) : ("region" as const),
   };
 }
 
@@ -1698,6 +1695,7 @@ function assistantWorkspaceAcpRuntimeConfiguration(): AssistantWorkspacePublicat
     executionDisplayMode: getAssistantExecutionDisplayMode(),
     transcriptPaginationVirtualizationEnabled:
       isAssistantTranscriptPaginationVirtualizationEnabled(),
+    actionRegistry: ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   };
 }
 
@@ -2517,15 +2515,32 @@ async function handleChildAction(
     });
     return;
   }
+  const actionRoute = source
+    ? ASSISTANT_WORKSPACE_ACTION_REGISTRY[
+        action as keyof typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY
+      ]
+    : null;
   if (
     source &&
-    !owner &&
-    ![
-      "ready",
-      "publication-ack",
-      "publication-render-observation",
-      "open-backend-manager",
-    ].includes(action)
+    (!actionRoute ||
+      !actionRoute.sources.includes(source as never) ||
+      Object.keys(childPayload).sort().join(",") !==
+        [...actionRoute.payloadKeys].sort().join(","))
+  ) {
+    return;
+  }
+  if (
+    source &&
+    (actionRoute?.scope === "target-owner" ||
+      actionRoute?.scope === "selected-owner") !== Boolean(owner)
+  ) {
+    return;
+  }
+  if (
+    source &&
+    (actionRoute?.scope === "navigation-group" ||
+      actionRoute?.scope === "global") &&
+    owner
   ) {
     return;
   }
@@ -2609,6 +2624,14 @@ async function handleChildAction(
     });
     return;
   }
+  if (source === "acp-chat" && actionRoute?.scope === "navigation-group") {
+    const groupId = String(childPayload.groupId || "").trim();
+    const navigation = getAcpChatWorkspaceOwnerNavigation();
+    if (!navigation.groups.some((group) => group.groupId === groupId)) {
+      return;
+    }
+    actionPayload.backendId = groupId;
+  }
   if (tab === "acp-skills") {
     if (action === "select-run") {
       await selectAcpSkillRun(String(actionPayload.requestId || "").trim());
@@ -2643,9 +2666,13 @@ function recordWorkspacePublicationAck(
   const publicationId = String(ack.publicationId || "").trim();
   host.publicationCoordinator?.acknowledge(ack);
   const lifecycle = host.publicationLifecycles.get(publicationId);
-  const acknowledgementKey = [ack.stage, ack.outcome, ack.reason || ""].join(
-    ":",
-  );
+  const acknowledgementKey = [
+    ack.stage,
+    ack.outcome,
+    ack.reason || "",
+    ack.failure?.stage || "",
+    ack.failure?.code || "",
+  ].join(":");
   if (!lifecycle) {
     if (
       __acp_runtime_performance_profiler_enabled__ &&
@@ -2662,6 +2689,7 @@ function recordWorkspacePublicationAck(
   if (ack.outcome === "rejected" && lifecycle.state === "pending") {
     lifecycle.state = "rejected";
     lifecycle.reason = ack.reason;
+    lifecycle.failure = ack.failure;
   } else if (
     lifecycle.state === "pending" &&
     ack.stage === "render-complete" &&
@@ -2695,10 +2723,6 @@ function recordWorkspacePublicationAck(
     publicationForm: lifecycle.form,
     publicationCause: lifecycle.cause,
     publicationDeliverySequence: String(lifecycle.deliverySequence),
-    materializationSource:
-      lifecycle.form === "snapshot"
-        ? ("transcript-page" as const)
-        : ("region" as const),
     publicationId,
   };
   if (ack.stage === "shell-forward") {
@@ -2749,14 +2773,12 @@ function recordWorkspacePublicationRenderObservation(
     publicationForm: lifecycle.form,
     publicationCause: lifecycle.cause,
     publicationDeliverySequence: String(lifecycle.deliverySequence),
-    materializationSource:
-      lifecycle.form === "snapshot"
-        ? ("transcript-page" as const)
-        : ("region" as const),
     renderPath:
       payload.renderPath === "snapshot"
         ? ("snapshot" as const)
-        : ("incremental" as const),
+        : payload.renderPath === "recovery-full"
+          ? ("recovery-full" as const)
+          : ("incremental" as const),
     publicationId,
   };
   for (const [name, field] of [
@@ -3612,6 +3634,33 @@ export function installAssistantWorkspaceSidebarShell(
           );
         }
       },
+      onMaterialized({
+        owner,
+        kind,
+        cause,
+        publicationForm,
+        materializationSource,
+      }) {
+        if (
+          !__acp_runtime_performance_profiler_enabled__ ||
+          !(typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__)
+        ) {
+          return;
+        }
+        incrementAcpRuntimeMetric(owner.ownerKey, "panel_materialization", {
+          ...assistantWorkspacePublicationMetricLabels(
+            owner.source,
+            kind,
+            "matching-target",
+            cause === "initialization" ? "initialization" : "steady-state",
+          ),
+          publicationForm,
+          publicationCause: cause,
+          materializationSource,
+        });
+      },
       onOwnerCleared(owner) {
         for (const [publicationId, lifecycle] of host.publicationLifecycles) {
           if (
@@ -3827,6 +3876,46 @@ export type AssistantWorkspaceDiagnosticsPublicationOptions = {
   expectedSkillRequestId?: string;
 };
 
+export function inspectAssistantWorkspaceDiagnosticsPublicationLanes(args?: {
+  window?: _ZoteroTypes.MainWindow;
+}) {
+  const win =
+    args?.window ||
+    (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
+  const host = win ? hosts.get(win) : undefined;
+  if (!host) {
+    return {
+      childWindow: null,
+      publications: [],
+      detail: "workspace-host-not-ready",
+    };
+  }
+  return {
+    childWindow: null,
+    publications: [...host.publicationLifecycles.values()].map(
+      ({
+        publicationId,
+        source,
+        deliverySequence,
+        state,
+        reason,
+        failure,
+      }) => ({
+        publicationId,
+        source,
+        deliverySequence,
+        state,
+        ...(reason ? { reason } : {}),
+        ...(failure ? { failure } : {}),
+      }),
+    ),
+    detail:
+      !host.activeTarget || !host.shell.ready
+        ? "workspace-shell-not-ready"
+        : "",
+  };
+}
+
 function assistantWorkspaceDiagnosticsReadinessDetail(
   host: AssistantWorkspaceHostRuntime,
   args: AssistantWorkspaceDiagnosticsPublicationOptions,
@@ -3877,13 +3966,23 @@ export function inspectAssistantWorkspaceDiagnosticsPublication(
     childWindow,
     publications: [...host.publicationLifecycles.values()]
       .filter((entry) => entry.source === args.tab)
-      .map(({ publicationId, source, deliverySequence, state, reason }) => ({
-        publicationId,
-        source,
-        deliverySequence,
-        state,
-        ...(reason ? { reason } : {}),
-      })),
+      .map(
+        ({
+          publicationId,
+          source,
+          deliverySequence,
+          state,
+          reason,
+          failure,
+        }) => ({
+          publicationId,
+          source,
+          deliverySequence,
+          state,
+          ...(reason ? { reason } : {}),
+          ...(failure ? { failure } : {}),
+        }),
+      ),
     detail: detail || (childWindow ? "" : "workspace-child-not-ready"),
   };
 }
@@ -3907,6 +4006,7 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
   if (!activeTarget) {
     throw new Error("workspace-target-not-ready");
   }
+  await host.publicationRuntime?.flush();
   const barrier = async (publicationId: string) => {
     const publication =
       await host.publicationCoordinator?.waitForPostedPublication(

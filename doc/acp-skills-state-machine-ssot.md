@@ -22,6 +22,12 @@ Additionally, when the run is a sequence step, the parent
 
 These axes must not be collapsed into one user action.
 
+The ACP Skills drawer's primary task status is a workflow projection, not a
+sixth mutable run axis. `resolveAcpSkillRunWorkflowTaskState()` is the SSOT for
+the card's main status. Run lifecycle, backend status, apply state, recovery,
+connection, and attention remain separately visible; when one is unavailable,
+the projector omits it instead of substituting another axis.
+
 ## Prompt Outcome Governance
 
 ACP prompt lifecycle failures are separate from SkillRunner output contract

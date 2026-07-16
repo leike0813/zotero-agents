@@ -3,6 +3,9 @@ import { readFile } from "fs/promises";
 import {
   ASSISTANT_WORKSPACE_PUBLICATION_KINDS,
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  ASSISTANT_WORKSPACE_ACTION_REGISTRY,
+  ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY,
+  ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY,
   ASSISTANT_WORKSPACE_REGION_REGISTRY,
   ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
   ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
@@ -12,6 +15,7 @@ import {
   createLoadingTranscriptRegion,
   createReadyTranscriptRegion,
   type AssistantWorkspacePublication,
+  type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
 import {
@@ -77,7 +81,7 @@ function navigation(owner: ReturnType<typeof assistantWorkspaceTestOwner>) {
   };
 }
 
-describe("Assistant Workspace ACP publication data plane v5", function () {
+describe("Assistant Workspace ACP publication data plane v6", function () {
   it("defines one exhaustive strict registry for both ACP sources", function () {
     assert.deepEqual(ASSISTANT_WORKSPACE_PUBLICATION_KINDS, expectedKinds);
     assert.deepEqual(
@@ -95,7 +99,7 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
     assert.equal(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING.plan, "not-applicable");
   });
 
-  it("accepts only the exact v5 envelope and rejects legacy aliases", function () {
+  it("accepts only the exact v6 envelope and rejects legacy aliases", function () {
     const owner = assistantWorkspaceTestOwner("acp-skills");
     const publication = assistantWorkspaceTestPublication({
       owner,
@@ -106,7 +110,7 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
     for (const invalid of [
       {
         ...publication,
-        schema: "zotero-agents.assistant-workspace-publication.v4",
+        schema: "zotero-agents.assistant-workspace-publication.v5",
       },
       { ...publication, tab: "acp-skills" },
       { ...publication, publicationKind: "baseline-status" },
@@ -116,6 +120,82 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
     }
   });
 
+  it("defines exact semantic presentation and action registries", function () {
+    assert.sameMembers(
+      Object.keys(ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY),
+      ["context", "connection", "recovery", "workspace", "session"],
+    );
+    assert.includeMembers(
+      Object.keys(ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY),
+      [
+        "backend",
+        "workflow",
+        "status",
+        "backend-status",
+        "apply-state",
+        "updated-at",
+        "conversation",
+        "session",
+        "workspace",
+        "runtime",
+        "model",
+        "reasoning",
+      ],
+    );
+    assert.deepInclude(ASSISTANT_WORKSPACE_ACTION_REGISTRY["select-run"], {
+      scope: "target-owner",
+      sources: ["acp-skills"],
+      payloadKeys: [],
+    });
+    assert.deepInclude(
+      ASSISTANT_WORKSPACE_ACTION_REGISTRY["new-conversation"],
+      {
+        scope: "navigation-group",
+        sources: ["acp-chat"],
+        payloadKeys: ["groupId"],
+      },
+    );
+  });
+
+  it("accepts only the exact v6 owner presentation payload", function () {
+    const owner = assistantWorkspaceTestOwner("acp-skills");
+    const presentation = {
+      title: "Task",
+      subtitle: "Skill",
+      description: null,
+      notice: { tone: "warning" as const, text: "Needs input" },
+      metadata: [{ fieldId: "workflow" as const, value: "Literature" }],
+      usage: { used: 4, limit: 10, costText: null },
+      sections: [
+        {
+          sectionId: "workspace" as const,
+          items: [{ fieldId: "workspace" as const, value: "/tmp/run" }],
+        },
+      ],
+    };
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner,
+          kind: "owner-presentation",
+          payload: presentation,
+        }),
+      ),
+    );
+    assert.throws(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner,
+          kind: "owner-presentation",
+          payload: {
+            ...presentation,
+            banner: {},
+          } as never,
+        }),
+      ),
+    );
+  });
+
   it("accepts bounded renderer failures and rejects arbitrary ACK fields", function () {
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublicationAck({
@@ -123,7 +203,7 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
         stage: "render-complete",
         outcome: "rejected",
         reason: "render-failed",
-        failure: { stage: "banner", code: "render-failed" },
+        failure: { stage: "transcript", code: "dom-commit-failed" },
       }),
     );
     assert.throws(() =>
@@ -343,6 +423,12 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
     it(`initializes ${source} owner-first and batch-reads owned regions once`, async function () {
       const owner = assistantWorkspaceTestOwner(source);
       const posts: AssistantWorkspacePublication[] = [];
+      const materializations: Array<{
+        kind: AssistantWorkspacePublicationKind;
+        cause: string;
+        publicationForm: string;
+        materializationSource: string;
+      }> = [];
       let batchReads = 0;
       const supportedKinds =
         source === "acp-chat"
@@ -387,20 +473,10 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
                             title: "Owner",
                             subtitle: null,
                             description: null,
+                            notice: null,
                             metadata: [],
-                            banner: {
-                              status: "running",
-                              message: null,
-                              usage: [],
-                              connection: [],
-                              recovery: [],
-                              workspace: [],
-                              details: [],
-                              diagnostics: [],
-                            },
-                            context: [],
-                            details: [],
-                            tasks: [],
+                            usage: null,
+                            sections: [],
                           },
             ]),
           );
@@ -437,6 +513,11 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
       const runtime = new AssistantWorkspacePublicationRuntime({
         coordinator,
         activity: () => "matching-target",
+        hooks: {
+          onMaterialized(entry) {
+            materializations.push(entry);
+          },
+        },
       });
       await runtime.initialize({
         adapter,
@@ -445,6 +526,23 @@ describe("Assistant Workspace ACP publication data plane v5", function () {
         serviceStatus: { items: [] },
       });
       assert.equal(batchReads, 1);
+      assert.deepInclude(materializations[0], {
+        kind: "transcript",
+        cause: "activation",
+        publicationForm: "snapshot",
+        materializationSource: "transcript-page",
+      });
+      assert.sameMembers(
+        materializations
+          .filter((entry) => entry.materializationSource === "region")
+          .map((entry) => entry.kind),
+        supportedKinds.filter(
+          (kind) =>
+            kind !== "owner-navigation" &&
+            kind !== "service-status" &&
+            kind !== "transcript",
+        ),
+      );
       assert.deepEqual(
         posts
           .slice(0, 4)

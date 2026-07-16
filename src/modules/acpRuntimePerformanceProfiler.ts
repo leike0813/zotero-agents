@@ -9,7 +9,7 @@ export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA =
 const MAX_ACTIVE_PROFILES = 8;
 const MAX_COMPLETED_PROFILES = 8;
 const MAX_METRIC_SERIES = 128;
-const MAX_PUBLICATION_LIFECYCLES = 512;
+const MAX_PUBLICATION_LIFECYCLES = 4096;
 const DRIFT_INTERVAL_MS = 100;
 const DURATION_BUCKETS_MS = [
   1, 4, 8, 16, 33, 50, 100, 250, 500, 1000, 5000,
@@ -149,7 +149,7 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "transcript-page"
     | "frontend-snapshot"
     | "panel-snapshot";
-  renderPath: "incremental" | "snapshot";
+  renderPath: "incremental" | "snapshot" | "recovery-full";
   publicationId: string;
 }>;
 
@@ -179,6 +179,7 @@ export type AcpRuntimeProfileSnapshot = AcpRuntimeProfileContext & {
   metrics: readonly AcpRuntimeMetricSnapshot[];
   publicationLifecycles: readonly AcpRuntimePublicationLifecycleSnapshot[];
   metricSeriesDrops: number;
+  publicationLifecycleDrops: number;
   measurement: "complete" | "incomplete";
   publicationDiagnostics: readonly {
     code: "out-of-window-ack";
@@ -186,6 +187,10 @@ export type AcpRuntimeProfileSnapshot = AcpRuntimeProfileContext & {
     stage: string;
     outcome: string;
     reason: string | null;
+    failure?: {
+      stage: string;
+      code: string;
+    } | null;
   }[];
 };
 
@@ -205,11 +210,19 @@ export type AcpRuntimePublicationLifecycleSnapshot = {
       | "render-complete";
     outcome: "accepted" | "rejected";
     reason: string | null;
+    failure?: {
+      stage: string;
+      code: string;
+    } | null;
     atMs: number;
   }[];
   terminal: {
     outcome: "accepted" | "rejected";
     reason: string | null;
+    failure?: {
+      stage: string;
+      code: string;
+    } | null;
     atMs: number;
   } | null;
   post: number;
@@ -225,6 +238,7 @@ export type AcpRuntimePerformanceSnapshot = {
     activeProfiles: number;
     completedProfiles: number;
     metricSeriesPerProfile: number;
+    publicationLifecyclesPerProfile: number;
     durationBucketsMs: typeof DURATION_BUCKETS_MS;
   };
   global: AcpRuntimeProfileSnapshot;
@@ -248,12 +262,17 @@ type ProfileState = AcpRuntimeProfileContext & {
   metrics: Map<string, MetricSeries>;
   publicationLifecycles: Map<string, AcpRuntimePublicationLifecycleSnapshot>;
   metricSeriesDrops: number;
+  publicationLifecycleDrops: number;
   publicationDiagnostics: Array<{
     code: "out-of-window-ack";
     publicationId: string;
     stage: string;
     outcome: string;
     reason: string | null;
+    failure: {
+      stage: string;
+      code: string;
+    } | null;
   }>;
 };
 
@@ -338,6 +357,7 @@ function createProfile(
     metrics: new Map(),
     publicationLifecycles: new Map(),
     metricSeriesDrops: 0,
+    publicationLifecycleDrops: 0,
     publicationDiagnostics: [],
   };
 }
@@ -406,6 +426,7 @@ function recordPublicationLifecycle(
   if (!lifecycle) {
     if (stage !== "post") return false;
     if (profile.publicationLifecycles.size >= MAX_PUBLICATION_LIFECYCLES) {
+      profile.publicationLifecycleDrops += 1;
       return false;
     }
     lifecycle = {
@@ -497,6 +518,10 @@ export function recordAcpRuntimePublicationAck(
       | "render-complete";
     outcome: "accepted" | "rejected";
     reason: string | null;
+    failure?: {
+      stage: string;
+      code: string;
+    } | null;
   },
 ) {
   recordSafely(() => {
@@ -517,6 +542,7 @@ export function recordAcpRuntimePublicationAck(
         stage: ack.stage,
         outcome: ack.outcome,
         reason: ack.reason,
+        failure: ack.failure || null,
       });
       return;
     }
@@ -524,7 +550,9 @@ export function recordAcpRuntimePublicationAck(
       (entry) =>
         entry.stage === ack.stage &&
         entry.outcome === ack.outcome &&
-        entry.reason === ack.reason,
+        entry.reason === ack.reason &&
+        (entry.failure?.stage || "") === (ack.failure?.stage || "") &&
+        (entry.failure?.code || "") === (ack.failure?.code || ""),
     );
     if (!duplicate) {
       lifecycle.acknowledgements = [
@@ -533,6 +561,7 @@ export function recordAcpRuntimePublicationAck(
           stage: ack.stage,
           outcome: ack.outcome,
           reason: ack.reason,
+          failure: ack.failure || null,
           atMs: readAcpRuntimePerformanceClockMs(),
         },
       ].slice(-16);
@@ -549,6 +578,7 @@ export function recordAcpRuntimePublicationAck(
       lifecycle.terminal = {
         outcome: ack.outcome,
         reason: ack.reason,
+        failure: ack.failure || null,
         atMs: readAcpRuntimePerformanceClockMs(),
       };
       lifecycle.renderAck =
@@ -803,14 +833,29 @@ function profileSnapshot(profile: ProfileState): AcpRuntimeProfileSnapshot {
       profile.publicationLifecycles.values(),
       (entry) => ({
         ...entry,
-        acknowledgements: entry.acknowledgements.map((ack) => ({ ...ack })),
-        terminal: entry.terminal ? { ...entry.terminal } : null,
+        acknowledgements: entry.acknowledgements.map((ack) => ({
+          ...ack,
+          failure: ack.failure ? { ...ack.failure } : null,
+        })),
+        terminal: entry.terminal
+          ? {
+              ...entry.terminal,
+              failure: entry.terminal.failure
+                ? { ...entry.terminal.failure }
+                : null,
+            }
+          : null,
       }),
     ),
     metricSeriesDrops: profile.metricSeriesDrops,
-    measurement: profile.metricSeriesDrops > 0 ? "incomplete" : "complete",
+    publicationLifecycleDrops: profile.publicationLifecycleDrops,
+    measurement:
+      profile.metricSeriesDrops > 0 || profile.publicationLifecycleDrops > 0
+        ? "incomplete"
+        : "complete",
     publicationDiagnostics: profile.publicationDiagnostics.map((entry) => ({
       ...entry,
+      failure: entry.failure ? { ...entry.failure } : null,
     })),
   };
 }
@@ -840,6 +885,7 @@ export function snapshotAcpRuntimeProfiles():
         activeProfiles: MAX_ACTIVE_PROFILES,
         completedProfiles: MAX_COMPLETED_PROFILES,
         metricSeriesPerProfile: MAX_METRIC_SERIES,
+        publicationLifecyclesPerProfile: MAX_PUBLICATION_LIFECYCLES,
         durationBucketsMs: DURATION_BUCKETS_MS,
       },
       global: profileSnapshot(state.global),

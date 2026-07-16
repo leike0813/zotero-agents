@@ -156,6 +156,9 @@ function measuredProfile(args: {
   surface: "closed" | "open-inactive" | "target-active";
   mismatchedR3Publication?: boolean;
   producerNativeR3?: boolean;
+  automaticRebase?: boolean;
+  rendererRecovery?: boolean;
+  outOfWindowAck?: boolean;
 }) {
   const counter = (
     name: any,
@@ -228,7 +231,21 @@ function measuredProfile(args: {
     finishedAtMs: 110,
     metricSeriesDrops: 0,
     measurement: "complete" as const,
-    publicationDiagnostics: [],
+    publicationDiagnostics: args.outOfWindowAck
+      ? [
+          {
+            code: "out-of-window-ack" as const,
+            publicationId: "publication-before-epoch",
+            stage: "render-complete",
+            outcome: "rejected",
+            reason: "render-failed",
+            failure: {
+              stage: "transcript",
+              code: "dom-commit-failed",
+            },
+          },
+        ]
+      : [],
     publicationLifecycles:
       args.surface === "target-active"
         ? args.mismatchedR3Publication
@@ -236,7 +253,17 @@ function measuredProfile(args: {
               lifecycle("publication-1", { accepted: false }),
               lifecycle("publication-from-prior-run", { post: 0 }),
             ]
-          : [lifecycle("publication-1")]
+          : [
+              {
+                ...lifecycle("publication-1"),
+                ...(args.automaticRebase
+                  ? {
+                      publicationForm: "snapshot" as const,
+                      publicationCause: "rebase" as const,
+                    }
+                  : {}),
+              },
+            ]
         : [],
     metrics: [
       counter("semantic_event", 5),
@@ -269,6 +296,14 @@ function measuredProfile(args: {
                 ? "publication-from-prior-run"
                 : "publication-1",
             }),
+            ...(args.rendererRecovery
+              ? [
+                  counter("panel_render_updated_rows", 1, {
+                    publicationId: "publication-1",
+                    renderPath: "recovery-full",
+                  }),
+                ]
+              : []),
           ]
         : []),
     ],
@@ -997,6 +1032,57 @@ describe("ACP runtime replay profiler", function () {
       targetActive?.measurement.families.r3.detail || "",
       "publication identity mismatch",
     );
+  });
+
+  it("rejects formal recovery, automatic rebase, and late pre-epoch ACK evidence", async function () {
+    let activeProfile:
+      | {
+          requestId: string;
+          surface: "closed" | "open-inactive" | "target-active";
+        }
+      | undefined;
+    const matrix = await runAcpRuntimeReplayMatrix({
+      trace: fixtureTrace(),
+      cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
+      environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
+      createTarget: async ({ sourceKind, syntheticRootId }) =>
+        target({ sourceKind, syntheticRootId }),
+      workspace: {
+        snapshot: async () => ({}),
+        prepare: async () => ({ ok: true }),
+        drain: async () => ({ ok: true }),
+        restore: async () => undefined,
+      },
+      profiler: {
+        start: async ({ syntheticRootId, surface }) => {
+          activeProfile = { requestId: syntheticRootId, surface };
+        },
+        finish: async () =>
+          measuredProfile({
+            ...activeProfile!,
+            automaticRebase: activeProfile?.surface === "target-active",
+            rendererRecovery: activeProfile?.surface === "target-active",
+            outOfWindowAck: activeProfile?.surface === "target-active",
+          }),
+      },
+      r2Port: { consumeFragment: async () => undefined },
+      sleep: async () => undefined,
+    });
+
+    const targetActive = matrix.records.find(
+      (record) => record.surface === "target-active",
+    );
+    assert.equal(targetActive?.measurementCompletion, "incomplete");
+    assert.include(
+      targetActive?.measurement.warnings.join("\n") || "",
+      "publication-diagnostics:out-of-window-ack",
+    );
+    assert.includeMembers(targetActive?.acceptance.reasons || [], [
+      "measurement-incomplete",
+      "automatic-transcript-rebase",
+      "renderer-recovery-full",
+    ]);
   });
 
   it("accepts producer-native deltas without page materialization metrics", async function () {

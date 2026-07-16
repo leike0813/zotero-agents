@@ -318,96 +318,90 @@ export async function readAcpChatWorkspaceRegions(args: {
         String(args.owner.backendId || "").trim() ||
         null,
       description: String(snapshot.lastError || "").trim() || null,
+      notice: String(snapshot.lastError || "").trim()
+        ? {
+            tone: "danger",
+            text: String(snapshot.lastError || "").trim(),
+          }
+        : null,
       metadata: [
         {
-          itemId: "backend",
-          label: "Backend",
+          fieldId: "backend" as const,
           value: args.owner.backendId,
         },
         {
-          itemId: "conversation",
-          label: "Conversation",
+          fieldId: "conversation" as const,
           value: args.owner.conversationId,
         },
         {
-          itemId: "updated-at",
-          label: "Updated",
+          fieldId: "updated-at" as const,
           value: snapshot.sessionUpdatedAt || snapshot.updatedAt,
         },
       ].filter((entry) => entry.value),
-      banner: {
-        status: snapshot.status,
-        message: String(snapshot.lastError || "").trim() || null,
-        usage: snapshot.usage
-          ? [
-              {
-                itemId: "usage",
-                label: "Usage",
-                value: `${snapshot.usage.used}/${snapshot.usage.size}`,
-              },
-              ...(snapshot.usage.costText
-                ? [
-                    {
-                      itemId: "cost",
-                      label: "Cost",
-                      value: snapshot.usage.costText,
-                    },
-                  ]
-                : []),
-            ]
-          : [],
-        connection: [
-          {
-            itemId: "session",
-            label: "Session",
-            value: snapshot.sessionId || snapshot.remoteSessionId,
-          },
-        ].filter((entry) => entry.value),
-        recovery: [
-          {
-            itemId: "remote-session",
-            label: "Recovery",
-            value: snapshot.remoteSessionRestoreMessage,
-          },
-        ].filter((entry) => entry.value),
-        workspace: workspace
-          ? [{ itemId: "workspace", label: "Workspace", value: workspace }]
-          : [],
-        details: snapshot.agentVersion
-          ? [
-              {
-                itemId: "agent-version",
-                label: "Agent version",
-                value: snapshot.agentVersion,
-              },
-            ]
-          : [],
-        diagnostics: [
-          { action: "copy-diagnostics", label: "Copy diagnostics" },
-        ],
-      },
-      context: [
+      usage: snapshot.usage
+        ? {
+            used: Math.max(0, Number(snapshot.usage.used) || 0),
+            limit: Math.max(0, Number(snapshot.usage.size) || 0),
+            costText: snapshot.usage.costText || null,
+          }
+        : null,
+      sections: [
         {
-          itemId: "session-title",
-          label: "Session",
-          value: String(
-            snapshot.sessionTitle || snapshot.conversationTitle || "",
-          ),
-        },
-      ].filter((entry) => entry.value),
-      details: [
-        {
-          itemId: "updated-at",
-          label: "Updated",
-          value: String(snapshot.sessionUpdatedAt || snapshot.updatedAt || ""),
+          sectionId: "context" as const,
+          items: [
+            {
+              fieldId: "session" as const,
+              value: String(
+                snapshot.sessionTitle || snapshot.conversationTitle || "",
+              ),
+            },
+          ].filter((entry) => entry.value),
         },
         {
-          itemId: "workspace",
-          label: "Workspace",
-          value: String(workspace || ""),
+          sectionId: "connection" as const,
+          items: [
+            {
+              fieldId: "session" as const,
+              value: String(
+                snapshot.sessionId || snapshot.remoteSessionId || "",
+              ),
+            },
+          ].filter((entry) => entry.value),
         },
-      ].filter((entry) => entry.value),
-      tasks: [],
+        {
+          sectionId: "recovery" as const,
+          items: [
+            {
+              fieldId: "recovery" as const,
+              value: String(snapshot.remoteSessionRestoreMessage || ""),
+            },
+          ].filter((entry) => entry.value),
+        },
+        {
+          sectionId: "workspace" as const,
+          items: [
+            {
+              fieldId: "workspace" as const,
+              value: String(workspace || ""),
+            },
+          ].filter((entry) => entry.value),
+        },
+        {
+          sectionId: "session" as const,
+          items: [
+            {
+              fieldId: "updated-at" as const,
+              value: String(
+                snapshot.sessionUpdatedAt || snapshot.updatedAt || "",
+              ),
+            },
+            {
+              fieldId: "agent-version" as const,
+              value: String(snapshot.agentVersion || ""),
+            },
+          ].filter((entry) => entry.value),
+        },
+      ].filter((section) => section.items.length > 0),
     };
   }
   if (requested.has("owner-control")) {

@@ -139,9 +139,12 @@ time, range, throughput, relative closed delta, event disposition, R2 workload,
 R1/R2/R3 metrics, and coverage. Warm-up SHALL remain visible but excluded from
 aggregation, and the report SHALL state that n=2 is descriptive only.
 
-#### Scenario: Legacy matrix is opened
-- **WHEN** a v1 result is loaded
-- **THEN** it SHALL be identified as legacy measurement-incomplete evidence and SHALL NOT be comparable with v2.
+#### Scenario: Formal matrix report is rendered
+
+- **WHEN** a matrix contains warm-up and formal records for all three surfaces
+- **THEN** the report summarizes the two formal records per surface
+- **AND** it keeps warm-up evidence visible but excludes it from formal
+  aggregation.
 
 ### Requirement: Replay injects versioned safe R2 work
 
@@ -176,9 +179,9 @@ materialization, steady snapshots, target visibility, and drift.
 - **THEN** completion remains complete
 - **AND** acceptance fails with the byte-budget reason.
 
-### Requirement: Replay uses current v5 lifecycle vocabulary
+### Requirement: Replay uses current v6 lifecycle vocabulary
 
-Replay SHALL use exact v5 source, kind, form, cause, delivery, rebase, and
+Replay SHALL use exact v6 source, kind, form, cause, delivery, rebase, and
 overflow semantics. Historical matrix compatibility and governance eligibility
 fields SHALL NOT remain in current-state results.
 
@@ -402,12 +405,20 @@ R1 SHALL be captured only when semantic replay completes, the applied event coun
 
 ### Requirement: Cold Workspace publication acknowledgement is retryable
 
-After Workspace child and owner readiness, Replay diagnostics SHALL observe a post-baseline child snapshot revision and its render acknowledgement. If a forced asynchronous snapshot build completes without publishing because a concurrent cold-init build superseded it, diagnostics SHALL retry the same idempotent forced publication serially at a bounded interval. Retry SHALL stop after acknowledgement, cancellation, frame replacement, unload, publication error, or timeout, and SHALL NOT overlap forced builds.
+After Workspace child and owner readiness, Replay diagnostics SHALL force an
+exact publication barrier and observe its render acknowledgement. If an
+asynchronous build produces no publication or a concurrent cold-init build
+supersedes the forced identity, diagnostics SHALL retry the same idempotent
+request serially at a bounded interval. Retry SHALL stop after acknowledgement,
+cancellation, frame replacement, unload, publication error, or timeout, and
+SHALL NOT overlap forced builds.
 
 #### Scenario: Cold first publication is superseded
-- **WHEN** the first forced publication returns without a post-baseline revision because a newer child init build superseded it
+- **WHEN** the first forced request produces no identity or its identity is
+  superseded by a newer child init publication
 - **THEN** diagnostics SHALL issue another forced publication without waiting for the overall timeout
-- **AND** a later post-baseline revision rendered by the child SHALL complete Workspace preparation successfully.
+- **AND** a later exact forced identity rendered by the child SHALL complete
+  Workspace preparation successfully.
 
 ### Requirement: Synthetic activation is release-elidable
 
@@ -491,7 +502,20 @@ Diagnostic force SHALL always return a publication identity even when content is
 - **THEN** Host posts a diagnostic snapshot with a new publicationId
 - **AND** sidecar completes from that exact render-complete identity.
 
-### Requirement: Replay verifies the complete v3 lifecycle
+### Requirement: Replay profile evidence is publication-epoch scoped
+
+Before each profile window Replay SHALL drain both ACP publication lanes,
+capture the active child generation and per-source delivery watermark, and
+attribute current-run lifecycle evidence after that watermark.
+
+#### Scenario: A prior Chat publication precedes Skills open-inactive
+
+- **WHEN** the prior publication terminates before the Skills profile starts
+- **THEN** it does not contaminate the Skills record
+- **AND** a prior publication arriving after profile start makes measurement
+  incomplete.
+
+### Requirement: Replay verifies the complete v6 lifecycle
 
 Each successful publication SHALL correlate the same publicationId across post, shell-forward, child-apply, and render-complete. Old-owner, stale, gap, superseded, or invalid publications SHALL not modify DOM.
 
@@ -555,14 +579,25 @@ Replay R3 completeness SHALL use publications whose post stage was recorded insi
 - **WHEN** a publication posted inside the active profile lacks its terminal render acknowledgement
 - **THEN** R3 measurement remains incomplete.
 
-### Requirement: Formal Replay rejects valid-stream rebase storms
+### Requirement: Formal Replay rejects renderer recovery and rebase storms
 
-Formal ACP Chat and ACP Skills boundary Replay SHALL require visible target transcript, complete execution and measurement, complete publication identities, zero forbidden steady materialization, and zero gap/rebase snapshots for valid steady mutations.
+Target-active formal ACP Chat and ACP Skills boundary Replay SHALL require
+visible target transcript, complete execution and measurement, accepted render
+terminals, complete publication identities, zero forbidden steady
+materialization, and no automatic rebase or recovery-full path for valid trace
+publications.
 
 #### Scenario: Either target-active surface rebases valid deltas
 
 - **WHEN** a valid steady trace produces a gap, automatic rebase page read, or rebase snapshot
 - **THEN** the affected record and atomic cross-surface acceptance are incomplete.
+
+#### Scenario: Skills delta failure triggers repeated rebase snapshots
+
+- **WHEN** lifecycle evidence contains render rejection, recovery-full, or
+  automatic rebase
+- **THEN** formal acceptance fails with the structured reason
+- **AND** posted rebase bytes remain visible in the report.
 
 ### Requirement: Rebase drain follows the coordinator barrier
 

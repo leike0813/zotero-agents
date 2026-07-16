@@ -7,9 +7,226 @@ import type {
 } from "./assistantWorkspaceTranscriptPublication";
 
 export const ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA =
-  "zotero-agents.assistant-workspace-publication.v5" as const;
+  "zotero-agents.assistant-workspace-publication.v6" as const;
 
 export type AssistantWorkspacePublicationSource = "acp-chat" | "acp-skills";
+
+export const ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY = {
+  backend: { labelPath: "fields.backend" },
+  workflow: { labelPath: "fields.workflow" },
+  skill: { labelPath: "fields.skill" },
+  status: { labelPath: "fields.status" },
+  "backend-status": { labelPath: "status.backend" },
+  "apply-state": { labelPath: "status.apply" },
+  "updated-at": { labelPath: "fields.updated" },
+  conversation: { labelPath: "fields.conversation" },
+  session: { labelPath: "fields.session" },
+  recovery: { labelPath: "fields.remoteRestore" },
+  workspace: { labelPath: "fields.workspace" },
+  runtime: { labelPath: "fields.runtime" },
+  model: { labelPath: "fields.model" },
+  reasoning: { labelPath: "fields.reasoning" },
+  "agent-version": { labelPath: "fields.agentVersion" },
+} as const;
+
+export type AssistantWorkspacePresentationFieldId =
+  keyof typeof ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY;
+
+export const ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY = {
+  context: { labelPath: "details.conversationSummary" },
+  connection: { labelPath: "fields.connection" },
+  recovery: { labelPath: "fields.remoteRestore" },
+  workspace: { labelPath: "details.paths" },
+  session: { labelPath: "details.session" },
+} as const;
+
+export type AssistantWorkspacePresentationSectionId =
+  keyof typeof ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY;
+
+export type AssistantWorkspaceActionScope =
+  | "local"
+  | "target-owner"
+  | "selected-owner"
+  | "navigation-group"
+  | "global";
+
+export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
+  "open-context-drawer": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "close-context-drawer": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "open-details-drawer": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "close-details-drawer": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "open-permission-request": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["permissionRequest"],
+  },
+  "close-permission-request": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "toggle-drawer-section": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["sectionId"],
+  },
+  "toggle-drawer-group": {
+    scope: "local",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["groupKey"],
+  },
+  "set-chat-display-mode": {
+    scope: "local",
+    sources: ["acp-chat"],
+    payloadKeys: ["mode"],
+  },
+  "set-active-conversation": {
+    scope: "target-owner",
+    sources: ["acp-chat"],
+    payloadKeys: [],
+  },
+  "archive-conversation": {
+    scope: "target-owner",
+    sources: ["acp-chat"],
+    payloadKeys: [],
+  },
+  "select-run": {
+    scope: "target-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "archive-run": {
+    scope: "target-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "set-active-backend": {
+    scope: "navigation-group",
+    sources: ["acp-chat"],
+    payloadKeys: ["groupId"],
+  },
+  "new-conversation": {
+    scope: "navigation-group",
+    sources: ["acp-chat"],
+    payloadKeys: ["groupId"],
+  },
+  "open-backend-manager": {
+    scope: "global",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "close-sidebar": {
+    scope: "global",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+  "set-execution-display-mode": {
+    scope: "global",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["mode"],
+  },
+  "load-transcript-page": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["request"],
+  },
+  connect: {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: [],
+  },
+  disconnect: {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: [],
+  },
+  cancel: {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: [],
+  },
+  "send-prompt": {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: ["message"],
+  },
+  "connect-run": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "disconnect-run": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "interrupt-run-turn": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "reply-run": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: ["message"],
+  },
+  "resolve-permission": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["permissionRequestId", "outcome", "optionId"],
+  },
+  "set-mode": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["modeId"],
+  },
+  "set-model": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["modelId"],
+  },
+  "set-reasoning-effort": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: ["effortId"],
+  },
+  "copy-request-id": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "copy-diagnostics": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
+} as const satisfies Record<
+  string,
+  {
+    scope: AssistantWorkspaceActionScope;
+    sources: readonly AssistantWorkspacePublicationSource[];
+    payloadKeys: readonly string[];
+  }
+>;
+
+export type AssistantWorkspaceAction =
+  keyof typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY;
 
 export type AssistantWorkspacePublicationKind =
   | "owner-navigation"
@@ -164,27 +381,25 @@ export type AssistantWorkspaceOwnerPresentation = {
   title: string;
   subtitle: string | null;
   description: string | null;
-  metadata: Array<{ itemId: string; label: string; value: string }>;
-  banner: {
-    status: string;
-    message: string | null;
-    usage: Array<{ itemId: string; label: string; value: string }>;
-    connection: Array<{ itemId: string; label: string; value: string }>;
-    recovery: Array<{ itemId: string; label: string; value: string }>;
-    workspace: Array<{ itemId: string; label: string; value: string }>;
-    details: Array<{ itemId: string; label: string; value: string }>;
-    diagnostics: Array<{ action: string; label: string }>;
-  };
-  context: Array<{ itemId: string; label: string; value: string }>;
-  details: Array<{ itemId: string; label: string; value: string }>;
-  tasks: Array<{
-    sectionId: string;
-    groupKey: string;
-    taskKey: string;
-    title: string;
-    subtitle: string | null;
-    status: string;
-    selected: boolean;
+  notice: {
+    tone: "info" | "warning" | "danger";
+    text: string;
+  } | null;
+  metadata: Array<{
+    fieldId: AssistantWorkspacePresentationFieldId;
+    value: string;
+  }>;
+  usage: {
+    used: number;
+    limit: number;
+    costText: string | null;
+  } | null;
+  sections: Array<{
+    sectionId: AssistantWorkspacePresentationSectionId;
+    items: Array<{
+      fieldId: AssistantWorkspacePresentationFieldId;
+      value: string;
+    }>;
   }>;
 };
 
@@ -454,7 +669,15 @@ export type AssistantWorkspacePublicationAck = {
       | "module-missing"
       | "bridge-missing"
       | "projection-failed"
-      | "render-failed";
+      | "render-failed"
+      | "effect-invalid"
+      | "container-missing"
+      | "node-map-missing"
+      | "page-items-missing"
+      | "page-invalid"
+      | "virtual-reconcile-failed"
+      | "row-reconcile-failed"
+      | "dom-commit-failed";
   } | null;
 };
 
@@ -462,6 +685,7 @@ export type AssistantWorkspacePublicationLifecycle = {
   publicationId: string;
   state: "pending" | "render-complete" | "rejected";
   reason: AssistantWorkspacePublicationAck["reason"];
+  failure: AssistantWorkspacePublicationAck["failure"];
 };
 
 export type AssistantWorkspacePublicationBarrier = {
@@ -780,11 +1004,10 @@ function assertPublicationPayloadInvariant(
       "title",
       "subtitle",
       "description",
+      "notice",
       "metadata",
-      "banner",
-      "context",
-      "details",
-      "tasks",
+      "usage",
+      "sections",
     ],
   };
   assertExactObjectKeys(
@@ -909,58 +1132,65 @@ function assertPublicationPayloadInvariant(
   }
   if (kind === "owner-presentation") {
     const presentation = payload as AssistantWorkspaceOwnerPresentation;
-    assertExactObjectKeys(
-      presentation.banner,
-      [
-        "status",
-        "message",
-        "usage",
-        "connection",
-        "recovery",
-        "workspace",
-        "details",
-        "diagnostics",
-      ],
-      "assistant-workspace-owner-presentation-banner",
-    );
-    for (const item of [
-      ...presentation.metadata,
-      ...presentation.banner.usage,
-      ...presentation.banner.connection,
-      ...presentation.banner.recovery,
-      ...presentation.banner.workspace,
-      ...presentation.banner.details,
-      ...presentation.context,
-      ...presentation.details,
-    ]) {
+    if (presentation.notice) {
+      assertExactObjectKeys(
+        presentation.notice,
+        ["tone", "text"],
+        "assistant-workspace-owner-presentation-notice",
+      );
+      if (
+        !["info", "warning", "danger"].includes(presentation.notice.tone) ||
+        !String(presentation.notice.text || "").trim()
+      ) {
+        throw new Error("assistant-workspace-owner-presentation-notice");
+      }
+    }
+    if (presentation.usage) {
+      assertExactObjectKeys(
+        presentation.usage,
+        ["used", "limit", "costText"],
+        "assistant-workspace-owner-presentation-usage",
+      );
+    }
+    for (const item of presentation.metadata) {
       assertExactObjectKeys(
         item,
-        ["itemId", "label", "value"],
+        ["fieldId", "value"],
         "assistant-workspace-owner-presentation-item",
       );
+      assertAssistantWorkspacePresentationField(item.fieldId);
     }
-    for (const diagnostic of presentation.banner.diagnostics) {
+    for (const section of presentation.sections) {
       assertExactObjectKeys(
-        diagnostic,
-        ["action", "label"],
-        "assistant-workspace-owner-presentation-diagnostic",
+        section,
+        ["sectionId", "items"],
+        "assistant-workspace-owner-presentation-section",
       );
+      if (
+        !(
+          section.sectionId in ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY
+        )
+      ) {
+        throw new Error("assistant-workspace-owner-presentation-section");
+      }
+      for (const item of section.items) {
+        assertExactObjectKeys(
+          item,
+          ["fieldId", "value"],
+          "assistant-workspace-owner-presentation-item",
+        );
+        assertAssistantWorkspacePresentationField(item.fieldId);
+      }
     }
-    for (const task of presentation.tasks) {
-      assertExactObjectKeys(
-        task,
-        [
-          "sectionId",
-          "groupKey",
-          "taskKey",
-          "title",
-          "subtitle",
-          "status",
-          "selected",
-        ],
-        "assistant-workspace-owner-presentation-task",
-      );
-    }
+  }
+}
+
+function assertAssistantWorkspacePresentationField(value: unknown) {
+  if (
+    !String(value || "").trim() ||
+    !(String(value) in ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY)
+  ) {
+    throw new Error("assistant-workspace-owner-presentation-field");
   }
 }
 
@@ -1046,6 +1276,14 @@ export function assertAssistantWorkspacePublicationAck(
         "bridge-missing",
         "projection-failed",
         "render-failed",
+        "effect-invalid",
+        "container-missing",
+        "node-map-missing",
+        "page-items-missing",
+        "page-invalid",
+        "virtual-reconcile-failed",
+        "row-reconcile-failed",
+        "dom-commit-failed",
       ].includes(String(ack.failure?.code))
     ) {
       throw new Error("assistant-workspace-publication-ack-failure");

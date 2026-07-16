@@ -26,6 +26,10 @@ export type AcpRuntimeReplayPublicationLifecycle = {
   deliverySequence: number;
   state: "pending" | "render-complete" | "rejected";
   reason?: string;
+  failure?: {
+    stage: string;
+    code: string;
+  };
 };
 
 export type AcpRuntimeReplayPublicationInspection = {
@@ -41,10 +45,101 @@ export type AcpRuntimeReplayForcedPublication = {
 };
 
 type PublicationResult = { ok: boolean; detail?: string };
+type PublicationEpochResult = PublicationResult & {
+  watermarks?: {
+    "acp-chat": number;
+    "acp-skills": number;
+  };
+};
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const INSPECTION_INTERVAL_MS = 16;
 const PUBLICATION_RETRY_INTERVAL_MS = 100;
+
+export function drainAcpRuntimeReplayPublicationEpoch(args: {
+  signal?: AcpRuntimeReplayCancellationSignal;
+  timeoutMs?: number;
+  inspect: () => AcpRuntimeReplayPublicationInspection;
+}): Promise<PublicationEpochResult> {
+  const timeoutMs = Math.max(1, Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS);
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    let settled = false;
+    let inspectionToken: ReturnType<typeof setTimeout> | null = null;
+    const cleanup = () => {
+      if (inspectionToken) clearTimeout(inspectionToken);
+      args.signal?.removeEventListener("abort", onAbort);
+      inspectionToken = null;
+    };
+    const settle = (result: PublicationEpochResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+    const onAbort = () =>
+      settle({ ok: false, detail: "workspace-publication-epoch-aborted" });
+    const inspect = () => {
+      if (settled) return;
+      if (args.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      const current = args.inspect();
+      if (current.detail) {
+        if (Date.now() >= deadline) {
+          settle({
+            ok: false,
+            detail: `workspace-publication-epoch-timeout:${current.detail}`,
+          });
+          return;
+        }
+      } else {
+        const pending = current.publications.filter(
+          (entry) => entry.state === "pending",
+        );
+        if (pending.length === 0) {
+          settle({
+            ok: true,
+            watermarks: {
+              "acp-chat": current.publications
+                .filter((entry) => entry.source === "acp-chat")
+                .reduce(
+                  (maximum, entry) => Math.max(maximum, entry.deliverySequence),
+                  0,
+                ),
+              "acp-skills": current.publications
+                .filter((entry) => entry.source === "acp-skills")
+                .reduce(
+                  (maximum, entry) => Math.max(maximum, entry.deliverySequence),
+                  0,
+                ),
+            },
+          });
+          return;
+        }
+        if (Date.now() >= deadline) {
+          settle({
+            ok: false,
+            detail: `workspace-publication-epoch-timeout:${
+              pending
+                .slice(0, 3)
+                .map((entry) => entry.publicationId)
+                .join(",") || "unknown"
+            }`,
+          });
+          return;
+        }
+      }
+      inspectionToken = setTimeout(
+        inspect,
+        Math.min(INSPECTION_INTERVAL_MS, Math.max(1, deadline - Date.now())),
+      );
+    };
+    args.signal?.addEventListener("abort", onAbort, { once: true });
+    inspect();
+  });
+}
 
 export function waitAcpRuntimeReplayWorkspaceReadiness(args: {
   tab: AcpRuntimeReplayPublicationTab;
@@ -114,6 +209,8 @@ export function drainAcpRuntimeReplayPublication(args: {
     let targetPublicationId = "";
     let targetDeliverySequence = 0;
     let targetSource: AcpRuntimeReplayPublicationSurface | "" = "";
+    let publicationEpochSequence = 0;
+    let epochPendingPublicationIds: string[] = [];
     let timeoutToken: ReturnType<typeof setTimeout> | null = null;
     let inspectionToken: ReturnType<typeof setTimeout> | null = null;
     let lastReadinessDetail = "workspace-child-not-ready";
@@ -148,13 +245,35 @@ export function drainAcpRuntimeReplayPublication(args: {
         });
         return;
       }
-      const barrierPublications = targetPublicationId
-        ? inspection.publications.filter(
+      const source = targetSource || args.tab;
+      const sourcePublications = inspection.publications.filter(
+        (entry) => entry.source === source,
+      );
+      if (!targetPublicationId) {
+        publicationEpochSequence = sourcePublications.reduce(
+          (maximum, entry) =>
+            Math.max(maximum, Number(entry.deliverySequence) || 0),
+          publicationEpochSequence,
+        );
+        epochPendingPublicationIds = sourcePublications
+          .filter(
             (entry) =>
-              entry.source === targetSource &&
+              entry.deliverySequence <= publicationEpochSequence &&
+              entry.state === "pending",
+          )
+          .map((entry) => entry.publicationId);
+        lastPublicationDetail = `epoch=${publicationEpochSequence},pending=${
+          epochPendingPublicationIds.slice(0, 3).join(",") || "none"
+        },target=unassigned`;
+        return;
+      }
+      const barrierPublications = targetPublicationId
+        ? sourcePublications.filter(
+            (entry) =>
+              entry.deliverySequence > publicationEpochSequence &&
               entry.deliverySequence <= targetDeliverySequence,
           )
-        : inspection.publications;
+        : [];
       const pendingPublicationIds = barrierPublications
         .filter((entry) => entry.state === "pending")
         .map((entry) => entry.publicationId);
@@ -172,7 +291,13 @@ export function drainAcpRuntimeReplayPublication(args: {
       },pending=${pendingPublicationIds.slice(0, 3).join(",") || "none"}`;
       if (target?.state === "rejected") {
         if (target.reason === "superseded" || target.reason === "old-owner") {
+          publicationEpochSequence = Math.max(
+            publicationEpochSequence,
+            targetDeliverySequence,
+          );
           targetPublicationId = "";
+          targetDeliverySequence = 0;
+          targetSource = "";
           nextForcePublishAt = 0;
           return;
         }
@@ -191,6 +316,8 @@ export function drainAcpRuntimeReplayPublication(args: {
     };
     const forcePublication = async () => {
       if (settled || forcePublishInFlight || targetPublicationId) return;
+      inspectCurrent();
+      if (settled || epochPendingPublicationIds.length > 0) return;
       forcePublishInFlight = true;
       try {
         const forced = await args.forcePublish();
@@ -200,7 +327,7 @@ export function drainAcpRuntimeReplayPublication(args: {
           if (
             forced.source !== args.tab ||
             !Number.isInteger(deliverySequence) ||
-            deliverySequence <= 0
+            deliverySequence <= publicationEpochSequence
           ) {
             settle({
               ok: false,
@@ -245,8 +372,9 @@ export function drainAcpRuntimeReplayPublication(args: {
     ) => {
       childWindow = inspection.childWindow;
       childWindow?.addEventListener("unload", onUnload);
+      inspectCurrent();
       scheduleInspection();
-      void forcePublication();
+      if (epochPendingPublicationIds.length === 0) void forcePublication();
     };
     const inspectReadiness = () => {
       if (settled) return;

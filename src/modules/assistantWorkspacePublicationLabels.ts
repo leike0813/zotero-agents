@@ -22,6 +22,13 @@ export function buildAssistantWorkspacePublicationLabels(
         "task-dashboard-run-completed-tasks-title" as any,
         "Completed Tasks",
       ),
+      emptySelection: localize(
+        "task-dashboard-acp-select-skill-run" as any,
+        "Select an ACP skill run to inspect its transcript.",
+      ),
+      view: localize("task-dashboard-acp-view" as any, "View"),
+      plain: localize("task-dashboard-acp-view-plain" as any, "Plain"),
+      bubble: localize("task-dashboard-acp-view-bubble" as any, "Bubble"),
       panelRendererUnavailable: localize(
         "task-dashboard-acp-skill-run-panel-renderer-unavailable" as any,
         "ACP Skills panel renderer unavailable.",
@@ -140,6 +147,10 @@ export function buildAssistantWorkspacePublicationLabels(
     empty: localize(
       "task-dashboard-acp-empty" as any,
       "No messages yet. Start a new conversation.",
+    ),
+    emptySelection: localize(
+      "task-dashboard-acp-select-conversation" as any,
+      "Select a conversation to inspect its transcript.",
     ),
     errorPrefix: localize("task-dashboard-acp-error-prefix" as any, "Error"),
     authPrefix: localize(

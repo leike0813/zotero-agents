@@ -90,6 +90,53 @@
     return state;
   }
 
+  function cloneVirtualTranscriptState(source) {
+    const pages = new Map();
+    source.pages.forEach(function (page, cursor) {
+      pages.set(
+        cursor,
+        Object.assign({}, page, {
+          items: Array.isArray(page.items) ? page.items.slice() : [],
+        }),
+      );
+    });
+    const itemLocations = new Map();
+    pages.forEach(function (page) {
+      page.items.forEach(function (item, index) {
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
+        if (itemId) itemLocations.set(itemId, { page, index });
+      });
+    });
+    return {
+      ownerKey: source.ownerKey,
+      pages,
+      loadingCursors: new Set(source.loadingCursors),
+      renderScheduled: source.renderScheduled,
+      scrollInstalled: source.scrollInstalled,
+      latestOptions: source.latestOptions,
+      lastVirtual: source.lastVirtual,
+      lastAnchor: source.lastAnchor,
+      pendingMeasureRender: source.pendingMeasureRender,
+      rowHeights: new Map(source.rowHeights),
+      itemLocations,
+      virtualSourceMode: source.virtualSourceMode,
+    };
+  }
+
+  function commitVirtualTranscriptState(target, source) {
+    target.ownerKey = source.ownerKey;
+    target.pages = source.pages;
+    target.loadingCursors = source.loadingCursors;
+    target.renderScheduled = source.renderScheduled;
+    target.latestOptions = source.latestOptions;
+    target.lastVirtual = source.lastVirtual;
+    target.lastAnchor = source.lastAnchor;
+    target.pendingMeasureRender = source.pendingMeasureRender;
+    target.rowHeights = source.rowHeights;
+    target.itemLocations = source.itemLocations;
+    target.virtualSourceMode = source.virtualSourceMode;
+  }
+
   function resetTranscriptScrollState(container) {
     if (!container) return;
     container.removeAttribute("data-assistant-transcript-programmatic-scroll");
@@ -1941,7 +1988,7 @@
     return true;
   }
 
-  function applyAssistantTranscriptEffects(options) {
+  function applyAssistantTranscriptEffectsUnsafe(options) {
     const opts = options || {};
     const effect = opts.effect || {};
     const container = opts.container;
@@ -1982,7 +2029,7 @@
     let rawItems = pageItems;
     if (opts.virtualized) {
       if (!opts.page || !Array.isArray(opts.page.items)) return false;
-      virtualState = getVirtualTranscriptState(container);
+      virtualState = opts.virtualState || getVirtualTranscriptState(container);
       const merged = mergeVirtualTranscriptPage(virtualState, opts.page, opts);
       if (!merged) return false;
       const latestOptions = Object.assign({}, opts);
@@ -2065,12 +2112,12 @@
         ? children[children.length - 1]
         : null;
     for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const row = nodeMap.get(rows[index].rowKey);
+      const row = nodeMap.get(String(rows[index].rowKey));
       if (!row) return false;
       const currentChildren = Array.from(container.children || []);
       const rowIndex = currentChildren.indexOf(row);
       const next = rowIndex >= 0 ? currentChildren[rowIndex + 1] || null : null;
-      if (next !== anchor) container.insertBefore(row, anchor);
+      if (rowIndex < 0 || next !== anchor) container.insertBefore(row, anchor);
       anchor = row;
     }
     const measuredChanged =
@@ -2102,6 +2149,103 @@
       });
     }
     return true;
+  }
+
+  function applyAssistantTranscriptEffectsExact(options) {
+    const opts = options || {};
+    const effect = opts.effect || {};
+    if (effect.kind !== "mutations" || effect.onSelectedPage !== true) {
+      return {
+        ok: effect.kind === "mutations" && effect.onSelectedPage !== true,
+        renderPath: "incremental",
+        failure:
+          effect.kind === "mutations" && effect.onSelectedPage !== true
+            ? null
+            : { stage: "transcript", code: "effect-invalid" },
+      };
+    }
+    if (!opts.container) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "container-missing" },
+      };
+    }
+    const liveNodeMap = transcriptNodeMap(opts.container, opts.nodeMap);
+    if (!liveNodeMap) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "node-map-missing" },
+      };
+    }
+    const structural = (
+      Array.isArray(effect.mutations) ? effect.mutations : []
+    ).some(function (mutation) {
+      return (
+        mutation &&
+        (mutation.op === "upsert_item" || mutation.op === "delete_item")
+      );
+    });
+    if (structural && !Array.isArray(effect.pageItems)) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "page-items-missing" },
+      };
+    }
+    if (opts.virtualized && (!opts.page || !Array.isArray(opts.page.items))) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "page-invalid" },
+      };
+    }
+    const stagedNodeMap = new Map(liveNodeMap);
+    const liveVirtualState = opts.virtualized
+      ? getVirtualTranscriptState(opts.container)
+      : null;
+    const stagedVirtualState = liveVirtualState
+      ? cloneVirtualTranscriptState(liveVirtualState)
+      : null;
+    try {
+      const rendered = applyAssistantTranscriptEffectsUnsafe(
+        Object.assign({}, opts, {
+          nodeMap: stagedNodeMap,
+          virtualState: stagedVirtualState,
+        }),
+      );
+      if (rendered === false) {
+        return {
+          ok: false,
+          renderPath: "incremental",
+          failure: {
+            stage: "transcript",
+            code: opts.virtualized
+              ? "virtual-reconcile-failed"
+              : "row-reconcile-failed",
+          },
+        };
+      }
+      liveNodeMap.clear();
+      stagedNodeMap.forEach(function (row, rowKey) {
+        liveNodeMap.set(rowKey, row);
+      });
+      if (liveVirtualState && stagedVirtualState) {
+        commitVirtualTranscriptState(liveVirtualState, stagedVirtualState);
+      }
+      return { ok: true, renderPath: "incremental", failure: null };
+    } catch (_error) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "dom-commit-failed" },
+      };
+    }
+  }
+
+  function applyAssistantTranscriptEffects(options) {
+    return applyAssistantTranscriptEffectsExact(options).ok;
   }
 
   function renderAssistantTranscript(options) {
@@ -2332,6 +2476,7 @@
   window.AssistantTranscriptRenderer = {
     adaptLegacyTranscriptItem,
     applyAssistantTranscriptEffects,
+    applyAssistantTranscriptEffectsExact,
     buildTranscriptRenderItems,
     compactAssistantToolName,
     compactAssistantToolSummary,
