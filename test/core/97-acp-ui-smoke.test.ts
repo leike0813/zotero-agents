@@ -2415,23 +2415,16 @@ describe("acp ui smoke", function () {
     assert.include(assistantJs, "host-ready-result");
     assert.include(assistantJs, "child-replay-tick");
     assert.include(assistantJs, "function acceptChildReady(tab, payload)");
+    assert.include(
+      assistantJs,
+      "function handleChildAction(tab, action, payload)",
+    );
+    assert.include(assistantJs, 'if (normalizedAction === "ready")');
+    assert.include(assistantJs, "acceptChildReady(tab, normalizedPayload)");
     assert.include(assistantJs, "function handleFrameLoad(tab)");
     assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
     assert.notInclude(assistantJs, "function initializeFrame(tab)");
     assert.notInclude(assistantJs, "acceptChildReady(tab, {})");
-    assert.include(assistantJs, 'if (data.action === "ready")');
-    assert.include(
-      assistantJs,
-      'acceptChildReady("acp-chat", data.payload || {})',
-    );
-    assert.include(
-      assistantJs,
-      'acceptChildReady("acp-skills", data.payload || {})',
-    );
-    assert.include(
-      assistantJs,
-      'acceptChildReady("skillrunner", data.payload || {})',
-    );
     assert.notInclude(assistantJs, 'data.type === "skillrunner-sidebar:init"');
     assert.notInclude(
       assistantJs,
@@ -3844,7 +3837,7 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "scheduleAcpChatPublications");
     assert.include(
       assistantSidebar,
-      "void postAcpChatLoadingFirstSnapshot(host, target, phase);",
+      "await postAcpChatLoadingFirstSnapshot(host, target, phase)",
     );
     assert.notInclude(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
     assert.notInclude(assistantSidebar, "if (tab !== host.activeTab)");
@@ -4190,10 +4183,11 @@ describe("acp ui smoke", function () {
     assert.include(assistantSidebar, "host.shell.bridgeWindow === frameWindow");
     assert.include(assistantSidebar, "shell-bridge-installed");
     assert.include(assistantSidebar, "child-ready-duplicate");
-    assert.include(assistantSidebar, "publishedWorkspaceInitScopeKey");
-    assert.include(assistantSidebar, "publishedChildInitScopeKeys");
+    assert.include(assistantSidebar, "workspaceInitDelivery");
+    assert.include(assistantSidebar, "childInitDeliveries");
+    assert.include(assistantSidebar, "readyTabGenerations");
     assert.include(assistantSidebar, "shell-ready-init-skip");
-    assert.include(assistantSidebar, "child-ready-init-skip");
+    assert.notInclude(assistantSidebar, "child-ready-init-skip");
     assert.include(assistantSidebar, "latestSkillRunnerBaseSnapshot");
     assert.include(assistantSidebar, "skillRunnerAttachedFrameWindow");
     assert.include(assistantSidebar, "publishLatestSkillRunnerChromeSnapshot");
@@ -4307,10 +4301,10 @@ describe("acp ui smoke", function () {
       childReadyStart,
       childReadyEnd,
     );
-    assert.include(childReadyBranch, "host.readyTabs.has(tab)");
+    assert.include(childReadyBranch, "host.readyTabGenerations.get(tab)");
     assert.include(childReadyBranch, "hasPublishedChildBaselineInit");
     assert.include(childReadyBranch, "child-ready-duplicate");
-    assert.include(childReadyBranch, "child-ready-init-skip");
+    assert.notInclude(childReadyBranch, "child-ready-init-skip");
     assert.include(childReadyBranch, "return;");
     assert.include(childReadyBranch, "publishAssistantWorkspaceStatePulse");
 
@@ -4534,7 +4528,7 @@ describe("acp ui smoke", function () {
     );
   });
 
-  it("forwards typed publications without replacing the cached child snapshot", async function () {
+  it("retains typed publications until the current child document is ready", async function () {
     const bridgeCalls: any[] = [];
     const shell = await loadAssistantWorkspaceShellForSmoke({
       hostBridge: {
@@ -4546,25 +4540,47 @@ describe("acp ui smoke", function () {
     });
     const child = shell.elements.get("assistant-frame-acp-chat").contentWindow;
     const publication = {
-      schema: "zotero-agents.assistant-workspace-publication.v1",
-      id: "publication-shell-1",
-      tab: "acp-chat",
-      kind: "transcript",
+      schema: "zotero-agents.assistant-workspace-publication.v3",
+      publicationId: "publication-shell-1",
       owner: {
         source: "acp-chat",
-        key: "backend-a\nconversation-a",
+        ownerKey: "backend-a\nconversation-a",
         backendId: "backend-a",
         conversationId: "conversation-a",
       },
-      revision: 1,
-      signature: "transcript-1",
-      initialization: false,
-      dto: { transcriptRevision: 1 },
+      publicationKind: "transcript",
+      publicationForm: "delta",
+      publicationCause: "steady-state",
+      regionRevision: 1,
+      deliverySequence: 1,
+      payload: {
+        page: {
+          pageKey: "backend-a\nconversation-a\ntail:80",
+          startCursor: 0,
+          limit: 80,
+          totalItemCount: 1,
+          previousCursor: null,
+          nextCursor: null,
+          eventSeq: 1,
+        },
+        baseUiRevision: 0,
+        uiRevision: 1,
+        mutations: [],
+      },
     };
 
     shell.dispatchWindowMessage("assistant-workspace:child-publication", {
       tab: "acp-chat",
       publication,
+    });
+    await flushMicrotasks();
+
+    assert.notDeepInclude(child.messages.at(-1), {
+      type: "acp:publication",
+      payload: publication,
+    });
+    child.__zsAcpSidebarBridge.sendAction("ready", {
+      documentGeneration: "chat-document-1",
     });
     await flushMicrotasks();
 
@@ -4576,14 +4592,51 @@ describe("acp ui smoke", function () {
       .filter((entry) => entry.type === "assistant-workspace:publication-ack")
       .map((entry) => entry.payload.stage);
     assert.includeMembers(ackStages, ["shell-receive", "shell-forward"]);
-    assert.isFalse(
+    assert.isTrue(
       shell
         .trace()
         .some(
           (entry: any) =>
-            entry.stage === "cache-child-payload" &&
+            entry.stage === "cache-child-publication" &&
             entry.publicationId === "publication-shell-1",
         ),
+    );
+
+    child.__zsAcpSidebarBridge.sendAction("ready", {
+      documentGeneration: "chat-document-2",
+    });
+    await flushMicrotasks();
+    child.__zsAcpSidebarBridge.sendAction("publication-ack", {
+      publicationId: publication.publicationId,
+      documentGeneration: "chat-document-1",
+      stage: "render-complete",
+      outcome: "accepted",
+      reason: null,
+    });
+    await flushMicrotasks();
+    const childPublicationAcks = () =>
+      bridgeCalls.filter(
+        (entry) =>
+          entry.type === "assistant-workspace:child-action" &&
+          entry.payload?.action === "publication-ack",
+      );
+    assert.lengthOf(
+      childPublicationAcks(),
+      0,
+      "an acknowledgement from the replaced child document must be ignored",
+    );
+    child.__zsAcpSidebarBridge.sendAction("publication-ack", {
+      publicationId: publication.publicationId,
+      documentGeneration: "chat-document-2",
+      stage: "render-complete",
+      outcome: "accepted",
+      reason: null,
+    });
+    await flushMicrotasks();
+    assert.lengthOf(childPublicationAcks(), 1);
+    assert.notProperty(
+      childPublicationAcks()[0].payload.payload,
+      "documentGeneration",
     );
   });
 
@@ -4713,7 +4766,7 @@ describe("acp ui smoke", function () {
     assert.equal(superseded?.payload.reason, "superseded");
   });
 
-  it("delivers an available SkillRunner child snapshot once per cached generation", async function () {
+  it("replays an available SkillRunner snapshot once for each child document", async function () {
     const timers = createManualTimers();
     const shell = await loadAssistantWorkspaceShellForSmoke({
       hostBridge: {
@@ -4761,8 +4814,8 @@ describe("acp ui smoke", function () {
     await flushMicrotasks();
     assert.lengthOf(
       skillrunnerSnapshots(),
-      1,
-      "successful delivery must not be repeated by retry, ready, load, or tab switch",
+      2,
+      "frame load starts a new child document generation and replays once",
     );
 
     shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
@@ -4780,7 +4833,7 @@ describe("acp ui smoke", function () {
     await flushMicrotasks();
     assert.lengthOf(
       skillrunnerSnapshots(),
-      2,
+      3,
       "a new cached generation should still publish once even when pane revision is unchanged",
     );
   });
@@ -6775,6 +6828,121 @@ describe("acp ui smoke", function () {
       transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
       2,
     );
+  });
+
+  it("preserves a virtual transcript row when only revision and streaming text advance", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("section");
+    const nodeMap = new Map<string, any>();
+    let orderKey = "";
+    const render = (revision: number, value: string) =>
+      renderer.renderAssistantTranscript({
+        container: transcript,
+        virtualized: true,
+        pageKey: "owner-a\ntail:80",
+        page: {
+          requestId: "owner-a\ntail:80",
+          cursor: 0,
+          limit: 80,
+          total: 1,
+          eventSeq: revision,
+          transcriptRevision: revision,
+          items: [
+            {
+              id: "message-1",
+              kind: "message",
+              role: "assistant",
+              text: value,
+              state: "streaming",
+            },
+          ],
+        },
+        nodeMap,
+        orderKey,
+        modeKey: "plain",
+        mode: "plain",
+        onRendered(result: { orderKey: string }) {
+          orderKey = result.orderKey;
+        },
+      });
+
+    render(1, "hello");
+    const originalRow = nodeMap.get("message-1");
+    render(2, "hello world");
+
+    assert.strictEqual(nodeMap.get("message-1"), originalRow);
+    assert.include(collectFakeText(originalRow), "hello world");
+  });
+
+  it("applies shared transcript effects without replacing unaffected rows", async function () {
+    const fakeDocument = createFakeDocumentForAssistantPanel();
+    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
+    const transcript = fakeDocument.createElement("section");
+    const nodeMap = new Map<string, any>();
+    let orderKey = "";
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      items: [
+        {
+          id: "message-1",
+          kind: "message",
+          role: "assistant",
+          text: "hello",
+          state: "streaming",
+        },
+        {
+          id: "message-2",
+          kind: "message",
+          role: "user",
+          text: "question",
+          state: "complete",
+        },
+      ],
+      nodeMap,
+      orderKey,
+      modeKey: "plain",
+      mode: "plain",
+      onRendered(result: { orderKey: string }) {
+        orderKey = result.orderKey;
+      },
+    });
+    const firstRow = nodeMap.get("message-1");
+    const secondRow = nodeMap.get("message-2");
+    const originalTextNode = firstRow.querySelector(
+      "[data-assistant-transcript-body]",
+    )?.firstChild;
+
+    assert.isTrue(
+      renderer.applyAssistantTranscriptEffects({
+        container: transcript,
+        nodeMap,
+        effect: {
+          kind: "mutations",
+          onSelectedPage: true,
+          mutations: [
+            { op: "append_text", itemId: "message-1", text: " world" },
+          ],
+        },
+        affectedItems: [
+          {
+            id: "message-1",
+            kind: "message",
+            role: "assistant",
+            text: "hello world",
+            state: "streaming",
+          },
+        ],
+        mode: "plain",
+      }),
+    );
+    assert.strictEqual(nodeMap.get("message-1"), firstRow);
+    assert.strictEqual(nodeMap.get("message-2"), secondRow);
+    assert.strictEqual(
+      firstRow.querySelector("[data-assistant-transcript-body]")?.firstChild,
+      originalTextNode,
+    );
+    assert.include(collectFakeText(firstRow), "hello world");
   });
 
   it("renders items-only virtual transcripts without requesting pages", async function () {
@@ -9256,6 +9424,7 @@ describe("acp ui smoke", function () {
     assert.equal(renderAck?.payload.publicationId, "publication-1");
     assert.equal(renderAck?.payload.outcome, "accepted");
     assert.isNull(renderAck?.payload.reason);
+    assert.match(renderAck?.payload.documentGeneration, /^acp-chat-/);
 
     const renderedCounterCount = sidebar.counterRenderCalls.length;
     sidebar.postPublication({
@@ -9329,30 +9498,40 @@ describe("acp ui smoke", function () {
     assert.isAbove(counterRenderCalls.length, initialRenderCount);
   });
 
-  it("acknowledges every queued ACP Skills snapshot in the same animation frame", async function () {
+  it("applies queued ACP Skills publications after the pending owner snapshot", async function () {
     const harness = createAcpSkillRunSidebarHarnessDocument();
     const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
       deferAnimationFrame: true,
     });
-    const snapshot = (revision: number) => ({
+    const snapshot = {
       sidebar: {
         scopeKey: "scope-a",
-        panes: { "acp-skills": { revision } },
+        panes: { "acp-skills": { revision: 1 } },
       },
       selectedRequestId: "run-a",
       selectedRun: { requestId: "run-a", status: "running" },
       runs: [],
       labels: {},
-      workspacePublication: publicationFixture({
-        publicationId: `publication-${revision}`,
+      transcriptRegion: transcriptRegionFixture({
         source: "acp-skills",
-        ownerKey: "run-a",
-        revision,
+        requestId: "run-a",
+        status: "ready",
+        revision: 0,
       }),
-    });
+    };
 
-    sidebar.postSnapshot(snapshot(1));
-    sidebar.postSnapshot(snapshot(2));
+    sidebar.postSnapshot(snapshot);
+    for (const revision of [1, 2]) {
+      sidebar.postMessage({
+        type: "acp-skill-run:publication",
+        payload: publicationFixture({
+          publicationId: `publication-${revision}`,
+          source: "acp-skills",
+          ownerKey: "run-a",
+          revision,
+        }),
+      });
+    }
     sidebar.flushAnimationFrames();
 
     const renderedPublicationIds = sidebar.actions

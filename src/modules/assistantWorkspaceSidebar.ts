@@ -183,8 +183,21 @@ type AssistantWorkspaceHostRuntime = {
   snapshotRevision: number;
   acpChatSnapshotBuildSeq: number;
   acpSkillRunSnapshotBuildSeq: number;
-  publishedWorkspaceInitScopeKey?: string | null;
-  publishedChildInitScopeKeys: Set<string>;
+  workspaceInitDelivery?: {
+    frameWindow: Window;
+    target: AcpSidebarTarget;
+  } | null;
+  workspaceInitInFlight?: {
+    frameWindow: Window;
+    target: AcpSidebarTarget;
+    promise: Promise<boolean>;
+  } | null;
+  childInitDeliveries: Map<
+    AssistantWorkspaceTab,
+    { documentGeneration: string; target: AcpSidebarTarget }
+  >;
+  readyTabGenerations: Map<AssistantWorkspaceTab, string>;
+  childInitInFlight: Map<AssistantWorkspaceTab, Promise<boolean>>;
   streamingRenderPreferenceInitialized: boolean;
   streamingRenderPreferenceLocalWriteDepth: number;
   lastAcpSkillRunSnapshotSignature?: string | null;
@@ -201,8 +214,12 @@ type AssistantWorkspaceHostRuntime = {
       tab: "acp-chat" | "acp-skills";
       acknowledgements: Set<string>;
       ownerKey: string;
+      source: "acp-chat" | "acp-skills";
       kind: AssistantWorkspacePublicationKind;
       cause: AssistantWorkspacePublication["publicationCause"];
+      form: AssistantWorkspacePublication["publicationForm"];
+      deliverySequence: number;
+      postedAtMs: number;
     }
   >;
   publicationCoordinator?: AssistantWorkspacePublicationCoordinator;
@@ -1164,7 +1181,11 @@ function clearAssistantWorkspaceReadyTabs(
   host: AssistantWorkspaceHostRuntime,
   reason: string,
 ) {
-  if (host.readyTabs.size === 0) {
+  if (
+    host.readyTabs.size === 0 &&
+    host.readyTabGenerations.size === 0 &&
+    host.childInitInFlight.size === 0
+  ) {
     return;
   }
   logAssistantWorkspaceDebug(
@@ -1174,24 +1195,8 @@ function clearAssistantWorkspaceReadyTabs(
     { reason, readyTabs: Array.from(host.readyTabs) },
   );
   host.readyTabs.clear();
-}
-
-function assistantWorkspaceInitScopeKey(
-  host: AssistantWorkspaceHostRuntime,
-  target: AcpSidebarTarget | null = host.activeTarget,
-) {
-  if (!target) {
-    return "";
-  }
-  return `${host.scopeKey}\n${target}`;
-}
-
-function assistantWorkspaceChildInitScopeKey(
-  host: AssistantWorkspaceHostRuntime,
-  tab: AssistantWorkspaceTab,
-) {
-  const scopeKey = assistantWorkspaceInitScopeKey(host);
-  return scopeKey ? `${scopeKey}\n${tab}` : "";
+  host.readyTabGenerations.clear();
+  host.childInitInFlight.clear();
 }
 
 function clearAssistantWorkspaceInitPublicationState(
@@ -1199,8 +1204,9 @@ function clearAssistantWorkspaceInitPublicationState(
   reason: string,
 ) {
   if (
-    !host.publishedWorkspaceInitScopeKey &&
-    host.publishedChildInitScopeKeys.size === 0
+    !host.workspaceInitDelivery &&
+    !host.workspaceInitInFlight &&
+    host.childInitDeliveries.size === 0
   ) {
     return;
   }
@@ -1210,27 +1216,42 @@ function clearAssistantWorkspaceInitPublicationState(
     "Assistant Workspace init publication state cleared.",
     {
       reason,
-      publishedWorkspaceInitScopeKey: host.publishedWorkspaceInitScopeKey || "",
-      publishedChildInitScopes: Array.from(host.publishedChildInitScopeKeys),
+      workspaceInitTarget: host.workspaceInitDelivery?.target || "",
+      workspaceInitInFlightTarget: host.workspaceInitInFlight?.target || "",
+      childInitTabs: Array.from(host.childInitDeliveries.keys()),
     },
   );
-  host.publishedWorkspaceInitScopeKey = null;
-  host.publishedChildInitScopeKeys.clear();
+  host.workspaceInitDelivery = null;
+  host.workspaceInitInFlight = null;
+  host.childInitDeliveries.clear();
 }
 
 function hasPublishedWorkspaceBaselineInit(
   host: AssistantWorkspaceHostRuntime,
 ) {
-  const scopeKey = assistantWorkspaceInitScopeKey(host);
-  return !!scopeKey && host.publishedWorkspaceInitScopeKey === scopeKey;
+  const frameWindow = resolveCurrentShellWindow(host);
+  return (
+    !!frameWindow &&
+    !!host.activeTarget &&
+    host.workspaceInitDelivery?.frameWindow === frameWindow &&
+    host.workspaceInitDelivery.target === host.activeTarget
+  );
 }
 
-function markWorkspaceBaselineInitPublished(
-  host: AssistantWorkspaceHostRuntime,
-) {
-  const scopeKey = assistantWorkspaceInitScopeKey(host);
-  if (scopeKey) {
-    host.publishedWorkspaceInitScopeKey = scopeKey;
+function markWorkspaceBaselineInitPublished(args: {
+  host: AssistantWorkspaceHostRuntime;
+  frameWindow: Window;
+  target: AcpSidebarTarget;
+}) {
+  const { host, frameWindow, target } = args;
+  if (
+    resolveCurrentShellWindow(host) === frameWindow &&
+    host.activeTarget === target
+  ) {
+    host.workspaceInitDelivery = {
+      frameWindow,
+      target,
+    };
   }
 }
 
@@ -1238,17 +1259,31 @@ function hasPublishedChildBaselineInit(
   host: AssistantWorkspaceHostRuntime,
   tab: AssistantWorkspaceTab,
 ) {
-  const scopeKey = assistantWorkspaceChildInitScopeKey(host, tab);
-  return !!scopeKey && host.publishedChildInitScopeKeys.has(scopeKey);
+  const documentGeneration = host.readyTabGenerations.get(tab);
+  const delivery = host.childInitDeliveries.get(tab);
+  return (
+    !!documentGeneration &&
+    !!host.activeTarget &&
+    delivery?.documentGeneration === documentGeneration &&
+    delivery.target === host.activeTarget
+  );
 }
 
 function markChildBaselineInitPublished(
   host: AssistantWorkspaceHostRuntime,
   tab: AssistantWorkspaceTab,
+  target: AcpSidebarTarget,
+  documentGeneration = host.readyTabGenerations.get(tab),
 ) {
-  const scopeKey = assistantWorkspaceChildInitScopeKey(host, tab);
-  if (scopeKey) {
-    host.publishedChildInitScopeKeys.add(scopeKey);
+  if (
+    documentGeneration &&
+    host.activeTarget === target &&
+    host.readyTabGenerations.get(tab) === documentGeneration
+  ) {
+    host.childInitDeliveries.set(tab, {
+      documentGeneration,
+      target,
+    });
   }
 }
 
@@ -1399,7 +1434,7 @@ function runShellHandshakeTick(
   postShellInit(host, host.activeTab);
 }
 
-function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
+async function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
   if (host.shell.ready) {
     logAssistantWorkspaceDebug(
       host,
@@ -1430,7 +1465,35 @@ function acceptAssistantShellReady(host: AssistantWorkspaceHostRuntime) {
     );
     return;
   }
-  publishAssistantWorkspaceStatePulse(host, "shell-ready");
+  await ensureAssistantWorkspaceBaselineInit(host, "shell-ready");
+}
+
+async function ensureAssistantWorkspaceBaselineInit(
+  host: AssistantWorkspaceHostRuntime,
+  reason: string,
+) {
+  const frameWindow = resolveCurrentShellWindow(host);
+  const target = host.activeTarget;
+  if (!frameWindow || !target || !host.shell.ready) return false;
+  if (hasPublishedWorkspaceBaselineInit(host)) return true;
+  const existing = host.workspaceInitInFlight;
+  if (existing?.frameWindow === frameWindow && existing.target === target) {
+    return existing.promise;
+  }
+  const promise = publishAssistantWorkspaceStatePulse(host, reason);
+  const inFlight = { frameWindow, target, promise };
+  host.workspaceInitInFlight = inFlight;
+  try {
+    const delivered = await promise;
+    if (delivered && host.workspaceInitInFlight === inFlight) {
+      markWorkspaceBaselineInitPublished({ host, frameWindow, target });
+    }
+    return delivered;
+  } finally {
+    if (host.workspaceInitInFlight === inFlight) {
+      host.workspaceInitInFlight = null;
+    }
+  }
 }
 
 function installShellBridge(host: AssistantWorkspaceHostRuntime) {
@@ -1557,8 +1620,18 @@ function registerWorkspacePublication(
     reason: null,
     acknowledgements: new Set<string>(),
     ownerKey: publication?.owner.ownerKey || "",
+    source: publication?.owner.source || tab,
     kind: publication?.publicationKind || "baseline-status",
     cause: publication?.publicationCause || "initialization",
+    form: publication?.publicationForm || "snapshot",
+    deliverySequence: publication?.deliverySequence || 0,
+    postedAtMs:
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+        ? readAcpRuntimePerformanceClockMs()
+        : 0,
   });
   trimWorkspacePublicationLifecycles(host);
 }
@@ -1591,48 +1664,26 @@ function postChildSnapshot(
     full: tab === host.activeTab,
     snapshot,
   });
-  let publicationId = "";
-  let workspacePublication: AssistantWorkspacePublication | undefined;
-  if (tab === "acp-chat" || tab === "acp-skills") {
-    const transcriptRegion =
-      snapshot.transcriptRegion && typeof snapshot.transcriptRegion === "object"
-        ? (snapshot.transcriptRegion as AssistantWorkspaceTranscriptRegion)
-        : null;
-    const owner =
-      transcriptRegion?.owner || createAssistantWorkspaceUnownedScope(tab);
-    workspacePublication = host.publicationCoordinator?.reserveSnapshot({
-      owner,
-      publicationKind: transcriptRegion ? "transcript" : "baseline-status",
-      cause: phase === "init" ? "initialization" : "activation",
-      payload: transcriptRegion || {
-        status: String(snapshot.status || "idle"),
-        busy: snapshot.busy === true,
-        message: null,
-      },
-    });
-    publicationId = workspacePublication?.publicationId || "";
-    (payload as Record<string, unknown>).workspacePublication =
-      workspacePublication;
-  }
   const posted = postShellMessage(host, "assistant-workspace:child-snapshot", {
     tab,
     phase,
     snapshot: payload,
   });
-  if (posted && publicationId && (tab === "acp-chat" || tab === "acp-skills")) {
-    registerWorkspacePublication(
-      host,
-      tab,
-      publicationId,
-      workspacePublication,
-    );
-    if (workspacePublication?.publicationKind === "transcript") {
-      host.publicationCoordinator?.adoptTranscriptSnapshot(
-        workspacePublication,
-      );
-    }
+  if (!posted || (tab !== "acp-chat" && tab !== "acp-skills")) {
+    return undefined;
   }
-  return posted && publicationId ? publicationId : undefined;
+  const transcriptRegion =
+    snapshot.transcriptRegion && typeof snapshot.transcriptRegion === "object"
+      ? (snapshot.transcriptRegion as AssistantWorkspaceTranscriptRegion)
+      : null;
+  if (!transcriptRegion) return undefined;
+  const publicationOwner =
+    transcriptRegion.owner || createAssistantWorkspaceUnownedScope(tab);
+  return host.publicationCoordinator?.publishTranscriptSnapshot({
+    owner: publicationOwner,
+    cause: phase === "init" ? "initialization" : "activation",
+    region: transcriptRegion,
+  })?.publicationId;
 }
 
 function acpChatPublicationMetricLabels(
@@ -2146,27 +2197,16 @@ function queueAcpChatPageFirstSnapshot(
   if (!ownerKey) {
     return;
   }
-  setTimeout(() => {
-    if (
-      hosts.get(host.win) !== host ||
-      host.activeTarget !== target ||
-      host.activeTab !== "acp-chat"
-    ) {
-      return;
-    }
-    if (getActiveAcpChatOwnerKey() !== ownerKey) {
-      logAssistantWorkspaceDebug(
-        host,
-        "acp-chat-page-first-skip-owner-changed",
-        "ACP Chat page-first follow-up skipped because active owner changed.",
-        { target, ownerKey },
-      );
-      return;
-    }
-    void postAcpChatPanelPublication(host, target, ownerKey, "transcript", {
-      transcriptReadMode: "page-first",
-    });
-  }, 0);
+  if (
+    hosts.get(host.win) !== host ||
+    host.activeTarget !== target ||
+    host.activeTab !== "acp-chat"
+  ) {
+    return;
+  }
+  void postAcpChatPanelPublication(host, target, ownerKey, "transcript", {
+    transcriptReadMode: "page-first",
+  });
 }
 
 async function postAcpChatLoadingFirstSnapshot(
@@ -2467,24 +2507,13 @@ function queueAcpSkillRunPageFirstSnapshot(
   if (!selectedRequestId) {
     return;
   }
-  setTimeout(() => {
-    if (host.activeTab !== "acp-skills" || !host.activeTarget) {
-      return;
-    }
-    if (getSelectedAcpSkillRunRequestId() !== selectedRequestId) {
-      logAssistantWorkspaceDebug(
-        host,
-        "acp-skills-page-first-skip-selection-changed",
-        "ACP Skills page-first follow-up skipped because selection changed.",
-        { selectedRequestId },
-      );
-      return;
-    }
-    void postAcpSkillRunSnapshot(host, phase, {
-      force: true,
-      transcriptReadMode: "page-first",
-    });
-  }, 0);
+  if (host.activeTab !== "acp-skills" || !host.activeTarget) {
+    return;
+  }
+  void postAcpSkillRunSnapshot(host, phase, {
+    force: true,
+    transcriptReadMode: "page-first",
+  });
 }
 
 async function postAcpSkillRunLoadingFirstSnapshot(
@@ -2665,7 +2694,7 @@ function postSkillRunnerSnapshot(
   });
 }
 
-function postSnapshotForTab(
+async function postSnapshotForTab(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
   tab: AssistantWorkspaceTab,
@@ -2674,30 +2703,26 @@ function postSnapshotForTab(
 ) {
   if (tab === "acp-chat") {
     if (options?.force === true || phase === "init") {
-      void postAcpChatLoadingFirstSnapshot(host, target, phase);
-      return;
+      return !!(await postAcpChatLoadingFirstSnapshot(host, target, phase));
     }
     const ownerKey = getActiveAcpChatOwnerKey();
     if (ownerKey) {
-      void postAcpChatPanelPublication(
-        host,
-        target,
-        ownerKey,
-        "baseline-status",
-      );
-      void postAcpChatPanelPublication(host, target, ownerKey, "transcript");
+      const results = await Promise.all([
+        postAcpChatPanelPublication(host, target, ownerKey, "baseline-status"),
+        postAcpChatPanelPublication(host, target, ownerKey, "transcript"),
+      ]);
+      return results.some(Boolean);
     }
-    return;
+    return false;
   }
   if (tab === "acp-skills") {
     if (options?.force === true || phase === "init") {
-      void postAcpSkillRunLoadingFirstSnapshot(host, phase);
-      return;
+      return !!(await postAcpSkillRunLoadingFirstSnapshot(host, phase));
     }
-    void postAcpSkillRunSnapshot(host, phase);
-    return;
+    return !!(await postAcpSkillRunSnapshot(host, phase));
   }
   postSkillRunnerSnapshot(host, phase, options);
+  return true;
 }
 
 function canPublishAssistantWorkspaceStatePulse(
@@ -2706,7 +2731,7 @@ function canPublishAssistantWorkspaceStatePulse(
   if (!host.activeTarget) {
     return false;
   }
-  return !!resolveCurrentShellWindow(host);
+  return host.shell.ready && !!resolveCurrentShellWindow(host);
 }
 
 function shouldRefreshAcpChatBackendsForWorkspacePulse(reason: string) {
@@ -2724,20 +2749,21 @@ function postShellInit(
   });
 }
 
-function postInitialSnapshotsForAllTabs(
+async function postInitialSnapshotsForAllTabs(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
   phase: "init" | "snapshot" = "init",
 ) {
   for (const tab of ASSISTANT_WORKSPACE_TABS) {
-    postSnapshotForTab(host, target, tab, phase, { force: true });
+    const documentGeneration = host.readyTabGenerations.get(tab);
+    await postSnapshotForTab(host, target, tab, phase, { force: true });
     if (phase === "init") {
-      markChildBaselineInitPublished(host, tab);
+      markChildBaselineInitPublished(host, tab, target, documentGeneration);
     }
   }
 }
 
-function publishAssistantWorkspaceStatePulse(
+async function publishAssistantWorkspaceStatePulse(
   host: AssistantWorkspaceHostRuntime,
   reason: string,
   tab?: AssistantWorkspaceTab,
@@ -2775,21 +2801,27 @@ function publishAssistantWorkspaceStatePulse(
     scheduleAcpChatBackendRefreshBoundary(host, target);
   }
   if (tab) {
+    const documentGeneration = host.readyTabGenerations.get(tab);
     if (reason === "child-ready") {
       host.readyTabs.add(tab);
-      markChildBaselineInitPublished(host, tab);
     }
-    postSnapshotForTab(host, target, tab, phase, {
+    await postSnapshotForTab(host, target, tab, phase, {
       force: reason === "child-ready" || reason === "tab-switch",
     });
+    if (
+      phase === "init" &&
+      documentGeneration &&
+      host.readyTabGenerations.get(tab) === documentGeneration
+    ) {
+      markChildBaselineInitPublished(host, tab, target, documentGeneration);
+    }
     return true;
   }
   if (phase === "init") {
-    postInitialSnapshotsForAllTabs(host, target, phase);
-    markWorkspaceBaselineInitPublished(host);
+    await postInitialSnapshotsForAllTabs(host, target, phase);
     return true;
   }
-  postSnapshotForTab(host, target, host.activeTab, phase, {
+  await postSnapshotForTab(host, target, host.activeTab, phase, {
     force: reason === "child-ready" || reason === "tab-switch",
   });
   return true;
@@ -3285,7 +3317,7 @@ async function handleShellAction(
     { action, requestedTab: String(payload.tab || "") },
   );
   if (action === "ready") {
-    acceptAssistantShellReady(host);
+    await acceptAssistantShellReady(host);
     return;
   }
   if (action === "set-tab") {
@@ -3295,7 +3327,7 @@ async function handleShellAction(
       clearSkillRunnerSidebarRefresh(host);
       detachSkillRunnerFromShell(host, "tab-switch-away");
     }
-    publishAssistantWorkspaceStatePulse(host, "tab-switch", tab);
+    await publishAssistantWorkspaceStatePulse(host, "tab-switch", tab);
     return;
   }
   if (action === "close-sidebar") {
@@ -3341,26 +3373,55 @@ async function handleChildAction(
     return;
   }
   if (action === "ready") {
-    if (host.readyTabs.has(tab)) {
+    const documentGeneration =
+      String(childPayload.documentGeneration || "").trim() || `${tab}:document`;
+    const duplicateGeneration =
+      host.readyTabGenerations.get(tab) === documentGeneration;
+    host.readyTabGenerations.set(tab, documentGeneration);
+    host.readyTabs.add(tab);
+    const inFlight = host.childInitInFlight.get(tab);
+    if (duplicateGeneration && inFlight) {
+      await inFlight;
+      return;
+    }
+    if (duplicateGeneration && hasPublishedChildBaselineInit(host, tab)) {
       logAssistantWorkspaceDebug(
         host,
         "child-ready-duplicate",
         "Assistant Workspace duplicate child ready ignored.",
-        { target, tab },
+        { target, tab, documentGeneration },
       );
       return;
     }
-    if (hasPublishedChildBaselineInit(host, tab)) {
-      host.readyTabs.add(tab);
-      logAssistantWorkspaceDebug(
-        host,
-        "child-ready-init-skip",
-        "Assistant Workspace child ready acknowledged after baseline init was already published.",
-        { target, tab },
-      );
-      return;
+    const workspaceInit = host.workspaceInitInFlight;
+    if (
+      workspaceInit &&
+      workspaceInit.frameWindow === resolveCurrentShellWindow(host) &&
+      workspaceInit.target === host.activeTarget
+    ) {
+      await workspaceInit.promise;
+      if (
+        host.readyTabGenerations.get(tab) === documentGeneration &&
+        hasPublishedWorkspaceBaselineInit(host)
+      ) {
+        markChildBaselineInitPublished(host, tab, target, documentGeneration);
+        return;
+      }
     }
-    publishAssistantWorkspaceStatePulse(host, "child-ready", tab, "init");
+    const init = publishAssistantWorkspaceStatePulse(
+      host,
+      "child-ready",
+      tab,
+      "init",
+    );
+    host.childInitInFlight.set(tab, init);
+    try {
+      await init;
+    } finally {
+      if (host.childInitInFlight.get(tab) === init) {
+        host.childInitInFlight.delete(tab);
+      }
+    }
     return;
   }
   if (tab === "skillrunner") {
@@ -3523,11 +3584,22 @@ function recordWorkspacePublicationAck(
   const ownerKey = lifecycle.ownerKey;
   if (!ownerKey || ack.outcome !== "accepted") return;
   const labels = {
-    ...acpChatPublicationMetricLabels(
-      lifecycle.kind,
-      "matching-target",
-      lifecycle.cause === "initialization" ? "initialization" : "steady-state",
-    ),
+    operationClass: "panel" as const,
+    publicationKind: lifecycle.kind,
+    publicationCausality: "matching-target" as const,
+    publicationPhase:
+      lifecycle.cause === "initialization"
+        ? ("initialization" as const)
+        : ("steady-state" as const),
+    publicationSurface: lifecycle.source,
+    publicationForm:
+      lifecycle.cause === "initialization"
+        ? ("initialization" as const)
+        : lifecycle.form,
+    materializationSource:
+      lifecycle.kind === "transcript" && lifecycle.form === "snapshot"
+        ? ("transcript-page" as const)
+        : ("region" as const),
     publicationId,
   };
   if (ack.stage === "shell-forward") {
@@ -3540,6 +3612,14 @@ function recordWorkspacePublicationAck(
   }
   if (ack.stage === "render-complete") {
     incrementAcpRuntimeMetric(ownerKey, "panel_render_ack", labels);
+    if (lifecycle.postedAtMs > 0) {
+      observeAcpRuntimeDuration(
+        ownerKey,
+        "panel_render_duration",
+        labels,
+        readAcpRuntimePerformanceClockMs() - lifecycle.postedAtMs,
+      );
+    }
   }
 }
 
@@ -4034,7 +4114,7 @@ function commitAssistantWorkspaceTarget(
   setShellActiveTarget(host, target);
   setDockActive(host.library, "library", target === "library");
   setDockActive(host.reader, "reader", target === "reader");
-  publishAssistantWorkspaceStatePulse(host, "target-commit");
+  void ensureAssistantWorkspaceBaselineInit(host, "target-commit");
   logAssistantWorkspaceDebug(
     host,
     "target-commit-done",
@@ -4248,8 +4328,11 @@ export function installAssistantWorkspaceSidebarShell(
     acpChatSnapshotBuildSeq: 0,
     acpSkillRunSnapshotBuildSeq: 0,
     publicationLifecycles: new Map(),
-    publishedWorkspaceInitScopeKey: null,
-    publishedChildInitScopeKeys: new Set<string>(),
+    workspaceInitDelivery: null,
+    workspaceInitInFlight: null,
+    childInitDeliveries: new Map(),
+    readyTabGenerations: new Map(),
+    childInitInFlight: new Map(),
     streamingRenderPreferenceInitialized: false,
     streamingRenderPreferenceLocalWriteDepth: 0,
     shellHandshakeTimer: null,
@@ -4282,6 +4365,7 @@ export function installAssistantWorkspaceSidebarShell(
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
     },
     post(publication) {
+      if (!host.shell.ready) return false;
       const tab = publication.owner.source;
       const posted = postShellMessage(
         host,
@@ -4429,7 +4513,7 @@ export async function openAssistantWorkspaceSidebar(args?: {
       detachSkillRunnerFromShell(host, "open-non-skillrunner-tab");
     }
     if (host.activeTarget) {
-      publishAssistantWorkspaceStatePulse(
+      await publishAssistantWorkspaceStatePulse(
         host,
         "open-tab-request",
         host.activeTab,
@@ -4546,11 +4630,16 @@ export function inspectAssistantWorkspaceDiagnosticsPublication(
     childWindow,
     publications: [...host.publicationLifecycles.values()]
       .filter((entry) => entry.tab === args.tab)
-      .map(({ publicationId, state, reason }) => ({
-        publicationId,
-        state,
-        ...(reason ? { reason } : {}),
-      })),
+      .map(
+        ({ publicationId, source, tab, deliverySequence, state, reason }) => ({
+          publicationId,
+          source,
+          tab,
+          deliverySequence,
+          state,
+          ...(reason ? { reason } : {}),
+        }),
+      ),
     detail: detail || (childWindow ? "" : "workspace-child-not-ready"),
   };
 }
@@ -4574,6 +4663,20 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
   if (!activeTarget) {
     throw new Error("workspace-target-not-ready");
   }
+  const barrier = async (publicationId: string) => {
+    const publication =
+      await host.publicationCoordinator?.waitForPostedPublication(
+        publicationId,
+      );
+    return publication
+      ? {
+          source: publication.owner.source,
+          tab: publication.owner.source,
+          publicationId,
+          deliverySequence: publication.deliverySequence,
+        }
+      : undefined;
+  };
   if (args.tab === "acp-chat") {
     const ownerKey = getActiveAcpChatOwnerKey();
     if (!ownerKey) {
@@ -4582,7 +4685,7 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
         activeTarget,
         "snapshot",
       );
-      return publicationId ? { publicationId } : undefined;
+      return publicationId ? barrier(publicationId) : undefined;
     }
     const publicationId = await postAcpChatPanelPublication(
       host,
@@ -4591,7 +4694,7 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
       "transcript",
       { force: true },
     );
-    return publicationId ? { publicationId } : undefined;
+    return publicationId ? barrier(publicationId) : undefined;
   } else if (args.tab === "acp-skills") {
     const requestId = getSelectedAcpSkillRunRequestId();
     const publicationId = requestId
@@ -4599,7 +4702,7 @@ export async function forceAssistantWorkspaceDiagnosticsPublication(
           force: true,
         })
       : await postAcpSkillRunLoadingFirstSnapshot(host, "snapshot");
-    return publicationId ? { publicationId } : undefined;
+    return publicationId ? barrier(publicationId) : undefined;
   } else {
     postSnapshotForTab(host, activeTarget, args.tab, "snapshot", {
       force: true,
@@ -4627,7 +4730,7 @@ export async function toggleAssistantWorkspaceSidebar(args?: {
           clearSkillRunnerSidebarRefresh(host);
           detachSkillRunnerFromShell(host, "toggle-non-skillrunner-tab");
         }
-        publishAssistantWorkspaceStatePulse(
+        await publishAssistantWorkspaceStatePulse(
           host,
           "toggle-tab-request",
           host.activeTab,

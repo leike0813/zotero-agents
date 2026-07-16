@@ -123,12 +123,27 @@
     return JSON.parse(JSON.stringify(value));
   }
 
-  function applyMutations(items, mutations) {
-    const next = Array.isArray(items) ? items.map(clone) : [];
+  function createPageModel(page) {
+    const items = page && Array.isArray(page.items) ? page.items : [];
     const indexById = new Map();
-    next.forEach(function (item, index) {
+    items.forEach(function (item, index) {
       indexById.set(text(item && item.itemId), index);
     });
+    return { page: page || null, indexById };
+  }
+
+  function applyMutations(page, model, mutations) {
+    const current = page && Array.isArray(page.items) ? page.items : [];
+    let next = current;
+    let changed = false;
+    const affectedItems = new Map();
+    function mutableItems() {
+      if (!changed) {
+        next = current.slice();
+        changed = true;
+      }
+      return next;
+    }
     (Array.isArray(mutations) ? mutations : []).forEach(function (mutation) {
       const itemId = text(
         mutation && mutation.op === "upsert_item"
@@ -136,68 +151,145 @@
           : mutation && mutation.itemId,
       );
       if (!itemId) return;
-      const index = indexById.get(itemId);
+      const index = model.indexById.get(itemId);
       if (mutation.op === "upsert_item") {
-        if (typeof index === "number") next[index] = clone(mutation.item);
-        else {
-          indexById.set(itemId, next.length);
-          next.push(clone(mutation.item));
+        if (typeof index === "number") {
+          mutableItems()[index] = clone(mutation.item);
+          affectedItems.set(itemId, mutableItems()[index]);
+        } else {
+          const items = mutableItems();
+          model.indexById.set(itemId, items.length);
+          items.push(clone(mutation.item));
+          affectedItems.set(itemId, items[items.length - 1]);
         }
       } else if (mutation.op === "append_text" && typeof index === "number") {
-        next[index].text =
-          String(next[index].text || "") + String(mutation.text || "");
+        const items = mutableItems();
+        const item = items[index];
+        items[index] = Object.assign({}, item, {
+          text: String(item.text || "") + String(mutation.text || ""),
+        });
+        affectedItems.set(itemId, items[index]);
       } else if (mutation.op === "patch_item" && typeof index === "number") {
-        next[index] = Object.assign(
+        const items = mutableItems();
+        items[index] = Object.assign(
           {},
-          next[index],
+          items[index],
           clone(mutation.patch || {}),
         );
+        affectedItems.set(itemId, items[index]);
       } else if (mutation.op === "delete_item" && typeof index === "number") {
-        next.splice(index, 1);
-        indexById.clear();
+        mutableItems().splice(index, 1);
+        model.indexById.clear();
         next.forEach(function (item, itemIndex) {
-          indexById.set(text(item && item.itemId), itemIndex);
+          model.indexById.set(text(item && item.itemId), itemIndex);
         });
       }
     });
-    return next;
+    return { items: next, affectedItems: Array.from(affectedItems.values()) };
   }
 
   function createReceiver(options) {
     const source = options && options.source;
     const revisions = new Map();
+    const terminalResults = new Map();
     let deliverySequence = 0;
+    let selectedPageModel = createPageModel(null);
+    function rememberTerminal(publicationId, result) {
+      terminalResults.delete(publicationId);
+      terminalResults.set(publicationId, {
+        accepted: result.accepted,
+        reason: result.reason,
+        reloadPage: result.reloadPage === true,
+      });
+      while (terminalResults.size > 512) {
+        terminalResults.delete(terminalResults.keys().next().value);
+      }
+    }
+    function rejected(publication, reason, snapshot, reloadPage) {
+      const result = {
+        accepted: false,
+        reason,
+        snapshot,
+        reloadPage: reloadPage === true,
+      };
+      const publicationId = text(publication && publication.publicationId);
+      if (publicationId) rememberTerminal(publicationId, result);
+      return result;
+    }
     return {
+      complete: function (publicationId, outcome, reason) {
+        const id = text(publicationId);
+        if (!id) return;
+        rememberTerminal(id, {
+          accepted: outcome === "accepted",
+          reason: reason || null,
+          reloadPage: false,
+        });
+      },
       apply: function (snapshot, publication, currentOwnerKey) {
+        const publicationId = text(publication && publication.publicationId);
+        const previousTerminal = terminalResults.get(publicationId);
+        if (publicationId && previousTerminal) {
+          return Object.assign({}, previousTerminal, {
+            snapshot,
+            duplicate: true,
+            effect: { kind: "none" },
+          });
+        }
+        const bootstrapSnapshot =
+          publication &&
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          (!text(currentOwnerKey) ||
+            ownerMatches(
+              publication.payload && publication.payload.owner,
+              source,
+              publication.owner && publication.owner.ownerKey,
+            ));
         if (
           !publication ||
           publication.schema !==
             "zotero-agents.assistant-workspace-publication.v3" ||
-          !text(publication.publicationId) ||
-          !ownerMatches(publication.owner, source, currentOwnerKey)
+          !publicationId ||
+          (!bootstrapSnapshot &&
+            !ownerMatches(publication.owner, source, currentOwnerKey))
         ) {
-          return {
-            accepted: false,
-            reason: publication && publication.owner ? "old-owner" : "invalid",
+          return rejected(
+            publication,
+            publication && publication.owner ? "old-owner" : "invalid",
             snapshot,
-          };
+          );
         }
         const sequence = Math.max(0, Number(publication.deliverySequence) || 0);
         if (sequence <= deliverySequence) {
-          return { accepted: false, reason: "superseded", snapshot };
+          return rejected(publication, "superseded", snapshot);
         }
         const revisionKey =
           publication.owner.ownerKey + "\n" + publication.publicationKind;
         const revision = Math.max(0, Number(publication.regionRevision) || 0);
         const previousRevision = revisions.get(revisionKey) || 0;
         if (revision <= previousRevision) {
-          return { accepted: false, reason: "stale", snapshot };
+          return rejected(publication, "stale", snapshot);
         }
         const next = Object.assign({}, snapshot || {});
+        let effect = { kind: "region" };
         if (publication.publicationKind === "transcript") {
           const current = next.transcriptRegion;
           if (publication.publicationForm === "snapshot") {
+            if (
+              publication.payload &&
+              publication.payload.status !== "idle" &&
+              !ownerMatches(
+                publication.payload.owner,
+                source,
+                publication.owner && publication.owner.ownerKey,
+              )
+            ) {
+              return rejected(publication, "invalid", snapshot);
+            }
             next.transcriptRegion = clone(publication.payload);
+            selectedPageModel = createPageModel(next.transcriptRegion.page);
+            effect = { kind: "snapshot" };
           } else if (publication.publicationForm === "delta") {
             const payload = publication.payload || {};
             if (
@@ -206,16 +298,26 @@
               !current.page ||
               Number(current.uiRevision) !== Number(payload.baseUiRevision)
             ) {
-              return { accepted: false, reason: "gap", snapshot };
+              return rejected(publication, "gap", snapshot);
             }
             const onSelectedPage =
               text(current.page.pageKey) ===
                 text(payload.page && payload.page.pageKey) &&
               Number(current.page.startCursor) ===
                 Number(payload.page && payload.page.startCursor);
+            if (selectedPageModel.page !== current.page) {
+              selectedPageModel = createPageModel(current.page);
+            }
+            const applied = onSelectedPage
+              ? applyMutations(
+                  current.page,
+                  selectedPageModel,
+                  payload.mutations,
+                )
+              : null;
             const nextPage = onSelectedPage
               ? Object.assign({}, current.page, payload.page || {}, {
-                  items: applyMutations(current.page.items, payload.mutations),
+                  items: applied.items,
                 })
               : Object.assign({}, current.page, {
                   totalItemCount:
@@ -226,15 +328,19 @@
               uiRevision: Number(payload.uiRevision) || 0,
               page: nextPage,
             });
-          } else if (publication.publicationForm === "resync-required") {
-            return {
-              accepted: false,
-              reason: "gap",
-              snapshot,
-              reloadPage: true,
+            selectedPageModel.page = nextPage;
+            effect = {
+              kind: "mutations",
+              onSelectedPage,
+              mutations: onSelectedPage
+                ? (payload.mutations || []).map(clone)
+                : [],
+              affectedItems: applied ? applied.affectedItems : [],
             };
+          } else if (publication.publicationForm === "resync-required") {
+            return rejected(publication, "gap", snapshot, true);
           } else {
-            return { accepted: false, reason: "invalid", snapshot };
+            return rejected(publication, "invalid", snapshot);
           }
         } else if (publication.publicationKind === "message-counts") {
           next.messageCounts = publication.payload
@@ -250,12 +356,70 @@
         }
         deliverySequence = sequence;
         revisions.set(revisionKey, revision);
-        return {
+        const result = {
           accepted: true,
           reason: null,
           snapshot: next,
           publicationKind: publication.publicationKind,
+          effect,
         };
+        rememberTerminal(publicationId, result);
+        return result;
+      },
+    };
+  }
+
+  function createClient(options) {
+    const receiver = createReceiver({ source: options && options.source });
+    return {
+      apply: function (publication) {
+        const snapshot = options.getSnapshot() || {};
+        const result = receiver.apply(
+          snapshot,
+          publication,
+          options.getOwnerKey(snapshot),
+        );
+        options.ack(
+          publication,
+          "child-apply",
+          result.accepted ? "accepted" : "rejected",
+          result.reason,
+        );
+        if (!result.accepted) {
+          if (result.reloadPage && typeof options.requestPage === "function") {
+            options.requestPage(publication);
+          }
+          receiver.complete(
+            publication && publication.publicationId,
+            "rejected",
+            result.reason,
+          );
+          return result;
+        }
+        options.setSnapshot(result.snapshot);
+        try {
+          const rendered = options.render(result);
+          if (rendered === false) throw new Error("transcript-render-failed");
+          receiver.complete(
+            publication && publication.publicationId,
+            "accepted",
+            null,
+          );
+          options.ack(publication, "render-complete", "accepted", null);
+        } catch (_error) {
+          receiver.complete(
+            publication && publication.publicationId,
+            "rejected",
+            "render-failed",
+          );
+          options.ack(
+            publication,
+            "render-complete",
+            "rejected",
+            "render-failed",
+          );
+        }
+        return result;
       },
     };
   }
@@ -377,11 +541,13 @@
   }
 
   window.AssistantTranscriptPublication = {
+    createClient,
     createPageRequest,
     errorMessage,
     createReceiver,
     ownerMatches,
     readRegion,
     rendererPage,
+    rendererItem,
   };
 })();

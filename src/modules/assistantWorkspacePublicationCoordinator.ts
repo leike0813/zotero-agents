@@ -28,10 +28,11 @@ type CoordinatorOptions = {
 
 type TranscriptState = {
   owner: AssistantWorkspaceOwner;
-  page: AssistantWorkspaceTranscriptPage;
+  page: AssistantWorkspaceTranscriptPage | null;
   uiRevision: number;
   accumulator: AssistantWorkspaceTranscriptAccumulator;
   inFlight: AssistantWorkspacePublication | null;
+  pendingSnapshots: AssistantWorkspacePublication[];
   pendingMetadata: boolean;
 };
 
@@ -44,8 +45,11 @@ export class AssistantWorkspacePublicationCoordinator {
     string,
     AssistantWorkspacePublication
   >();
+  private readonly publicationPostWaiters = new Map<
+    string,
+    Set<(publication: AssistantWorkspacePublication | undefined) => void>
+  >();
   private readonly transcripts = new Map<string, TranscriptState>();
-  private readonly currentTranscriptKeys = new Map<string, string>();
   private readonly transcriptProjection =
     new AssistantWorkspaceTranscriptProjection();
 
@@ -82,21 +86,6 @@ export class AssistantWorkspacePublicationCoordinator {
     });
   }
 
-  reserveSnapshot(args: {
-    owner: AssistantWorkspacePublicationOwner;
-    publicationKind: AssistantWorkspacePublication["publicationKind"];
-    cause: Exclude<AssistantWorkspacePublicationCause, "steady-state">;
-    payload: AssistantWorkspacePublication["payload"];
-  }) {
-    return this.createPublication({
-      owner: args.owner,
-      publicationKind: args.publicationKind,
-      publicationForm: "snapshot",
-      publicationCause: args.cause,
-      payload: args.payload,
-    });
-  }
-
   publishRegion(args: {
     owner: AssistantWorkspaceOwner;
     publicationKind: Exclude<
@@ -113,92 +102,65 @@ export class AssistantWorkspacePublicationCoordinator {
     if (!args.force && this.regionSignatures.get(signatureKey) === signature) {
       return undefined;
     }
-    this.regionSignatures.set(signatureKey, signature);
-    return this.publish({
+    const publication = this.publish({
       owner: args.owner,
       publicationKind: args.publicationKind,
       publicationForm: "region",
       publicationCause: args.cause,
       payload: args.payload,
     });
-  }
-
-  adoptTranscriptSnapshot(publication: AssistantWorkspacePublication) {
-    if (
-      publication.publicationKind !== "transcript" ||
-      publication.publicationForm !== "snapshot" ||
-      !("status" in publication.payload) ||
-      !("uiRevision" in publication.payload)
-    ) {
-      return false;
+    if (publication) {
+      this.regionSignatures.set(signatureKey, signature);
     }
-    const region = publication.payload as AssistantWorkspaceTranscriptRegion;
-    if (!region.page || region.owner?.ownerKey !== publication.owner.ownerKey) {
-      return false;
-    }
-    const key = transcriptKey(publication.owner, region.page.pageKey);
-    this.transcripts.set(key, {
-      owner: publication.owner,
-      page: region.page,
-      uiRevision: region.uiRevision,
-      accumulator: new AssistantWorkspaceTranscriptAccumulator(),
-      inFlight: publication,
-      pendingMetadata: false,
-    });
-    this.currentTranscriptKeys.set(ownerIdentity(publication.owner), key);
-    this.transcriptProjection.registerSnapshot(publication.owner, region.page);
-    this.deliverySequence = Math.max(
-      this.deliverySequence,
-      publication.deliverySequence,
-    );
-    const regionKey = `${publication.owner.source}\n${publication.owner.ownerKey}\ntranscript`;
-    this.regionRevisions.set(
-      regionKey,
-      Math.max(
-        this.regionRevisions.get(regionKey) || 0,
-        publication.regionRevision,
-      ),
-    );
-    this.publications.set(publication.publicationId, publication);
-    return true;
+    return publication;
   }
 
   publishTranscriptSnapshot(args: {
-    owner: AssistantWorkspaceOwner;
+    owner: AssistantWorkspacePublicationOwner;
     cause: Exclude<AssistantWorkspacePublicationCause, "steady-state">;
     region: AssistantWorkspaceTranscriptRegion;
     force?: boolean;
   }) {
+    if (args.owner.ownerKey === null) {
+      if (args.region.status !== "idle" || args.region.owner !== null) {
+        return undefined;
+      }
+      return this.publish({
+        owner: args.owner,
+        publicationKind: "transcript",
+        publicationForm: "snapshot",
+        publicationCause: args.cause,
+        payload: args.region,
+      });
+    }
     if (!this.isActive(args.owner)) return this.drop(args.owner);
-    if (args.region.owner?.ownerKey !== args.owner.ownerKey) {
+    if (
+      args.region.owner?.source !== args.owner.source ||
+      args.region.owner.ownerKey !== args.owner.ownerKey
+    ) {
       return undefined;
     }
-    const page = args.region.page;
-    let state: TranscriptState | null = null;
-    if (page) {
-      const key = transcriptKey(args.owner, page.pageKey);
-      state = this.transcripts.get(key) || {
-        owner: args.owner,
-        page,
-        uiRevision: args.region.uiRevision,
-        accumulator: new AssistantWorkspaceTranscriptAccumulator(),
-        inFlight: null,
-        pendingMetadata: false,
-      };
-      state.page = page;
-      state.uiRevision = args.region.uiRevision;
-      this.transcripts.set(key, state);
-      this.currentTranscriptKeys.set(ownerIdentity(args.owner), key);
-      this.transcriptProjection.registerSnapshot(args.owner, page);
+    const state = this.transcriptState(args.owner);
+    state.accumulator.drain();
+    state.pendingMetadata = false;
+    state.page = args.region.page;
+    state.uiRevision = args.region.uiRevision;
+    this.transcriptProjection.clear(args.owner);
+    if (args.region.page) {
+      this.transcriptProjection.registerSnapshot(args.owner, args.region.page);
     }
-    const publication = this.publish({
+    const publication = this.createPublication({
       owner: args.owner,
       publicationKind: "transcript",
       publicationForm: "snapshot",
       publicationCause: args.cause,
       payload: args.region,
     });
-    if (publication && state) state.inFlight = publication;
+    // A snapshot is a complete owner/page rebase. Any transcript work that has
+    // not reached the shell yet is already represented by this snapshot and
+    // must not be delivered ahead of it after the transport becomes ready.
+    this.replacePendingSnapshots(state, [publication]);
+    this.pumpTranscriptLane(state);
     return publication;
   }
 
@@ -210,10 +172,9 @@ export class AssistantWorkspacePublicationCoordinator {
     visibility: "live" | "boundary" | "silent";
   }) {
     if (!this.isActive(args.owner)) return this.drop(args.owner);
-    const key = this.currentTranscriptKeys.get(ownerIdentity(args.owner)) || "";
-    const state = this.transcripts.get(key);
-    if (!state) {
-      return this.publish({
+    const state = this.transcripts.get(ownerIdentity(args.owner));
+    if (!state || !state.page) {
+      const publication = this.createPublication({
         owner: args.owner,
         publicationKind: "transcript",
         publicationForm: "resync-required",
@@ -224,6 +185,10 @@ export class AssistantWorkspacePublicationCoordinator {
           reason: "gap",
         },
       });
+      const lane = state || this.transcriptState(args.owner);
+      lane.pendingSnapshots.push(publication);
+      this.pumpTranscriptLane(lane);
+      return publication;
     }
     state.page = {
       ...state.page,
@@ -245,7 +210,8 @@ export class AssistantWorkspacePublicationCoordinator {
     if (!mutations.length && !state.pendingMetadata) {
       return state.inFlight || undefined;
     }
-    return state.inFlight || this.flush(state);
+    this.pumpTranscriptLane(state);
+    return state.inFlight || undefined;
   }
 
   enqueueTranscriptMutations(args: {
@@ -254,19 +220,11 @@ export class AssistantWorkspacePublicationCoordinator {
     mutations: readonly AssistantWorkspaceTranscriptMutation[];
   }) {
     if (!this.isActive(args.owner)) return this.drop(args.owner);
-    const key = transcriptKey(args.owner, args.page.pageKey);
-    const state = this.transcripts.get(key) || {
-      owner: args.owner,
-      page: args.page,
-      uiRevision: 0,
-      accumulator: new AssistantWorkspaceTranscriptAccumulator(),
-      inFlight: null,
-      pendingMetadata: false,
-    };
+    const state = this.transcriptState(args.owner);
     state.page = args.page;
     state.accumulator.enqueue(args.mutations);
-    this.transcripts.set(key, state);
-    return state.inFlight || this.flush(state);
+    this.pumpTranscriptLane(state);
+    return state.inFlight || undefined;
   }
 
   acknowledge(ack: AssistantWorkspacePublicationAck) {
@@ -278,70 +236,152 @@ export class AssistantWorkspacePublicationCoordinator {
     this.publications.delete(publication.publicationId);
     if (publication.publicationKind !== "transcript") return true;
     if (publication.owner.ownerKey === null) return true;
-    const pageKey = publicationPageKey(publication);
-    if (!pageKey) return true;
-    const state = this.transcripts.get(
-      transcriptKey(publication.owner, pageKey),
-    );
+    const state = this.transcripts.get(ownerIdentity(publication.owner));
     if (!state || state.inFlight?.publicationId !== publication.publicationId) {
       return true;
     }
     state.inFlight = null;
     if (!this.isActive(state.owner)) {
       state.accumulator.drain();
+      this.replacePendingSnapshots(state, []);
       state.pendingMetadata = false;
       return true;
     }
     if (
       ack.outcome === "rejected" &&
-      (ack.reason === "gap" ||
+      publication.publicationForm !== "resync-required" &&
+      (ack.reason === "old-owner" ||
+        ack.reason === "gap" ||
+        ack.reason === "render-failed" ||
         ack.reason === "stale" ||
         ack.reason === "superseded")
     ) {
       state.accumulator.drain();
       state.pendingMetadata = false;
-      state.inFlight =
-        this.publish({
+      this.replacePendingSnapshots(state, [
+        this.createPublication({
           owner: state.owner,
           publicationKind: "transcript",
           publicationForm: "resync-required",
           publicationCause: "rebase",
           payload: {
-            pageKey: state.page.pageKey,
+            pageKey: state.page?.pageKey || `${state.owner.ownerKey}\ntail:80`,
             expectedUiRevision: state.uiRevision,
-            reason: ack.reason === "gap" ? "gap" : "superseded",
+            reason:
+              ack.reason === "gap" || ack.reason === "render-failed"
+                ? ack.reason
+                : "superseded",
           },
-        }) || null;
+        }),
+      ]);
+      this.pumpTranscriptLane(state);
       return true;
     }
     if (ack.outcome === "rejected") {
       state.accumulator.drain();
       state.pendingMetadata = false;
+      this.pumpTranscriptLane(state);
       return true;
     }
-    if (state.accumulator.size || state.accumulator.requiresResync) {
-      this.flush(state);
-    }
+    this.pumpTranscriptLane(state);
     return true;
   }
 
-  getPublication(publicationId: string) {
-    return this.publications.get(publicationId);
+  waitForPostedPublication(publicationId: string) {
+    const posted = this.publications.get(publicationId);
+    if (posted) return Promise.resolve(posted);
+    const prepared = [...this.transcripts.values()].some((state) =>
+      state.pendingSnapshots.some(
+        (publication) => publication.publicationId === publicationId,
+      ),
+    );
+    if (!prepared) return Promise.resolve(undefined);
+    return new Promise<AssistantWorkspacePublication | undefined>((resolve) => {
+      const waiters =
+        this.publicationPostWaiters.get(publicationId) ||
+        new Set<
+          (publication: AssistantWorkspacePublication | undefined) => void
+        >();
+      waiters.add(resolve);
+      this.publicationPostWaiters.set(publicationId, waiters);
+    });
+  }
+
+  private settlePublicationPost(
+    publicationId: string,
+    publication: AssistantWorkspacePublication | undefined,
+  ) {
+    const waiters = this.publicationPostWaiters.get(publicationId);
+    if (!waiters) return;
+    this.publicationPostWaiters.delete(publicationId);
+    for (const resolve of waiters) {
+      resolve(publication);
+    }
+  }
+
+  private replacePendingSnapshots(
+    state: TranscriptState,
+    publications: AssistantWorkspacePublication[],
+  ) {
+    const retained = new Set(
+      publications.map((publication) => publication.publicationId),
+    );
+    for (const pending of state.pendingSnapshots) {
+      if (!retained.has(pending.publicationId)) {
+        this.settlePublicationPost(pending.publicationId, undefined);
+      }
+    }
+    state.pendingSnapshots = publications;
   }
 
   clearOwner(owner: AssistantWorkspaceOwner) {
-    const prefix = `${owner.source}\n${owner.ownerKey}\n`;
-    for (const key of this.transcripts.keys()) {
-      if (key.startsWith(prefix)) this.transcripts.delete(key);
+    const key = ownerIdentity(owner);
+    const state = this.transcripts.get(key);
+    if (state) {
+      if (state.inFlight) {
+        this.publications.delete(state.inFlight.publicationId);
+      }
+      this.replacePendingSnapshots(state, []);
+      state.accumulator.drain();
     }
-    this.currentTranscriptKeys.delete(ownerIdentity(owner));
+    this.transcripts.delete(key);
     this.transcriptProjection.clear(owner);
   }
 
+  private transcriptState(owner: AssistantWorkspaceOwner) {
+    const key = ownerIdentity(owner);
+    let state = this.transcripts.get(key);
+    if (!state) {
+      state = {
+        owner,
+        page: null,
+        uiRevision: 0,
+        accumulator: new AssistantWorkspaceTranscriptAccumulator(),
+        inFlight: null,
+        pendingSnapshots: [],
+        pendingMetadata: false,
+      };
+      this.transcripts.set(key, state);
+    }
+    return state;
+  }
+
+  private pumpTranscriptLane(state: TranscriptState) {
+    if (state.inFlight) return state.inFlight;
+    const pendingSnapshot = state.pendingSnapshots[0];
+    if (pendingSnapshot) {
+      if (!this.postPrepared(pendingSnapshot)) return undefined;
+      state.pendingSnapshots.shift();
+      state.inFlight = pendingSnapshot;
+      return pendingSnapshot;
+    }
+    return this.flush(state);
+  }
+
   private flush(state: TranscriptState) {
+    if (!state.page) return undefined;
     if (state.accumulator.requiresResync) {
-      state.accumulator.drain();
-      const publication = this.publish({
+      const publication = this.createPublication({
         owner: state.owner,
         publicationKind: "transcript",
         publicationForm: "resync-required",
@@ -352,15 +392,16 @@ export class AssistantWorkspacePublicationCoordinator {
           reason: "overflow",
         },
       });
-      state.inFlight = publication || null;
+      if (!this.postPrepared(publication)) return undefined;
+      state.accumulator.drain();
+      state.inFlight = publication;
       return publication;
     }
-    const mutations = state.accumulator.drain();
+    const mutations = state.accumulator.read();
     if (!mutations.length && !state.pendingMetadata) return undefined;
-    state.pendingMetadata = false;
     const baseUiRevision = state.uiRevision;
-    state.uiRevision += 1;
-    const publication = this.publish({
+    const uiRevision = baseUiRevision + 1;
+    const publication = this.createPublication({
       owner: state.owner,
       publicationKind: "transcript",
       publicationForm: "delta",
@@ -368,12 +409,23 @@ export class AssistantWorkspacePublicationCoordinator {
       payload: {
         page: transcriptPageMetadata(state.page),
         baseUiRevision,
-        uiRevision: state.uiRevision,
+        uiRevision,
         mutations,
       },
     });
-    state.inFlight = publication || null;
+    if (!this.postPrepared(publication)) return undefined;
+    state.accumulator.drain();
+    state.pendingMetadata = false;
+    state.uiRevision = uiRevision;
+    state.inFlight = publication;
     return publication;
+  }
+
+  private postPrepared(publication: AssistantWorkspacePublication) {
+    if (!this.options.post(publication)) return false;
+    this.publications.set(publication.publicationId, publication);
+    this.settlePublicationPost(publication.publicationId, publication);
+    return true;
   }
 
   private publish(
@@ -420,23 +472,10 @@ export class AssistantWorkspacePublicationCoordinator {
   }
 }
 
-function transcriptKey(owner: AssistantWorkspaceOwner, pageKey: string) {
-  return `${owner.source}\n${owner.ownerKey}\n${pageKey}`;
-}
-
 function ownerIdentity(owner: AssistantWorkspaceOwner) {
   return `${owner.source}\n${owner.ownerKey}`;
 }
 
 function isTailPage(page: AssistantWorkspaceTranscriptPage) {
   return /\ntail:\d+$/.test(page.pageKey);
-}
-
-function publicationPageKey(publication: AssistantWorkspacePublication) {
-  if (publication.publicationKind !== "transcript") return "";
-  const payload = publication.payload;
-  if ("pageKey" in payload) return String(payload.pageKey || "");
-  if ("page" in payload && payload.page)
-    return String(payload.page.pageKey || "");
-  return "";
 }

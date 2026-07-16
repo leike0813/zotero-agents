@@ -57,6 +57,7 @@ export type AcpRuntimeMetricName =
   | "panel_shell_forward"
   | "panel_child_apply"
   | "panel_render_ack"
+  | "panel_render_duration"
   | "transport_queue_entries"
   | "transport_queue_bytes"
   | "transport_message_queue_entries"
@@ -347,6 +348,7 @@ function recordPublicationLifecycle(
   if (!stage || !publicationId) return;
   let lifecycle = profile.publicationLifecycles.get(publicationId);
   if (!lifecycle) {
+    if (stage !== "post") return;
     if (profile.publicationLifecycles.size >= MAX_PUBLICATION_LIFECYCLES) {
       return;
     }

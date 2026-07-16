@@ -185,6 +185,64 @@ describe("ACP runtime performance profiler", function () {
     });
   });
 
+  it("does not create lifecycle identities from acknowledgements without an in-window post", function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "run-publication-window",
+      displayMode: "boundary",
+      transport: "unknown",
+      zoteroMajor: 9,
+    });
+    const labels = {
+      publicationId: "publication-before-window",
+      publicationSurface: "acp-skills" as const,
+      publicationKind: "transcript" as const,
+      publicationForm: "delta" as const,
+    };
+    incrementAcpRuntimeMetric(
+      "run-publication-window",
+      "panel_child_apply",
+      labels,
+    );
+    incrementAcpRuntimeMetric(
+      "run-publication-window",
+      "panel_render_ack",
+      labels,
+    );
+    assert.deepEqual(
+      snapshotAcpRuntimeProfiles()?.active[0].publicationLifecycles,
+      [],
+    );
+
+    const postedLabels = {
+      ...labels,
+      publicationId: "publication-in-window",
+    };
+    incrementAcpRuntimeMetric(
+      "run-publication-window",
+      "panel_post",
+      postedLabels,
+    );
+    incrementAcpRuntimeMetric(
+      "run-publication-window",
+      "panel_child_apply",
+      postedLabels,
+    );
+    assert.deepEqual(
+      snapshotAcpRuntimeProfiles()?.active[0].publicationLifecycles,
+      [
+        {
+          publicationId: "publication-in-window",
+          post: 1,
+          shellForward: 0,
+          childApply: 1,
+          renderAck: 0,
+        },
+      ],
+    );
+  });
+
   it("rejects alias collisions between active profiles", function () {
     setDebugModeOverrideForTests(true);
     enableAcpRuntimePerformanceProfiler();

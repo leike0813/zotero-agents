@@ -275,8 +275,10 @@ Replay、Zotero 7/9、lint、build和严格OpenSpec的最终结果以本change t
 真实Zotero回归进一步暴露并修复了三处不能留到后续的闭环缺口：Replay
 barrier曾等待无关历史pending publication；Skills无选中run时无法生成精确
 diagnostic identity；producer-native delta会被旧R3口径错误要求一一对应page
-prepare/signature。现在barrier只等待强制publication本身，idle Skills也发布
-规范TranscriptRegion，R3以同identity的post/shell/child/render链为完整性依据。
+prepare/signature。现在barrier绑定强制publication的精确identity，并等待同source、
+同tab且delivery sequence不大于该目标的所有publication；其它surface或tab的历史
+pending不再阻塞。idle Skills也发布规范TranscriptRegion，R3以同identity的
+post/shell/child/render链为完整性依据。
 
 最终代码审计还删除了steady transcript的page snapshot兜底。Chat与Skills只要
 收到transcript kind，就只能把producer mutation交给共享coordinator；空mutation
@@ -294,3 +296,54 @@ target-active Replay及Chat/Skills真实嵌套frame transcript均通过。仓库
 `npm run lint:check`仍被任务外既存的172/173两个未格式化测试阻塞，本轮没有修改
 它们。相同digest/cadence的正式after matrix尚未生成，因此posted bytes、
 target-active overhead和drift预算仍保持未验收，不能从机制测试推断性能达标。
+
+## 本轮再次治理实现复核
+
+针对最新round2失败报告暴露的加载、target-active和性能闭环问题，本轮没有回退
+Chat/Skills同构方向，而是把未闭合的状态机收敛到同一条可验证路径：
+
+- store event seam使用同一个before/after projector，patch不再携带完整累计item；
+- coordinator按owner串行处理loading、ready、delta、page transition、resync和
+  rebase，只有终态child ACK推进；
+- snapshot原子覆盖此前已包含的待发mutation，region signature只在真实post成功后
+  提交；
+- Shell在child ready前保留typed publication，并按deliverySequence重放；ACK必须
+  属于当前document generation；
+- Chat和Skills child使用同一个receiver/client，批次内append后的patch基于append
+  结果，render失败以`render-failed`触发明确rebase；
+- renderer从DOM order identity删除revision，steady append/finalization只更新目标
+  row，历史页off-page delta只更新元数据；
+- Replay barrier固定`source/tab/deliverySequence/publicationId`并等待同surface、
+  同tab、序号不大的全部publication；SkillRunner单独等待readiness；
+- profiler lifecycle只由profile窗口内post创建，render duration只统计accepted
+  completion，phase与artifact slug在保存和比较前强制一致。
+
+这些修改同时作用于ACP Chat和ACP Skills，没有引入surface专用字段、receiver、
+revision或ACK状态机。Node/browser机制测试、类型检查、lint、build、严格OpenSpec
+和真实Zotero replay的最终执行结果以本change tasks及本轮交付报告为准；在正式
+boundary matrix生成前，不提前宣称bytes、target-active overhead或drift预算达标。
+
+### 真实Zotero交付闭环补记
+
+真实嵌套frame验证发现，Node中的`window.message`路径通过了共享交付状态机，但
+插件实际优先使用的direct child bridge曾直接调用Host action，绕过Shell的child
+ready和document generation登记。两条入口现已统一进入同一个
+`handleChildAction()`，不再维护两套ready/ACK语义。
+
+随后暴露的早期pending publication不是barrier误判，而是真实丢失：只要iframe
+window存在，Host在Shell尚未ready时也会把`postMessage()`视为成功，消息可能在
+Shell安装listener前消失，而lifecycle已经登记为posted。现在coordinator transport
+在`host.shell.ready`前明确返回未投递，owner lane保留工作；初始化snapshot作为
+完整rebase，会原子替换尚未进入Shell的旧resync/delta，避免ready后先发送过时工作。
+无选中Chat conversation或Skills run时，两侧也统一发布unowned idle transcript
+snapshot，使首次打开和diagnostic publication都有规范identity。
+
+Chat修复通过后，参数化的Skills target-active验证又发现force API会把owner lane中
+尚未post的diagnostic snapshot当作barrier identity返回。coordinator现在提供唯一的
+post-owned等待语义：只有Host lifecycle已经登记后才交出identity；排队项被更新的
+snapshot取代时明确返回未发布，由sidecar重新强制，而不是制造`missing`目标。
+
+修复后，真实Zotero中的Chat/Skills nested-frame snapshot用例通过；Chat和Skills
+各自三轮的target-active参数化矩阵也通过，单次测试分别约为688 ms和3.0 s。该结果
+只证明交付、ACK和target-active机制闭环，不代替相同trace digest、boundary模式和
+正式cadence的after matrix，因此正式bytes、overhead和drift验收仍保持未完成。

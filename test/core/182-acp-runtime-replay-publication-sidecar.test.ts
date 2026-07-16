@@ -1,7 +1,10 @@
 import { assert } from "chai";
 import {
   drainAcpRuntimeReplayPublication,
+  waitAcpRuntimeReplayWorkspaceReadiness,
+  type AcpRuntimeReplayForcedPublication,
   type AcpRuntimeReplayPublicationInspection,
+  type AcpRuntimeReplayPublicationLifecycle,
   type AcpRuntimeReplayPublicationWindow,
 } from "../../src/modules/acpRuntimeReplayPublicationSidecar";
 
@@ -57,7 +60,52 @@ function inspection(
   return { childWindow, publications, detail };
 }
 
+function lifecycle(
+  tab: "acp-chat" | "acp-skills",
+  publicationId: string,
+  state: AcpRuntimeReplayPublicationLifecycle["state"],
+  deliverySequence = 1,
+  reason?: string,
+): AcpRuntimeReplayPublicationLifecycle {
+  return {
+    source: tab,
+    tab,
+    publicationId,
+    deliverySequence,
+    state,
+    ...(reason ? { reason } : {}),
+  };
+}
+
+function forced(
+  tab: "acp-chat" | "acp-skills",
+  publicationId: string,
+  deliverySequence = 1,
+): AcpRuntimeReplayForcedPublication {
+  return { source: tab, tab, publicationId, deliverySequence };
+}
+
 describe("ACP runtime replay publication sidecar", function () {
+  it("uses readiness without an ACP publication identity for SkillRunner", async function () {
+    const child = new FakePublicationWindow();
+    let ready = false;
+    setTimeout(() => {
+      ready = true;
+    }, 20);
+
+    assert.deepEqual(
+      await waitAcpRuntimeReplayWorkspaceReadiness({
+        tab: "skillrunner",
+        timeoutMs: 100,
+        inspect: () =>
+          ready
+            ? inspection(child)
+            : inspection(null, [], "workspace-child-not-ready"),
+      }),
+      { ok: true },
+    );
+  });
+
   it("waits for the exact forced publication render acknowledgement", async function () {
     const child = new FakePublicationWindow();
     let publications: AcpRuntimeReplayPublicationInspection["publications"] =
@@ -68,8 +116,8 @@ describe("ACP runtime replay publication sidecar", function () {
       timeoutMs: 250,
       inspect: () => inspection(child, publications),
       forcePublish: async () => {
-        publications = [{ publicationId: "publication-1", state: "pending" }];
-        return { publicationId: "publication-1" };
+        publications = [lifecycle("acp-skills", "publication-1", "pending")];
+        return forced("acp-skills", "publication-1");
       },
     });
     void pending.then(() => {
@@ -80,7 +128,7 @@ describe("ACP runtime replay publication sidecar", function () {
     assert.isFalse(settled, "delivery without host render ack must not drain");
 
     publications = [
-      { publicationId: "publication-1", state: "render-complete" },
+      lifecycle("acp-skills", "publication-1", "render-complete"),
     ];
     assert.deepEqual(await pending, { ok: true });
   });
@@ -88,14 +136,14 @@ describe("ACP runtime replay publication sidecar", function () {
   it("does not accept another publication's render acknowledgement", async function () {
     const child = new FakePublicationWindow();
     let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
-      { publicationId: "publication-other", state: "render-complete" },
+      lifecycle("acp-chat", "publication-other", "render-complete"),
     ];
     let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-chat",
       timeoutMs: 250,
       inspect: () => inspection(child, publications),
-      forcePublish: async () => ({ publicationId: "publication-target" }),
+      forcePublish: async () => forced("acp-chat", "publication-target"),
     });
     void pending.then(() => {
       settled = true;
@@ -104,32 +152,42 @@ describe("ACP runtime replay publication sidecar", function () {
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.isFalse(settled);
     publications = [
-      { publicationId: "publication-target", state: "render-complete" },
+      lifecycle("acp-chat", "publication-target", "render-complete"),
     ];
     assert.deepEqual(await pending, { ok: true });
   });
 
-  it("closes an exact measurement boundary despite unrelated older publications", async function () {
+  it("waits for every same-tab publication through the forced delivery barrier", async function () {
     const child = new FakePublicationWindow();
     let publications: AcpRuntimeReplayPublicationInspection["publications"] = [
-      { publicationId: "publication-before", state: "pending" },
+      lifecycle("acp-skills", "publication-before", "pending", 1),
     ];
+    let settled = false;
     const pending = drainAcpRuntimeReplayPublication({
       tab: "acp-skills",
       timeoutMs: 250,
       inspect: () => inspection(child, publications),
       forcePublish: async () => {
         publications = [
-          { publicationId: "publication-before", state: "pending" },
-          { publicationId: "publication-target", state: "pending" },
+          lifecycle("acp-skills", "publication-before", "pending", 1),
+          lifecycle("acp-skills", "publication-target", "pending", 2),
         ];
-        return { publicationId: "publication-target" };
+        return forced("acp-skills", "publication-target", 2);
       },
     });
+    void pending.then(() => {
+      settled = true;
+    });
     publications = [
-      { publicationId: "publication-before", state: "pending" },
-      { publicationId: "publication-target", state: "render-complete" },
+      lifecycle("acp-skills", "publication-before", "pending", 1),
+      lifecycle("acp-skills", "publication-target", "render-complete", 2),
     ];
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.isFalse(settled);
+    publications = publications.map((entry) => ({
+      ...entry,
+      state: "render-complete" as const,
+    }));
     assert.deepEqual(await pending, { ok: true });
   });
 
@@ -143,13 +201,15 @@ describe("ACP runtime replay publication sidecar", function () {
       inspect: () => inspection(child, publications),
       forcePublish: async () => {
         publications = [
-          {
-            publicationId: "publication-rejected",
-            state: "rejected",
-            reason: "stale-revision",
-          },
+          lifecycle(
+            "acp-chat",
+            "publication-rejected",
+            "rejected",
+            1,
+            "stale-revision",
+          ),
         ];
-        return { publicationId: "publication-rejected" };
+        return forced("acp-chat", "publication-rejected");
       },
     });
 
@@ -173,9 +233,9 @@ describe("ACP runtime replay publication sidecar", function () {
         forceCalls += 1;
         if (forceCalls === 1) return undefined;
         publications = [
-          { publicationId: "publication-retry", state: "render-complete" },
+          lifecycle("acp-skills", "publication-retry", "render-complete"),
         ];
-        return { publicationId: "publication-retry" };
+        return forced("acp-skills", "publication-retry");
       },
     });
 
@@ -198,24 +258,17 @@ describe("ACP runtime replay publication sidecar", function () {
           const publicationId = `publication-${forceCalls}`;
           publications = [
             ...(forceCalls > 1
-              ? [
-                  {
-                    publicationId: "publication-1",
-                    state: "rejected" as const,
-                    reason,
-                  },
-                ]
+              ? [lifecycle("acp-chat", "publication-1", "rejected", 1, reason)]
               : []),
-            {
+            lifecycle(
+              "acp-chat",
               publicationId,
-              state:
-                forceCalls === 1
-                  ? ("rejected" as const)
-                  : ("render-complete" as const),
-              ...(forceCalls === 1 ? { reason } : {}),
-            },
+              forceCalls === 1 ? "rejected" : "render-complete",
+              forceCalls,
+              forceCalls === 1 ? reason : undefined,
+            ),
           ];
-          return { publicationId };
+          return forced("acp-chat", publicationId, forceCalls);
         },
       });
 
@@ -244,9 +297,9 @@ describe("ACP runtime replay publication sidecar", function () {
           return undefined;
         }
         publications = [
-          { publicationId: "publication-2", state: "render-complete" },
+          lifecycle("acp-chat", "publication-2", "render-complete", 2),
         ];
-        return { publicationId: "publication-2" };
+        return forced("acp-chat", "publication-2", 2);
       },
     });
 
@@ -255,6 +308,27 @@ describe("ACP runtime replay publication sidecar", function () {
     releaseFirst();
     assert.deepEqual(await pending, { ok: true });
     assert.equal(forceCalls, 2);
+  });
+
+  it("rejects a forced publication without a canonical delivery barrier", async function () {
+    const child = new FakePublicationWindow();
+    const pending = drainAcpRuntimeReplayPublication({
+      tab: "acp-chat",
+      timeoutMs: 100,
+      inspect: () => inspection(child),
+      forcePublish: async () =>
+        ({
+          source: "acp-chat",
+          tab: "acp-chat",
+          publicationId: "publication-invalid",
+          deliverySequence: 0,
+        }) as AcpRuntimeReplayForcedPublication,
+    });
+
+    assert.deepEqual(await pending, {
+      ok: false,
+      detail: "workspace-publication-invalid-barrier:acp-chat",
+    });
   });
 
   it("cleans up on abort, frame replacement, and unload", async function () {

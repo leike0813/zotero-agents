@@ -63,6 +63,14 @@ export type AssistantWorkspaceTranscriptItem =
       status: "pending" | "approved" | "denied" | "cancelled";
     });
 
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+export type AssistantWorkspaceTranscriptItemPatch = Partial<
+  DistributiveOmit<AssistantWorkspaceTranscriptItem, "itemId" | "itemKind">
+>;
+
 export type AssistantWorkspaceTranscriptPageRequest = {
   owner: AssistantWorkspaceOwner;
   request: {
@@ -162,9 +170,7 @@ export type AssistantWorkspaceTranscriptMutation =
   | {
       op: "patch_item";
       itemId: string;
-      patch: Partial<
-        Omit<AssistantWorkspaceTranscriptItem, "itemId" | "itemKind">
-      >;
+      patch: AssistantWorkspaceTranscriptItemPatch;
     }
   | { op: "delete_item"; itemId: string };
 
@@ -178,7 +184,7 @@ export type AssistantWorkspaceTranscriptDelta = {
 export type AssistantWorkspaceTranscriptResync = {
   pageKey: string;
   expectedUiRevision: number;
-  reason: "gap" | "overflow" | "superseded";
+  reason: "gap" | "overflow" | "render-failed" | "superseded";
 };
 
 export type AssistantWorkspaceTranscriptBoundary =
@@ -295,8 +301,12 @@ export class AssistantWorkspaceTranscriptAccumulator {
     return this.overflowed;
   }
 
+  read() {
+    return this.mutations.map(cloneMutation);
+  }
+
   drain() {
-    const result = this.mutations.map(cloneMutation);
+    const result = this.read();
     this.mutations = [];
     this.byteLength = 0;
     this.overflowed = false;
@@ -495,7 +505,8 @@ export function normalizeAssistantWorkspaceTranscriptItem(
 export function createAssistantWorkspaceTranscriptMutation(args: {
   op: "upsert_item" | "append_text" | "patch_item" | "delete_item";
   itemId: string;
-  item?: Record<string, unknown>;
+  beforeItem?: Record<string, unknown>;
+  afterItem?: Record<string, unknown>;
   text?: string;
 }): AssistantWorkspaceTranscriptMutation | null {
   const itemId = String(args.itemId || "").trim();
@@ -505,11 +516,33 @@ export function createAssistantWorkspaceTranscriptMutation(args: {
     return text ? { op: "append_text", itemId, text } : null;
   }
   if (args.op === "delete_item") return { op: "delete_item", itemId };
-  if (!args.item) return null;
+  if (!args.afterItem) return null;
+  const after = normalizeAssistantWorkspaceTranscriptItem(args.afterItem);
+  if (args.op === "upsert_item" || !args.beforeItem) {
+    return { op: "upsert_item", item: after };
+  }
+  const before = normalizeAssistantWorkspaceTranscriptItem(args.beforeItem);
+  if (before.itemId !== after.itemId || before.itemKind !== after.itemKind) {
+    return { op: "upsert_item", item: after };
+  }
+  const patch: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(after)) {
+    if (key === "itemId" || key === "itemKind") continue;
+    if (!jsonValuesEqual(before[key as keyof typeof before], value)) {
+      patch[key] = cloneJsonValue(value);
+    }
+  }
+  if (Object.keys(patch).length === 0) return null;
   return {
-    op: "upsert_item",
-    item: normalizeAssistantWorkspaceTranscriptItem(args.item),
+    op: "patch_item",
+    itemId,
+    patch: patch as AssistantWorkspaceTranscriptItemPatch,
   };
+}
+
+function jsonValuesEqual(left: unknown, right: unknown) {
+  if (left === right) return true;
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export function createAssistantWorkspaceTranscriptPage(args: {

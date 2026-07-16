@@ -17,8 +17,11 @@ import {
 } from "./acpRuntimeSemanticTrace";
 import { isAcpRuntimeReplayProfilerAvailable } from "./debugMode";
 import {
+  ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH,
   buildAcpRuntimeReplayArtifactStem,
   createAcpRuntimeReplayOwnerIdentity,
+  normalizeAcpRuntimeReplayPhase,
+  slugAcpRuntimeReplayArtifactSegment,
 } from "./acpRuntimeReplayIdentity";
 import type { AcpRuntimeReplayLogicalTimePort } from "./acpRuntimeReplayLogicalTime";
 import type {
@@ -579,6 +582,33 @@ export type AcpRuntimeReplayMatrix = {
   warnings: string[];
 };
 
+function assertAcpRuntimeReplayPhaseProvenance(
+  matrix: AcpRuntimeReplayMatrix,
+  artifactStem?: string,
+) {
+  const phase = normalizeAcpRuntimeReplayPhase(matrix.replayConfig.phase);
+  const phaseArtifactSlug = String(matrix.replayConfig.phaseArtifactSlug || "");
+  const expectedSlug = phase.valid
+    ? slugAcpRuntimeReplayArtifactSegment(
+        phase.value,
+        ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH,
+        "stage",
+      )
+    : "";
+  const stemPhaseSlug = artifactStem
+    ? String(artifactStem.split("__")[1] || "")
+    : expectedSlug;
+  if (
+    !phase.valid ||
+    phase.value !== matrix.replayConfig.phase ||
+    !phaseArtifactSlug ||
+    phaseArtifactSlug !== expectedSlug ||
+    stemPhaseSlug !== expectedSlug
+  ) {
+    throw new Error("ACP replay phase provenance is incomplete");
+  }
+}
+
 export type AcpRuntimeReplayMatrixCompatibility = {
   schema: string;
   legacy: boolean;
@@ -921,6 +951,15 @@ export async function runAcpRuntimeReplayMatrix(args: {
   if (args.trace.footer.completion !== "complete") {
     throw new Error("Incomplete ACP semantic traces cannot produce a matrix");
   }
+  const phase = normalizeAcpRuntimeReplayPhase(args.replayConfig?.phase);
+  if (!phase.valid) {
+    throw new Error("ACP replay phase provenance is incomplete");
+  }
+  const phaseArtifactSlug = slugAcpRuntimeReplayArtifactSegment(
+    phase.value,
+    ACP_RUNTIME_REPLAY_PHASE_SLUG_MAX_LENGTH,
+    "stage",
+  );
   if (!acquireAcpRuntimeDiagnosticsMode("replaying")) {
     throw new Error("Another ACP runtime diagnostic mode is active");
   }
@@ -1226,6 +1265,8 @@ export async function runAcpRuntimeReplayMatrix(args: {
     r2WorkloadVersion: ACP_RUNTIME_R2_SYNTHETIC_WORKLOAD_V1,
     replayConfig: {
       ...(args.replayConfig || {}),
+      phase: phase.value,
+      phaseArtifactSlug,
       ...(args.cadence === "logical"
         ? { syntheticTiming: true, logicalSchedulerVersion: 1 }
         : {}),
@@ -1310,10 +1351,16 @@ export function assertAcpRuntimeReplayMatricesComparable(
   left: AcpRuntimeReplayMatrix,
   right: AcpRuntimeReplayMatrix,
 ) {
+  assertAcpRuntimeReplayPhaseProvenance(left);
+  assertAcpRuntimeReplayPhaseProvenance(right);
   const comparableReplayConfig = (
     config: AcpRuntimeReplayMatrix["replayConfig"],
   ) => {
-    const { phase: _governanceStage, ...executionConfig } = config;
+    const {
+      phase: _governanceStage,
+      phaseArtifactSlug: _governanceStageSlug,
+      ...executionConfig
+    } = config;
     return executionConfig;
   };
   const leftKey = JSON.stringify([
@@ -1468,6 +1515,7 @@ export async function saveAcpRuntimeReplayMatrix(args: {
   root?: string;
   nowMs?: number;
 }) {
+  assertAcpRuntimeReplayPhaseProvenance(args.matrix);
   const paths = getRuntimePersistencePaths(args.root);
   const folder = joinPath(paths.runtimeRoot, "profiles", "acp-replay");
   await ensureRuntimeDirectory(folder);
@@ -1477,6 +1525,7 @@ export async function saveAcpRuntimeReplayMatrix(args: {
     cadence: args.matrix.cadence,
     createdAtMs: args.nowMs,
   });
+  assertAcpRuntimeReplayPhaseProvenance(args.matrix, stem);
   const files = [
     { extension: "json", content: `${JSON.stringify(args.matrix, null, 2)}\n` },
     {

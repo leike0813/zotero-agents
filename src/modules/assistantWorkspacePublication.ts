@@ -235,7 +235,14 @@ export type AssistantWorkspacePublicationAck = {
   publicationId: string;
   stage: AssistantWorkspacePublicationAckStage;
   outcome: "accepted" | "rejected";
-  reason: "old-owner" | "stale" | "gap" | "superseded" | "invalid" | null;
+  reason:
+    | "old-owner"
+    | "stale"
+    | "gap"
+    | "superseded"
+    | "invalid"
+    | "render-failed"
+    | null;
 };
 
 export type AssistantWorkspacePublicationLifecycle = {
@@ -245,6 +252,8 @@ export type AssistantWorkspacePublicationLifecycle = {
 };
 
 export type AssistantWorkspacePublicationBarrier = {
+  source: AssistantWorkspacePublicationSource;
+  tab: AssistantWorkspacePublicationSource;
   publicationId: string;
   deliverySequence: number;
 };
@@ -497,6 +506,13 @@ function assertPublicationPayloadInvariant(
         ["pageKey", "expectedUiRevision", "reason"],
         "assistant-workspace-transcript-resync",
       );
+      if (
+        !["gap", "overflow", "render-failed", "superseded"].includes(
+          String((payload as AssistantWorkspaceTranscriptResync).reason || ""),
+        )
+      ) {
+        throw new Error("assistant-workspace-transcript-resync-reason");
+      }
       return;
     }
     throw new Error("assistant-workspace-transcript-form");
@@ -561,9 +577,14 @@ export function assertAssistantWorkspacePublicationAck(
   }
   if (
     ack.reason !== null &&
-    !["old-owner", "stale", "gap", "superseded", "invalid"].includes(
-      String(ack.reason),
-    )
+    ![
+      "old-owner",
+      "stale",
+      "gap",
+      "superseded",
+      "invalid",
+      "render-failed",
+    ].includes(String(ack.reason))
   ) {
     throw new Error("assistant-workspace-publication-ack-reason");
   }

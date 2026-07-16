@@ -4,6 +4,10 @@ export type AcpRuntimeReplayPublicationTab =
   | "acp-chat"
   | "acp-skills"
   | "skillrunner";
+type AcpRuntimeReplayPublicationSurface = Exclude<
+  AcpRuntimeReplayPublicationTab,
+  "skillrunner"
+>;
 
 export type AcpRuntimeReplayPublicationWindow = {
   addEventListener: (
@@ -18,6 +22,9 @@ export type AcpRuntimeReplayPublicationWindow = {
 
 export type AcpRuntimeReplayPublicationLifecycle = {
   publicationId: string;
+  source: AcpRuntimeReplayPublicationSurface;
+  tab: AcpRuntimeReplayPublicationSurface;
+  deliverySequence: number;
   state: "pending" | "render-complete" | "rejected";
   reason?: string;
 };
@@ -29,7 +36,10 @@ export type AcpRuntimeReplayPublicationInspection = {
 };
 
 export type AcpRuntimeReplayForcedPublication = {
+  source: AcpRuntimeReplayPublicationSurface;
+  tab: AcpRuntimeReplayPublicationSurface;
   publicationId: string;
+  deliverySequence: number;
 };
 
 type PublicationResult = { ok: boolean; detail?: string };
@@ -37,6 +47,39 @@ type PublicationResult = { ok: boolean; detail?: string };
 const DEFAULT_TIMEOUT_MS = 10_000;
 const INSPECTION_INTERVAL_MS = 16;
 const PUBLICATION_RETRY_INTERVAL_MS = 100;
+
+export function waitAcpRuntimeReplayWorkspaceReadiness(args: {
+  tab: AcpRuntimeReplayPublicationTab;
+  timeoutMs?: number;
+  inspect: () => AcpRuntimeReplayPublicationInspection;
+}): Promise<PublicationResult> {
+  const timeoutMs = Math.max(1, Number(args.timeoutMs) || DEFAULT_TIMEOUT_MS);
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const inspect = () => {
+      const current = args.inspect();
+      const detail =
+        current.detail ||
+        (current.childWindow ? "" : "workspace-child-not-ready");
+      if (!detail && current.childWindow) {
+        resolve({ ok: true });
+        return;
+      }
+      if (Date.now() >= deadline) {
+        resolve({
+          ok: false,
+          detail: readinessTimeoutDetail(detail, args.tab),
+        });
+        return;
+      }
+      setTimeout(
+        inspect,
+        Math.min(INSPECTION_INTERVAL_MS, Math.max(1, deadline - Date.now())),
+      );
+    };
+    inspect();
+  });
+}
 
 function readinessTimeoutDetail(
   detail: string,
@@ -58,7 +101,7 @@ function readinessTimeoutDetail(
 }
 
 export function drainAcpRuntimeReplayPublication(args: {
-  tab: AcpRuntimeReplayPublicationTab;
+  tab: AcpRuntimeReplayPublicationSurface;
   signal?: AcpRuntimeReplayCancellationSignal;
   timeoutMs?: number;
   inspect: () => AcpRuntimeReplayPublicationInspection;
@@ -71,6 +114,8 @@ export function drainAcpRuntimeReplayPublication(args: {
     let settled = false;
     let childWindow: AcpRuntimeReplayPublicationWindow | null = null;
     let targetPublicationId = "";
+    let targetDeliverySequence = 0;
+    let targetSource: AcpRuntimeReplayPublicationSurface | "" = "";
     let timeoutToken: ReturnType<typeof setTimeout> | null = null;
     let inspectionToken: ReturnType<typeof setTimeout> | null = null;
     let lastReadinessDetail = "workspace-child-not-ready";
@@ -105,7 +150,15 @@ export function drainAcpRuntimeReplayPublication(args: {
         });
         return;
       }
-      const pendingPublicationIds = inspection.publications
+      const barrierPublications = targetPublicationId
+        ? inspection.publications.filter(
+            (entry) =>
+              entry.source === targetSource &&
+              entry.tab === args.tab &&
+              entry.deliverySequence <= targetDeliverySequence,
+          )
+        : inspection.publications;
+      const pendingPublicationIds = barrierPublications
         .filter((entry) => entry.state === "pending")
         .map((entry) => entry.publicationId);
       if (!targetPublicationId) {
@@ -132,7 +185,10 @@ export function drainAcpRuntimeReplayPublication(args: {
         });
         return;
       }
-      if (target?.state === "render-complete") {
+      if (
+        target?.state === "render-complete" &&
+        pendingPublicationIds.length === 0
+      ) {
         settle({ ok: true });
       }
     };
@@ -142,7 +198,24 @@ export function drainAcpRuntimeReplayPublication(args: {
       try {
         const forced = await args.forcePublish();
         const publicationId = String(forced?.publicationId || "").trim();
-        if (publicationId) targetPublicationId = publicationId;
+        if (publicationId && forced) {
+          const deliverySequence = Number(forced.deliverySequence);
+          if (
+            forced.source !== args.tab ||
+            forced.tab !== args.tab ||
+            !Number.isInteger(deliverySequence) ||
+            deliverySequence <= 0
+          ) {
+            settle({
+              ok: false,
+              detail: `workspace-publication-invalid-barrier:${args.tab}`,
+            });
+            return;
+          }
+          targetPublicationId = publicationId;
+          targetDeliverySequence = deliverySequence;
+          targetSource = forced.source;
+        }
         inspectCurrent();
       } catch (error) {
         settle({

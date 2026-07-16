@@ -125,6 +125,7 @@ export const ACP_RUNTIME_METRIC_RISK_GROUP: Readonly<
   panel_shell_forward: "R3",
   panel_child_apply: "R3",
   panel_render_ack: "R3",
+  panel_render_duration: "R3",
   transport_queue_entries: "R1",
   transport_queue_bytes: "R1",
   transport_message_queue_entries: "R1",

@@ -1430,6 +1430,7 @@ function queueTranscriptEvent(
       },
     });
   }
+  const previousItem = state.itemsById.get(args.itemId);
   applyTranscriptEventToMirror(state, {
     op: args.op,
     itemId: args.itemId,
@@ -1442,7 +1443,8 @@ function queueTranscriptEvent(
   const mutation = createAssistantWorkspaceTranscriptMutation({
     op: args.op,
     itemId: args.itemId,
-    item: currentItem as unknown as Record<string, unknown> | undefined,
+    beforeItem: previousItem as Record<string, unknown> | undefined,
+    afterItem: currentItem as unknown as Record<string, unknown> | undefined,
     text: args.text,
   });
   if (mutation) {

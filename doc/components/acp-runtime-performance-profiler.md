@@ -287,6 +287,26 @@ domains. A publication remains in flight until `render-complete` or an explicit
 terminal rejection; Shell receive and forward acknowledgements are
 observational only.
 
+The Shell retains each typed publication until a terminal acknowledgement from
+the child document generation to which it was delivered. A late acknowledgement
+from a replaced iframe is discarded before it reaches the Host. The Host
+lifecycle ledger is created only by an in-window `panel_post`; acknowledgements
+for unknown identities cannot create zero-post lifecycle records. Surface,
+kind, form, cause, and materialization labels are read from that canonical
+lifecycle entry for both Chat and Skills.
+
+`panel_render_duration` measures Host-observed time from post to an accepted
+render completion. Rejected apply or render work is excluded. Replay force
+operations return a `source + tab + deliverySequence + publicationId` barrier,
+and drain waits for all same-source, same-tab work through that sequence.
+SkillRunner uses child readiness without fabricating an ACP publication
+identity.
+
+Every matrix freezes the normalized `phase` together with its
+`phaseArtifactSlug`. Saving and governance comparison reject a matrix when
+those values diverge; the saver also verifies that the same slug appears in the
+artifact stem.
+
 The v3 field vocabulary is current-state only: `owner`, `transcriptRegion`,
 `pageKey`, `itemId`, `itemKind`, `publicationId`, `publicationKind`,
 `publicationForm`, and `publicationCause`. The runtime validator rejects old

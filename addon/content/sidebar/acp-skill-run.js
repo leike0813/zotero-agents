@@ -28,10 +28,16 @@
     permissionRequestDrawerOpen: false,
     panelRenderKey: "",
     pendingRenderSnapshots: [],
+    pendingPublications: [],
     renderScheduled: false,
     drawerGroupCollapsed: new Map(),
-    publicationReceiver: null,
+    publicationClient: null,
   };
+  const CHILD_DOCUMENT_GENERATION =
+    "acp-skills-" +
+    String(Date.now()) +
+    "-" +
+    Math.random().toString(36).slice(2);
   function bridge() {
     return [
       window.__zsAcpSkillRunSidebarBridge,
@@ -994,17 +1000,19 @@
     if (!run) {
       empty.classList.remove("hidden");
       main.classList.add("hidden");
-      return;
+      return true;
     }
     empty.classList.add("hidden");
     main.classList.remove("hidden");
     try {
       renderTranscript(run);
+      return true;
     } catch (error) {
       renderPanelRuntimeFailure(
         "ACP Skills transcript renderer failed: " +
           (error && error.message ? error.message : String(error)),
       );
+      return false;
     }
   }
 
@@ -1018,79 +1026,100 @@
     renderSelectedRun(state.snapshot);
     $("acp-skill-run-drawer").classList.toggle("hidden", !state.runDrawerOpen);
     $("acp-skill-run-details").classList.toggle("hidden", !state.detailsOpen);
-    const publication = state.snapshot.workspacePublication;
-    if (publication && typeof publication === "object") {
-      const shared = assistantTranscriptPublication();
-      state.publicationReceiver ||=
-        shared && shared.createReceiver({ source: "acp-skills" });
-      const result = state.publicationReceiver
-        ? state.publicationReceiver.apply(
-            state.snapshot,
-            publication,
-            snapshotSelectedRequestId(state.snapshot),
-          )
-        : { accepted: false, reason: "invalid", snapshot: state.snapshot };
-      publicationAck(
-        publication,
-        "child-apply",
-        result.accepted ? "accepted" : "rejected",
-        result.reason,
-      );
-      if (result.accepted) {
-        state.snapshot = result.snapshot;
-        publicationAck(publication, "render-complete", "accepted", null);
-      }
-      delete state.snapshot.workspacePublication;
-    }
   }
 
   function publicationAck(publication, stage, outcome, reason) {
     sendAction("publication-ack", {
       publicationId: safeText(publication && publication.publicationId),
+      documentGeneration: CHILD_DOCUMENT_GENERATION,
       stage,
       outcome,
       reason: reason || null,
     });
   }
 
-  function applyPublication(publication) {
-    const currentOwnerKey = snapshotSelectedRequestId(state.snapshot || {});
+  function renderPublicationResult(result) {
+    if (result.publicationKind !== "transcript") {
+      renderAssistantPanelRuntime(state.snapshot);
+      return true;
+    }
     const shared = assistantTranscriptPublication();
-    state.publicationReceiver ||=
-      shared && shared.createReceiver({ source: "acp-skills" });
-    const result = state.publicationReceiver
-      ? state.publicationReceiver.apply(
-          state.snapshot || {},
-          publication,
-          currentOwnerKey,
-        )
-      : { accepted: false, reason: "invalid", snapshot: state.snapshot };
-    if (!result.accepted) {
-      publicationAck(
-        publication || {},
-        "child-apply",
-        "rejected",
-        result.reason,
-      );
-      if (result.reloadPage) {
-        const pageRequest = shared.createPageRequest(
-          publication && publication.owner,
-          null,
-          80,
-        );
-        if (pageRequest) sendAction("load-transcript-page", pageRequest);
-      }
+    const renderer = assistantTranscriptRenderer();
+    const effect = result.effect || {};
+    const run = selectedRunFromSnapshot() || {};
+    const region = transcriptRegionForRun(run);
+    const transcript = $("acp-skill-run-transcript");
+    const targeted =
+      renderer &&
+      typeof renderer.applyAssistantTranscriptEffects === "function" &&
+      renderer.applyAssistantTranscriptEffects({
+        container: transcript,
+        nodeMap: state.transcriptNodeMap,
+        effect,
+        affectedItems: (effect.affectedItems || []).map(shared.rendererItem),
+        virtualized:
+          !!(region && region.page) &&
+          state.transcriptPaginationVirtualizationEnabled !== false,
+        mode: state.chatDisplayMode,
+        variant: "skillrunner",
+        renderMarkdown,
+        formatTime,
+        labels:
+          state.snapshot?.labels?.assistantPanel?.transcript ||
+          state.snapshot?.labels?.transcript ||
+          {},
+      });
+    if (targeted) {
+      state.transcriptRevision = transcriptRevisionNumber(region.uiRevision);
+      state.transcriptRenderedMode = state.chatDisplayMode;
+      renderChatDisplayMode();
+      return true;
+    }
+    return renderSelectedRun(state.snapshot);
+  }
+
+  function publicationClient() {
+    if (state.publicationClient) return state.publicationClient;
+    const shared = assistantTranscriptPublication();
+    state.publicationClient =
+      shared &&
+      shared.createClient({
+        source: "acp-skills",
+        getSnapshot: function () {
+          return state.snapshot || {};
+        },
+        setSnapshot: function (snapshot) {
+          state.snapshot = snapshot;
+        },
+        getOwnerKey: snapshotSelectedRequestId,
+        ack: publicationAck,
+        requestPage: function (publication) {
+          const request = shared.createPageRequest(publication.owner, null, 80);
+          if (request) sendAction("load-transcript-page", request);
+        },
+        render: renderPublicationResult,
+      });
+    return state.publicationClient;
+  }
+
+  function applyPublication(publication) {
+    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0) {
+      state.pendingPublications.push(publication);
       return;
     }
-    const kind = result.publicationKind;
-    state.snapshot = result.snapshot;
-    publicationAck(publication, "child-apply", "accepted", null);
-    if (kind === "transcript") {
-      renderSelectedRun(state.snapshot);
-    } else {
-      renderAssistantPanelRuntime(state.snapshot);
+    const client = publicationClient();
+    if (!client) {
+      publicationAck(publication || {}, "child-apply", "rejected", "invalid");
+      return;
     }
-    publicationAck(publication, "render-complete", "accepted", null);
+    client.apply(publication);
+  }
+
+  function flushPendingPublications() {
+    if (state.renderScheduled || state.pendingRenderSnapshots.length > 0)
+      return;
+    const pending = state.pendingPublications.splice(0);
+    pending.forEach(applyPublication);
   }
 
   function queueRender(snapshot) {
@@ -1118,6 +1147,7 @@
       pendingSnapshots.forEach(function (pendingSnapshot) {
         render(pendingSnapshot);
       });
+      flushPendingPublications();
     });
   }
 
@@ -1133,7 +1163,7 @@
   window.addEventListener("message", function (event) {
     const data = event.data || {};
     if (data.type === "assistant-workspace:child-ready-request") {
-      sendAction("ready", {});
+      sendAction("ready", { documentGeneration: CHILD_DOCUMENT_GENERATION });
       return;
     }
     if (data.type === "assistant-panel:close-drawers") {
@@ -1171,6 +1201,6 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     trace("ready-send", {});
-    sendAction("ready", {});
+    sendAction("ready", { documentGeneration: CHILD_DOCUMENT_GENERATION });
   });
 })();

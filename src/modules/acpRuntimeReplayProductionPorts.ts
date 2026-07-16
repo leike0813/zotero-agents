@@ -30,7 +30,10 @@ import {
   openAssistantWorkspaceSidebar,
   type AssistantWorkspaceDiagnosticsPublicationOptions,
 } from "./assistantWorkspaceSidebar";
-import { drainAcpRuntimeReplayPublication } from "./acpRuntimeReplayPublicationSidecar";
+import {
+  drainAcpRuntimeReplayPublication,
+  waitAcpRuntimeReplayWorkspaceReadiness,
+} from "./acpRuntimeReplayPublicationSidecar";
 import {
   getAcpFrontendSnapshot,
   inspectSyntheticAcpChatReplayTimers,
@@ -335,7 +338,8 @@ export function createAcpRuntimeR2ProductionNoopPort(): AcpRuntimeR2InputPort {
 
 export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeReplayWorkspacePort {
   const drainTab = (
-    options: AssistantWorkspaceDiagnosticsPublicationOptions & {
+    options: Omit<AssistantWorkspaceDiagnosticsPublicationOptions, "tab"> & {
+      tab: "acp-chat" | "acp-skills";
       signal?: Parameters<typeof drainAcpRuntimeReplayPublication>[0]["signal"];
     },
   ) => {
@@ -468,22 +472,32 @@ export function createAcpRuntimeReplayProductionWorkspacePort(): AcpRuntimeRepla
           snapshot.tab === "acp-skills" ? snapshot.skillRequestId : undefined,
       });
       if (!opened) throw new Error("workspace-restore-open-failed");
-      const drained = await drainTab({
-        tab: snapshot.tab || "acp-chat",
-        ...(snapshot.tab === "acp-chat" &&
-        snapshot.chatBackendId &&
-        snapshot.chatConversationId
-          ? {
-              expectedChatOwner: {
-                backendId: snapshot.chatBackendId,
-                conversationId: snapshot.chatConversationId,
-              },
-            }
-          : {}),
-        ...(snapshot.tab === "acp-skills" && snapshot.skillRequestId
-          ? { expectedSkillRequestId: snapshot.skillRequestId }
-          : {}),
-      });
+      const restoreTab = snapshot.tab || "acp-chat";
+      const drained =
+        restoreTab === "skillrunner"
+          ? await waitAcpRuntimeReplayWorkspaceReadiness({
+              tab: restoreTab,
+              inspect: () =>
+                inspectAssistantWorkspaceDiagnosticsPublication({
+                  tab: restoreTab,
+                }),
+            })
+          : await drainTab({
+              tab: restoreTab,
+              ...(restoreTab === "acp-chat" &&
+              snapshot.chatBackendId &&
+              snapshot.chatConversationId
+                ? {
+                    expectedChatOwner: {
+                      backendId: snapshot.chatBackendId,
+                      conversationId: snapshot.chatConversationId,
+                    },
+                  }
+                : {}),
+              ...(restoreTab === "acp-skills" && snapshot.skillRequestId
+                ? { expectedSkillRequestId: snapshot.skillRequestId }
+                : {}),
+            });
       if (!drained.ok) {
         throw new Error(drained.detail || "workspace-restore-drain-failed");
       }

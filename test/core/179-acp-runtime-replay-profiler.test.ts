@@ -247,6 +247,10 @@ async function assertRejects(promise: Promise<unknown>, pattern: RegExp) {
   }
 }
 
+function replayPhaseProvenance() {
+  return { phase: "unit-test" };
+}
+
 describe("ACP runtime replay profiler", function () {
   this.timeout(10_000);
 
@@ -799,6 +803,7 @@ describe("ACP runtime replay profiler", function () {
       "Count mean | Total ms mean | Max ms",
     );
     assert.include(renderAcpRuntimeReplayMatrixMarkdown(matrix), "复杂 Sample");
+    assert.equal(matrix.replayConfig.phaseArtifactSlug, "治理-第二阶段");
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, structuredClone(matrix)),
     );
@@ -813,8 +818,23 @@ describe("ACP runtime replay profiler", function () {
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, renamed),
     );
+    const phaseDrift = structuredClone(matrix);
+    phaseDrift.replayConfig.phase = "post-governance";
+    assert.throws(
+      () => assertAcpRuntimeReplayMatricesComparable(matrix, phaseDrift),
+      /phase provenance/,
+    );
+    await assertRejects(
+      saveAcpRuntimeReplayMatrix({
+        matrix: phaseDrift,
+        root: tempRoot,
+        nowMs: Date.UTC(2025, 5, 15, 15, 7, 40),
+      }),
+      /phase provenance/,
+    );
     const nextStage = structuredClone(matrix);
     nextStage.replayConfig.phase = "post-governance";
+    nextStage.replayConfig.phaseArtifactSlug = "post-governance";
     assert.doesNotThrow(() =>
       assertAcpRuntimeReplayMatricesComparable(matrix, nextStage),
     );
@@ -845,6 +865,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       createTarget: async ({ sourceKind, syntheticRootId }) =>
         target({ sourceKind, syntheticRootId }),
@@ -888,6 +909,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       createTarget: async ({ sourceKind, syntheticRootId }) =>
         target({ sourceKind, syntheticRootId }),
@@ -931,6 +953,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       createTarget: async ({ sourceKind, syntheticRootId }) =>
         target({ sourceKind, syntheticRootId }),
@@ -968,6 +991,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       createTarget: async ({ sourceKind, syntheticRootId }) =>
         target({
@@ -1053,6 +1077,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: {
         pluginVersion: "0.6.1",
         zoteroVersion: "9.0.1",
@@ -1092,6 +1117,7 @@ describe("ACP runtime replay profiler", function () {
     const matrix = await runAcpRuntimeReplayMatrix({
       trace: fixtureTrace(),
       cadence: "burst",
+      replayConfig: replayPhaseProvenance(),
       environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
       createTarget: async () => target(),
       workspace: {
@@ -1119,6 +1145,7 @@ describe("ACP runtime replay profiler", function () {
       runAcpRuntimeReplayMatrix({
         trace: fixtureTrace(),
         cadence: "burst",
+        replayConfig: replayPhaseProvenance(),
         environment: { pluginVersion: "x", zoteroVersion: "x", platform: "x" },
         createTarget: async () => target(),
         workspace: {

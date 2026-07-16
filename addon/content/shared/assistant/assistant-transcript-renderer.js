@@ -63,6 +63,7 @@
         lastAnchor: null,
         pendingMeasureRender: false,
         rowHeights: new Map(),
+        itemLocations: new Map(),
         virtualSourceMode: "page",
       };
       virtualTranscriptStates.set(container, state);
@@ -88,6 +89,7 @@
     state.lastVirtual = null;
     state.lastAnchor = null;
     state.rowHeights = new Map();
+    state.itemLocations = new Map();
     state.virtualSourceMode = "page";
   }
 
@@ -146,7 +148,23 @@
     );
     if (!normalized) return null;
     state.loadingCursors.delete(normalized.cursor);
+    const previousPage = state.pages.get(normalized.cursor);
+    if (previousPage) {
+      previousPage.items.forEach(function (item) {
+        const itemId = String(item && item.id ? item.id : "").trim();
+        const location = itemId ? state.itemLocations.get(itemId) : null;
+        if (location && location.page === previousPage) {
+          state.itemLocations.delete(itemId);
+        }
+      });
+    }
     state.pages.set(normalized.cursor, normalized);
+    normalized.items.forEach(function (item, index) {
+      const itemId = String(item && item.id ? item.id : "").trim();
+      if (itemId) {
+        state.itemLocations.set(itemId, { page: normalized, index });
+      }
+    });
     trimVirtualTranscriptPages(state, options);
     return normalized;
   }
@@ -674,7 +692,6 @@
         startIndex,
         endIndex,
         cache.total,
-        cache.revision,
         Math.round(firstPosition.top),
         Math.round(layout.totalHeight - lastPosition.bottom),
         loadingGap
@@ -1941,6 +1958,89 @@
     return true;
   }
 
+  function applyAssistantTranscriptEffects(options) {
+    const opts = options || {};
+    const effect = opts.effect || {};
+    const container = opts.container;
+    const nodeMap = opts.nodeMap;
+    if (
+      effect.kind !== "mutations" ||
+      effect.onSelectedPage !== true ||
+      !container ||
+      !nodeMap
+    ) {
+      return effect.kind === "mutations" && effect.onSelectedPage !== true;
+    }
+    const affected = new Map();
+    (Array.isArray(opts.affectedItems) ? opts.affectedItems : []).forEach(
+      function (item) {
+        const id = String(item && item.id ? item.id : "").trim();
+        if (id) affected.set(id, item);
+      },
+    );
+    const operations = new Map();
+    (Array.isArray(effect.mutations) ? effect.mutations : []).forEach(
+      function (mutation) {
+        const id = String(
+          mutation && mutation.op === "upsert_item"
+            ? mutation.item && mutation.item.itemId
+            : mutation && mutation.itemId,
+        ).trim();
+        if (id) operations.set(id, mutation.op);
+      },
+    );
+    const virtualState = opts.virtualized
+      ? getVirtualTranscriptState(container)
+      : null;
+    let structural = false;
+    operations.forEach(function (operation, itemId) {
+      const row = nodeMap.get(itemId);
+      if (operation === "delete_item") {
+        if (row && row.parentNode === container) container.removeChild(row);
+        nodeMap.delete(itemId);
+        structural = true;
+        const location = virtualState && virtualState.itemLocations.get(itemId);
+        if (location) {
+          location.page.items.splice(location.index, 1);
+          virtualState.itemLocations.delete(itemId);
+          location.page.items.forEach(function (item, index) {
+            const id = String(item && item.id ? item.id : "").trim();
+            if (id) {
+              virtualState.itemLocations.set(id, {
+                page: location.page,
+                index,
+              });
+            }
+          });
+        }
+        return;
+      }
+      const item = affected.get(itemId);
+      if (!row || !item) {
+        structural = true;
+        return;
+      }
+      renderAssistantTranscriptItemIfChanged(row, item, opts);
+      const location = virtualState && virtualState.itemLocations.get(itemId);
+      if (location) location.page.items[location.index] = item;
+    });
+    if (structural) return false;
+    const measuredChanged =
+      virtualState && opts.virtualized
+        ? measureVirtualTranscriptRows(container, virtualState, opts)
+        : false;
+    if (measuredChanged && virtualState.lastVirtual) {
+      virtualState.lastAnchor = captureVirtualScrollAnchor(
+        container,
+        virtualState.lastVirtual,
+      );
+    }
+    if (shouldStickAssistantTranscript(container, opts.stickThreshold)) {
+      stickAssistantTranscriptToBottom(container);
+    }
+    return true;
+  }
+
   function renderAssistantTranscript(options) {
     const opts = options || {};
     const container = opts.container;
@@ -2041,17 +2141,26 @@
         return String(item.kind || "") + ":" + String(item.id || "");
       })
       .join("|");
-    const orderKey =
-      virtualized && virtual
-        ? ["virtual", virtual.signature, itemOrderKey].join("|")
-        : itemOrderKey;
+    const contextKey = [
+      virtualized ? "virtual" : "items",
+      variant,
+      mode,
+      virtualized ? String(opts.pageKey || "") : "",
+    ].join("|");
+    const orderKey = contextKey + "\u001e" + itemOrderKey;
     const nodeMap = opts.nodeMap;
     const canDiff =
       nodeMap &&
       typeof nodeMap.get === "function" &&
       typeof nodeMap.set === "function";
+    const previousOrder = String(opts.orderKey || "");
+    const previousSeparator = previousOrder.indexOf("\u001e");
+    const previousContext =
+      previousSeparator >= 0 ? previousOrder.slice(0, previousSeparator) : "";
+    const previousItemOrder =
+      previousSeparator >= 0 ? previousOrder.slice(previousSeparator + 1) : "";
     const needsFullRender =
-      opts.orderKey !== orderKey || opts.modeKey !== mode || !canDiff;
+      previousContext !== contextKey || opts.modeKey !== mode || !canDiff;
     if (needsFullRender) {
       clearNode(container);
       if (canDiff) nodeMap.clear();
@@ -2069,6 +2178,16 @@
         appendVirtualTranscriptBottomSpacer(container, virtual, opts);
       }
     } else {
+      const desiredIds = new Set(
+        items.map(function (item) {
+          return String(item.id || "");
+        }),
+      );
+      nodeMap.forEach(function (row, id) {
+        if (desiredIds.has(String(id))) return;
+        if (row && row.parentNode === container) container.removeChild(row);
+        nodeMap.delete(id);
+      });
       items.forEach(function (item, index) {
         const id = String(item.id || "");
         let row = nodeMap.get(id);
@@ -2080,6 +2199,14 @@
         applyVirtualTranscriptRowMetadata(row, item, index, virtual);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
       });
+      if (previousItemOrder !== itemOrderKey) {
+        items.forEach(function (item) {
+          const row = nodeMap.get(String(item.id || ""));
+          if (!row) return;
+          if (row.parentNode === container) container.removeChild(row);
+          container.appendChild(row);
+        });
+      }
     }
     const measuredChanged =
       virtualized && virtualState && virtual
@@ -2124,6 +2251,7 @@
   }
 
   window.AssistantTranscriptRenderer = {
+    applyAssistantTranscriptEffects,
     buildTranscriptRenderItems,
     compactAssistantToolName,
     compactAssistantToolSummary,

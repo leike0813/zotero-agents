@@ -6,12 +6,15 @@
   const state = {
     activeTab: "acp-chat",
     initializedFrames: new Set(),
+    childDocumentGenerations: new Map(),
     loadedFrames: new Set(),
     latestChildPayloads: new Map(),
     latestChildRevisions: new Map(),
     childPayloadGeneration: 0,
     deliveredChildPayloads: new Map(),
     pendingReplayTabs: new Set(),
+    pendingChildPublications: new Map(),
+    deliveredChildPublications: new Map(),
     scopeKey: "",
     actionSeq: 0,
     actionTrace: [],
@@ -312,13 +315,32 @@
       });
   }
 
+  function handleChildAction(tab, action, payload) {
+    const normalizedAction = String(action || "");
+    const normalizedPayload = payload || {};
+    if (normalizedAction === "ready") {
+      acceptChildReady(tab, normalizedPayload);
+      return;
+    }
+    if (normalizedAction === "publication-ack" && tab !== "skillrunner") {
+      if (!acceptChildPublicationAck(tab, normalizedPayload)) return;
+      sendChildAction(
+        tab,
+        normalizedAction,
+        canonicalPublicationAck(normalizedPayload),
+      );
+      return;
+    }
+    sendChildAction(tab, normalizedAction, normalizedPayload);
+  }
+
   function installChildBridge(tab) {
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
     if (!frameWindow) return;
     const bridge = {
       sendAction: function (action, payload) {
-        sendChildAction(tab, action, payload || {});
+        handleChildAction(tab, action, payload || {});
       },
     };
     const direct = frameWindow;
@@ -449,31 +471,151 @@
     });
   }
 
-  function postPublicationToChild(tab, publication) {
+  function childDocumentGeneration(tab, payload) {
+    const explicit = String(
+      (payload && payload.documentGeneration) || "",
+    ).trim();
+    return explicit || tab + ":document";
+  }
+
+  function clearDeliveredChildState(tab) {
+    Array.from(state.deliveredChildPayloads.keys()).forEach(function (key) {
+      if (String(key).startsWith(tab + ":")) {
+        state.deliveredChildPayloads.delete(key);
+      }
+    });
+    Array.from(state.deliveredChildPublications.keys()).forEach(function (key) {
+      if (String(key).startsWith(tab + "\n")) {
+        state.deliveredChildPublications.delete(key);
+      }
+    });
+  }
+
+  function publicationDeliveryKey(tab, publicationId) {
+    return tab + "\n" + publicationId;
+  }
+
+  function cacheChildPublication(tab, publication) {
+    const publicationId = String(
+      (publication && publication.publicationId) || "",
+    ).trim();
+    if (!publicationId) return false;
+    let pending = state.pendingChildPublications.get(tab);
+    if (!pending) {
+      pending = new Map();
+      state.pendingChildPublications.set(tab, pending);
+    }
+    if (!pending.has(publicationId)) {
+      pending.set(publicationId, publication);
+      traceAction("cache-child-publication", {
+        tab,
+        publicationId,
+        deliverySequence: Number(publication.deliverySequence || 0),
+      });
+    }
+    return true;
+  }
+
+  function forwardPendingChildPublications(tab) {
+    if (!state.initializedFrames.has(tab)) return false;
     const frame = frameForTab(tab);
     const frameWindow = frame && frame.contentWindow;
-    void publicationAck(
-      publication,
-      "shell-receive",
-      frameWindow ? "accepted" : "rejected",
-      frameWindow ? null : "invalid",
-    );
     if (!frameWindow) return false;
+    const generation = state.childDocumentGenerations.get(tab);
+    if (!generation) return false;
+    const pending = state.pendingChildPublications.get(tab);
+    if (!pending || pending.size === 0) return true;
     installChildBridge(tab);
-    frameWindow.postMessage(
-      {
-        type:
-          tab === "acp-skills"
-            ? "acp-skill-run:publication"
-            : "acp:publication",
-        payload: publication || {},
-      },
-      "*",
-    );
-    void publicationAck(publication, "shell-forward", "accepted", null);
+    Array.from(pending.values())
+      .sort(function (left, right) {
+        return (
+          Number(left.deliverySequence || 0) -
+          Number(right.deliverySequence || 0)
+        );
+      })
+      .forEach(function (publication) {
+        const publicationId = String(publication.publicationId || "");
+        const deliveryKey = publicationDeliveryKey(tab, publicationId);
+        if (state.deliveredChildPublications.get(deliveryKey) === generation) {
+          return;
+        }
+        frameWindow.postMessage(
+          {
+            type:
+              tab === "acp-skills"
+                ? "acp-skill-run:publication"
+                : "acp:publication",
+            payload: publication,
+          },
+          "*",
+        );
+        state.deliveredChildPublications.set(deliveryKey, generation);
+        void publicationAck(publication, "shell-forward", "accepted", null);
+      });
     state.loadedFrames.add(tab);
     updateLoadingState();
     return true;
+  }
+
+  function acceptChildPublicationAck(tab, payload) {
+    const publicationId = String(
+      (payload && payload.publicationId) || "",
+    ).trim();
+    const documentGeneration = String(
+      (payload && payload.documentGeneration) || "",
+    ).trim();
+    const currentGeneration = state.childDocumentGenerations.get(tab);
+    if (
+      !publicationId ||
+      !documentGeneration ||
+      documentGeneration !== currentGeneration
+    ) {
+      traceAction("drop-child-publication-ack", {
+        tab,
+        publicationId,
+        documentGeneration,
+        currentGeneration: currentGeneration || "",
+      });
+      return false;
+    }
+    const terminal =
+      payload &&
+      (payload.outcome === "rejected" || payload.stage === "render-complete");
+    if (terminal) {
+      const pending = state.pendingChildPublications.get(tab);
+      if (pending) pending.delete(publicationId);
+      state.deliveredChildPublications.delete(
+        publicationDeliveryKey(tab, publicationId),
+      );
+      traceAction("complete-child-publication", {
+        tab,
+        publicationId,
+        documentGeneration,
+        stage: payload.stage,
+        outcome: payload.outcome,
+      });
+    }
+    return true;
+  }
+
+  function canonicalPublicationAck(payload) {
+    return {
+      publicationId: String((payload && payload.publicationId) || ""),
+      stage: payload && payload.stage,
+      outcome: payload && payload.outcome,
+      reason: (payload && payload.reason) || null,
+    };
+  }
+
+  function postPublicationToChild(tab, publication) {
+    const retained = cacheChildPublication(tab, publication);
+    void publicationAck(
+      publication,
+      "shell-receive",
+      retained ? "accepted" : "rejected",
+      retained ? null : "invalid",
+    );
+    return retained && forwardPendingChildPublications(tab);
   }
 
   function closeDrawersForTab(tab) {
@@ -577,6 +719,18 @@
     state.latestChildRevisions.clear();
     state.deliveredChildPayloads.clear();
     state.pendingReplayTabs.clear();
+    state.pendingChildPublications.forEach(function (pending) {
+      pending.forEach(function (publication) {
+        void publicationAck(
+          publication,
+          "shell-forward",
+          "rejected",
+          "superseded",
+        );
+      });
+    });
+    state.pendingChildPublications.clear();
+    state.deliveredChildPublications.clear();
     if (state.childReplayTimer) {
       clearTimeout(state.childReplayTimer);
       state.childReplayTimer = null;
@@ -702,17 +856,28 @@
   function acceptChildReady(tab, payload) {
     const normalizedTab = normalizeTab(tab, state.activeTab);
     const firstReady = !state.initializedFrames.has(normalizedTab);
+    const generation = childDocumentGeneration(normalizedTab, payload);
+    const previousGeneration =
+      state.childDocumentGenerations.get(normalizedTab);
+    const generationChanged = previousGeneration !== generation;
+    if (firstReady || generationChanged) {
+      clearDeliveredChildState(normalizedTab);
+    }
+    state.childDocumentGenerations.set(normalizedTab, generation);
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     state.initializedFrames.add(normalizedTab);
     traceAction("child-ready", {
       tab: normalizedTab,
       firstReady,
+      generation,
+      generationChanged,
       payload: payloadSummary(payload),
     });
     if (!replayCachedChildPayload(normalizedTab)) {
       queueChildReplay(normalizedTab, "child-ready:" + normalizedTab);
     }
+    forwardPendingChildPublications(normalizedTab);
     updateLoadingState();
     sendChildAction(normalizedTab, "ready", payload || {});
   }
@@ -756,6 +921,9 @@
 
   function handleFrameLoad(tab) {
     const normalizedTab = normalizeTab(tab, state.activeTab);
+    state.initializedFrames.delete(normalizedTab);
+    state.childDocumentGenerations.delete(normalizedTab);
+    clearDeliveredChildState(normalizedTab);
     installChildBridge(normalizedTab);
     state.loadedFrames.add(normalizedTab);
     traceAction("frame-load", { tab: normalizedTab });
@@ -779,27 +947,15 @@
   window.addEventListener("message", function (event) {
     const data = event.data || {};
     if (data.type === "acp:action") {
-      if (data.action === "ready") {
-        acceptChildReady("acp-chat", data.payload || {});
-        return;
-      }
-      sendChildAction("acp-chat", data.action || "", data.payload || {});
+      handleChildAction("acp-chat", data.action, data.payload);
       return;
     }
     if (data.type === "acp-skill-run:action") {
-      if (data.action === "ready") {
-        acceptChildReady("acp-skills", data.payload || {});
-        return;
-      }
-      sendChildAction("acp-skills", data.action || "", data.payload || {});
+      handleChildAction("acp-skills", data.action, data.payload);
       return;
     }
     if (data.type === "skillrunner-sidebar:action") {
-      if (data.action === "ready") {
-        acceptChildReady("skillrunner", data.payload || {});
-        return;
-      }
-      sendChildAction("skillrunner", data.action || "", data.payload || {});
+      handleChildAction("skillrunner", data.action, data.payload);
       return;
     }
     if (data.type === "assistant-workspace:init") {

@@ -1891,6 +1891,7 @@ function queueChatTranscriptEvent(
     boundary?: AssistantWorkspaceTranscriptBoundary;
   },
 ) {
+  const previousItem = sessionRuntime.transcriptItemsById.get(args.itemId);
   applyChatTranscriptEventToMirror(sessionRuntime, args);
   applyChatTranscriptMetadata(sessionRuntime, {
     item: args.item,
@@ -1901,7 +1902,8 @@ function queueChatTranscriptEvent(
   const mutation = createAssistantWorkspaceTranscriptMutation({
     op: args.op,
     itemId: args.itemId,
-    item: currentItem as unknown as Record<string, unknown> | undefined,
+    beforeItem: previousItem as Record<string, unknown> | undefined,
+    afterItem: currentItem as unknown as Record<string, unknown> | undefined,
     text: args.text,
   });
   if (mutation) {

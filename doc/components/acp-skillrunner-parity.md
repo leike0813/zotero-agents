@@ -388,3 +388,18 @@ difference ends at the adapter boundary: no Skills-only transcript field,
 revision state machine, page continuity rule, or browser apply path exists.
 Indexed page readiness is independent from full mirror hydration, so a ready
 page is renderable while cold mirror hydration continues in the background.
+
+Both producers use the same before/after item projector. New items become
+`upsert_item`; text growth becomes suffix-only `append_text`; stable items
+become minimal `patch_item`; removal becomes `delete_item`. Mutations,
+initialization snapshots, page transitions, resync, and rebase share one
+owner-scoped coordinator lane, and only terminal child acknowledgement advances
+that lane.
+
+The browser path is also identical: one FIFO waits behind owner-first full
+snapshots, one receiver owns continuity and idempotence, and one renderer effect
+updates the affected row. Append followed by finalization is evaluated against
+the preceding mutation result, so the final patch cannot overwrite newly
+appended text. Full-page clone/reindex and transcript revision in DOM order
+identity are not part of steady publication. Shell delivery and acknowledgement
+are scoped to the current child document generation for both surfaces.
