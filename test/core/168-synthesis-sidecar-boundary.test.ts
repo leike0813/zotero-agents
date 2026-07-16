@@ -108,6 +108,25 @@ describe("Synthesis sidecar migration boundary", function () {
         fs.readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8"),
       )
       .join("\n");
+    const runtimeInstaller = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeInstaller.ts"),
+      "utf8",
+    );
+    for (const forbidden of [
+      "child_process",
+      "Subprocess",
+      "pathSearch",
+      "resolveRuntimeCommand",
+      "synthesis/repository",
+      "synthesis/service",
+      "canonical",
+    ]) {
+      assert.notInclude(
+        runtimeInstaller,
+        forbidden,
+        `runtime installer must not depend on ${forbidden}`,
+      );
+    }
     const serviceSource = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesis/service.ts"),
       "utf8",
@@ -1048,6 +1067,18 @@ describe("Synthesis sidecar migration boundary", function () {
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
     assert.include(runtime, "complete 108-method service");
+  });
+
+  it("keeps packaged runtime installation out of production activation [inv.runtime.sidecar_packaging_not_activated]", function () {
+    const hooks = fs.readFileSync(path.join(ROOT_DIR, "src/hooks.ts"), "utf8");
+    const installer = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeInstaller.ts"),
+      "utf8",
+    );
+    assert.notInclude(hooks, "synthesisSidecarRuntimeInstaller");
+    assert.notInclude(installer, "ensureSynthesisService");
+    assert.notInclude(installer, "getMozillaSubprocessModule");
+    assert.notInclude(installer, "resolveRuntimeCommand");
   });
 
   it("registers the migration-safe single-owner invariant", function () {

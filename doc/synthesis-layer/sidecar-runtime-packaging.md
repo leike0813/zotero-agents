@@ -1,0 +1,57 @@
+# Sidecar Runtime Packaging
+
+The repository distributes the Synthesis service with a product-owned Node
+runtime. It does not discover system Node, npm, PATH entries, or user shells.
+The current target matrix is:
+
+| Target | Node asset |
+| --- | --- |
+| Windows x64 | `node-v24.18.0-win-x64.zip` |
+| macOS x64 | `node-v24.18.0-darwin-x64.tar.gz` |
+| macOS arm64 | `node-v24.18.0-darwin-arm64.tar.gz` |
+| Linux x64 | `node-v24.18.0-linux-x64.tar.xz` |
+| Linux arm64 | `node-v24.18.0-linux-arm64.tar.xz` |
+
+Prebuild CI verifies the Node release's signed SHASUMS with the official Node
+release keyring, checks the selected archive hash, and validates Authenticode
+or macOS signing/notarization where applicable. It then combines the minimal
+Node executable and license with the current compiled
+`apps/synthesis-service` JavaScript tree.
+
+Each platform directory contains one strict
+`synthesis-sidecar-runtime-bundle.v1` manifest. The manifest identifies the
+Node, service, protocol, target, build fingerprint, upstream archive, and every
+runtime file's size, SHA-256, and executable state. Unsafe relative paths,
+unknown fields, duplicate paths, symlinks, and incomplete runtime entrypoints
+are rejected.
+
+## Managed Installation
+
+The installer owns only:
+
+```text
+runtime/synthesis/service-runtime/
+  active.json
+  previous.json
+  staging/
+  versions/<bundleId>/
+```
+
+It verifies packaged files before writing, copies into a unique staging
+directory, repairs declared POSIX executable permissions, verifies the staged
+tree, and atomically promotes the immutable version. `active.json` changes only
+after the selected version is complete. A verified prior active version is
+recorded in `previous.json` and can be restored by explicit rollback.
+
+Interrupted staging, damaged packaged assets, invalid pointers, unsupported
+platforms, and corrupt installed files fail closed. Repair reinstalls the
+selected trusted bundle without reading or deleting paths outside the managed
+root.
+
+## Current Runtime Topology
+
+Packaging is not activation. Plugin startup does not call the installer or
+launch the service. There is no discovery record, process owner lock, parent
+lease, health poll, restart policy, worker pool, or remote `SynthesisClient`.
+Production remains in the Zotero plugin process, which remains the sole owner
+of `synthesis.db` and Topic canonical current files.

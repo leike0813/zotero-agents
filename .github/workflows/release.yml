@@ -12,6 +12,7 @@ permissions:
 
 env:
   HOST_BRIDGE_CLI_PREBUILD_TAG: host-bridge-cli-prebuilds
+  SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG: synthesis-sidecar-runtime-prebuilds
 
 jobs:
   create-release:
@@ -70,6 +71,12 @@ jobs:
       - name: Check Host Bridge CLI prebuild freshness
         run: npm run check:host-bridge-cli-prebuild-freshness
 
+      - name: Download Synthesis sidecar runtime prebuilds
+        run: npm run sync:synthesis-sidecar-runtime-prebuilds -- --tag="${SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG}"
+
+      - name: Check Synthesis sidecar runtime freshness
+        run: npm run check:synthesis-sidecar-runtime-freshness
+
       - name: Run release gate
         run: npm run test:gate:release
 
@@ -81,6 +88,9 @@ jobs:
 
       - name: Build plugin
         run: npm run build
+
+      - name: Check packaged Synthesis sidecar runtimes in XPI
+        run: npm run check:synthesis-sidecar-runtime-xpi
 
       - name: Release plugin
         run: npm run release

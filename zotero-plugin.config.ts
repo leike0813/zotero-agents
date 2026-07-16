@@ -101,7 +101,12 @@ export default defineConfig({
   },
 
   build: {
-    assets: ["addon/**/*.*", "addon/bin/**/*", "addon/bin/**/zotero-bridge"],
+    assets: [
+      "addon/**/*.*",
+      "addon/bin/**/*",
+      "addon/bin/**/zotero-bridge",
+      "addon/bin/synthesis-sidecar/**/*",
+    ],
     define: {
       ...pkg.config,
       author: pkg.author,

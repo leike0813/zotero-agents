@@ -13,6 +13,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
+| Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -40,6 +41,11 @@ zotero-agents/
       state/                 # legacy cleanup residue only
   runtime/
     synthesis/webdav-sync/**
+    synthesis/service-runtime/
+      active.json
+      previous.json
+      staging/**
+      versions/<bundleId>/**
     acp/**
     cache/**
     logs/**
@@ -50,6 +56,12 @@ zotero-agents/
 `state/zotero-agents.db` stores workflow/plugin runtime ledgers. `data/synthesis/sidecar`
 must not be called `state`: it is scoped to topic artifact companion files and
 must not be confused with the persistence-root `state/` directory.
+
+`runtime/synthesis/service-runtime` is owned exclusively by the product-owned
+runtime installer. Its manifest paths are strict relative paths; staging,
+repair, activation, rollback, and cleanup cannot target an external path. The
+directory does not prove that a service process is running or owns production
+data.
 
 ## SQLite Table Families
 

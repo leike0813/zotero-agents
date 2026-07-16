@@ -40,7 +40,20 @@ export type RuntimePersistencePaths = {
   workflowProductsDir: string;
   cacheDir: string;
   tmpDir: string;
+  sidecarRuntimeRoot: string;
+  sidecarRuntimeVersionsDir: string;
+  sidecarRuntimeStagingDir: string;
+  sidecarRuntimeActivePointerPath: string;
+  sidecarRuntimePreviousPointerPath: string;
   legacyDir: string;
+};
+
+export type SynthesisSidecarRuntimePaths = {
+  root: string;
+  versionsDir: string;
+  stagingDir: string;
+  activePointerPath: string;
+  previousPointerPath: string;
 };
 
 export type RuntimePersistenceCategoryUsage = {
@@ -695,6 +708,23 @@ export function resolveRuntimePersistenceRoot() {
   return resolvePlatformDataRoot();
 }
 
+export function getSynthesisSidecarRuntimePaths(
+  runtimeRootRaw: string,
+): SynthesisSidecarRuntimePaths {
+  const runtimeRoot = normalizeString(runtimeRootRaw);
+  if (!runtimeRoot) {
+    throw new Error("Synthesis sidecar runtime root is missing");
+  }
+  const root = joinPath(runtimeRoot, "synthesis", "service-runtime");
+  return {
+    root,
+    versionsDir: joinPath(root, "versions"),
+    stagingDir: joinPath(root, "staging"),
+    activePointerPath: joinPath(root, "active.json"),
+    previousPointerPath: joinPath(root, "previous.json"),
+  };
+}
+
 export function getRuntimePersistencePaths(
   rootRaw?: string,
 ): RuntimePersistencePaths {
@@ -704,6 +734,7 @@ export function getRuntimePersistencePaths(
   const stateDir = joinPath(root, "state");
   const logsDir = joinPath(runtimeRoot, "logs");
   const acpChatRoot = joinPath(runtimeRoot, "acp", "chat");
+  const sidecarRuntime = getSynthesisSidecarRuntimePaths(runtimeRoot);
   return {
     root,
     runtimeRoot,
@@ -722,6 +753,11 @@ export function getRuntimePersistencePaths(
     workflowProductsDir: joinPath(runtimeRoot, "workflow-products"),
     cacheDir: joinPath(runtimeRoot, "cache"),
     tmpDir: joinPath(runtimeRoot, "tmp"),
+    sidecarRuntimeRoot: sidecarRuntime.root,
+    sidecarRuntimeVersionsDir: sidecarRuntime.versionsDir,
+    sidecarRuntimeStagingDir: sidecarRuntime.stagingDir,
+    sidecarRuntimeActivePointerPath: sidecarRuntime.activePointerPath,
+    sidecarRuntimePreviousPointerPath: sidecarRuntime.previousPointerPath,
     legacyDir: joinPath(root, "legacy"),
   };
 }
@@ -1184,6 +1220,42 @@ export async function setRuntimeExecutablePermissions(
   return false;
 }
 
+export async function getRuntimeFilePermissions(pathRaw: string) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    return null;
+  }
+  assertNativeRuntimeFsPath(path, "read runtime file permissions");
+  const runtime = globalThis as {
+    Zotero?: {
+      File?: {
+        pathToFile?: (path: string) => {
+          exists?: () => boolean;
+          permissions?: number;
+        };
+      };
+    };
+  };
+  const file = runtime.Zotero?.File?.pathToFile?.(path);
+  if (
+    file &&
+    (typeof file.exists !== "function" || file.exists()) &&
+    typeof file.permissions === "number"
+  ) {
+    return file.permissions & 0o777;
+  }
+  const fs = await tryNodeFs();
+  if (fs?.stat) {
+    try {
+      const stat = await fs.stat(path);
+      return Number(stat.mode) & 0o777;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function parentPath(pathRaw: string) {
   const path = normalizeString(pathRaw);
   const normalized = normalizeSlashes(path);
@@ -1382,6 +1454,35 @@ export async function writeRuntimeTextFile(pathRaw: string, content: string) {
   const fs = await tryNodeFs();
   if (fs) {
     await fs.writeFile(path, content, "utf8");
+  }
+}
+
+let atomicRuntimeWriteCounter = 0;
+
+export async function replaceRuntimeTextFileAtomically(
+  pathRaw: string,
+  content: string,
+) {
+  const path = normalizeString(pathRaw);
+  if (!path) {
+    throw new Error("atomic text target path is missing");
+  }
+  assertNativeRuntimeFsPath(path, "atomically replace runtime text file");
+  atomicRuntimeWriteCounter += 1;
+  const tempPath = `${path}.tmp-${Date.now().toString(36)}-${atomicRuntimeWriteCounter.toString(36)}`;
+  const Encoder =
+    (globalThis as { TextEncoder?: typeof TextEncoder }).TextEncoder ||
+    TextEncoder;
+  try {
+    await writeRuntimeBytes(tempPath, new Encoder().encode(content));
+    await moveRuntimePath({
+      sourcePath: tempPath,
+      targetPath: path,
+      overwrite: true,
+    });
+  } catch (error) {
+    await removeRuntimePath(tempPath).catch(() => false);
+    throw error;
   }
 }
 

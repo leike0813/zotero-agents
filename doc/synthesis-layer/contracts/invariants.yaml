@@ -50,6 +50,15 @@ invariants:
         marker: "[inv.runtime.sidecar_foundation_isolated]"
         kind: static_guard
 
+  - id: inv.runtime.sidecar_packaging_not_activated
+    severity: fatal
+    statement: Product-owned Synthesis runtime packaging and managed installation do not install or launch a process during plugin startup, do not route any production consumer to the sidecar, and do not change the 108-method service or its single direct production consumer.
+    evidence: Runtime installer packaging tests and production-composition guard.
+    test_refs:
+      - file: test/core/168-synthesis-sidecar-boundary.test.ts
+        marker: "[inv.runtime.sidecar_packaging_not_activated]"
+        kind: static_guard
+
   - id: inv.workflow.apply_direct_sidecar
     severity: fatal
     statement: Literature digest and reference matching apply hooks write bounded artifact sidecar, raw-reference, canonical-reference, and binding candidate state directly for the affected source_ref and do not record Synthesis update events.

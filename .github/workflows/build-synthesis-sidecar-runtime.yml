@@ -1,0 +1,162 @@
+name: Build Synthesis Sidecar Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+    paths:
+      - "apps/synthesis-service/**"
+      - "packages/synthesis-contracts/src/sidecarSystem.ts"
+      - "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts"
+      - "scripts/package-synthesis-sidecar-runtime.ts"
+      - "scripts/synthesis-sidecar-runtime-release-governance.ts"
+      - ".github/workflows/build-synthesis-sidecar-runtime.yml"
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 24.18.0
+  PREBUILD_TAG: synthesis-sidecar-runtime-prebuilds
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            os: windows-latest
+            archive: node-v24.18.0-win-x64.zip
+            platform_signature: verified
+          - target: darwin-x64
+            os: macos-14
+            archive: node-v24.18.0-darwin-x64.tar.gz
+            platform_signature: verified
+          - target: darwin-arm64
+            os: macos-14
+            archive: node-v24.18.0-darwin-arm64.tar.gz
+            platform_signature: verified
+          - target: linux-x64
+            os: ubuntu-latest
+            archive: node-v24.18.0-linux-x64.tar.xz
+            platform_signature: not-applicable
+          - target: linux-arm64
+            os: ubuntu-latest
+            archive: node-v24.18.0-linux-arm64.tar.xz
+            platform_signature: not-applicable
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build:synthesis-service
+
+      - name: Download and verify signed Node release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .scaffold/node-release
+          cd .scaffold/node-release
+          curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt.asc"
+          curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${{ matrix.archive }}"
+          curl -fsSLo nodejs-keyring.kbx "https://github.com/nodejs/release-keys/raw/HEAD/gpg/pubring.kbx"
+          gpgv --keyring ./nodejs-keyring.kbx --output SHASUMS256.txt < SHASUMS256.txt.asc
+          node - "${{ matrix.archive }}" <<'NODE'
+          const fs = require("fs");
+          const crypto = require("crypto");
+          const archive = process.argv[2];
+          const sums = fs.readFileSync("SHASUMS256.txt", "utf8");
+          const expected = sums
+            .split(/\r?\n/)
+            .map((line) => line.trim().split(/\s+/))
+            .find((entry) => entry[1] === archive)?.[0];
+          if (!expected) throw new Error(`Missing signed checksum for ${archive}`);
+          const actual = crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(archive))
+            .digest("hex");
+          if (actual !== expected) throw new Error(`Checksum mismatch for ${archive}`);
+          fs.writeFileSync("archive.sha256", `${actual}\n`);
+          NODE
+          mkdir extracted
+          tar -xf "${{ matrix.archive }}" -C extracted
+
+      - name: Verify macOS runtime signature and notarization
+        if: startsWith(matrix.target, 'darwin-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_BINARY=".scaffold/node-release/extracted/node-v${NODE_VERSION}-${{ matrix.target }}/bin/node"
+          codesign --verify --deep --strict --verbose=2 "${NODE_BINARY}"
+          spctl --assess --type execute --verbose=2 "${NODE_BINARY}"
+
+      - name: Verify Windows runtime signature
+        if: startsWith(matrix.target, 'win32-')
+        shell: pwsh
+        run: |
+          $node = ".scaffold/node-release/extracted/node-v${env:NODE_VERSION}-win-x64/node.exe"
+          $signature = Get-AuthenticodeSignature -LiteralPath $node
+          if ($signature.Status -ne "Valid") {
+            throw "Node Authenticode signature is not valid: $($signature.Status)"
+          }
+
+      - name: Package verified runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE_SHA="$(tr -d '\r\n' < .scaffold/node-release/archive.sha256)"
+          npm run package:synthesis-sidecar-runtime -- \
+            --target="${{ matrix.target }}" \
+            --node-root=".scaffold/node-release/extracted/node-v${NODE_VERSION}-${{ matrix.target == 'win32-x64' && 'win-x64' || matrix.target }}" \
+            --upstream-sha256="${ARCHIVE_SHA}" \
+            --upstream-signature=verified \
+            --platform-signature="${{ matrix.platform_signature }}" \
+            --output="addon/bin/synthesis-sidecar/${{ matrix.target }}"
+          tar -czf \
+            ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" \
+            -C addon/bin/synthesis-sidecar \
+            "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthesis-sidecar-runtime-${{ matrix.target }}
+          path: .scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: synthesis-sidecar-runtime-*
+          path: .scaffold/prebuilds
+          merge-multiple: true
+
+      - name: Publish fixed-tag prebuild assets
+        run: |
+          if gh release view "${PREBUILD_TAG}" >/dev/null 2>&1; then
+            gh release upload "${PREBUILD_TAG}" \
+              .scaffold/prebuilds/synthesis-sidecar-runtime-*.tar.gz \
+              --clobber
+          else
+            gh release create "${PREBUILD_TAG}" \
+              .scaffold/prebuilds/synthesis-sidecar-runtime-*.tar.gz \
+              --title "Synthesis Sidecar Runtime Prebuilds" \
+              --notes "Product-owned Node ${NODE_VERSION} and Synthesis service runtime bundles."
+          fi
