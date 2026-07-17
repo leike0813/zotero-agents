@@ -59,7 +59,13 @@ export const DEFAULT_HOST_HTTP_REQUEST_READ_LIMITS: Readonly<HostHttpRequestRead
 
 type ReadOptions = {
   limits?: HostHttpRequestReadLimits;
-  signal?: AbortSignal;
+};
+
+type ReadCompletion = Promise<HostHttpRequestReadResult>;
+
+export type HostHttpRequestReadOperation = {
+  completion: ReadCompletion;
+  abort: () => void;
 };
 
 type Framing = {
@@ -89,7 +95,16 @@ function getComponents() {
 }
 
 function getMainThread() {
-  return (globalThis as any).Services?.tm?.mainThread;
+  const { classes, interfaces } = getComponents();
+  const factory = classes?.["@mozilla.org/thread-manager;1"];
+  if (!factory || !interfaces?.nsIThreadManager) {
+    return null;
+  }
+  try {
+    return factory.getService(interfaces.nsIThreadManager)?.mainThread || null;
+  } catch {
+    return null;
+  }
 }
 
 function isClosedStreamError(error: unknown) {
@@ -214,10 +229,10 @@ function createBinaryInputStream(inputStream: any) {
   return stream;
 }
 
-export function readHostHttpRequest(
+export function beginHostHttpRequestRead(
   inputStream: any,
   options: ReadOptions = {},
-): Promise<HostHttpRequestReadResult> {
+): HostHttpRequestReadOperation {
   const limits = options.limits || DEFAULT_HOST_HTTP_REQUEST_READ_LIMITS;
   const startedAt = Date.now();
   const chunks: Uint8Array[] = [];
@@ -233,6 +248,8 @@ export function readHostHttpRequest(
   let totalTimer: ReturnType<typeof setTimeout> | null = null;
   let asyncStream: any;
   let binaryStream: any;
+  let mainThread: any;
+  let abortRead: () => void = () => undefined;
 
   const stats = (): HostHttpRequestReadStats => ({
     inputBytes: totalLength,
@@ -245,7 +262,7 @@ export function readHostHttpRequest(
     maxCallbackDurationMs,
   });
 
-  return new Promise<HostHttpRequestReadResult>((resolve, reject) => {
+  const completion: ReadCompletion = new Promise((resolve, reject) => {
     const closeInputOnce = () => {
       if (inputClosed) return;
       inputClosed = true;
@@ -272,7 +289,6 @@ export function readHostHttpRequest(
       if (totalTimer) clearTimeout(totalTimer);
       idleTimer = null;
       totalTimer = null;
-      options.signal?.removeEventListener("abort", onAbort);
       try {
         asyncStream?.asyncWait?.(null, 0, 0, null);
       } catch {
@@ -313,6 +329,8 @@ export function readHostHttpRequest(
     function onAbort() {
       settleError("aborted", "Host HTTP request read was aborted");
     }
+
+    abortRead = onAbort;
 
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -402,7 +420,7 @@ export function readHostHttpRequest(
       if (settled) return;
       waits += 1;
       try {
-        asyncStream.asyncWait(callback, 0, 0, getMainThread());
+        asyncStream.asyncWait(callback, 0, 0, mainThread);
       } catch (error) {
         settleError(
           "read_failed",
@@ -476,6 +494,14 @@ export function readHostHttpRequest(
       );
       return;
     }
+    mainThread = getMainThread();
+    if (!mainThread) {
+      settleError(
+        "async_stream_unavailable",
+        "Host HTTP request main-thread event target is unavailable",
+      );
+      return;
+    }
     try {
       binaryStream = createBinaryInputStream(inputStream);
     } catch (error) {
@@ -486,11 +512,6 @@ export function readHostHttpRequest(
       );
       return;
     }
-    if (options.signal?.aborted) {
-      onAbort();
-      return;
-    }
-    options.signal?.addEventListener("abort", onAbort, { once: true });
     resetIdleTimer();
     totalTimer = setTimeout(
       () =>
@@ -502,4 +523,10 @@ export function readHostHttpRequest(
     );
     registerWait();
   });
+  return {
+    completion,
+    abort() {
+      abortRead();
+    },
+  };
 }

@@ -210,10 +210,16 @@ function installFragmentedBinaryInput(raw: Uint8Array) {
         "@mozilla.org/binaryinputstream;1": {
           createInstance: () => binaryStream,
         },
+        "@mozilla.org/thread-manager;1": {
+          getService: () => ({
+            mainThread: (runtime as any).Services.tm.mainThread,
+          }),
+        },
       },
       interfaces: {
         nsIAsyncInputStream: {},
         nsIBinaryInputStream: {},
+        nsIThreadManager: {},
       },
     },
   });

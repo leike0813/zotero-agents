@@ -99,8 +99,8 @@ import type { BackendInstance } from "../backends/types";
 import { invalidateDefaultSynthesisService } from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
 import {
+  beginHostHttpRequestRead,
   HostHttpRequestReadError,
-  readHostHttpRequest,
   type HostHttpRequestReadResult,
   type HostHttpRequestReadStats,
 } from "./hostHttpRequestReader";
@@ -181,11 +181,15 @@ type RawHttpResponse =
 type AcceptedHostConnection = {
   generation: number;
   transport: any;
-  inputStream: any;
   outputStream: any;
-  abortController: AbortController;
+  requestRead: ProfiledHostBridgeRequestReadOperation;
   outputClosed: boolean;
   transportClosed: boolean;
+};
+
+type ProfiledHostBridgeRequestReadOperation = {
+  completion: Promise<HttpRequest>;
+  abort: () => void;
 };
 
 let supervisorEnabled = false;
@@ -200,6 +204,8 @@ let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
   undefined;
 let serverGeneration = 0;
 const acceptedConnections = new Set<AcceptedHostConnection>();
+const CONNECTION_INITIALIZATION_ERROR_PREFIX =
+  "Host Access connection initialization failed: ";
 
 function nowIso() {
   return new Date().toISOString();
@@ -298,6 +304,12 @@ function updateState(partial: Partial<HostBridgeServerState>) {
     supervised: supervisorEnabled,
     updatedAt: nowIso(),
   };
+}
+
+function clearConnectionInitializationError() {
+  if (state.lastError.startsWith(CONNECTION_INITIALIZATION_ERROR_PREFIX)) {
+    updateState({ lastError: "" });
+  }
 }
 
 function buildEndpoint(host: string, port: number) {
@@ -993,15 +1005,10 @@ function buildCapabilityApprovalPrompt(
   };
 }
 
-function writeOutputStream(
-  outputStream: any,
-  response: RawHttpResponse,
-  markClosed: () => void = () => undefined,
-) {
+function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   if (typeof response !== "string") {
     outputStream.write(response.headers, response.headers.length);
     writeBinaryOutputStream(outputStream, response.body);
-    markClosed();
     outputStream.close?.();
     return;
   }
@@ -1015,12 +1022,10 @@ function writeOutputStream(
     const converter = converterFactory.createInstance(nsIConverterOutputStream);
     converter.init(outputStream, "UTF-8");
     converter.writeString(response);
-    markClosed();
     converter.close();
     return;
   }
   outputStream.write(response, response.length);
-  markClosed();
   outputStream.close?.();
 }
 
@@ -3306,21 +3311,30 @@ function statsForReadResult(
   };
 }
 
-async function readProfiledHostBridgeRequest(
+function beginProfiledHostBridgeRequestRead(
   inputStream: any,
-  signal?: AbortSignal,
-) {
-  try {
-    const input = await readHostHttpRequest(inputStream, { signal });
-    const request = parseHttpRequestBytes(input.bytes);
-    recordHostInputMetrics(statsForReadResult(input), request);
-    return request;
-  } catch (error) {
-    if (error instanceof HostHttpRequestReadError) {
-      recordHostInputMetrics(error.stats, null);
-    }
-    throw error;
-  }
+): ProfiledHostBridgeRequestReadOperation {
+  const requestRead = beginHostHttpRequestRead(inputStream);
+  return {
+    abort: requestRead.abort,
+    completion: requestRead.completion.then(
+      (input) => {
+        const request = parseHttpRequestBytes(input.bytes);
+        recordHostInputMetrics(statsForReadResult(input), request);
+        return request;
+      },
+      (error) => {
+        if (error instanceof HostHttpRequestReadError) {
+          recordHostInputMetrics(error.stats, null);
+        }
+        throw error;
+      },
+    ),
+  };
+}
+
+async function readProfiledHostBridgeRequest(inputStream: any) {
+  return beginProfiledHostBridgeRequestRead(inputStream).completion;
 }
 
 function requestReadErrorResponse(error: HostHttpRequestReadError) {
@@ -3392,49 +3406,40 @@ function closeTransportOnce(connection: AcceptedHostConnection) {
   }
 }
 
-function closeAcceptedConnection(connection: AcceptedHostConnection) {
-  connection.abortController.abort();
+function abortAcceptedConnection(connection: AcceptedHostConnection) {
+  connection.requestRead.abort();
   closeOutputOnce(connection);
   closeTransportOnce(connection);
   acceptedConnections.delete(connection);
 }
 
+function releaseAcceptedConnection(connection: AcceptedHostConnection) {
+  acceptedConnections.delete(connection);
+}
+
 function closeAllAcceptedConnections() {
   for (const connection of [...acceptedConnections]) {
-    closeAcceptedConnection(connection);
+    abortAcceptedConnection(connection);
   }
 }
 
 async function processAcceptedConnection(connection: AcceptedHostConnection) {
   let responseWriteStarted = false;
   try {
-    const request = await readProfiledHostBridgeRequest(
-      connection.inputStream,
-      connection.abortController.signal,
-    );
-    if (
-      connection.abortController.signal.aborted ||
-      connection.generation !== serverGeneration
-    ) {
+    const request = await connection.requestRead.completion;
+    if (connection.generation !== serverGeneration) {
       return;
     }
     const rawResponse = await handleHttpRequest(request);
-    if (
-      connection.abortController.signal.aborted ||
-      connection.generation !== serverGeneration
-    ) {
+    if (connection.generation !== serverGeneration) {
       return;
     }
     responseWriteStarted = true;
-    writeOutputStream(connection.outputStream, rawResponse, () => {
-      connection.outputClosed = true;
-    });
+    writeOutputStream(connection.outputStream, rawResponse);
+    connection.outputClosed = true;
+    clearConnectionInitializationError();
   } catch (error) {
-    if (
-      connection.abortController.signal.aborted ||
-      connection.generation !== serverGeneration ||
-      responseWriteStarted
-    ) {
+    if (connection.generation !== serverGeneration || responseWriteStarted) {
       return;
     }
     const rawResponse =
@@ -3453,15 +3458,18 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
     if (rawResponse) {
       try {
         responseWriteStarted = true;
-        writeOutputStream(connection.outputStream, rawResponse, () => {
-          connection.outputClosed = true;
-        });
+        writeOutputStream(connection.outputStream, rawResponse);
+        connection.outputClosed = true;
       } catch {
         // The peer may already be closed; cleanup remains local to this request.
       }
     }
   } finally {
-    closeAcceptedConnection(connection);
+    if (connection.outputClosed) {
+      releaseAcceptedConnection(connection);
+    } else {
+      abortAcceptedConnection(connection);
+    }
   }
 }
 
@@ -3482,29 +3490,42 @@ function listen(serverSocket: any, generation: number) {
       }
       let inputStream: any;
       let outputStream: any;
+      let requestRead: ProfiledHostBridgeRequestReadOperation | undefined;
       try {
         outputStream = transport.openOutputStream(0, 0, 0);
         inputStream = transport.openInputStream(0, 0, 0);
-      } catch {
+        requestRead = beginProfiledHostBridgeRequestRead(inputStream);
+        const connection: AcceptedHostConnection = {
+          generation,
+          transport,
+          outputStream,
+          requestRead,
+          outputClosed: false,
+          transportClosed: false,
+        };
+        acceptedConnections.add(connection);
+        void processAcceptedConnection(connection);
+      } catch (error) {
+        requestRead?.abort();
+        if (!requestRead) {
+          try {
+            inputStream?.close?.();
+          } catch {
+            // Best-effort failed-accept cleanup.
+          }
+        }
         try {
           outputStream?.close?.();
         } catch {
           // Best-effort failed-accept cleanup.
         }
         rejectStaleTransport(transport);
-        return;
+        updateState({
+          lastError: `${CONNECTION_INITIALIZATION_ERROR_PREFIX}${errorMessage(
+            error,
+          )}`,
+        });
       }
-      const connection: AcceptedHostConnection = {
-        generation,
-        transport,
-        inputStream,
-        outputStream,
-        abortController: new AbortController(),
-        outputClosed: false,
-        transportClosed: false,
-      };
-      acceptedConnections.add(connection);
-      void processAcceptedConnection(connection);
     },
     onStopListening: () => {
       if (
@@ -3880,6 +3901,9 @@ export const hostBridgeServerInternalsForTests = {
     SUPERVISOR_INTERVAL_MS,
   },
   readProfiledHostBridgeRequest,
+  getAcceptedConnectionCount() {
+    return acceptedConnections.size;
+  },
   parseHttpRequestBytes,
   setServerSocketFactory(
     factory?: (port: number, bindMode: HostBridgeBindMode) => any,

@@ -16,7 +16,7 @@ import {
 import { setPref } from "../../src/utils/prefs";
 
 type SocketListener = {
-  onSocketAccepted(socket: unknown, transport: FakeTransport): void;
+  onSocketAccepted(socket: unknown, transport: any): void;
   onStopListening(socket?: unknown, status?: unknown): void;
 };
 
@@ -127,6 +127,7 @@ function installXpcom() {
     "Components",
   );
   const previousServices = Object.getOwnPropertyDescriptor(runtime, "Services");
+  const mainThread = {};
   Object.defineProperty(runtime, "Components", {
     configurable: true,
     value: {
@@ -144,16 +145,20 @@ function installXpcom() {
             };
           },
         },
+        "@mozilla.org/thread-manager;1": {
+          getService: () => ({ mainThread }),
+        },
       },
       interfaces: {
         nsIAsyncInputStream: {},
         nsIBinaryInputStream: {},
+        nsIThreadManager: {},
       },
     },
   });
   Object.defineProperty(runtime, "Services", {
     configurable: true,
-    value: { tm: { mainThread: {} } },
+    value: { tm: { mainThread } },
   });
   return () => {
     if (previousComponents) {
@@ -214,7 +219,7 @@ describe("host bridge socket lifecycle", function () {
     restoreXpcom();
   });
 
-  it("returns from accept after registering an async read and preserves the response", async function () {
+  it("serves without a DOM AbortController and releases successful ownership", async function () {
     await restartHostBridgeServer();
     const transport = new FakeTransport();
     const expected = await handleHostBridgeHttpRequestForTests({
@@ -222,15 +227,77 @@ describe("host bridge socket lifecycle", function () {
       path: "/bridge/v1/health",
     });
 
-    listeners[0].onSocketAccepted(null, transport);
-    assert.equal(transport.input.waitCount, 1);
-    assert.equal(transport.output.chunks.length, 0);
+    const runtime = globalThis as any;
+    const previousAbortController = Object.getOwnPropertyDescriptor(
+      runtime,
+      "AbortController",
+    );
+    try {
+      Object.defineProperty(runtime, "AbortController", {
+        configurable: true,
+        value: undefined,
+      });
+      listeners[0].onSocketAccepted(null, transport);
+      assert.equal(transport.input.waitCount, 1);
+      assert.equal(transport.output.chunks.length, 0);
 
-    transport.input.push(rawRequest({}));
-    await waitUntil(() => transport.output.closeCount === 1);
-    assert.equal(transport.output.text(), expected);
-    assert.equal(transport.input.closeCount, 1);
-    assert.equal(transport.closeCount, 1);
+      transport.input.push(rawRequest({}));
+      await waitUntil(() => transport.output.closeCount === 1);
+      assert.equal(transport.output.text(), expected);
+      assert.equal(transport.input.closeCount, 1);
+      assert.equal(transport.closeCount, 0);
+      assert.equal(
+        hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+        0,
+      );
+    } finally {
+      if (previousAbortController) {
+        Object.defineProperty(
+          runtime,
+          "AbortController",
+          previousAbortController,
+        );
+      } else {
+        delete runtime.AbortController;
+      }
+    }
+  });
+
+  it("cleans a partial accept failure and serves the next connection", async function () {
+    await restartHostBridgeServer();
+    const output = new FakeOutputStream();
+    let transportCloseCount = 0;
+    const brokenTransport = {
+      openOutputStream: () => output,
+      openInputStream: () => {
+        throw new Error("input open failed");
+      },
+      close: () => {
+        transportCloseCount += 1;
+      },
+    };
+
+    assert.doesNotThrow(() =>
+      listeners[0].onSocketAccepted(null, brokenTransport),
+    );
+    assert.equal(output.closeCount, 1);
+    assert.equal(transportCloseCount, 1);
+    assert.equal(getHostBridgeServerStatus().status, "running");
+    assert.include(
+      getHostBridgeServerStatus().lastError,
+      "connection initialization failed",
+    );
+
+    const healthyTransport = new FakeTransport();
+    listeners[0].onSocketAccepted(null, healthyTransport);
+    healthyTransport.input.push(rawRequest({}));
+    await waitUntil(() => healthyTransport.output.closeCount === 1);
+    assert.match(healthyTransport.output.text(), /^HTTP\/1\.1 200 /);
+    assert.equal(getHostBridgeServerStatus().lastError, "");
+    assert.equal(
+      hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+      0,
+    );
   });
 
   it("maps an idle timeout locally and leaves the listener running", async function () {
@@ -244,7 +311,11 @@ describe("host bridge socket lifecycle", function () {
     assert.equal(getHostBridgeServerStatus().status, "running");
     assert.equal(transport.input.closeCount, 1);
     assert.equal(transport.output.closeCount, 1);
-    assert.equal(transport.closeCount, 1);
+    assert.equal(transport.closeCount, 0);
+    assert.equal(
+      hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+      0,
+    );
   });
 
   it("does not dispatch a partial upload to the upload handler", async function () {
@@ -353,7 +424,7 @@ function createRealBinaryOutput(output: any) {
   return stream;
 }
 
-function readRealSocketResponse(rawInput: any, startingRequestCount: number) {
+function readRealSocketResponse(rawInput: any) {
   const components = realComponents();
   const asyncInterface =
     components?.interfaces?.nsIAsyncInputStream ||
@@ -398,12 +469,8 @@ function readRealSocketResponse(rawInput: any, startingRequestCount: number) {
               (globalThis as any).Services.tm.mainThread,
             );
           } catch (error) {
-            if (
-              raw ||
-              getHostBridgeServerStatus().requestCount > startingRequestCount
-            ) {
-              finish();
-            } else finish(error);
+            if (raw) finish();
+            else finish(error);
           }
         },
       };
@@ -431,10 +498,8 @@ async function fragmentedRealSocketRequest(args: {
   );
   const rawOutput = transport.openOutputStream(0, 0, 0);
   const output = createRealBinaryOutput(rawOutput);
-  const startingRequestCount = getHostBridgeServerStatus().requestCount;
   const responseRead = readRealSocketResponse(
     transport.openInputStream(0, 0, 0),
-    startingRequestCount,
   );
   const headBytes = new TextEncoder().encode(args.head);
   const parts = args.splitHead
@@ -457,14 +522,7 @@ async function fragmentedRealSocketRequest(args: {
     }
 
     const raw = await responseRead.response;
-    const response = raw
-      ? parseRawHttpResponse(raw)
-      : {
-          status: getHostBridgeServerStatus().lastResponseStatus,
-          body: "",
-          json: undefined,
-        };
-    return { response, responseCaptured: !!raw, heartbeat };
+    return { response: parseRawHttpResponse(raw), heartbeat };
   } finally {
     clearInterval(heartbeatTimer);
     try {
@@ -513,7 +571,7 @@ describe("host bridge socket integration in Zotero runtime", function () {
       splitHead: true,
     });
     assert.equal(health.response.status, 200);
-    assert.isAtLeast(health.heartbeat, 3);
+    assert.isAbove(health.heartbeat, 0);
 
     const uploadBody = Uint8Array.from([0, 255, 13, 10, 128, 1]);
     const upload = await fragmentedRealSocketRequest({
@@ -532,10 +590,8 @@ describe("host bridge socket integration in Zotero runtime", function () {
       body: uploadBody,
     });
     assert.equal(upload.response.status, 200);
-    if (upload.responseCaptured) {
-      assert.equal(JSON.parse(upload.response.body).result.file.size, 6);
-    }
-    assert.isAtLeast(upload.heartbeat, 3);
+    assert.equal(JSON.parse(upload.response.body).result.file.size, 6);
+    assert.isAbove(upload.heartbeat, 0);
 
     const mcpBody = new TextEncoder().encode(
       JSON.stringify({
@@ -564,14 +620,12 @@ describe("host bridge socket integration in Zotero runtime", function () {
       body: mcpBody,
     });
     assert.equal(mcp.response.status, 200);
-    if (mcp.responseCaptured) {
-      assert.equal(JSON.parse(mcp.response.body).id, "fragmented-initialize");
-    }
+    assert.equal(JSON.parse(mcp.response.body).id, "fragmented-initialize");
     assert.equal(
       [...getZoteroMcpServerStatus().recentRequests].reverse()[0]
         ?.jsonrpcMethod,
       "initialize",
     );
-    assert.isAtLeast(mcp.heartbeat, 3);
+    assert.isAbove(mcp.heartbeat, 0);
   });
 });

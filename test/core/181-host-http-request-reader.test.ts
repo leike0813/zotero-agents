@@ -1,10 +1,17 @@
 import { assert } from "chai";
 import {
+  beginHostHttpRequestRead,
   DEFAULT_HOST_HTTP_REQUEST_READ_LIMITS,
   HostHttpRequestReadError,
-  readHostHttpRequest,
   type HostHttpRequestReadLimits,
 } from "../../src/modules/hostHttpRequestReader";
+
+function readHostHttpRequest(
+  inputStream: unknown,
+  options: Parameters<typeof beginHostHttpRequestRead>[1] = {},
+) {
+  return beginHostHttpRequestRead(inputStream, options).completion;
+}
 
 class FakeAsyncInputStream {
   private chunks: Uint8Array[] = [];
@@ -146,10 +153,14 @@ function installXpcom() {
             };
           },
         },
+        "@mozilla.org/thread-manager;1": {
+          getService: () => ({ mainThread }),
+        },
       },
       interfaces: {
         nsIAsyncInputStream: {},
         nsIBinaryInputStream: {},
+        nsIThreadManager: {},
       },
     },
   });
@@ -402,11 +413,10 @@ describe("host HTTP request reader", function () {
 
   it("settles once when abort races a queued callback", async function () {
     const stream = new FakeAsyncInputStream();
-    const controller = new AbortController();
-    const pending = readHostHttpRequest(stream, { signal: controller.signal });
+    const operation = beginHostHttpRequestRead(stream);
     stream.push(requestBytes({ body: bytes("late") }));
-    controller.abort();
-    const error = await expectReadError(pending, "aborted");
+    operation.abort();
+    const error = await expectReadError(operation.completion, "aborted");
     await tick();
     assert.equal(stream.closeCount, 1);
     assert.isAtLeast(error.stats.waits, 1);
