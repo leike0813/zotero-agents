@@ -7,7 +7,7 @@ import type {
 } from "./assistantWorkspaceTranscriptPublication";
 
 export const ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA =
-  "zotero-agents.assistant-workspace-publication.v6" as const;
+  "zotero-agents.assistant-workspace-publication.v1" as const;
 
 export type AssistantWorkspacePublicationSource = "acp-chat" | "acp-skills";
 
@@ -31,17 +31,6 @@ export const ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY = {
 
 export type AssistantWorkspacePresentationFieldId =
   keyof typeof ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY;
-
-export const ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY = {
-  context: { labelPath: "details.conversationSummary" },
-  connection: { labelPath: "fields.connection" },
-  recovery: { labelPath: "fields.remoteRestore" },
-  workspace: { labelPath: "details.paths" },
-  session: { labelPath: "details.session" },
-} as const;
-
-export type AssistantWorkspacePresentationSectionId =
-  keyof typeof ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY;
 
 export type AssistantWorkspaceActionScope =
   | "local"
@@ -71,10 +60,15 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-chat", "acp-skills"],
     payloadKeys: [],
   },
+  "request-owner-details": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
   "open-permission-request": {
     scope: "local",
     sources: ["acp-chat", "acp-skills"],
-    payloadKeys: ["permissionRequest"],
+    payloadKeys: [],
   },
   "close-permission-request": {
     scope: "local",
@@ -161,6 +155,16 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-chat"],
     payloadKeys: [],
   },
+  authenticate: {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: ["methodId"],
+  },
+  "set-auto-approve-permissions": {
+    scope: "selected-owner",
+    sources: ["acp-chat"],
+    payloadKeys: ["enabled"],
+  },
   "send-prompt": {
     scope: "selected-owner",
     sources: ["acp-chat"],
@@ -177,6 +181,11 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     payloadKeys: [],
   },
   "interrupt-run-turn": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
+  },
+  "cancel-run": {
     scope: "selected-owner",
     sources: ["acp-skills"],
     payloadKeys: [],
@@ -216,6 +225,11 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-chat", "acp-skills"],
     payloadKeys: [],
   },
+  "open-workspace": {
+    scope: "selected-owner",
+    sources: ["acp-chat", "acp-skills"],
+    payloadKeys: [],
+  },
 } as const satisfies Record<
   string,
   {
@@ -237,7 +251,8 @@ export type AssistantWorkspacePublicationKind =
   | "plan"
   | "permission"
   | "composer"
-  | "owner-presentation";
+  | "owner-presentation"
+  | "owner-details";
 
 export type AssistantWorkspaceOwner =
   | {
@@ -274,7 +289,7 @@ export type AssistantWorkspacePublicationCause =
 
 export type AssistantWorkspaceServiceStatus = {
   items: Array<{
-    serviceId: "host-bridge" | "zotero-mcp";
+    serviceId: "acp-connection" | "host-bridge";
     label: string;
     status: string;
     available: boolean;
@@ -285,7 +300,20 @@ export type AssistantWorkspaceServiceStatus = {
 export type AssistantWorkspaceOwnerControl = {
   status: string;
   busy: boolean;
-  message: string | null;
+  hint: {
+    kind:
+      | "hidden"
+      | "auth"
+      | "running"
+      | "repairing"
+      | "waiting_user"
+      | "completed"
+      | "canceled"
+      | "disconnected"
+      | "error"
+      | "notice";
+    message: string | null;
+  };
   connection: {
     status: string;
     sessionAvailable: boolean;
@@ -296,6 +324,15 @@ export type AssistantWorkspaceOwnerControl = {
   execution: {
     canCancel: boolean;
     canInterrupt: boolean;
+  };
+  authentication: {
+    required: boolean;
+    canAuthenticate: boolean;
+    methodId: string | null;
+  };
+  permissionPolicy: {
+    autoApprove: boolean;
+    canSetAutoApprove: boolean;
   };
 };
 
@@ -341,8 +378,18 @@ export type AssistantWorkspacePlan = {
 
 export type AssistantWorkspacePermissionRequest = {
   requestId: string;
+  approvalKind: "acp-tool" | "zotero-write";
   title: string;
   summary: string;
+  tool: {
+    title: string;
+    callId: string | null;
+  };
+  review: {
+    requestedAt: string | null;
+    command: string | null;
+    preview: string | null;
+  };
   options: Array<{
     optionId: string;
     label: string;
@@ -354,10 +401,80 @@ export type AssistantWorkspacePermission = {
   request: AssistantWorkspacePermissionRequest | null;
 };
 
+function boundedPermissionText(value: unknown, limit: number) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, limit) : null;
+}
+
+export function projectAssistantWorkspacePermissionRequest(
+  value: unknown,
+): AssistantWorkspacePermissionRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const requestId = boundedPermissionText(source.requestId, 512);
+  if (!requestId) return null;
+  const approvalKind =
+    String(source.source || "").trim() === "zotero-mcp-write"
+      ? ("zotero-write" as const)
+      : ("acp-tool" as const);
+  let command: string | null = null;
+  let preview: string | null = null;
+  const detail = boundedPermissionText(source.detail, 12_000);
+  if (detail) {
+    try {
+      const parsed = JSON.parse(detail) as Record<string, unknown>;
+      command = boundedPermissionText(
+        typeof parsed.command === "string"
+          ? parsed.command
+          : Array.isArray(parsed.command)
+            ? parsed.command.join(" ")
+            : null,
+        4_000,
+      );
+      preview = boundedPermissionText(
+        parsed.preview || parsed.diff || parsed.summary,
+        12_000,
+      );
+    } catch {
+      preview = detail;
+    }
+  }
+  return {
+    requestId,
+    approvalKind,
+    title:
+      boundedPermissionText(source.toolTitle, 512) ||
+      boundedPermissionText(source.summary, 512) ||
+      requestId,
+    summary: boundedPermissionText(source.summary, 1_000) || "",
+    tool: {
+      title:
+        boundedPermissionText(source.toolTitle, 512) ||
+        boundedPermissionText(source.summary, 512) ||
+        requestId,
+      callId: boundedPermissionText(source.toolCallId, 512),
+    },
+    review: {
+      requestedAt: boundedPermissionText(source.requestedAt, 128),
+      command,
+      preview,
+    },
+    options: (Array.isArray(source.options) ? source.options : []).map(
+      (option) => {
+        const entry = option as Record<string, unknown>;
+        return {
+          optionId: String(entry.optionId || ""),
+          label: String(entry.name || entry.label || entry.optionId || ""),
+          description: boundedPermissionText(entry.description, 1_000),
+        };
+      },
+    ),
+  };
+}
+
 export type AssistantWorkspaceComposer = {
   reply: {
-    status: "enabled" | "disabled" | "busy";
-    hint: string | null;
+    status: "enabled" | "disabled" | "busy" | "cancelling";
   };
   runtimeOptions: {
     mode: AssistantWorkspaceOptionGroup;
@@ -375,6 +492,7 @@ export type AssistantWorkspaceOption = {
 export type AssistantWorkspaceOptionGroup = {
   selectedOptionId: string | null;
   options: AssistantWorkspaceOption[];
+  enabled: boolean;
 };
 
 export type AssistantWorkspaceOwnerPresentation = {
@@ -394,13 +512,87 @@ export type AssistantWorkspaceOwnerPresentation = {
     limit: number;
     costText: string | null;
   } | null;
+};
+
+export const ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY = {
+  session: { labelPath: "details.session" },
+  paths: { labelPath: "details.paths" },
+  diagnostics: { labelPath: "details.diagnostics" },
+  "run-paths": { labelPath: "details.runPaths" },
+  runner: { labelPath: "details.runner" },
+  validation: { labelPath: "details.validation" },
+  "runtime-dependencies": { labelPath: "details.runtimeDependencies" },
+  "output-revisions": { labelPath: "details.outputRevisions" },
+  "runtime-logs": { labelPath: "details.runtimeLogs" },
+  "result-json": { labelPath: "details.resultJson" },
+} as const;
+
+export type AssistantWorkspaceDetailsSectionId =
+  keyof typeof ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY;
+
+export const ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY = {
+  target: { labelPath: "fields.target" },
+  agent: { labelPath: "fields.agent" },
+  "agent-version": { labelPath: "fields.agentVersion" },
+  session: { labelPath: "fields.session" },
+  "remote-session": { labelPath: "fields.remoteSession" },
+  "remote-restore": { labelPath: "fields.remoteRestore" },
+  "stop-reason": { labelPath: "fields.stopReason" },
+  workspace: { labelPath: "fields.workspace" },
+  "host-context": { labelPath: "fields.hostContext" },
+  diagnostics: { labelPath: "details.recentDiagnostics" },
+  command: { labelPath: "fields.command" },
+  stderr: { labelPath: "fields.stderr" },
+  "last-error": { labelPath: "fields.lastError" },
+  "prerequisite-error": { labelPath: "fields.prerequisiteError" },
+  runtime: { labelPath: "fields.runtime" },
+  "input-manifest": { labelPath: "fields.inputManifest" },
+  "result-artifact": { labelPath: "fields.resultArtifact" },
+  backend: { labelPath: "fields.backend" },
+  "agent-family": { labelPath: "fields.agentFamily" },
+  mode: { labelPath: "fields.mode" },
+  model: { labelPath: "fields.model" },
+  reasoning: { labelPath: "fields.reasoning" },
+  "raw-model": { labelPath: "fields.rawModel" },
+  skill: { labelPath: "fields.skill" },
+  "skill-roots": { labelPath: "fields.skillRoots" },
+  "validation-status": { labelPath: "fields.validationStatus" },
+  "repair-rounds": { labelPath: "fields.repairRounds" },
+  "validation-errors": { labelPath: "fields.validationErrors" },
+  "run-error": { labelPath: "fields.runError" },
+  "conversation-error": { labelPath: "fields.conversationError" },
+  "conversation-state": { labelPath: "fields.conversationState" },
+  "apply-result": { labelPath: "fields.applyResult" },
+  "applied-at": { labelPath: "fields.appliedAt" },
+  "dependency-status": { labelPath: "fields.dependencyStatus" },
+  dependencies: { labelPath: "fields.dependencies" },
+  "dependency-error": { labelPath: "fields.dependencyError" },
+  "revision-count": { labelPath: "fields.revisionCount" },
+  "repair-round": { labelPath: "fields.repairRound" },
+  "replacement-reason": { labelPath: "fields.replacementReason" },
+  "candidate-preview": { labelPath: "fields.candidatePreview" },
+  logs: { labelPath: "fields.logs" },
+  "result-json": { labelPath: "details.resultJson" },
+} as const;
+
+export type AssistantWorkspaceDetailsFieldId =
+  keyof typeof ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY;
+
+export type AssistantWorkspaceOwnerDetails = {
+  status: "ready" | "failed";
+  title: string;
+  subtitle: string | null;
   sections: Array<{
-    sectionId: AssistantWorkspacePresentationSectionId;
+    sectionId: AssistantWorkspaceDetailsSectionId;
+    collapsed: boolean;
     items: Array<{
-      fieldId: AssistantWorkspacePresentationFieldId;
+      fieldId: AssistantWorkspaceDetailsFieldId;
       value: string;
+      format: "text" | "path" | "code" | "json";
     }>;
   }>;
+  actions: Array<"copy-id" | "copy-diagnostics" | "open-workspace">;
+  error: { code: string; message: string } | null;
 };
 
 export type AssistantWorkspacePublicationPayload =
@@ -412,6 +604,7 @@ export type AssistantWorkspacePublicationPayload =
   | AssistantWorkspacePermission
   | AssistantWorkspaceComposer
   | AssistantWorkspaceOwnerPresentation
+  | AssistantWorkspaceOwnerDetails
   | AssistantWorkspaceTranscriptRegion
   | AssistantWorkspaceTranscriptDelta;
 
@@ -427,6 +620,7 @@ export type AssistantWorkspacePublicationPayloadByKind = {
   permission: AssistantWorkspacePermission;
   composer: AssistantWorkspaceComposer;
   "owner-presentation": AssistantWorkspaceOwnerPresentation;
+  "owner-details": AssistantWorkspaceOwnerDetails;
 };
 
 export type AssistantWorkspaceRegionScope = "source" | "owner";
@@ -438,6 +632,7 @@ export type AssistantWorkspaceManagedRegion =
   | "message-counts"
   | "transcript"
   | "plan"
+  | "hint"
   | "permission"
   | "composer"
   | "context-drawer"
@@ -448,21 +643,21 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     scope: "source",
     form: "region",
     browserStateKey: "navigation",
-    managedRegions: ["navigation"],
+    managedRegions: ["navigation", "banner", "context-drawer"],
     sources: ["acp-chat", "acp-skills"],
   },
   "service-status": {
     scope: "source",
     form: "region",
     browserStateKey: "services",
-    managedRegions: ["services"],
+    managedRegions: ["services", "banner"],
     sources: ["acp-chat", "acp-skills"],
   },
   "owner-control": {
     scope: "owner",
     form: "region",
     browserStateKey: "control",
-    managedRegions: ["toolbar"],
+    managedRegions: ["toolbar", "banner", "hint", "composer"],
     sources: ["acp-chat", "acp-skills"],
   },
   "message-counts": {
@@ -484,13 +679,13 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     form: "region",
     browserStateKey: "plan",
     managedRegions: ["plan"],
-    sources: ["acp-chat"],
+    sources: ["acp-chat", "acp-skills"],
   },
   permission: {
     scope: "owner",
     form: "region",
     browserStateKey: "permission",
-    managedRegions: ["permission"],
+    managedRegions: ["hint", "permission", "composer"],
     sources: ["acp-chat", "acp-skills"],
   },
   composer: {
@@ -504,7 +699,14 @@ export const ASSISTANT_WORKSPACE_REGION_REGISTRY = {
     scope: "owner",
     form: "region",
     browserStateKey: "presentation",
-    managedRegions: ["banner", "context-drawer", "details-drawer"],
+    managedRegions: ["banner"],
+    sources: ["acp-chat", "acp-skills"],
+  },
+  "owner-details": {
+    scope: "owner",
+    form: "region",
+    browserStateKey: "details",
+    managedRegions: ["details-drawer"],
     sources: ["acp-chat", "acp-skills"],
   },
 } as const satisfies Record<
@@ -544,6 +746,7 @@ export type AssistantWorkspaceCanonicalBrowserState = {
     permission: AssistantWorkspacePermission | null;
     composer: AssistantWorkspaceComposer | null;
     presentation: AssistantWorkspaceOwnerPresentation | null;
+    details: AssistantWorkspaceOwnerDetails | null;
   };
 };
 
@@ -709,6 +912,7 @@ export const ACP_CHAT_WORKSPACE_DOMAIN_MAPPING = {
   permission: "permission",
   composer: "composer",
   "owner-presentation": "owner-presentation",
+  "owner-details": "owner-details",
 } satisfies AssistantWorkspaceDomainMapping;
 
 export const ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING = {
@@ -717,10 +921,11 @@ export const ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING = {
   "owner-control": "owner-control",
   "message-counts": "message-counts",
   transcript: "transcript",
-  plan: "not-applicable",
+  plan: "plan",
   permission: "permission",
   composer: "composer",
   "owner-presentation": "owner-presentation",
+  "owner-details": "owner-details",
 } satisfies AssistantWorkspaceDomainMapping;
 
 export function createAcpChatWorkspaceOwner(
@@ -995,7 +1200,15 @@ function assertPublicationPayloadInvariant(
       "canCreateOwner",
     ],
     "service-status": ["items"],
-    "owner-control": ["status", "busy", "message", "connection", "execution"],
+    "owner-control": [
+      "status",
+      "busy",
+      "hint",
+      "connection",
+      "execution",
+      "authentication",
+      "permissionPolicy",
+    ],
     "message-counts": ["counts"],
     plan: ["items"],
     permission: ["request"],
@@ -1007,7 +1220,14 @@ function assertPublicationPayloadInvariant(
       "notice",
       "metadata",
       "usage",
+    ],
+    "owner-details": [
+      "status",
+      "title",
+      "subtitle",
       "sections",
+      "actions",
+      "error",
     ],
   };
   assertExactObjectKeys(
@@ -1017,6 +1237,27 @@ function assertPublicationPayloadInvariant(
   );
   if (kind === "owner-control") {
     const baseline = payload as AssistantWorkspaceOwnerControl;
+    assertExactObjectKeys(
+      baseline.hint,
+      ["kind", "message"],
+      "assistant-workspace-owner-control-hint",
+    );
+    if (
+      ![
+        "hidden",
+        "auth",
+        "running",
+        "repairing",
+        "waiting_user",
+        "completed",
+        "canceled",
+        "disconnected",
+        "error",
+        "notice",
+      ].includes(baseline.hint.kind)
+    ) {
+      throw new Error("assistant-workspace-owner-control-hint-kind");
+    }
     assertExactObjectKeys(
       baseline.connection,
       [
@@ -1032,6 +1273,16 @@ function assertPublicationPayloadInvariant(
       baseline.execution,
       ["canCancel", "canInterrupt"],
       "assistant-workspace-owner-control-execution",
+    );
+    assertExactObjectKeys(
+      baseline.authentication,
+      ["required", "canAuthenticate", "methodId"],
+      "assistant-workspace-owner-control-authentication",
+    );
+    assertExactObjectKeys(
+      baseline.permissionPolicy,
+      ["autoApprove", "canSetAutoApprove"],
+      "assistant-workspace-owner-control-permission-policy",
     );
   }
   if (kind === "owner-navigation") {
@@ -1071,6 +1322,9 @@ function assertPublicationPayloadInvariant(
         ["serviceId", "label", "status", "available", "message"],
         "assistant-workspace-service-status-item",
       );
+      if (!["acp-connection", "host-bridge"].includes(item.serviceId)) {
+        throw new Error("assistant-workspace-service-status-id");
+      }
     }
   }
   if (kind === "plan") {
@@ -1087,8 +1341,29 @@ function assertPublicationPayloadInvariant(
     if (request) {
       assertExactObjectKeys(
         request,
-        ["requestId", "title", "summary", "options"],
+        [
+          "requestId",
+          "approvalKind",
+          "title",
+          "summary",
+          "tool",
+          "review",
+          "options",
+        ],
         "assistant-workspace-permission-request",
+      );
+      if (!["acp-tool", "zotero-write"].includes(request.approvalKind)) {
+        throw new Error("assistant-workspace-permission-kind");
+      }
+      assertExactObjectKeys(
+        request.tool,
+        ["title", "callId"],
+        "assistant-workspace-permission-tool",
+      );
+      assertExactObjectKeys(
+        request.review,
+        ["requestedAt", "command", "preview"],
+        "assistant-workspace-permission-review",
       );
       for (const option of request.options) {
         assertExactObjectKeys(
@@ -1103,9 +1378,16 @@ function assertPublicationPayloadInvariant(
     const composer = payload as AssistantWorkspaceComposer;
     assertExactObjectKeys(
       composer.reply,
-      ["status", "hint"],
+      ["status"],
       "assistant-workspace-composer-reply",
     );
+    if (
+      !["enabled", "disabled", "busy", "cancelling"].includes(
+        composer.reply.status,
+      )
+    ) {
+      throw new Error("assistant-workspace-composer-reply-status");
+    }
     assertExactObjectKeys(
       composer.runtimeOptions,
       ["mode", "model", "reasoningEffort"],
@@ -1118,7 +1400,7 @@ function assertPublicationPayloadInvariant(
     ]) {
       assertExactObjectKeys(
         group,
-        ["selectedOptionId", "options"],
+        ["selectedOptionId", "options", "enabled"],
         "assistant-workspace-option-group",
       );
       for (const option of group.options) {
@@ -1160,26 +1442,47 @@ function assertPublicationPayloadInvariant(
       );
       assertAssistantWorkspacePresentationField(item.fieldId);
     }
-    for (const section of presentation.sections) {
+  }
+  if (kind === "owner-details") {
+    const details = payload as AssistantWorkspaceOwnerDetails;
+    if (!["ready", "failed"].includes(details.status)) {
+      throw new Error("assistant-workspace-owner-details-status");
+    }
+    if (details.error) {
+      assertExactObjectKeys(
+        details.error,
+        ["code", "message"],
+        "assistant-workspace-owner-details-error",
+      );
+    }
+    for (const section of details.sections) {
       assertExactObjectKeys(
         section,
-        ["sectionId", "items"],
-        "assistant-workspace-owner-presentation-section",
+        ["sectionId", "collapsed", "items"],
+        "assistant-workspace-owner-details-section",
       );
       if (
-        !(
-          section.sectionId in ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY
-        )
+        !(section.sectionId in ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY)
       ) {
-        throw new Error("assistant-workspace-owner-presentation-section");
+        throw new Error("assistant-workspace-owner-details-section");
       }
       for (const item of section.items) {
         assertExactObjectKeys(
           item,
-          ["fieldId", "value"],
-          "assistant-workspace-owner-presentation-item",
+          ["fieldId", "value", "format"],
+          "assistant-workspace-owner-details-item",
         );
-        assertAssistantWorkspacePresentationField(item.fieldId);
+        if (!(item.fieldId in ASSISTANT_WORKSPACE_DETAILS_FIELD_REGISTRY)) {
+          throw new Error("assistant-workspace-owner-details-field");
+        }
+        if (!["text", "path", "code", "json"].includes(item.format)) {
+          throw new Error("assistant-workspace-owner-details-format");
+        }
+      }
+    }
+    for (const action of details.actions) {
+      if (!["copy-id", "copy-diagnostics", "open-workspace"].includes(action)) {
+        throw new Error("assistant-workspace-owner-details-action");
       }
     }
   }

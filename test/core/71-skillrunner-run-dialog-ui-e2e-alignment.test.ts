@@ -37,7 +37,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
   });
 
   it("uses the shared managed six-region scaffold instead of the legacy card layout", async function () {
-    const html = await readProjectFile("addon/content/sidebar/run-dialog.html");
+    const [html, js] = await Promise.all([
+      readProjectFile("addon/content/sidebar/run-dialog.html"),
+      readProjectFile("addon/content/sidebar/run-dialog.js"),
+    ]);
 
     assert.include(html, 'id="skillrunner-toolbar"');
     assert.include(html, 'id="skillrunner-banner"');
@@ -50,6 +53,11 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.include(html, 'id="chat-panel"');
     assert.include(html, 'id="chat-mode-plain"');
     assert.include(html, 'id="chat-mode-bubble"');
+    assert.notInclude(html, 'id="skillrunner-empty"');
+    assert.notMatch(
+      html,
+      /id="skillrunner-main"[\s\S]{0,120}class="[^"]*\bhidden\b/,
+    );
     assert.include(html, "../shared/assistant/assistant-panel-shared.css");
     assert.notInclude(
       html,
@@ -76,6 +84,10 @@ describe("skillrunner run dialog managed ui alignment", function () {
     assert.notInclude(html, 'id="reply-composer"');
     assert.notInclude(html, 'id="reply-text"');
     assert.notInclude(html, 'class="conversation-card"');
+    assert.notInclude(js, 'getElementById("skillrunner-empty")');
+    assert.notInclude(js, "const hasSession = !!state.snapshot");
+    assert.notInclude(js, 'mainEl.classList.toggle("hidden"');
+    assert.include(js, "safeText(panelSnapshot.labels?.emptyTasks)");
   });
 
   it("projects SkillRunner snapshots into AssistantPanelSnapshot and uses the shared renderer", async function () {

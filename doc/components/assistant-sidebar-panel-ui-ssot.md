@@ -58,6 +58,29 @@ SHOULD then own the four body rows: `conversation window`, `plan widget`,
 semantic model; it prevents ACP Chat, ACP Skills, and SkillRunner from drifting
 in body sizing, reply alignment, and plan/hint height behavior.
 
+### Empty-State Chrome
+
+ACP Chat, ACP Skills, and SkillRunner SHALL keep the same toolbar, banner,
+conversation, and reply regions mounted when no conversation, run, or task is
+selected. Empty state is a managed panel projection, not a separate page
+layout. Fixed banner metadata stays visible with empty values rendered as `-`;
+the main status badge and owner-scoped Connection or Interaction LED stay
+visible as muted and unavailable.
+
+Context selectors, lifecycle actions, reply input, Send, and runtime selectors
+stay resident but disabled. ACP Chat uses the short subtitle `No conversation`;
+ACP Skills and SkillRunner use `No task`, through shared localized labels.
+Host Bridge continues to show its real global service state. Sessions/Runs,
+backend management, and execution display mode remain usable so an owner can be
+selected; Details is disabled until an owner exists.
+
+ACP empty state SHALL NOT synthesize owner-control or owner-presentation
+publications. SkillRunner treats an explicit workspace-envelope `session: null`
+as empty, while a selected session without a request id remains a preparing
+task. `run-dialog` SHALL NOT hide or replace its main/reply regions when the
+session is null. Empty/selected transitions and transcript-only updates SHALL
+preserve non-transcript managed-region container identity.
+
 ### Shell Toolbar
 
 The shell toolbar contains shell-level or panel-level controls that are not tied

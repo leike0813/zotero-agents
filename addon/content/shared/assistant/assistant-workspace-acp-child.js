@@ -15,6 +15,7 @@
     "permission",
     "composer",
     "owner-presentation",
+    "owner-details",
   ]);
   const forbiddenWireFields = new Set([
     "regions",
@@ -50,6 +51,145 @@
     });
   }
 
+  function validPublicationPayload(publication) {
+    const payload = publication && publication.payload;
+    const keysByKind = {
+      "owner-navigation": [
+        "selectedOwner",
+        "selectedGroupId",
+        "groups",
+        "entries",
+        "canCreateOwner",
+      ],
+      "service-status": ["items"],
+      "owner-control": [
+        "status",
+        "busy",
+        "hint",
+        "connection",
+        "execution",
+        "authentication",
+        "permissionPolicy",
+      ],
+      "message-counts": ["counts"],
+      plan: ["items"],
+      permission: ["request"],
+      composer: ["reply", "runtimeOptions"],
+      "owner-presentation": [
+        "title",
+        "subtitle",
+        "description",
+        "notice",
+        "metadata",
+        "usage",
+      ],
+      "owner-details": [
+        "status",
+        "title",
+        "subtitle",
+        "sections",
+        "actions",
+        "error",
+      ],
+    };
+    if (publication.publicationKind === "transcript") {
+      return publication.publicationForm === "snapshot"
+        ? hasExactKeys(payload, [
+            "owner",
+            "status",
+            "error",
+            "page",
+            "transcriptRevision",
+          ])
+        : hasExactKeys(payload, [
+            "page",
+            "baseTranscriptRevision",
+            "transcriptRevision",
+            "mutations",
+          ]);
+    }
+    if (!hasExactKeys(payload, keysByKind[publication.publicationKind] || [])) {
+      return false;
+    }
+    if (publication.publicationKind === "permission" && payload.request) {
+      const request = payload.request;
+      return (
+        hasExactKeys(request, [
+          "requestId",
+          "approvalKind",
+          "title",
+          "summary",
+          "tool",
+          "review",
+          "options",
+        ]) &&
+        (request.approvalKind === "acp-tool" ||
+          request.approvalKind === "zotero-write") &&
+        hasExactKeys(request.tool, ["title", "callId"]) &&
+        hasExactKeys(request.review, ["requestedAt", "command", "preview"]) &&
+        Array.isArray(request.options) &&
+        request.options.every(function (option) {
+          return hasExactKeys(option, ["optionId", "label", "description"]);
+        })
+      );
+    }
+    if (publication.publicationKind === "owner-control") {
+      return (
+        hasExactKeys(payload.hint, ["kind", "message"]) &&
+        [
+          "hidden",
+          "auth",
+          "running",
+          "repairing",
+          "waiting_user",
+          "completed",
+          "canceled",
+          "disconnected",
+          "error",
+          "notice",
+        ].includes(payload.hint.kind)
+      );
+    }
+    if (publication.publicationKind === "composer") {
+      return (
+        hasExactKeys(payload.reply, ["status"]) &&
+        hasExactKeys(payload.runtimeOptions, [
+          "mode",
+          "model",
+          "reasoningEffort",
+        ]) &&
+        [
+          payload.runtimeOptions.mode,
+          payload.runtimeOptions.model,
+          payload.runtimeOptions.reasoningEffort,
+        ].every(function (group) {
+          return hasExactKeys(group, [
+            "selectedOptionId",
+            "options",
+            "enabled",
+          ]);
+        })
+      );
+    }
+    if (publication.publicationKind === "owner-details") {
+      return (
+        (payload.status === "ready" || payload.status === "failed") &&
+        Array.isArray(payload.sections) &&
+        payload.sections.every(function (section) {
+          return (
+            hasExactKeys(section, ["sectionId", "collapsed", "items"]) &&
+            Array.isArray(section.items) &&
+            section.items.every(function (item) {
+              return hasExactKeys(item, ["fieldId", "value", "format"]);
+            })
+          );
+        }) &&
+        Array.isArray(payload.actions)
+      );
+    }
+    return true;
+  }
+
   function validPublicationEnvelope(publication, source) {
     if (
       !hasExactKeys(publication, [
@@ -64,14 +204,15 @@
         "payload",
       ]) ||
       publication.schema !==
-        "zotero-agents.assistant-workspace-publication.v6" ||
+        "zotero-agents.assistant-workspace-publication.v1" ||
       !text(publication.publicationId) ||
       !publicationKinds.has(publication.publicationKind) ||
       !Number.isInteger(publication.regionRevision) ||
       publication.regionRevision <= 0 ||
       !Number.isInteger(publication.deliverySequence) ||
       publication.deliverySequence <= 0 ||
-      hasForbiddenWireField(publication)
+      hasForbiddenWireField(publication) ||
+      !validPublicationPayload(publication)
     ) {
       return false;
     }
@@ -144,6 +285,7 @@
       permission: null,
       composer: null,
       presentation: null,
+      details: null,
     };
   }
 
@@ -173,6 +315,7 @@
     permission: "permission",
     composer: "composer",
     "owner-presentation": "presentation",
+    "owner-details": "details",
   };
 
   function readStateRegion(snapshot, kind) {
@@ -1140,11 +1283,11 @@
       contextDrawerOpen: false,
       detailsDrawerOpen: false,
       permissionRequestOpen: false,
-      permissionRequest: null,
       completedCollapsed: true,
       drawerGroupCollapsed: new Map(),
       expandedTranscriptRows: new Set(),
       replyDraft: "",
+      replyDraftByOwner: new Map(),
       executionDisplayMode: "live",
       transcriptPaginationVirtualizationEnabled: true,
     };
@@ -1209,6 +1352,8 @@
         elements.composer &&
         elements.composer.querySelector(".assistant-panel-reply-input");
       ui.replyDraft = input ? String(input.value || "") : ui.replyDraft;
+      const owner = selectedOwner(snapshot);
+      if (owner) ui.replyDraftByOwner.set(owner.ownerKey, ui.replyDraft);
     }
 
     function currentTranscript() {
@@ -1378,9 +1523,11 @@
         renderPanel();
         return;
       }
-      if (action === "open-details-drawer" || action === "openDetails") {
+      if (action === "open-details-drawer") {
         ui.detailsDrawerOpen = true;
         renderPanel();
+        const owner = selectedOwner(snapshot);
+        if (owner) sendAction("request-owner-details", {}, owner);
         return;
       }
       if (action === "close-details-drawer") {
@@ -1389,20 +1536,16 @@
         return;
       }
       if (action === "open-permission-request") {
-        ui.permissionRequest =
-          payload.permissionRequest ||
-          payload.permission ||
-          (snapshot.selection &&
-            snapshot.selection.permission &&
-            snapshot.selection.permission.request) ||
-          null;
-        ui.permissionRequestOpen = Boolean(ui.permissionRequest);
+        const request =
+          snapshot.selection &&
+          snapshot.selection.permission &&
+          snapshot.selection.permission.request;
+        ui.permissionRequestOpen = Boolean(request);
         renderPanel();
         return;
       }
       if (action === "close-permission-request") {
         ui.permissionRequestOpen = false;
-        ui.permissionRequest = null;
         renderPanel();
         return;
       }
@@ -1429,6 +1572,19 @@
         renderTranscript();
         return;
       }
+      if (
+        action === "set-active-conversation" &&
+        payload.option &&
+        payload.option.sentinel === "show-more"
+      ) {
+        ui.contextDrawerOpen = true;
+        renderPanel();
+        return;
+      }
+      if (action === "set-active-conversation" || action === "select-run") {
+        ui.contextDrawerOpen = false;
+        renderPanel();
+      }
       captureReplyDraft();
       const routed = resolvePanelActionEnvelope(
         action,
@@ -1451,7 +1607,6 @@
         snapshot.selection.permission &&
         snapshot.selection.permission.request;
       if (!permission) {
-        ui.permissionRequest = null;
         ui.permissionRequestOpen = false;
       }
       const panel = model.projectAssistantWorkspacePanel(snapshot, ui, labels);
@@ -1588,6 +1743,7 @@
           permission: "permission",
           composer: "composer",
           "owner-presentation": "banner",
+          "owner-details": "details-drawer",
         }[publication.publicationKind];
         ack(
           publication,
@@ -1617,6 +1773,16 @@
                   snapshot = previous;
                 }
               })();
+        }
+        if (result.publicationKind === "owner-navigation") {
+          captureReplyDraft();
+          const nextOwner = selectedOwner(result.snapshot);
+          ui.replyDraft = nextOwner
+            ? ui.replyDraftByOwner.get(nextOwner.ownerKey) || ""
+            : "";
+          ui.contextDrawerOpen = false;
+          ui.detailsDrawerOpen = false;
+          ui.permissionRequestOpen = false;
         }
         const previous = snapshot;
         snapshot = result.snapshot;
@@ -1703,7 +1869,6 @@
         ui.contextDrawerOpen = false;
         ui.detailsDrawerOpen = false;
         ui.permissionRequestOpen = false;
-        ui.permissionRequest = null;
         renderPanel();
         return;
       }

@@ -18,8 +18,10 @@ import {
   createFailedTranscriptRegion,
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
+  projectAssistantWorkspacePermissionRequest,
   createReadyTranscriptRegion,
   type AssistantWorkspacePublicationKind,
+  type AssistantWorkspaceDetailsFieldId,
   type AssistantWorkspacePublicationPayloadByKind,
 } from "./assistantWorkspacePublication";
 import {
@@ -157,7 +159,11 @@ export function mapAcpChatWorkspaceChangeKinds(
   );
 }
 
-function optionGroup(optionsRaw: unknown, selectedRaw: unknown) {
+function optionGroup(
+  optionsRaw: unknown,
+  selectedRaw: unknown,
+  enabled: boolean,
+) {
   const selected =
     selectedRaw && typeof selectedRaw === "object"
       ? (selectedRaw as Record<string, unknown>)
@@ -172,12 +178,49 @@ function optionGroup(optionsRaw: unknown, selectedRaw: unknown) {
         description: value.description ? String(value.description) : null,
       };
     }),
+    enabled,
   };
+}
+
+function acpChatHint(snapshot: {
+  status: string;
+  busy: boolean;
+  lastError: string;
+  prerequisiteError: string;
+  lastStopReason: string;
+}) {
+  const error = String(
+    snapshot.prerequisiteError || snapshot.lastError || "",
+  ).trim();
+  if (error) return { kind: "error" as const, message: error };
+  if (snapshot.status === "auth-required") {
+    return { kind: "auth" as const, message: null };
+  }
+  if (snapshot.busy || snapshot.status === "prompting") {
+    return { kind: "running" as const, message: null };
+  }
+  const stopReason = String(snapshot.lastStopReason || "").trim();
+  if (stopReason) return { kind: "notice" as const, message: stopReason };
+  return { kind: "hidden" as const, message: null };
 }
 
 function finitePageNumber(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function boundedWorkspaceText(value: unknown, limit = 12_000) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, limit) : "";
+}
+
+function boundedWorkspaceJson(value: unknown, limit = 12_000) {
+  if (value === null || value === undefined) return "";
+  try {
+    return JSON.stringify(value, null, 2).slice(0, limit);
+  } catch {
+    return boundedWorkspaceText(value, limit);
+  }
 }
 
 async function readAcpChatTranscriptRegion(args: {
@@ -266,39 +309,54 @@ export async function readAcpChatWorkspaceRegions(args: {
     };
   }
   if (requested.has("permission")) {
-    const pending = snapshot.pendingPermissionRequest;
     regions.permission = {
-      request: pending
-        ? {
-            requestId: pending.requestId,
-            title: pending.toolTitle,
-            summary: pending.summary || "",
-            options: (pending.options || []).map((option) => ({
-              optionId: option.optionId,
-              label: option.name,
-              description: option.description || null,
-            })),
-          }
-        : null,
+      request: projectAssistantWorkspacePermissionRequest(
+        snapshot.pendingPermissionRequest,
+      ),
     };
   }
   if (requested.has("composer")) {
+    const connectionChanging = ["connecting", "disconnecting"].includes(
+      String(snapshot.status || ""),
+    );
+    const sessionAvailable = Boolean(
+      snapshot.sessionId || snapshot.remoteSessionId,
+    );
+    const pendingPermission = Boolean(snapshot.pendingPermissionRequest);
+    const connected = snapshot.connected === true;
+    const runtimeOptionsAvailable = connected && !snapshot.busy;
     regions.composer = {
       reply: {
-        status: snapshot.busy ? "busy" : "enabled",
-        hint: null,
+        status:
+          snapshot.promptInterruptState === "requested"
+            ? "cancelling"
+            : snapshot.busy
+              ? "busy"
+              : !connectionChanging && !pendingPermission
+                ? "enabled"
+                : "disabled",
       },
       runtimeOptions: {
-        mode: optionGroup(snapshot.modeOptions, snapshot.currentMode),
+        mode: optionGroup(
+          runtimeOptionsAvailable ? snapshot.modeOptions : [],
+          snapshot.currentMode,
+          runtimeOptionsAvailable && snapshot.modeOptions.length > 0,
+        ),
         model: optionGroup(
-          snapshot.displayModelOptions.length
-            ? snapshot.displayModelOptions
-            : snapshot.modelOptions,
+          runtimeOptionsAvailable
+            ? snapshot.displayModelOptions.length
+              ? snapshot.displayModelOptions
+              : snapshot.modelOptions
+            : [],
           snapshot.currentDisplayModel || snapshot.currentModel,
+          runtimeOptionsAvailable &&
+            (snapshot.displayModelOptions.length > 0 ||
+              snapshot.modelOptions.length > 0),
         ),
         reasoningEffort: optionGroup(
-          snapshot.reasoningEffortOptions,
+          runtimeOptionsAvailable ? snapshot.reasoningEffortOptions : [],
           snapshot.currentReasoningEffort,
+          runtimeOptionsAvailable && snapshot.reasoningEffortOptions.length > 0,
         ),
       },
     };
@@ -310,32 +368,25 @@ export async function readAcpChatWorkspaceRegions(args: {
       snapshot.workspaceDir ||
       snapshot.runtimeDir;
     regions["owner-presentation"] = {
-      title:
-        String(snapshot.sessionTitle || snapshot.conversationTitle).trim() ||
-        args.owner.conversationId,
-      subtitle:
-        String(snapshot.agentLabel || "").trim() ||
-        String(args.owner.backendId || "").trim() ||
-        null,
-      description: String(snapshot.lastError || "").trim() || null,
-      notice: String(snapshot.lastError || "").trim()
-        ? {
-            tone: "danger",
-            text: String(snapshot.lastError || "").trim(),
-          }
-        : null,
+      title: "",
+      subtitle: null,
+      description: null,
+      notice: null,
       metadata: [
         {
           fieldId: "backend" as const,
-          value: args.owner.backendId,
+          value: snapshot.backendDisplayName || args.owner.backendId,
         },
         {
           fieldId: "conversation" as const,
-          value: args.owner.conversationId,
+          value: String(
+            snapshot.sessionTitle ||
+              (snapshot.connected ? snapshot.sessionId : ""),
+          ).trim(),
         },
         {
-          fieldId: "updated-at" as const,
-          value: snapshot.sessionUpdatedAt || snapshot.updatedAt,
+          fieldId: "workspace" as const,
+          value: String(workspace || ""),
         },
       ].filter((entry) => entry.value),
       usage: snapshot.usage
@@ -345,92 +396,139 @@ export async function readAcpChatWorkspaceRegions(args: {
             costText: snapshot.usage.costText || null,
           }
         : null,
+    };
+  }
+  if (requested.has("owner-details")) {
+    const workspace =
+      snapshot.agentWorkspaceDir ||
+      snapshot.sessionCwd ||
+      snapshot.workspaceDir ||
+      snapshot.runtimeDir;
+    const section = <T extends "session" | "paths" | "diagnostics">(
+      sectionId: T,
+      collapsed: boolean,
+      items: Array<{
+        fieldId: AssistantWorkspaceDetailsFieldId;
+        value: string;
+        format: "text" | "path" | "code" | "json";
+      }>,
+    ) => ({
+      sectionId,
+      collapsed,
+      items: items.filter((item) => item.value),
+    });
+    regions["owner-details"] = {
+      status: "ready",
+      title:
+        String(snapshot.sessionTitle || snapshot.conversationTitle).trim() ||
+        args.owner.conversationId,
+      subtitle: args.owner.conversationId,
       sections: [
-        {
-          sectionId: "context" as const,
-          items: [
-            {
-              fieldId: "session" as const,
-              value: String(
-                snapshot.sessionTitle || snapshot.conversationTitle || "",
-              ),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "connection" as const,
-          items: [
-            {
-              fieldId: "session" as const,
-              value: String(
-                snapshot.sessionId || snapshot.remoteSessionId || "",
-              ),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "recovery" as const,
-          items: [
-            {
-              fieldId: "recovery" as const,
-              value: String(snapshot.remoteSessionRestoreMessage || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "workspace" as const,
-          items: [
-            {
-              fieldId: "workspace" as const,
-              value: String(workspace || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "session" as const,
-          items: [
-            {
-              fieldId: "updated-at" as const,
-              value: String(
-                snapshot.sessionUpdatedAt || snapshot.updatedAt || "",
-              ),
-            },
-            {
-              fieldId: "agent-version" as const,
-              value: String(snapshot.agentVersion || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-      ].filter((section) => section.items.length > 0),
+        section("session", false, [
+          {
+            fieldId: "target",
+            value: snapshot.backendDisplayName,
+            format: "text",
+          },
+          { fieldId: "agent", value: snapshot.agentLabel, format: "text" },
+          {
+            fieldId: "agent-version",
+            value: snapshot.agentVersion,
+            format: "text",
+          },
+          {
+            fieldId: "session",
+            value: snapshot.sessionId,
+            format: "text",
+          },
+          {
+            fieldId: "remote-session",
+            value: snapshot.remoteSessionId,
+            format: "text",
+          },
+          {
+            fieldId: "remote-restore",
+            value: snapshot.remoteSessionRestoreMessage,
+            format: "text",
+          },
+          {
+            fieldId: "stop-reason",
+            value: snapshot.lastStopReason,
+            format: "text",
+          },
+        ]),
+        section("paths", false, [
+          { fieldId: "workspace", value: workspace, format: "path" },
+          {
+            fieldId: "host-context",
+            value: boundedWorkspaceJson(snapshot.lastHostContext),
+            format: "json",
+          },
+        ]),
+        section("diagnostics", true, [
+          {
+            fieldId: "diagnostics",
+            value: boundedWorkspaceJson(snapshot.diagnostics),
+            format: "json",
+          },
+          {
+            fieldId: "command",
+            value: boundedWorkspaceText(snapshot.commandLine, 4_000),
+            format: "code",
+          },
+          {
+            fieldId: "stderr",
+            value: boundedWorkspaceText(snapshot.stderrTail),
+            format: "code",
+          },
+          {
+            fieldId: "last-error",
+            value: boundedWorkspaceText(snapshot.lastError),
+            format: "text",
+          },
+          {
+            fieldId: "prerequisite-error",
+            value: boundedWorkspaceText(snapshot.prerequisiteError),
+            format: "text",
+          },
+        ]),
+      ].filter((entry) => entry.items.length > 0),
+      actions: ["copy-diagnostics", "open-workspace"],
+      error: null,
     };
   }
   if (requested.has("owner-control")) {
+    const connected = snapshot.connected === true;
+    const connectionChanging = ["connecting", "disconnecting"].includes(
+      String(snapshot.status || ""),
+    );
     regions["owner-control"] = {
       status: String(snapshot.status || "idle"),
       busy: snapshot.busy === true,
-      message: snapshot.lastError || null,
+      hint: acpChatHint(snapshot),
       connection: {
         status: String(snapshot.status || "idle"),
         sessionAvailable: Boolean(
           snapshot.sessionId || snapshot.remoteSessionId,
         ),
-        connected:
-          Boolean(snapshot.sessionId || snapshot.remoteSessionId) ||
-          [
-            "connected",
-            "prompting",
-            "permission-required",
-            "auth-required",
-          ].includes(String(snapshot.status || "")),
-        canConnect:
-          !snapshot.busy && !snapshot.sessionId && !snapshot.remoteSessionId,
-        canDisconnect:
-          Boolean(snapshot.sessionId || snapshot.remoteSessionId) &&
-          !snapshot.busy,
+        connected,
+        canConnect: !snapshot.busy && !connected && !connectionChanging,
+        canDisconnect: connected && !snapshot.busy && !connectionChanging,
       },
       execution: {
         canCancel: snapshot.busy === true,
         canInterrupt: false,
+      },
+      authentication: {
+        required: snapshot.status === "auth-required",
+        canAuthenticate:
+          snapshot.status === "auth-required" &&
+          snapshot.authMethods.length > 0,
+        methodId: snapshot.authMethods[0]?.id || null,
+      },
+      permissionPolicy: {
+        autoApprove: snapshot.autoApproveAcpPermissions,
+        canSetAutoApprove: true,
       },
     };
   }
@@ -450,6 +548,7 @@ export const ACP_CHAT_WORKSPACE_ADAPTER =
       "permission",
       "composer",
       "owner-presentation",
+      "owner-details",
     ],
     selectedOwner() {
       const active = getActiveAcpChatOwner();

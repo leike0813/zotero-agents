@@ -5,7 +5,6 @@ import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY,
-  ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY,
   ASSISTANT_WORKSPACE_REGION_REGISTRY,
   ACP_CHAT_WORKSPACE_DOMAIN_MAPPING,
   ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
@@ -38,13 +37,14 @@ const expectedKinds = [
   "permission",
   "composer",
   "owner-presentation",
+  "owner-details",
 ] as const;
 
 function ownerControl() {
   return {
     status: "running",
     busy: true,
-    message: null,
+    hint: { kind: "running" as const, message: null },
     connection: {
       status: "connected",
       sessionAvailable: true,
@@ -53,6 +53,12 @@ function ownerControl() {
       canDisconnect: true,
     },
     execution: { canCancel: true, canInterrupt: true },
+    authentication: {
+      required: false,
+      canAuthenticate: false,
+      methodId: null,
+    },
+    permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
   };
 }
 
@@ -81,7 +87,7 @@ function navigation(owner: ReturnType<typeof assistantWorkspaceTestOwner>) {
   };
 }
 
-describe("Assistant Workspace ACP publication data plane v6", function () {
+describe("Assistant Workspace ACP publication data plane v1", function () {
   it("defines one exhaustive strict registry for both ACP sources", function () {
     assert.deepEqual(ASSISTANT_WORKSPACE_PUBLICATION_KINDS, expectedKinds);
     assert.deepEqual(
@@ -96,10 +102,26 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
       Object.keys(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING),
       expectedKinds,
     );
-    assert.equal(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING.plan, "not-applicable");
+    assert.equal(ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING.plan, "plan");
+    assert.equal(
+      ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING["owner-details"],
+      "owner-details",
+    );
+    assert.include(
+      ASSISTANT_WORKSPACE_REGION_REGISTRY["owner-control"].managedRegions,
+      "hint",
+    );
+    assert.include(
+      ASSISTANT_WORKSPACE_REGION_REGISTRY.permission.managedRegions,
+      "hint",
+    );
+    assert.notInclude(
+      ASSISTANT_WORKSPACE_REGION_REGISTRY.composer.managedRegions,
+      "hint",
+    );
   });
 
-  it("accepts only the exact v6 envelope and rejects legacy aliases", function () {
+  it("accepts only the exact v1 envelope and rejects removed versions and aliases", function () {
     const owner = assistantWorkspaceTestOwner("acp-skills");
     const publication = assistantWorkspaceTestPublication({
       owner,
@@ -107,11 +129,15 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
       payload: ownerControl(),
     });
     assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+    assert.equal(
+      publication.schema,
+      "zotero-agents.assistant-workspace-publication.v1",
+    );
     for (const invalid of [
-      {
+      ...[3, 4, 5, 6].map((version) => ({
         ...publication,
-        schema: "zotero-agents.assistant-workspace-publication.v5",
-      },
+        schema: `zotero-agents.assistant-workspace-publication.v${version}`,
+      })),
       { ...publication, tab: "acp-skills" },
       { ...publication, publicationKind: "baseline-status" },
       { ...publication, payload: { ...ownerControl(), selectedRun: {} } },
@@ -121,10 +147,6 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
   });
 
   it("defines exact semantic presentation and action registries", function () {
-    assert.sameMembers(
-      Object.keys(ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY),
-      ["context", "connection", "recovery", "workspace", "session"],
-    );
     assert.includeMembers(
       Object.keys(ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY),
       [
@@ -155,9 +177,17 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
         payloadKeys: ["groupId"],
       },
     );
+    assert.deepInclude(
+      ASSISTANT_WORKSPACE_ACTION_REGISTRY["request-owner-details"],
+      {
+        scope: "selected-owner",
+        sources: ["acp-chat", "acp-skills"],
+        payloadKeys: [],
+      },
+    );
   });
 
-  it("accepts only the exact v6 owner presentation payload", function () {
+  it("accepts only the exact v1 owner presentation payload", function () {
     const owner = assistantWorkspaceTestOwner("acp-skills");
     const presentation = {
       title: "Task",
@@ -166,12 +196,6 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
       notice: { tone: "warning" as const, text: "Needs input" },
       metadata: [{ fieldId: "workflow" as const, value: "Literature" }],
       usage: { used: 4, limit: 10, costText: null },
-      sections: [
-        {
-          sectionId: "workspace" as const,
-          items: [{ fieldId: "workspace" as const, value: "/tmp/run" }],
-        },
-      ],
     };
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublication(
@@ -189,8 +213,97 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
           kind: "owner-presentation",
           payload: {
             ...presentation,
-            banner: {},
+            sections: [],
           } as never,
+        }),
+      ),
+    );
+  });
+
+  it("accepts structured permission and rejects legacy source or raw detail", function () {
+    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const request = {
+      requestId: "permission-1",
+      approvalKind: "zotero-write" as const,
+      title: "Write Zotero item",
+      summary: "Update one item",
+      tool: {
+        title: "Update item",
+        callId: "call-1",
+      },
+      review: {
+        requestedAt: "2026-07-17T00:00:00.000Z",
+        command: null,
+        preview: "title: Revised",
+      },
+      options: [{ optionId: "allow", label: "Allow", description: null }],
+    };
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner,
+          kind: "permission",
+          payload: { request },
+        }),
+      ),
+    );
+    for (const legacy of [
+      { ...request, source: "zotero-write" },
+      { ...request, detail: { arbitrary: true } },
+      {
+        ...request,
+        review: { ...request.review, sourceLabel: "Zotero" },
+      },
+    ]) {
+      assert.throws(() =>
+        assertAssistantWorkspacePublication(
+          assistantWorkspaceTestPublication({
+            owner,
+            kind: "permission",
+            payload: { request: legacy } as never,
+          }),
+        ),
+      );
+    }
+  });
+
+  it("accepts only bounded owner details sections and actions", function () {
+    const owner = assistantWorkspaceTestOwner("acp-skills");
+    const details = {
+      status: "ready" as const,
+      title: "Task",
+      subtitle: "request-1",
+      sections: [
+        {
+          sectionId: "run-paths" as const,
+          collapsed: false,
+          items: [
+            {
+              fieldId: "workspace" as const,
+              value: "/tmp/run",
+              format: "path" as const,
+            },
+          ],
+        },
+      ],
+      actions: ["copy-id" as const, "open-workspace" as const],
+      error: null,
+    };
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner,
+          kind: "owner-details",
+          payload: details,
+        }),
+      ),
+    );
+    assert.throws(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner,
+          kind: "owner-details",
+          payload: { ...details, transcript: [] } as never,
         }),
       ),
     );
@@ -261,7 +374,7 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
     let reads = 0;
     const adapter = defineAssistantWorkspacePublicationAdapter({
       source: "acp-skills" as const,
-      supportedKinds: expectedKinds.filter((kind) => kind !== "plan"),
+      supportedKinds: expectedKinds,
       selectedOwner: () => activeOwner,
       mapChange: () => ({
         owner: changedOwner,
@@ -341,18 +454,30 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
           kinds.map((kind) => [
             kind,
             kind === "owner-control"
-              ? { ...ownerControl(), message: changed ? "changed" : null }
-              : {
-                  reply: {
-                    status: "enabled",
-                    hint: changed ? "changed" : null,
+              ? {
+                  ...ownerControl(),
+                  hint: {
+                    kind: "running",
+                    message: changed ? "changed" : null,
                   },
+                }
+              : {
+                  reply: { status: "enabled" },
                   runtimeOptions: {
-                    mode: { selectedOptionId: null, options: [] },
-                    model: { selectedOptionId: null, options: [] },
+                    mode: {
+                      selectedOptionId: null,
+                      options: [],
+                      enabled: changed,
+                    },
+                    model: {
+                      selectedOptionId: null,
+                      options: [],
+                      enabled: false,
+                    },
                     reasoningEffort: {
                       selectedOptionId: null,
                       options: [],
+                      enabled: false,
                     },
                   },
                 },
@@ -430,10 +555,7 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
         materializationSource: string;
       }> = [];
       let batchReads = 0;
-      const supportedKinds =
-        source === "acp-chat"
-          ? expectedKinds
-          : expectedKinds.filter((kind) => kind !== "plan");
+      const supportedKinds = expectedKinds;
       const adapter = defineAssistantWorkspacePublicationAdapter({
         source,
         supportedKinds,
@@ -459,25 +581,43 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
                       ? { request: null }
                       : kind === "composer"
                         ? {
-                            reply: { status: "disabled", hint: null },
+                            reply: { status: "disabled" },
                             runtimeOptions: {
-                              mode: { selectedOptionId: null, options: [] },
-                              model: { selectedOptionId: null, options: [] },
+                              mode: {
+                                selectedOptionId: null,
+                                options: [],
+                                enabled: false,
+                              },
+                              model: {
+                                selectedOptionId: null,
+                                options: [],
+                                enabled: false,
+                              },
                               reasoningEffort: {
                                 selectedOptionId: null,
                                 options: [],
+                                enabled: false,
                               },
                             },
                           }
-                        : {
-                            title: "Owner",
-                            subtitle: null,
-                            description: null,
-                            notice: null,
-                            metadata: [],
-                            usage: null,
-                            sections: [],
-                          },
+                        : kind === "owner-details"
+                          ? {
+                              status: "ready",
+                              title: "Owner",
+                              subtitle: null,
+                              sections: [],
+                              actions: [],
+                              error: null,
+                            }
+                          : {
+                              title: "Owner",
+                              subtitle: null,
+                              description: null,
+                              notice: null,
+                              metadata: [],
+                              usage: null,
+                              sections: [],
+                            },
             ]),
           );
         },
@@ -540,7 +680,8 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
           (kind) =>
             kind !== "owner-navigation" &&
             kind !== "service-status" &&
-            kind !== "transcript",
+            kind !== "transcript" &&
+            kind !== "owner-details",
         ),
       );
       assert.deepEqual(
@@ -561,6 +702,72 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
       );
     });
   }
+
+  it("drops lazy owner details that arrive after an owner switch", async function () {
+    const ownerA = assistantWorkspaceTestOwner("acp-skills");
+    const ownerB = { ...ownerA, ownerKey: "request-2", requestId: "request-2" };
+    let selectedOwner = ownerA;
+    let resolveDetails: ((value: Record<string, unknown>) => void) | undefined;
+    const detailsRead = new Promise<Record<string, unknown>>((resolve) => {
+      resolveDetails = resolve;
+    });
+    const posts: AssistantWorkspacePublication[] = [];
+    const dropped: string[] = [];
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "acp-skills" as const,
+      supportedKinds: expectedKinds,
+      selectedOwner: () => selectedOwner,
+      mapChange: () => ({
+        owner: selectedOwner,
+        targetsActiveOwner: true,
+        publicationKinds: [],
+      }),
+      readOwnerNavigation: async () => navigation(selectedOwner),
+      readOwnerRegions: async () => detailsRead as never,
+      readTranscriptPage: async () =>
+        createReadyTranscriptRegion(
+          selectedOwner,
+          assistantWorkspaceTestPage(selectedOwner),
+          0,
+        ),
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "details-owner-guard",
+      getActiveOwner: () => selectedOwner,
+      post: (publication) => {
+        posts.push(publication);
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+      hooks: {
+        onDropped(entry) {
+          dropped.push(entry.reason);
+        },
+      },
+    });
+    const request = runtime.requestOwnerDetails({
+      adapter,
+      owner: ownerA,
+      context: {},
+    });
+    selectedOwner = ownerB;
+    resolveDetails?.({
+      "owner-details": {
+        status: "ready",
+        title: "Old owner",
+        subtitle: null,
+        sections: [],
+        actions: [],
+        error: null,
+      },
+    });
+    assert.isUndefined(await request);
+    assert.isEmpty(posts);
+    assert.deepEqual(dropped, ["owner-mismatch"]);
+  });
 
   it("atomically invalidates every old-owner selection region", async function () {
     const vm = await import("vm");
@@ -599,6 +806,14 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
         permission: { request: null },
         composer: null,
         presentation: { title: "old" },
+        details: {
+          status: "ready",
+          title: "old",
+          subtitle: null,
+          sections: [],
+          actions: [],
+          error: null,
+        },
       },
     };
     const result = receiver.apply(
@@ -616,6 +831,7 @@ describe("Assistant Workspace ACP publication data plane v6", function () {
     assert.equal(result.snapshot.selection.phase, "loading");
     assert.isNull(result.snapshot.selection.control);
     assert.isNull(result.snapshot.selection.presentation);
+    assert.isNull(result.snapshot.selection.details);
     assert.equal(result.snapshot.selection.transcript.status, "loading");
     assert.equal(
       result.snapshot.selection.transcript.owner.ownerKey,

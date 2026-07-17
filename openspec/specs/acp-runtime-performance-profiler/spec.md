@@ -151,9 +151,9 @@ Corrected pre-governance and post-governance evidence SHALL use the same live tr
 - **THEN** their trace digest, live display mode, cadence, target, and relevant provenance SHALL match
 - **AND** the report SHALL distinguish deterministic mechanism evidence from real-host timing evidence.
 
-### Requirement: Profiler vocabulary matches v6 publication semantics
+### Requirement: Profiler vocabulary matches v1 publication semantics
 
-Publication lifecycle events SHALL use bounded labels derived from the v6 owner
+Publication lifecycle events SHALL use bounded labels derived from the v1 owner
 source, publication kind, wire form, and exact cause. Materialization events
 SHALL add a materialization source only at the actual read-model or transcript
 page builder entry. Profiler SHALL NOT infer wire form or materialization source

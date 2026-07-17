@@ -92,6 +92,7 @@ export type AcpRuntimeMetricLabels = Partial<{
   changeKind:
     | "run"
     | "transcript"
+    | "plan"
     | "progress"
     | "runtime-options"
     | "archive"
@@ -126,7 +127,8 @@ export type AcpRuntimeMetricLabels = Partial<{
     | "plan"
     | "permission"
     | "composer"
-    | "owner-presentation";
+    | "owner-presentation"
+    | "owner-details";
   publicationCausality:
     | "matching-target"
     | "opposite-active"

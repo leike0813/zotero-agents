@@ -98,14 +98,33 @@ The internal publication protocol is current-state only. Host, Shell, both ACP
 children, profiler, and Replay migrate together; old field aliases, decoders,
 and dual writes are prohibited.
 
-The wire schema is strict v6. `ASSISTANT_WORKSPACE_REGION_REGISTRY` owns region
+The wire schema is strict v1. `ASSISTANT_WORKSPACE_REGION_REGISTRY` owns region
 shape and source support,
 `ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY` /
-`ASSISTANT_WORKSPACE_PRESENTATION_SECTION_REGISTRY` own semantic presentation,
+`ASSISTANT_WORKSPACE_DETAILS_SECTION_REGISTRY` own semantic presentation and
+lazy details,
 and `ASSISTANT_WORKSPACE_ACTION_REGISTRY` owns action scope and exact payload
 keys. Presentation usage is numeric gauge data; service LEDs come only from
-`service-status`; workspace, recovery, connection, and session metadata remain
-semantic detail sections rather than generic indicators.
+`service-status`; workspace, recovery, connection, and session metadata use
+semantic presentation or lazy detail fields rather than generic indicators.
+
+Connection presentation distinguishes a live transport from a restorable
+remote identity. A persisted Chat remote-session id or Skills run session id
+keeps the owner and reconnect action available, but it does not make the
+connection LED green, enable Disconnect, or enable runtime selectors. Connect,
+Disconnect, Authenticate, Chat auto-approval, and Skills Cancel remain resident
+in their source-specific banner; capability is expressed by disabled state.
+Service and connection LEDs render their localized label and tone without
+appending raw runtime values such as `idle`, `running`, or `waiting_user`.
+
+`owner-control.hint` is the semantic source for the managed interaction hint.
+It carries a bounded kind plus optional user-facing detail; raw workflow or
+backend status strings do not cross into the visible hint. The composer reply
+region owns enablement only and does not duplicate hint text in its footer.
+Owner presentation contains only stable banner metadata: Chat backend,
+workspace, and a real live session title/id when present; Skills backend and
+workspace. Runtime option groups carry their own enabled state, and a disabled
+Chat reasoning selector renders the localized Default option.
 
 ## Adapter Contract
 

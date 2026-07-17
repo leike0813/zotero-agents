@@ -493,20 +493,6 @@
     };
   }
 
-  function metadataItem(label, value, key) {
-    const text = safeText(value);
-    if (!text) return null;
-    return {
-      key: key || safeText(label).toLowerCase(),
-      label: label,
-      value: text,
-    };
-  }
-
-  function compactMetadata(items) {
-    return items.filter(Boolean);
-  }
-
   function panelLabelRoot(source) {
     const labels =
       source && source.labels && typeof source.labels === "object"
@@ -1595,11 +1581,20 @@
 
   function projectSkillRunnerPanelSnapshot(snapshot) {
     const envelope = snapshot && typeof snapshot === "object" ? snapshot : {};
-    const session =
-      envelope.session && typeof envelope.session === "object"
+    const hasSessionField = Object.prototype.hasOwnProperty.call(
+      envelope,
+      "session",
+    );
+    const selectedSession = hasSessionField
+      ? envelope.session && typeof envelope.session === "object"
         ? envelope.session
-        : envelope;
-    const status = normalizeStatusToken(session.status || "idle");
+        : null
+      : envelope;
+    const hasSelection = selectedSession !== null;
+    const session = selectedSession || {};
+    const status = hasSelection
+      ? normalizeStatusToken(session.status || "idle")
+      : "unavailable";
     const conversation = buildSkillRunnerConversationView(session, envelope);
     let interaction = buildSkillRunnerPendingInteraction(
       session,
@@ -1664,6 +1659,7 @@
                 requestId: safeText(session.requestId || session.id),
                 permissionRequestId: safeText(pendingPermission.requestId),
                 outcome: "cancelled",
+                optionId: "",
               },
               true,
               "danger",
@@ -1671,7 +1667,9 @@
           ]),
       };
     }
-    const selectedTask = findSkillRunnerPanelTask(envelope);
+    const selectedTask = hasSelection
+      ? findSkillRunnerPanelTask(envelope)
+      : null;
     const requestAssigned =
       selectedTask && typeof selectedTask.requestAssigned === "boolean"
         ? selectedTask.requestAssigned
@@ -1738,21 +1736,53 @@
       session,
       envelope,
     );
-    const controlIndicator = buildSkillRunnerControlIndicator(
-      Object.assign({}, session, selectedTask || {}, {
-        status,
-        requestAssigned,
-        backendInteractive,
-        canReply,
-        pendingPermission,
-      }),
-      envelope,
-      status,
-    );
-    const autoReplyIndicator = buildSkillRunnerAutoReplyIndicator(
-      Object.assign({}, session, selectedTask || {}),
-      envelope,
-    );
+    const controlIndicator = hasSelection
+      ? buildSkillRunnerControlIndicator(
+          Object.assign({}, session, selectedTask || {}, {
+            status,
+            requestAssigned,
+            backendInteractive,
+            canReply,
+            pendingPermission,
+          }),
+          envelope,
+          status,
+        )
+      : indicator(
+          "skillrunner-control",
+          labelFrom(envelope, "fields.control", "Interaction"),
+          labelFrom(envelope, "status.controlUnavailable", "Unavailable"),
+          "muted",
+          labelFrom(envelope, "status.controlUnavailable", "Unavailable"),
+        );
+    const autoReplyIndicator = hasSelection
+      ? buildSkillRunnerAutoReplyIndicator(
+          Object.assign({}, session, selectedTask || {}),
+          envelope,
+        )
+      : null;
+    const skillRunnerMetadata = [
+      {
+        key: "backend",
+        label: labelFrom(envelope, "fields.backend", "Backend"),
+        value: safeText(session.backendTitle),
+      },
+      {
+        key: "engine",
+        label: labelFrom(envelope, "fields.engine", "Engine"),
+        value: safeText(session.engine),
+      },
+      {
+        key: "model",
+        label: labelFrom(envelope, "fields.model", "Model"),
+        value: safeText(session.model),
+      },
+      {
+        key: "updatedAt",
+        label: labelFrom(envelope, "fields.updated", "Updated"),
+        value: safeText(session.updatedAt),
+      },
+    ];
     return normalizeAssistantPanelSnapshot({
       kind: "skillrunner",
       labels:
@@ -1763,33 +1793,18 @@
         id: safeText(session.requestId || session.id),
         title:
           safeText(session.title || envelope.title) || "SkillRunner Workspace",
-        subtitle: skillRunnerSecondaryLabel || safeText(session.requestId),
+        subtitle: hasSelection
+          ? skillRunnerSecondaryLabel || safeText(session.requestId)
+          : labelFrom(envelope, "emptyState.noTask", "No task"),
         status,
         statusLabel: statusLabel(envelope, status),
         backendId: safeText(session.backendId),
         backendLabel: safeText(session.backendTitle),
-        metadata: compactMetadata([
-          metadataItem(
-            labelFrom(envelope, "fields.backend", "Backend"),
-            session.backendTitle,
-            "backend",
-          ),
-          metadataItem(
-            labelFrom(envelope, "fields.engine", "Engine"),
-            session.engine,
-            "engine",
-          ),
-          metadataItem(
-            labelFrom(envelope, "fields.model", "Model"),
-            session.model,
-            "model",
-          ),
-          metadataItem(
-            labelFrom(envelope, "fields.updated", "Updated"),
-            session.updatedAt,
-            "updatedAt",
-          ),
-        ]),
+        metadata: hasSelection
+          ? skillRunnerMetadata.filter(function (entry) {
+              return Boolean(entry.value);
+            })
+          : skillRunnerMetadata,
         indicators: [controlIndicator, autoReplyIndicator].filter(Boolean),
         actions: [
           contextAction(
@@ -1872,10 +1887,12 @@
           {
             action: "open-context-drawer",
             label: labelFrom(envelope, "actions.runs", "Runs"),
+            enabled: true,
           },
           {
             action: "openDetails",
             label: labelFrom(envelope, "actions.details", "Details"),
+            enabled: hasSelection,
           },
           {
             action: "open-backend-manager",
@@ -1884,8 +1901,11 @@
               "actions.manageBackends",
               "Manage Backends",
             ),
+            enabled: true,
           },
-          buildExecutionDisplayModeAction(envelope),
+          Object.assign(buildExecutionDisplayModeAction(envelope), {
+            enabled: true,
+          }),
         ],
         context: [],
         details: [
@@ -1910,24 +1930,35 @@
     });
   }
 
-  function exactWorkspaceOptionGroup(group, id, label, action, payloadKey) {
+  function exactWorkspaceOptionGroup(
+    group,
+    id,
+    label,
+    action,
+    payloadKey,
+    emptyOption,
+  ) {
     const source = group && typeof group === "object" ? group : {};
+    const options = (Array.isArray(source.options) ? source.options : []).map(
+      function (option) {
+        return {
+          value: safeText(option && option.optionId),
+          label: safeText(option && option.label),
+          description: safeText(option && option.description),
+        };
+      },
+    );
+    if (options.length === 0 && emptyOption) options.push(emptyOption);
     return {
       id,
       label,
-      value: safeText(source.selectedOptionId),
-      options: (Array.isArray(source.options) ? source.options : []).map(
-        function (option) {
-          return {
-            value: safeText(option && option.optionId),
-            label: safeText(option && option.label),
-            description: safeText(option && option.description),
-          };
-        },
-      ),
+      value:
+        safeText(source.selectedOptionId) ||
+        safeText(emptyOption && emptyOption.value),
+      options,
       action,
       payloadKey,
-      disabled: !Array.isArray(source.options) || source.options.length === 0,
+      disabled: source.enabled !== true,
     };
   }
 
@@ -1949,12 +1980,65 @@
     "agent-version": ["fields.agentVersion", "Agent version"],
   };
 
-  const workspacePresentationSectionLabels = {
-    context: ["details.conversationSummary", "Context"],
-    connection: ["fields.connection", "Connection"],
-    recovery: ["fields.remoteRestore", "Recovery"],
-    workspace: ["details.paths", "Workspace"],
+  const workspaceDetailsSectionLabels = {
     session: ["details.session", "Session"],
+    paths: ["details.paths", "Paths"],
+    diagnostics: ["details.diagnostics", "Diagnostics"],
+    "run-paths": ["details.runPaths", "Run paths"],
+    runner: ["details.runner", "Runner"],
+    validation: ["details.validation", "Validation"],
+    "runtime-dependencies": [
+      "details.runtimeDependencies",
+      "Runtime dependencies",
+    ],
+    "output-revisions": ["details.outputRevisions", "Output revisions"],
+    "runtime-logs": ["details.runtimeLogs", "Runtime logs"],
+    "result-json": ["details.resultJson", "Result JSON"],
+  };
+
+  const workspaceDetailsFieldLabels = {
+    target: ["fields.target", "Target"],
+    agent: ["fields.agent", "Agent"],
+    "agent-version": ["fields.agentVersion", "Agent version"],
+    session: ["fields.session", "Session"],
+    "remote-session": ["fields.remoteSession", "Remote session"],
+    "remote-restore": ["fields.remoteRestore", "Remote restore"],
+    "stop-reason": ["fields.stopReason", "Stop reason"],
+    workspace: ["fields.workspace", "Workspace"],
+    "host-context": ["fields.hostContext", "Host context"],
+    diagnostics: ["details.recentDiagnostics", "Recent diagnostics"],
+    command: ["fields.command", "Command"],
+    stderr: ["fields.stderr", "stderr"],
+    "last-error": ["fields.lastError", "Last error"],
+    "prerequisite-error": ["fields.prerequisiteError", "Prerequisite error"],
+    runtime: ["fields.runtime", "Runtime"],
+    "input-manifest": ["fields.inputManifest", "Input manifest"],
+    "result-artifact": ["fields.resultArtifact", "Result artifact"],
+    backend: ["fields.backend", "Backend"],
+    "agent-family": ["fields.agentFamily", "Agent family"],
+    mode: ["fields.mode", "Mode"],
+    model: ["fields.model", "Model"],
+    reasoning: ["fields.reasoning", "Reasoning"],
+    "raw-model": ["fields.rawModel", "Raw model"],
+    skill: ["fields.skill", "Skill"],
+    "skill-roots": ["fields.skillRoots", "Skill roots"],
+    "validation-status": ["fields.validationStatus", "Validation status"],
+    "repair-rounds": ["fields.repairRounds", "Repair rounds"],
+    "validation-errors": ["fields.validationErrors", "Validation errors"],
+    "run-error": ["fields.runError", "Run error"],
+    "conversation-error": ["fields.conversationError", "Conversation error"],
+    "conversation-state": ["fields.conversationState", "Conversation state"],
+    "apply-result": ["fields.applyResult", "Apply result"],
+    "applied-at": ["fields.appliedAt", "Applied at"],
+    "dependency-status": ["fields.dependencyStatus", "Status"],
+    dependencies: ["fields.dependencies", "Dependencies"],
+    "dependency-error": ["fields.dependencyError", "Error"],
+    "revision-count": ["fields.revisionCount", "Revisions"],
+    "repair-round": ["fields.repairRound", "Repair round"],
+    "replacement-reason": ["fields.replacementReason", "Replacement reason"],
+    "candidate-preview": ["fields.candidatePreview", "Candidate preview"],
+    logs: ["fields.logs", "Logs"],
+    "result-json": ["details.resultJson", "Result JSON"],
   };
 
   function exactWorkspaceField(entry, labelSource) {
@@ -1976,8 +2060,8 @@
     const serviceLabel =
       serviceId === "host-bridge"
         ? labelFrom(labelSource, "fields.hostBridge", "Host Bridge")
-        : serviceId === "zotero-mcp"
-          ? labelFrom(labelSource, "fields.mcp", "Zotero MCP")
+        : serviceId === "acp-connection"
+          ? labelFrom(labelSource, "fields.connection", "Connection")
           : safeText(source.label || serviceId);
     return {
       id: serviceId,
@@ -1995,22 +2079,26 @@
             : status === "starting" || status === "recovering"
               ? "warning"
               : "muted",
-      valueVisible: true,
+      valueVisible: false,
     };
   }
 
   function exactWorkspaceDetails(section, labelSource) {
     const sectionId = safeText(section && section.sectionId);
-    const definition = workspacePresentationSectionLabels[sectionId];
+    const definition = workspaceDetailsSectionLabels[sectionId];
     const rows = (section && Array.isArray(section.items) ? section.items : [])
       .filter(function (entry) {
         return safeText(entry && entry.value);
       })
       .map(function (entry) {
+        const fieldId = safeText(entry && entry.fieldId);
+        const fieldDefinition = workspaceDetailsFieldLabels[fieldId];
         return {
-          label: exactWorkspaceField(entry, labelSource).label,
+          label: fieldDefinition
+            ? labelFrom(labelSource, fieldDefinition[0], fieldDefinition[1])
+            : fieldId,
           value: safeText(entry.value),
-          kind: "text",
+          kind: safeText(entry.format) || "text",
         };
       });
     return rows.length
@@ -2019,6 +2107,7 @@
             ? labelFrom(labelSource, definition[0], definition[1])
             : sectionId,
           entries: rows,
+          collapsed: section && section.collapsed === true,
         }
       : null;
   }
@@ -2070,6 +2159,11 @@
         : null;
     const key = safeText(owner && owner.ownerKey);
     const status = safeText(entry && entry.status) || "idle";
+    const terminal = isTerminalStatus(status);
+    const archiveEligible =
+      owner && owner.source === "acp-chat"
+        ? status === "idle" || status === "disconnected"
+        : terminal;
     return {
       key,
       action:
@@ -2105,7 +2199,7 @@
         entry && (entry.groupLabel || entry.groupId),
       ),
       selectable: Boolean(key),
-      terminal: isTerminalStatus(status),
+      terminal,
       active: Boolean(
         selectedOwner && key === safeText(selectedOwner.ownerKey),
       ),
@@ -2113,20 +2207,21 @@
         ? "warning"
         : "",
       attentionLabel: safeText(entry && (entry.attention || entry.description)),
-      itemActions: key
-        ? [
-            {
-              action:
-                owner && owner.source === "acp-chat"
-                  ? "archive-conversation"
-                  : "archive-run",
-              label: labelFrom(labelSource, "actions.archive", "Archive"),
-              icon: "archive",
-              enabled: true,
-              payload: { owner },
-            },
-          ]
-        : [],
+      itemActions:
+        key && archiveEligible
+          ? [
+              {
+                action:
+                  owner && owner.source === "acp-chat"
+                    ? "archive-conversation"
+                    : "archive-run",
+                label: labelFrom(labelSource, "actions.archive", "Archive"),
+                icon: "archive",
+                enabled: true,
+                payload: { owner },
+              },
+            ]
+          : [],
     };
   }
 
@@ -2198,6 +2293,105 @@
     ];
   }
 
+  function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
+    const chat = source.source === "acp-chat";
+    const disabledAction = function (action, label, extra) {
+      return Object.assign(
+        {
+          action,
+          label,
+          enabled: false,
+          payload: {},
+        },
+        extra || {},
+      );
+    };
+    const actions = chat
+      ? [
+          disabledAction(
+            "new-conversation",
+            safeText(sourceLabels.newConversation) ||
+              labelFrom(labelSource, "actions.newConversation", "New"),
+            { payload: { groupId: "" } },
+          ),
+          disabledAction(
+            "connect",
+            labelFrom(labelSource, "actions.connect", "Connect"),
+          ),
+          disabledAction(
+            "disconnect",
+            labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+          ),
+          disabledAction(
+            "authenticate",
+            labelFrom(labelSource, "actions.authenticate", "Authenticate"),
+            { payload: { methodId: "" } },
+          ),
+          disabledAction(
+            "set-auto-approve-permissions",
+            labelFrom(
+              labelSource,
+              "actions.autoApproveAcpPermissions",
+              "Auto-approve",
+            ),
+            {
+              kind: "switch",
+              baseLabel: labelFrom(
+                labelSource,
+                "actions.autoApproveAcpPermissions",
+                "Auto-approve",
+              ),
+              stateLabel: labelFrom(
+                labelSource,
+                "actions.autoApproveAcpPermissionsOff",
+                "Auto-approve off",
+              ),
+              checked: false,
+              payload: { enabled: false },
+            },
+          ),
+        ]
+      : [
+          disabledAction(
+            "connect-run",
+            labelFrom(labelSource, "actions.connect", "Connect"),
+          ),
+          disabledAction(
+            "disconnect-run",
+            labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+          ),
+          disabledAction(
+            "cancel-run",
+            labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
+            { tone: "danger" },
+          ),
+        ];
+    return {
+      subtitle: labelFrom(
+        labelSource,
+        chat ? "emptyState.noConversation" : "emptyState.noTask",
+        chat ? "No conversation" : "No task",
+      ),
+      status: "unavailable",
+      metadata: (chat
+        ? ["backend", "conversation", "workspace"]
+        : ["backend", "workspace"]
+      ).map(function (fieldId) {
+        return exactWorkspaceField({ fieldId, value: "" }, labelSource);
+      }),
+      connectionIndicator: exactWorkspaceIndicator(
+        {
+          serviceId: "acp-connection",
+          status: "unavailable",
+          available: false,
+          message: labelFrom(labelSource, "status.unavailable", "Unavailable"),
+        },
+        labelSource,
+      ),
+      actions,
+    };
+  }
+
   function projectAssistantWorkspacePanel(state, uiState, labels) {
     const source = state && typeof state === "object" ? state : {};
     const local = uiState && typeof uiState === "object" ? uiState : {};
@@ -2226,13 +2420,16 @@
       selection.owner && selection.owner.source === source.source
         ? selection.owner
         : null;
+    const emptyChrome = owner
+      ? null
+      : exactWorkspaceEmptyChrome(source, sourceLabels, labelSource);
     const control =
       selection.control && typeof selection.control === "object"
         ? selection.control
         : {
             status: "idle",
             busy: false,
-            message: null,
+            hint: { kind: "hidden", message: null },
             connection: {
               status: "idle",
               sessionAvailable: false,
@@ -2241,6 +2438,15 @@
               canDisconnect: false,
             },
             execution: { canCancel: false, canInterrupt: false },
+            authentication: {
+              required: false,
+              canAuthenticate: false,
+              methodId: null,
+            },
+            permissionPolicy: {
+              autoApprove: false,
+              canSetAutoApprove: false,
+            },
           };
     const presentation =
       selection.presentation && typeof selection.presentation === "object"
@@ -2254,13 +2460,12 @@
             notice: null,
             metadata: [],
             usage: null,
-            sections: [],
           };
     const composer =
       selection.composer && typeof selection.composer === "object"
         ? selection.composer
         : {
-            reply: { status: "disabled", hint: null },
+            reply: { status: "disabled" },
             runtimeOptions: {},
           };
     const permission =
@@ -2275,6 +2480,21 @@
     const indicators = services.map(function (entry) {
       return exactWorkspaceIndicator(entry, labelSource);
     });
+    if (owner && control.connection) {
+      indicators.unshift(
+        exactWorkspaceIndicator(
+          {
+            serviceId: "acp-connection",
+            status: control.connection.status,
+            available: control.connection.connected === true,
+            message: control.hint && control.hint.message,
+          },
+          labelSource,
+        ),
+      );
+    } else if (emptyChrome) {
+      indicators.unshift(emptyChrome.connectionIndicator);
+    }
     const selectedGroupId =
       safeText(navigation.selectedGroupId) ||
       safeText(owner && owner.backendId) ||
@@ -2298,7 +2518,7 @@
         owner: targetEntry ? targetEntry.owner : null,
       };
     });
-    const ownerOptions = (
+    let ownerOptions = (
       Array.isArray(navigation.entries) ? navigation.entries : []
     )
       .filter(function (entry) {
@@ -2314,115 +2534,293 @@
           owner: entry.owner,
         };
       });
+    if (source.source === "acp-chat" && ownerOptions.length > 8) {
+      const selectedOwnerKey = safeText(owner && owner.ownerKey);
+      const bounded = ownerOptions.slice(0, 8);
+      const selected = ownerOptions.find(function (entry) {
+        return entry.value === selectedOwnerKey;
+      });
+      if (
+        selected &&
+        !bounded.some(function (entry) {
+          return entry.value === selectedOwnerKey;
+        })
+      ) {
+        bounded.push(selected);
+      }
+      bounded.push({
+        value: "__show-more__",
+        label: labelFrom(labelSource, "actions.showMore", "Show more…"),
+        owner: null,
+        sentinel: "show-more",
+      });
+      ownerOptions = bounded;
+    }
     const selectors =
-      source.source === "acp-chat"
+      source.source === "acp-chat" && !owner
         ? [
             {
               id: "backend",
               label: labelFrom(labelSource, "fields.backend", "Backend"),
-              value: selectedGroupId,
-              options: groupOptions,
+              value: "",
+              options: [],
               action: "set-active-backend",
-              disabled: groupOptions.length === 0,
+              disabled: true,
             },
             {
               id: "owner",
               label: labelFrom(labelSource, "fields.session", "Session"),
-              value: safeText(owner && owner.ownerKey),
-              options: ownerOptions,
+              value: "",
+              options: [],
               action: "set-active-conversation",
-              disabled: ownerOptions.length === 0,
+              disabled: true,
             },
           ]
-        : [];
+        : source.source === "acp-chat"
+          ? [
+              {
+                id: "backend",
+                label: labelFrom(labelSource, "fields.backend", "Backend"),
+                value: selectedGroupId,
+                options: groupOptions,
+                action: "set-active-backend",
+                disabled: groupOptions.length === 0,
+              },
+              {
+                id: "owner",
+                label: labelFrom(labelSource, "fields.session", "Session"),
+                value: safeText(owner && owner.ownerKey),
+                options: ownerOptions,
+                action: "set-active-conversation",
+                disabled: ownerOptions.length === 0,
+              },
+            ]
+          : [];
     const contextActions = [];
-    if (source.source === "acp-chat" && navigation.canCreateOwner === true) {
+    if (emptyChrome) {
+      contextActions.push.apply(contextActions, emptyChrome.actions);
+    } else if (
+      source.source === "acp-chat" &&
+      navigation.canCreateOwner === true
+    ) {
+      const changingConnection =
+        control.connection &&
+        ["connecting", "disconnecting"].includes(
+          safeText(control.connection.status),
+        );
       contextActions.push({
         action: "new-conversation",
         label:
           safeText(sourceLabels.newConversation) ||
           labelFrom(labelSource, "actions.newConversation", "New"),
-        enabled: true,
+        enabled: !changingConnection,
         payload: { groupId: selectedGroupId },
       });
     }
     if (owner && control.connection) {
-      if (control.connection.canConnect === true) {
-        contextActions.push({
-          action: source.source === "acp-chat" ? "connect" : "connect-run",
-          label: labelFrom(labelSource, "actions.connect", "Connect"),
-          enabled: true,
-          payload: {},
-        });
-      }
-      if (control.connection.canDisconnect === true) {
-        contextActions.push({
-          action:
-            source.source === "acp-chat" ? "disconnect" : "disconnect-run",
-          label: labelFrom(labelSource, "actions.disconnect", "Disconnect"),
-          enabled: true,
-          payload: {},
-        });
-      }
+      const connectionStatus = safeText(control.connection.status);
+      contextActions.push({
+        action: source.source === "acp-chat" ? "connect" : "connect-run",
+        label:
+          connectionStatus === "connecting"
+            ? labelFrom(labelSource, "actions.connecting", "Connecting...")
+            : labelFrom(labelSource, "actions.connect", "Connect"),
+        enabled: control.connection.canConnect === true,
+        payload: {},
+      });
+      contextActions.push({
+        action: source.source === "acp-chat" ? "disconnect" : "disconnect-run",
+        label:
+          connectionStatus === "disconnecting"
+            ? labelFrom(
+                labelSource,
+                "actions.disconnecting",
+                "Disconnecting...",
+              )
+            : labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+        enabled: control.connection.canDisconnect === true,
+        payload: {},
+      });
+    }
+    if (source.source === "acp-chat" && owner && control.authentication) {
+      contextActions.push({
+        action: "authenticate",
+        label: labelFrom(labelSource, "actions.authenticate", "Authenticate"),
+        enabled:
+          control.authentication.canAuthenticate === true &&
+          Boolean(safeText(control.authentication.methodId)),
+        payload: { methodId: safeText(control.authentication.methodId) },
+      });
+    }
+    if (source.source === "acp-chat" && owner && control.permissionPolicy) {
+      const enabled = control.permissionPolicy.autoApprove === true;
+      contextActions.push({
+        kind: "switch",
+        action: "set-auto-approve-permissions",
+        label: labelFrom(
+          labelSource,
+          "actions.autoApproveAcpPermissions",
+          "Auto-approve",
+        ),
+        baseLabel: labelFrom(
+          labelSource,
+          "actions.autoApproveAcpPermissions",
+          "Auto-approve",
+        ),
+        stateLabel: enabled
+          ? labelFrom(
+              labelSource,
+              "actions.autoApproveAcpPermissionsOn",
+              "Auto-approve on",
+            )
+          : labelFrom(
+              labelSource,
+              "actions.autoApproveAcpPermissionsOff",
+              "Auto-approve off",
+            ),
+        checked: enabled,
+        enabled: control.permissionPolicy.canSetAutoApprove === true,
+        payload: { enabled: !enabled },
+      });
+    }
+    if (source.source === "acp-skills" && owner && control.execution) {
+      contextActions.push({
+        action: "cancel-run",
+        label: labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
+        enabled: control.execution.canCancel === true,
+        payload: {},
+        tone: "danger",
+      });
     }
     const plan = exactWorkspacePlan(selection.plan);
-    const interaction = request
-      ? {
+    const permissionActions = request
+      ? (Array.isArray(request.options) ? request.options : [])
+          .map(function (option) {
+            return {
+              action: "resolve-permission",
+              label: safeText(option.label),
+              payload: {
+                permissionRequestId: safeText(request.requestId),
+                outcome: "selected",
+                optionId: safeText(option.optionId),
+              },
+              enabled: true,
+            };
+          })
+          .concat([
+            {
+              action: "resolve-permission",
+              label: labelFrom(labelSource, "actions.cancel", "Cancel"),
+              payload: {
+                permissionRequestId: safeText(request.requestId),
+                outcome: "cancelled",
+                optionId: "",
+              },
+              enabled: true,
+              tone: "danger",
+            },
+          ])
+      : [];
+    const interaction = (function () {
+      if (request) {
+        return {
           kind: "permission",
           message: safeText(request.summary),
           permission: {
             requestId: safeText(request.requestId),
-            toolTitle: safeText(request.title),
+            approvalKind: safeText(request.approvalKind),
+            toolTitle:
+              safeText(request.tool && request.tool.title) ||
+              safeText(request.title),
+            toolCallId: safeText(request.tool && request.tool.callId),
             summary: safeText(request.summary),
-            actions: (Array.isArray(request.options)
-              ? request.options
-              : []
-            ).map(function (option) {
-              return {
-                action: "resolve-permission",
-                label: safeText(option.label),
-                payload: {
-                  permissionRequestId: safeText(request.requestId),
-                  outcome: "selected",
-                  optionId: safeText(option.optionId),
-                },
-                enabled: true,
-              };
-            }),
+            review: request.review,
+            actions: permissionActions,
           },
-          actions: (Array.isArray(request.options) ? request.options : []).map(
-            function (option) {
-              return {
-                action: "resolve-permission",
-                label: safeText(option.label),
-                payload: {
-                  permissionRequestId: safeText(request.requestId),
-                  outcome: "selected",
-                  optionId: safeText(option.optionId),
-                },
-                enabled: true,
-              };
-            },
-          ),
+          actions: permissionActions,
+        };
+      }
+      const hint =
+        control.hint && typeof control.hint === "object"
+          ? control.hint
+          : { kind: "hidden", message: null };
+      const kind = safeText(hint.kind) || "hidden";
+      let message = safeText(hint.message);
+      if (!message) {
+        if (kind === "auth") {
+          message = labelFrom(
+            labelSource,
+            "interaction.authenticationRequiredMessage",
+            "Authentication required.",
+          );
+        } else if (kind === "running") {
+          message = labelFrom(
+            labelSource,
+            "interaction.agentWorkingMessage",
+            "Agent is working...",
+          );
+        } else if (kind === "repairing") {
+          message = labelFrom(
+            labelSource,
+            "interaction.agentRepairingMessage",
+            "Agent is repairing output...",
+          );
+        } else if (kind === "waiting_user") {
+          message = labelFrom(
+            labelSource,
+            "interaction.waitingReply",
+            "Agent is waiting for your reply.",
+          );
+        } else if (kind === "completed") {
+          message = labelFrom(
+            labelSource,
+            "interaction.runResultReady",
+            "Run completed. Workflow result is ready.",
+          );
+        } else if (kind === "canceled") {
+          message = labelFrom(
+            labelSource,
+            "interaction.runCanceledContinue",
+            "Run canceled.",
+          );
+        } else if (kind === "disconnected") {
+          message = labelFrom(
+            labelSource,
+            "interaction.disconnectedRecoverable",
+            "Run is disconnected and recoverable. Connect to continue.",
+          );
+        } else if (kind === "error") {
+          message = labelFrom(
+            labelSource,
+            "interaction.backendUnavailable",
+            "Backend unavailable",
+          );
         }
-      : safeText(composer.reply && composer.reply.hint)
-        ? {
-            kind: control.busy === true ? "running" : "waiting",
-            message: safeText(composer.reply.hint),
-          }
-        : control.busy === true
-          ? { kind: "running", message: safeText(control.message) }
-          : { kind: "hidden" };
+      }
+      return kind === "hidden" || (kind === "notice" && !message)
+        ? { kind: "hidden" }
+        : { kind, message };
+    })();
     const runtimeOptions =
       composer.runtimeOptions && typeof composer.runtimeOptions === "object"
         ? composer.runtimeOptions
         : {};
     const replyStatus = safeText(composer.reply && composer.reply.status);
-    const replyBusy = replyStatus === "busy";
+    const replyCancelling = replyStatus === "cancelling";
+    const replyBusy = replyStatus === "busy" || replyCancelling;
     const replyEnabled =
-      Boolean(owner) && replyStatus !== "disabled" && !request;
+      Boolean(owner) &&
+      replyStatus !== "disabled" &&
+      !replyCancelling &&
+      !request;
+    const detailsState =
+      selection.details && typeof selection.details === "object"
+        ? selection.details
+        : null;
     const details = (
-      Array.isArray(presentation.sections) ? presentation.sections : []
+      detailsState && Array.isArray(detailsState.sections)
+        ? detailsState.sections
+        : []
     )
       .map(function (section) {
         return exactWorkspaceDetails(section, labelSource);
@@ -2444,16 +2842,30 @@
           : null,
       context: {
         id: safeText(owner && owner.ownerKey),
-        title: safeText(presentation.title),
-        subtitle: safeText(presentation.subtitle),
-        status: safeText(control.status),
-        statusLabel: statusLabel(labelSource, control.status),
-        statusTone: statusTone(control.status),
-        metadata: Array.isArray(presentation.metadata)
-          ? presentation.metadata.map(function (entry) {
-              return exactWorkspaceField(entry, labelSource);
-            })
-          : [],
+        title:
+          source.source === "acp-chat"
+            ? safeText(sourceLabels.title) || "ACP Chat"
+            : safeText(presentation.title),
+        subtitle: emptyChrome
+          ? emptyChrome.subtitle
+          : source.source === "acp-chat"
+            ? safeText(sourceLabels.subtitle)
+            : safeText(presentation.subtitle),
+        status: emptyChrome ? emptyChrome.status : safeText(control.status),
+        statusLabel: statusLabel(
+          labelSource,
+          emptyChrome ? emptyChrome.status : control.status,
+        ),
+        statusTone: statusTone(
+          emptyChrome ? emptyChrome.status : control.status,
+        ),
+        metadata: emptyChrome
+          ? emptyChrome.metadata
+          : Array.isArray(presentation.metadata)
+            ? presentation.metadata.map(function (entry) {
+                return exactWorkspaceField(entry, labelSource);
+              })
+            : [],
         indicators,
         selectors,
         actions: contextActions,
@@ -2463,12 +2875,15 @@
             : null,
       },
       lifecycle: {
-        connectionState:
-          control.connection && control.connection.connected === true
+        connectionState: emptyChrome
+          ? "unavailable"
+          : control.connection && control.connection.connected === true
             ? "connected"
             : safeText(control.connection && control.connection.status) ||
               "disconnected",
-        executionState: safeText(control.status),
+        executionState: emptyChrome
+          ? emptyChrome.status
+          : safeText(control.status),
         applyState: "",
         recoveryState: "",
         replyState: replyBusy ? "sending" : "idle",
@@ -2498,10 +2913,12 @@
                 "reply.placeholderAcpSkill",
                 "Reply to the selected run…",
               ),
-        hint: safeText(composer.reply && composer.reply.hint),
-        submitLabel: replyBusy
-          ? labelFrom(labelSource, "actions.cancel", "Cancel")
-          : labelFrom(labelSource, "actions.send", "Send"),
+        hint: "",
+        submitLabel: replyCancelling
+          ? labelFrom(labelSource, "actions.cancelling", "Cancelling...")
+          : replyBusy
+            ? labelFrom(labelSource, "actions.cancel", "Cancel")
+            : labelFrom(labelSource, "actions.send", "Send"),
         sending: replyBusy,
         action: replyBusy
           ? source.source === "acp-chat"
@@ -2532,6 +2949,13 @@
             labelFrom(labelSource, "fields.reasoning", "Reasoning"),
             "set-reasoning-effort",
             "effortId",
+            owner && source.source === "acp-chat"
+              ? {
+                  value: "default",
+                  label: labelFrom(labelSource, "options.default", "Default"),
+                  description: "",
+                }
+              : null,
           ),
         ],
         showUsageGauge: true,
@@ -2543,14 +2967,28 @@
           source.source === "acp-chat"
             ? labelFrom(labelSource, "actions.sessions", "Sessions")
             : labelFrom(labelSource, "actions.runs", "Runs"),
-        detailsTitle: labelFrom(labelSource, "details.title", "Details"),
+        detailsTitle:
+          safeText(detailsState && detailsState.title) ||
+          labelFrom(labelSource, "details.title", "Details"),
         contexts: [],
         sections: drawerSections,
         selectedTaskKey: safeText(owner && owner.ownerKey),
         details,
-        permissionRequest: local.permissionRequest || null,
+        detailsLoading: local.detailsDrawerOpen === true && !detailsState,
+        permissionRequest: request
+          ? {
+              approvalKind: safeText(request.approvalKind),
+              toolTitle:
+                safeText(request.tool && request.tool.title) ||
+                safeText(request.title),
+              toolCallId: safeText(request.tool && request.tool.callId),
+              summary: safeText(request.summary),
+              review: request.review,
+              actions: permissionActions,
+            }
+          : null,
         permissionRequestOpen:
-          local.permissionRequestOpen === true && !!local.permissionRequest,
+          local.permissionRequestOpen === true && !!request,
       },
       actions: {
         toolbar: [
@@ -2565,7 +3003,7 @@
           {
             action: "open-details-drawer",
             label: labelFrom(labelSource, "actions.details", "Details"),
-            enabled: true,
+            enabled: Boolean(owner),
           },
           {
             action: "open-backend-manager",
@@ -2585,6 +3023,7 @@
               "Display mode",
             ),
             value: safeText(local.executionDisplayMode) || "live",
+            align: "end",
             options: [
               {
                 value: "live",
@@ -2615,18 +3054,29 @@
           },
         ],
         context: [],
-        details: [
-          {
-            action: "copy-diagnostics",
-            label: labelFrom(
-              labelSource,
-              "actions.copyDiagnostics",
-              "Copy Diagnostics",
-            ),
+        details: (detailsState && Array.isArray(detailsState.actions)
+          ? detailsState.actions
+          : []
+        ).map(function (actionId) {
+          const action =
+            actionId === "copy-id"
+              ? "copy-request-id"
+              : actionId === "open-workspace"
+                ? "open-workspace"
+                : "copy-diagnostics";
+          const labelPath =
+            actionId === "copy-id"
+              ? "actions.copyId"
+              : actionId === "open-workspace"
+                ? "actions.openWorkspace"
+                : "actions.copyDiagnostics";
+          return {
+            action,
+            label: labelFrom(labelSource, labelPath, actionId),
             enabled: Boolean(owner),
             payload: {},
-          },
-        ],
+          };
+        }),
       },
     };
   }

@@ -179,9 +179,9 @@ materialization, steady snapshots, target visibility, and drift.
 - **THEN** completion remains complete
 - **AND** acceptance fails with the byte-budget reason.
 
-### Requirement: Replay uses current v6 lifecycle vocabulary
+### Requirement: Replay uses current v1 lifecycle vocabulary
 
-Replay SHALL use exact v6 source, kind, form, cause, delivery, rebase, and
+Replay SHALL use exact v1 source, kind, form, cause, delivery, rebase, and
 overflow semantics. Historical matrix compatibility and governance eligibility
 fields SHALL NOT remain in current-state results.
 
@@ -515,7 +515,7 @@ attribute current-run lifecycle evidence after that watermark.
 - **AND** a prior publication arriving after profile start makes measurement
   incomplete.
 
-### Requirement: Replay verifies the complete v6 lifecycle
+### Requirement: Replay verifies the complete v1 lifecycle
 
 Each successful publication SHALL correlate the same publicationId across post, shell-forward, child-apply, and render-complete. Old-owner, stale, gap, superseded, or invalid publications SHALL not modify DOM.
 

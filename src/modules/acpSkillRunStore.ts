@@ -13,6 +13,7 @@ import {
 import {
   registerAcpSkillRunsMemoryClearer,
   registerAcpSkillRunsRetentionCleaner,
+  readRuntimeTextFile,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import { appendRuntimeLog } from "./runtimeLogManager";
@@ -87,6 +88,7 @@ import {
 } from "./acpSkillRunTranscriptStore";
 import {
   appendAcpSkillRunOutputRevision,
+  readAcpSkillRunOutputRevisions,
   resolveAcpSkillRunPayloadPaths,
   writeAcpSkillRunContextPayload,
   type AcpSkillRunPayloadRefs,
@@ -450,6 +452,7 @@ export type AcpSkillRunRuntimeOptionsSnapshot = {
 export type AcpSkillRunWorkspaceChangeKind =
   | "run"
   | "transcript"
+  | "plan"
   | "progress"
   | "runtime-options"
   | "selection"
@@ -490,13 +493,46 @@ export type AcpSkillRunWorkspaceReadModel = Readonly<{
   conversationState?: AcpSkillRunConversationState;
   conversationRecoveryState?: AcpSkillRunRecoveryState;
   conversationError?: string;
+  replyState?: AcpSkillRunReplyState;
   connectionActionState?: AcpSkillRunConnectionActionState;
+  promptInterruptState?: AcpPromptInterruptState;
   applyResultState?: "pending" | "succeeded" | "failed";
   error?: string;
   usage?: { used: number; size: number };
   planEntries: AcpSkillRunPlanEntry[];
   updatedAt: string;
   runtimeOptions: AcpSkillRunRuntimeOptionsSnapshot;
+}>;
+
+export type AcpSkillRunWorkspaceDetailsReadModel = Readonly<{
+  requestId: string;
+  workspaceDir: string;
+  runtimeDir: string;
+  inputManifestPath: string;
+  resultJsonPath: string;
+  backend: string;
+  agentFamily: string;
+  acpModeId: string;
+  acpModelId: string;
+  acpRawModelId: string;
+  acpReasoningEffort: string;
+  skillId: string;
+  skillRoots: string[];
+  sessionId: string;
+  validationStatus: string;
+  repairRounds: number;
+  validationErrors: string[];
+  error: string;
+  conversationError: string;
+  conversationState: string;
+  applyResultState: string;
+  appliedAt: string;
+  runtimeDependencyStatus: string;
+  runtimeDependencies: string[];
+  runtimeDependencyError: string;
+  outputRevisions: AcpSkillRunOutputRevision[];
+  runtimeLogs: AcpSkillRunEvent[];
+  resultJsonText: string;
 }>;
 
 export type AcpSkillRunDiagnosticsDto = Readonly<{
@@ -2851,6 +2887,7 @@ const ACP_SKILL_RUN_WORKSPACE_CHANGE_KINDS =
   new Set<AcpSkillRunWorkspaceChangeKind>([
     "run",
     "transcript",
+    "plan",
     "progress",
     "runtime-options",
     "selection",
@@ -4350,9 +4387,13 @@ export function recordAcpSkillRunSessionUpdate(
     emitWorkspaceChanged(
       acpSkillRunWorkspaceChange(
         requestId,
-        progressChange.countChanged
-          ? ["transcript", "progress"]
-          : ["transcript"],
+        kind === "plan"
+          ? progressChange.countChanged
+            ? ["transcript", "plan", "progress"]
+            : ["transcript", "plan"]
+          : progressChange.countChanged
+            ? ["transcript", "progress"]
+            : ["transcript"],
       ),
     );
     return;
@@ -5942,13 +5983,71 @@ export function getAcpSkillRunWorkspaceReadModel(
     conversationState: run.conversationState,
     conversationRecoveryState: run.conversationRecoveryState,
     conversationError: run.conversationError,
+    replyState: run.replyState,
     connectionActionState: run.connectionActionState,
+    promptInterruptState: run.promptInterruptState,
     applyResultState: run.applyResultState,
     error: run.error,
     usage: run.usage ? { ...run.usage } : undefined,
     planEntries: (run.planEntries || []).map((entry) => ({ ...entry })),
     updatedAt: run.updatedAt,
     runtimeOptions: runtimeOptionsForRun(run),
+  });
+}
+
+export async function getAcpSkillRunWorkspaceDetailsReadModel(
+  requestIdRaw: string,
+): Promise<AcpSkillRunWorkspaceDetailsReadModel | null> {
+  ensureHydrated();
+  const requestId = normalizeString(requestIdRaw);
+  const run = requestId ? runRecords.get(requestId) : undefined;
+  if (!run) return null;
+  const resultJsonPath = normalizeString(run.resultJsonPath);
+  const [outputRevisions, resultJsonText] = await Promise.all([
+    readAcpSkillRunOutputRevisions(run.runtimeDir).catch(() => []),
+    resultJsonPath
+      ? readRuntimeTextFile(resultJsonPath).catch(() => "")
+      : Promise.resolve(""),
+  ]);
+  return Object.freeze({
+    requestId: run.requestId,
+    workspaceDir: normalizeString(run.workspaceDir),
+    runtimeDir: normalizeString(run.runtimeDir),
+    inputManifestPath: normalizeString(run.inputManifestPath),
+    resultJsonPath: normalizeString(run.resultJsonPath),
+    backend: normalizeString(run.backendLabel || run.backendId),
+    agentFamily: normalizeString(run.agentFamily),
+    acpModeId: normalizeString(run.acpModeId),
+    acpModelId: normalizeString(run.acpModelId),
+    acpRawModelId: normalizeString(run.acpRawModelId),
+    acpReasoningEffort: normalizeString(run.acpReasoningEffort),
+    skillId: normalizeString(run.skillId),
+    skillRoots: (run.skillRoots || []).map(normalizeString).filter(Boolean),
+    sessionId: normalizeString(run.sessionId),
+    validationStatus: normalizeString(run.validationStatus),
+    repairRounds: Math.max(0, Number(run.repairRounds) || 0),
+    validationErrors: (run.validationErrors || [])
+      .map(normalizeString)
+      .filter(Boolean),
+    error: normalizeString(run.error),
+    conversationError: normalizeString(run.conversationError),
+    conversationState: normalizeString(run.conversationState),
+    applyResultState: normalizeString(run.applyResultState),
+    appliedAt: normalizeString(run.appliedAt),
+    runtimeDependencyStatus: normalizeString(run.runtimeDependencyStatus),
+    runtimeDependencies: (run.runtimeDependencies || [])
+      .map(normalizeString)
+      .filter(Boolean),
+    runtimeDependencyError: normalizeString(run.runtimeDependencyError),
+    outputRevisions: outputRevisions.slice(-20).map((entry) => ({
+      ...entry,
+      candidateText: String(entry.candidateText || "").slice(0, 4_000),
+      errors: entry.errors
+        ?.slice(0, 20)
+        .map((error) => String(error).slice(0, 1_000)),
+    })),
+    runtimeLogs: run.events.slice(-20).map((entry) => ({ ...entry })),
+    resultJsonText: String(resultJsonText || "").slice(0, 40_000),
   });
 }
 

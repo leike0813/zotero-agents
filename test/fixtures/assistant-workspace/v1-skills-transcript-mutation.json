@@ -1,8 +1,8 @@
 {
-  "ownerKey": "round6-skills-run",
+  "ownerKey": "v1-skills-run",
   "page": {
-    "ownerKey": "round6-skills-run",
-    "pageKey": "round6-skills-run\ntail:80",
+    "ownerKey": "v1-skills-run",
+    "pageKey": "v1-skills-run\ntail:80",
     "startCursor": 0,
     "limit": 80,
     "totalVisibleItemCount": 1,
@@ -16,7 +16,7 @@
         "itemKind": "message",
         "role": "assistant",
         "status": "streaming",
-        "text": "Sanitized round6 assistant segment",
+        "text": "Sanitized v1 assistant segment",
         "createdAt": "2026-07-16T00:00:00.000Z"
       }
     ]
@@ -32,7 +32,7 @@
           "itemKind": "message",
           "role": "assistant",
           "status": "streaming",
-          "text": "Sanitized round6 assistant segment",
+          "text": "Sanitized v1 assistant segment",
           "createdAt": "2026-07-16T00:00:00.000Z"
         }
       }
@@ -43,7 +43,7 @@
         "itemKind": "message",
         "role": "assistant",
         "status": "streaming",
-        "text": "Sanitized round6 assistant segment",
+        "text": "Sanitized v1 assistant segment",
         "createdAt": "2026-07-16T00:00:00.000Z"
       }
     ],
@@ -53,7 +53,7 @@
         "itemKind": "message",
         "role": "assistant",
         "status": "streaming",
-        "text": "Sanitized round6 assistant segment",
+        "text": "Sanitized v1 assistant segment",
         "createdAt": "2026-07-16T00:00:00.000Z"
       }
     ],

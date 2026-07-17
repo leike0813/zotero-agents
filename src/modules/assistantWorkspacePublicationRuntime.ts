@@ -19,7 +19,6 @@ import type {
 } from "./assistantWorkspaceTranscriptPublication";
 import type { AssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
 import { getHostBridgeServerStatus } from "./hostBridgeServer";
-import { getZoteroMcpServerStatus } from "./zoteroMcpServer";
 
 export type AssistantWorkspacePublicationRuntimeConfiguration = {
   executionDisplayMode: AssistantExecutionDisplayMode;
@@ -29,7 +28,6 @@ export type AssistantWorkspacePublicationRuntimeConfiguration = {
 
 export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceServiceStatus {
   const hostBridge = getHostBridgeServerStatus();
-  const zoteroMcp = getZoteroMcpServerStatus();
   return {
     items: [
       {
@@ -38,13 +36,6 @@ export function readAssistantWorkspaceServiceStatus(): AssistantWorkspaceService
         status: hostBridge.status,
         available: hostBridge.status === "running",
         message: hostBridge.lastError || null,
-      },
-      {
-        serviceId: "zotero-mcp",
-        label: "Zotero MCP",
-        status: zoteroMcp.status,
-        available: zoteroMcp.status === "running",
-        message: zoteroMcp.lastError || null,
       },
     ],
   };
@@ -326,6 +317,7 @@ export class AssistantWorkspacePublicationRuntime {
   >();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing: Promise<void> | null = null;
+  private readonly detailsRequestEpoch = new Map<string, number>();
 
   constructor(
     private readonly options: {
@@ -566,6 +558,72 @@ export class AssistantWorkspacePublicationRuntime {
       cause: args.cause,
       transcript: { form: "snapshot", region },
       force: args.force,
+    });
+  }
+
+  async requestOwnerDetails<
+    TSource extends AssistantWorkspaceOwner["source"],
+    TChange,
+    TContext,
+    TPageRequest,
+  >(args: {
+    adapter: AssistantWorkspacePublicationAdapter<
+      TSource,
+      TChange,
+      TContext,
+      TPageRequest
+    >;
+    owner: Extract<AssistantWorkspaceOwner, { source: TSource }>;
+    context: TContext;
+  }) {
+    const activity = this.options.activity(args.adapter.source);
+    if (
+      activity !== "matching-target" ||
+      args.adapter.selectedOwner()?.ownerKey !== args.owner.ownerKey ||
+      !args.adapter.supportedKinds.includes("owner-details")
+    ) {
+      this.options.hooks?.onDropped?.({
+        owner: args.owner,
+        kinds: ["owner-details"],
+        reason: activity === "matching-target" ? "owner-mismatch" : activity,
+      });
+      return undefined;
+    }
+    const requestKey = `${args.adapter.source}\n${args.owner.ownerKey}`;
+    const epoch = (this.detailsRequestEpoch.get(requestKey) || 0) + 1;
+    this.detailsRequestEpoch.set(requestKey, epoch);
+    const regions = await args.adapter.readOwnerRegions({
+      owner: args.owner,
+      kinds: ["owner-details"],
+      context: args.context,
+    });
+    if (
+      this.detailsRequestEpoch.get(requestKey) !== epoch ||
+      this.options.activity(args.adapter.source) !== "matching-target" ||
+      args.adapter.selectedOwner()?.ownerKey !== args.owner.ownerKey
+    ) {
+      this.options.hooks?.onDropped?.({
+        owner: args.owner,
+        kinds: ["owner-details"],
+        reason: "owner-mismatch",
+      });
+      return undefined;
+    }
+    const payload = regions["owner-details"];
+    if (!payload) return undefined;
+    this.options.hooks?.onMaterialized?.({
+      owner: args.owner,
+      kind: "owner-details",
+      cause: "diagnostic",
+      publicationForm: "region",
+      materializationSource: "region",
+    });
+    return this.options.coordinator.publishDomainChange({
+      owner: args.owner,
+      kind: "owner-details",
+      cause: "diagnostic",
+      payload,
+      force: true,
     });
   }
 

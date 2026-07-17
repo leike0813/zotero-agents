@@ -39,6 +39,7 @@ import {
   disconnectAcpConversation,
   getActiveAcpChatOwner,
   getAcpChatWorkspaceOwnerNavigation,
+  getAcpChatWorkspaceReadModel,
   refreshAcpConversationBackends,
   reconnectAcpConversation,
   renameAcpConversation,
@@ -67,6 +68,7 @@ import {
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   getAcpSkillRunDiagnostics,
+  getAcpSkillRunWorkspaceReadModel,
   getSelectedAcpSkillRunRequestId,
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
@@ -2624,6 +2626,22 @@ async function handleChildAction(
     });
     return;
   }
+  if (action === "request-owner-details" && owner) {
+    if (owner.source === "acp-skills") {
+      await host.publicationRuntime?.requestOwnerDetails({
+        adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+        owner,
+        context: undefined,
+      });
+      return;
+    }
+    await host.publicationRuntime?.requestOwnerDetails({
+      adapter: ACP_CHAT_WORKSPACE_ADAPTER,
+      owner,
+      context: acpChatWorkspaceSurfaceContext(host, target),
+    });
+    return;
+  }
   if (source === "acp-chat" && actionRoute?.scope === "navigation-group") {
     const groupId = String(childPayload.groupId || "").trim();
     const navigation = getAcpChatWorkspaceOwnerNavigation();
@@ -2880,7 +2898,12 @@ async function handleAcpSkillRunAction(
       return;
     }
     if (action === "open-workspace") {
-      openFolderInSystemFileManager(String(payload.workspaceDir || "").trim());
+      const requestId = String(payload.requestId || "").trim();
+      const run = getAcpSkillRunWorkspaceReadModel(requestId);
+      const workspaceDir = String(
+        run?.workspaceDir || run?.runtimeDir || "",
+      ).trim();
+      if (workspaceDir) openFolderInSystemFileManager(workspaceDir);
       return;
     }
     if (action === "reply-run") {
@@ -3102,7 +3125,17 @@ async function handleAcpChatAction(
       return;
     }
     if (action === "open-workspace") {
-      openFolderInSystemFileManager(String(payload.workspaceDir || "").trim());
+      const backendId = String(payload.backendId || "").trim();
+      const conversationId = String(payload.conversationId || "").trim();
+      const session = getAcpChatWorkspaceReadModel(backendId, conversationId);
+      const workspaceDir = String(
+        session.agentWorkspaceDir ||
+          session.sessionCwd ||
+          session.workspaceDir ||
+          session.runtimeDir ||
+          "",
+      ).trim();
+      if (workspaceDir) openFolderInSystemFileManager(workspaceDir);
       return;
     }
     if (action === "send-prompt") {

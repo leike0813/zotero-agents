@@ -1057,6 +1057,17 @@ describe("acp session manager", function () {
     const disconnected = getAcpConversationUiSnapshot();
     assert.equal(disconnected.conversationId, firstConversationId);
     assert.equal(disconnected.status, "idle");
+    assert.isNotEmpty(disconnected.remoteSessionId);
+    const disconnectedControl = await readAcpChatWorkspacePublication({
+      owner: createAcpChatWorkspaceOwner(
+        getAcpFrontendSnapshot().activeBackendId,
+        firstConversationId,
+      ),
+      publicationKind: "owner-control",
+    });
+    assert.isFalse(disconnectedControl?.connection.connected);
+    assert.isTrue(disconnectedControl?.connection.canConnect);
+    assert.isFalse(disconnectedControl?.connection.canDisconnect);
     assert.isTrue(
       disconnected.items.some(
         (entry) =>
@@ -1914,9 +1925,11 @@ describe("acp session manager", function () {
     assert.hasAllKeys(baseline, [
       "status",
       "busy",
-      "message",
+      "hint",
       "connection",
       "execution",
+      "authentication",
+      "permissionPolicy",
     ]);
     assert.hasAllKeys(baseline?.connection, [
       "status",
@@ -1926,6 +1939,15 @@ describe("acp session manager", function () {
       "canDisconnect",
     ]);
     assert.hasAllKeys(baseline?.execution, ["canCancel", "canInterrupt"]);
+    assert.hasAllKeys(baseline?.authentication, [
+      "required",
+      "canAuthenticate",
+      "methodId",
+    ]);
+    assert.hasAllKeys(baseline?.permissionPolicy, [
+      "autoApprove",
+      "canSetAutoApprove",
+    ]);
   });
 
   it("emits typed ACP chat panel snapshot changes from existing publish boundaries", async function () {

@@ -115,79 +115,9 @@
     return text.slice(0, Math.max(0, limit - 1)).trimEnd() + "…";
   }
 
-  function parseJsonObject(value) {
-    const text = safeText(value);
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text);
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? parsed
-        : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function compactJson(value, maxLength) {
-    if (value === null || value === undefined || value === "") return "";
-    let text = "";
-    if (typeof value === "string") {
-      text = value;
-    } else {
-      try {
-        text = JSON.stringify(value, null, 2);
-      } catch {
-        text = safeText(value);
-      }
-    }
-    return truncateText(text, maxLength || 4000);
-  }
-
   function isAssistantPlanWorking(panel) {
     const interaction = panel && panel.interaction ? panel.interaction : {};
     return safeText(interaction.kind || "hidden") === "running";
-  }
-
-  function buildPermissionRequestDto(permission, interaction) {
-    const source =
-      permission && typeof permission === "object" ? permission : {};
-    const actionList =
-      interaction && Array.isArray(interaction.actions)
-        ? interaction.actions
-        : [];
-    const parsed = parseJsonObject(source.detail);
-    const toolCall =
-      parsed && typeof parsed.toolCall === "object" ? parsed.toolCall : null;
-    const preview =
-      parsed && typeof parsed.preview === "object" ? parsed.preview : null;
-    const mutation =
-      parsed && typeof parsed.mutation === "object" ? parsed.mutation : null;
-    const commandPreview =
-      compactJson(toolCall, 4000) ||
-      compactJson(mutation, 4000) ||
-      compactJson(preview, 4000) ||
-      compactJson(
-        parsed &&
-          (parsed.command || parsed.arguments || parsed.input || parsed.params),
-        4000,
-      ) ||
-      truncateText(source.detail, 4000);
-    return {
-      requestId: safeText(source.requestId),
-      toolCallId: safeText(source.toolCallId),
-      toolTitle:
-        safeText(source.toolTitle) ||
-        safeText(parsed && (parsed.toolName || parsed.name)) ||
-        "Permission request",
-      source: safeText(source.source || (interaction && interaction.source)),
-      summary:
-        safeText(source.summary || (interaction && interaction.message)) ||
-        safeText(source.toolTitle) ||
-        "ACP backend requests approval.",
-      requestedAt: safeText(source.requestedAt),
-      commandPreview,
-      actions: actionList.slice(),
-    };
   }
 
   function clear(node) {
@@ -1059,7 +989,7 @@
             }).length,
           );
     const header = el("div", "assistant-panel-plan-header");
-    header.appendChild(el("strong", "", "Plan"));
+    header.appendChild(el("strong", "", labelOf(panel, "plan.title", "Plan")));
     header.appendChild(
       el(
         "span",
@@ -1112,7 +1042,7 @@
     if (kind === "hidden") return;
     const row = el("div", "assistant-panel-hint-row");
     const ledTone =
-      kind === "running"
+      kind === "running" || kind === "repairing"
         ? "is-running"
         : kind === "permission" || kind === "auth" || kind === "waiting_user"
           ? "is-warning"
@@ -1135,7 +1065,43 @@
                 "interaction.agentWorkingMessage",
                 "Agent is working...",
               )
-            : kind),
+            : kind === "repairing"
+              ? labelOf(
+                  panel,
+                  "interaction.agentRepairingMessage",
+                  "Agent is repairing output...",
+                )
+              : kind === "waiting_user"
+                ? labelOf(
+                    panel,
+                    "interaction.waitingReply",
+                    "Agent is waiting for your reply.",
+                  )
+                : kind === "completed"
+                  ? labelOf(
+                      panel,
+                      "interaction.runResultReady",
+                      "Run completed. Workflow result is ready.",
+                    )
+                  : kind === "canceled"
+                    ? labelOf(
+                        panel,
+                        "interaction.runCanceledContinue",
+                        "Run canceled.",
+                      )
+                    : kind === "disconnected"
+                      ? labelOf(
+                          panel,
+                          "interaction.disconnectedRecoverable",
+                          "Run is disconnected and recoverable. Connect to continue.",
+                        )
+                      : kind === "auth"
+                        ? labelOf(
+                            panel,
+                            "interaction.authenticationRequiredMessage",
+                            "Authentication required.",
+                          )
+                        : kind),
       ),
     );
     const pending = interaction.pendingInteraction || {};
@@ -1152,14 +1118,32 @@
     target.appendChild(row);
     if (kind === "permission" || kind === "auth") {
       const permission = interaction.permission || {};
+      const review =
+        permission.review && typeof permission.review === "object"
+          ? permission.review
+          : {};
       const summary = safeText(
         interaction.message || permission.summary || permission.toolTitle,
       );
-      const detail = safeText(interaction.detail || permission.detail);
+      const detail = safeText(
+        review.command || review.preview || interaction.detail,
+      );
+      const approvalLabel =
+        safeText(permission.approvalKind) === "zotero-write"
+          ? labelOf(
+              panel,
+              "permission.zoteroWriteApproval",
+              "Zotero write approval",
+            )
+          : labelOf(panel, "permission.acpToolApproval", "ACP tool approval");
       const meta = [
-        permission.source || interaction.source,
+        approvalLabel,
         permission.toolTitle,
-        permission.toolCallId ? "toolCallId=" + permission.toolCallId : "",
+        permission.toolCallId
+          ? labelOf(panel, "permission.toolCallId", "Tool call") +
+            ": " +
+            permission.toolCallId
+          : "",
       ]
         .map(safeText)
         .filter(Boolean)
@@ -1188,12 +1172,7 @@
           view.addEventListener("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
-            emit(options, "open-permission-request", {
-              permissionRequest: buildPermissionRequestDto(
-                permission,
-                interaction,
-              ),
-            });
+            emit(options, "open-permission-request", {});
           });
           box.appendChild(view);
         }
@@ -2627,7 +2606,9 @@
         el(
           "div",
           "assistant-panel-details-empty",
-          labelOf(panel, "details.empty", "No details."),
+          panel.drawers.detailsLoading === true
+            ? labelOf(panel, "details.loading", "Loading details...")
+            : labelOf(panel, "details.empty", "No details."),
         ),
       );
     }
@@ -2701,7 +2682,12 @@
       el(
         "div",
         "assistant-panel-permission-drawer-subtitle",
-        safeText(request.summary) || "Review the command before choosing.",
+        safeText(request.summary) ||
+          labelOf(
+            panel,
+            "permission.reviewHint",
+            "Review this request before choosing.",
+          ),
       ),
     );
     header.appendChild(titleStack);
@@ -2718,10 +2704,22 @@
     });
     header.appendChild(close);
     sheet.appendChild(header);
+    const review =
+      request.review && typeof request.review === "object"
+        ? request.review
+        : {};
     const meta = [
-      safeText(request.source) ? "Source: " + safeText(request.source) : "",
-      safeText(request.requestedAt)
-        ? "Requested: " + safeText(request.requestedAt)
+      safeText(request.approvalKind)
+        ? labelOf(panel, "permission.source", "Source") +
+          ": " +
+          (safeText(request.approvalKind) === "zotero-write"
+            ? labelOf(panel, "permission.sourceZotero", "Zotero")
+            : labelOf(panel, "permission.sourceAcp", "ACP backend"))
+        : "",
+      safeText(review.requestedAt)
+        ? labelOf(panel, "permission.requestedAt", "Requested") +
+          ": " +
+          safeText(review.requestedAt)
         : "",
     ]
       .filter(Boolean)
@@ -2733,10 +2731,11 @@
     }
     const pre = el("pre", "assistant-panel-permission-drawer-command");
     pre.textContent =
-      safeText(request.commandPreview) ||
+      safeText(review.command) ||
+      safeText(review.preview) ||
       safeText(request.summary) ||
       safeText(request.toolTitle) ||
-      "Permission request";
+      labelOf(panel, "permission.title", "Permission request");
     sheet.appendChild(pre);
     const actionList = Array.isArray(request.actions) ? request.actions : [];
     if (actionList.length > 0) {
@@ -2801,6 +2800,7 @@
     return {
       title: safeText(drawers.detailsTitle),
       details: Array.isArray(drawers.details) ? drawers.details : [],
+      loading: drawers.detailsLoading === true,
       actions: Array.isArray(actions.details) ? actions.details : [],
       labels: {
         close: labelOf(panel, "actions.close", "Close"),

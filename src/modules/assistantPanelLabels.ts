@@ -49,6 +49,7 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-auto-approve-acp-permissions-off",
         "Auto-approve off",
       ),
+      showMore: l("assistant-panel-action-show-more", "Show more..."),
       copyId: l("assistant-panel-action-copy-id", "Copy ID"),
       copyDiagnostics: l(
         "assistant-panel-action-copy-diagnostics",
@@ -143,8 +144,58 @@ export function buildAssistantPanelLabels() {
       ),
       latestKind: l("assistant-panel-field-latest-kind", "Latest kind"),
       commandLine: l("assistant-panel-field-command-line", "Command line"),
+      command: l("assistant-panel-field-command", "Command"),
       stderr: l("assistant-panel-field-stderr", "stderr"),
       error: l("assistant-panel-field-error", "Error"),
+      lastError: l("assistant-panel-field-last-error", "Last error"),
+      prerequisiteError: l(
+        "assistant-panel-field-prerequisite-error",
+        "Prerequisite error",
+      ),
+      inputManifest: l(
+        "assistant-panel-field-input-manifest",
+        "Input manifest",
+      ),
+      agentFamily: l("assistant-panel-field-agent-family", "Agent family"),
+      rawModel: l("assistant-panel-field-raw-model", "Raw model"),
+      skillRoots: l("assistant-panel-field-skill-roots", "Skill roots"),
+      validationStatus: l(
+        "assistant-panel-field-validation-status",
+        "Validation status",
+      ),
+      validationErrors: l(
+        "assistant-panel-field-validation-errors",
+        "Validation errors",
+      ),
+      runError: l("assistant-panel-field-run-error", "Run error"),
+      conversationError: l(
+        "assistant-panel-field-conversation-error",
+        "Conversation error",
+      ),
+      conversationState: l(
+        "assistant-panel-field-conversation-state",
+        "Conversation state",
+      ),
+      dependencyStatus: l(
+        "assistant-panel-field-dependency-status",
+        "Dependency status",
+      ),
+      dependencies: l("assistant-panel-field-dependencies", "Dependencies"),
+      dependencyError: l(
+        "assistant-panel-field-dependency-error",
+        "Dependency error",
+      ),
+      revisionCount: l("assistant-panel-field-revision-count", "Revisions"),
+      repairRound: l("assistant-panel-field-repair-round", "Repair round"),
+      replacementReason: l(
+        "assistant-panel-field-replacement-reason",
+        "Replacement reason",
+      ),
+      candidatePreview: l(
+        "assistant-panel-field-candidate-preview",
+        "Candidate preview",
+      ),
+      logs: l("assistant-panel-field-logs", "Logs"),
     },
     drawer: {
       running: l("assistant-panel-drawer-running", "Running"),
@@ -155,6 +206,7 @@ export function buildAssistantPanelLabels() {
     details: {
       title: l("assistant-panel-details-title", "Details"),
       empty: l("assistant-panel-details-empty", "No details."),
+      loading: l("assistant-panel-details-loading", "Loading details..."),
       noEntries: l("assistant-panel-details-no-entries", "No entries."),
       session: l("assistant-panel-details-section-session", "Session"),
       paths: l("assistant-panel-details-section-paths", "Paths"),
@@ -230,6 +282,9 @@ export function buildAssistantPanelLabels() {
         "Ctrl+Enter / Cmd+Enter to send",
       ),
     },
+    plan: {
+      title: l("assistant-panel-plan-title", "Plan"),
+    },
     interaction: {
       userInputRequired: l(
         "assistant-panel-interaction-user-input-required",
@@ -293,6 +348,7 @@ export function buildAssistantPanelLabels() {
       ),
     },
     permission: {
+      title: l("assistant-panel-permission-title", "Permission request"),
       zoteroWriteApproval: l(
         "assistant-panel-permission-zotero-write-approval",
         "Zotero write approval",
@@ -317,6 +373,22 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-permission-waiting-reply",
         "Agent is waiting for your reply.",
       ),
+      reviewHint: l(
+        "assistant-panel-permission-review-hint",
+        "Review this request before choosing.",
+      ),
+      source: l("assistant-panel-permission-source", "Source"),
+      sourceAcp: l("assistant-panel-permission-source-acp", "ACP backend"),
+      sourceZotero: l("assistant-panel-permission-source-zotero", "Zotero"),
+      requestedAt: l("assistant-panel-permission-requested-at", "Requested"),
+      toolCallId: l("assistant-panel-permission-tool-call-id", "Tool call"),
+    },
+    emptyState: {
+      noConversation: l(
+        "assistant-panel-empty-state-no-conversation",
+        "No conversation",
+      ),
+      noTask: l("assistant-panel-empty-state-no-task", "No task"),
     },
     transcript: {
       assistant: l("assistant-panel-transcript-assistant", "Assistant"),
@@ -361,6 +433,9 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-transcript-latest-revision",
         "Latest output revision",
       ),
+    },
+    options: {
+      default: l("assistant-panel-option-default", "Default"),
     },
     usage: {
       unavailable: l("assistant-panel-usage-unavailable", "N/A"),
@@ -441,6 +516,8 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-status-auto-reply-inactive",
         "Inactive",
       ),
+      on: l("assistant-panel-status-on", "On"),
+      off: l("assistant-panel-status-off", "Off"),
     },
     indicatorTitles: {
       acpConnectionActive: l(

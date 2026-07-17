@@ -1,32 +1,32 @@
 # assistant-workspace-publication-data-plane Specification
 
 ## Purpose
-Defines the shared v6 publication vocabulary, canonical browser state, semantic
+Defines the shared v1 publication vocabulary, canonical browser state, semantic
 presentation and action registries, transcript region model, mutation buffer,
 and page request protocol used by both ACP Chat and ACP Skills surfaces in
 Assistant Workspace.
 ## Requirements
-### Requirement: Workspace publication uses one strict v6 registry
+### Requirement: Workspace publication uses one strict v1 registry
 
-ACP Chat and ACP Skills SHALL use the v6 region and presentation registries as
+ACP Chat and ACP Skills SHALL use the v1 region and presentation registries as
 the sole source of publication kind, payload, semantic presentation fields,
-browser key, managed region, and source support. v5 publications, generic
+browser key, managed region, and source support. Non-v1 publications, generic
 banner arrays, producer labels, presentation tasks, aliases, and dual writes
 SHALL be rejected.
 
-#### Scenario: A v5 presentation reaches the child
+#### Scenario: A non-v1 presentation reaches the child
 
-- **WHEN** a publication uses the v5 schema or a removed presentation field
+- **WHEN** a publication uses a non-v1 schema or a removed presentation field
 - **THEN** the receiver rejects it as invalid
 - **AND** canonical state and DOM remain unchanged.
 
 ### Requirement: Publication identity fields are unambiguous
 
-The v6 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, reason, and an optional bounded renderer failure stage/code.
+The v1 publication envelope SHALL use `publicationId`, `owner`, `publicationKind`, `publicationForm`, `publicationCause`, `regionRevision`, and `deliverySequence`. Owner source SHALL exist only in the owner envelope; signature SHALL remain coordinator-internal; acknowledgement SHALL identify a publication only by `publicationId` plus stage, outcome, reason, and an optional bounded renderer failure stage/code.
 
 #### Scenario: Shell acknowledges a publication
 
-- **WHEN** Shell receives and forwards a v6 publication
+- **WHEN** Shell receives and forwards a v1 publication
 - **THEN** its acknowledgement does not duplicate owner, kind, revision, signature, source, tab, or initialization fields.
 
 ### Requirement: ACP action scope is exact
@@ -238,13 +238,69 @@ full-page rendering.
 
 ### Requirement: ACP child state is source-neutral
 
-ACP Chat and ACP Skills SHALL use one canonical child state containing `source`, `navigation`, `services`, and `selection`. Selection SHALL contain only `owner`, `phase`, `control`, `messageCounts`, `transcript`, `plan`, `permission`, `composer`, and `presentation`. Shared receiver/controller code SHALL NOT write source-specific panel snapshot fields.
+ACP Chat and ACP Skills SHALL use one canonical child state containing `source`, `navigation`, `services`, and `selection`. Selection SHALL contain only `owner`, `phase`, `control`, `messageCounts`, `transcript`, `plan`, `permission`, `composer`, `presentation`, and `details`. Shared receiver/controller code SHALL NOT write source-specific panel snapshot fields.
 
 #### Scenario: Equivalent publications reach both children
 
 - **WHEN** equivalent normalized publications are delivered to Chat and Skills
 - **THEN** they update the same canonical region field
 - **AND** only labels, capabilities, owner payloads, and item content may differ.
+
+### Requirement: Owner control separates semantic hint from composer state
+
+`owner-control` SHALL publish a bounded semantic hint kind plus optional
+user-facing detail. Raw workflow status, backend status, connection state, and
+stop reason SHALL NOT be used directly as visible hint text. `composer.reply`
+SHALL contain only reply enablement state and SHALL NOT duplicate the managed
+hint in the composer footer.
+
+#### Scenario: A Skills run waits for user input
+
+- **WHEN** the run status is `waiting_user`
+- **THEN** the owner-control hint publishes the semantic `waiting_user` kind
+- **AND** the shared renderer localizes the waiting prompt
+- **AND** composer reply state independently determines whether input is enabled.
+
+### Requirement: Owner details are lazy and owner guarded
+
+The v1 registry SHALL define an `owner-details` publication and exact request
+action for both ACP sources. Details SHALL use bounded read-only sections and
+actions, SHALL NOT contain transcript pages, event histories, or complete
+session/run snapshots, and SHALL be committed only when their owner equals the
+current canonical owner.
+
+#### Scenario: A late details response follows an owner switch
+
+- **WHEN** owner A requests details and the user selects owner B before the read completes
+- **THEN** owner B is rendered loading-first and owner A details are discarded
+- **AND** the details drawer does not display stale owner A content.
+
+### Requirement: Permission publication is structured
+
+The v1 permission DTO SHALL use `approvalKind` equal to `acp-tool` or
+`zotero-write`, bounded tool metadata, structured command/preview review, and
+backend-provided options. Permission actions SHALL carry only request ID,
+outcome, and optional option ID while owner identity remains solely in the
+action envelope.
+
+#### Scenario: A permission action is routed
+
+- **WHEN** the user selects an approval option or Cancel
+- **THEN** the Host receives the canonical owner envelope and exact permission action fields
+- **AND** legacy source strings, raw JSON, and duplicate owner fields are rejected.
+
+### Requirement: Restorable identity is not a live connection
+
+Connection `connected` SHALL describe the current live transport. A persisted
+remote Chat session id or Skills session id SHALL only describe session
+availability and SHALL NOT enable Disconnect or runtime option controls.
+
+#### Scenario: A Chat conversation is disconnected but restorable
+
+- **GIVEN** the owner retains a remote session id without a live adapter
+- **WHEN** owner-control and composer regions are projected
+- **THEN** Connect is enabled and Disconnect is disabled
+- **AND** mode, model, and reasoning controls are disabled.
 
 ### Requirement: Automatic rebase has no wire control form
 

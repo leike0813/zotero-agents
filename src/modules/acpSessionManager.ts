@@ -173,19 +173,30 @@ type AcpChatWorkspaceListener = (change: AcpChatWorkspaceChange) => void;
 
 export type AcpChatWorkspaceReadModel = Readonly<{
   backendId: string;
+  backendDisplayName: string;
   conversationId: string;
   conversationTitle: string;
   sessionTitle: string;
   sessionUpdatedAt: string;
   status: string;
   busy: boolean;
+  connected: boolean;
+  promptInterruptState: AcpConversationSnapshot["promptInterruptState"];
   lastError: string;
+  prerequisiteError: string;
   sessionId: string;
   remoteSessionId: string;
   remoteSessionRestoreStatus: string;
   remoteSessionRestoreMessage: string;
   agentLabel: string;
   agentVersion: string;
+  autoApproveAcpPermissions: boolean;
+  authMethods: AcpConversationSnapshot["authMethods"];
+  commandLine: string;
+  lastStopReason: string;
+  diagnostics: AcpConversationSnapshot["diagnostics"];
+  stderrTail: string;
+  lastHostContext: AcpConversationSnapshot["lastHostContext"];
   usage: AcpConversationSnapshot["usage"];
   pendingPermissionRequest: AcpConversationSnapshot["pendingPermissionRequest"];
   modeOptions: AcpConversationSnapshot["modeOptions"];
@@ -851,19 +862,35 @@ export function getAcpChatWorkspaceReadModel(
     : undefined;
   return Object.freeze({
     backendId: sessionRuntime.backendId,
+    backendDisplayName:
+      String(
+        snapshot.backend?.displayName || sessionRuntime.backendId,
+      ).trim() || sessionRuntime.backendId,
     conversationId: snapshot.conversationId,
     conversationTitle: snapshot.conversationTitle,
     sessionTitle: snapshot.sessionTitle,
     sessionUpdatedAt: snapshot.sessionUpdatedAt,
     status: snapshot.status,
     busy: snapshot.busy,
+    connected: sessionRuntime.adapter !== null,
+    promptInterruptState: snapshot.promptInterruptState,
     lastError: snapshot.lastError || snapshot.prerequisiteError,
+    prerequisiteError: snapshot.prerequisiteError,
     sessionId: snapshot.sessionId,
     remoteSessionId: snapshot.remoteSessionId,
     remoteSessionRestoreStatus: snapshot.remoteSessionRestoreStatus,
     remoteSessionRestoreMessage: snapshot.remoteSessionRestoreMessage,
     agentLabel: snapshot.agentLabel,
     agentVersion: snapshot.agentVersion,
+    autoApproveAcpPermissions: snapshot.autoApproveAcpPermissions === true,
+    authMethods: snapshot.authMethods.map((entry) => ({ ...entry })),
+    commandLine: snapshot.commandLine,
+    lastStopReason: snapshot.lastStopReason,
+    diagnostics: snapshot.diagnostics.slice(-12).map((entry) => ({ ...entry })),
+    stderrTail: snapshot.stderrTail,
+    lastHostContext: snapshot.lastHostContext
+      ? JSON.parse(JSON.stringify(snapshot.lastHostContext))
+      : null,
     usage: snapshot.usage ? { ...snapshot.usage } : null,
     pendingPermissionRequest: snapshot.pendingPermissionRequest
       ? {

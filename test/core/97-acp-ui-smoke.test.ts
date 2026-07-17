@@ -266,13 +266,6 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
           available: true,
           message: null,
         },
-        {
-          serviceId: "zotero-mcp",
-          label: "Zotero MCP",
-          status: "stopped",
-          available: false,
-          message: null,
-        },
       ],
     },
     selection: {
@@ -281,7 +274,7 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
       control: {
         status: "running",
         busy: true,
-        message: null,
+        hint: { kind: "running", message: null },
         connection: {
           status: "connected",
           sessionAvailable: true,
@@ -290,6 +283,15 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
           canDisconnect: true,
         },
         execution: { canCancel: true, canInterrupt: true },
+        authentication: {
+          required: false,
+          canAuthenticate: false,
+          methodId: null,
+        },
+        permissionPolicy: {
+          autoApprove: false,
+          canSetAutoApprove: source === "acp-chat",
+        },
       },
       messageCounts: null,
       transcript: {
@@ -302,11 +304,15 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
       plan: { items: [] },
       permission: { request: null },
       composer: {
-        reply: { status: "enabled", hint: null },
+        reply: { status: "enabled" },
         runtimeOptions: {
-          mode: { selectedOptionId: null, options: [] },
-          model: { selectedOptionId: null, options: [] },
-          reasoningEffort: { selectedOptionId: null, options: [] },
+          mode: { selectedOptionId: null, options: [], enabled: false },
+          model: { selectedOptionId: null, options: [], enabled: false },
+          reasoningEffort: {
+            selectedOptionId: null,
+            options: [],
+            enabled: false,
+          },
         },
       },
       presentation: {
@@ -316,18 +322,76 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
         notice: null,
         metadata: [{ fieldId: "workflow", value: "Literature" }],
         usage: { used: 4, limit: 10, costText: null },
+      },
+      details: {
+        status: "ready",
+        title: source === "acp-chat" ? "Research session" : "Task Alpha",
+        subtitle: selected.ownerKey,
         sections: [
           {
-            sectionId: "workspace",
-            items: [{ fieldId: "workspace", value: "/tmp/run" }],
+            sectionId: source === "acp-chat" ? "paths" : "run-paths",
+            collapsed: false,
+            items: [
+              { fieldId: "workspace", value: "/tmp/run", format: "path" },
+            ],
           },
         ],
+        actions: ["copy-diagnostics", "open-workspace"],
+        error: null,
       },
     },
   };
 }
 
-describe("Assistant Workspace ACP UI v6", function () {
+function emptyWorkspaceState(source: "acp-chat" | "acp-skills") {
+  const state = canonicalState(source) as any;
+  state.navigation.selectedOwner = null;
+  state.selection = {
+    owner: null,
+    phase: "empty",
+    control: null,
+    presentation: null,
+    composer: null,
+    permission: { request: null },
+    transcript: {
+      owner: null,
+      status: "idle",
+      error: null,
+      page: null,
+      transcriptRevision: 0,
+    },
+  };
+  return state;
+}
+
+function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
+  return {
+    title: source === "acp-chat" ? "ACP Chat" : "ACP Skill Run",
+    assistantPanel: {
+      emptyState: {
+        noConversation: "No conversation",
+        noTask: "No task",
+      },
+    },
+  };
+}
+
+function skillRunnerEnvelope(session: Record<string, unknown> | null) {
+  return {
+    title: "SkillRunner Workspace",
+    labels: {
+      emptyTasks: "No SkillRunner tasks.",
+      assistantPanel: {
+        emptyState: { noTask: "No task" },
+      },
+    },
+    workspace: { selectedTaskKey: session ? "task-a" : null, groups: [] },
+    drawer: { sections: [] },
+    session,
+  };
+}
+
+describe("Assistant Workspace ACP UI v1", function () {
   it("loads both ACP documents through one shared child and identical roles", async function () {
     const [chat, skills] = await Promise.all([
       readProjectFile("addon/content/sidebar/acp-chat.html"),
@@ -406,17 +470,21 @@ describe("Assistant Workspace ACP UI v6", function () {
     const panel = model.projectAssistantWorkspacePanel(
       canonicalState("acp-chat"),
       { executionDisplayMode: "live" },
-      {},
+      {
+        title: "ACP Chat",
+        subtitle: "Chat with your Zotero library.",
+      },
     );
     assert.isTrue(panel.exact);
-    assert.equal(panel.context.title, "Research session");
+    assert.equal(panel.context.title, "ACP Chat");
+    assert.equal(panel.context.subtitle, "Chat with your Zotero library.");
     assert.deepEqual(
       panel.context.selectors.map((selector: any) => selector.id),
       ["backend", "owner"],
     );
     assert.deepEqual(
       panel.context.indicators.map((indicator: any) => indicator.label),
-      ["Host Bridge", "Zotero MCP"],
+      ["Connection", "Host Bridge"],
     );
     assert.deepEqual(panel.usage, {
       used: 4,
@@ -447,6 +515,210 @@ describe("Assistant Workspace ACP UI v6", function () {
     );
   });
 
+  for (const source of ["acp-chat", "acp-skills"] as const) {
+    it(`keeps ${source} empty chrome resident and unavailable`, async function () {
+      const model = await loadPanelModel();
+      const panel = model.projectAssistantWorkspacePanel(
+        emptyWorkspaceState(source),
+        { executionDisplayMode: "live" },
+        emptyPanelLabels(source),
+      );
+
+      assert.equal(
+        panel.context.subtitle,
+        source === "acp-chat" ? "No conversation" : "No task",
+      );
+      assert.deepInclude(panel.context, {
+        status: "unavailable",
+        statusLabel: "Unavailable",
+        statusTone: "muted",
+      });
+      assert.deepEqual(
+        panel.context.metadata.map((entry: any) => [entry.itemId, entry.value]),
+        source === "acp-chat"
+          ? [
+              ["backend", ""],
+              ["conversation", ""],
+              ["workspace", ""],
+            ]
+          : [
+              ["backend", ""],
+              ["workspace", ""],
+            ],
+      );
+      assert.deepEqual(
+        panel.context.indicators.map((entry: any) => [entry.id, entry.tone]),
+        [
+          ["acp-connection", "muted"],
+          ["host-bridge", "success"],
+        ],
+      );
+      assert.deepEqual(
+        panel.context.actions.map((entry: any) => [
+          entry.action,
+          entry.enabled,
+        ]),
+        source === "acp-chat"
+          ? [
+              ["new-conversation", false],
+              ["connect", false],
+              ["disconnect", false],
+              ["authenticate", false],
+              ["set-auto-approve-permissions", false],
+            ]
+          : [
+              ["connect-run", false],
+              ["disconnect-run", false],
+              ["cancel-run", false],
+            ],
+      );
+      assert.deepEqual(
+        panel.actions.toolbar.map((entry: any) => entry.enabled),
+        [true, false, true, true],
+      );
+      assert.isFalse(panel.reply.enabled);
+      assert.isFalse(panel.reply.inputEnabled);
+      assert.deepEqual(
+        panel.reply.controls.map((entry: any) => [
+          entry.id,
+          entry.value,
+          entry.disabled,
+        ]),
+        [
+          ["mode", "", true],
+          ["model", "", true],
+          ["reasoning", "", true],
+        ],
+      );
+      assert.isTrue(panel.reply.showUsageGauge);
+
+      if (source === "acp-chat") {
+        assert.deepEqual(
+          panel.context.selectors.map((entry: any) => [
+            entry.id,
+            entry.value,
+            entry.disabled,
+          ]),
+          [
+            ["backend", "", true],
+            ["owner", "", true],
+          ],
+        );
+      }
+
+      const document = new FakeDocument();
+      const renderer = await loadPanelRenderer(document);
+      const banner = document.createElement("div");
+      renderer.renderAssistantBanner(banner, panel, { onAction() {} });
+      assert.deepEqual(
+        banner
+          .querySelectorAll(".assistant-panel-meta-pill")
+          .map((entry) => entry.children[1].textContent),
+        panel.context.metadata.map(() => "-"),
+      );
+    });
+  }
+
+  it("projects SkillRunner null session as fixed unavailable chrome", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectSkillRunnerPanelSnapshot(
+      skillRunnerEnvelope(null),
+    );
+
+    assert.deepInclude(panel.context, {
+      title: "SkillRunner Workspace",
+      subtitle: "No task",
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      statusTone: "muted",
+    });
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => [entry.key, entry.value]),
+      [
+        ["backend", ""],
+        ["engine", ""],
+        ["model", ""],
+        ["updatedAt", ""],
+      ],
+    );
+    assert.deepInclude(panel.context.indicators[0], {
+      id: "skillrunner-control",
+      value: "Unavailable",
+      tone: "muted",
+    });
+    assert.lengthOf(panel.context.indicators, 1);
+    assert.deepInclude(panel.context.actions[0], {
+      action: "cancel-run",
+      enabled: false,
+    });
+    assert.deepEqual(
+      panel.actions.toolbar.map((entry: any) => entry.enabled),
+      [true, false, true, true],
+    );
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+  });
+
+  it("keeps a selected SkillRunner session without requestId in preparing state", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectSkillRunnerPanelSnapshot(
+      skillRunnerEnvelope({
+        title: "Task Alpha",
+        status: "idle",
+        requestAssigned: false,
+        backendInteractive: false,
+      }),
+    );
+
+    assert.equal(panel.context.title, "Task Alpha");
+    assert.equal(panel.context.status, "idle");
+    assert.notEqual(panel.context.subtitle, "No task");
+    assert.deepInclude(panel.context.indicators[0], {
+      id: "skillrunner-control",
+      value: "Preparing",
+      tone: "accent",
+    });
+  });
+
+  it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const rootElement = document.createElement("div");
+    const regions = {
+      toolbar: document.createElement("div"),
+      banner: document.createElement("div"),
+      messageCounter: document.createElement("div"),
+      plan: document.createElement("div"),
+      hint: document.createElement("div"),
+      reply: document.createElement("div"),
+      drawer: document.createElement("div"),
+      details: document.createElement("div"),
+    };
+    Object.values(regions).forEach((region) => rootElement.appendChild(region));
+    const render = (session: Record<string, unknown> | null) => {
+      renderer.renderAssistantPanelSnapshot(
+        model.projectSkillRunnerPanelSnapshot(skillRunnerEnvelope(session)),
+        {
+          managed: true,
+          root: rootElement,
+          regions,
+          onAction() {},
+        },
+      );
+    };
+
+    render(null);
+    const identities = Object.fromEntries(
+      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
+    );
+    render({ title: "Task Alpha", status: "running", requestId: "req-a" });
+    render(null);
+    for (const [key, region] of Object.entries(regions)) {
+      assert.strictEqual(region.firstChild, identities[key], key);
+    }
+  });
+
   it("projects Skills title, subtitle, banner metadata, and task status axes", async function () {
     const model = await loadPanelModel();
     const panel = model.projectAssistantWorkspacePanel(
@@ -466,6 +738,250 @@ describe("Assistant Workspace ACP UI v6", function () {
     assert.equal(task.backendStatus, "connected");
     assert.equal(task.applyStatus, "pending");
     assert.equal(panel.actions.toolbar[3].value, "boundary");
+    assert.equal(panel.actions.toolbar[3].align, "end");
+  });
+
+  it("restores the disconnected Chat banner without treating remote identity as live", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-chat");
+    state.selection.control = {
+      ...state.selection.control,
+      status: "idle",
+      busy: false,
+      hint: { kind: "notice", message: "end_turn" },
+      connection: {
+        status: "idle",
+        sessionAvailable: true,
+        connected: false,
+        canConnect: true,
+        canDisconnect: false,
+      },
+      authentication: {
+        required: false,
+        canAuthenticate: false,
+        methodId: null,
+      },
+      permissionPolicy: {
+        autoApprove: true,
+        canSetAutoApprove: true,
+      },
+    };
+    state.selection.presentation.metadata = [
+      { fieldId: "backend", value: "OpenCode ACP" },
+      { fieldId: "workspace", value: "/tmp/chat-workspace" },
+    ];
+    state.selection.composer = {
+      reply: { status: "enabled" },
+      runtimeOptions: {
+        mode: {
+          selectedOptionId: "build",
+          options: [{ optionId: "build", label: "build", description: null }],
+          enabled: false,
+        },
+        model: {
+          selectedOptionId: "model-a",
+          options: [
+            { optionId: "model-a", label: "Model A", description: null },
+          ],
+          enabled: false,
+        },
+        reasoningEffort: {
+          selectedOptionId: "default",
+          options: [{ optionId: "default", label: "默认", description: null }],
+          enabled: false,
+        },
+      },
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {
+        assistantPanel: {
+          actions: {
+            autoApproveAcpPermissions: "自动批准",
+            autoApproveAcpPermissionsOn: "自动批准已开启",
+            autoApproveAcpPermissionsOff: "自动批准已关闭",
+          },
+        },
+      },
+    );
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => entry.itemId),
+      ["backend", "workspace"],
+    );
+    assert.deepEqual(
+      panel.context.indicators.map((entry: any) => entry.valueVisible),
+      [false, false],
+    );
+    assert.deepEqual(
+      panel.context.actions.map((entry: any) => [entry.action, entry.enabled]),
+      [
+        ["new-conversation", true],
+        ["connect", true],
+        ["disconnect", false],
+        ["authenticate", false],
+        ["set-auto-approve-permissions", true],
+      ],
+    );
+    assert.equal(panel.context.actions.at(-1).stateLabel, "自动批准已开启");
+    assert.deepEqual(
+      panel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.disabled,
+      ]),
+      [
+        ["mode", "build", true],
+        ["model", "model-a", true],
+        ["reasoning", "default", true],
+      ],
+    );
+    assert.deepInclude(panel.interaction, {
+      kind: "notice",
+      message: "end_turn",
+    });
+    assert.equal(panel.reply.hint, "");
+  });
+
+  it("restores the waiting Skills banner and semantic hint without raw status metadata", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.control = {
+      ...state.selection.control,
+      status: "waiting_user",
+      busy: false,
+      hint: { kind: "waiting_user", message: null },
+      connection: {
+        status: "idle",
+        sessionAvailable: true,
+        connected: false,
+        canConnect: true,
+        canDisconnect: false,
+      },
+      execution: { canCancel: true, canInterrupt: false },
+    };
+    state.selection.presentation.metadata = [
+      { fieldId: "backend", value: "Kilo ACP (npm)" },
+      { fieldId: "workspace", value: "/tmp/skills-workspace" },
+    ];
+    const labels = {
+      assistantPanel: {
+        interaction: { waitingReply: "Agent 正在等待你的回复。" },
+      },
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      labels,
+    );
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => entry.itemId),
+      ["backend", "workspace"],
+    );
+    assert.deepEqual(
+      panel.context.actions.map((entry: any) => [entry.action, entry.enabled]),
+      [
+        ["connect-run", true],
+        ["disconnect-run", false],
+        ["cancel-run", true],
+      ],
+    );
+    assert.deepInclude(panel.interaction, {
+      kind: "waiting_user",
+      message: "Agent 正在等待你的回复。",
+    });
+    assert.equal(panel.reply.hint, "");
+  });
+
+  it("bounds the Chat selector to eight recent sessions, retains active, and appends Show more", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-chat");
+    const selected = owner("acp-chat", "backend-a\nconversation-10");
+    state.selection.owner = selected;
+    state.navigation.selectedOwner = selected;
+    state.navigation.entries = Array.from({ length: 11 }, (_, index) => ({
+      ...state.navigation.entries[0],
+      owner: owner("acp-chat", `backend-a\nconversation-${index}`),
+      label: `Session ${index}`,
+    }));
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    const options = panel.context.selectors[1].options;
+    assert.lengthOf(options, 10);
+    assert.isTrue(
+      options.some((entry: any) => entry.value === selected.ownerKey),
+    );
+    assert.deepInclude(options.at(-1), {
+      value: "__show-more__",
+      sentinel: "show-more",
+    });
+  });
+
+  it("projects structured permission options plus canonical Cancel", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.permission = {
+      request: {
+        requestId: "permission-1",
+        approvalKind: "zotero-write",
+        title: "Update item",
+        summary: "Change title",
+        tool: { title: "Update item", callId: "call-1" },
+        review: {
+          requestedAt: "2026-07-17T00:00:00.000Z",
+          command: null,
+          preview: "title: Revised",
+        },
+        options: [{ optionId: "allow", label: "Allow", description: null }],
+      },
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live", permissionRequestOpen: true },
+      {},
+    );
+    assert.equal(panel.interaction.kind, "permission");
+    assert.equal(panel.interaction.permission.approvalKind, "zotero-write");
+    assert.equal(panel.interaction.permission.review.preview, "title: Revised");
+    assert.deepEqual(
+      panel.interaction.actions.map((entry: any) => entry.payload.outcome),
+      ["selected", "cancelled"],
+    );
+    assert.equal(panel.drawers.permissionRequest.approvalKind, "zotero-write");
+    assert.equal(
+      panel.drawers.permissionRequest.review.preview,
+      "title: Revised",
+    );
+  });
+
+  it("projects Skills plan independently and details from owner-details", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.plan = {
+      items: [
+        {
+          itemId: "plan:0",
+          content: "Read sources",
+          priority: null,
+          status: "running",
+        },
+      ],
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    assert.isTrue(panel.plan.active);
+    assert.equal(panel.plan.activeEntries[0].title, "Read sources");
+    assert.equal(panel.drawers.details[0].entries[0].kind, "path");
+    assert.deepEqual(
+      panel.actions.details.map((entry: any) => entry.action),
+      ["copy-diagnostics", "open-workspace"],
+    );
   });
 
   it("keeps Skills workflow, backend, and apply status axes independent", async function () {
@@ -686,10 +1202,67 @@ describe("Assistant Workspace ACP UI v6", function () {
     assert.include(second[1].className, "is-active");
   });
 
-  it("retries the round6 transcript mutation after a transactional DOM failure", async function () {
+  it("preserves every non-transcript managed region across transcript-only state", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const rootElement = document.createElement("div");
+    const regions = {
+      toolbar: document.createElement("div"),
+      banner: document.createElement("div"),
+      messageCounter: document.createElement("div"),
+      plan: document.createElement("div"),
+      hint: document.createElement("div"),
+      reply: document.createElement("div"),
+      drawer: document.createElement("div"),
+      details: document.createElement("div"),
+    };
+    Object.values(regions).forEach((region) => rootElement.appendChild(region));
+    const state = canonicalState("acp-skills");
+    const ui = {
+      contextDrawerOpen: false,
+      detailsDrawerOpen: false,
+      permissionRequestOpen: false,
+      replyDraft: "draft",
+    };
+    const render = () => {
+      const panel = model.projectAssistantWorkspacePanel(state, ui, {});
+      renderer.renderAssistantPanelSnapshot(panel, {
+        managed: true,
+        root: rootElement,
+        regions,
+        onAction() {},
+      });
+    };
+    render();
+    const identities = Object.fromEntries(
+      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
+    );
+    state.selection.transcript = {
+      ...state.selection.transcript,
+      status: "ready",
+      transcriptRevision: 1,
+      page: {
+        pageKey: "request-a\ntail:80",
+        startCursor: 0,
+        limit: 80,
+        totalVisibleItemCount: 1,
+        previousCursor: null,
+        nextCursor: null,
+        sourceEventSeq: 1,
+        items: [],
+      },
+    };
+    render();
+    for (const [key, region] of Object.entries(regions)) {
+      assert.strictEqual(region.firstChild, identities[key], key);
+    }
+  });
+
+  it("retries a v1 transcript mutation after a transactional DOM failure", async function () {
     const fixture = JSON.parse(
       await readProjectFile(
-        "test/fixtures/assistant-workspace/round6-skills-transcript-mutation.json",
+        "test/fixtures/assistant-workspace/v1-skills-transcript-mutation.json",
       ),
     );
     const document = new FakeDocument();
@@ -777,7 +1350,7 @@ describe("Assistant Workspace ACP UI v6", function () {
       },
     });
     const publication = (publicationId: string, deliverySequence: number) => ({
-      schema: "zotero-agents.assistant-workspace-publication.v6",
+      schema: "zotero-agents.assistant-workspace-publication.v1",
       publicationId,
       owner: selectedOwner,
       publicationKind: "owner-presentation",

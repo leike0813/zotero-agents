@@ -2,6 +2,7 @@ import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPol
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   getAcpSkillRunWorkspaceReadModel,
+  getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
   listAcpSkillRunSummaries,
   readAcpSkillRunTranscriptRegion,
@@ -10,11 +11,14 @@ import {
   type AcpSkillRunTranscriptPageRequest,
 } from "./acpSkillRunStore";
 import type {
+  AssistantWorkspaceDetailsFieldId,
   AssistantWorkspaceOwnerNavigation,
   AssistantWorkspacePublicationKind,
 } from "./assistantWorkspacePublication";
-import { createAcpSkillsWorkspaceOwner } from "./assistantWorkspacePublication";
-import { resolveAcpSkillRunWorkflowTaskState } from "./acpSkillRunTaskProjection";
+import {
+  createAcpSkillsWorkspaceOwner,
+  projectAssistantWorkspacePermissionRequest,
+} from "./assistantWorkspacePublication";
 import {
   defineAssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationAdapter,
@@ -30,6 +34,7 @@ export const ACP_SKILL_RUN_CHANGE_PUBLICATION_MAPPING = {
     "owner-presentation",
   ],
   transcript: ["transcript"],
+  plan: ["plan"],
   progress: ["message-counts"],
   "runtime-options": ["composer"],
   selection: ["owner-navigation"],
@@ -50,6 +55,123 @@ export function mapAcpSkillRunChangeToPublicationKinds(
   );
 }
 
+type AcpSkillRunWorkspaceRecord = NonNullable<
+  ReturnType<typeof getAcpSkillRunWorkspaceReadModel>
+>;
+
+function isAcpSkillRunConnected(record: AcpSkillRunWorkspaceRecord) {
+  return (
+    record.conversationState === "active" ||
+    record.conversationRecoveryState === "connected"
+  );
+}
+
+function acpSkillRunInteractionState(
+  record: AcpSkillRunWorkspaceRecord,
+  connected: boolean,
+) {
+  const status = String(record.status || "").trim();
+  const activeContinuation =
+    record.replyState === "submitted" || record.replyState === "accepted";
+  const interruptedTurn =
+    record.promptInterruptState === "confirmed" ||
+    record.promptInterruptState === "forced";
+  const connectedIdleRun =
+    connected &&
+    !["succeeded", "failed", "canceled"].includes(status) &&
+    !record.activePrompt &&
+    !activeContinuation &&
+    record.replyState === "idle" &&
+    !record.pendingPermission &&
+    interruptedTurn;
+  const waitingForUser =
+    status === "waiting_user" ||
+    (Boolean(record.pendingInteraction) &&
+      !record.activePrompt &&
+      !activeContinuation) ||
+    connectedIdleRun;
+  return { activeContinuation, waitingForUser };
+}
+
+function acpSkillRunHint(
+  record: AcpSkillRunWorkspaceRecord,
+  connected: boolean,
+  interactionState: ReturnType<typeof acpSkillRunInteractionState>,
+) {
+  const error = String(record.error || record.conversationError || "").trim();
+  if (error) return { kind: "error" as const, message: error };
+  const status = String(record.status || "").trim();
+  if (interactionState.waitingForUser) {
+    return {
+      kind: "waiting_user" as const,
+      message: record.pendingInteraction?.message || null,
+    };
+  }
+  const recoverableDisconnected =
+    Boolean(record.sessionId) &&
+    !connected &&
+    record.conversationRecoveryState === "available";
+  if (recoverableDisconnected) {
+    return { kind: "disconnected" as const, message: null };
+  }
+  if (status === "repairing") {
+    return { kind: "repairing" as const, message: null };
+  }
+  if (
+    status === "queued" ||
+    status === "running" ||
+    record.activePrompt ||
+    interactionState.activeContinuation
+  ) {
+    return { kind: "running" as const, message: null };
+  }
+  if (status === "succeeded") {
+    return { kind: "completed" as const, message: null };
+  }
+  if (status === "canceled") {
+    return { kind: "canceled" as const, message: null };
+  }
+  if (status === "failed" || status === "failed_retriable") {
+    return { kind: "error" as const, message: null };
+  }
+  return { kind: "hidden" as const, message: null };
+}
+
+function acpSkillRunSecondaryLabel(value: {
+  requestId: string;
+  skillName?: string;
+  skillId?: string;
+  workflowLabel?: string;
+  workflowId?: string;
+  sequenceStepId?: string;
+  sequenceStepIndex?: number;
+}) {
+  const skillLabel =
+    String(value.skillName || value.skillId || value.requestId).trim() ||
+    value.requestId;
+  const sequenceStepIndex = Number(value.sequenceStepIndex);
+  const hasSequenceStepIndex =
+    typeof value.sequenceStepIndex === "number" &&
+    Number.isFinite(sequenceStepIndex) &&
+    sequenceStepIndex >= 0;
+  if (!value.sequenceStepId && !hasSequenceStepIndex) return skillLabel;
+  const sequenceNumber = hasSequenceStepIndex
+    ? Math.floor(sequenceStepIndex) + 1
+    : null;
+  const sequenceLabel = sequenceNumber
+    ? ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"][
+        sequenceNumber - 1
+      ] || `#${sequenceNumber}`
+    : "";
+  const workflowLabel = String(
+    value.workflowLabel || value.workflowId || "",
+  ).trim();
+  const taskLabel = workflowLabel
+    ? `${skillLabel}/${workflowLabel}`
+    : skillLabel;
+  return [sequenceLabel, taskLabel].filter(Boolean).join(" ");
+}
+
 export async function readAcpSkillRunWorkspaceRegions(args: {
   requestId: string;
   kinds: readonly Exclude<
@@ -62,6 +184,8 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
   const requested = new Set(args.kinds);
   const regions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind> =
     {};
+  const connected = isAcpSkillRunConnected(record);
+  const interactionState = acpSkillRunInteractionState(record, connected);
   if (requested.has("message-counts")) {
     regions["message-counts"] = {
       counts: snapshotAcpMessageCounts(record.requestId) || null,
@@ -69,41 +193,67 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
   }
   if (requested.has("composer")) {
     const options = record.runtimeOptions;
+    const replyAllowed =
+      connected &&
+      (interactionState.waitingForUser || record.status === "failed_retriable");
     regions.composer = {
       reply: {
-        status: record.activePrompt ? "busy" : "enabled",
-        hint: record.pendingInteraction?.message || null,
+        status:
+          record.promptInterruptState === "requested"
+            ? "cancelling"
+            : record.activePrompt || interactionState.activeContinuation
+              ? "busy"
+              : replyAllowed && !record.pendingPermission
+                ? "enabled"
+                : "disabled",
       },
       runtimeOptions: {
-        mode: optionGroup(options?.modeOptions, options?.currentMode?.id),
+        mode: optionGroup(
+          connected ? options?.modeOptions : [],
+          options?.currentMode?.id,
+          connected && Boolean(options?.modeOptions.length),
+        ),
         model: optionGroup(
-          options?.displayModelOptions?.length
-            ? options.displayModelOptions
-            : options?.modelOptions,
+          connected && !record.activePrompt
+            ? options?.displayModelOptions?.length
+              ? options.displayModelOptions
+              : options?.modelOptions
+            : [],
           options?.currentDisplayModel?.id || options?.currentModel?.id,
+          connected &&
+            !record.activePrompt &&
+            Boolean(
+              options?.displayModelOptions.length ||
+              options?.modelOptions.length,
+            ),
         ),
         reasoningEffort: optionGroup(
-          options?.reasoningEffortOptions,
+          connected && !record.activePrompt
+            ? options?.reasoningEffortOptions
+            : [],
           options?.currentReasoningEffort?.id,
+          connected &&
+            !record.activePrompt &&
+            Boolean(options?.reasoningEffortOptions.length),
         ),
       },
     };
   }
   if (requested.has("permission")) {
-    const pending = record.pendingPermission;
     regions.permission = {
-      request: pending
-        ? {
-            requestId: pending.requestId,
-            title: pending.toolTitle,
-            summary: pending.summary || "",
-            options: (pending.options || []).map((option) => ({
-              optionId: option.optionId,
-              label: option.name,
-              description: option.description || null,
-            })),
-          }
-        : null,
+      request: projectAssistantWorkspacePermissionRequest(
+        record.pendingPermission,
+      ),
+    };
+  }
+  if (requested.has("plan")) {
+    regions.plan = {
+      items: record.planEntries.map((entry, index) => ({
+        itemId: `plan:${index}`,
+        content: String(entry.content || ""),
+        priority: entry.priority ? String(entry.priority) : null,
+        status: entry.status ? String(entry.status) : null,
+      })),
     };
   }
   if (requested.has("owner-presentation")) {
@@ -114,59 +264,19 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
           record.skillId ||
           record.requestId,
       ).trim() || record.requestId;
-    const sequencePrefix = record.sequenceStepId
-      ? `Step ${Math.max(1, Number(record.sequenceStepIndex) + 1)} · `
-      : "";
-    const subtitleValue =
-      String(record.skillName || record.skillId || record.requestId).trim() ||
-      record.requestId;
     regions["owner-presentation"] = {
       title,
-      subtitle: `${sequencePrefix}${subtitleValue}`,
-      description: String(record.error || "").trim() || null,
-      notice: String(
-        record.error ||
-          record.conversationError ||
-          record.pendingInteraction?.message ||
-          "",
-      ).trim()
-        ? {
-            tone:
-              record.error || record.conversationError
-                ? ("danger" as const)
-                : ("warning" as const),
-            text: String(
-              record.error ||
-                record.conversationError ||
-                record.pendingInteraction?.message ||
-                "",
-            ).trim(),
-          }
-        : null,
+      subtitle: acpSkillRunSecondaryLabel(record),
+      description: null,
+      notice: null,
       metadata: [
         {
           fieldId: "backend" as const,
           value: String(record.backendLabel || record.backendId || ""),
         },
         {
-          fieldId: "workflow" as const,
-          value: String(record.workflowLabel || record.workflowId || ""),
-        },
-        {
-          fieldId: "status" as const,
-          value: String(record.status || ""),
-        },
-        {
-          fieldId: "backend-status" as const,
-          value: String(record.backendStatus || ""),
-        },
-        {
-          fieldId: "apply-state" as const,
-          value: String(record.applyResultState || ""),
-        },
-        {
-          fieldId: "updated-at" as const,
-          value: String(record.updatedAt || ""),
+          fieldId: "workspace" as const,
+          value: String(record.workspaceDir || ""),
         },
       ].filter((entry) => entry.value),
       usage: record.usage
@@ -176,79 +286,94 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
             costText: null,
           }
         : null,
-      sections: [
-        {
-          sectionId: "context" as const,
-          items: [
-            {
-              fieldId: "workflow" as const,
-              value: String(record.workflowLabel || record.workflowId || ""),
-            },
-            {
-              fieldId: "skill" as const,
-              value: String(record.skillName || record.skillId || ""),
-            },
-            {
-              fieldId: "backend" as const,
-              value: String(record.backendLabel || record.backendId || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "connection" as const,
-          items: [
-            {
-              fieldId: "conversation" as const,
-              value: String(record.conversationState || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "recovery" as const,
-          items: [
-            {
-              fieldId: "recovery" as const,
-              value: String(record.conversationRecoveryState || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "workspace" as const,
-          items: [
-            {
-              fieldId: "workspace" as const,
-              value: String(record.workspaceDir || ""),
-            },
-            {
-              fieldId: "runtime" as const,
-              value: String(record.runtimeDir || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-        {
-          sectionId: "session" as const,
-          items: [
-            {
-              fieldId: "session" as const,
-              value: String(record.sessionId || ""),
-            },
-            {
-              fieldId: "model" as const,
-              value: String(record.acpModelId || record.acpRawModelId || ""),
-            },
-            {
-              fieldId: "reasoning" as const,
-              value: String(record.acpReasoningEffort || ""),
-            },
-          ].filter((entry) => entry.value),
-        },
-      ].filter((section) => section.items.length > 0),
     };
   }
+  if (requested.has("owner-details")) {
+    const details = await getAcpSkillRunWorkspaceDetailsReadModel(
+      args.requestId,
+    );
+    if (details) {
+      const item = (
+        fieldId: AssistantWorkspaceDetailsFieldId,
+        value: unknown,
+        format: "text" | "path" | "code" | "json" = "text",
+      ) => ({ fieldId, value: String(value || "").trim(), format });
+      const section = <
+        T extends
+          | "run-paths"
+          | "runner"
+          | "validation"
+          | "runtime-dependencies"
+          | "output-revisions"
+          | "runtime-logs"
+          | "result-json",
+      >(
+        sectionId: T,
+        collapsed: boolean,
+        items: ReturnType<typeof item>[],
+      ) => ({
+        sectionId,
+        collapsed,
+        items: items.filter((entry) => entry.value),
+      });
+      regions["owner-details"] = {
+        status: "ready",
+        title: record.taskName || record.workflowLabel || record.requestId,
+        subtitle: record.requestId,
+        sections: [
+          section("run-paths", false, [
+            item("workspace", details.workspaceDir, "path"),
+            item("runtime", details.runtimeDir, "path"),
+            item("input-manifest", details.inputManifestPath, "path"),
+            item("result-artifact", details.resultJsonPath, "path"),
+          ]),
+          section("runner", false, [
+            item("backend", details.backend),
+            item("agent-family", details.agentFamily),
+            item("mode", details.acpModeId),
+            item("model", details.acpModelId),
+            item("reasoning", details.acpReasoningEffort),
+            item("raw-model", details.acpRawModelId),
+            item("skill", details.skillId),
+            item("skill-roots", details.skillRoots.join("\n"), "path"),
+            item("session", details.sessionId),
+          ]),
+          section("validation", false, [
+            item("validation-status", details.validationStatus),
+            item("repair-rounds", details.repairRounds),
+            item("validation-errors", details.validationErrors.join("\n")),
+            item("run-error", details.error),
+            item("conversation-error", details.conversationError),
+            item("conversation-state", details.conversationState),
+            item("apply-result", details.applyResultState),
+            item("applied-at", details.appliedAt),
+          ]),
+          section("runtime-dependencies", false, [
+            item("dependency-status", details.runtimeDependencyStatus),
+            item("dependencies", details.runtimeDependencies.join("\n")),
+            item("dependency-error", details.runtimeDependencyError),
+          ]),
+          section("output-revisions", true, [
+            item("revision-count", details.outputRevisions.length),
+            item(
+              "candidate-preview",
+              JSON.stringify(details.outputRevisions, null, 2),
+              "json",
+            ),
+          ]),
+          section("runtime-logs", true, [
+            item("logs", JSON.stringify(details.runtimeLogs, null, 2), "json"),
+          ]),
+          section("result-json", true, [
+            item("result-json", details.resultJsonText, "json"),
+          ]),
+        ].filter((entry) => entry.items.length > 0),
+        actions: ["copy-id", "copy-diagnostics", "open-workspace"],
+        error: null,
+      };
+    }
+  }
   if (requested.has("owner-control")) {
-    const connected =
-      record.conversationState === "active" ||
-      record.conversationRecoveryState === "connected";
     const connectionChanging =
       record.connectionActionState === "connecting" ||
       record.connectionActionState === "disconnecting";
@@ -257,8 +382,10 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
       busy:
         record.status === "running" ||
         record.status === "repairing" ||
-        record.activePrompt,
-      message: record.error || null,
+        record.activePrompt ||
+        record.replyState === "submitted" ||
+        record.replyState === "accepted",
+      hint: acpSkillRunHint(record, connected, interactionState),
       connection: {
         status: String(
           record.connectionActionState ||
@@ -278,11 +405,17 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         canDisconnect: connected && !connectionChanging,
       },
       execution: {
-        canCancel:
-          record.status === "running" ||
-          record.status === "repairing" ||
-          record.activePrompt,
+        canCancel: !["succeeded", "failed", "canceled"].includes(record.status),
         canInterrupt: record.activePrompt,
+      },
+      authentication: {
+        required: false,
+        canAuthenticate: false,
+        methodId: null,
+      },
+      permissionPolicy: {
+        autoApprove: false,
+        canSetAutoApprove: false,
       },
     };
   }
@@ -326,24 +459,11 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
             summary.skillId ||
             summary.requestId,
         ).trim() || summary.requestId,
-      subtitle:
-        `${
-          summary.sequenceStepId
-            ? `Step ${Math.max(
-                1,
-                Number(summary.sequenceStepIndex || 0) + 1,
-              )} · `
-            : ""
-        }${String(
-          summary.skillName ||
-            summary.skillId ||
-            summary.workflowLabel ||
-            summary.requestId,
-        ).trim()}` || null,
+      subtitle: acpSkillRunSecondaryLabel(summary),
       description: String(summary.error || "").trim() || null,
       groupLabel:
         String(summary.backendLabel || summary.backendId || "").trim() || null,
-      status: String(resolveAcpSkillRunWorkflowTaskState(summary)),
+      status: String(summary.status || "queued"),
       backendStatus: String(summary.backendStatus || "").trim() || null,
       applyState: String(summary.applyResultState || "").trim() || null,
       attention:
@@ -365,9 +485,11 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
       "owner-control",
       "message-counts",
       "transcript",
+      "plan",
       "permission",
       "composer",
       "owner-presentation",
+      "owner-details",
     ],
     selectedOwner() {
       const requestId = getSelectedAcpSkillRunRequestId();
@@ -429,6 +551,7 @@ function optionGroup(
     | Array<{ id: string; label: string; description?: string }>
     | undefined,
   selectedOptionId: string | undefined,
+  enabled: boolean,
 ) {
   return {
     selectedOptionId: selectedOptionId || null,
@@ -437,5 +560,6 @@ function optionGroup(
       label: option.label,
       description: option.description || null,
     })),
+    enabled,
   };
 }

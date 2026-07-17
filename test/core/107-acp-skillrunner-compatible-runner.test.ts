@@ -109,6 +109,10 @@ import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+import {
+  ACP_SKILLS_WORKSPACE_ADAPTER,
+  readAcpSkillRunWorkspaceRegions,
+} from "../../src/modules/acpSkillsWorkspaceSurface";
 
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
@@ -2119,6 +2123,92 @@ describe("ACP SkillRunner-compatible runner", function () {
         (entry) => entry.requestId,
       ),
       "acp-waiting-sync",
+    );
+  });
+
+  it("projects a disconnected waiting Skills run as waiting with resident reconnect controls", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-waiting-surface",
+      backendId: "backend-acp",
+      backendType: "acp",
+      backendLabel: "ACP Backend",
+      workspaceDir: "/workspace/acp-waiting-surface",
+      sessionId: "session-waiting",
+      status: "waiting_user",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      connectionActionState: "idle",
+      activePrompt: false,
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-waiting-surface",
+      kinds: ["owner-control", "composer", "owner-presentation"],
+    });
+
+    assert.deepInclude(regions["owner-control"]?.connection, {
+      connected: false,
+      canConnect: true,
+      canDisconnect: false,
+    });
+    assert.equal(regions["owner-control"]?.hint.kind, "waiting_user");
+    assert.equal(regions.composer?.reply.status, "disabled");
+    assert.deepEqual(regions["owner-presentation"]?.metadata, [
+      { fieldId: "backend", value: "ACP Backend" },
+      { fieldId: "workspace", value: "/workspace/acp-waiting-surface" },
+    ]);
+  });
+
+  it("projects an interrupted connected Skills turn as waiting for a reply", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-interrupted-surface",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-interrupted",
+      status: "running",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      replyState: "idle",
+      promptInterruptState: "forced",
+      activePrompt: false,
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-interrupted-surface",
+      kinds: ["owner-control", "composer"],
+    });
+
+    assert.equal(regions["owner-control"]?.hint.kind, "waiting_user");
+    assert.equal(regions.composer?.reply.status, "enabled");
+  });
+
+  it("keeps both sequence skill and workflow roles in the Skills subtitle when their labels match", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-subtitle",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "waiting_user",
+      skillName: "📊 文献分析",
+      workflowLabel: "📊 文献分析",
+      sequenceStepId: "digest",
+      sequenceStepIndex: 0,
+    });
+    selectAcpSkillRun("acp-sequence-subtitle");
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-sequence-subtitle",
+      kinds: ["owner-presentation"],
+    });
+    const navigation = await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+    const expectedSubtitle = "1️⃣ 📊 文献分析/📊 文献分析";
+
+    assert.equal(regions["owner-presentation"]?.subtitle, expectedSubtitle);
+    assert.equal(
+      navigation.entries.find(
+        (entry) => entry.owner.requestId === "acp-sequence-subtitle",
+      )?.subtitle,
+      expectedSubtitle,
     );
   });
 
