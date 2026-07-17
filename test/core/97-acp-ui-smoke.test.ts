@@ -191,6 +191,22 @@ async function loadTranscriptRenderer(document: FakeDocument) {
   return (context.window as any).AssistantTranscriptRenderer;
 }
 
+function createPanelManagedRegions(document: FakeDocument) {
+  const root = document.createElement("div");
+  const regions = {
+    toolbar: document.createElement("div"),
+    banner: document.createElement("div"),
+    messageCounter: document.createElement("div"),
+    plan: document.createElement("div"),
+    hint: document.createElement("div"),
+    reply: document.createElement("div"),
+    drawer: document.createElement("div"),
+    details: document.createElement("div"),
+  };
+  Object.values(regions).forEach((region) => root.appendChild(region));
+  return { root, regions };
+}
+
 async function loadAssistantRendererContext(document: FakeDocument) {
   const transcriptCode = await readProjectFile(
     "addon/content/shared/assistant/assistant-transcript-renderer.js",
@@ -680,28 +696,118 @@ describe("Assistant Workspace ACP UI v1", function () {
     });
   });
 
+  it("renders SkillRunner message counts without rebuilding other managed regions", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const render = (assistant: number, cumulativeAssistant: number) => {
+      const messageCounts = {
+        scopeKey: "skillrunner-task-a",
+        executionKey: "execution-a",
+        active: false,
+        current: { assistant, thought: 2, tool: 3 },
+        cumulative: {
+          assistant: cumulativeAssistant,
+          thought: 5,
+          tool: 6,
+        },
+        completeness: "complete",
+        revision: assistant,
+      };
+      const envelope = {
+        ...skillRunnerEnvelope({
+          title: "Task Alpha",
+          status: "completed",
+          requestId: "req-a",
+        }),
+        labels: {
+          assistantPanel: {
+            emptyState: { noTask: "No task" },
+            transcript: {
+              assistant: "Assistant",
+              thinking: "Thought",
+              tool: "Tool",
+            },
+          },
+        },
+        messageCounts,
+      };
+      const panel = model.projectSkillRunnerPanelSnapshot(envelope);
+      assert.deepEqual(panel.messageCounts, messageCounts);
+      renderer.renderAssistantPanelSnapshot(panel, {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      });
+    };
+
+    render(1, 4);
+    assert.isFalse(regions.messageCounter.classList.contains("hidden"));
+    assert.equal(
+      regions.messageCounter.getAttribute("data-message-counter-owner"),
+      "skillrunner-task-a",
+    );
+    const counterItems = regions.messageCounter.querySelectorAll(
+      ".assistant-message-counter-item",
+    );
+    const counterValues = regions.messageCounter.querySelectorAll(
+      ".assistant-message-counter-value",
+    );
+    assert.deepEqual(
+      regions.messageCounter
+        .querySelectorAll(".assistant-message-counter-label")
+        .map((entry) => entry.textContent),
+      ["Assistant", "Thought", "Tool"],
+    );
+    assert.deepEqual(
+      counterValues.map((entry) => entry.textContent),
+      ["1/4", "2/5", "3/6"],
+    );
+    const stableRegions = [
+      "toolbar",
+      "banner",
+      "plan",
+      "hint",
+      "reply",
+      "drawer",
+      "details",
+    ] as const;
+    const stableIdentities = new Map(
+      stableRegions.map((key) => [key, regions[key].firstChild]),
+    );
+
+    render(2, 5);
+    assert.deepEqual(
+      counterValues.map((entry) => entry.textContent),
+      ["2/5", "2/5", "3/6"],
+    );
+    regions.messageCounter
+      .querySelectorAll(".assistant-message-counter-item")
+      .forEach((entry, index) => {
+        assert.strictEqual(entry, counterItems[index]);
+      });
+    stableRegions.forEach((key) => {
+      assert.strictEqual(
+        regions[key].firstChild,
+        stableIdentities.get(key),
+        key,
+      );
+    });
+  });
+
   it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
     const document = new FakeDocument();
     const model = await loadPanelModel();
     const renderer = await loadPanelRenderer(document);
-    const rootElement = document.createElement("div");
-    const regions = {
-      toolbar: document.createElement("div"),
-      banner: document.createElement("div"),
-      messageCounter: document.createElement("div"),
-      plan: document.createElement("div"),
-      hint: document.createElement("div"),
-      reply: document.createElement("div"),
-      drawer: document.createElement("div"),
-      details: document.createElement("div"),
-    };
-    Object.values(regions).forEach((region) => rootElement.appendChild(region));
+    const { root, regions } = createPanelManagedRegions(document);
     const render = (session: Record<string, unknown> | null) => {
       renderer.renderAssistantPanelSnapshot(
         model.projectSkillRunnerPanelSnapshot(skillRunnerEnvelope(session)),
         {
           managed: true,
-          root: rootElement,
+          root,
           regions,
           onAction() {},
         },
@@ -1206,18 +1312,7 @@ describe("Assistant Workspace ACP UI v1", function () {
     const document = new FakeDocument();
     const model = await loadPanelModel();
     const renderer = await loadPanelRenderer(document);
-    const rootElement = document.createElement("div");
-    const regions = {
-      toolbar: document.createElement("div"),
-      banner: document.createElement("div"),
-      messageCounter: document.createElement("div"),
-      plan: document.createElement("div"),
-      hint: document.createElement("div"),
-      reply: document.createElement("div"),
-      drawer: document.createElement("div"),
-      details: document.createElement("div"),
-    };
-    Object.values(regions).forEach((region) => rootElement.appendChild(region));
+    const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills");
     const ui = {
       contextDrawerOpen: false,
@@ -1229,7 +1324,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       const panel = model.projectAssistantWorkspacePanel(state, ui, {});
       renderer.renderAssistantPanelSnapshot(panel, {
         managed: true,
-        root: rootElement,
+        root,
         regions,
         onAction() {},
       });

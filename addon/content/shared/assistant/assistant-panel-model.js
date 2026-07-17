@@ -1525,9 +1525,14 @@
         : {};
     const labels =
       source.labels && typeof source.labels === "object" ? source.labels : {};
+    const messageCounts =
+      source.messageCounts && typeof source.messageCounts === "object"
+        ? source.messageCounts
+        : null;
     return {
       kind,
       labels,
+      messageCounts,
       context: Object.assign(
         {
           id: "",
@@ -1789,6 +1794,7 @@
         envelope.labels && typeof envelope.labels === "object"
           ? envelope.labels
           : {},
+      messageCounts: envelope.messageCounts,
       context: {
         id: safeText(session.requestId || session.id),
         title:
