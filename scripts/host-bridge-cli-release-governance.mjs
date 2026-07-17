@@ -195,6 +195,14 @@ export function bumpPatchVersion(version) {
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4] || ""}`;
 }
 
+export function bumpMinorVersion(version) {
+  const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
+  if (!match) {
+    throw new Error(`Unsupported Cargo package version: ${version}`);
+  }
+  return `${match[1]}.${Number(match[2]) + 1}.0${match[4] || ""}`;
+}
+
 export function replaceCargoPackageVersion(source, version) {
   let inPackage = false;
   return String(source || "")
@@ -307,7 +315,9 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   const previousVersion = status.currentVersion;
   const version = options.noBump
     ? previousVersion
-    : bumpPatchVersion(previousVersion);
+    : options.intent === "minor"
+      ? bumpMinorVersion(previousVersion)
+      : bumpPatchVersion(previousVersion);
   if (!options.noBump) {
     const cargoToml = await readText(root, CARGO_TOML_PATH);
     const cargoLock = await readText(root, CARGO_LOCK_PATH);
@@ -427,6 +437,19 @@ async function main(argv) {
     const noBump = args.includes("--no-bump");
     printJson(
       await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }),
+    );
+    return;
+  }
+  if (command === "bump-minor") {
+    if (!write) {
+      throw new Error("bump-minor requires --write");
+    }
+    printJson(
+      await bumpHostBridgeCliPatchVersion({
+        force,
+        dispatchReason,
+        intent: "minor",
+      }),
     );
     return;
   }

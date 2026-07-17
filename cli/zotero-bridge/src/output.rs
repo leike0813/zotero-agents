@@ -23,7 +23,7 @@ pub fn print_success(data: Value) {
         data,
         meta: json!({
             "cli": "zotero-bridge",
-            "schema": "zotero-bridge.cli.v1"
+            "schema": "zotero-bridge.cli.v2"
         }),
     };
     println!(
@@ -38,7 +38,7 @@ pub fn print_error(error: CliError) {
         error: error.to_payload(),
         meta: json!({
             "cli": "zotero-bridge",
-            "schema": "zotero-bridge.cli.v1"
+            "schema": "zotero-bridge.cli.v2"
         }),
     };
     println!(

@@ -4,7 +4,6 @@ import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
-import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 import {
   inspectZoteroLibrarianProfileVersion,
   ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
@@ -55,11 +54,13 @@ const REQUIRED_FILES = [
   "assets/profile-manifest-source.json",
 ];
 const SEMANTIC_SOURCE_FILES = [
+  "README.md",
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
@@ -249,7 +250,6 @@ function checkSecrets(errors: string[]) {
 
 function checkHostBridgeSurface(errors: string[]) {
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
-  const release = readZoteroBridgeCliRelease(ROOT);
   errors.push(...validateHostBridgeSurfaceCatalog(catalog));
   const capabilityNames = new Set(
     catalog.capabilities.map((entry) => entry.name),
@@ -303,7 +303,8 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-bridge workflow agent-apply",
     "nextCursor",
     "collectionKey",
-    `zotero-bridge\` CLI version \`${release.version}\``,
+    "zotero-bridge surface identity --json",
+    "SemVer alone is not compatibility evidence",
   ]) {
     assertIncludes(errors, hostReference, snippet, "host-bridge reference");
   }
@@ -317,7 +318,7 @@ function checkHostBridgeSurface(errors: string[]) {
     "$zotero-workflow-agent-runner",
     "workflow agent-apply",
     "agentRunId",
-    "zotero-bridge --version",
+    "zotero-bridge surface identity --json",
   ]) {
     assertIncludes(errors, skill, snippet, "zotero-librarian skill");
   }

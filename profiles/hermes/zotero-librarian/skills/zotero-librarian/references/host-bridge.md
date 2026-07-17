@@ -3,11 +3,11 @@
 This reference is generated from the Host Bridge capability registry and Rust CLI mappings.
 
 <!-- zotero-librarian:host-bridge:start -->
-## CLI Release
+## CLI Identity
 
-This profile surface is generated for `zotero-bridge` CLI version `0.2.2`.
+Run `zotero-bridge surface identity --json` and compare CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. SemVer alone is not compatibility evidence.
 
-Confirm with `zotero-bridge --version` when the loaded profile or skill path is uncertain, command help does not match this reference, or a CLI error points to command shape mismatch. If the observed version differs, prefer the profile copy and CLI shim from the active workspace, then inspect `zotero-bridge --help` or this generated reference beside that profile copy.
+Load the relevant generated card under `references/commands/` for task-oriented command choice; use the table below only for exhaustive target inspection.
 
 ## CLI Commands
 

@@ -100,8 +100,16 @@ describe("zotero-librarian Hermes profile distribution", function () {
 
   it("documents the standalone repository install path", async function () {
     const readme = await readProfile("README.md");
+    const sourceReadme = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "profiles_src/hermes/zotero-librarian/README.md",
+      ),
+      "utf8",
+    );
     const distribution = await readProfile("distribution.yaml");
 
+    assert.strictEqual(readme, sourceReadme);
     assert.include(readme, "https://github.com/leike0813/zotero-agents");
     assert.include(
       readme,
@@ -262,7 +270,11 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
     assert.strictEqual(
       packageJson.scripts["check:host-bridge-surface"],
-      "tsx scripts/render-host-bridge-surface.ts --check && tsx scripts/render-zotero-library-agent-bundle.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check && tsx scripts/render-host-bridge-release-set.ts --check",
+      "npm run check:host-bridge-content && tsx scripts/render-zotero-library-agent-bundle.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check && tsx scripts/render-host-bridge-release-set.ts --check",
+    );
+    assert.include(
+      packageJson.scripts["check:host-bridge-content"],
+      "--content-only",
     );
     assert.include(
       packageJson.scripts["inspect:zotero-librarian-profile-version"],

@@ -14,8 +14,19 @@ Use Host Bridge to inspect Zotero first, keep object and run handles explicit, a
 3. Read `references/workflow-execution.md` before submitting, interacting with, or applying a workflow.
 4. Read `references/evidence-handoff.md` when the result will be handed to another agent, framework, or later task.
 5. Use `references/terminology.md` when Zotero, Synthesis, artifact, or run terminology is ambiguous.
-6. Use `references/host-bridge.md` for the generated command surface and current CLI version.
-7. Read the bundled `zotero-bridge-cli` Skill when connection setup, profile discovery, raw payload shape, or CLI failure handling needs more detail.
+6. Read exactly one matching journey below; each journey points to the bundled `zotero-bridge-cli` command card when exact payload or result fields are needed.
+7. Read the bundled `zotero-bridge-cli` Skill before connection setup, identity comparison, command invocation, paging/file delivery, or failure recovery.
+
+## Journey references
+
+- `references/journeys/current-context-and-library-read.md`: deictic selection, search versus list, item detail, notes, and attachment evidence.
+- `references/journeys/notes-attachments-and-readiness.md`: note chunks and payloads, annotations, PDF/Markdown/analysis readiness, and generated attachments.
+- `references/journeys/synthesis-research-context.md`: topics, graph views, indexes, resolvers, artifacts, schemas, and attention queues.
+- `references/journeys/host-owned-workflow.md`: describe, requirements, validate, submit, monitor, permissions, interaction, and Product evidence.
+- `references/journeys/agent-owned-handoff.md`: agent-run bundle execution, result validation, apply-back, and receipt recovery.
+- `references/journeys/concrete-writeback.md`: previewed mutations, semantic write commands, approval, and live verification.
+- `references/journeys/products-and-files.md`: local paths, registered files, Dashboard Products, downloads, and attachment delivery.
+- `references/helper-script-contract.md`: deterministic evidence construction, validation, and workflow-bundle inspection.
 
 ## Operating Loop
 
@@ -40,3 +51,14 @@ Use Host Bridge to inspect Zotero first, keep object and run handles explicit, a
 - Re-discover a command or object only when the error indicates stale syntax or identity; do not guess alternate handles.
 - When an operation returns a file handle or output path, verify the declared file before using it as evidence or apply-back input.
 - When required authority, input, or user intent is missing, stop at the boundary and state the exact missing decision.
+
+## Helper entrypoint
+
+Build and validate a hash-bound evidence record with the packaged helper:
+
+```sh
+python scripts/zotero_library_agent.py evidence build --input evidence-input.json --output evidence.json
+python scripts/zotero_library_agent.py evidence validate --input evidence.json
+```
+
+Read `references/helper-script-contract.md` before using the helper. The script validates deterministic shape, computes artifact digests, and inspects workflow bundles; the agent remains responsible for command choice, interpretation, evidence sufficiency, and whether a reviewed action is authorized.

@@ -34,7 +34,19 @@ Stdout is one JSON envelope. On failure, use `retryable`, `stateChanged`, `handl
 
 ## References
 
-- `references/host-bridge-cli.md`: generated command and capability reference.
+- `references/identity-and-connection.md`: read before installation, profile selection, identity comparison, or connectivity diagnosis.
+- `references/invocation-and-json-input.md`: read before constructing `--query`, `--input`, stdin, file, pagination, or output-path arguments.
+- `references/commands/connectivity-context.md`: read for surface discovery, bridge diagnostics, current context, and navigation.
+- `references/commands/library-items.md`: read for library search, deterministic item listing, item detail, notes, and attachments.
+- `references/commands/library-notes-attachments-readiness.md`: read for note payloads, annotations, readiness audits, and snapshot paging.
+- `references/commands/workflows-and-runs.md`: read before workflow selection, submit, agent handoff, apply-back, monitoring, interaction, or permission inspection.
+- `references/commands/mutations-files-products.md`: read before mutation preview/apply, semantic writes, file transfer, or Product operations.
+- `references/commands/synthesis-topics-artifacts.md`: read for topics, paper artifacts, Concept KB, and schema queries.
+- `references/commands/synthesis-graph.md`: read for graph overview, slice, layout, metrics, clustering, ranking, and metric refresh.
+- `references/commands/synthesis-index-resolver-insights.md`: read for indexes, resolver selectors, attention queues, and cache maintenance.
+- `references/commands/diagnostics.md`: read only after ordinary bridge/profile/backend diagnostics cannot explain the problem.
+- `references/output-and-recovery.md`: read after any failure, uncertain write, partial apply-back, paging interruption, or file-delivery problem.
+- `references/host-bridge-cli.md`: exhaustive generated command and capability diagnostics.
 - `references/control-invariants.md`: shared protocol-level safety facts.
 - `references/agent-guidance.md`: connection, identity, and failure-recovery procedure.
 - `references/terminology.md`: shared handle and Host Bridge terminology.

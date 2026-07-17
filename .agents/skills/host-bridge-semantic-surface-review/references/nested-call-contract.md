@@ -1,6 +1,6 @@
 # Nested Call Contract
 
-The Host Bridge release pipeline calls this skill before rendering Host Bridge surfaces.
+Host Bridge feature-content and release-preparation flows call this skill before rendering governed surfaces.
 
 ## Pipeline Entry
 
@@ -34,4 +34,4 @@ This skill may edit semantic sources when review finds a mismatch. It keeps on-d
 
 This skill must not publish releases, run GitHub workflows, sync prebuilds, or treat generated output as source-of-truth content.
 
-The release pipeline remains responsible for rendering, checks, publication, release workflow tracking, and final reporting.
+The caller remains responsible for content-only rendering and checks. Release preparation, publication, workflow tracking, and receipt reporting remain separate release-pipeline responsibilities.

@@ -8,12 +8,10 @@ import {
   type HostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
 import {
-  readZoteroBridgeCliRelease,
-  type ZoteroBridgeCliRelease,
-} from "./zotero-bridge-cli-release";
-import {
   buildHostBridgeAgentSurfaceDescriptor,
   serializeHostBridgeAgentSurface,
+  type HostBridgeArgvBinding,
+  type HostBridgeAgentSurfaceDescriptor,
 } from "./host-bridge-agent-surface";
 
 const ROOT = process.cwd();
@@ -24,15 +22,14 @@ const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
 const SHARED_CONTROL_INVARIANTS_SOURCE =
   "skills_src/host-bridge-shared/control-invariants.md";
+const GENERATED_COMMAND_ROOT =
+  "skills_builtin/zotero-bridge-cli/references/commands";
 
 type RenderTarget = {
   path: string;
   sourcePath?: string;
   section: string;
-  render: (
-    catalog: HostBridgeSurfaceCatalog,
-    release: ZoteroBridgeCliRelease,
-  ) => string;
+  render: (catalog: HostBridgeSurfaceCatalog) => string;
 };
 
 type CopyTarget = {
@@ -222,11 +219,11 @@ function shimGuidance() {
   ].join("\n");
 }
 
-function cliReleaseGuidance(release: ZoteroBridgeCliRelease) {
+function cliReleaseGuidance() {
   return [
-    `- Expected \`zotero-bridge\` CLI version for this generated surface: \`${release.version}\`.`,
-    "- Confirm with `<zotero-bridge> --version` when the loaded skill or reference path is uncertain, command help does not match this surface, or a CLI error points to command shape mismatch.",
-    "- If the observed version differs from the expected version, stop using this loaded skill copy for command syntax. Prefer the workspace-injected skill and run-local shim, then inspect `<zotero-bridge> --help` or the generated reference beside that workspace copy.",
+    "- Run `<zotero-bridge> surface identity --json` before relying on a loaded command contract.",
+    "- Compare CLI schema, build fingerprint, and command catalog checksum with the release envelope shipped beside the current surface. SemVer alone is not compatibility evidence.",
+    "- If identity differs, stop and use the wrapper, CLI shim, and release envelope from one release set.",
   ].join("\n");
 }
 
@@ -336,10 +333,7 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function renderWrapperSurface(
-  catalog: HostBridgeSurfaceCatalog,
-  release: ZoteroBridgeCliRelease,
-) {
+function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
   const insightCommands = catalog.cliMappings
     .filter(
       (mapping) =>
@@ -358,7 +352,7 @@ function renderWrapperSurface(
     "",
     "### CLI release check",
     "",
-    cliReleaseGuidance(release),
+    cliReleaseGuidance(),
     "",
     "### Command families",
     "",
@@ -366,7 +360,7 @@ function renderWrapperSurface(
     `- Current graph/insight commands: ${insightCommands}.`,
     "- Use raw `call <capability>` only for raw-only capabilities or explicit diagnostics.",
     "- MCP is not the default fallback; MCP tools mirror Host Bridge capability names when explicitly used.",
-    "- Full generated reference: `references/host-bridge-cli.md`.",
+    "- Load only the relevant generated card under `references/commands/`; use `references/host-bridge-cli.md` for exhaustive capability diagnostics.",
     "",
     "### Topic context payloads",
     "",
@@ -390,10 +384,7 @@ function renderWrapperSurface(
   ].join("\n");
 }
 
-function renderWrapperReference(
-  catalog: HostBridgeSurfaceCatalog,
-  release: ZoteroBridgeCliRelease,
-) {
+function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
   return [
     "This section is generated from the Host Bridge surface catalog.",
     "",
@@ -403,7 +394,7 @@ function renderWrapperReference(
     "",
     "### CLI release check",
     "",
-    cliReleaseGuidance(release),
+    cliReleaseGuidance(),
     "",
     "### Discovery commands",
     "",
@@ -446,6 +437,191 @@ function renderWrapperReference(
         (entry) => entry.rawOnly || entry.debugOnly || entry.dangerous,
       ),
     ),
+  ].join("\n");
+}
+
+const COMMAND_MANUAL_GROUPS: Record<string, string[]> = {
+  "connectivity-context": ["surface", "bridge", "context"],
+  "library-items": ["library items", "library item"],
+  "library-notes-attachments-readiness": [
+    "library note",
+    "library annotation",
+    "library readiness",
+    "library snapshot",
+  ],
+  "workflows-and-runs": ["workflow", "run"],
+  "mutations-files-products": ["mutation", "file", "product"],
+  "synthesis-topics-artifacts": [
+    "synthesis topic",
+    "synthesis artifact",
+    "synthesis concept",
+    "synthesis schema",
+  ],
+  "synthesis-graph": ["synthesis graph"],
+  "synthesis-index-resolver-insights": [
+    "synthesis index",
+    "synthesis resolver",
+    "synthesis insight",
+    "synthesis cache",
+  ],
+  diagnostics: ["debug", "call"],
+};
+
+function markdownList(values: string[]) {
+  return values.length
+    ? values.map((value) => `- ${value}`).join("\n")
+    : "- None.";
+}
+
+function schemaFields(schema: Record<string, unknown>) {
+  const properties = (schema.properties || {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  if (!Object.keys(properties).length) return "- No structured fields.";
+  return Object.entries(properties)
+    .map(([name, value]) => {
+      const type = Array.isArray(value.type)
+        ? value.type.join(" | ")
+        : String(value.type || "object");
+      return `- \`${name}\` (${type})${value.description ? `: ${value.description}` : ""}`;
+    })
+    .join("\n");
+}
+
+function argvBindingFields(bindings: HostBridgeArgvBinding[]) {
+  if (!bindings.length) return "- No command arguments.";
+  return bindings
+    .map((binding) => {
+      const location =
+        binding.kind === "positional"
+          ? `positional ${binding.position} as \`${binding.token}\``
+          : `option \`${binding.token}\``;
+      const cardinality = binding.required ? "required" : "optional";
+      return `- \`${binding.property}\` → ${location} (${cardinality}${binding.takesValue ? ", takes a value" : ", flag"}).`;
+    })
+    .join("\n");
+}
+
+function commandMatchesPrefix(command: string, prefix: string) {
+  return command === prefix || command.startsWith(`${prefix} `);
+}
+
+function renderCommandManual(
+  descriptor: HostBridgeAgentSurfaceDescriptor,
+  title: string,
+  prefixes: string[],
+) {
+  const commands = descriptor.commands.filter((command) =>
+    prefixes.some((prefix) => commandMatchesPrefix(command.command, prefix)),
+  );
+  return [
+    `# ${title
+      .split("-")
+      .map((part) => part[0]?.toUpperCase() + part.slice(1))
+      .join(" ")}`,
+    "",
+    "Load this manual only after the task has been routed to this domain. Each card combines exact CLI/backend facts with task-selection and evidence guidance.",
+    "",
+    ...commands.flatMap((command) => [
+      `## \`zotero-bridge ${command.command}\``,
+      "",
+      command.guidance.purpose,
+      "",
+      "### Backend and freshness",
+      "",
+      `- Targets: ${command.targets.map((target) => `\`${target.kind}:${target.target}\``).join(", ")}.`,
+      `- Freshness: ${command.guidance.domain === "synthesis" ? "derived Synthesis state; confirm current Zotero write facts through library/context commands" : command.command.startsWith("surface ") ? "embedded offline contract; it does not prove Host Bridge reachability" : "live Host Bridge response for this invocation"}.`,
+      "",
+      "### Choose this command",
+      "",
+      "Use when:",
+      markdownList(command.guidance.useWhen),
+      "",
+      "Avoid when:",
+      markdownList(command.guidance.avoidWhen),
+      "",
+      "Distinguish from:",
+      markdownList(command.guidance.distinguishFrom),
+      "",
+      "### Invocation and payload",
+      "",
+      `- Canonical argv: \`zotero-bridge ${command.command}\`.`,
+      `- Example: \`${command.guidance.example}\`.`,
+      "- Preconditions:",
+      markdownList(command.guidance.preconditions),
+      "- Exact argv bindings:",
+      argvBindingFields(command.argvBindings),
+      "- CLI invocation fields:",
+      schemaFields(command.invocationSchema),
+      "- Decoded payload fields:",
+      schemaFields(command.payloadSchema),
+      "",
+      "### Result and evidence",
+      "",
+      `- Delivery: \`${command.pagination}\`.`,
+      "- Stable result fields:",
+      schemaFields(command.resultSchema),
+      "- Completion evidence:",
+      markdownList(command.guidance.evidence),
+      "",
+      "### Approval, effects, and handles",
+      "",
+      `- Approval: \`${command.approvalContract.kind}\` at \`${command.approvalContract.timing}\`; ${command.approvalContract.scope}`,
+      ...command.effects.map(
+        (effect) =>
+          `- Effect \`${effect.kind}\`: ${effect.description} stateChanged=${effect.stateChanged}.`,
+      ),
+      ...(command.handleTransitions.length
+        ? command.handleTransitions.map(
+            (transition) =>
+              `- ${transition.direction} \`${transition.handle}\` (${transition.lifetime}): ${transition.condition}`,
+          )
+        : ["- No typed handle transition."]),
+      "",
+      "### Failure and recovery",
+      "",
+      ...command.recovery.map(
+        (recovery) =>
+          `- ${recovery.when} ${recovery.action}${recovery.nextCommand ? ` Next: \`${recovery.nextCommand}\`.` : ""}${recovery.requiresHandles.length ? ` Requires: ${recovery.requiresHandles.map((handle) => `\`${handle}\``).join(", ")}.` : ""}`,
+      ),
+      ...command.guidance.failureChecks.map((check) => `- ${check}`),
+      "",
+    ]),
+  ].join("\n");
+}
+
+function renderOutputErrorReference(
+  descriptor: HostBridgeAgentSurfaceDescriptor,
+) {
+  return [
+    "# Output And Error Contract",
+    "",
+    `The embedded command contract uses \`${descriptor.schema}\` and \`${descriptor.cliSchema}\`.`,
+    "",
+    "Successful commands emit one JSON envelope with `ok`, `data`, and `meta`. Interpret `data` through the command-specific `resultSchema`; similarly named ids are not interchangeable handles.",
+    "",
+    "Retry only when `retryable` is true. Query current state before repeating an operation when `stateChanged` is true, and never reuse a consumed handle.",
+    "",
+    "## Failure decision matrix",
+    "",
+    "| retryable | stateChanged | handleConsumed | Safe response |",
+    "| --- | --- | --- | --- |",
+    "| true | false | false | Recheck connectivity, then retry the same bounded command. |",
+    "| false | false | false | Correct input, authorization, or capability choice before a new invocation. |",
+    "| any | true | false | Query the command-specific current-state endpoint before deciding whether another write is needed. |",
+    "| any | any | true | Do not reuse the handle; inspect its receipt/status and create a new operation only when allowed. |",
+    "",
+    "## Partial apply-back",
+    "",
+    "For `workflow agent-apply`, preflight all bundles before approval. If execution reports mixed outcomes, keep `agentRunId`, run `workflow agent-apply-status`, and use the receipt as the authority for applied, failed, and recoverable requests.",
+    "",
+    "## File and paging recovery",
+    "",
+    "Persist the last accepted page and resume from `nextCursor` without merging a page twice. Verify file checksum and byte count before use. A local path, `fileId`, `productId`, and workflow artifact are different objects.",
+    "",
+    "For remote delivery, follow the returned `delivery.mode`, execute its `downloadCommand` with the opaque `fileId`, and honor `unpackHint`. A Host-local path in the envelope is not readable by the remote agent.",
+    "",
   ].join("\n");
 }
 
@@ -492,12 +668,26 @@ const TARGETS: RenderTarget[] = [
 
 const COPY_TARGETS: CopyTarget[] = [
   {
+    path: "skills_builtin/zotero-bridge-cli/README.md",
+    sourcePath: "skills_src/zotero-bridge-cli/semantic/README.md",
+  },
+  {
     path: "skills_builtin/zotero-bridge-cli/assets/runner.json",
     sourcePath: "skills_src/zotero-bridge-cli/runner.json",
   },
   {
     path: "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
     sourcePath: WRAPPER_AGENT_GUIDANCE_SOURCE,
+  },
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/identity-and-connection.md",
+    sourcePath:
+      "skills_src/zotero-bridge-cli/semantic/references/identity-and-connection.md",
+  },
+  {
+    path: "skills_builtin/zotero-bridge-cli/references/invocation-and-json-input.md",
+    sourcePath:
+      "skills_src/zotero-bridge-cli/semantic/references/invocation-and-json-input.md",
   },
   {
     path: "skills_builtin/zotero-bridge-cli/references/terminology.md",
@@ -523,7 +713,6 @@ function replaceSection(text: string, section: string, replacement: string) {
 function main() {
   const check = process.argv.includes("--check");
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
-  const release = readZoteroBridgeCliRelease(ROOT);
   const errors = validateHostBridgeSurfaceCatalog(catalog);
   if (errors.length > 0) {
     for (const error of errors) {
@@ -533,9 +722,8 @@ function main() {
   }
 
   let changed = false;
-  const agentSurface = serializeHostBridgeAgentSurface(
-    buildHostBridgeAgentSurfaceDescriptor(catalog),
-  );
+  const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog, ROOT);
+  const agentSurface = serializeHostBridgeAgentSurface(descriptor);
   for (const path of [
     "cli/zotero-bridge/src/agent-surface.json",
     "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
@@ -558,17 +746,38 @@ function main() {
     const current = existsSync(join(ROOT, target.path))
       ? read(target.path)
       : "";
-    const next = replaceSection(
-      source,
-      target.section,
-      target.render(catalog, release),
-    );
+    const next = replaceSection(source, target.section, target.render(catalog));
     if (next !== current) {
       changed = true;
       if (check) {
         console.error(`[host-bridge-surface] ${target.path} is out of date`);
       } else {
         write(target.path, next);
+        console.log(`[host-bridge-surface] rendered ${target.path}`);
+      }
+    }
+  }
+
+  const domainTargets = [
+    ...Object.entries(COMMAND_MANUAL_GROUPS).map(([name, prefixes]) => ({
+      path: join(GENERATED_COMMAND_ROOT, `${name}.md`),
+      next: renderCommandManual(descriptor, name, prefixes),
+    })),
+    {
+      path: "skills_builtin/zotero-bridge-cli/references/output-and-recovery.md",
+      next: renderOutputErrorReference(descriptor),
+    },
+  ];
+  for (const target of domainTargets) {
+    const current = existsSync(join(ROOT, target.path))
+      ? read(target.path)
+      : "";
+    if (current !== target.next) {
+      changed = true;
+      if (check)
+        console.error(`[host-bridge-surface] ${target.path} is out of date`);
+      else {
+        write(target.path, target.next);
         console.log(`[host-bridge-surface] rendered ${target.path}`);
       }
     }

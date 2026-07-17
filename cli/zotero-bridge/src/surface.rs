@@ -30,9 +30,9 @@ fn command_entries(descriptor: &Value) -> Result<&Vec<Value>, CliError> {
 
 fn identity(descriptor: &Value) -> Value {
     json!({
-        "schema": "host-bridge.surface-identity.v1",
+        "schema": "host-bridge.surface-identity.v2",
         "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or("host-bridge.v1"),
-        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or("zotero-bridge.cli.v1"),
+        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or("zotero-bridge.cli.v2"),
         "version": env!("CARGO_PKG_VERSION"),
         "buildFingerprint": option_env!("ZOTERO_BRIDGE_BUILD_FINGERPRINT").unwrap_or("development"),
         "commandCatalogChecksum": descriptor.get("commandCatalogChecksum").and_then(Value::as_str).unwrap_or(""),
@@ -72,31 +72,67 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
         .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|token| !token.is_empty())
         .collect();
-    let mut matches: Vec<(usize, Value)> = command_entries(descriptor)?
+    let mut matches: Vec<(usize, Vec<String>, Value)> = command_entries(descriptor)?
         .iter()
+        .filter(|entry| {
+            args.include_debug
+                || !entry
+                    .get("hiddenFromIntentSearch")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+        })
         .filter_map(|entry| {
-            let haystack = serde_json::to_string(entry).ok()?.to_lowercase();
+            let fields = [
+                entry.get("command"),
+                entry.get("summary"),
+                entry.get("intents"),
+                entry.get("guidance").and_then(|value| value.get("useWhen")),
+            ];
+            let haystack = fields
+                .iter()
+                .filter_map(|value| *value)
+                .map(|value| serde_json::to_string(value).ok())
+                .collect::<Option<Vec<_>>>()?
+                .join(" ")
+                .to_lowercase();
             let phrase = if haystack.contains(&intent) { 100 } else { 0 };
-            let score = phrase
-                + tokens
-                    .iter()
-                    .filter(|token| haystack.contains(**token))
-                    .count();
-            (score > 0).then(|| (score, entry.clone()))
+            let matched_tokens = tokens
+                .iter()
+                .filter(|token| haystack.contains(**token))
+                .map(|token| (*token).to_string())
+                .collect::<Vec<_>>();
+            let score = phrase + matched_tokens.len();
+            let mut reasons = Vec::new();
+            if phrase > 0 {
+                reasons.push(format!("phrase:{intent}"));
+            }
+            reasons.extend(
+                matched_tokens
+                    .into_iter()
+                    .map(|token| format!("token:{token}")),
+            );
+            (score > 0).then(|| (score, reasons, entry.clone()))
         })
         .collect();
     matches.sort_by(|left, right| {
         right.0.cmp(&left.0).then_with(|| {
-            left.1
+            left.2
                 .get("command")
                 .and_then(Value::as_str)
                 .unwrap_or("")
-                .cmp(right.1.get("command").and_then(Value::as_str).unwrap_or(""))
+                .cmp(right.2.get("command").and_then(Value::as_str).unwrap_or(""))
         })
     });
     Ok(json!({
         "intent": args.intent,
-        "matches": matches.into_iter().map(|(_, entry)| entry).collect::<Vec<_>>()
+        "matches": matches
+            .into_iter()
+            .take(args.limit as usize)
+            .map(|(_, match_reasons, command)| json!({
+                "command": command,
+                "matchReasons": match_reasons,
+            }))
+            .collect::<Vec<_>>()
     }))
 }
 

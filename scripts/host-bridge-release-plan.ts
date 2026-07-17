@@ -30,6 +30,29 @@ function lines(value: string) {
 export function resolveHostBridgeReleaseBase(root = process.cwd()) {
   const explicit = process.env.HOST_BRIDGE_RELEASE_BASE?.trim();
   if (explicit) return explicit;
+  const receiptPath =
+    process.env.HOST_BRIDGE_RELEASE_RECEIPT?.trim() ||
+    resolve(root, "host-bridge/latest-complete-release-receipt.json");
+  if (existsSync(receiptPath)) {
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+    if (receipt.status !== "complete" || !receipt.sourceCommit) {
+      throw new Error(
+        `Host Bridge release receipt is not complete: ${receiptPath}`,
+      );
+    }
+    return String(receipt.sourceCommit);
+  }
+  const releaseSetPath = resolve(root, "host-bridge/release-set.json");
+  if (existsSync(releaseSetPath)) {
+    const releaseSet = JSON.parse(readFileSync(releaseSetPath, "utf8"));
+    const completedSource = String(releaseSet?.source?.commit || "").trim();
+    if (
+      completedSource &&
+      git(["rev-parse", "--verify", `${completedSource}^{commit}`], root)
+    ) {
+      return completedSource;
+    }
+  }
   for (const ref of ["origin/main", "main"]) {
     const mergeBase = git(["merge-base", "HEAD", ref], root);
     if (mergeBase) return mergeBase;
@@ -50,7 +73,10 @@ export function collectHostBridgeReleaseChangedFiles(root = process.cwd()) {
   };
 }
 
-export function createHostBridgeReleasePlan(root = process.cwd()) {
+export function createHostBridgeReleasePlan(
+  root = process.cwd(),
+  intent: "auto" | "patch" | "minor" = "auto",
+) {
   const changed = collectHostBridgeReleaseChangedFiles(root);
   const classification = classifyHostBridgeReleaseChanges(changed.files);
   const digests = {
@@ -79,26 +105,35 @@ export function createHostBridgeReleasePlan(root = process.cwd()) {
     contentDigests: digests,
     versionBumps: {
       cli:
-        classification.cliBinaryInputs &&
-        previous?.cli?.buildFingerprint !== cliRelease.buildFingerprint
-          ? "patch"
-          : "none",
+        intent === "minor"
+          ? "minor"
+          : classification.cliBinaryInputs &&
+              previous?.cli?.buildFingerprint !== cliRelease.buildFingerprint
+            ? "patch"
+            : "none",
       cliBundle:
-        classification.surfaces.cliBundle &&
-        previous?.surfaces?.cliBundle?.contentDigest !== digests.cliBundle
-          ? "patch"
-          : "none",
+        intent === "minor"
+          ? "minor"
+          : classification.surfaces.cliBundle &&
+              previous?.surfaces?.cliBundle?.contentDigest !== digests.cliBundle
+            ? "patch"
+            : "none",
       libraryAgent:
-        classification.surfaces.libraryAgent &&
-        previous?.surfaces?.libraryAgent?.contentDigest !== digests.libraryAgent
-          ? "patch"
-          : "none",
+        intent === "minor"
+          ? "minor"
+          : classification.surfaces.libraryAgent &&
+              previous?.surfaces?.libraryAgent?.contentDigest !==
+                digests.libraryAgent
+            ? "patch"
+            : "none",
       librarianProfile:
-        classification.surfaces.librarianProfile &&
-        previous?.surfaces?.librarianProfile?.contentDigest !==
-          digests.librarianProfile
-          ? "patch"
-          : "none",
+        intent === "minor"
+          ? "minor"
+          : classification.surfaces.librarianProfile &&
+              previous?.surfaces?.librarianProfile?.contentDigest !==
+                digests.librarianProfile
+            ? "patch"
+            : "none",
     },
   };
 }
@@ -110,7 +145,15 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
+  const intentArg = process.argv.find((entry) => entry.startsWith("--intent="));
+  const intentIndex = process.argv.indexOf("--intent");
+  const intent = (intentArg?.slice("--intent=".length) ||
+    (intentIndex >= 0 ? process.argv[intentIndex + 1] : "") ||
+    "auto") as "auto" | "patch" | "minor";
+  if (!(["auto", "patch", "minor"] as const).includes(intent)) {
+    throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
+  }
   process.stdout.write(
-    `${JSON.stringify(createHostBridgeReleasePlan(), null, 2)}\n`,
+    `${JSON.stringify(createHostBridgeReleasePlan(process.cwd(), intent), null, 2)}\n`,
   );
 }

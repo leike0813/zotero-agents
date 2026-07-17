@@ -168,8 +168,16 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug acp-skill-run reapply-result` | `debug.acpSkillRun.reapplyResult` | capability | - |
 | `debug persistence` | `debug.persistence.snapshot` | capability | - |
 | `debug status` | `debug.status` | capability | - |
+| `debug synthesis cache` | `debug.synthesis.cache.list` | capability | - |
+| `debug synthesis clean-install-reset` | `debug.synthesis.cleanInstallReset` | capability | dangerous |
 | `debug synthesis diff` | `debug.synthesis.diff` | capability | - |
+| `debug synthesis inspect-paper` | `debug.synthesis.paper.inspect` | capability | - |
+| `debug synthesis inspect-topic` | `debug.synthesis.topic.inspect` | capability | - |
+| `debug synthesis operations` | `debug.synthesis.operations.list` | capability | - |
+| `debug synthesis profiler` | `debug.synthesis.profiler.list` | capability | - |
+| `debug synthesis snapshot` | `debug.synthesis.snapshot` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
+| `call` | `POST /bridge/v1/call` | service | - |
 | `context collection open` | `POST /bridge/v1/context/collections/open` | endpoint | - |
 | `context current` | `GET /bridge/v1/context/current` | endpoint | - |
 | `context current` | `context.get_current_view` | capability | - |
@@ -238,14 +246,14 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |
 | `debug.skillrunner.connections.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.status` | debug | `none` | `object` | `debug status` | debug-only, mcp-mirror |
-| `debug.synthesis.cache.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` |  | debug-only, dangerous, mcp-mirror |
+| `debug.synthesis.cache.list` | debug | `none` | `object` | `debug synthesis cache` | debug-only, mcp-mirror |
+| `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` | `debug synthesis clean-install-reset` | debug-only, dangerous, mcp-mirror |
 | `debug.synthesis.diff` | debug | `none` | `object` | `debug synthesis diff` | debug-only, mcp-mirror |
-| `debug.synthesis.operations.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.paper.inspect` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.profiler.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.topic.inspect` | debug | `none` | `object` |  | debug-only, mcp-mirror |
+| `debug.synthesis.operations.list` | debug | `none` | `object` | `debug synthesis operations` | debug-only, mcp-mirror |
+| `debug.synthesis.paper.inspect` | debug | `none` | `object` | `debug synthesis inspect-paper` | debug-only, mcp-mirror |
+| `debug.synthesis.profiler.list` | debug | `none` | `object` | `debug synthesis profiler` | debug-only, mcp-mirror |
+| `debug.synthesis.snapshot` | debug | `none` | `object` | `debug synthesis snapshot` | debug-only, mcp-mirror |
+| `debug.synthesis.topic.inspect` | debug | `none` | `object` | `debug synthesis inspect-topic` | debug-only, mcp-mirror |
 | `debug.tasks.snapshot` | debug | `none` | `object` | `debug tasks` | debug-only, mcp-mirror |
 | `debug.zotero.eval` | debug | `zotero-ui-required` | `object` | `raw call only` | debug-only, dangerous, raw-only, mcp-mirror |
 

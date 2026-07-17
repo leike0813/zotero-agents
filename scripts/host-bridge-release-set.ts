@@ -16,7 +16,7 @@ export type HostBridgeReleaseChangePlan = {
 };
 
 export type HostBridgeCliIdentity = {
-  schema: "host-bridge.surface-identity.v1";
+  schema: "host-bridge.surface-identity.v1" | "host-bridge.surface-identity.v2";
   protocol: string;
   cliSchema: string;
   version: string;
@@ -137,6 +137,7 @@ export function classifyHostBridgeReleaseChanges(
   const libraryAgent = sourceFiles.some(
     (path) =>
       path.startsWith("skills_src/zotero-library-agent/") ||
+      path.startsWith("skills_src/zotero-bridge-cli/") ||
       path.startsWith("skills_src/host-bridge-shared/") ||
       path === "scripts/render-zotero-library-agent-bundle.ts",
   );
@@ -178,7 +179,10 @@ function sha256(value: string) {
 
 export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
   const cliIdentity: HostBridgeCliIdentity = {
-    schema: "host-bridge.surface-identity.v1",
+    schema:
+      input.cliSchema === "zotero-bridge.cli.v2"
+        ? "host-bridge.surface-identity.v2"
+        : "host-bridge.surface-identity.v1",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,

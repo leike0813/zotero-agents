@@ -4,23 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "cli/zotero-bridge/**"
-      - "skills_src/zotero-bridge-cli/**"
-      - "skills_src/zotero-library-agent/**"
-      - "skills_src/host-bridge-shared/**"
-      - "profiles_src/hermes/zotero-librarian/**"
-      - "profiles/hermes/zotero-librarian/**"
-      - "workflows_builtin/**"
       - "host-bridge/release-set.json"
-      - "scripts/*host-bridge*"
-      - "scripts/*zotero-library-agent*"
-      - "scripts/*zotero-librarian*"
-      - ".github/workflows/release-host-bridge.yml"
   workflow_dispatch:
     inputs:
       release_set_id:
         description: Existing releaseSetId to resume
-        required: false
+        required: true
         type: string
 
 concurrency:

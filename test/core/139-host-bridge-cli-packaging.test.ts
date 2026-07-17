@@ -1683,7 +1683,13 @@ describe("host bridge cli packaging and install", function () {
         "Advance mutable pointers after all immutable surfaces verify",
       ),
     );
-    assert.include(workflow, "profiles/hermes/zotero-librarian");
+    const pushPaths = workflow.slice(
+      workflow.indexOf("  push:"),
+      workflow.indexOf("  workflow_dispatch:"),
+    );
+    assert.include(pushPaths, '"host-bridge/release-set.json"');
+    assert.notInclude(pushPaths, "profiles/hermes/zotero-librarian");
+    assert.notInclude(pushPaths, "skills_src/");
     assert.include(workflow, "npm run sync:host-bridge-cli-prebuilds");
     assert.include(workflow, "actions/download-artifact@v4");
     assert.include(

@@ -29,6 +29,37 @@ function runHelper(args: string[]) {
 }
 
 describe("zotero library agent bundle", function () {
+  it("renders its repository README from bounded-task semantic source", function () {
+    const source = readFileSync(
+      "skills_src/zotero-library-agent/semantic/README.md",
+      "utf8",
+    );
+    const rendered = readFileSync(
+      "skills_builtin/zotero-library-agent/README.md",
+      "utf8",
+    );
+    assert.strictEqual(rendered, source);
+    assert.include(rendered, "surface identity --json");
+    assert.include(rendered, "bounded");
+    assert.notMatch(rendered, /cron|SQLite|HERMES_HOME/);
+  });
+
+  it("documents only helper commands exposed by the packaged parser", function () {
+    const skill = readFileSync(
+      "skills_builtin/zotero-library-agent/SKILL.md",
+      "utf8",
+    );
+    const contract = readFileSync(
+      "skills_builtin/zotero-library-agent/references/helper-script-contract.md",
+      "utf8",
+    );
+    const guidance = `${skill}\n${contract}`;
+    assert.include(guidance, "zotero_library_agent.py evidence build");
+    assert.include(guidance, "zotero_library_agent.py evidence validate");
+    assert.notInclude(guidance, "zotero_library_agent.py validate-input");
+    assert.notInclude(guidance, "zotero_library_agent.py render-evidence");
+  });
+
   it("builds and validates hash-bound evidence without persistent state", async function () {
     const root = mkdtempSync(join(tmpdir(), "zla-evidence-"));
     try {

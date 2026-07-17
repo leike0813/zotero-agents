@@ -28,7 +28,7 @@
       "additionalProperties": false
     },
     "protocol": { "const": "host-bridge.v1" },
-    "cliSchema": { "const": "zotero-bridge.cli.v1" },
+    "cliSchema": { "enum": ["zotero-bridge.cli.v1", "zotero-bridge.cli.v2"] },
     "cli": {
       "type": "object",
       "required": [

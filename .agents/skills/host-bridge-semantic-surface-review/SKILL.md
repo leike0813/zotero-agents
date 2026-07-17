@@ -25,7 +25,7 @@ Use the returned JSON to decide review focus. The script classifies changed file
 4. Confirm that the CLI wrapper, on-demand Zotero Library Agent, and resident Zotero Librarian profile each explain the changed control surface accurately without sharing task policy.
 5. If the current semantic sources already explain the changed control surface accurately, report that no semantic-source edit is needed.
 6. If the semantic sources are incomplete or misleading, update only the semantic sources.
-7. Do not edit generated output as the source of truth. After semantic review completes, return control to `$host-bridge-release-pipeline` so it can run the renderer and checks.
+7. Do not edit generated output as the source of truth. After semantic review completes, return control to the caller so feature work can run the content-only renderer and checks; full release rendering remains part of later release preparation.
 
 ## LLM And Script Boundary
 

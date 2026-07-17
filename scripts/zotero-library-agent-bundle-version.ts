@@ -140,11 +140,17 @@ function isMainModule() {
 if (isMainModule()) {
   const root = process.cwd();
   const inspected = inspectZoteroLibraryAgentBundleVersion(root);
-  if (process.argv.includes("--bump")) {
-    const source = bumpZoteroLibraryAgentBundleVersionSource({
-      cliVersion: inspected.resolved.cliVersion,
-      source: inspected.source,
-    });
+  if (process.argv.includes("--bump") || process.argv.includes("--align-cli")) {
+    const source = process.argv.includes("--align-cli")
+      ? {
+          schema: ZOTERO_LIBRARY_AGENT_BUNDLE_VERSION_SCHEMA,
+          cliMajorMinor: inspected.resolved.cliMajorMinor,
+          patch: 0,
+        }
+      : bumpZoteroLibraryAgentBundleVersionSource({
+          cliVersion: inspected.resolved.cliVersion,
+          source: inspected.source,
+        });
     writeZoteroLibraryAgentBundleVersionSource({ root, source });
     process.stdout.write(
       `${JSON.stringify(

@@ -119,6 +119,20 @@ pub struct SurfaceSearchArgs {
     #[arg(long, required = true, help = "Natural-language task intent")]
     pub intent: String,
 
+    #[arg(
+        long,
+        default_value_t = 10,
+        value_parser = clap::value_parser!(u16).range(1..=100),
+        help = "Maximum number of ranked matches (1-100)"
+    )]
+    pub limit: u16,
+
+    #[arg(
+        long,
+        help = "Include raw and debug commands in intent recommendations"
+    )]
+    pub include_debug: bool,
+
     #[arg(long, help = "Emit JSON (the CLI output contract is always JSON)")]
     pub json: bool,
 }
@@ -1793,7 +1807,7 @@ mod tests {
         ContextSelectionCommand, FileCommand, ItemCommand, LibraryCommand, LibraryItemsCommand,
         LibraryReadinessCommand, MutationCollectionCommand, MutationCommand, MutationItemCommand,
         MutationNoteCommand, MutationTagCommand, NotificationCommand, ProductCommand, RunArgs,
-        RunCommand, RunPermissionCommand, RunWorkflowCommand, SkillRunCommand,
+        RunCommand, RunPermissionCommand, RunWorkflowCommand, SkillRunCommand, SurfaceCommand,
         SynthesisCacheCommand, SynthesisCommand, SynthesisIndexCommand, TopicsCommand,
         WorkflowCommand,
     };
@@ -1829,6 +1843,33 @@ mod tests {
                 command.find_subcommand_mut(removed).is_none(),
                 "legacy top-level command still listed: {removed}"
             );
+        }
+    }
+
+    #[test]
+    fn parses_bounded_surface_search_with_debug_opt_in() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "surface",
+            "search",
+            "--intent",
+            "diagnostic snapshot",
+            "--limit",
+            "25",
+            "--include-debug",
+            "--json",
+        ]);
+        match cli.command {
+            Command::Surface(args) => match args.command {
+                SurfaceCommand::Search(search) => {
+                    assert_eq!(search.intent, "diagnostic snapshot");
+                    assert_eq!(search.limit, 25);
+                    assert!(search.include_debug);
+                    assert!(search.json);
+                }
+                _ => panic!("expected surface search"),
+            },
+            _ => panic!("expected surface command"),
         }
     }
 

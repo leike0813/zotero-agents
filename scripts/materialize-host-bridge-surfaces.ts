@@ -119,6 +119,10 @@ export function materializeHostBridgeSurfaces(args: {
     join(cliBundle, "skills/zotero-bridge-cli"),
   );
   copy(
+    join(root, "skills_builtin/zotero-bridge-cli/README.md"),
+    join(cliBundle, "README.md"),
+  );
+  copy(
     join(root, "cli/zotero-bridge/scripts/install.ps1"),
     join(cliBundle, "install.ps1"),
   );
@@ -139,6 +143,10 @@ export function materializeHostBridgeSurfaces(args: {
   copy(
     join(root, "skills_builtin/zotero-library-agent"),
     join(libraryAgent, "skills/zotero-library-agent"),
+  );
+  copy(
+    join(root, "skills_builtin/zotero-library-agent/README.md"),
+    join(libraryAgent, "README.md"),
   );
   copy(
     join(root, "skills_builtin/zotero-bridge-cli"),

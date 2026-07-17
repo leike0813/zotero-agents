@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 
 export type HostBridgeCapabilityCatalogEntry = {
   name: string;
@@ -7,6 +9,8 @@ export type HostBridgeCapabilityCatalogEntry = {
   summary: string;
   inputType: string;
   inputRequired: boolean;
+  inputProperties: Record<string, unknown>;
+  inputRequiredProperties: string[];
   approval: "none" | "zotero-ui-required";
   public: boolean;
   debugOnly: boolean;
@@ -32,14 +36,35 @@ export type HostBridgeCliMapping = {
   cacheView?: boolean;
 };
 
+export type HostBridgeCliInventoryArgument = {
+  id: string;
+  long: string | null;
+  short: string | null;
+  index: number | null;
+  position: number | null;
+  required: boolean;
+  takesValue: boolean;
+  global: boolean;
+  help: string | null;
+  valueNames: string[];
+};
+
+export type HostBridgeCliInventoryEntry = {
+  command: string;
+  argv: string[];
+  about: string;
+  arguments: HostBridgeCliInventoryArgument[];
+};
+
 export type HostBridgeSurfaceCatalog = {
   capabilities: HostBridgeCapabilityCatalogEntry[];
+  commandInventory: HostBridgeCliInventoryEntry[];
   cliMappings: HostBridgeCliMapping[];
   endpointMappings: HostBridgeCliMapping[];
 };
 
 const REGISTRY = "src/modules/hostBridgeCapabilityRegistry.ts";
-const CLI_COMMANDS = "cli/zotero-bridge/src/commands.rs";
+const CLI_MANIFEST = "cli/zotero-bridge/Cargo.toml";
 
 const NO_APPROVAL_CAPABILITIES = new Set([
   "context.get_current_view",
@@ -197,6 +222,29 @@ function approvalForCapability(name: string): "none" | "zotero-ui-required" {
   return "zotero-ui-required";
 }
 
+function literalValue(node: ts.Expression): unknown {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node))
+    return node.text;
+  if (ts.isNumericLiteral(node)) return Number(node.text);
+  if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+  if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+  if (ts.isArrayLiteralExpression(node))
+    return node.elements.map((element) =>
+      literalValue(element as ts.Expression),
+    );
+  if (ts.isObjectLiteralExpression(node)) {
+    const value: Record<string, unknown> = {};
+    for (const property of node.properties) {
+      if (!ts.isPropertyAssignment(property)) continue;
+      const name = property.name.getText().replace(/^['"]|['"]$/g, "");
+      value[name] = literalValue(property.initializer);
+    }
+    return value;
+  }
+  return undefined;
+}
+
 function parseCapabilities(source: string) {
   const entries: Array<{
     name: string;
@@ -204,49 +252,61 @@ function parseCapabilities(source: string) {
     summary: string;
     inputType: string;
     inputRequired: boolean;
+    inputProperties: Record<string, unknown>;
+    inputRequiredProperties: string[];
   }> = [];
-
-  for (const match of source.matchAll(
-    /\bcapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,([\s\S]*?)\n\s{2}\),/g,
-  )) {
-    const input = match[4].match(
-      /\{\s*type:\s*["`]([^"`]+)["`]\s*,\s*required:\s*(true|false)/,
-    );
-    if (!input) {
-      continue;
+  const file = ts.createSourceFile(
+    REGISTRY,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  function visit(node: ts.Node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const kind = node.expression.text;
+      if (
+        ["capability", "debugCapability", "synthesisCapability"].includes(kind)
+      ) {
+        const args = node.arguments;
+        const name = args[0] && literalValue(args[0]);
+        const category =
+          kind === "debugCapability"
+            ? "debug"
+            : args[1] && literalValue(args[1]);
+        const summaryIndex = kind === "debugCapability" ? 1 : 2;
+        const summary = args[summaryIndex] && literalValue(args[summaryIndex]);
+        const inputIndex =
+          kind === "capability" ? 3 : kind === "synthesisCapability" ? 4 : -1;
+        const input =
+          inputIndex >= 0 && args[inputIndex]
+            ? (literalValue(args[inputIndex]) as Record<string, unknown>)
+            : { type: "object", required: false };
+        if (
+          typeof name === "string" &&
+          typeof category === "string" &&
+          typeof summary === "string"
+        ) {
+          entries.push({
+            name,
+            category,
+            summary: normalizeSummary(summary),
+            inputType: String(input?.type || "object"),
+            inputRequired: input?.required === true,
+            inputProperties:
+              input?.properties && typeof input.properties === "object"
+                ? (input.properties as Record<string, unknown>)
+                : {},
+            inputRequiredProperties: Array.isArray(input?.requiredProperties)
+              ? input.requiredProperties.map(String)
+              : [],
+          });
+        }
+      }
     }
-    entries.push({
-      name: match[1],
-      category: match[2],
-      summary: normalizeSummary(match[3]),
-      inputType: input[1],
-      inputRequired: input[2] === "true",
-    });
+    ts.forEachChild(node, visit);
   }
-
-  for (const match of source.matchAll(
-    /\bdebugCapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]/g,
-  )) {
-    entries.push({
-      name: match[1],
-      category: "debug",
-      summary: normalizeSummary(match[2]),
-      inputType: "object",
-      inputRequired: false,
-    });
-  }
-
-  for (const match of source.matchAll(
-    /\bsynthesisCapability\(\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]\s*,\s*["`]([^"`]+)["`]/g,
-  )) {
-    entries.push({
-      name: match[1],
-      category: match[2],
-      summary: normalizeSummary(match[3]),
-      inputType: "object",
-      inputRequired: false,
-    });
-  }
+  visit(file);
 
   return unique(entries.map((entry) => entry.name))
     .map((name) => entries.find((entry) => entry.name === name)!)
@@ -279,33 +339,54 @@ function parseDomainMappings(source: string): HostBridgeCliMapping[] {
   );
 }
 
-function parseDebugMappings(source: string): HostBridgeCliMapping[] {
-  const mappings: HostBridgeCliMapping[] = [
+function debugCliMappings(): HostBridgeCliMapping[] {
+  return [
     ["debug status", "debug.status"],
     ["debug persistence", "debug.persistence.snapshot"],
     ["debug tasks", "debug.tasks.snapshot"],
     ["debug acp-skill-run reapply-result", "debug.acpSkillRun.reapplyResult"],
+    ["debug synthesis snapshot", "debug.synthesis.snapshot"],
+    ["debug synthesis diff", "debug.synthesis.diff"],
+    ["debug synthesis inspect-paper", "debug.synthesis.paper.inspect"],
+    ["debug synthesis inspect-topic", "debug.synthesis.topic.inspect"],
+    ["debug synthesis operations", "debug.synthesis.operations.list"],
+    ["debug synthesis profiler", "debug.synthesis.profiler.list"],
+    ["debug synthesis cache", "debug.synthesis.cache.list"],
+    [
+      "debug synthesis clean-install-reset",
+      "debug.synthesis.cleanInstallReset",
+    ],
   ].map(([command, target]) => ({
     command,
     target,
     kind: "capability" as const,
     dangerous: DANGEROUS_CAPABILITIES.has(target),
   }));
+}
 
-  for (const match of source.matchAll(
-    /DebugSynthesisCommand::([A-Za-z0-9_]+)\(input\)\s*=>\s*Ok\(\("([^"]+)"/g,
-  )) {
-    mappings.push({
-      command: `debug synthesis ${kebabCase(match[1])}`,
-      target: match[2],
-      kind: "capability",
-      dangerous: DANGEROUS_CAPABILITIES.has(match[2]),
-    });
-  }
-
-  return mappings.sort((left, right) =>
-    left.command.localeCompare(right.command),
+export function loadHostBridgeCliInventory(
+  root = process.cwd(),
+): HostBridgeCliInventoryEntry[] {
+  const output = execFileSync(
+    "cargo",
+    [
+      "run",
+      "--quiet",
+      "--manifest-path",
+      join(root, CLI_MANIFEST),
+      "--example",
+      "export-command-inventory",
+    ],
+    { cwd: root, encoding: "utf8" },
   );
+  const parsed = JSON.parse(output) as {
+    schema: string;
+    commands: HostBridgeCliInventoryEntry[];
+  };
+  if (parsed.schema !== "zotero-bridge.command-inventory.v1") {
+    throw new Error(`unexpected CLI inventory schema: ${parsed.schema}`);
+  }
+  return parsed.commands;
 }
 
 function coreCliMappings(): HostBridgeCliMapping[] {
@@ -461,11 +542,15 @@ export function buildHostBridgeSurfaceCatalog(
   root = process.cwd(),
 ): HostBridgeSurfaceCatalog {
   const registrySource = read(root, REGISTRY);
-  const cliCommandsSource = read(root, CLI_COMMANDS);
   const cliMappings = [
     ...coreCliMappings(),
     ...synthesisCliMappings(),
-    ...parseDebugMappings(cliCommandsSource),
+    ...debugCliMappings(),
+    {
+      command: "call",
+      target: "POST /bridge/v1/call",
+      kind: "service" as const,
+    },
   ];
   const cliByCapability = new Map<string, string[]>();
   for (const mapping of cliMappings) {
@@ -496,6 +581,7 @@ export function buildHostBridgeSurfaceCatalog(
 
   return {
     capabilities,
+    commandInventory: loadHostBridgeCliInventory(root),
     cliMappings,
     endpointMappings: endpointMappings(),
   };

@@ -58,6 +58,7 @@ function Clear-DirectoryExceptGit {
 }
 
 Assert-File (Join-Path $agentSkillRoot "SKILL.md")
+Assert-File (Join-Path $agentSkillRoot "README.md")
 Assert-File (Join-Path $wrapperSkillRoot "SKILL.md")
 Assert-File $profileTemplate
 Assert-File $installPs1
@@ -152,6 +153,7 @@ if ($Push) {
 try {
   Clear-DirectoryExceptGit $WorktreePath
   Copy-DirectoryContents $agentSkillRoot (Join-Path $WorktreePath "skills" "zotero-library-agent")
+  Copy-Item -LiteralPath (Join-Path $agentSkillRoot "README.md") -Destination (Join-Path $WorktreePath "README.md") -Force
   Copy-DirectoryContents $wrapperSkillRoot (Join-Path $WorktreePath "skills" "zotero-bridge-cli")
   New-Item -ItemType Directory -Force -Path (Join-Path $WorktreePath "assets") | Out-Null
   Copy-Item -LiteralPath $profileTemplate -Destination (Join-Path $WorktreePath "assets" "profile.template.json") -Force
@@ -201,14 +203,6 @@ try {
     profileTemplate = "assets/profile.template.json"
   }
   Set-Content -LiteralPath (Join-Path $WorktreePath "manifest.json") -Value (($manifest | ConvertTo-Json -Depth 12) + "`n") -Encoding UTF8
-
-  @"
-# Zotero Library Agent Bundle
-
-Use the `zotero-library-agent` Skill for bounded, on-demand Zotero library and Zotero Agents work. Use the bundled `zotero-bridge-cli` Skill for connection and command details.
-
-The bundle contains verified Host Bridge CLI prebuilds, installers, a profile template, portable evidence tooling, and no resident scheduler or background state service.
-"@ | Set-Content -LiteralPath (Join-Path $WorktreePath "README.md") -Encoding UTF8
 
   Invoke-BundleGit @("add", "-A")
   Invoke-BundleGit @("update-index", "--chmod=+x", "install.sh")

@@ -7,19 +7,33 @@ description: Plan, prepare, verify, and publish the unified Host Bridge CLI bund
 
 Run from the repository root. One prepared `host-bridge.release-set.v1` governs all three agent-facing surfaces.
 
-## Prepare
+## Feature Content
+
+For Host Bridge feature work, review semantics and render deterministic content without preparing or publishing a release:
+
+```powershell
+npm run render:host-bridge-content
+npm run check:host-bridge-content
+```
+
+This path updates the Agent Surface and generated semantic guidance while leaving CLI, wrapper, Library Agent, and Profile versions, release manifests, and `host-bridge/release-set.json` unchanged. Commit the reviewed source and generated content to the feature change. Do not run release preparation or dispatch the publication workflow for feature content.
+
+The content check rejects family-only command guidance, impossible recovery handles, missing direct references, stale detailed command cards, and policy leakage between the bounded Library Agent and resident Profile. When an active OpenSpec change requires source-blind agent evaluation, record its result before release preparation.
+
+## Prepare An Accumulated Main Release
 
 1. Run `$host-bridge-semantic-surface-review` when the semantic collector requires review.
-2. Inspect the read-only release plan:
+2. On the latest `main`, inspect the read-only plan accumulated since the latest complete receipt or committed completed release identity:
 
 ```powershell
 npm run release:host-bridge:plan
 ```
 
-3. Prepare versions and generated surfaces exactly once:
+3. Prepare versions and generated surfaces exactly once. Supply explicit intent for a schema or protocol release:
 
 ```powershell
 npm run prepare:host-bridge-release
+npm run prepare:host-bridge-release -- --intent minor
 ```
 
 The coordinator applies required patch bumps for changed public content, renders the machine agent surface and three generated surfaces, materializes `host-bridge/release-set.json`, and runs the unified surface check. Generated-only drift does not require a content-version bump.
@@ -46,7 +60,7 @@ Treat only this controlled freshness failure as the CI build handoff.
 
 ## Publish Or Resume
 
-Normal publication is the automatic `release-host-bridge.yml` run for the prepared `main` commit. Manual dispatch is only for recovery and must name the existing release set when resuming:
+Normal publication is the automatic `release-host-bridge.yml` run when a reviewed prepared `host-bridge/release-set.json` reaches `main`. Ordinary Host Bridge source or semantic-content merges do not trigger publication. Manual dispatch is only for recovery and must name the existing release set when resuming:
 
 ```powershell
 gh workflow run release-host-bridge.yml --ref main -f release_set_id=<releaseSetId>
