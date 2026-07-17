@@ -188,6 +188,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/citationGraphApplicationNode.js",
       "service/apps/synthesis-service/src/referenceRefreshApplicationNode.js",
       "service/apps/synthesis-service/src/referenceMatchingReviewApplicationNode.js",
+      "service/apps/synthesis-service/src/tagVocabularyApplicationNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
@@ -199,6 +200,8 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/hostRead.js",
       "service/packages/synthesis-contracts/src/referenceRefreshApplication.js",
       "service/packages/synthesis-contracts/src/referenceMatchingReviewApplication.js",
+      "service/packages/synthesis-contracts/src/tagVocabularyApplication.js",
+      "service/packages/synthesis-contracts/src/tagVocabularyCore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
       "service/packages/synthesis-application/src/index.js",
       "service/packages/synthesis-application/src/topicCanonical.js",
@@ -209,10 +212,12 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-application/src/referenceProjection.js",
       "service/packages/synthesis-application/src/referenceRefreshApplication.js",
       "service/packages/synthesis-application/src/referenceMatchingReviewApplication.js",
+      "service/packages/synthesis-application/src/tagVocabularyApplication.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/packages/synthesis-repository/src/citationGraph.js",
       "service/packages/synthesis-repository/src/referenceRefresh.js",
       "service/packages/synthesis-repository/src/referenceMatchingReview.js",
+      "service/packages/synthesis-repository/src/tagVocabulary.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -231,6 +236,8 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(packagedProtocol, "citation_graph_metrics.v1");
     assert.include(packagedProtocol, "citation_graph_build.v1");
     assert.include(packagedProtocol, "citation_graph_build_transfer.v1");
+    assert.include(packagedProtocol, "tag_vocabulary_validate.v1");
+    assert.include(packagedProtocol, "tag_vocabulary_index.v1");
     const packagedWorker = fs.readFileSync(
       path.join(
         outputRoot,
@@ -249,6 +256,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       packagedWorker,
       "createSynthesisCitationGraphBuildPackedAccumulator",
+    );
+    assert.include(
+      packagedWorker,
+      "createInProcessSynthesisTagVocabularyEngine",
     );
   });
 
@@ -494,6 +505,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "apps/synthesis-service/src/referenceMatchingReviewApplicationNode.ts",
     );
+    assert.include(
+      first.inputs,
+      "apps/synthesis-service/src/tagVocabularyApplicationNode.ts",
+    );
     assert.include(first.inputs, "packages/synthesis-repository/src/index.ts");
     assert.include(
       first.inputs,
@@ -506,6 +521,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-repository/src/referenceMatchingReview.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-repository/src/tagVocabulary.ts",
     );
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
@@ -528,6 +547,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-application/src/referenceMatchingReviewApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/tagVocabularyApplication.ts",
     );
     assert.include(
       first.inputs,
@@ -565,6 +588,11 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/referenceMatchingReviewApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/tagVocabularyApplication.ts",
+      "packages/synthesis-contracts/src/tagVocabularyCore.ts",
     );
     assert.include(
       first.inputs,
@@ -612,6 +640,8 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(xpiCheck, "citationGraphApplicationNode.js");
     assert.include(xpiCheck, "referenceRefreshApplicationNode.js");
     assert.include(xpiCheck, "referenceMatchingReviewApplicationNode.js");
+    assert.include(xpiCheck, "tagVocabularyApplicationNode.js");
+    assert.include(xpiCheck, "tagVocabularyCore.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
     assert.include(
       xpiCheck,
@@ -624,6 +654,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       xpiCheck,
       "packages/synthesis-repository/src/referenceMatchingReview.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-repository/src/tagVocabulary.js",
     );
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
     assert.include(
@@ -656,6 +690,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       xpiCheck,
+      "packages/synthesis-application/src/tagVocabularyApplication.js",
+    );
+    assert.include(
+      xpiCheck,
       "packages/synthesis-contracts/src/topicApplication.js",
     );
     assert.include(
@@ -669,6 +707,11 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       xpiCheck,
       "packages/synthesis-contracts/src/referenceMatchingReviewApplication.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-contracts/src/tagVocabularyApplication.js",
+      "packages/synthesis-contracts/src/tagVocabularyCore.js",
     );
     assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");

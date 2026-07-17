@@ -1,4 +1,4 @@
-import { SynthesisClientError, toSynthesisJsonObject } from "./common";
+import { SynthesisClientError, toSynthesisJsonObject } from "./common.js";
 
 export const SYNTHESIS_HOST_ITEM_KEY_MAX = 128 as const;
 

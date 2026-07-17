@@ -22,6 +22,8 @@ export * from "./sidecarRuntimeBundle";
 export * from "./sync";
 export * from "./tagEffect";
 export * from "./tags";
+export * from "./tagVocabularyApplication";
+export * from "./tagVocabularyCore";
 export * from "./topics";
 export * from "./topicApplication";
 export * from "./topicGraph";

@@ -29,10 +29,22 @@ import {
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
+  SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   type SynthesisSidecarComputeRunMessage,
   type SynthesisSidecarTransferPortWorkerMessage,
 } from "./computeProtocol.js";
 import type { SynthesisCitationGraphBuildTransferPageDescriptor } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
+import {
+  rebuildSynthesisTagVocabularyIndexRequest,
+  rebuildSynthesisTagVocabularyIndexResult,
+  rebuildSynthesisTagVocabularyValidationRequest,
+  rebuildSynthesisTagVocabularyValidationResult,
+  type SynthesisTagVocabularyIndexRequest,
+  type SynthesisTagVocabularyIndexResult,
+  type SynthesisTagVocabularyValidationRequest,
+  type SynthesisTagVocabularyValidationResult,
+} from "../../../packages/synthesis-engine/src/tagVocabulary.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   concurrency: 1,
@@ -91,11 +103,15 @@ type Task = {
     | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
     | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
   request:
     | SynthesisCitationGraphLayoutRequest
     | SynthesisCitationGraphMetricsRequest
     | SynthesisCitationGraphBuildRequest
+    | SynthesisTagVocabularyValidationRequest
+    | SynthesisTagVocabularyIndexRequest
     | SynthesisSidecarGraphBuildTransferRun;
   cancellation: Int32Array;
   resolve(
@@ -103,6 +119,8 @@ type Task = {
       | SynthesisCitationGraphLayoutResult
       | SynthesisCitationGraphMetricsResult
       | SynthesisCitationGraphBuildResult
+      | SynthesisTagVocabularyValidationResult
+      | SynthesisTagVocabularyIndexResult
       | void,
   ): void;
   reject(error: unknown): void;
@@ -129,6 +147,14 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisCitationGraphBuildRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisCitationGraphBuildResult>;
+  runTagVocabularyValidation(
+    request: SynthesisTagVocabularyValidationRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTagVocabularyValidationResult>;
+  runTagVocabularyIndex(
+    request: SynthesisTagVocabularyIndexRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTagVocabularyIndexResult>;
   runCitationGraphBuildTransfer(
     run: SynthesisSidecarGraphBuildTransferRun,
     options?: { signal?: AbortSignal },
@@ -546,7 +572,9 @@ export function createSynthesisSidecarComputeWorkerPool(
         let result:
           | SynthesisCitationGraphLayoutResult
           | SynthesisCitationGraphMetricsResult
-          | SynthesisCitationGraphBuildResult;
+          | SynthesisCitationGraphBuildResult
+          | SynthesisTagVocabularyValidationResult
+          | SynthesisTagVocabularyIndexResult;
         try {
           switch (task.operation) {
             case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
@@ -565,6 +593,18 @@ export function createSynthesisSidecarComputeWorkerPool(
               result = rebuildSynthesisCitationGraphBuildResult(
                 response.result,
                 task.request as SynthesisCitationGraphBuildRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
+              result = rebuildSynthesisTagVocabularyValidationResult(
+                response.result,
+                task.request as SynthesisTagVocabularyValidationRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
+              result = rebuildSynthesisTagVocabularyIndexResult(
+                response.result,
+                task.request as SynthesisTagVocabularyIndexRequest,
               );
               break;
           }
@@ -656,6 +696,24 @@ export function createSynthesisSidecarComputeWorkerPool(
           cancellation,
         };
         break;
+      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
+          payload: task.request as SynthesisTagVocabularyValidationRequest,
+          cancellation,
+        };
+        break;
+      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
+          payload: task.request as SynthesisTagVocabularyIndexRequest,
+          cancellation,
+        };
+        break;
     }
     target.postMessage(message);
   };
@@ -664,11 +722,15 @@ export function createSynthesisSidecarComputeWorkerPool(
     Request extends
       | SynthesisCitationGraphLayoutRequest
       | SynthesisCitationGraphMetricsRequest
-      | SynthesisCitationGraphBuildRequest,
+      | SynthesisCitationGraphBuildRequest
+      | SynthesisTagVocabularyValidationRequest
+      | SynthesisTagVocabularyIndexRequest,
     Result extends
       | SynthesisCitationGraphLayoutResult
       | SynthesisCitationGraphMetricsResult
-      | SynthesisCitationGraphBuildResult,
+      | SynthesisCitationGraphBuildResult
+      | SynthesisTagVocabularyValidationResult
+      | SynthesisTagVocabularyIndexResult,
   >(
     operation: Task["operation"],
     request: Request,
@@ -747,6 +809,28 @@ export function createSynthesisSidecarComputeWorkerPool(
       >(
         SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
         rebuildSynthesisCitationGraphBuildRequest(requestInput),
+        runOptions,
+      );
+
+  const runTagVocabularyValidation: SynthesisSidecarComputeWorkerPool["runTagVocabularyValidation"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTagVocabularyValidationRequest,
+        SynthesisTagVocabularyValidationResult
+      >(
+        SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
+        rebuildSynthesisTagVocabularyValidationRequest(requestInput),
+        runOptions,
+      );
+
+  const runTagVocabularyIndex: SynthesisSidecarComputeWorkerPool["runTagVocabularyIndex"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTagVocabularyIndexRequest,
+        SynthesisTagVocabularyIndexResult
+      >(
+        SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
+        rebuildSynthesisTagVocabularyIndexRequest(requestInput),
         runOptions,
       );
 
@@ -834,6 +918,8 @@ export function createSynthesisSidecarComputeWorkerPool(
     runCitationGraphLayout,
     runCitationGraphMetrics,
     runCitationGraphBuild,
+    runTagVocabularyValidation,
+    runTagVocabularyIndex,
     runCitationGraphBuildTransfer,
     snapshot,
     shutdown,

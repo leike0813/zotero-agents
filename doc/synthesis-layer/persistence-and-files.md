@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus Topic, Reference Refresh, Reference Matching/Review, and Citation Graph application tables. Reference source/artifact/raw/canonical/binding/proposal rows promote with expected-reference and recaptured-Host bases; Graph structure/light metrics replace atomically and complex metrics/layout remain graph-basis-bound. It is not a production mirror, production Workbench source, Host reader, or mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus Topic, Reference Refresh, Reference Matching/Review, Citation Graph, and Tag Vocabulary application tables. Tag vocabulary, staged suggestion, audit, and effect rows use revision CAS; unavailable post-commit Host effects remain pending. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -94,6 +94,15 @@ or discard. Proposal, accepted binding, redirect, rejection, supersession, and
 retarget decisions survive restart. Accepted-fact changes mark isolated graph
 and related projections stale without executing either downstream effect.
 
+Tag Vocabulary application state records the active vocabulary revision and
+index basis beside strict entry, alias, abbreviation, protocol, warning, staged
+suggestion, audit, and effect rows. Validation and index construction occur
+outside SQLite; promotion recaptures the vocabulary revision and commits the
+vocabulary/staging/effect transition atomically. Host delivery occurs only after
+commit, and a missing or failed Host port leaves the effect pending without
+rolling back vocabulary state. This private table family has no public route and
+does not own production import, checkpoint, WebDAV, or projection manifests.
+
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots
 are canonicalized and fsynced in global staging before a CAS-guarded rename;
@@ -138,12 +147,15 @@ Do not use SQLite sidecar rows as proof that Zotero Library is synchronized. Cor
 
 Runtime readiness has one source: `synt_cache_basis` (citation graph cache family). Runtime command progress has one source: `synt_operation` (operation progress family). Legacy sidecar state files, sidecar index files, graph index files, and graph manifests may exist only as old exports, checkpoints, debug/import material, or cleanup residue. They must not drive Workbench readiness, background job rows, Index status, or Graph status.
 
-Tag Vocabulary rows, aliases, abbreviations, protocol, and validation warnings
-remain SQLite-owned. The environment-neutral Tag Vocabulary engine receives a
-bounded JSON-safe snapshot and returns validation or rebuildable index data; it
-does not open SQLite, write files, compute canonical manifests, or update the
-projection registry. A failed or malformed index result leaves the existing
-registry state unchanged.
+Tag Vocabulary rows, aliases, abbreviations, protocol, validation warnings,
+staged suggestions, audits, and Host-effect receipts remain SQLite-owned. The
+environment-neutral Tag Vocabulary engine receives a bounded JSON-safe snapshot
+and returns validation or rebuildable index data; it does not open SQLite, write
+files, compute canonical manifests, or update the projection registry. The
+private sidecar application invokes both methods through the bounded worker and
+uses expected-revision CAS for promotion. Production plugin validation remains
+synchronous inside its existing transaction until cutover. A failed, malformed,
+or superseded result leaves the active index and durable vocabulary unchanged.
 
 Concept KB concepts, senses, aliases, relations, review items, and topic links
 also remain SQLite-owned. The environment-neutral Concept KB index engine

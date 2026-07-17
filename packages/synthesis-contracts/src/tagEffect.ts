@@ -2,11 +2,11 @@ import {
   SynthesisClientError,
   toSynthesisJsonObject,
   type SynthesisJsonObject,
-} from "./common";
+} from "./common.js";
 import {
   rebuildSynthesisHostItemRef,
   type SynthesisHostItemRef,
-} from "./itemRef";
+} from "./itemRef.js";
 
 export const SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX = 100 as const;
 export const SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX = 50 as const;

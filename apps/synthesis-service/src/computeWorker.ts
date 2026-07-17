@@ -18,10 +18,19 @@ import {
   rebuildSynthesisCitationGraphBuildResult,
 } from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
 import {
+  createInProcessSynthesisTagVocabularyEngine,
+  rebuildSynthesisTagVocabularyIndexRequest,
+  rebuildSynthesisTagVocabularyIndexResult,
+  rebuildSynthesisTagVocabularyValidationRequest,
+  rebuildSynthesisTagVocabularyValidationResult,
+} from "../../../packages/synthesis-engine/src/tagVocabulary.js";
+import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
+  SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   type SynthesisSidecarComputeWorkerMessage,
   type SynthesisSidecarComputeWorkerResponse,
   type SynthesisSidecarTransferPortAckMessage,
@@ -211,6 +220,44 @@ parentPort.on(
           type: "result",
           taskId,
           result: rebuildSynthesisCitationGraphBuildResult(result, request),
+        });
+        return;
+      }
+      if (
+        message.operation ===
+        SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
+      ) {
+        const request = rebuildSynthesisTagVocabularyValidationRequest(
+          message.payload,
+        );
+        const result = createInProcessSynthesisTagVocabularyEngine({
+          checkpoint,
+        }).validate(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisTagVocabularyValidationResult(
+            result,
+            request,
+          ),
+        });
+        return;
+      }
+      if (
+        message.operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
+      ) {
+        const request = rebuildSynthesisTagVocabularyIndexRequest(
+          message.payload,
+        );
+        const result = createInProcessSynthesisTagVocabularyEngine({
+          checkpoint,
+        }).buildIndex(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisTagVocabularyIndexResult(result, request),
         });
         return;
       }

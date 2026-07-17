@@ -10,6 +10,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
 export * from "./citationGraph.js";
 export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
+export * from "./tagVocabulary.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
   getSynthesisCitationGraphApplicationState,
@@ -43,6 +44,30 @@ import {
   replaceSynthesisReferenceProjection,
   type SynthesisReferenceProjectionReplacement,
 } from "./referenceRefresh.js";
+import {
+  ensureSynthesisTagVocabularyApplicationRepositorySchema,
+  getSynthesisTagApplicationState,
+  getSynthesisTagProtocol,
+  listSynthesisTagAbbrevs,
+  listSynthesisTagAliases,
+  listSynthesisTagAuditRecords,
+  listSynthesisTagEffects,
+  listSynthesisTagStagedSuggestions,
+  listSynthesisTagValidationWarnings,
+  listSynthesisTagVocabularyEntries,
+  promoteSynthesisTagIndex,
+  promoteSynthesisTagVocabularyState,
+  recordSynthesisTagEffectReceipts,
+  replaceSynthesisTagAuditRecords,
+  replaceSynthesisTagStagedSuggestions,
+  replaceSynthesisTagVocabularyState,
+  upsertSynthesisTagAuditRecord,
+  type SynthesisTagAuditRecord,
+  type SynthesisTagEffectRecord,
+  type SynthesisTagEffectStatus,
+  type SynthesisTagStagedSuggestionRecord,
+  type SynthesisTagVocabularyStateRecords,
+} from "./tagVocabulary.js";
 
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
@@ -863,6 +888,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let citationGraphApplicationInitialized = false;
   let referenceRefreshApplicationInitialized = false;
   let referenceMatchingReviewApplicationInitialized = false;
+  let tagVocabularyApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -895,6 +921,12 @@ export function createSynthesisRepositoryFoundationStore(options: {
   const reconcileReferenceMatchingPreparations = () => {
     initializeReferenceMatchingReviewApplication();
     reconcileSynthesisReferenceMatchingPreparations(db, now());
+  };
+  const initializeTagVocabularyApplication = () => {
+    initialize();
+    if (tagVocabularyApplicationInitialized) return;
+    ensureSynthesisTagVocabularyApplicationRepositorySchema(db);
+    tagVocabularyApplicationInitialized = true;
   };
   return {
     initialize,
@@ -962,6 +994,105 @@ export function createSynthesisRepositoryFoundationStore(options: {
     initializeReferenceRefreshApplication,
     initializeReferenceMatchingReviewApplication,
     reconcileReferenceMatchingPreparations,
+    initializeTagVocabularyApplication,
+    getTagApplicationState() {
+      initializeTagVocabularyApplication();
+      return getSynthesisTagApplicationState(db);
+    },
+    listTagVocabularyEntries() {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagVocabularyEntries(db);
+    },
+    listTagAliases() {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagAliases(db);
+    },
+    listTagAbbrevs() {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagAbbrevs(db);
+    },
+    getTagProtocol() {
+      initializeTagVocabularyApplication();
+      return getSynthesisTagProtocol(db);
+    },
+    listTagValidationWarnings() {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagValidationWarnings(db);
+    },
+    replaceTagVocabularyState(args: {
+      expectedVocabularyHash: string | null;
+      vocabularyHash: string;
+      state: SynthesisTagVocabularyStateRecords;
+      now: string;
+    }) {
+      initializeTagVocabularyApplication();
+      return replaceSynthesisTagVocabularyState(db, args);
+    },
+    listTagStagedSuggestions() {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagStagedSuggestions(db);
+    },
+    replaceTagStagedSuggestions(args: {
+      expectedStagedRevision: number;
+      rows: SynthesisTagStagedSuggestionRecord[];
+      now: string;
+    }) {
+      initializeTagVocabularyApplication();
+      return replaceSynthesisTagStagedSuggestions(db, args);
+    },
+    promoteTagVocabularyState(args: {
+      expectedVocabularyHash: string | null;
+      expectedStagedRevision: number;
+      vocabularyHash: string;
+      state: SynthesisTagVocabularyStateRecords;
+      stagedRows: SynthesisTagStagedSuggestionRecord[];
+      effects: SynthesisTagEffectRecord[];
+      now: string;
+    }) {
+      initializeTagVocabularyApplication();
+      return promoteSynthesisTagVocabularyState(db, args);
+    },
+    promoteTagIndex(args: {
+      expectedVocabularyHash: string;
+      indexHash: string;
+      indexJson: string;
+      now: string;
+    }) {
+      initializeTagVocabularyApplication();
+      return promoteSynthesisTagIndex(db, args);
+    },
+    listTagEffects(args?: { statuses?: SynthesisTagEffectStatus[] }) {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagEffects(db, args);
+    },
+    recordTagEffectReceipts(
+      rows: Array<
+        Pick<
+          SynthesisTagEffectRecord,
+          "effectId" | "status" | "occurredAt" | "diagnosticsJson"
+        >
+      >,
+      timestamp: string,
+    ) {
+      initializeTagVocabularyApplication();
+      return recordSynthesisTagEffectReceipts(db, rows, timestamp);
+    },
+    listTagAuditRecords(args?: { libraryId?: number }) {
+      initializeTagVocabularyApplication();
+      return listSynthesisTagAuditRecords(db, args);
+    },
+    replaceTagAuditRecords(args: {
+      libraryId: number;
+      rows: SynthesisTagAuditRecord[];
+      now: string;
+    }) {
+      initializeTagVocabularyApplication();
+      return replaceSynthesisTagAuditRecords(db, args);
+    },
+    upsertTagAuditRecord(row: SynthesisTagAuditRecord, timestamp: string) {
+      initializeTagVocabularyApplication();
+      return upsertSynthesisTagAuditRecord(db, row, timestamp);
+    },
     getReferenceApplicationState() {
       initializeReferenceRefreshApplication();
       return getSynthesisReferenceApplicationState(db);

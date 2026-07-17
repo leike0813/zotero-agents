@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository 与 Topic canonical shadow foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow 与五个私有领域 application foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1154,6 +1154,14 @@ graph layout 作为第一条 process canary，因为：
   SSOT 管理；designated Node adapter 投影 isolated accepted facts、撤销和 manual audit proposal。
   私有 composition 只持久化 isolated facts 并标记 graph/related
   stale，不执行 downstream effect，也不新增 Host/RPC/production route。
+- `add-synthesis-sidecar-tag-vocabulary-application-foundation` 已完成拆分优先级第 6 项中除
+  checkpoint/import 外的 15 个 Tag Vocabulary use case：strict DTO 与 row schema 收敛到 shared
+  contracts/repository/application，validation 与 index construction 通过两个内部 bounded worker
+  operation 在 SQLite 外执行，并在 revision recapture 后 CAS 提升。vocabulary、staged suggestion、
+  audit 与 pending Host effect 持久化在独立 shadow table family；promotion 先原子提交 vocabulary/
+  staged/effect，再投递 Host，失败只保留 pending effect，不回滚已提交词表。legacy numeric parent
+  binding 在 promotion 前经既有 migration port 升级为 stable ref。当前没有 authenticated RPC、
+  public capability、production `SynthesisClient` route、WebDAV、checkpoint 或 import preview/apply。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

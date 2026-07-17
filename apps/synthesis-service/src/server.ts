@@ -71,6 +71,7 @@ import { createSynthesisSidecarTopicApplication } from "./topicApplicationNode.j
 import { createSynthesisSidecarCitationGraphApplication } from "./citationGraphApplicationNode.js";
 import { createSynthesisSidecarReferenceRefreshApplication } from "./referenceRefreshApplicationNode.js";
 import { createSynthesisSidecarReferenceMatchingReviewApplication } from "./referenceMatchingReviewApplicationNode.js";
+import { createSynthesisSidecarTagVocabularyApplication } from "./tagVocabularyApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -317,6 +318,11 @@ export async function startSynthesisSidecarServer(
     createSynthesisSidecarReferenceMatchingReviewApplication({
       databasePath: repository.paths.databasePath,
     });
+  const tagVocabularyApplication =
+    createSynthesisSidecarTagVocabularyApplication({
+      repository: repository.store,
+      computePool,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -334,6 +340,7 @@ export async function startSynthesisSidecarServer(
     citationGraphApplication.stopAdmission();
     referenceRefreshApplication.stopAdmission();
     referenceMatchingReviewApplication.stopAdmission();
+    tagVocabularyApplication.stopAdmission();
     canonicalStore.stopAdmission();
     transferExecutor.shutdown();
     writeServiceLog("service_stopping", {
@@ -343,6 +350,7 @@ export async function startSynthesisSidecarServer(
     void (async () => {
       await referenceRefreshApplication.shutdown();
       await referenceMatchingReviewApplication.shutdown();
+      await tagVocabularyApplication.shutdown();
       await citationGraphApplication.shutdown();
       repository.close();
       await Promise.allSettled([
@@ -796,6 +804,7 @@ export async function startSynthesisSidecarServer(
     transferExecutor.shutdown();
     await referenceRefreshApplication.shutdown();
     await referenceMatchingReviewApplication.shutdown();
+    await tagVocabularyApplication.shutdown();
     await citationGraphApplication.shutdown();
     canonicalStore.close();
     repository.close();

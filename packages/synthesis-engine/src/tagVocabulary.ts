@@ -1,3 +1,19 @@
+import type {
+  SynthesisTagVocabularyEngineEntry,
+  SynthesisTagVocabularyEngineProtocol,
+  SynthesisTagVocabularyIndexResult,
+  SynthesisTagVocabularyIndexSearchRow,
+  SynthesisTagVocabularyWarning,
+} from "../../synthesis-contracts/src/tagVocabularyCore.js";
+
+export {
+  type SynthesisTagVocabularyEngineEntry,
+  type SynthesisTagVocabularyEngineProtocol,
+  type SynthesisTagVocabularyIndexResult,
+  type SynthesisTagVocabularyIndexSearchRow,
+  type SynthesisTagVocabularyWarning,
+};
+
 export const SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION =
   "synthesis-tag-vocabulary.v1" as const;
 export const SYNTHESIS_TAG_VOCABULARY_VALIDATION_VERSION =
@@ -13,30 +29,6 @@ export const SYNTHESIS_TAG_VOCABULARY_FACET_MAX = 256;
 export const SYNTHESIS_TAG_VOCABULARY_PER_ENTRY_ALIAS_MAX = 256;
 export const SYNTHESIS_TAG_VOCABULARY_STRING_MAX = 4096;
 export const SYNTHESIS_TAG_VOCABULARY_CHECKPOINT_INTERVAL = 256;
-
-export type SynthesisTagVocabularyEngineEntry = {
-  tag: string;
-  facet: string;
-  note?: string;
-  deprecated?: boolean;
-  replacement?: string;
-  aliases: string[];
-  abbrev: string[];
-};
-
-export type SynthesisTagVocabularyEngineProtocol = {
-  version: string;
-  tagPattern: string;
-  maxTagLength: number;
-  facets: string[];
-};
-
-export type SynthesisTagVocabularyWarning = {
-  code: string;
-  severity: "warning" | "error";
-  tag?: string;
-  message: string;
-};
 
 export type SynthesisTagVocabularyValidationRequest = {
   contractVersion: typeof SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION;
@@ -60,27 +52,6 @@ export type SynthesisTagVocabularyIndexRequest = Omit<
   algorithmVersion: typeof SYNTHESIS_TAG_VOCABULARY_INDEX_VERSION;
   sourceManifestHash: string;
   rebuiltAt: string;
-};
-
-export type SynthesisTagVocabularyIndexSearchRow = {
-  tag: string;
-  normalized: string;
-  facet: string;
-  aliases: string[];
-  abbrev: string[];
-};
-
-export type SynthesisTagVocabularyIndexResult = {
-  contractVersion: typeof SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION;
-  algorithmVersion: typeof SYNTHESIS_TAG_VOCABULARY_INDEX_VERSION;
-  schemaVersion: typeof SYNTHESIS_TAG_VOCABULARY_INDEX_SCHEMA_VERSION;
-  sourceManifestHash: string;
-  rebuiltAt: string;
-  tags: string[];
-  aliases: Record<string, string>;
-  abbrev: Record<string, string>;
-  search: SynthesisTagVocabularyIndexSearchRow[];
-  validationWarnings: SynthesisTagVocabularyWarning[];
 };
 
 export type SynthesisTagVocabularyCheckpoint = {

@@ -58,6 +58,8 @@ describe("Synthesis sidecar migration boundary", function () {
         application_schema_version: string;
         citation_graph_application_schema_version: string;
         reference_refresh_application_schema_version: string;
+        reference_matching_review_application_schema_version: string;
+        tag_vocabulary_application_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -109,6 +111,32 @@ describe("Synthesis sidecar migration boundary", function () {
         production_database_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_reference_matching_review_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        compute_owner: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        graph_execution: boolean;
+        related_items_effect: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
+      isolated_tag_vocabulary_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        compute_owner: string;
+        host_effect_default: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        checkpoint_import_export: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -122,6 +150,10 @@ describe("Synthesis sidecar migration boundary", function () {
         "synthesis-citation-graph-application-repository.v1",
       reference_refresh_application_schema_version:
         "synthesis-reference-refresh-repository.v1",
+      reference_matching_review_application_schema_version:
+        "synthesis-reference-matching-review-repository.v1",
+      tag_vocabulary_application_schema_version:
+        "synthesis-tag-vocabulary-application-repository.v1",
       table_families: [
         "schema_meta",
         "cache_basis",
@@ -144,6 +176,18 @@ describe("Synthesis sidecar migration boundary", function () {
         "reference_redirect",
         "reference_binding",
         "reference_revision_review",
+        "reference_match_proposal",
+        "reference_matching_state",
+        "reference_matching_preparation",
+        "tag_application_state",
+        "tag_vocabulary_entry",
+        "tag_alias",
+        "tag_abbrev",
+        "tag_protocol",
+        "tag_validation_warning",
+        "tag_staged_suggestion",
+        "tag_audit",
+        "tag_effect",
       ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
@@ -207,6 +251,58 @@ describe("Synthesis sidecar migration boundary", function () {
       automatic_invocation: false,
       graph_execution: false,
       related_items_effect: false,
+      production_database_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(
+      rawInventory.isolated_reference_matching_review_application,
+      {
+        mode: "isolated_shadow",
+        package: "packages/synthesis-application",
+        use_cases: [
+          "inspect",
+          "list_proposals",
+          "prepare_matching",
+          "apply_matching",
+          "discard_preparation",
+          "review",
+        ],
+        compute_owner: "in_process_engine",
+        remote_capability: false,
+        production_route: false,
+        automatic_invocation: false,
+        graph_execution: false,
+        related_items_effect: false,
+        production_database_owner: "plugin_composition",
+        production_mutation_enabled: false,
+      },
+    );
+    assert.deepEqual(rawInventory.isolated_tag_vocabulary_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "load",
+        "validate",
+        "list_staged",
+        "save",
+        "stage",
+        "update_staged",
+        "update_entry",
+        "delete_entry",
+        "promote",
+        "discard",
+        "clear_staged",
+        "rebuild_index",
+        "export_regulator_tags",
+        "replace_audit",
+        "clear_audit",
+      ],
+      compute_owner: "sidecar_worker",
+      host_effect_default: "unavailable",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      checkpoint_import_export: false,
       production_database_owner: "plugin_composition",
       production_mutation_enabled: false,
     });

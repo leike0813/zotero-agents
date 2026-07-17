@@ -20,6 +20,7 @@ export * from "./referenceRefreshApplication.js";
 export * from "./referenceMatchingReviewApplication.js";
 export * from "./topicApplyDecision.js";
 export * from "./topicApplication.js";
+export * from "./tagVocabularyApplication.js";
 
 export type SynthesisWorkbenchOperationalRepository = {
   getCacheBasis(cacheKey: string): SynthesisCacheBasisRecord | null;

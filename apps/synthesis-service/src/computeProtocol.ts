@@ -12,6 +12,12 @@ import type {
   SynthesisCitationGraphBuildTransferPageDescriptor,
   SynthesisCitationGraphBuildTransferPageKind,
 } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
+import type {
+  SynthesisTagVocabularyIndexRequest,
+  SynthesisTagVocabularyIndexResult,
+  SynthesisTagVocabularyValidationRequest,
+  SynthesisTagVocabularyValidationResult,
+} from "../../../packages/synthesis-engine/src/tagVocabulary.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
   "citation_graph_layout.v1" as const;
@@ -21,6 +27,10 @@ export const SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION =
   "citation_graph_build.v1" as const;
 export const SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION =
   "citation_graph_build_transfer.v1" as const;
+export const SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION =
+  "tag_vocabulary_validate.v1" as const;
+export const SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION =
+  "tag_vocabulary_index.v1" as const;
 
 type SynthesisSidecarComputeRunMessageBase = {
   type: "run";
@@ -40,6 +50,14 @@ export type SynthesisSidecarComputeRunMessage =
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
       payload: SynthesisCitationGraphBuildRequest;
+    })
+  | (SynthesisSidecarComputeRunMessageBase & {
+      operation: typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION;
+      payload: SynthesisTagVocabularyValidationRequest;
+    })
+  | (SynthesisSidecarComputeRunMessageBase & {
+      operation: typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION;
+      payload: SynthesisTagVocabularyIndexRequest;
     })
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
@@ -95,7 +113,9 @@ export type SynthesisSidecarComputeWorkerResponse =
       result:
         | SynthesisCitationGraphLayoutResult
         | SynthesisCitationGraphMetricsResult
-        | SynthesisCitationGraphBuildResult;
+        | SynthesisCitationGraphBuildResult
+        | SynthesisTagVocabularyValidationResult
+        | SynthesisTagVocabularyIndexResult;
     }
   | { type: "canceled"; taskId: string }
   | { type: "error"; taskId: string };

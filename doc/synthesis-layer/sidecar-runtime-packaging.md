@@ -72,9 +72,13 @@ The service remains production-mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. Its main process opens the
 persistent identity-bound shadow repository and Topic canonical shadow beneath
 the profile runtime root, then composes private Topic, Reference Refresh,
-Reference Matching/Review, and Citation Graph applications over those isolated
-owners. The bundle includes the environment-neutral strict Topic/Reference/Graph
-contracts, application rules and projections, repository records/schema, and designated Node adapters. Both reference applications are packaged without a Host or RPC adapter. The sole Node filesystem
+Reference Matching/Review, Citation Graph, and Tag Vocabulary applications over
+those isolated owners. The bundle includes the environment-neutral strict
+Topic/Reference/Graph/Tag contracts, application rules and projections,
+repository records/schema, and designated Node adapters. Both reference
+applications and the Tag application are packaged without a Host or RPC adapter.
+The Tag application uses two internal bounded worker operations for validation
+and index construction; neither is a public service capability. The sole Node filesystem
 adapter;
 built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
 third-party dependency or license. The default `SynthesisClient`

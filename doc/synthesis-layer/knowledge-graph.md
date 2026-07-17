@@ -7,7 +7,7 @@ on top of the Synthesis sidecar cache. It provides a canonical file-based asset
 store, a projection/index system for runtime queries, and a WebDAV durable
 bundle service for cross-instance knowledge sharing.
 
-Twelve modules implement this subsystem:
+Core modules implementing this subsystem are:
 
 | Module | File | Role |
 |--------|------|------|
@@ -20,7 +20,7 @@ Twelve modules implement this subsystem:
 | Topic Structured Artifact Engine | `packages/synthesis-engine/src/topicStructuredArtifact.ts` | Bounded environment-neutral manifest validation, artifact assembly/validation, and section-patch computation |
 | Concept KB | `src/modules/synthesis/conceptKb.ts` | SQLite, canonical, proposal, review, mutation, projection, and public query orchestration |
 | Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
-| Tag Vocabulary | `src/modules/synthesis/tagVocabulary.ts` | SQLite, transaction, import, staged-suggestion, Host-effect, and projection orchestration |
+| Tag Vocabulary | `packages/synthesis-application/src/tagVocabularyApplication.ts`, `packages/synthesis-repository/src/tagVocabulary.ts`, `src/modules/synthesis/tagVocabulary.ts` | Shared isolated application/repository rules plus production plugin import, checkpoint, WebDAV, Host-effect, and projection compatibility composition |
 | Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
 | Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
 | Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
@@ -213,7 +213,7 @@ Each knowledge domain follows a similar service pattern:
 | Topic Graph | `SynthesisTopicGraphIndexEngine` plus application adapter | Strict asynchronous `buildIndex()` placement computation; application-owned upsert, relation decisions, review, proposal ingestion, checkpoint export, manifests, and projection registration |
 | Topic artifact lifecycle | `SynthesisTopicStructuredArtifactEngine` plus application adapter | Four strict asynchronous compute methods; application-owned workspace reads, digest checks, hashes, canonical promotion, metadata/index, proposal ingestion, discovery, and autosync |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
-| Tag Vocabulary | `SynthesisTagVocabularyEngine` plus application adapter | Strict synchronous `validate()` and `buildIndex()` computation; application-owned import, transactions, staged suggestions, Host effects, manifests, and projection registration |
+| Tag Vocabulary | `SynthesisTagVocabularyEngine` plus shared/private and production application adapters | Strict bounded `validate()` and `buildIndex()` computation. The private sidecar application owns isolated CAS transactions, staged suggestions, audits, index promotion, and durable pending Host effects; production plugin composition retains import/checkpoint, manifests, WebDAV, progress, projection registration, and Host adapters. |
 | Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
 | Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
 

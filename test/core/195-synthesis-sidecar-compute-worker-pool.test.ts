@@ -20,6 +20,11 @@ import {
   rebuildSynthesisCitationGraphBuildRequest,
   type SynthesisCitationGraphBuildRequest,
 } from "../../packages/synthesis-engine/src/citationGraphBuild";
+import {
+  createInProcessSynthesisTagVocabularyEngine,
+  rebuildSynthesisTagVocabularyIndexRequest,
+  rebuildSynthesisTagVocabularyValidationRequest,
+} from "../../packages/synthesis-engine/src/tagVocabulary";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   ComputeWorkerPoolError,
@@ -91,6 +96,38 @@ function graphBuildRequest(prefix = "0"): SynthesisCitationGraphBuildRequest {
       },
     ],
     references: [],
+  });
+}
+
+function tagValidationRequest() {
+  return rebuildSynthesisTagVocabularyValidationRequest({
+    contractVersion: "synthesis-tag-vocabulary.v1",
+    algorithmVersion: "tag-vocabulary-validation.v1",
+    entries: [
+      {
+        tag: "ai_task:NER",
+        facet: "ai_task",
+        aliases: [],
+        abbrev: [],
+      },
+    ],
+    aliases: {},
+    abbrev: { ner: "NER" },
+    protocol: {
+      version: "1.0.0",
+      tagPattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+      maxTagLength: 120,
+      facets: ["ai_task"],
+    },
+  });
+}
+
+function tagIndexRequest() {
+  return rebuildSynthesisTagVocabularyIndexRequest({
+    ...tagValidationRequest(),
+    algorithmVersion: "tag-vocabulary-index.v1",
+    sourceManifestHash: `sha256:${"a".repeat(64)}`,
+    rebuiltAt: "2026-07-18T00:00:00.000Z",
   });
 }
 
@@ -218,6 +255,8 @@ describe("Synthesis sidecar compute worker pool", function () {
       const input = request();
       const metricsInput = metricsRequest();
       const graphBuildInput = graphBuildRequest();
+      const tagValidationInput = tagValidationRequest();
+      const tagIndexInput = tagIndexRequest();
       const [
         workerResult,
         directResult,
@@ -240,6 +279,17 @@ describe("Synthesis sidecar compute worker pool", function () {
       assert.deepEqual(workerResult, directResult);
       assert.deepEqual(workerMetrics, directMetrics);
       assert.deepEqual(workerGraphBuild, directGraphBuild);
+      const workerTagValidation =
+        await pool.runTagVocabularyValidation(tagValidationInput);
+      const directTagValidation =
+        createInProcessSynthesisTagVocabularyEngine().validate(
+          tagValidationInput,
+        );
+      const workerTagIndex = await pool.runTagVocabularyIndex(tagIndexInput);
+      const directTagIndex =
+        createInProcessSynthesisTagVocabularyEngine().buildIndex(tagIndexInput);
+      assert.deepEqual(workerTagValidation, directTagValidation);
+      assert.deepEqual(workerTagIndex, directTagIndex);
       assert.equal(spawns, 1);
       assert.deepEqual(options?.resourceLimits, {
         maxOldGenerationSizeMb: 256,

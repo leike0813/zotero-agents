@@ -29,6 +29,9 @@ import {
   rebuildSynthesisReferenceMatchProposalKind,
   rebuildSynthesisReferenceMatchProposalRow,
   rebuildSynthesisReferenceMatchProposalStatus,
+  rebuildSynthesisTagAbbrevRow,
+  rebuildSynthesisTagAliasRow,
+  rebuildSynthesisTagVocabularyEntryRow,
   hasRejectedSynthesisReferenceMatchProposal,
   updateSynthesisReferenceMatchProposalStatus,
   upsertSynthesisReferenceMatchProposal,
@@ -57,6 +60,9 @@ import {
   type SynthesisReferenceMatchProposalKind,
   type SynthesisReferenceMatchProposalRecord,
   type SynthesisReferenceMatchProposalStatus,
+  type SynthesisTagAbbrevRecord,
+  type SynthesisTagAliasRecord,
+  type SynthesisTagVocabularyEntryRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -85,6 +91,9 @@ export type {
   SynthesisReferenceMatchProposalKind,
   SynthesisReferenceMatchProposalRecord,
   SynthesisReferenceMatchProposalStatus,
+  SynthesisTagAbbrevRecord,
+  SynthesisTagAliasRecord,
+  SynthesisTagVocabularyEntryRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type SynthesisRepositorySchemaEntry = {
@@ -368,35 +377,6 @@ export type SynthesisTopicConceptLinkRecord = {
   relevance?: string;
   confidence: string;
   source: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisTagVocabularyEntryRecord = {
-  tag: string;
-  facet: string;
-  note?: string;
-  source?: string;
-  deprecated?: boolean;
-  replacement?: string;
-  aliasesJson?: string;
-  abbrevJson?: string;
-  usageCount?: number;
-  lastSyncedAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisTagAliasRecord = {
-  alias: string;
-  tag: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisTagAbbrevRecord = {
-  abbrevKey: string;
-  abbrevValue: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -3467,43 +3447,6 @@ function rowToTopicConceptLink(row: SqlRow): SynthesisTopicConceptLinkRecord {
     relevance: cleanString(row.relevance) || undefined,
     confidence: cleanString(row.confidence) || "medium",
     source: cleanString(row.source) || "topic_synthesis_concept_cards",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToTagVocabularyEntry(
-  row: SqlRow,
-): SynthesisTagVocabularyEntryRecord {
-  return {
-    tag: cleanString(row.tag),
-    facet: cleanString(row.facet),
-    note: cleanString(row.note) || undefined,
-    source: cleanString(row.source) || undefined,
-    deprecated: Boolean(Number(row.deprecated) || 0),
-    replacement: cleanString(row.replacement) || undefined,
-    aliasesJson: cleanString(row.aliases_json) || "[]",
-    abbrevJson: cleanString(row.abbrev_json) || "[]",
-    usageCount: Math.max(0, Math.floor(Number(row.usage_count) || 0)),
-    lastSyncedAt: cleanString(row.last_synced_at) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToTagAlias(row: SqlRow): SynthesisTagAliasRecord {
-  return {
-    alias: cleanString(row.alias),
-    tag: cleanString(row.tag),
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToTagAbbrev(row: SqlRow): SynthesisTagAbbrevRecord {
-  return {
-    abbrevKey: cleanString(row.abbrev_key),
-    abbrevValue: cleanString(row.abbrev_value),
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -7484,7 +7427,7 @@ export class SynthesisRepository {
     const tags = new Set((args.tags || []).map(cleanString).filter(Boolean));
     return this.db
       .all("SELECT * FROM synt_tag_vocabulary_entry")
-      .map(rowToTagVocabularyEntry)
+      .map(rebuildSynthesisTagVocabularyEntryRow)
       .filter((row) => !tags.size || tags.has(row.tag))
       .sort(
         (left, right) =>
@@ -7497,7 +7440,7 @@ export class SynthesisRepository {
     this.initialize();
     return this.db
       .all("SELECT * FROM synt_tag_alias")
-      .map(rowToTagAlias)
+      .map(rebuildSynthesisTagAliasRow)
       .sort((left, right) => left.alias.localeCompare(right.alias));
   }
 
@@ -7505,7 +7448,7 @@ export class SynthesisRepository {
     this.initialize();
     return this.db
       .all("SELECT * FROM synt_tag_abbrev")
-      .map(rowToTagAbbrev)
+      .map(rebuildSynthesisTagAbbrevRow)
       .sort((left, right) => left.abbrevKey.localeCompare(right.abbrevKey));
   }
 
