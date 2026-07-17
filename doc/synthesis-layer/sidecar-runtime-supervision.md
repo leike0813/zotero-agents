@@ -7,9 +7,9 @@ system Node, PATH, npm, a login shell, or the ACP process-control registry.
 
 The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. The default
-production `SynthesisClient` routes only Citation Graph layout computation
+production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph
-reads, basis checks, promotion, and all other production engines.
+reads, basis checks, promotion, and the other six production engines.
 
 ## Profile Lifecycle
 
@@ -54,13 +54,14 @@ is 120 seconds, with a resume grace for long scheduling gaps. This fallback is
 for addon-realm failure; host process death normally arrives immediately as
 stdin EOF.
 
-## Bounded Production Layout Compute
+## Bounded Production Graph Compute
 
-`compute.citation_graph_layout` is the only worker operation. The pool is lazy,
-runs one task, retains at most two waiting tasks, and rejects additional work
+`compute.citation_graph_layout` and `compute.citation_graph_metrics` are the
+only worker operations. The shared pool is lazy, runs one task, retains at most
+two waiting tasks across both operations, and rejects additional work
 with `worker_busy`; it is not an operation queue and writes no persistent state.
 The HTTP main thread, worker, and main-thread result boundary all use the strict
-layout rebuilders from `packages/synthesis-engine`. Compute request and response
+operation-specific rebuilders from `packages/synthesis-engine`. Compute request and response
 envelopes are each capped at 8 MiB, with 250,000 request and 50,000 response JSON
 structural nodes; the shared endpoint continues to cap general and system
 requests at 1 MiB. Oversized uploads are rejected before queue admission, and
@@ -72,7 +73,7 @@ transport, or worker failures are not retried and never fall back to the local
 engine. Request and service-instance identity are checked before strict result
 rebuild and plugin-owned graph-basis promotion.
 
-Each layout has a five-second hard deadline. Active cancellation gets 100 ms of
+Each layout or metrics task has a five-second hard deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The worker is limited to 256 MiB
 old generation, 32 MiB young generation, and a 4 MiB stack and has no database,
 canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or

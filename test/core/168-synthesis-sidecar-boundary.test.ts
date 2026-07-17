@@ -77,9 +77,21 @@ describe("Synthesis sidecar migration boundary", function () {
       production_worker: true,
       sidecar_worker_canary: false,
     });
+    const metricsEngine = rawInventory.internal_engines.find(
+      (engine) => engine.id === "citation_graph_metrics",
+    );
+    assert.deepInclude(metricsEngine, {
+      implementation: "sidecar_worker",
+      production_worker: true,
+      sidecar_worker_canary: false,
+    });
     assert.isTrue(
       rawInventory.internal_engines
-        .filter((engine) => engine.id !== "citation_graph_layout")
+        .filter(
+          (engine) =>
+            engine.id !== "citation_graph_layout" &&
+            engine.id !== "citation_graph_metrics",
+        )
         .every(
           (engine) =>
             engine.implementation === "in_process" &&
@@ -217,6 +229,13 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(
         ROOT_DIR,
         "src/modules/synthesis/citationGraphMetricsEngineAdapter.ts",
+      ),
+      "utf8",
+    );
+    const sidecarCitationGraphMetricsAdapter = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "src/modules/synthesis/sidecarCitationGraphMetricsEngineAdapter.ts",
       ),
       "utf8",
     );
@@ -518,11 +537,27 @@ describe("Synthesis sidecar migration boundary", function () {
       sidecarCitationGraphLayoutAdapter,
       /(?:repository|canonical|Host|Zotero|child_process|createInProcessSynthesisCitationGraphLayoutEngine)/,
     );
-    assert.include(
+    assert.notInclude(
       legacyComposition,
       "createInProcessSynthesisCitationGraphMetricsEngine",
     );
+    assert.include(
+      legacyComposition,
+      "createSynthesisSidecarCitationGraphMetricsEngine",
+    );
     assert.include(legacyComposition, "citationGraphMetricsEngine");
+    assert.include(
+      sidecarCitationGraphMetricsAdapter,
+      "getReadySynthesisSidecarControlConnection",
+    );
+    assert.include(
+      sidecarCitationGraphMetricsAdapter,
+      "SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS",
+    );
+    assert.notMatch(
+      sidecarCitationGraphMetricsAdapter,
+      /(?:repository|canonical|Host|Zotero|child_process|createInProcessSynthesisCitationGraphMetricsEngine)/,
+    );
     assert.include(
       legacyComposition,
       "createInProcessSynthesisCitationGraphBuildEngine",

@@ -102,7 +102,7 @@ strategy.
 | Reference binding review candidate generation | selected canonical references or source refs | 3000 ms per slice | Candidate blocks or references. |
 | Citation graph cache incremental refresh | affected source refs | 1500 ms per slice | Source refs, rebuilt outgoing edges, affected nodes, and light metrics. |
 | Citation graph cache rebuild | full or source slice; build contract capped at 25,000 sources / 1,250,000 references / 750,000 external targets | 3000 ms per slice | Active references, effective canonical references, bindings, nodes, edges, ownership, incoming groups, and light metrics. Durable facts are captured under a short lock; Host reads and build-engine compute run outside it; promotion recaptures the basis. |
-| Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 3000 ms phase budget; no current mid-compute cutoff | Fixed phases or metric rows. PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
+| Citation graph complex metrics | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 5000 ms shared sidecar hard deadline | Fixed phases or metric rows. Authenticated sidecar PageRank/component/role computation runs outside the write lock; promotion rechecks the graph hash under a short lock. |
 | Citation graph layout rebuild | one canonical snapshot capped at 5,000 nodes / 20,000 edges | 2000 ms pre-start soft check; 5000 ms sidecar hard deadline | Layout nodes for one existing graph hash. Authenticated sidecar compute runs outside the write lock; plugin promotion rechecks the hash under a short lock. Target/stress tiers may continue showing stale coordinates. |
 | Tag vocabulary validation/index | <= 25,000 entries, <= 50,000 global aliases, <= 10,000 abbreviations, <= 256 facets; per-entry alias/abbrev lists <= 256 | 2000 ms explicit-operation budget | Validation rows or search rows. The synchronous engine is checkpoint-capable and performs no persistence or Host I/O; canonical mutation validation remains transaction-local. |
 | Concept KB index/query | <= 25,000 concepts, <= 100,000 senses, <= 250,000 aliases, <= 256 aliases per concept, <= 100 query labels | 2000 ms explicit-operation budget | Search rows, unambiguous overlay entries, or exact concept/alias matches. The asynchronous engine is checkpoint-capable and performs no persistence; projection promotion and public DTO assembly remain application-owned. |
@@ -116,19 +116,19 @@ strategy.
 
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
-Citation Graph build, complex metrics, and Tag Vocabulary index construction
-remain in-process readiness exceptions to slice cancellation. Citation Graph
-layout instead uses the production sidecar worker after its existing pre-start
-soft budget check. That route uses 8 MiB UTF-8
+Citation Graph build and Tag Vocabulary index construction remain in-process
+readiness exceptions to slice cancellation. Citation Graph layout and complex
+metrics use the same production sidecar worker; layout retains its existing
+pre-start soft budget check. Both routes use 8 MiB UTF-8
 request and response envelopes, at most 250,000 request and 50,000 response JSON
 structural nodes, one active task, two waiting tasks, a five-second hard
 deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
 and system requests retain the 1 MiB cap. The byte envelope remains independent
-from the layout engine's 5,000-node/20,000-edge bounds, so an engine-valid but
+from the graph engines' 5,000-node/20,000-edge bounds, so an engine-valid but
 wire-oversized DTO fails closed. The lazy worker and O(1) health snapshot keep
 supervisor steady-state overhead low. The plugin retains DB reads and
 hash-guarded promotion, and unavailable/busy/failed compute preserves stale
-coordinates without wait, retry, or in-process fallback. Tag canonical
+coordinates or previous metrics without wait, retry, or in-process fallback. Tag canonical
 validation remains synchronous inside the repository transaction.
 
 ## External Source Drift Policy

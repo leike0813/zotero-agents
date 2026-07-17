@@ -2,9 +2,9 @@ import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  createInProcessSynthesisCitationGraphLayoutEngine,
-  rebuildSynthesisCitationGraphLayoutRequest,
-  type SynthesisCitationGraphLayoutRequest,
+  createInProcessSynthesisCitationGraphMetricsEngine,
+  rebuildSynthesisCitationGraphMetricsRequest,
+  type SynthesisCitationGraphMetricsRequest,
 } from "../../packages/synthesis-engine/src/index";
 import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
@@ -17,42 +17,52 @@ import {
   createSynthesisSidecarComputeClient,
   SynthesisSidecarComputeClientError,
 } from "../../src/modules/synthesisSidecarComputeClient";
-import { createSynthesisSidecarCitationGraphLayoutEngine } from "../../src/modules/synthesis/sidecarCitationGraphLayoutEngineAdapter";
+import { createSynthesisSidecarCitationGraphMetricsEngine } from "../../src/modules/synthesis/sidecarCitationGraphMetricsEngineAdapter";
 import type { SynthesisSidecarControlConnection } from "../../src/modules/synthesisSidecarControlClient";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
-const SERVICE_INSTANCE_ID = "route-service-instance";
+const SERVICE_INSTANCE_ID = "metrics-route-service-instance";
 
-function request(
-  algorithm: "force" | "radial" | "components" = "components",
-): SynthesisCitationGraphLayoutRequest {
-  return rebuildSynthesisCitationGraphLayoutRequest({
-    graphHash: `sha256:${"a".repeat(64)}`,
-    algorithm,
+function metricsRequest(): SynthesisCitationGraphMetricsRequest {
+  return rebuildSynthesisCitationGraphMetricsRequest({
+    graphHash: `sha256:${"b".repeat(64)}`,
     nodes: [
       {
         nodeId: "zotero:item:AAAA1111",
         kind: "library_paper",
+        libraryId: 1,
+        itemKey: "AAAA1111",
         title: "Source",
         year: "2024",
-        initialX: 0,
-        initialY: 0,
       },
       {
-        nodeId: "ref:doi:10.1000/target",
-        kind: "external_reference",
+        nodeId: "zotero:item:BBBB2222",
+        kind: "library_paper",
+        libraryId: 1,
+        itemKey: "BBBB2222",
         title: "Target",
         year: "2020",
-        initialX: 10,
-        initialY: -10,
+      },
+      {
+        nodeId: "ref:doi:10.1000/external",
+        kind: "external_reference",
+        title: "External",
+        year: "2018",
       },
     ],
     edges: [
       {
         edgeId: "edge:source-target",
         source: "zotero:item:AAAA1111",
-        target: "ref:doi:10.1000/target",
+        target: "zotero:item:BBBB2222",
+        mentionCount: 2,
+      },
+      {
+        edgeId: "edge:target-external",
+        source: "zotero:item:BBBB2222",
+        target: "ref:doi:10.1000/external",
+        mentionCount: 1,
       },
     ],
   });
@@ -62,7 +72,7 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v1",
     profileId: "1".repeat(64),
-    profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-route"),
+    profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
@@ -70,8 +80,8 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     serviceVersion: "0.1.0-test",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",
-    supervisorInstanceId: "route-supervisor",
-    leaseNonce: "route-lease",
+    supervisorInstanceId: "metrics-route-supervisor",
+    leaseNonce: "metrics-route-lease",
     clientToken: CLIENT_TOKEN,
     lifecycleToken: "lifecycle-token-0123456789abcdef0123456789abcdef",
     mutationEnabled: false,
@@ -115,17 +125,17 @@ function clientErrorCode(error: unknown) {
     : "unknown";
 }
 
-describe("Synthesis Citation Graph production sidecar route", function () {
+describe("Synthesis Citation Graph metrics production sidecar route", function () {
   this.timeout(10_000);
 
-  it("matches direct force, radial, and components results through real authenticated HTTP", async function () {
+  it("matches the direct engine through real authenticated HTTP", async function () {
     const config = runtimeConfig();
-    const direct = createInProcessSynthesisCitationGraphLayoutEngine();
+    const direct = createInProcessSynthesisCitationGraphMetricsEngine();
     const pool: SynthesisSidecarComputeWorkerPool = {
-      runCitationGraphLayout: (input) => direct.compute(input),
-      async runCitationGraphMetrics() {
-        throw new Error("unexpected metrics compute");
+      runCitationGraphLayout: async () => {
+        throw new Error("unexpected layout compute");
       },
+      runCitationGraphMetrics: (input) => direct.compute(input),
       snapshot: () => ({
         state: "idle",
         active: 0,
@@ -140,28 +150,26 @@ describe("Synthesis Citation Graph production sidecar route", function () {
       SERVICE_INSTANCE_ID,
       { computePool: pool },
     );
-    const engine = createSynthesisSidecarCitationGraphLayoutEngine({
+    const engine = createSynthesisSidecarCitationGraphMetricsEngine({
       getReadyConnection: () => readyConnection(config, runtime.port),
     });
+    const input = metricsRequest();
     try {
-      for (const algorithm of ["force", "radial", "components"] as const) {
-        const input = request(algorithm);
-        assert.deepEqual(
-          await engine.compute(input),
-          await direct.compute(input),
-        );
-      }
+      assert.deepEqual(
+        await engine.compute(input),
+        await direct.compute(input),
+      );
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
     }
   });
 
-  it("resolves a fresh connection per call and propagates fixed deadline and lifecycle cancellation", async function () {
+  it("resolves a fresh connection and propagates the fixed deadline and lifecycle signal", async function () {
     const config = runtimeConfig();
     const connections = [
-      readyConnection(config, 43121, "service-one"),
-      readyConnection(config, 43122, "service-two"),
+      readyConnection(config, 43221, "metrics-service-one"),
+      readyConnection(config, 43222, "metrics-service-two"),
     ];
     const calls: Array<{
       baseUrl: string;
@@ -170,25 +178,24 @@ describe("Synthesis Citation Graph production sidecar route", function () {
       deadlineMs?: number;
     }> = [];
     const controller = new AbortController();
-    const engine = createSynthesisSidecarCitationGraphLayoutEngine({
+    const direct = createInProcessSynthesisCitationGraphMetricsEngine();
+    const engine = createSynthesisSidecarCitationGraphMetricsEngine({
       signal: controller.signal,
       getReadyConnection: () => connections.shift() ?? null,
       computeClient: {
-        async computeCitationGraphLayout(connection, input, options) {
+        async computeCitationGraphMetrics(connection, input, options) {
           calls.push({
             baseUrl: connection.baseUrl,
             serviceInstanceId: connection.serviceInstanceId,
             ...options,
           });
-          return createInProcessSynthesisCitationGraphLayoutEngine().compute(
-            input,
-          );
+          return direct.compute(input);
         },
       },
     });
 
-    await engine.compute(request());
-    await engine.compute(request("radial"));
+    await engine.compute(metricsRequest());
+    await engine.compute(metricsRequest());
     assert.deepEqual(
       calls.map((call) => [
         call.baseUrl,
@@ -197,18 +204,18 @@ describe("Synthesis Citation Graph production sidecar route", function () {
         call.signal === controller.signal,
       ]),
       [
-        ["http://127.0.0.1:43121", "service-one", 5_000, true],
-        ["http://127.0.0.1:43122", "service-two", 5_000, true],
+        ["http://127.0.0.1:43221", "metrics-service-one", 5_000, true],
+        ["http://127.0.0.1:43222", "metrics-service-two", 5_000, true],
       ],
     );
   });
 
-  it("fails immediately when no ready connection exists", async function () {
+  it("fails immediately without a ready connection", async function () {
     let computeCalls = 0;
-    const engine = createSynthesisSidecarCitationGraphLayoutEngine({
+    const engine = createSynthesisSidecarCitationGraphMetricsEngine({
       getReadyConnection: () => null,
       computeClient: {
-        async computeCitationGraphLayout() {
+        async computeCitationGraphMetrics() {
           computeCalls += 1;
           throw new Error("unexpected compute");
         },
@@ -217,7 +224,7 @@ describe("Synthesis Citation Graph production sidecar route", function () {
 
     assert.equal(
       await engine
-        .compute(request())
+        .compute(metricsRequest())
         .then(() => "success")
         .catch(clientErrorCode),
       "service_not_ready",
@@ -225,36 +232,40 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     assert.equal(computeCalls, 0);
   });
 
-  it("validates request/runtime identity and normalizes transport outcomes", async function () {
-    const input = request();
+  it("uses metrics capability and validates runtime identity and result", async function () {
+    const input = metricsRequest();
     const direct =
-      await createInProcessSynthesisCitationGraphLayoutEngine().compute(input);
+      await createInProcessSynthesisCitationGraphMetricsEngine().compute(input);
     const connection = {
       baseUrl: "http://127.0.0.1:1",
       profileId: "1".repeat(64),
       clientToken: CLIENT_TOKEN,
       serviceInstanceId: SERVICE_INSTANCE_ID,
     };
-    const requestIds: string[] = [];
+    const capabilities: string[] = [];
     const validClient = createSynthesisSidecarComputeClient({
       fetch: async (_url, init) => {
-        const body = JSON.parse(String(init?.body)) as { requestId: string };
-        requestIds.push(body.requestId);
+        const body = JSON.parse(String(init?.body)) as {
+          requestId: string;
+          capability: string;
+        };
+        capabilities.push(body.capability);
         return new Response(
           JSON.stringify({
             ok: true,
             requestId: body.requestId,
             serviceInstanceId: SERVICE_INSTANCE_ID,
             data: direct,
-            diagnostics: [],
           }),
           { status: 200 },
         );
       },
     });
-    await validClient.computeCitationGraphLayout(connection, input);
-    await validClient.computeCitationGraphLayout(connection, input);
-    assert.lengthOf(new Set(requestIds), 2);
+    assert.deepEqual(
+      await validClient.computeCitationGraphMetrics(connection, input),
+      direct,
+    );
+    assert.deepEqual(capabilities, ["compute.citation_graph_metrics"]);
 
     const mismatchClient = createSynthesisSidecarComputeClient({
       fetch: async (_url, init) => {
@@ -272,7 +283,7 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     });
     assert.equal(
       await mismatchClient
-        .computeCitationGraphLayout(connection, input)
+        .computeCitationGraphMetrics(connection, input)
         .then(() => "success")
         .catch(clientErrorCode),
       "runtime_mismatch",
@@ -294,35 +305,10 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     });
     assert.equal(
       await invalidClient
-        .computeCitationGraphLayout(connection, input)
+        .computeCitationGraphMetrics(connection, input)
         .then(() => "success")
         .catch(clientErrorCode),
       "worker_result_invalid",
-    );
-
-    const unavailableClient = createSynthesisSidecarComputeClient({
-      fetch: async () => {
-        throw new TypeError("network failed");
-      },
-    });
-    assert.equal(
-      await unavailableClient
-        .computeCitationGraphLayout(connection, input)
-        .then(() => "success")
-        .catch(clientErrorCode),
-      "worker_unavailable",
-    );
-
-    const controller = new AbortController();
-    controller.abort();
-    assert.equal(
-      await unavailableClient
-        .computeCitationGraphLayout(connection, input, {
-          signal: controller.signal,
-        })
-        .then(() => "success")
-        .catch(clientErrorCode),
-      "worker_canceled",
     );
 
     const timeoutClient = createSynthesisSidecarComputeClient({
@@ -338,32 +324,10 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     });
     assert.equal(
       await timeoutClient
-        .computeCitationGraphLayout(connection, input)
+        .computeCitationGraphMetrics(connection, input)
         .then(() => "success")
         .catch(clientErrorCode),
       "worker_timeout",
-    );
-
-    const busyClient = createSynthesisSidecarComputeClient({
-      fetch: async (_url, init) => {
-        const body = JSON.parse(String(init?.body)) as { requestId: string };
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            requestId: body.requestId,
-            serviceInstanceId: SERVICE_INSTANCE_ID,
-            error: { code: "worker_busy" },
-          }),
-          { status: 429 },
-        );
-      },
-    });
-    assert.equal(
-      await busyClient
-        .computeCitationGraphLayout(connection, input)
-        .then(() => "success")
-        .catch(clientErrorCode),
-      "worker_busy",
     );
   });
 
@@ -372,10 +336,10 @@ describe("Synthesis Citation Graph production sidecar route", function () {
       path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
       "utf8",
     );
-    assert.include(source, "createSynthesisSidecarCitationGraphLayoutEngine");
+    assert.include(source, "createSynthesisSidecarCitationGraphMetricsEngine");
     assert.notInclude(
       source,
-      "createInProcessSynthesisCitationGraphLayoutEngine",
+      "createInProcessSynthesisCitationGraphMetricsEngine",
     );
   });
 });

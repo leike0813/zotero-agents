@@ -178,6 +178,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     for (const required of [
       "service/apps/synthesis-service/src/computeWorker.js",
       "service/apps/synthesis-service/src/computeWorkerPool.js",
+      "service/apps/synthesis-service/src/computeProtocol.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
@@ -187,6 +188,25 @@ describe("Synthesis sidecar runtime packaging", function () {
     ]) {
       assert.include(files, required);
     }
+    const packagedProtocol = fs.readFileSync(
+      path.join(
+        outputRoot,
+        "service/apps/synthesis-service/src/computeProtocol.js",
+      ),
+      "utf8",
+    );
+    assert.include(packagedProtocol, "citation_graph_metrics.v1");
+    const packagedWorker = fs.readFileSync(
+      path.join(
+        outputRoot,
+        "service/apps/synthesis-service/src/computeWorker.js",
+      ),
+      "utf8",
+    );
+    assert.include(
+      packagedWorker,
+      "createInProcessSynthesisCitationGraphMetricsEngine",
+    );
   });
 
   it("installs a verified bundle without consulting system Node or PATH", async function () {

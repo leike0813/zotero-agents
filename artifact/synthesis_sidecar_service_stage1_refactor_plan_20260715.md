@@ -1008,6 +1008,12 @@ graph layout 作为第一条 process canary，因为：
   restart、transport 或 worker failure 均立即失败，不等待、重试或 in-process
   fallback。插件继续持有 DB 读取、graph basis 校验、promotion、canonical files
   和其它七个 production engine。
+- 已交付 `route-synthesis-citation-graph-metrics-through-sidecar-worker`：默认生产
+  composition 将 Citation Graph metrics 作为第二个固定 operation 路由到同一
+  authenticated worker，共享一项 active、两项 waiting、五秒 deadline、取消、
+  replacement 和 degraded fuse；插件继续持有 graph capture/hash/basis、DB、
+  canonical metrics hashing 与 promotion，失败不重试或 in-process fallback。当前
+  其余六个 production engine 仍在插件进程内。
 - runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
   数据；五平台 prebuild 由独立 release 流程按新 fingerprint 重新生成和同步，
   在此之前 freshness/XPI release gate 保持 fail closed。

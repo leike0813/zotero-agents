@@ -122,6 +122,7 @@ describe("Synthesis invariant guards", function () {
       /(?:src\/modules\/synthesis|synthesis\/service|repository|hostEffect|webDavSync|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
     );
     assert.include(sources, "citation_graph_layout.v1");
+    assert.include(sources, "citation_graph_metrics.v1");
     assert.include(sources, "SYNTHESIS_SIDECAR_COMPUTE_LIMITS");
     assert.include(sources, "computeRequestBodyBytes");
     assert.include(sources, "computeResponseBodyBytes");

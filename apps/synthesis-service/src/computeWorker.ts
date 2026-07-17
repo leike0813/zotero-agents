@@ -1,11 +1,15 @@
 import { parentPort } from "node:worker_threads";
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
+  createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
+  rebuildSynthesisCitationGraphMetricsRequest,
+  rebuildSynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   type SynthesisSidecarComputeWorkerMessage,
   type SynthesisSidecarComputeWorkerResponse,
 } from "./computeProtocol.js";
@@ -28,10 +32,7 @@ parentPort.on(
     }
     const taskId = String(message.taskId || "");
     try {
-      if (
-        message.operation !== SYNTHESIS_SIDECAR_COMPUTE_OPERATION ||
-        !(message.cancellation instanceof SharedArrayBuffer)
-      ) {
+      if (!(message.cancellation instanceof SharedArrayBuffer)) {
         throw new Error("Invalid compute operation");
       }
       const canceled = new Int32Array(message.cancellation);
@@ -41,18 +42,39 @@ parentPort.on(
         }
       };
       checkpoint();
-      const request = rebuildSynthesisCitationGraphLayoutRequest(
-        message.payload,
-      );
-      const result = await createInProcessSynthesisCitationGraphLayoutEngine({
-        checkpoint,
-      }).compute(request);
-      checkpoint();
-      post({
-        type: "result",
-        taskId,
-        result: rebuildSynthesisCitationGraphLayoutResult(result, request),
-      });
+      if (message.operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION) {
+        const request = rebuildSynthesisCitationGraphLayoutRequest(
+          message.payload,
+        );
+        const result = await createInProcessSynthesisCitationGraphLayoutEngine({
+          checkpoint,
+        }).compute(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisCitationGraphLayoutResult(result, request),
+        });
+        return;
+      }
+      if (message.operation === SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION) {
+        const request = rebuildSynthesisCitationGraphMetricsRequest(
+          message.payload,
+        );
+        const result = await createInProcessSynthesisCitationGraphMetricsEngine(
+          {
+            checkpoint,
+          },
+        ).compute(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisCitationGraphMetricsResult(result, request),
+        });
+        return;
+      }
+      throw new Error("Invalid compute operation");
     } catch (error) {
       post({
         type: error instanceof ComputeCanceledError ? "canceled" : "error",

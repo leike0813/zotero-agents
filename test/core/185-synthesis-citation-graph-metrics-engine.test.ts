@@ -295,7 +295,14 @@ describe("Synthesis Citation Graph metrics engine", function () {
     const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
       (match) => match[1],
     );
-    assert.deepEqual(imports, ["d3-force"]);
+    assert.include(imports, "d3-force");
+    assert.isFalse(
+      imports.some((specifier) =>
+        /^(?:node:|.*(?:src\/modules\/synthesis|repository|zotero-plugin))/.test(
+          specifier,
+        ),
+      ),
+    );
 
     const checkpoints: string[] = [];
     const request = sampleRequest();

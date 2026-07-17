@@ -65,9 +65,9 @@ or user shell.
 
 The service remains mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. The default `SynthesisClient`
-routes Citation Graph layout computation to its lazy bounded worker; DB reads,
-graph-basis checks, promotion, canonical files, and the other seven engines
-remain plugin-owned. Compute JSON request and response envelopes are capped at
+routes Citation Graph layout and metrics computation to its lazy bounded worker;
+DB reads, graph-basis checks, promotion, canonical files, and the other six
+engines remain plugin-owned. Compute JSON request and response envelopes are capped at
 8 MiB and require no additional runtime dependency or asset.
 
 Source routing does not regenerate platform prebuilds. Production release

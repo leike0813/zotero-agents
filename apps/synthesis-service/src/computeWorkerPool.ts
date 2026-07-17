@@ -2,8 +2,12 @@ import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
+  rebuildSynthesisCitationGraphMetricsRequest,
+  rebuildSynthesisCitationGraphMetricsResult,
   type SynthesisCitationGraphLayoutRequest,
   type SynthesisCitationGraphLayoutResult,
+  type SynthesisCitationGraphMetricsRequest,
+  type SynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
 import type {
   SynthesisSidecarComputePoolSnapshot,
@@ -11,6 +15,7 @@ import type {
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   type SynthesisSidecarComputeRunMessage,
 } from "./computeProtocol.js";
 
@@ -51,9 +56,18 @@ export class ComputeWorkerPoolError extends Error {
 
 type Task = {
   id: string;
-  request: SynthesisCitationGraphLayoutRequest;
+  operation:
+    | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION;
+  request:
+    | SynthesisCitationGraphLayoutRequest
+    | SynthesisCitationGraphMetricsRequest;
   cancellation: Int32Array;
-  resolve(result: SynthesisCitationGraphLayoutResult): void;
+  resolve(
+    result:
+      | SynthesisCitationGraphLayoutResult
+      | SynthesisCitationGraphMetricsResult,
+  ): void;
   reject(error: ComputeWorkerPoolError): void;
   signal?: AbortSignal;
   abortListener?: () => void;
@@ -68,6 +82,10 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisCitationGraphLayoutRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisCitationGraphLayoutResult>;
+  runCitationGraphMetrics(
+    request: SynthesisCitationGraphMetricsRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisCitationGraphMetricsResult>;
   snapshot(): SynthesisSidecarComputePoolSnapshot;
   shutdown(): Promise<void>;
 };
@@ -328,12 +346,20 @@ export function createSynthesisSidecarComputeWorkerPool(
         return;
       }
       if (response.type === "result") {
-        let result: SynthesisCitationGraphLayoutResult;
+        let result:
+          | SynthesisCitationGraphLayoutResult
+          | SynthesisCitationGraphMetricsResult;
         try {
-          result = rebuildSynthesisCitationGraphLayoutResult(
-            response.result,
-            task.request,
-          );
+          result =
+            task.operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
+              ? rebuildSynthesisCitationGraphLayoutResult(
+                  response.result,
+                  task.request as SynthesisCitationGraphLayoutRequest,
+                )
+              : rebuildSynthesisCitationGraphMetricsResult(
+                  response.result,
+                  task.request as SynthesisCitationGraphMetricsRequest,
+                );
         } catch {
           finishRuntimeFailure(task, "worker_result_invalid", created);
           return;
@@ -376,62 +402,101 @@ export function createSynthesisSidecarComputeWorkerPool(
       timeoutActive(task, target);
     }, executionTimeoutMs);
     task.deadline.unref();
-    const message: SynthesisSidecarComputeRunMessage = {
-      type: "run",
-      taskId: task.id,
-      operation: SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
-      payload: task.request,
-      cancellation: task.cancellation.buffer as SharedArrayBuffer,
-    };
+    const cancellation = task.cancellation.buffer as SharedArrayBuffer;
+    const message: SynthesisSidecarComputeRunMessage =
+      task.operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
+        ? {
+            type: "run",
+            taskId: task.id,
+            operation: SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+            payload: task.request as SynthesisCitationGraphLayoutRequest,
+            cancellation,
+          }
+        : {
+            type: "run",
+            taskId: task.id,
+            operation: SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+            payload: task.request as SynthesisCitationGraphMetricsRequest,
+            cancellation,
+          };
     target.postMessage(message);
   };
 
-  const runCitationGraphLayout: SynthesisSidecarComputeWorkerPool["runCitationGraphLayout"] =
-    (requestInput, runOptions = {}) => {
-      if (stopping || degraded) {
-        return Promise.reject(poolError("worker_unavailable"));
-      }
-      if (
-        active &&
-        queue.length >= SYNTHESIS_SIDECAR_COMPUTE_LIMITS.maxQueued
-      ) {
-        return Promise.reject(poolError("worker_busy"));
-      }
-      if (runOptions.signal?.aborted) {
-        return Promise.reject(poolError("worker_canceled"));
-      }
-      const request = rebuildSynthesisCitationGraphLayoutRequest(requestInput);
-      return new Promise((resolve, reject) => {
-        const task: Task = {
-          id: `compute:${++taskSequence}`,
-          request,
-          cancellation: new Int32Array(new SharedArrayBuffer(4)),
-          resolve,
-          reject,
-          signal: runOptions.signal,
-          settled: false,
-          terminating: false,
+  const enqueue = <
+    Request extends
+      | SynthesisCitationGraphLayoutRequest
+      | SynthesisCitationGraphMetricsRequest,
+    Result extends
+      | SynthesisCitationGraphLayoutResult
+      | SynthesisCitationGraphMetricsResult,
+  >(
+    operation: Task["operation"],
+    request: Request,
+    runOptions: { signal?: AbortSignal },
+  ): Promise<Result> => {
+    if (stopping || degraded) {
+      return Promise.reject(poolError("worker_unavailable"));
+    }
+    if (active && queue.length >= SYNTHESIS_SIDECAR_COMPUTE_LIMITS.maxQueued) {
+      return Promise.reject(poolError("worker_busy"));
+    }
+    if (runOptions.signal?.aborted) {
+      return Promise.reject(poolError("worker_canceled"));
+    }
+    return new Promise((resolve, reject) => {
+      const task: Task = {
+        id: `compute:${++taskSequence}`,
+        operation,
+        request,
+        cancellation: new Int32Array(new SharedArrayBuffer(4)),
+        resolve: (result) => resolve(result as Result),
+        reject,
+        signal: runOptions.signal,
+        settled: false,
+        terminating: false,
+      };
+      if (task.signal) {
+        task.abortListener = () => {
+          if (task === active) {
+            cancelActive(task, "worker_canceled");
+            return;
+          }
+          const index = queue.indexOf(task);
+          if (index >= 0) {
+            queue.splice(index, 1);
+            rejectTask(task, "worker_canceled");
+          }
         };
-        if (task.signal) {
-          task.abortListener = () => {
-            if (task === active) {
-              cancelActive(task, "worker_canceled");
-              return;
-            }
-            const index = queue.indexOf(task);
-            if (index >= 0) {
-              queue.splice(index, 1);
-              rejectTask(task, "worker_canceled");
-            }
-          };
-          task.signal.addEventListener("abort", task.abortListener, {
-            once: true,
-          });
-        }
-        queue.push(task);
-        pump();
-      });
-    };
+        task.signal.addEventListener("abort", task.abortListener, {
+          once: true,
+        });
+      }
+      queue.push(task);
+      pump();
+    });
+  };
+
+  const runCitationGraphLayout: SynthesisSidecarComputeWorkerPool["runCitationGraphLayout"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisCitationGraphLayoutRequest,
+        SynthesisCitationGraphLayoutResult
+      >(
+        SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+        rebuildSynthesisCitationGraphLayoutRequest(requestInput),
+        runOptions,
+      );
+
+  const runCitationGraphMetrics: SynthesisSidecarComputeWorkerPool["runCitationGraphMetrics"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisCitationGraphMetricsRequest,
+        SynthesisCitationGraphMetricsResult
+      >(
+        SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+        rebuildSynthesisCitationGraphMetricsRequest(requestInput),
+        runOptions,
+      );
 
   const shutdown = () => {
     if (shutdownPromise) {
@@ -465,5 +530,10 @@ export function createSynthesisSidecarComputeWorkerPool(
     return shutdownPromise;
   };
 
-  return { runCitationGraphLayout, snapshot, shutdown };
+  return {
+    runCitationGraphLayout,
+    runCitationGraphMetrics,
+    snapshot,
+    shutdown,
+  };
 }

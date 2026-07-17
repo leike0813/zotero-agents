@@ -6,7 +6,11 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarErrorCode,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
-import { rebuildSynthesisCitationGraphLayoutRequest } from "../../packages/synthesis-engine/src/index";
+import {
+  createInProcessSynthesisCitationGraphMetricsEngine,
+  rebuildSynthesisCitationGraphLayoutRequest,
+  rebuildSynthesisCitationGraphMetricsRequest,
+} from "../../packages/synthesis-engine/src/index";
 import type { SynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
@@ -55,6 +59,26 @@ function layoutRequest(nodeCount: number, titleLength: number) {
     edges: [],
   });
 }
+
+function metricsRequest(nodeCount: number, titleLength: number) {
+  return rebuildSynthesisCitationGraphMetricsRequest({
+    graphHash: `sha256:${"b".repeat(64)}`,
+    nodes: Array.from({ length: nodeCount }, (_, index) => ({
+      nodeId: `node:${index}`,
+      kind: "library_paper",
+      libraryId: 1,
+      itemKey: `ITEM${index}`,
+      title: "x".repeat(titleLength),
+      year: "2024",
+    })),
+    edges: [],
+  });
+}
+
+const unexpectedMetricsCompute: SynthesisSidecarComputeWorkerPool["runCitationGraphMetrics"] =
+  async () => {
+    throw new Error("unexpected metrics dispatch");
+  };
 
 function envelope(
   config: SynthesisSidecarRuntimeConfig,
@@ -255,6 +279,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
   it("accepts compute above 1 MiB while preserving the system limit", async function () {
     const config = runtimeConfig();
     let computeCalls = 0;
+    const metricsEngine = createInProcessSynthesisCitationGraphMetricsEngine();
     const pool: SynthesisSidecarComputeWorkerPool = {
       async runCitationGraphLayout(request) {
         computeCalls += 1;
@@ -266,6 +291,10 @@ describe("Synthesis sidecar compute wire capacity", function () {
           params: {},
           nodes: [],
         };
+      },
+      async runCitationGraphMetrics(request) {
+        computeCalls += 1;
+        return metricsEngine.compute(request);
       },
       snapshot: () => ({
         state: "idle",
@@ -291,6 +320,16 @@ describe("Synthesis sidecar compute wire capacity", function () {
       assert.equal(compute.status, 200);
       assert.equal(computeCalls, 1);
 
+      const metrics = await postJson(
+        baseUrl,
+        envelope(config, {
+          capability: "compute.citation_graph_metrics",
+          payload: metricsRequest(300, 4_000),
+        }),
+      );
+      assert.equal(metrics.status, 200);
+      assert.equal(computeCalls, 2);
+
       const system = await postJson(
         baseUrl,
         envelope(config, {
@@ -300,7 +339,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
       );
       assert.equal(system.status, 413);
       assert.equal(system.body.error?.code, "request_body_too_large");
-      assert.equal(computeCalls, 1);
+      assert.equal(computeCalls, 2);
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
@@ -315,6 +354,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
         computeCalls += 1;
         throw new Error("unexpected dispatch");
       },
+      runCitationGraphMetrics: unexpectedMetricsCompute,
       snapshot: () => ({
         state: "idle",
         active: 0,
@@ -375,6 +415,7 @@ describe("Synthesis sidecar compute wire capacity", function () {
           nodes: [],
         };
       },
+      runCitationGraphMetrics: unexpectedMetricsCompute,
       snapshot: () => ({ ...snapshot }),
       async shutdown() {},
     };
@@ -422,6 +463,16 @@ describe("Synthesis sidecar compute wire capacity", function () {
           : "unknown",
       );
     assert.equal(requestCode, "request_body_too_large");
+    assert.equal(fetchCalls, 0);
+    const metricsRequestCode = await requestClient
+      .computeCitationGraphMetrics(connection, metricsRequest(2_100, 4_096))
+      .then(() => "success")
+      .catch((error: unknown) =>
+        error instanceof SynthesisSidecarComputeClientError
+          ? error.code
+          : "unknown",
+      );
+    assert.equal(metricsRequestCode, "request_body_too_large");
     assert.equal(fetchCalls, 0);
 
     const responseClient = createSynthesisSidecarComputeClient({

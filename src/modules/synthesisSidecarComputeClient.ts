@@ -1,13 +1,19 @@
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
+  rebuildSynthesisCitationGraphMetricsRequest,
+  rebuildSynthesisCitationGraphMetricsResult,
   type SynthesisCitationGraphLayoutRequest,
+  type SynthesisCitationGraphLayoutResult,
+  type SynthesisCitationGraphMetricsRequest,
+  type SynthesisCitationGraphMetricsResult,
 } from "../../packages/synthesis-engine/src/index";
 import {
   SYNTHESIS_SIDECAR_CALL_PATH,
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarErrorCode,
+  type SynthesisSidecarComputeCapability,
   type SynthesisSidecarErrorCode,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 
@@ -132,103 +138,135 @@ export function createSynthesisSidecarComputeClient(options?: {
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_compute_fetch_unavailable");
   }
+  const compute = async <Request, Result>(options: {
+    connection: SynthesisSidecarComputeConnection;
+    capability: SynthesisSidecarComputeCapability;
+    input: Request;
+    rebuildRequest(value: unknown): Request;
+    rebuildResult(value: unknown, request: Request): Result;
+    callOptions: { signal?: AbortSignal; deadlineMs?: number };
+  }): Promise<Result> => {
+    const request = options.rebuildRequest(options.input);
+    const requestId = nextComputeRequestId();
+    const requestSource = JSON.stringify({
+      protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+      requestId,
+      profileId: options.connection.profileId,
+      capability: options.capability,
+      payload: request,
+    });
+    if (
+      textEncoder.encode(requestSource).byteLength >
+      SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
+    ) {
+      return computeClientError("request_body_too_large");
+    }
+    const deadline = composedSignal(
+      options.callOptions.signal,
+      options.callOptions.deadlineMs ?? defaultDeadlineMs,
+    );
+    try {
+      const response = await fetchImpl(
+        `${options.connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${options.connection.clientToken}`,
+            "content-type": "application/json",
+          },
+          body: requestSource,
+          signal: deadline.signal,
+        },
+      );
+      const responseSource = await readBoundedResponse(
+        response,
+        SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
+      );
+      let body: {
+        ok?: unknown;
+        requestId?: unknown;
+        serviceInstanceId?: unknown;
+        data?: unknown;
+        error?: { code?: unknown };
+      };
+      try {
+        body = JSON.parse(responseSource) as typeof body;
+      } catch {
+        return computeClientError("worker_result_invalid");
+      }
+      const requestIdentityMismatch =
+        typeof body.requestId === "string" &&
+        body.requestId.length > 0 &&
+        body.requestId !== requestId;
+      const runtimeIdentityMismatch =
+        typeof body.serviceInstanceId === "string" &&
+        body.serviceInstanceId.length > 0 &&
+        body.serviceInstanceId !== options.connection.serviceInstanceId;
+      if (requestIdentityMismatch || runtimeIdentityMismatch) {
+        return computeClientError("runtime_mismatch");
+      }
+      if (!response.ok || body.ok !== true) {
+        return computeClientError(
+          isSynthesisSidecarErrorCode(body.error?.code)
+            ? body.error.code
+            : "internal_error",
+        );
+      }
+      if (
+        body.requestId !== requestId ||
+        body.serviceInstanceId !== options.connection.serviceInstanceId
+      ) {
+        return computeClientError("runtime_mismatch");
+      }
+      try {
+        return options.rebuildResult(body.data, request);
+      } catch {
+        return computeClientError("worker_result_invalid");
+      }
+    } catch (error) {
+      if (error instanceof SynthesisSidecarComputeClientError) {
+        throw error;
+      }
+      if (options.callOptions.signal?.aborted) {
+        return computeClientError("worker_canceled");
+      }
+      if (deadline.timedOut()) {
+        return computeClientError("worker_timeout");
+      }
+      return computeClientError("worker_unavailable");
+    } finally {
+      deadline.dispose();
+    }
+  };
+
   return {
-    async computeCitationGraphLayout(
+    computeCitationGraphLayout(
       connection: SynthesisSidecarComputeConnection,
       input: SynthesisCitationGraphLayoutRequest,
       callOptions: { signal?: AbortSignal; deadlineMs?: number } = {},
-    ) {
-      const request = rebuildSynthesisCitationGraphLayoutRequest(input);
-      const requestId = nextComputeRequestId();
-      const requestSource = JSON.stringify({
-        protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-        requestId,
-        profileId: connection.profileId,
+    ): Promise<SynthesisCitationGraphLayoutResult> {
+      return compute({
+        connection,
         capability: "compute.citation_graph_layout",
-        payload: request,
+        input,
+        rebuildRequest: rebuildSynthesisCitationGraphLayoutRequest,
+        rebuildResult: rebuildSynthesisCitationGraphLayoutResult,
+        callOptions,
       });
-      if (
-        textEncoder.encode(requestSource).byteLength >
-        SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
-      ) {
-        return computeClientError("request_body_too_large");
-      }
-      const deadline = composedSignal(
-        callOptions.signal,
-        callOptions.deadlineMs ?? defaultDeadlineMs,
-      );
-      try {
-        const response = await fetchImpl(
-          `${connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${connection.clientToken}`,
-              "content-type": "application/json",
-            },
-            body: requestSource,
-            signal: deadline.signal,
-          },
-        );
-        const responseSource = await readBoundedResponse(
-          response,
-          SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
-        );
-        let body: {
-          ok?: unknown;
-          requestId?: unknown;
-          serviceInstanceId?: unknown;
-          data?: unknown;
-          error?: { code?: unknown };
-        };
-        try {
-          body = JSON.parse(responseSource) as typeof body;
-        } catch {
-          return computeClientError("worker_result_invalid");
-        }
-        const requestIdentityMismatch =
-          typeof body.requestId === "string" &&
-          body.requestId.length > 0 &&
-          body.requestId !== requestId;
-        const runtimeIdentityMismatch =
-          typeof body.serviceInstanceId === "string" &&
-          body.serviceInstanceId.length > 0 &&
-          body.serviceInstanceId !== connection.serviceInstanceId;
-        if (requestIdentityMismatch || runtimeIdentityMismatch) {
-          return computeClientError("runtime_mismatch");
-        }
-        if (!response.ok || body.ok !== true) {
-          return computeClientError(
-            isSynthesisSidecarErrorCode(body.error?.code)
-              ? body.error.code
-              : "internal_error",
-          );
-        }
-        if (
-          body.requestId !== requestId ||
-          body.serviceInstanceId !== connection.serviceInstanceId
-        ) {
-          return computeClientError("runtime_mismatch");
-        }
-        try {
-          return rebuildSynthesisCitationGraphLayoutResult(body.data, request);
-        } catch {
-          return computeClientError("worker_result_invalid");
-        }
-      } catch (error) {
-        if (error instanceof SynthesisSidecarComputeClientError) {
-          throw error;
-        }
-        if (callOptions.signal?.aborted) {
-          return computeClientError("worker_canceled");
-        }
-        if (deadline.timedOut()) {
-          return computeClientError("worker_timeout");
-        }
-        return computeClientError("worker_unavailable");
-      } finally {
-        deadline.dispose();
-      }
+    },
+    computeCitationGraphMetrics(
+      connection: SynthesisSidecarComputeConnection,
+      input: SynthesisCitationGraphMetricsRequest,
+      callOptions: { signal?: AbortSignal; deadlineMs?: number } = {},
+    ): Promise<SynthesisCitationGraphMetricsResult> {
+      return compute({
+        connection,
+        capability: "compute.citation_graph_metrics",
+        input,
+        rebuildRequest: rebuildSynthesisCitationGraphMetricsRequest,
+        rebuildResult: rebuildSynthesisCitationGraphMetricsResult,
+        callOptions,
+      });
     },
   };
 }

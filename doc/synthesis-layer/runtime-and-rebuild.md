@@ -1,10 +1,10 @@
 # Runtime and Cache Refresh
 
 The production Synthesis application and data authority remain inside the
-Zotero plugin, while one pure kernel now crosses the supervised
-mutation-disabled Node service: Citation Graph layout. The default production
-composition routes that compute through the bounded authenticated worker;
-graph reads, basis checks, promotion, canonical files, and the other seven
+Zotero plugin, while two pure kernels now cross the supervised
+mutation-disabled Node service: Citation Graph layout and metrics. The default
+production composition routes both through the same bounded authenticated
+worker; graph reads, basis checks, promotion, canonical files, and the other six
 engines remain plugin-owned. Compute request and response envelopes are each
 capped at 8 MiB; general and system calls retain the 1 MiB request cap. The
 active domain runtime model remains explicit, bounded cache maintenance rather
@@ -16,8 +16,8 @@ The approved Stage 1 sidecar direction is documented in `artifact/synthesis_side
 
 Plugin startup non-blockingly installs, launches, discovers, and supervises the
 mutation-disabled service. The default `SynthesisClient` still resolves the
-legacy plugin composition, but that composition injects the sidecar-backed
-layout engine. Each layout call uses the current ready connection; absence
+legacy plugin composition, but that composition injects the sidecar-backed layout
+and metrics engines. Each compute call uses the current ready connection; absence
 fails immediately with `service_not_ready`, and restart, transport, deadline,
 worker, or identity failures are not retried or executed locally. The plugin
 remains the only owner of `synthesis.db` and Topic canonical files. Runtime
@@ -27,7 +27,7 @@ Remote Topic Context and filtered paper-artifact delivery cross the bounded `Syn
 
 Citation Graph layout computation crosses the environment-neutral `SynthesisCitationGraphLayoutEngine` seam. The application projects one graph hash plus at most 5,000 nodes and 20,000 edges into canonical compute DTOs, awaits the authenticated sidecar worker without holding the library write lock, then reacquires a short lock and promotes only if the current DB graph hash still matches. Superseded or failed results preserve the previous layout content. The worker has a five-second hard deadline, one active task, and two waiting tasks. Its complete UTF-8 request and response envelopes are independently capped at 8 MiB; request JSON is capped at 250,000 structural nodes and response JSON at 50,000, with depth 32 and 64 KiB strings. These wire limits do not promise transport for every theoretical maximum-string DTO admitted by the engine count bounds. Oversized traffic fails without truncation, compression, persistence, retry, or in-process fallback. Request ID and service-instance identity are validated before strict result rebuilding and plugin-owned graph-basis promotion.
 
-Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsEngine` seam with the same graph bounds. The application captures graph rows and persistence mappings under a short lock, computes metrics v2 outside the lock, then rechecks the DB graph hash before replacing complex metrics. Full rebuild, source-slice incremental refresh, and explicit metrics refresh use this one path. A superseded or failed result preserves previous metrics; graph structure and its ready cache basis remain readable while metrics report their existing stale or missing state. Canonical metrics hashing remains in the application adapter, and the Node worker remains test-only.
+Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsEngine` seam with the same graph bounds. The application captures graph rows and persistence mappings under a short lock, sends the strict DTO through the authenticated sidecar worker outside the lock, then rechecks the DB graph hash before replacing complex metrics. Full rebuild, source-slice incremental refresh, and explicit metrics refresh use this one path. A superseded or failed result preserves previous metrics; graph structure and its ready cache basis remain readable while metrics report their existing stale or missing state. Canonical metrics hashing remains in the application adapter. Metrics shares the layout worker's one active slot, two waiting slots, five-second deadline, cancellation, replacement, and degraded fuse without retry or local fallback.
 
 Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the Node worker remains test-only.
 
@@ -56,7 +56,7 @@ The full data-boundary decision is in [Library SSOT and Sidecar Cache](./library
 - Tag Vocabulary validation and index construction use one strict synchronous engine capped at 25,000 entries, 50,000 aliases, 10,000 abbreviations, and 256 facets. Canonical mutation validation remains inside the existing repository transaction; index failure or malformed output cannot advance projection registry state.
 - Concept KB index and query computation uses one strict asynchronous engine capped at 25,000 concepts, 100,000 senses, 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per string. Projection promotion remains application-owned; proposal matching is not part of the engine.
 - Topic Graph index computation uses one strict asynchronous engine capped at 25,000 nodes, 100,000 edges, and 4,096 code units per string. It derives only roots and unplaced identifiers; graph/review rows, proposal and mutation logic, diagnostics, progress, and projection promotion remain application-owned.
-- Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production remains in-process and inside the existing canonical-write serialization; the Node service executes only the production layout kernel.
+- Topic Structured Artifact computation uses one strict asynchronous engine with separate manifest validation, artifact assembly, artifact validation, and section-patch methods. JSON depth, arrays, object properties, nodes, strings, and aggregate content are bounded; checkpoints observe composition invalidation. Workspace IO, digest availability, canonical hashing and promotion, downstream sidecars, discovery, and autosync remain application-owned. Production remains in-process and inside the existing canonical-write serialization; the Node service executes only the production layout and metrics kernels.
 - Synthesis runtime packaging supports exactly Windows x64, macOS x64/arm64, and Linux x64/arm64. Installation reads only packaged assets and writes only `runtime/synthesis/service-runtime`. The supervisor launches only the verified absolute product runtime with a sealed environment and never resolves system commands.
 - Synthesis sidecar state is a cache projection unless it records a user-approved reference/binding/dedupe decision.
 - Workbench snapshot reads must not create or drain background work.

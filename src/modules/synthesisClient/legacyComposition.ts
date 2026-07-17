@@ -1,6 +1,5 @@
 import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
 import {
-  createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
   createInProcessSynthesisTagVocabularyEngine,
@@ -10,6 +9,7 @@ import {
 import { createInProcessSynthesisCitationGraphBuildEngine } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { createSynthesisSidecarCitationGraphLayoutEngine } from "../synthesis/sidecarCitationGraphLayoutEngineAdapter";
+import { createSynthesisSidecarCitationGraphMetricsEngine } from "../synthesis/sidecarCitationGraphMetricsEngineAdapter";
 import { createZoteroSynthesisHostReadPort } from "../synthesis/libraryAdapter";
 import { createSynthesisHostExportDeliveryPort } from "../synthesis/exportDeliveryAdapter";
 import { createZoteroSynthesisRepresentativeImageReadPort } from "../synthesis/representativeImageReadAdapter";
@@ -64,7 +64,9 @@ function createDefaultLegacyService(
       signal: abortController.signal,
     }),
     citationGraphMetricsEngine:
-      createInProcessSynthesisCitationGraphMetricsEngine(),
+      createSynthesisSidecarCitationGraphMetricsEngine({
+        signal: abortController.signal,
+      }),
     citationGraphBuildEngine:
       createInProcessSynthesisCitationGraphBuildEngine(),
     referenceMatcherEngine: createInProcessSynthesisReferenceMatcherEngine(),

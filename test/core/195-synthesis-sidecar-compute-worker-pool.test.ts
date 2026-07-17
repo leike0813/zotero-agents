@@ -4,8 +4,11 @@ import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   createInProcessSynthesisCitationGraphLayoutEngine,
+  createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
+  rebuildSynthesisCitationGraphMetricsRequest,
   type SynthesisCitationGraphLayoutRequest,
+  type SynthesisCitationGraphMetricsRequest,
 } from "../../packages/synthesis-engine/src/index";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
@@ -40,6 +43,23 @@ function request(prefix = "0"): SynthesisCitationGraphLayoutRequest {
         year: "2024",
         initialX: 0,
         initialY: 0,
+      },
+    ],
+    edges: [],
+  });
+}
+
+function metricsRequest(prefix = "0"): SynthesisCitationGraphMetricsRequest {
+  return rebuildSynthesisCitationGraphMetricsRequest({
+    graphHash: `sha256:${prefix}${"0".repeat(63)}`,
+    nodes: [
+      {
+        nodeId: "zotero:item:AAAA1111",
+        kind: "library_paper",
+        libraryId: 1,
+        itemKey: "AAAA1111",
+        title: "Paper",
+        year: "2024",
       },
     ],
     edges: [],
@@ -132,7 +152,7 @@ describe("Synthesis sidecar compute worker pool", function () {
     );
   });
 
-  it("lazily spawns one resource-bounded worker and matches direct layout", async function () {
+  it("lazily spawns one resource-bounded worker and matches both direct kernels", async function () {
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_LIMITS, {
       concurrency: 1,
       maxQueued: 2,
@@ -165,11 +185,18 @@ describe("Synthesis sidecar compute worker pool", function () {
     });
     try {
       const input = request();
-      const [workerResult, directResult] = await Promise.all([
-        pool.runCitationGraphLayout(input),
-        createInProcessSynthesisCitationGraphLayoutEngine().compute(input),
-      ]);
+      const metricsInput = metricsRequest();
+      const [workerResult, directResult, workerMetrics, directMetrics] =
+        await Promise.all([
+          pool.runCitationGraphLayout(input),
+          createInProcessSynthesisCitationGraphLayoutEngine().compute(input),
+          pool.runCitationGraphMetrics(metricsInput),
+          createInProcessSynthesisCitationGraphMetricsEngine().compute(
+            metricsInput,
+          ),
+        ]);
       assert.deepEqual(workerResult, directResult);
+      assert.deepEqual(workerMetrics, directMetrics);
       assert.equal(spawns, 1);
       assert.deepEqual(options?.resourceLimits, {
         maxOldGenerationSizeMb: 256,
@@ -179,6 +206,61 @@ describe("Synthesis sidecar compute worker pool", function () {
     } finally {
       await pool.shutdown();
     }
+  });
+
+  it("shares admission bounds across layout and metrics", async function () {
+    const pool = fixturePool({ shutdownTimeoutMs: 100 });
+    const tasks = [
+      pool.runCitationGraphLayout(request("a")).catch(errorCode),
+      pool.runCitationGraphMetrics(metricsRequest("a")).catch(errorCode),
+      pool.runCitationGraphLayout(request("a")).catch(errorCode),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(pool.snapshot(), {
+      state: "busy",
+      active: 1,
+      queued: 2,
+      restartCount: 0,
+      failureCount: 0,
+    });
+    assert.equal(
+      await pool.runCitationGraphMetrics(metricsRequest("a")).catch(errorCode),
+      "worker_busy",
+    );
+    await pool.shutdown();
+    assert.deepEqual(await Promise.all(tasks), [
+      "worker_canceled",
+      "worker_canceled",
+      "worker_canceled",
+    ]);
+  });
+
+  it("shares the degraded fuse across layout and metrics failures", async function () {
+    const pool = fixturePool({ executionTimeoutMs: 500 });
+    assert.equal(
+      await pool.runCitationGraphLayout(request("b")).catch(errorCode),
+      "worker_crashed",
+    );
+    assert.equal(
+      await pool.runCitationGraphMetrics(metricsRequest("b")).catch(errorCode),
+      "worker_crashed",
+    );
+    assert.equal(
+      await pool.runCitationGraphLayout(request("b")).catch(errorCode),
+      "worker_crashed",
+    );
+    assert.deepEqual(pool.snapshot(), {
+      state: "degraded",
+      active: 0,
+      queued: 0,
+      restartCount: 3,
+      failureCount: 3,
+    });
+    assert.equal(
+      await pool.runCitationGraphMetrics(metricsRequest()).catch(errorCode),
+      "worker_unavailable",
+    );
+    await pool.shutdown();
   });
 
   it("bounds admission, removes queued aborts, and terminates active aborts", async function () {

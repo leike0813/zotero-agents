@@ -14,6 +14,7 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
 ] as const;
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",
+  "compute.citation_graph_metrics",
 ] as const;
 export const SYNTHESIS_SIDECAR_CAPABILITIES = [
   ...SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES,

@@ -23,7 +23,10 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "../../../packages/synthesis-contracts/src/common.js";
-import { rebuildSynthesisCitationGraphLayoutRequest } from "../../../packages/synthesis-engine/src/index.js";
+import {
+  rebuildSynthesisCitationGraphLayoutRequest,
+  rebuildSynthesisCitationGraphMetricsRequest,
+} from "../../../packages/synthesis-engine/src/index.js";
 import {
   ComputeWorkerPoolError,
   createSynthesisSidecarComputeWorkerPool,
@@ -334,16 +337,26 @@ export async function startSynthesisSidecarServer(
         });
       }
       if (isSynthesisSidecarComputeCapability(call.capability)) {
-        let layoutRequest;
+        let runCompute: (signal: AbortSignal) => Promise<unknown>;
         try {
-          layoutRequest = rebuildSynthesisCitationGraphLayoutRequest(
-            call.payload,
-          );
+          if (call.capability === "compute.citation_graph_layout") {
+            const layoutRequest = rebuildSynthesisCitationGraphLayoutRequest(
+              call.payload,
+            );
+            runCompute = (signal) =>
+              computePool.runCitationGraphLayout(layoutRequest, { signal });
+          } else {
+            const metricsRequest = rebuildSynthesisCitationGraphMetricsRequest(
+              call.payload,
+            );
+            runCompute = (signal) =>
+              computePool.runCitationGraphMetrics(metricsRequest, { signal });
+          }
         } catch {
           throw new SidecarRuntimeError({
             status: 400,
             code: "invalid_request",
-            message: "The Citation Graph layout payload is invalid.",
+            message: "The Citation Graph compute payload is invalid.",
           });
         }
         const controller = new AbortController();
@@ -355,17 +368,14 @@ export async function startSynthesisSidecarServer(
         request.once("aborted", disconnect);
         response.once("close", disconnect);
         try {
-          const result = await computePool.runCitationGraphLayout(
-            layoutRequest,
-            { signal: controller.signal },
-          );
+          const result = await runCompute(controller.signal);
           writeJson(
             response,
             200,
             success({
               requestId: call.requestId,
               serviceInstanceId,
-              data: toSynthesisJsonObject(result, "layoutResult"),
+              data: toSynthesisJsonObject(result, "computeResult"),
             }),
             {},
             {

@@ -1,6 +1,6 @@
 # Library SSOT and Sidecar Cache
 
-This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The plugin still owns all production data and canonical files; only Citation Graph layout compute currently crosses the supervised sidecar worker, without changing the data truth defined here.
+This document defines the current Synthesis data boundary after the index model reset. It supersedes designs that tried to keep a continuously synchronized paper index inside the Zotero plugin. The plugin still owns all production data and canonical files; only Citation Graph layout and metrics compute currently cross the shared supervised sidecar worker, without changing the data truth defined here.
 
 ## Decision
 
