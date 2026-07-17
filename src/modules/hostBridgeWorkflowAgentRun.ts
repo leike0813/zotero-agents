@@ -8,10 +8,8 @@ import {
   runtimeRelativePath,
   writeRuntimeBytes,
 } from "./runtimePersistence";
-import {
-  registerHostBridgeExportFile,
-  sha256Bytes,
-} from "./hostBridgeFileRegistry";
+import { registerHostBridgeExportFile } from "./hostBridgeFileRegistry";
+import { sha256PrefixedHex } from "../utils/sha256";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import { createStoreZipBytes, type StoreZipEntry } from "./zipStore";
 import { localizeWorkflowLabel } from "../workflows/localization";
@@ -534,7 +532,7 @@ export async function buildHostBridgeWorkflowAgentRunHandoff(args: {
   }
 
   const zipBytes = createStoreZipBytes(entries);
-  const zipSha256 = await sha256Bytes(zipBytes);
+  const zipSha256 = await sha256PrefixedHex(zipBytes);
   const bundleName = `${safeSegment(workflow.manifest.id, "workflow")}-agent-run.zip`;
   const bundlePath = joinPath(
     getRuntimePersistencePaths().tmpDir,

@@ -1,7 +1,9 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
 import {
   registerHostBridgeFileHandle,
+  registerHostBridgeFileHandlesInOrder,
   registerHostBridgeWorkflowArtifactFile,
+  type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
 import {
   isDebugModeEnabled,
@@ -129,8 +131,9 @@ function normalizeJsonSafeValue(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-async function toBridgeAttachmentDescriptor(
+function toBridgeAttachmentDescriptor(
   attachment: ZoteroHostAttachmentDto,
+  file?: HostBridgeFileDescriptor,
 ) {
   const path = String(attachment.path || "").trim();
   const { path: _path, ...safeAttachment } = attachment;
@@ -143,17 +146,15 @@ async function toBridgeAttachmentDescriptor(
       },
     };
   }
-  const file = await registerHostBridgeFileHandle({
-    localPath: path,
-    sourceKind: "zotero-attachment",
-    displayName: attachment.filename || attachment.title,
-    contentType: attachment.contentType,
-    owner: {
-      capability: "library.get_item_attachments",
-      itemKey: attachment.parent?.key || attachment.key,
-      libraryId: attachment.libraryId,
-    },
-  });
+  if (!file) {
+    return {
+      ...safeAttachment,
+      access: {
+        mode: "unavailable",
+        file: null,
+      },
+    };
+  }
   return {
     ...safeAttachment,
     access: {
@@ -176,7 +177,32 @@ async function toBridgeAttachmentDescriptorsWithContext(
   const attachments = await resolveHostBridgeApis(
     context,
   ).library.getItemAttachments(itemRefFromInput(input));
-  return Promise.all(attachments.map(toBridgeAttachmentDescriptor));
+  const registerable = attachments.filter(
+    (attachment) =>
+      String(attachment.path || "").trim() && !attachment.errors?.length,
+  );
+  const files = await registerHostBridgeFileHandlesInOrder(
+    registerable.map((attachment) => ({
+      localPath: String(attachment.path).trim(),
+      sourceKind: "zotero-attachment" as const,
+      displayName: attachment.filename || attachment.title,
+      contentType: attachment.contentType,
+      owner: {
+        capability: "library.get_item_attachments",
+        itemKey: attachment.parent?.key || attachment.key,
+        libraryId: attachment.libraryId,
+      },
+    })),
+  );
+  let fileIndex = 0;
+  return attachments.map((attachment) => {
+    const canRegister =
+      String(attachment.path || "").trim() && !attachment.errors?.length;
+    return toBridgeAttachmentDescriptor(
+      attachment,
+      canRegister ? files[fileIndex++] : undefined,
+    );
+  });
 }
 
 function capability(

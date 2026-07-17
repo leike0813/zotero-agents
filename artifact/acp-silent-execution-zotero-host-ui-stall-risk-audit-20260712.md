@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补；R6 文件传输已于 2026-07-17 完成有界分块、全局单 worker 与异步 socket copy 治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R11 未包含在该治理中
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -142,7 +142,7 @@ live | boundary | silent
 | R3 | P0 | silent 下仍构建完整 UI snapshot | 已证实 | tool 密集、长 transcript、Workspace/Task Manager 打开 |
 | R4 | P1 | 双份无界 assistant chunk 累积 | 已证实 | 超长 assistant 输出 |
 | R5 | P1 | transport/message queue 无容量边界 | 已证实结构，影响待实测 | 突发 WebSocket/stdio frame |
-| R6 | P1 | 大附件整文件读取、哈希与重复复制 | 已证实 | 多个大 PDF、下载 |
+| R6 | P1 | 大附件整文件读取、哈希与重复复制 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 多个大 PDF、下载 |
 | R7 | P1 | library 分页实际重复全库扫描和排序 | 已证实 | 大型 Zotero 库、多页读取 |
 | R8 | P1 | runtime log 全量 clone/stringify | 已证实 | 高频日志、diagnostic 模式 |
 | R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已证实 Zotero fallback | 高频 transcript、长历史、索引失效 |
@@ -497,9 +497,44 @@ stdout/stderr 文本 tail 限制为 64 KiB，见 `src/modules/acpTransport.ts:16
 
 ## 9. R6/R11：附件和 Host Bridge 大 payload
 
+### 9.0 2026-07-17 R6 治理状态
+
+change `govern-host-bridge-streaming-file-transfer` 仅治理 R6，不包含 R11 的 capability JSON 深拷贝与响应重复序列化。
+
+当前文件数据流为：
+
+```text
+register path
+  -> bounded inspect
+  -> global FIFO transfer slot
+  -> 32 KiB async chunks
+  -> incremental SHA-256
+  -> opaque descriptor
+
+download fileId
+  -> file-backed source
+  -> bounded size/digest preflight
+  -> headers
+  -> nsIAsyncStreamCopier2 file-to-socket copy
+  -> connection completion / abort lifecycle
+```
+
+`RuntimeFileTransferSource` 是下载字节来源的 SSOT；`HostBridgeResolvedFileDownload` 不再携带完整 `Uint8Array`。附件 capability 不再使用无界 `Promise.all`，所有注册 digest、下载预检和 response copy 共享一个全局单 worker FIFO。Node 测试 backend 使用 file handle 分块读取；Zotero backend 使用 stream transport、`nsIInputStreamPump` 和 `nsIAsyncStreamCopier2`，缺少异步 primitive 时结构化失败，不回退整文件读取。
+
+完整性语义保持不变：响应前的截断或同长度内容变化返回 `file_unavailable`；headers 发出后的传输中变化或 copy failure 关闭连接，由既有 CLI length/SHA 校验与一次 retry 收敛。HTTP route、descriptor schema、Content-Length、SHA header、文件名、content type、认证与 approval 行为均未改变。
+
+机制验收结果：
+
+- Node：runtime transfer 与 Host Bridge download 11 个用例通过；socket lifecycle 7 个用例通过，真实宿主专用用例在 Node 下按预期 pending；
+- Zotero 9.0.4：core lite 24 个用例通过；98309-byte 非整块二进制完成上传、分块 digest、异步下载与逐字节一致性校验，5ms heartbeat 在上传、下载和 MCP 请求期间均继续推进；
+- TypeScript no-emit 通过；
+- 本机未安装 Zotero 7，因此 Zotero 7 宿主机制验收待补。
+
+这些结果证明 whole-file JS buffer、无界附件注册并发和同步 socket byte-array 写出已经从 R6 热路径移除；它们不构成真实大型 PDF 工作负载的延迟改善声明。
+
 ### 9.1 附件 handle 注册
 
-`library.get_item_attachments` 在 `src/modules/zoteroHostCapabilityBroker.ts:3492-3520` 获取附件路径。
+以下内容记录治理前根因。`library.get_item_attachments` 在 `src/modules/zoteroHostCapabilityBroker.ts:3492-3520` 获取附件路径。
 
 `src/modules/hostBridgeCapabilityRegistry.ts:97-145` 随后对所有附件执行 `Promise.all(registerHostBridgeFileHandle)`。
 
@@ -1695,6 +1730,8 @@ interface RuntimeRangeReader {
 扩展 `test/core/108-runtime-persistence-governance.test.ts` 和 transcript store 测试。性能阈值由 backend kind、batch bytes、append/range/rebuild 基线决定。
 
 ### 18.10 阶段 8：streaming file transfer 与单次 response serialization（R6/R11）
+
+当前状态：R6 已由 `govern-host-bridge-streaming-file-transfer` 独立完成；R11 仍待后续 change，不能把本阶段的 R6 结果表述为大型 JSON 序列化已经治理。
 
 #### DTO 与 SSOT
 

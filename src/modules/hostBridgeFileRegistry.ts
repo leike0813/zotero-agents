@@ -1,19 +1,19 @@
 import { joinPath } from "../utils/path";
-import { sha256Hex } from "../utils/sha256";
+import { sha256PrefixedHex } from "../utils/sha256";
 import {
   getRuntimePersistencePaths,
-  readRuntimeBytes,
   writeRuntimeBytes,
 } from "./runtimePersistence";
+import {
+  digestRuntimeFileSource,
+  inspectRuntimeFileSource,
+  RuntimeFileTransferError,
+  verifyRuntimeFileSource,
+  type RuntimeFileTransferSource,
+} from "./runtimeFileTransfer";
 
 const DEFAULT_FILE_TTL_MS = 30 * 60 * 1000;
 const WORKFLOW_ARTIFACT_TTL_MS = 2 * 60 * 60 * 1000;
-
-type DynamicImport = (specifier: string) => Promise<any>;
-const dynamicImport: DynamicImport = new Function(
-  "specifier",
-  "return import(specifier)",
-) as DynamicImport;
 
 export type HostBridgeFileSourceKind =
   | "zotero-attachment"
@@ -77,8 +77,7 @@ export type HostBridgeUploadedFileArgs = {
 
 export type HostBridgeResolvedFileDownload = {
   descriptor: HostBridgeFileDescriptor;
-  localPath: string;
-  bytes: Uint8Array;
+  source: RuntimeFileTransferSource;
 };
 
 export class HostBridgeFileRegistryError extends Error {
@@ -183,32 +182,6 @@ function validateFileId(fileIdRaw: unknown) {
   return fileId;
 }
 
-async function readBytes(path: string) {
-  return readRuntimeBytes(path);
-}
-
-export async function sha256Bytes(bytes: Uint8Array) {
-  const digest = await sha256Hex(bytes);
-  return digest ? `sha256:${digest}` : undefined;
-}
-
-async function statSize(path: string) {
-  const runtime = globalThis as unknown as {
-    IOUtils?: { stat?: (path: string) => Promise<{ size?: number }> };
-  };
-  try {
-    if (typeof runtime.IOUtils?.stat === "function") {
-      const stat = await runtime.IOUtils.stat(path);
-      return typeof stat?.size === "number" ? stat.size : undefined;
-    }
-    const fs = await dynamicImport("fs/promises");
-    const stat = await fs.stat(path);
-    return typeof stat?.size === "number" ? stat.size : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export function getHostBridgeFileDownloadManifest(): HostBridgeFileDownloadManifest {
   return {
     supported: true,
@@ -236,17 +209,25 @@ export async function registerHostBridgeFileHandle(
       : args.sourceKind === "workflow-artifact"
         ? WORKFLOW_ARTIFACT_TTL_MS
         : DEFAULT_FILE_TTL_MS;
+  const inspected = await inspectRuntimeFileSource(localPath);
   const size =
     typeof args.size === "number" && Number.isFinite(args.size)
       ? Math.max(0, Math.floor(args.size))
-      : await statSize(localPath);
+      : inspected.size;
   let sha256 = args.sha256 ? String(args.sha256) : undefined;
   if (!sha256) {
-    try {
-      sha256 = await sha256Bytes(await readBytes(localPath));
-    } catch {
-      sha256 = undefined;
+    const digest = await digestRuntimeFileSource(inspected);
+    if (digest.bytesRead !== inspected.size) {
+      throw new HostBridgeFileRegistryError(
+        "file_unavailable",
+        "Registered file changed while its descriptor was created",
+        {
+          bytesExpected: inspected.size,
+          bytesActual: digest.bytesRead,
+        },
+      );
     }
+    sha256 = digest.sha256;
   }
   const handle: HostBridgeFileHandle = {
     fileId: createFileId(),
@@ -264,6 +245,16 @@ export async function registerHostBridgeFileHandle(
   };
   handles.set(handle.fileId, handle);
   return descriptorFromHandle(handle);
+}
+
+export async function registerHostBridgeFileHandlesInOrder(
+  files: readonly HostBridgeRegisteredFileArgs[],
+): Promise<HostBridgeFileDescriptor[]> {
+  const descriptors: HostBridgeFileDescriptor[] = [];
+  for (const file of files) {
+    descriptors.push(await registerHostBridgeFileHandle(file));
+  }
+  return descriptors;
 }
 
 export async function registerHostBridgeUploadedFile(
@@ -290,7 +281,7 @@ export async function registerHostBridgeUploadedFile(
     typeof args.ttlMs === "number" && Number.isFinite(args.ttlMs)
       ? Math.max(1, Math.floor(args.ttlMs))
       : DEFAULT_FILE_TTL_MS;
-  const sha256 = await sha256Bytes(bytes);
+  const sha256 = await sha256PrefixedHex(bytes);
   const handle: HostBridgeFileHandle = {
     fileId,
     sourceKind: "bridge-upload",
@@ -379,40 +370,30 @@ export async function resolveHostBridgeFileDownload(
     );
   }
   try {
-    const bytes = await readBytes(handle.localPath);
-    if (typeof handle.size === "number" && handle.size !== bytes.byteLength) {
-      throw new HostBridgeFileRegistryError(
-        "file_unavailable",
-        "Registered file size no longer matches the file bytes",
-        {
-          fileId,
-          bytesExpected: handle.size,
-          bytesActual: bytes.byteLength,
-        },
-      );
-    }
-    if (handle.sha256) {
-      const actual = await sha256Bytes(bytes);
-      if (actual && actual !== handle.sha256) {
-        throw new HostBridgeFileRegistryError(
-          "file_unavailable",
-          "Registered file checksum no longer matches the file bytes",
-          {
-            fileId,
-            sha256Expected: handle.sha256,
-            sha256Actual: actual,
-          },
-        );
-      }
-    }
+    const inspected = await inspectRuntimeFileSource(
+      handle.localPath,
+      handle.sha256,
+    );
+    const source: RuntimeFileTransferSource = {
+      path: handle.localPath,
+      size: typeof handle.size === "number" ? handle.size : inspected.size,
+      ...(handle.sha256 ? { sha256: handle.sha256 } : {}),
+    };
+    await verifyRuntimeFileSource(source);
     return {
       descriptor: descriptorFromHandle(handle),
-      localPath: handle.localPath,
-      bytes,
+      source,
     };
   } catch (error) {
     if (error instanceof HostBridgeFileRegistryError) {
       throw error;
+    }
+    if (error instanceof RuntimeFileTransferError) {
+      throw new HostBridgeFileRegistryError(
+        "file_unavailable",
+        "Registered file is no longer available",
+        { fileId, ...error.details },
+      );
     }
     throw new HostBridgeFileRegistryError(
       "file_unavailable",

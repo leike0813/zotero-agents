@@ -48,6 +48,12 @@ import {
   resolveHostBridgeFileDownload,
 } from "./hostBridgeFileRegistry";
 import {
+  beginRuntimeFileResponseTransfer,
+  collectRuntimeFileSourceBytesForTests,
+  type RuntimeFileResponseTransfer,
+  type RuntimeFileTransferSource,
+} from "./runtimeFileTransfer";
+import {
   HostBridgePermissionError,
   getHostBridgePermissionProjection,
   listHostBridgePendingPermissions,
@@ -173,9 +179,9 @@ type HttpResponseArgs = {
 type RawHttpResponse =
   | string
   | {
+      kind: "file";
       headers: string;
-      body: Uint8Array;
-      binary: true;
+      source: RuntimeFileTransferSource;
     };
 
 type AcceptedHostConnection = {
@@ -183,6 +189,7 @@ type AcceptedHostConnection = {
   transport: any;
   outputStream: any;
   requestRead: ProfiledHostBridgeRequestReadOperation;
+  responseTransfer?: RuntimeFileResponseTransfer;
   outputClosed: boolean;
   transportClosed: boolean;
 };
@@ -1005,11 +1012,19 @@ function buildCapabilityApprovalPrompt(
   };
 }
 
-function writeOutputStream(outputStream: any, response: RawHttpResponse) {
+async function writeOutputStream(
+  outputStream: any,
+  response: RawHttpResponse,
+  onTransfer?: (transfer: RuntimeFileResponseTransfer) => void,
+) {
   if (typeof response !== "string") {
-    outputStream.write(response.headers, response.headers.length);
-    writeBinaryOutputStream(outputStream, response.body);
-    outputStream.close?.();
+    const transfer = beginRuntimeFileResponseTransfer({
+      headers: response.headers,
+      source: response.source,
+      outputStream,
+    });
+    onTransfer?.(transfer);
+    await transfer.completion;
     return;
   }
   const components = getComponents();
@@ -1027,29 +1042,6 @@ function writeOutputStream(outputStream: any, response: RawHttpResponse) {
   }
   outputStream.write(response, response.length);
   outputStream.close?.();
-}
-
-function writeBinaryOutputStream(outputStream: any, bytes: Uint8Array) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryoutputstream;1"];
-  const nsIBinaryOutputStream = interfaces?.nsIBinaryOutputStream;
-  const chunkSize = 0x8000;
-  if (binaryFactory && nsIBinaryOutputStream) {
-    const binary = binaryFactory.createInstance(nsIBinaryOutputStream);
-    binary.setOutputStream(outputStream);
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      const chunk = bytes.slice(offset, offset + chunkSize);
-      binary.writeByteArray(Array.from(chunk), chunk.length);
-    }
-    return;
-  }
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.slice(offset, offset + chunkSize);
-    const text = bytesToBinaryString(chunk);
-    outputStream.write(text, text.length);
-  }
 }
 
 function buildHttpResponse(args: HttpResponseArgs) {
@@ -1119,13 +1111,13 @@ function contentDispositionHeader(filename: string) {
 function buildFileHttpResponse(args: {
   filename: string;
   contentType: string;
-  bytes: Uint8Array;
+  source: RuntimeFileTransferSource;
   sha256?: string;
 }) {
   const headers = [
     "HTTP/1.1 200 OK",
     `Content-Type: ${args.contentType || "application/octet-stream"}`,
-    `Content-Length: ${args.bytes.byteLength}`,
+    `Content-Length: ${args.source.size}`,
     ...(args.sha256 ? [`X-Zotero-Bridge-Sha256: ${args.sha256}`] : []),
     `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
     "Connection: close",
@@ -1133,9 +1125,9 @@ function buildFileHttpResponse(args: {
     "",
   ].join("\r\n");
   return {
+    kind: "file" as const,
     headers,
-    body: args.bytes,
-    binary: true as const,
+    source: args.source,
   };
 }
 
@@ -2764,7 +2756,7 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
     return buildFileHttpResponse({
       filename: download.descriptor.displayName,
       contentType: download.descriptor.contentType,
-      bytes: download.bytes,
+      source: download.source,
       sha256: download.descriptor.sha256,
     });
   } catch (error) {
@@ -3229,7 +3221,7 @@ async function handleHttpRequest(request: HttpRequest) {
       const responseBytes =
         typeof result === "string"
           ? utf8ByteLength(result)
-          : utf8ByteLength(result.headers) + result.body.byteLength;
+          : utf8ByteLength(result.headers) + result.source.size;
       incrementAcpRuntimeMetric(
         requestId,
         "host_response_bytes",
@@ -3408,6 +3400,7 @@ function closeTransportOnce(connection: AcceptedHostConnection) {
 
 function abortAcceptedConnection(connection: AcceptedHostConnection) {
   connection.requestRead.abort();
+  connection.responseTransfer?.abort();
   closeOutputOnce(connection);
   closeTransportOnce(connection);
   acceptedConnections.delete(connection);
@@ -3435,7 +3428,14 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
       return;
     }
     responseWriteStarted = true;
-    writeOutputStream(connection.outputStream, rawResponse);
+    await writeOutputStream(
+      connection.outputStream,
+      rawResponse,
+      (transfer) => {
+        connection.responseTransfer = transfer;
+      },
+    );
+    connection.responseTransfer = undefined;
     connection.outputClosed = true;
     clearConnectionInitializationError();
   } catch (error) {
@@ -3458,7 +3458,7 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
     if (rawResponse) {
       try {
         responseWriteStarted = true;
-        writeOutputStream(connection.outputStream, rawResponse);
+        await writeOutputStream(connection.outputStream, rawResponse);
         connection.outputClosed = true;
       } catch {
         // The peer may already be closed; cleanup remains local to this request.
@@ -3939,9 +3939,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     const raw = await handleHttpRequest(
       parseHttpRequestBytes(args.rawRequestBytes),
     );
-    return typeof raw === "string"
-      ? raw
-      : `${raw.headers}${bytesToBinaryString(raw.body)}`;
+    if (typeof raw === "string") return raw;
+    const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+    return `${raw.headers}${bytesToBinaryString(bytes)}`;
   }
   const parsedPath = parseTestPath(args.path || "/");
   const body = args.body || "";
@@ -3956,7 +3956,7 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);
-  return typeof raw === "string"
-    ? raw
-    : `${raw.headers}${bytesToBinaryString(raw.body)}`;
+  if (typeof raw === "string") return raw;
+  const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+  return `${raw.headers}${bytesToBinaryString(bytes)}`;
 }

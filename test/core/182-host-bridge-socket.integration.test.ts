@@ -13,6 +13,17 @@ import {
   restartHostBridgeServer,
   shutdownHostBridgeServer,
 } from "../../src/modules/hostBridgeServer";
+import {
+  registerHostBridgeExportFile,
+  resetHostBridgeFileRegistryForTests,
+} from "../../src/modules/hostBridgeFileRegistry";
+import {
+  getRuntimePersistencePaths,
+  readRuntimeBytes,
+  removeRuntimePath,
+  writeRuntimeBytes,
+} from "../../src/modules/runtimePersistence";
+import { joinPath } from "../../src/utils/path";
 import { setPref } from "../../src/utils/prefs";
 
 type SocketListener = {
@@ -132,6 +143,65 @@ function installXpcom() {
     configurable: true,
     value: {
       classes: {
+        "@mozilla.org/file/local;1": {
+          createInstance: () => ({
+            path: "",
+            initWithPath(value: string) {
+              this.path = value;
+            },
+          }),
+        },
+        "@mozilla.org/network/file-input-stream;1": {
+          createInstance: () => ({
+            path: "",
+            init(file: { path: string }) {
+              this.path = file.path;
+            },
+            close() {},
+          }),
+        },
+        "@mozilla.org/network/stream-transport-service;1": {
+          getService: () => ({}),
+        },
+        "@mozilla.org/network/async-stream-copier;1": {
+          createInstance: () => {
+            let source: { path: string };
+            let sink: FakeOutputStream;
+            let closeSink = false;
+            let canceled = false;
+            return {
+              init(
+                sourceValue: { path: string },
+                sinkValue: FakeOutputStream,
+                _target: unknown,
+                _chunkSize: number,
+                _closeSource: boolean,
+                closeSinkValue: boolean,
+              ) {
+                source = sourceValue;
+                sink = sinkValue;
+                closeSink = closeSinkValue;
+              },
+              asyncCopy(observer: any) {
+                setTimeout(async () => {
+                  if (canceled) return;
+                  try {
+                    const bytes = await readRuntimeBytes(source.path);
+                    const text = Buffer.from(bytes).toString("latin1");
+                    sink.write(text, text.length);
+                    if (closeSink) sink.close();
+                    observer.onStopRequest(null, 0);
+                  } catch {
+                    observer.onStopRequest(null, 1);
+                  }
+                }, 20);
+              },
+              cancel() {
+                canceled = true;
+              },
+            };
+          },
+        },
         "@mozilla.org/binaryinputstream;1": {
           createInstance: () => {
             let input: FakeAsyncInputStream;
@@ -151,7 +221,11 @@ function installXpcom() {
       },
       interfaces: {
         nsIAsyncInputStream: {},
+        nsIAsyncStreamCopier2: {},
         nsIBinaryInputStream: {},
+        nsIFile: {},
+        nsIFileInputStream: {},
+        nsIStreamTransportService: {},
         nsIThreadManager: {},
       },
     },
@@ -216,6 +290,7 @@ describe("host bridge socket lifecycle", function () {
   afterEach(async function () {
     await shutdownHostBridgeServer();
     resetHostBridgeServerForTests();
+    resetHostBridgeFileRegistryForTests();
     restoreXpcom();
   });
 
@@ -354,6 +429,55 @@ describe("host bridge socket lifecycle", function () {
     assert.equal(transport.output.chunks.length, 0);
     assert.equal(transport.input.closeCount, 1);
     assert.equal(transport.output.closeCount, 1);
+  });
+
+  it("retains accepted ownership until an asynchronous file copy completes", async function () {
+    const root = joinPath(
+      getRuntimePersistencePaths().tmpDir,
+      `socket-file-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const filePath = joinPath(root, "large.bin");
+    const bytes = new Uint8Array(0x10005);
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = index % 251;
+    }
+    await writeRuntimeBytes(filePath, bytes, { overwrite: true });
+    setPref("hostBridgeToken", "file-copy-token");
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+      });
+      await restartHostBridgeServer();
+      const transport = new FakeTransport();
+      listeners[0].onSocketAccepted(null, transport);
+      transport.input.push(
+        rawRequest({
+          path: `/bridge/v1/files/${descriptor.fileId}`,
+          headers: [
+            "Content-Length: 0",
+            "Authorization: Bearer file-copy-token",
+          ],
+        }),
+      );
+
+      await waitUntil(() => transport.output.chunks.length > 0);
+      assert.equal(transport.output.closeCount, 0);
+      assert.equal(
+        hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+        1,
+      );
+
+      await waitUntil(() => transport.output.closeCount === 1);
+      const parsed = parseRawHttpResponse(transport.output.text());
+      assert.equal(parsed.status, 200);
+      assert.equal(parsed.body.length, bytes.byteLength);
+      assert.equal(
+        hostBridgeServerInternalsForTests.getAcceptedConnectionCount(),
+        0,
+      );
+    } finally {
+      await removeRuntimePath(root);
+    }
   });
 
   it("ignores a stale listener stop after restart", async function () {
@@ -538,6 +662,35 @@ async function fragmentedRealSocketRequest(args: {
   }
 }
 
+async function realBinaryDownload(args: { url: string; token: string }) {
+  let heartbeat = 0;
+  const heartbeatTimer = setInterval(() => {
+    heartbeat += 1;
+  }, 5);
+  try {
+    const result = await new Promise<{ status: number; bytes: Uint8Array }>(
+      (resolve, reject) => {
+        const xhr = new (globalThis as any).XMLHttpRequest();
+        xhr.open("GET", args.url, true);
+        xhr.setRequestHeader("Authorization", `Bearer ${args.token}`);
+        xhr.responseType = "arraybuffer";
+        xhr.timeout = 10_000;
+        xhr.onload = () =>
+          resolve({
+            status: Number(xhr.status || 0),
+            bytes: new Uint8Array(xhr.response || new ArrayBuffer(0)),
+          });
+        xhr.onerror = () => reject(new Error("binary download failed"));
+        xhr.ontimeout = () => reject(new Error("binary download timed out"));
+        xhr.send();
+      },
+    );
+    return { ...result, heartbeat };
+  } finally {
+    clearInterval(heartbeatTimer);
+  }
+}
+
 describe("host bridge socket integration in Zotero runtime", function () {
   this.timeout(15_000);
 
@@ -573,7 +726,10 @@ describe("host bridge socket integration in Zotero runtime", function () {
     assert.equal(health.response.status, 200);
     assert.isAbove(health.heartbeat, 0);
 
-    const uploadBody = Uint8Array.from([0, 255, 13, 10, 128, 1]);
+    const uploadBody = new Uint8Array(0x18005);
+    for (let index = 0; index < uploadBody.length; index += 1) {
+      uploadBody[index] = index % 251;
+    }
     const upload = await fragmentedRealSocketRequest({
       url: `${bridgeUrl}/files/upload`,
       head: [
@@ -590,8 +746,18 @@ describe("host bridge socket integration in Zotero runtime", function () {
       body: uploadBody,
     });
     assert.equal(upload.response.status, 200);
-    assert.equal(JSON.parse(upload.response.body).result.file.size, 6);
+    const uploadedFile = JSON.parse(upload.response.body).result.file;
+    assert.equal(uploadedFile.size, uploadBody.byteLength);
     assert.isAbove(upload.heartbeat, 0);
+
+    const download = await realBinaryDownload({
+      url: `${bridgeUrl}/files/${uploadedFile.fileId}`,
+      token,
+    });
+    assert.equal(download.status, 200);
+    assert.equal(download.bytes.byteLength, uploadBody.byteLength);
+    assert.deepEqual(download.bytes, uploadBody);
+    assert.isAbove(download.heartbeat, 0);
 
     const mcpBody = new TextEncoder().encode(
       JSON.stringify({

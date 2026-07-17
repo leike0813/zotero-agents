@@ -2897,7 +2897,7 @@ async function executeMutationOrThrow(
       );
       const attachment = await handlers.attachment.createFromPath({
         parent: item,
-        path: uploaded.localPath,
+        path: uploaded.source.path,
         title: request.displayName || uploaded.descriptor.displayName,
         mimeType: request.contentType || uploaded.descriptor.contentType,
       });
