@@ -99,7 +99,7 @@ Advanced Reference Matching stores uncertain matcher output in `synt_reference_m
 | --- | --- |
 | `proposal_id` | Stable proposal id for one source/target/basis. |
 | `kind` | `zotero_binding` or `canonical_merge`. |
-| `status` | `open`, `accepted`, `rejected`, or `superseded`. |
+| `status` | `open`, `accepted`, `rejected`, `superseded`, or `retargeted`. |
 | `source_canonical_reference_id` | Candidate source canonical reference. |
 | `target_library_id`, `target_item_key` | Zotero target for binding proposals. |
 | `target_canonical_reference_id` | Canonical target for merge proposals. |
@@ -167,6 +167,18 @@ Advanced Reference Matching is separate from ordinary refresh because it may nee
 - Suggested or ambiguous binding/dedupe results create `synt_reference_match_proposal` rows.
 - User actions accept or reject proposals; accepted proposals write binding or canonical redirect facts.
 - Accepted fact changes may trigger a separate visible source-slice graph refresh and then a visible related-items sync. Open proposals never create graph edges or related-item writes.
+
+The sidecar also composes this policy as a private shadow Matching and Review
+application. `prepareMatching` hashes one bounded materialized Zotero-item
+snapshot, captures the active reference basis, and executes both strict matcher
+passes outside SQLite. `applyMatching` accepts the single-use preparation only
+after the caller recaptures the same Host basis and the repository still exposes
+the captured reference hash. Proposal decisions use the shared five-state
+proposal persistence and the same fact-revocation rules as production. The
+designated Node adapter persists only
+isolated facts and bounded graph/related stale deltas; it has no Host adapter,
+HTTP/RPC capability, automatic invocation, graph execution, related-items
+effect, production fallback, or `SynthesisClient` route.
 
 The Synthesis Index harness runs the same cluster-first dedupe algorithm as a
 debug tool for current index state. Harness runs write only the isolated debug

@@ -8,6 +8,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_application_schema_version" as const;
 
 export * from "./citationGraph.js";
+export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
@@ -27,6 +28,10 @@ import {
   type SynthesisCitationGraphStateReplacement,
   type SynthesisCitationLayoutRecord,
 } from "./citationGraph.js";
+import {
+  ensureSynthesisReferenceMatchingReviewRepositorySchema,
+  reconcileSynthesisReferenceMatchingPreparations,
+} from "./referenceMatchingReview.js";
 import {
   ensureSynthesisReferenceRefreshRepositorySchema,
   getSynthesisReferenceApplicationState,
@@ -857,6 +862,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let topicApplicationInitialized = false;
   let citationGraphApplicationInitialized = false;
   let referenceRefreshApplicationInitialized = false;
+  let referenceMatchingReviewApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -879,6 +885,16 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (referenceRefreshApplicationInitialized) return;
     ensureSynthesisReferenceRefreshRepositorySchema(db);
     referenceRefreshApplicationInitialized = true;
+  };
+  const initializeReferenceMatchingReviewApplication = () => {
+    initializeReferenceRefreshApplication();
+    if (referenceMatchingReviewApplicationInitialized) return;
+    ensureSynthesisReferenceMatchingReviewRepositorySchema(db);
+    referenceMatchingReviewApplicationInitialized = true;
+  };
+  const reconcileReferenceMatchingPreparations = () => {
+    initializeReferenceMatchingReviewApplication();
+    reconcileSynthesisReferenceMatchingPreparations(db, now());
   };
   return {
     initialize,
@@ -944,6 +960,8 @@ export function createSynthesisRepositoryFoundationStore(options: {
     initializeTopicApplication,
     initializeCitationGraphApplication,
     initializeReferenceRefreshApplication,
+    initializeReferenceMatchingReviewApplication,
+    reconcileReferenceMatchingPreparations,
     getReferenceApplicationState() {
       initializeReferenceRefreshApplication();
       return getSynthesisReferenceApplicationState(db);

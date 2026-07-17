@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus Topic, Reference Refresh, and Citation Graph application tables. Reference source/artifact/raw/canonical/binding rows promote with an expected-reference singleton; Graph structure/light metrics replace atomically and complex metrics/layout remain graph-basis-bound. It is not a production mirror, production Workbench source, Host reader, or mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus Topic, Reference Refresh, Reference Matching/Review, and Citation Graph application tables. Reference source/artifact/raw/canonical/binding/proposal rows promote with expected-reference and recaptured-Host bases; Graph structure/light metrics replace atomically and complex metrics/layout remain graph-basis-bound. It is not a production mirror, production Workbench source, Host reader, or mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -86,6 +86,13 @@ are private application state, not a production repository mirror. Shutdown
 closes the handle but does not delete the shadow root.
 
 Reference Refresh state records the active reference projection hash, canonical descriptor input hash, row counts, and reference/graph/related readiness. Full promotion removes absent sources; scoped promotion replaces only listed changed sources and preserves unrelated rows plus protected bindings, redirects, rejected decisions, and canonical-revision review state. Preparation itself changes no readiness. Citation Graph state separately records its active build-result/input/metrics hashes and counts; Graph replacement and later basis-bound metrics/layout behavior are unchanged. Reads never require an in-memory full mirror or production fallback.
+
+Reference Matching/Review state records the last applied Host/reference bases and
+bounded operation counts. A matching preparation stores only an operation
+receipt durably; computed engine output remains single-use in memory until apply
+or discard. Proposal, accepted binding, redirect, rejection, supersession, and
+retarget decisions survive restart. Accepted-fact changes mark isolated graph
+and related projections stale without executing either downstream effect.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots

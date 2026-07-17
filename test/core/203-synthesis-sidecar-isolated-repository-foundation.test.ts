@@ -8,7 +8,11 @@ import {
   SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
   SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
   SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
+  SYNTHESIS_REFERENCE_MATCHING_REVIEW_REPOSITORY_SCHEMA_META_KEY,
+  SYNTHESIS_REFERENCE_MATCHING_REVIEW_REPOSITORY_SCHEMA_VERSION,
   createSynthesisRepositoryFoundationStore,
+  getSynthesisReferenceMatchingPreparation,
+  upsertSynthesisReferenceMatchingPreparation,
 } from "../../packages/synthesis-repository/src/index";
 import { openSynthesisNodeSqliteAdapter } from "../../apps/synthesis-service/src/repositoryNodeSqlite";
 import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
@@ -145,6 +149,87 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
     );
     connection.close();
+  });
+
+  it("installs the isolated Reference Matching/Review schema idempotently", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const connection = openSynthesisNodeSqliteAdapter(
+      path.join(root, "synthesis.db"),
+    );
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    store.initializeReferenceMatchingReviewApplication();
+    store.initializeReferenceMatchingReviewApplication();
+    const tables = connection.adapter
+      .all(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'synt_reference_match%' ORDER BY name",
+      )
+      .map((row) => row.name);
+    assert.deepEqual(tables, [
+      "synt_reference_match_proposal",
+      "synt_reference_matching_preparation",
+      "synt_reference_matching_state",
+    ]);
+    assert.equal(
+      connection.adapter.get(
+        "SELECT value FROM synt_schema_meta WHERE key=@key LIMIT 1",
+        {
+          key: SYNTHESIS_REFERENCE_MATCHING_REVIEW_REPOSITORY_SCHEMA_META_KEY,
+        },
+      )?.value,
+      SYNTHESIS_REFERENCE_MATCHING_REVIEW_REPOSITORY_SCHEMA_VERSION,
+    );
+    assert.equal(
+      store.getSchemaVersion(),
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    connection.close();
+  });
+
+  it("supersedes an interrupted matching preparation during restart recovery", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const repository = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: root,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    const writer = openSynthesisNodeSqliteAdapter(
+      repository.paths.databasePath,
+    );
+    upsertSynthesisReferenceMatchingPreparation(writer.adapter, {
+      preparationId: "prep:interrupted",
+      referenceHash: null,
+      repositoryBasisHash: `sha256:${"1".repeat(64)}`,
+      hostBasisHash: `sha256:${"2".repeat(64)}`,
+      status: "prepared",
+      diagnosticsJson: "[]",
+      createdAt: "2026-07-16T00:00:00.000Z",
+      updatedAt: "2026-07-16T00:00:00.000Z",
+    });
+    writer.close();
+    repository.close();
+
+    const recovered = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: root,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    const reader = openSynthesisNodeSqliteAdapter(recovered.paths.databasePath);
+    assert.equal(
+      getSynthesisReferenceMatchingPreparation(
+        reader.adapter,
+        "prep:interrupted",
+      )?.status,
+      "superseded",
+    );
+    reader.close();
+    recovered.close();
   });
 
   it("commits, rolls back, and isolates nested savepoints", function () {

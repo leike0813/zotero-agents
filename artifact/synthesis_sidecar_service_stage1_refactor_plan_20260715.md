@@ -1146,6 +1146,14 @@ graph layout 作为第一条 process canary，因为：
   多余、重复、locator/hash stale 在写入前失败；manual binding/redirect/rejected decision 保持，
   protected stale canonical 只产生 revision review row。当前不包含 Advanced Matching、generic
   review actions、graph incremental execution、related-items effect、Host route 或 production cutover。
+- `add-synthesis-sidecar-reference-matching-review-application-foundation` 已补完拆分优先级第 5 项的
+  private Advanced Matching/Review foundation：单次 preparation 在 SQLite 外执行 binding 与 canonical
+  dedupe 两个 strict engine pass，apply 仅在 Host/reference basis 均保持 current 时事务提升 accepted
+  binding、deterministic redirect 与 review proposal。proposal 的 open/accepted/rejected/superseded/
+  retargeted 状态、rejected-basis suppression 与 proposal 持久化由 shared application/repository
+  SSOT 管理；designated Node adapter 投影 isolated accepted facts、撤销和 manual audit proposal。
+  私有 composition 只持久化 isolated facts 并标记 graph/related
+  stale，不执行 downstream effect，也不新增 Host/RPC/production route。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

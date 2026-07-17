@@ -17,6 +17,7 @@ export * from "./citationGraphApplication.js";
 export * from "./citationGraphProjection.js";
 export * from "./referenceProjection.js";
 export * from "./referenceRefreshApplication.js";
+export * from "./referenceMatchingReviewApplication.js";
 export * from "./topicApplyDecision.js";
 export * from "./topicApplication.js";
 

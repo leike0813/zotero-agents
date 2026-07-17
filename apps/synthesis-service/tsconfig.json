@@ -19,6 +19,7 @@
     "../../packages/synthesis-contracts/src/citationGraphApplication.ts",
     "../../packages/synthesis-contracts/src/hostRead.ts",
     "../../packages/synthesis-contracts/src/referenceRefreshApplication.ts",
+    "../../packages/synthesis-contracts/src/referenceMatchingReviewApplication.ts",
     "../../packages/synthesis-contracts/src/sidecarLifecycle.ts",
     "../../packages/synthesis-contracts/src/sidecarCanonicalStore.ts",
     "../../packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -29,6 +30,7 @@
     "../../packages/synthesis-application/src/citationGraphProjection.ts",
     "../../packages/synthesis-application/src/referenceProjection.ts",
     "../../packages/synthesis-application/src/referenceRefreshApplication.ts",
+    "../../packages/synthesis-application/src/referenceMatchingReviewApplication.ts",
     "../../packages/synthesis-application/src/topicApplication.ts",
     "../../packages/synthesis-application/src/topicApplyDecision.ts",
     "../../packages/synthesis-application/src/topicCanonical.ts",
@@ -37,6 +39,7 @@
     "../../packages/synthesis-engine/src/topicStructuredArtifact.ts",
     "../../packages/synthesis-repository/src/index.ts",
     "../../packages/synthesis-repository/src/citationGraph.ts",
-    "../../packages/synthesis-repository/src/referenceRefresh.ts"
+    "../../packages/synthesis-repository/src/referenceRefresh.ts",
+    "../../packages/synthesis-repository/src/referenceMatchingReview.ts"
   ]
 }

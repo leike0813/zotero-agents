@@ -25,6 +25,13 @@ import {
   upsertSynthesisCitationLightMetrics,
   upsertSynthesisCitationNode,
   upsertSynthesisCitationSourceOwnership,
+  SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DDL,
+  rebuildSynthesisReferenceMatchProposalKind,
+  rebuildSynthesisReferenceMatchProposalRow,
+  rebuildSynthesisReferenceMatchProposalStatus,
+  hasRejectedSynthesisReferenceMatchProposal,
+  updateSynthesisReferenceMatchProposalStatus,
+  upsertSynthesisReferenceMatchProposal,
   type SqlAdapter,
   type SqlParams,
   type SqlPrimitive,
@@ -47,6 +54,9 @@ import {
   type SynthesisRawReferenceRecord,
   type SynthesisRawReferenceStaleResult,
   type SynthesisReferenceBindingRecord,
+  type SynthesisReferenceMatchProposalKind,
+  type SynthesisReferenceMatchProposalRecord,
+  type SynthesisReferenceMatchProposalStatus,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -72,6 +82,9 @@ export type {
   SynthesisRawReferenceRecord,
   SynthesisRawReferenceStaleResult,
   SynthesisReferenceBindingRecord,
+  SynthesisReferenceMatchProposalKind,
+  SynthesisReferenceMatchProposalRecord,
+  SynthesisReferenceMatchProposalStatus,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type SynthesisRepositorySchemaEntry = {
@@ -102,37 +115,6 @@ export type SynthesisReviewItemRecord = {
   blockedByReviewItemId?: string;
   payloadJson?: string;
   diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisReferenceMatchProposalKind =
-  | "zotero_binding"
-  | "canonical_merge";
-
-export type SynthesisReferenceMatchProposalStatus =
-  | "open"
-  | "accepted"
-  | "rejected"
-  | "superseded"
-  | "retargeted";
-
-export type SynthesisReferenceMatchProposalRecord = {
-  proposalId: string;
-  kind: SynthesisReferenceMatchProposalKind;
-  status: SynthesisReferenceMatchProposalStatus;
-  sourceCanonicalReferenceId: string;
-  sourceRawReferenceIdsJson?: string;
-  targetCanonicalReferenceId?: string;
-  targetLibraryId?: number;
-  targetItemKey?: string;
-  confidence?: string;
-  score?: number;
-  reasonsJson?: string;
-  evidenceJson?: string;
-  diagnosticsJson?: string;
-  basisHash?: string;
-  sourceHash?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -1627,7 +1609,8 @@ function createMemoryAdapter(): SqlAdapter {
       if (
         normalized.startsWith(
           "insert or replace into synt_reference_match_proposal",
-        )
+        ) ||
+        normalized.startsWith("insert into synt_reference_match_proposal")
       ) {
         state.referenceMatchProposals.set(
           cleanString(params.proposal_id),
@@ -1963,11 +1946,27 @@ function createMemoryAdapter(): SqlAdapter {
         }));
       }
       if (normalized.includes("from synt_reference_match_proposal")) {
-        return Array.from(state.referenceMatchProposals.values()).map(
-          (row) => ({
-            ...row,
-          }),
-        );
+        const proposalId = cleanString(params.proposal_id);
+        const kind = cleanString(params.kind);
+        const basisHash = cleanString(params.basis_hash);
+        const sourceHash = cleanString(params.source_hash);
+        return Array.from(state.referenceMatchProposals.values())
+          .filter(
+            (row) => !proposalId || cleanString(row.proposal_id) === proposalId,
+          )
+          .filter((row) => !kind || cleanString(row.kind) === kind)
+          .filter(
+            (row) => !basisHash || cleanString(row.basis_hash) === basisHash,
+          )
+          .filter(
+            (row) => !sourceHash || cleanString(row.source_hash) === sourceHash,
+          )
+          .filter(
+            (row) =>
+              !normalized.includes("status='rejected'") ||
+              cleanString(row.status) === "rejected",
+          )
+          .map((row) => ({ ...row }));
       }
       if (normalized.includes("from synt_citation_node")) {
         return Array.from(state.citationNodes.values()).map((row) => ({
@@ -2486,27 +2485,7 @@ function ensureSchema(db: SqlAdapter) {
       UNIQUE(canonical_reference_id, library_id, item_key)
     );
   `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_reference_match_proposal (
-      proposal_id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      source_canonical_reference_id TEXT NOT NULL,
-      source_raw_reference_ids_json TEXT NOT NULL DEFAULT '[]',
-      target_canonical_reference_id TEXT NOT NULL DEFAULT '',
-      target_library_id INTEGER NOT NULL DEFAULT 0,
-      target_item_key TEXT NOT NULL DEFAULT '',
-      confidence TEXT NOT NULL DEFAULT '',
-      score REAL NOT NULL DEFAULT 0,
-      reasons_json TEXT NOT NULL DEFAULT '[]',
-      evidence_json TEXT NOT NULL DEFAULT '{}',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      basis_hash TEXT NOT NULL DEFAULT '',
-      source_hash TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
+  for (const sql of SYNTHESIS_REFERENCE_MATCH_PROPOSAL_DDL) db.run(sql);
   ensureSynthesisCitationGraphProjectionSchema(db, { indexes: false });
   applyOptionalMigration(
     db,
@@ -2881,22 +2860,6 @@ function ensureSchema(db: SqlAdapter) {
       ON synt_reference_binding(canonical_reference_id, status);
   `);
   db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_status
-      ON synt_reference_match_proposal(status, kind, updated_at DESC);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_source
-      ON synt_reference_match_proposal(source_canonical_reference_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_target
-      ON synt_reference_match_proposal(target_canonical_reference_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_reference_match_proposal_basis
-      ON synt_reference_match_proposal(kind, basis_hash, source_hash, status);
-  `);
-  db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_citation_node_status
       ON synt_citation_node(node_status, updated_at DESC);
   `);
@@ -3210,57 +3173,6 @@ function rowToReferenceBinding(row: SqlRow): SynthesisReferenceBindingRecord {
     reviewer: cleanString(row.reviewer) || undefined,
     basisHash: cleanString(row.basis_hash) || undefined,
     diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function normalizeReferenceMatchProposalKind(
-  value: unknown,
-): SynthesisReferenceMatchProposalKind {
-  const text = cleanString(value);
-  return text === "canonical_merge" ? "canonical_merge" : "zotero_binding";
-}
-
-function normalizeReferenceMatchProposalStatus(
-  value: unknown,
-): SynthesisReferenceMatchProposalStatus {
-  const text = cleanString(value);
-  if (
-    text === "accepted" ||
-    text === "rejected" ||
-    text === "superseded" ||
-    text === "retargeted"
-  ) {
-    return text;
-  }
-  return "open";
-}
-
-function rowToReferenceMatchProposal(
-  row: SqlRow,
-): SynthesisReferenceMatchProposalRecord {
-  return {
-    proposalId: cleanString(row.proposal_id),
-    kind: normalizeReferenceMatchProposalKind(row.kind),
-    status: normalizeReferenceMatchProposalStatus(row.status),
-    sourceCanonicalReferenceId: cleanString(row.source_canonical_reference_id),
-    sourceRawReferenceIdsJson:
-      cleanString(row.source_raw_reference_ids_json) || "[]",
-    targetCanonicalReferenceId:
-      cleanString(row.target_canonical_reference_id) || undefined,
-    targetLibraryId: Math.max(
-      0,
-      Math.floor(Number(row.target_library_id) || 0),
-    ),
-    targetItemKey: cleanString(row.target_item_key) || undefined,
-    confidence: cleanString(row.confidence) || undefined,
-    score: Number(row.score) || 0,
-    reasonsJson: cleanString(row.reasons_json) || "[]",
-    evidenceJson: cleanString(row.evidence_json) || "{}",
-    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    basisHash: cleanString(row.basis_hash) || undefined,
-    sourceHash: cleanString(row.source_hash) || undefined,
     createdAt: cleanString(row.created_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
@@ -4863,80 +4775,7 @@ export class SynthesisRepository {
 
   upsertReferenceMatchProposal(record: SynthesisReferenceMatchProposalRecord) {
     this.initialize();
-    const proposalId = cleanString(record.proposalId);
-    if (!proposalId) {
-      throw new Error("proposalId must be non-empty");
-    }
-    const timestamp = this.now();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_reference_match_proposal (
-          proposal_id,
-          kind,
-          status,
-          source_canonical_reference_id,
-          source_raw_reference_ids_json,
-          target_canonical_reference_id,
-          target_library_id,
-          target_item_key,
-          confidence,
-          score,
-          reasons_json,
-          evidence_json,
-          diagnostics_json,
-          basis_hash,
-          source_hash,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @proposal_id,
-          @kind,
-          @status,
-          @source_canonical_reference_id,
-          @source_raw_reference_ids_json,
-          @target_canonical_reference_id,
-          @target_library_id,
-          @target_item_key,
-          @confidence,
-          @score,
-          @reasons_json,
-          @evidence_json,
-          @diagnostics_json,
-          @basis_hash,
-          @source_hash,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        proposal_id: proposalId,
-        kind: normalizeReferenceMatchProposalKind(record.kind),
-        status: normalizeReferenceMatchProposalStatus(record.status),
-        source_canonical_reference_id: cleanString(
-          record.sourceCanonicalReferenceId,
-        ),
-        source_raw_reference_ids_json:
-          cleanString(record.sourceRawReferenceIdsJson) || "[]",
-        target_canonical_reference_id: cleanString(
-          record.targetCanonicalReferenceId,
-        ),
-        target_library_id: Math.max(
-          0,
-          Math.floor(Number(record.targetLibraryId) || 0),
-        ),
-        target_item_key: cleanString(record.targetItemKey),
-        confidence: cleanString(record.confidence),
-        score: Number(record.score) || 0,
-        reasons_json: cleanString(record.reasonsJson) || "[]",
-        evidence_json: cleanString(record.evidenceJson) || "{}",
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        basis_hash: cleanString(record.basisHash),
-        source_hash: cleanString(record.sourceHash),
-        created_at: cleanString(record.createdAt) || timestamp,
-        updated_at: cleanString(record.updatedAt) || timestamp,
-      },
-    );
+    return upsertSynthesisReferenceMatchProposal(this.db, record, this.now());
   }
 
   listReferenceMatchProposals(
@@ -4956,12 +4795,12 @@ export class SynthesisRepository {
     );
     const statuses = new Set(
       (args.statuses || [])
-        .map(normalizeReferenceMatchProposalStatus)
+        .map(rebuildSynthesisReferenceMatchProposalStatus)
         .filter(Boolean),
     );
     const kinds = new Set(
       (args.kinds || [])
-        .map(normalizeReferenceMatchProposalKind)
+        .map(rebuildSynthesisReferenceMatchProposalKind)
         .filter(Boolean),
     );
     const confidences = new Set(
@@ -5007,7 +4846,7 @@ export class SynthesisRepository {
         `,
         params,
       )
-      .map(rowToReferenceMatchProposal)
+      .map(rebuildSynthesisReferenceMatchProposalRow)
       .filter((row) => !proposalIds.size || proposalIds.has(row.proposalId))
       .filter((row) => !statuses.size || statuses.has(row.status))
       .filter((row) => !kinds.size || kinds.has(row.kind))
@@ -5033,20 +4872,12 @@ export class SynthesisRepository {
     status: SynthesisReferenceMatchProposalStatus;
     timestamp?: string;
   }) {
-    const proposal = this.listReferenceMatchProposals({
-      proposalIds: [args.proposalId],
-      limit: 1,
-    })[0];
-    if (!proposal) {
-      return null;
-    }
-    const updated = {
-      ...proposal,
-      status: normalizeReferenceMatchProposalStatus(args.status),
-      updatedAt: cleanString(args.timestamp) || this.now(),
-    };
-    this.upsertReferenceMatchProposal(updated);
-    return updated;
+    const timestamp = cleanString(args.timestamp) || this.now();
+    return updateSynthesisReferenceMatchProposalStatus(this.db, {
+      proposalId: args.proposalId,
+      status: args.status,
+      timestamp,
+    });
   }
 
   hasRejectedReferenceMatchProposal(args: {
@@ -5054,18 +4885,11 @@ export class SynthesisRepository {
     basisHash: string;
     sourceHash: string;
   }) {
-    const kind = normalizeReferenceMatchProposalKind(args.kind);
-    const basisHash = cleanString(args.basisHash);
-    const sourceHash = cleanString(args.sourceHash);
-    return this.listReferenceMatchProposals({
-      statuses: ["rejected"],
-      kinds: [kind],
-    }).some(
-      (proposal) =>
-        proposal.kind === kind &&
-        cleanString(proposal.basisHash) === basisHash &&
-        cleanString(proposal.sourceHash) === sourceHash,
-    );
+    return hasRejectedSynthesisReferenceMatchProposal(this.db, {
+      kind: rebuildSynthesisReferenceMatchProposalKind(args.kind),
+      basisHash: args.basisHash,
+      sourceHash: args.sourceHash,
+    });
   }
 
   private replaceCitationGraphStateRows(

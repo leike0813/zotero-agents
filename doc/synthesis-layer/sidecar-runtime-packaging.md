@@ -71,9 +71,10 @@ or user shell.
 The service remains production-mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. Its main process opens the
 persistent identity-bound shadow repository and Topic canonical shadow beneath
-the profile runtime root, then composes private Topic, Reference Refresh, and Citation Graph applications over those
-isolated owners. The bundle includes the environment-neutral strict Topic/Reference/Graph
-contracts, application rules and projections, repository records/schema, and designated Node adapters. Reference Refresh is packaged without a Host or RPC adapter. The sole Node filesystem
+the profile runtime root, then composes private Topic, Reference Refresh,
+Reference Matching/Review, and Citation Graph applications over those isolated
+owners. The bundle includes the environment-neutral strict Topic/Reference/Graph
+contracts, application rules and projections, repository records/schema, and designated Node adapters. Both reference applications are packaged without a Host or RPC adapter. The sole Node filesystem
 adapter;
 built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
 third-party dependency or license. The default `SynthesisClient`

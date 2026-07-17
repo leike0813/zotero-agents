@@ -135,6 +135,8 @@ export function openSynthesisSidecarIsolatedRepository(options: {
     store.initializeTopicApplication();
     store.initializeCitationGraphApplication();
     store.initializeReferenceRefreshApplication();
+    store.initializeReferenceMatchingReviewApplication();
+    store.reconcileReferenceMatchingPreparations();
     store.reconcileRunningOperations();
   } catch (error) {
     connection.close();

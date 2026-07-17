@@ -411,6 +411,19 @@ describe("Synthesis repository foundation", function () {
         ?.status,
       "rejected",
     );
+    const createdAt = repository.listReferenceMatchProposals({
+      proposalIds: ["proposal:1"],
+    })[0]?.createdAt;
+    repository.updateReferenceMatchProposalStatus({
+      proposalId: "proposal:1",
+      status: "retargeted",
+    });
+    assert.deepInclude(
+      repository.listReferenceMatchProposals({
+        proposalIds: ["proposal:1"],
+      })[0],
+      { status: "retargeted", createdAt },
+    );
   });
 
   it("resets Synthesis runtime tables while preserving schema metadata and non-Synthesis state", function () {
