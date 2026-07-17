@@ -9,12 +9,19 @@ import {
   type SynthesisCitationGraphMetricsRequest,
   type SynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
+import {
+  rebuildSynthesisCitationGraphBuildRequest,
+  rebuildSynthesisCitationGraphBuildResult,
+  type SynthesisCitationGraphBuildRequest,
+  type SynthesisCitationGraphBuildResult,
+} from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
 import type {
   SynthesisSidecarComputePoolSnapshot,
   SynthesisSidecarErrorCode,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   type SynthesisSidecarComputeRunMessage,
 } from "./computeProtocol.js";
@@ -58,15 +65,18 @@ type Task = {
   id: string;
   operation:
     | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION;
+    | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
   request:
     | SynthesisCitationGraphLayoutRequest
-    | SynthesisCitationGraphMetricsRequest;
+    | SynthesisCitationGraphMetricsRequest
+    | SynthesisCitationGraphBuildRequest;
   cancellation: Int32Array;
   resolve(
     result:
       | SynthesisCitationGraphLayoutResult
-      | SynthesisCitationGraphMetricsResult,
+      | SynthesisCitationGraphMetricsResult
+      | SynthesisCitationGraphBuildResult,
   ): void;
   reject(error: ComputeWorkerPoolError): void;
   signal?: AbortSignal;
@@ -86,6 +96,10 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisCitationGraphMetricsRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisCitationGraphMetricsResult>;
+  runCitationGraphBuild(
+    request: SynthesisCitationGraphBuildRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisCitationGraphBuildResult>;
   snapshot(): SynthesisSidecarComputePoolSnapshot;
   shutdown(): Promise<void>;
 };
@@ -348,18 +362,29 @@ export function createSynthesisSidecarComputeWorkerPool(
       if (response.type === "result") {
         let result:
           | SynthesisCitationGraphLayoutResult
-          | SynthesisCitationGraphMetricsResult;
+          | SynthesisCitationGraphMetricsResult
+          | SynthesisCitationGraphBuildResult;
         try {
-          result =
-            task.operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
-              ? rebuildSynthesisCitationGraphLayoutResult(
-                  response.result,
-                  task.request as SynthesisCitationGraphLayoutRequest,
-                )
-              : rebuildSynthesisCitationGraphMetricsResult(
-                  response.result,
-                  task.request as SynthesisCitationGraphMetricsRequest,
-                );
+          switch (task.operation) {
+            case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
+              result = rebuildSynthesisCitationGraphLayoutResult(
+                response.result,
+                task.request as SynthesisCitationGraphLayoutRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION:
+              result = rebuildSynthesisCitationGraphMetricsResult(
+                response.result,
+                task.request as SynthesisCitationGraphMetricsRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
+              result = rebuildSynthesisCitationGraphBuildResult(
+                response.result,
+                task.request as SynthesisCitationGraphBuildRequest,
+              );
+              break;
+          }
         } catch {
           finishRuntimeFailure(task, "worker_result_invalid", created);
           return;
@@ -403,32 +428,48 @@ export function createSynthesisSidecarComputeWorkerPool(
     }, executionTimeoutMs);
     task.deadline.unref();
     const cancellation = task.cancellation.buffer as SharedArrayBuffer;
-    const message: SynthesisSidecarComputeRunMessage =
-      task.operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
-        ? {
-            type: "run",
-            taskId: task.id,
-            operation: SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
-            payload: task.request as SynthesisCitationGraphLayoutRequest,
-            cancellation,
-          }
-        : {
-            type: "run",
-            taskId: task.id,
-            operation: SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
-            payload: task.request as SynthesisCitationGraphMetricsRequest,
-            cancellation,
-          };
+    let message: SynthesisSidecarComputeRunMessage;
+    switch (task.operation) {
+      case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+          payload: task.request as SynthesisCitationGraphLayoutRequest,
+          cancellation,
+        };
+        break;
+      case SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+          payload: task.request as SynthesisCitationGraphMetricsRequest,
+          cancellation,
+        };
+        break;
+      case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
+          payload: task.request as SynthesisCitationGraphBuildRequest,
+          cancellation,
+        };
+        break;
+    }
     target.postMessage(message);
   };
 
   const enqueue = <
     Request extends
       | SynthesisCitationGraphLayoutRequest
-      | SynthesisCitationGraphMetricsRequest,
+      | SynthesisCitationGraphMetricsRequest
+      | SynthesisCitationGraphBuildRequest,
     Result extends
       | SynthesisCitationGraphLayoutResult
-      | SynthesisCitationGraphMetricsResult,
+      | SynthesisCitationGraphMetricsResult
+      | SynthesisCitationGraphBuildResult,
   >(
     operation: Task["operation"],
     request: Request,
@@ -498,6 +539,17 @@ export function createSynthesisSidecarComputeWorkerPool(
         runOptions,
       );
 
+  const runCitationGraphBuild: SynthesisSidecarComputeWorkerPool["runCitationGraphBuild"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisCitationGraphBuildRequest,
+        SynthesisCitationGraphBuildResult
+      >(
+        SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
+        rebuildSynthesisCitationGraphBuildRequest(requestInput),
+        runOptions,
+      );
+
   const shutdown = () => {
     if (shutdownPromise) {
       return shutdownPromise;
@@ -533,6 +585,7 @@ export function createSynthesisSidecarComputeWorkerPool(
   return {
     runCitationGraphLayout,
     runCitationGraphMetrics,
+    runCitationGraphBuild,
     snapshot,
     shutdown,
   };

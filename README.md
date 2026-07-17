@@ -565,7 +565,7 @@ For more architecture details, see [Documentation Site: Custom Workflows](https:
 
 | Limitation | Description | Plan |
 |------------|-------------|------|
-| **Most Synthesis heavy computation still shares the UI process** | Citation Graph layout and metrics now share the bounded supervised sidecar worker, but graph build, Advanced Matching, and the other six extracted kernels still execute in the Zotero process and can briefly freeze the UI. Both worker routes fail closed when the sidecar is unavailable and do not fall back locally. | Remaining kernels will migrate through separate verified changes |
+| **Most Synthesis heavy computation still shares the UI process** | Citation Graph layout and metrics now share the bounded supervised sidecar worker. Graph build has an internal wire-bounded worker canary, but its production path, Advanced Matching, and the other five kernels still execute in the Zotero process and can briefly freeze the UI. The two production worker routes fail closed and do not fall back locally; the canary is not invoked automatically. | Production graph build first requires a bounded large-payload transfer design; remaining kernels will migrate through separate verified changes |
 | **WebDAV sync not fully tested** | The auto-sync feature has not been thoroughly tested; if using it, stick to manual sync as much as possible | Will be improved in a future release |
 | **Large library performance** | Performance has not been sufficiently tested on large-scale libraries | To be addressed in future updates |
 

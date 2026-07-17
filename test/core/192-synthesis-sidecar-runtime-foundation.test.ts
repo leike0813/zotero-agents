@@ -268,6 +268,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       "system.shutdown",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
+      "compute.citation_graph_build",
     ]);
     assert.isTrue(isSynthesisSidecarSystemCapability("system.handshake"));
     assert.isFalse(
@@ -278,6 +279,9 @@ describe("Synthesis sidecar runtime foundation", function () {
     );
     assert.isTrue(
       isSynthesisSidecarComputeCapability("compute.citation_graph_metrics"),
+    );
+    assert.isTrue(
+      isSynthesisSidecarComputeCapability("compute.citation_graph_build"),
     );
     assert.deepEqual(
       rebuildSynthesisSidecarComputePoolSnapshot({

@@ -69,6 +69,14 @@ describe("Synthesis sidecar migration boundary", function () {
         "topic_structured_artifact",
       ],
     );
+    const graphBuildEngine = rawInventory.internal_engines.find(
+      (engine) => engine.id === "citation_graph_build",
+    );
+    assert.deepInclude(graphBuildEngine, {
+      implementation: "in_process",
+      production_worker: false,
+      sidecar_worker_canary: true,
+    });
     const layoutEngine = rawInventory.internal_engines.find(
       (engine) => engine.id === "citation_graph_layout",
     );
@@ -90,7 +98,8 @@ describe("Synthesis sidecar migration boundary", function () {
         .filter(
           (engine) =>
             engine.id !== "citation_graph_layout" &&
-            engine.id !== "citation_graph_metrics",
+            engine.id !== "citation_graph_metrics" &&
+            engine.id !== "citation_graph_build",
         )
         .every(
           (engine) =>

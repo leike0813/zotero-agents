@@ -126,6 +126,9 @@ describe("Synthesis Citation Graph production sidecar route", function () {
       async runCitationGraphMetrics() {
         throw new Error("unexpected metrics compute");
       },
+      async runCitationGraphBuild() {
+        throw new Error("unexpected graph-build compute");
+      },
       snapshot: () => ({
         state: "idle",
         active: 0,

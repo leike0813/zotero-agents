@@ -1014,6 +1014,13 @@ graph layout 作为第一条 process canary，因为：
   replacement 和 degraded fuse；插件继续持有 graph capture/hash/basis、DB、
   canonical metrics hashing 与 promotion，失败不重试或 in-process fallback。当前
   其余六个 production engine 仍在插件进程内。
+- 已交付 `add-synthesis-citation-graph-build-sidecar-canary`：新增第三个固定
+  `citation_graph_build.v1` operation，使用同一 authenticated worker、全局 admission、
+  五秒 deadline、取消、replacement 与 degraded fuse；仅内部 client 和测试可显式
+  调用 wire-bounded full/source-slice canary。生产 graph build 继续使用 in-process
+  engine，现有 8 MiB、250,000 request nodes、50,000 response nodes 不承诺承载
+  25,000 sources / 1,250,000 references / 750,000 targets 的 engine 上界，大载荷
+  transfer/data layout 由后续独立 change 解决。
 - runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
   数据；五平台 prebuild 由独立 release 流程按新 fingerprint 重新生成和同步，
   在此之前 freshness/XPI release gate 保持 fail closed。

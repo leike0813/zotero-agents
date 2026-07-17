@@ -8,7 +8,13 @@ import {
   rebuildSynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
 import {
+  createInProcessSynthesisCitationGraphBuildEngine,
+  rebuildSynthesisCitationGraphBuildRequest,
+  rebuildSynthesisCitationGraphBuildResult,
+} from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
+import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   type SynthesisSidecarComputeWorkerMessage,
   type SynthesisSidecarComputeWorkerResponse,
@@ -71,6 +77,23 @@ parentPort.on(
           type: "result",
           taskId,
           result: rebuildSynthesisCitationGraphMetricsResult(result, request),
+        });
+        return;
+      }
+      if (
+        message.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
+      ) {
+        const request = rebuildSynthesisCitationGraphBuildRequest(
+          message.payload,
+        );
+        const result = await createInProcessSynthesisCitationGraphBuildEngine({
+          checkpoint,
+        }).compute(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisCitationGraphBuildResult(result, request),
         });
         return;
       }

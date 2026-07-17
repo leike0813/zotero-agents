@@ -9,7 +9,9 @@ parentPort.on("message", (message) => {
     return;
   }
   const graphHash = String(message.payload?.graphHash || "");
-  const mode = graphHash.slice("sha256:".length, "sha256:".length + 1);
+  const mode =
+    graphHash.slice("sha256:".length, "sha256:".length + 1) ||
+    String(message.payload?.rolePriority?.[0] || "");
   if (mode === "a") {
     for (;;) {
       // Deliberately ignore cooperative cancellation to exercise termination.

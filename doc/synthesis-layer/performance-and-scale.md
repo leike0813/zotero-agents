@@ -117,18 +117,23 @@ strategy.
 Default explicit operation slice budget is 2000 ms. Long operations should stop at budget boundaries, commit bounded progress, and let the user continue, retry, or cancel rather than blocking the Zotero UI.
 
 Citation Graph build and Tag Vocabulary index construction remain in-process
-readiness exceptions to slice cancellation. Citation Graph layout and complex
-metrics use the same production sidecar worker; layout retains its existing
-pre-start soft budget check. Both routes use 8 MiB UTF-8
+production readiness exceptions to slice cancellation. Wire-bounded Citation
+Graph build requests may exercise an authenticated internal canary, but no
+production rebuild calls it. Citation Graph layout and complex metrics use the
+same worker as production routes; layout retains its existing pre-start soft
+budget check. All three operations use 8 MiB UTF-8
 request and response envelopes, at most 250,000 request and 50,000 response JSON
 structural nodes, one active task, two waiting tasks, a five-second hard
 deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
 and system requests retain the 1 MiB cap. The byte envelope remains independent
 from the graph engines' 5,000-node/20,000-edge bounds, so an engine-valid but
-wire-oversized DTO fails closed. The lazy worker and O(1) health snapshot keep
+wire-oversized DTO fails closed. Graph build's larger 25,000-source /
+1,250,000-reference / 750,000-target contract therefore requires a later bounded
+transfer layout before production routing. The lazy worker and O(1) health snapshot keep
 supervisor steady-state overhead low. The plugin retains DB reads and
 hash-guarded promotion, and unavailable/busy/failed compute preserves stale
-coordinates or previous metrics without wait, retry, or in-process fallback. Tag canonical
+coordinates or previous metrics without wait, retry, or in-process fallback.
+Canary failures cannot affect production graph state. Tag canonical
 validation remains synchronous inside the repository transaction.
 
 ## External Source Drift Policy

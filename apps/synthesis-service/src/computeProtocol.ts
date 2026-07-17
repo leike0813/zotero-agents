@@ -4,11 +4,17 @@ import type {
   SynthesisCitationGraphMetricsRequest,
   SynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
+import type {
+  SynthesisCitationGraphBuildRequest,
+  SynthesisCitationGraphBuildResult,
+} from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
   "citation_graph_layout.v1" as const;
 export const SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION =
   "citation_graph_metrics.v1" as const;
+export const SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION =
+  "citation_graph_build.v1" as const;
 
 type SynthesisSidecarComputeRunMessageBase = {
   type: "run";
@@ -24,6 +30,10 @@ export type SynthesisSidecarComputeRunMessage =
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION;
       payload: SynthesisCitationGraphMetricsRequest;
+    })
+  | (SynthesisSidecarComputeRunMessageBase & {
+      operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
+      payload: SynthesisCitationGraphBuildRequest;
     });
 
 export type SynthesisSidecarComputeCancelMessage = {
@@ -41,7 +51,8 @@ export type SynthesisSidecarComputeWorkerResponse =
       taskId: string;
       result:
         | SynthesisCitationGraphLayoutResult
-        | SynthesisCitationGraphMetricsResult;
+        | SynthesisCitationGraphMetricsResult
+        | SynthesisCitationGraphBuildResult;
     }
   | { type: "canceled"; taskId: string }
   | { type: "error"; taskId: string };

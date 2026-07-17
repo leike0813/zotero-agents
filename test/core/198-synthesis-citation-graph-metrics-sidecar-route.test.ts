@@ -136,6 +136,9 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
         throw new Error("unexpected layout compute");
       },
       runCitationGraphMetrics: (input) => direct.compute(input),
+      async runCitationGraphBuild() {
+        throw new Error("unexpected graph-build compute");
+      },
       snapshot: () => ({
         state: "idle",
         active: 0,

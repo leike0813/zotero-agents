@@ -27,6 +27,7 @@ import {
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphMetricsRequest,
 } from "../../../packages/synthesis-engine/src/index.js";
+import { rebuildSynthesisCitationGraphBuildRequest } from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
 import {
   ComputeWorkerPoolError,
   createSynthesisSidecarComputeWorkerPool,
@@ -339,18 +340,31 @@ export async function startSynthesisSidecarServer(
       if (isSynthesisSidecarComputeCapability(call.capability)) {
         let runCompute: (signal: AbortSignal) => Promise<unknown>;
         try {
-          if (call.capability === "compute.citation_graph_layout") {
-            const layoutRequest = rebuildSynthesisCitationGraphLayoutRequest(
-              call.payload,
-            );
-            runCompute = (signal) =>
-              computePool.runCitationGraphLayout(layoutRequest, { signal });
-          } else {
-            const metricsRequest = rebuildSynthesisCitationGraphMetricsRequest(
-              call.payload,
-            );
-            runCompute = (signal) =>
-              computePool.runCitationGraphMetrics(metricsRequest, { signal });
+          switch (call.capability) {
+            case "compute.citation_graph_layout": {
+              const layoutRequest = rebuildSynthesisCitationGraphLayoutRequest(
+                call.payload,
+              );
+              runCompute = (signal) =>
+                computePool.runCitationGraphLayout(layoutRequest, { signal });
+              break;
+            }
+            case "compute.citation_graph_metrics": {
+              const metricsRequest =
+                rebuildSynthesisCitationGraphMetricsRequest(call.payload);
+              runCompute = (signal) =>
+                computePool.runCitationGraphMetrics(metricsRequest, { signal });
+              break;
+            }
+            case "compute.citation_graph_build": {
+              const graphBuildRequest =
+                rebuildSynthesisCitationGraphBuildRequest(call.payload);
+              runCompute = (signal) =>
+                computePool.runCitationGraphBuild(graphBuildRequest, {
+                  signal,
+                });
+              break;
+            }
           }
         } catch {
           throw new SidecarRuntimeError({

@@ -9,7 +9,9 @@ The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. The default
 production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph
-reads, basis checks, promotion, and the other six production engines.
+reads, basis checks, promotion, and the other six production engines. Unified
+Citation Graph build is also available as an authenticated internal canary, but
+production build composition remains in process.
 
 ## Profile Lifecycle
 
@@ -54,11 +56,12 @@ is 120 seconds, with a resume grace for long scheduling gaps. This fallback is
 for addon-realm failure; host process death normally arrives immediately as
 stdin EOF.
 
-## Bounded Production Graph Compute
+## Bounded Graph Compute
 
-`compute.citation_graph_layout` and `compute.citation_graph_metrics` are the
-only worker operations. The shared pool is lazy, runs one task, retains at most
-two waiting tasks across both operations, and rejects additional work
+`compute.citation_graph_layout`, `compute.citation_graph_metrics`, and the
+internal-only `compute.citation_graph_build` canary are the only worker
+operations. The shared pool is lazy, runs one task, retains at most two waiting
+tasks across all three operations, and rejects additional work
 with `worker_busy`; it is not an operation queue and writes no persistent state.
 The HTTP main thread, worker, and main-thread result boundary all use the strict
 operation-specific rebuilders from `packages/synthesis-engine`. Compute request and response
@@ -67,13 +70,13 @@ structural nodes; the shared endpoint continues to cap general and system
 requests at 1 MiB. Oversized uploads are rejected before queue admission, and
 oversized results are transport failures rather than worker runtime faults.
 
-Each production call resolves the supervisor's current ready connection. A
+Each production layout/metrics call resolves the supervisor's current ready connection. A
 missing connection fails immediately with `service_not_ready`; restart identity,
 transport, or worker failures are not retried and never fall back to the local
 engine. Request and service-instance identity are checked before strict result
 rebuild and plugin-owned graph-basis promotion.
 
-Each layout or metrics task has a five-second hard deadline. Active cancellation gets 100 ms of
+Each layout, metrics, or graph-build task has a five-second hard deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The worker is limited to 256 MiB
 old generation, 32 MiB young generation, and a 4 MiB stack and has no database,
 canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or

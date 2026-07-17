@@ -9,6 +9,12 @@ import {
   type SynthesisCitationGraphMetricsResult,
 } from "../../packages/synthesis-engine/src/index";
 import {
+  rebuildSynthesisCitationGraphBuildRequest,
+  rebuildSynthesisCitationGraphBuildResult,
+  type SynthesisCitationGraphBuildRequest,
+  type SynthesisCitationGraphBuildResult,
+} from "../../packages/synthesis-engine/src/citationGraphBuild";
+import {
   SYNTHESIS_SIDECAR_CALL_PATH,
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
@@ -146,6 +152,9 @@ export function createSynthesisSidecarComputeClient(options?: {
     rebuildResult(value: unknown, request: Request): Result;
     callOptions: { signal?: AbortSignal; deadlineMs?: number };
   }): Promise<Result> => {
+    if (options.callOptions.signal?.aborted) {
+      return computeClientError("worker_canceled");
+    }
     const request = options.rebuildRequest(options.input);
     const requestId = nextComputeRequestId();
     const requestSource = JSON.stringify({
@@ -265,6 +274,20 @@ export function createSynthesisSidecarComputeClient(options?: {
         input,
         rebuildRequest: rebuildSynthesisCitationGraphMetricsRequest,
         rebuildResult: rebuildSynthesisCitationGraphMetricsResult,
+        callOptions,
+      });
+    },
+    computeCitationGraphBuild(
+      connection: SynthesisSidecarComputeConnection,
+      input: SynthesisCitationGraphBuildRequest,
+      callOptions: { signal?: AbortSignal; deadlineMs?: number } = {},
+    ): Promise<SynthesisCitationGraphBuildResult> {
+      return compute({
+        connection,
+        capability: "compute.citation_graph_build",
+        input,
+        rebuildRequest: rebuildSynthesisCitationGraphBuildRequest,
+        rebuildResult: rebuildSynthesisCitationGraphBuildResult,
         callOptions,
       });
     },

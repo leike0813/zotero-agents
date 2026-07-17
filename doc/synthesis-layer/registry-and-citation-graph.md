@@ -178,6 +178,14 @@ and capped raw support as documented in
 
 Full graph rebuild, source-slice incremental refresh, and sidecar-backed related-items fallback share `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical redirects, accepted bindings, and a deterministic durable-fact basis under the library lock, then releases the lock before Host metadata reads and graph assembly. The strict JSON-safe engine contract is capped at 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets and returns nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics. Full and source-slice writes recapture the same basis immediately before promotion; a superseded or failed build leaves the last-good graph and cache basis untouched. Related-items fallback reads accepted engine edges without persisting graph rows.
 
+An authenticated internal `compute.citation_graph_build` canary executes small
+full and source-slice requests through the shared sidecar worker for process and
+DTO parity. Production graph rebuild does not call it. The existing 8 MiB,
+250,000-request-node, and 50,000-response-node wire limits are intentionally
+below the engine's maximum envelope, so production routing remains blocked on a
+separate bounded transfer/data-layout change. Canary failure has no repository,
+basis, promotion, canonical-file, or operation authority.
+
 Citation graph structure is derived from:
 
 1. active raw references;

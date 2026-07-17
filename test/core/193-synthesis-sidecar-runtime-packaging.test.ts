@@ -180,6 +180,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
       "service/packages/synthesis-engine/src/index.js",
+      "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -196,6 +197,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "utf8",
     );
     assert.include(packagedProtocol, "citation_graph_metrics.v1");
+    assert.include(packagedProtocol, "citation_graph_build.v1");
     const packagedWorker = fs.readFileSync(
       path.join(
         outputRoot,
@@ -206,6 +208,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       packagedWorker,
       "createInProcessSynthesisCitationGraphMetricsEngine",
+    );
+    assert.include(
+      packagedWorker,
+      "createInProcessSynthesisCitationGraphBuildEngine",
     );
   });
 
@@ -413,6 +419,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(first.inputs, "packages/synthesis-engine/src/index.ts");
     assert.include(
       first.inputs,
+      "packages/synthesis-engine/src/citationGraphBuild.ts",
+    );
+    assert.include(
+      first.inputs,
       "packages/synthesis-contracts/src/sidecarSystem.ts",
     );
     assert.include(first.inputs, "package-lock.json");
@@ -439,6 +449,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(xpiCheck, "computeWorker.js");
     assert.include(xpiCheck, "packages/synthesis-engine/src/index.js");
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-engine/src/citationGraphBuild.js",
+    );
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(

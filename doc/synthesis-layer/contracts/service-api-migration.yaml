@@ -7,6 +7,7 @@ internal_engines:
   - id: citation_graph_build
     contract: SynthesisCitationGraphBuildEngine
     implementation: in_process
+    sidecar_worker_canary: true
     production_worker: false
   - id: citation_graph_layout
     contract: SynthesisCitationGraphLayoutEngine
