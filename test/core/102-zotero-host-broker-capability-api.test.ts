@@ -11,6 +11,11 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -99,7 +104,14 @@ async function withMockTranslate<T>(
 }
 
 describe("zotero host broker capability api", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
   afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
   });
@@ -366,7 +378,7 @@ describe("zotero host broker capability api", function () {
     assert.doesNotThrow(() => JSON.stringify(snapshot));
   });
 
-  it("enumerates library items through Zotero.Items.getAll(libraryId) without sparse ID fallback", async function () {
+  it("hydrates only the current database-selected page, including sparse ids", async function () {
     const hostApi = createWorkflowHostApi();
     const highIdItem = new Zotero.Item("journalArticle");
     highIdItem.id = 1892;
@@ -376,34 +388,34 @@ describe("zotero host broker capability api", function () {
     highIdItem.setCreators?.([{ lastName: "Sparse" }]);
     await highIdItem.saveTx();
 
-    const previousGetAll = (Zotero.Items as any).getAll;
-    const previousGet = Zotero.Items.get;
-    const getAllLibraryIds: unknown[] = [];
-    const getItemIds: number[] = [];
-    (Zotero.Items as any).getAll = async (libraryId: unknown) => {
-      getAllLibraryIds.push(libraryId);
-      return previousGetAll.call(Zotero.Items, libraryId);
-    };
-    (Zotero.Items as any).get = (id: number) => {
-      getItemIds.push(id);
-      return previousGet.call(Zotero.Items, id);
+    const secondHighIdItem = new Zotero.Item("journalArticle");
+    secondHighIdItem.id = 2892;
+    secondHighIdItem.key = "HIGH2892";
+    secondHighIdItem.libraryID = Zotero.Libraries.userLibraryID;
+    secondHighIdItem.setField("title", "Broker Sparse High ID Paper Two");
+    await secondHighIdItem.saveTx();
+
+    const previousGetAsync = (Zotero.Items as any).getAsync;
+    const hydrateCalls: number[][] = [];
+    (Zotero.Items as any).getAsync = async (ids: number[]) => {
+      assert.isArray(ids);
+      hydrateCalls.push([...ids]);
+      return previousGetAsync.call(Zotero.Items, ids);
     };
 
     try {
       const list = await hostApi.library.listItems({
         query: "Sparse High ID",
-        limit: 10,
+        limit: 1,
       });
       const search = await hostApi.library.searchItems({
         query: "Sparse High ID",
-        limit: 10,
+        limit: 1,
       });
 
-      assert.deepEqual(getAllLibraryIds, [
-        Zotero.Libraries.userLibraryID,
-        Zotero.Libraries.userLibraryID,
-      ]);
-      assert.deepEqual(getItemIds, []);
+      assert.deepEqual(hydrateCalls, [[highIdItem.id], [highIdItem.id]]);
+      assert.isTrue(list.hasMore);
+      assert.match(list.nextCursor, /^[A-Za-z0-9_-]+$/);
       assert.include(
         list.items.map((item) => item.key),
         highIdItem.key,
@@ -413,8 +425,7 @@ describe("zotero host broker capability api", function () {
         highIdItem.key,
       );
     } finally {
-      (Zotero.Items as any).getAll = previousGetAll;
-      (Zotero.Items as any).get = previousGet;
+      (Zotero.Items as any).getAsync = previousGetAsync;
     }
   });
 

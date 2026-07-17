@@ -25,6 +25,11 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -162,7 +167,14 @@ async function createNote(parent: Zotero.Item, title: string, html: string) {
 }
 
 describe("host bridge capability calls", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
   afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
     resetHostBridgeServerForTests();
     resetHostBridgePermissionManagerForTests();
     resetZoteroMcpServerForTests();
@@ -209,6 +221,33 @@ describe("host bridge capability calls", function () {
     );
     assert.strictEqual(invalidJson.status, 400);
     assert.strictEqual(invalidJson.json.error.code, "invalid_capability_input");
+  });
+
+  it("publishes string library cursors and maps invalid cursors as validation errors", async function () {
+    for (const name of [
+      "library.list_items",
+      "library.sync_snapshot",
+      "library.readiness_audit",
+    ]) {
+      const capability = listHostBridgeCapabilities().find(
+        (entry) => entry.name === name,
+      );
+      assert.deepEqual(
+        capability?.input.properties?.cursor,
+        { type: "string" },
+      );
+    }
+
+    const token = configureHostBridgeServerForTests({ token: "cursor-token" });
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.list_items",
+      input: { cursor: "damaged!", limit: 1 },
+    });
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_library_cursor");
+    assert.strictEqual(parsed.json.error.category, "validation");
+    assert.strictEqual(parsed.json.error.details.retryable, false);
   });
 
   it("routes read-only library capabilities through JSON-safe broker DTOs", async function () {

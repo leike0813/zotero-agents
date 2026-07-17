@@ -16,6 +16,7 @@ import {
   ZoteroItemNotFoundError,
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
+import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import type { WorkflowHostApi } from "../workflows/types";
 import type { AcpHostContext } from "./acpTypes";
 import type {
@@ -613,6 +614,24 @@ function validateToolArguments(
       { errors },
     );
   }
+}
+
+const LIBRARY_CURSOR_TOOL_NAMES = new Set([
+  "library.list_items",
+  "library.sync_snapshot",
+  "library.readiness_audit",
+  ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+]);
+
+function hasInvalidLibraryCursorType(
+  toolName: string,
+  args: Record<string, unknown>,
+) {
+  return (
+    LIBRARY_CURSOR_TOOL_NAMES.has(toolName) &&
+    Object.prototype.hasOwnProperty.call(args, "cursor") &&
+    typeof args.cursor !== "string"
+  );
 }
 
 function summarizeSynthesisResult(toolName: string, result: unknown) {
@@ -1481,7 +1500,7 @@ function buildLibraryListArgs(
       MCP_LIBRARY_LIST_LIMIT_DEFAULT,
       MCP_LIBRARY_LIST_LIMIT_MAX,
     ),
-    cursor: args.cursor as number | string | undefined,
+    cursor: args.cursor as string | undefined,
   };
 }
 
@@ -2355,7 +2374,7 @@ const TOOL_REGISTRY: ToolDefinition[] = [
         minimum: 1,
       },
       cursor: {
-        type: ["number", "string"],
+        type: "string",
       },
     }),
     handler: async (args, context) => {
@@ -3719,6 +3738,19 @@ export async function handleZoteroMcpJsonRpc(
           error instanceof Error
             ? error.message
             : String(error || "Invalid params");
+        if (hasInvalidLibraryCursorType(toolName, toolArguments)) {
+          return {
+            jsonrpc: "2.0",
+            id: request.id ?? null,
+            result: buildToolErrorResult({
+              tool: toolName,
+              message: "library cursor must be an opaque string",
+              errorCode: "invalid_library_cursor",
+              retryable: false,
+              details: { reason: "invalid_type" },
+            }),
+          };
+        }
         return jsonRpcError(request.id ?? null, -32602, message, {
           toolName,
           errorName: error instanceof Error ? error.name : "Error",
@@ -3753,13 +3785,17 @@ export async function handleZoteroMcpJsonRpc(
         const isNoteNotFound = error instanceof ZoteroNoteNotFoundError;
         const isCollectionNotFound =
           error instanceof ZoteroCollectionNotFoundError;
+        const isInvalidLibraryCursor =
+          error instanceof ZoteroLibraryCursorError;
         const structuredCode = isItemNotFound
           ? "zotero_item_not_found"
           : isNoteNotFound
             ? "zotero_note_not_found"
             : isCollectionNotFound
               ? "zotero_collection_not_found"
-              : undefined;
+              : isInvalidLibraryCursor
+                ? error.code
+                : undefined;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
@@ -3778,7 +3814,9 @@ export async function handleZoteroMcpJsonRpc(
               errorCode: structuredCode,
               retryable: false,
               details:
-                error instanceof Error && "ref" in error
+                error instanceof ZoteroLibraryCursorError
+                  ? error.details
+                  : error instanceof Error && "ref" in error
                   ? (error as { ref?: unknown }).ref
                   : undefined,
             }),

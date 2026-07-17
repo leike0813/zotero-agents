@@ -10,3 +10,4 @@ import "../../../core/88-workflow-runtime-scope-diagnostics.test";
 import "../../../core/104-acp-zotero-opencode.integration.test";
 import "../../../core/174-workflow-archive-zotero-runtime.test";
 import "../../../core/182-host-bridge-socket.integration.test";
+import "../../../core/185-zotero-library-page-query.zotero.test";

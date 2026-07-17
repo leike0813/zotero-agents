@@ -962,7 +962,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -987,7 +987,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -1012,7 +1012,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
         checks: {},
         missingOnly: { type: ["boolean", "string", "number"] },
         missing_only: { type: ["boolean", "string", "number"] },

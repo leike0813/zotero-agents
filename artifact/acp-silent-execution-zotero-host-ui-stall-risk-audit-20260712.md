@@ -143,7 +143,7 @@ live | boundary | silent
 | R4 | P1 | 双份无界 assistant chunk 累积 | 已证实 | 超长 assistant 输出 |
 | R5 | P1 | transport/message queue 无容量边界 | 已证实结构，影响待实测 | 突发 WebSocket/stdio frame |
 | R6 | P1 | 大附件整文件读取、哈希与重复复制 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 多个大 PDF、下载 |
-| R7 | P1 | library 分页实际重复全库扫描和排序 | 已证实 | 大型 Zotero 库、多页读取 |
+| R7 | P1 | library 分页实际重复全库扫描和排序 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 大型 Zotero 库、多页读取 |
 | R8 | P1 | runtime log 全量 clone/stringify | 已证实 | 高频日志、diagnostic 模式 |
 | R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已证实 Zotero fallback | 高频 transcript、长历史、索引失效 |
 | R10 | P1 | 逐 item `saveTx()` 与 Notifier 风暴 | 已证实事务粒度，影响待实测 | 批量标签/collection mutation |
@@ -589,28 +589,26 @@ hash.update(Array.from(bytes), bytes.length)
 
 ## 10. R7：分页 API 重复全库扫描
 
-`src/modules/zoteroHostCapabilityBroker.ts:3020-3075` 的 `selectLibraryItemPage()` 每页都会：
+治理已落在 `src/modules/zoteroLibraryPageQuery.ts`。`listItems`、
+`syncSnapshot`、`readinessAudit` 和 `searchItems` 共享同一 criteria/predicate：
 
-1. `Zotero.Items.getAll()`；
-2. 多轮 filter；
-3. query 时拼接 title、creators、abstract、tags；
-4. 对全量候选排序；
-5. 最后才 slice 当前页。
+1. 参数化 count query 保持 `totalScanned` 为当前条件总匹配数；
+2. page query 使用 `itemID > afterItemId ORDER BY itemID ASC LIMIT limit+1`；
+3. 只对返回页 ID 调用数组形式 `Zotero.Items.getAsync(ids)`；
+4. SQL 顺序在 hydrate 后恢复，不再在 JS 中排序全库；
+5. title、creator、date、publication、abstract、tag、key 按独立字段匹配，
+   `%`、`_` 作为普通字符。
 
-页大小上限 200 只限制返回条目数，不限制扫描和排序的总条目数。
+library cursor 现为 criteria-bound opaque string。首页只允许省略 cursor 或使用
+字符串 `"0"`，后续页只透传服务返回的 `nextCursor`；损坏、版本不支持、条件不匹配
+和数字 cursor 都返回非重试型 `invalid_library_cursor`，不再静默退回首页。
 
-`src/modules/zoteroHostCapabilityBroker.ts:3371-3403` 的 search path 也会先读取全库。
-
-在大型 Zotero 库上，多页读取会重复 O(N) 到 O(N log N) 工作。字符串拼接、过滤和排序的同步 CPU 部分发生在 Zotero JS 主线程。
-
-`readinessAudit` 还会逐页逐项检查 artifact readiness，可能把重复分页扫描进一步放大。
-
-待采样指标：
-
-- library 总条目数与候选条目数；
-- 每页扫描、过滤、排序耗时；
-- query 字段拼接的字符串字节数；
-- 连续分页时的累计 CPU 时间。
+Node 门禁覆盖 `limit+1`、count/page predicate、顺序恢复、只 hydrate 当前页、
+cursor 校验、页间插入/删除和 `%/_` 字面语义。本机 Zotero 9.0.4 core-lite
+机制验收 25 项通过，其中真实宿主用例覆盖 SQLite 查询、数组 hydrate、多页顺序、
+字段匹配、跨字段边界和 deleted 排除；未设置固定耗时断言。本机未安装 Zotero 7，
+其真实宿主验收仍待补。大库累计 CPU/GC 的正式量化仍应使用 10k/50k fixture 采样，
+但分页正确性和“不 materialize/sort 全库”的机制门禁已经成立。
 
 ## 11. R8/R9：runtime log、audit 与 transcript 持久化
 
@@ -1836,7 +1834,7 @@ type RuntimeTreeScanPolicy = {
 
 ### 18.12 阶段 10：keyset library page query（R7）
 
-R7 必须先建立 Zotero 7/9 查询语义和性能基线，尤其是 query 字段匹配。
+R7 已完成共享 keyset 查询服务与 Zotero 9.0.4 机制验收；Zotero 7 真实宿主验收待补。
 
 新增：
 
@@ -1864,15 +1862,15 @@ type ZoteroLibraryCursorV1 = {
 
 `listItems`、`syncSnapshot`、`readinessAudit`、`searchItems` 复用同一 query service。缓存只能是性能缓存，不是结果 SSOT。
 
-迁移后删除：
+迁移已删除分页路径中的：
 
 - `getAll→filter→searchMatch→sort→slice`；
 - offset cursor 解释路径；
 - 测试中锁定 `Zotero.Items.getAll()` 的实现断言。
 
-对外字段和 `nextCursor` string 保持不变；不要保留 numeric/offset cursor 双轨。发布边界应明确 cursor 是 opaque、短期读取句柄，不是持久数据。
+对外字段和 `nextCursor` string 保持不变；没有 numeric/offset cursor 双轨。发布边界将 cursor 定义为 opaque、短期读取句柄，不是持久数据。
 
-必须在 Zotero 7/9 核对 title、creator、date、publication、abstract、tag、key、deleted、child、collection 和 group library 语义。
+Zotero 9.0.4 已核对 title、creator、date、publication、abstract、tag、key、deleted、child 和 collection 基础语义；Zotero 7 与真实 group library 场景仍待补。
 
 ### 18.13 阶段 11：原子 Zotero batch mutation（R10）
 

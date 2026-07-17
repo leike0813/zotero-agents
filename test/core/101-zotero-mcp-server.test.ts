@@ -1159,6 +1159,38 @@ describe("embedded Zotero MCP server protocol", function () {
     );
   });
 
+  it("publishes string library cursors and returns non-retryable cursor errors", async function () {
+    const listed = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "cursor-tools",
+      method: "tools/list",
+      params: {},
+    });
+    const tool = (listed as any).result.tools.find(
+      (entry: any) => entry.name === ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+    );
+    assert.deepEqual(tool.inputSchema.properties.cursor, { type: "string" });
+
+    const called = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "bad-library-cursor",
+      method: "tools/call",
+      params: {
+        name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+        arguments: { cursor: "damaged!", limit: 1 },
+      },
+    });
+    assert.strictEqual((called as any).result.isError, true);
+    assert.strictEqual(
+      (called as any).result.structuredContent.error_code,
+      "invalid_library_cursor",
+    );
+    assert.strictEqual(
+      (called as any).result.structuredContent.retryable,
+      false,
+    );
+  });
+
   it("lists and reads Zotero note payloads for workflow notes", async function () {
     const hostApi = {
       library: {

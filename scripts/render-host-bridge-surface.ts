@@ -238,12 +238,12 @@ function libraryGuidance() {
     "- Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.",
     '- Use `zotero-bridge library item search --query \'{"text":"graph","limit":10}\'` for finite candidate discovery.',
     '- Use `zotero-bridge library items list --query \'{"limit":50,"collectionKey":"COLL"}\'` for bounded library inventory pages.',
-    '- Use `zotero-bridge library snapshot --query \'{"limit":200,"cursor":"0"}\'` for local metadata indexes.',
+    '- Use `zotero-bridge library snapshot --query \'{"limit":200}\'` for the first local metadata index page.',
     "- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{\"limit\":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.",
     "- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.",
     "- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.",
     "- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.",
-    "- Use `nextCursor` with `hasMore` to page library and snapshot results.",
+    "- Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.",
   ].join("\n");
 }
 

@@ -27,7 +27,7 @@ Compare the observed version with the expected version in `SKILL.md` or `host-br
 
 Use inline JSON by default. Semantic reads use `--query`; workflow submission, mutations, and other request payloads use `--input`. Use stdin, `@file`, or a bare JSON file path only when that input source is intentional.
 
-Use `library item search --query '{"text":"...","limit":10}'` for finite candidate discovery. Use `library items list --query '{"query":"...","cursor":0,"collectionKey":"..."}'` for paged inventory reads; do not substitute one command for the other.
+Use `library item search --query '{"text":"...","limit":10}'` for finite candidate discovery. Use `library items list --query '{"query":"...","collectionKey":"...","limit":50}'` for the first paged inventory read; do not substitute one command for the other.
 
 Do not bypass a semantic command's argument validation with `call`. Raw `call` is limited to a raw-only capability or a diagnostic investigation.
 
@@ -68,6 +68,8 @@ Readiness commands are read-only. They do not fetch PDFs, convert Markdown, run 
 ## Large Response Pagination
 
 Treat library, topic, index, and graph collection reads as page reads. Always pass an explicit `limit` when the result can grow with the Zotero library, and continue only through returned cursor metadata.
+
+Library cursors are opaque strings. Omit `cursor` on the first `library items list`, `library snapshot`, or `library readiness` request. When `hasMore` is true, pass the exact returned `nextCursor` on the next request; do not decode, construct, or increment cursor values. If the bridge returns `invalid_library_cursor`, correct the query/cursor pairing instead of retrying the same request.
 
 `synthesis graph overview` returns summary counts plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. It is not a full-graph dump. Use `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor` when advancing sections independently.
 

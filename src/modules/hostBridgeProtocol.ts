@@ -39,6 +39,7 @@ export type HostBridgeErrorCode =
   | "collection_not_found"
   | "context_navigation_failed"
   | "invalid_capability_input"
+  | "invalid_library_cursor"
   | "invalid_file_id"
   | "invalid_object_ref"
   | "invalid_request_body"

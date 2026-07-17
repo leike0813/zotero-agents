@@ -81,6 +81,7 @@ import {
   ZoteroNavigationUnavailableError,
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
+import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
@@ -1321,6 +1322,23 @@ async function callCapability(request: HttpRequest) {
         404,
         "Not Found",
         hostBridgeError(error.code, error.message, "not_found"),
+        error.code,
+      );
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError(
+          error.code,
+          error.message,
+          "validation",
+          {
+            capability: capability.name,
+            retryable: false,
+            ...(error.details || {}),
+          },
+        ),
         error.code,
       );
     }

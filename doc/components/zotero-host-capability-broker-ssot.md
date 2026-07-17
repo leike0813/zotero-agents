@@ -119,6 +119,16 @@ Diagnostics/logging capabilities should remain separate from user data tools. Di
 
 UI/dialog/editor capabilities are host interactions, not agent defaults. They should be exposed to workflow hooks deliberately and to MCP only after a clear interaction model exists.
 
+## Library Page Query Boundary
+
+`hostApi.library.listItems`, `syncSnapshot`, `readinessAudit`, and `searchItems` share `zoteroLibraryPageQuery.ts` as their library-selection SSOT. The service normalizes library, collection, tag, item type, and text criteria; builds one parameterized SQLite predicate for both count and page queries; orders by `items.itemID`; selects `limit + 1` IDs; and hydrates only the returned page through array-form `Zotero.Items.getAsync(ids)`. These broker paths must not use `Zotero.Items.getAll()` as a pagination fallback.
+
+Text queries match title, creator, date, publication, abstract, tag, or item key as independent fields under Zotero SQLite `NOCASE` semantics. `%` and `_` are escaped as literal query characters. The structural predicate excludes deleted items, child notes, and child attachments before paging.
+
+Library cursors are opaque, short-lived strings bound to normalized criteria and the last returned item ID. A first request omits `cursor` or uses string `"0"`; subsequent requests pass through the exact returned `nextCursor`. Clients must not decode, increment, persist as durable identity, or substitute numeric offsets. Malformed, unsupported, criteria-mismatched, and numeric cursors fail as non-retryable `invalid_library_cursor` errors instead of restarting from the first page.
+
+`totalScanned` remains the total number of items matching the current normalized criteria, while `returned` is the number of DTOs emitted by the capability. The count may therefore exceed the current page size without causing non-page Zotero items to be materialized in JavaScript.
+
 ## MCP Tool Rules
 
 The MCP server name is `zotero`, so individual tool names must not repeat that namespace. MCP tool names must describe user-facing tasks, not internal implementation names. Prefer short names like:

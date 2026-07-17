@@ -76,24 +76,31 @@ function paperRefFromItem(item, fallbackLibraryId) {
 
 async function listCurrentCollectionMembers(host, args) {
   const refs = new Set();
-  let cursor = "0";
+  let cursor;
   for (let pageIndex = 0; pageIndex < 10000; pageIndex += 1) {
-    const page = await host.library.listItems({
+    const input = {
       libraryId: args.libraryId,
       collectionKey: args.collectionKey,
-      cursor,
       limit: 200,
-    });
+    };
+    if (cursor !== undefined) {
+      input.cursor = cursor;
+    }
+    const page = await host.library.listItems(input);
     for (const item of Array.isArray(page?.items) ? page.items : []) {
       const paperRef = paperRefFromItem(item, args.libraryId);
       if (paperRef) {
         refs.add(paperRef);
       }
     }
-    if (page?.hasMore !== true || page?.nextCursor == null) {
+    if (page?.hasMore !== true) {
       return refs;
     }
-    cursor = page.nextCursor;
+    const nextCursor = normalizeString(page?.nextCursor);
+    if (!nextCursor) {
+      throw new Error("collection-collector apply received hasMore without nextCursor");
+    }
+    cursor = nextCursor;
   }
   throw new Error("collection-collector apply exceeded collection pagination guard");
 }
