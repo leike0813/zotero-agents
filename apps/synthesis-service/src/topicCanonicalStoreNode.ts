@@ -13,6 +13,7 @@ import {
   rebuildSynthesisTopicCanonicalSnapshot,
   type SynthesisTopicCanonicalDiagnostic,
   type SynthesisTopicCanonicalInspectResult,
+  type SynthesisTopicCanonicalReadResult,
   type SynthesisTopicCanonicalStore,
   type SynthesisTopicCanonicalStoreSnapshot,
 } from "../../../packages/synthesis-application/src/topicCanonical.js";
@@ -495,6 +496,71 @@ function inspectCurrent(
   }
 }
 
+function readCurrent(
+  paths: StorePaths,
+  rawRequest: unknown,
+): SynthesisTopicCanonicalReadResult {
+  const request = rebuildSynthesisTopicCanonicalInspectRequest(rawRequest);
+  const inspected = inspectCurrent(paths, request);
+  if (inspected.status !== "ready") {
+    return {
+      status: inspected.status,
+      topicId: inspected.topicId,
+      pathId: inspected.pathId,
+      snapshot: null,
+      diagnostics: inspected.diagnostics,
+    };
+  }
+  try {
+    const topic = topicPaths(paths, inspected.pathId);
+    const manifest = parseCurrentJson(topic.manifestPath);
+    const artifact = parseCurrentJson(topic.artifactPath);
+    const metadata = parseCurrentJson(topic.metadataPath);
+    const declaredSections = (manifest as Record<string, unknown>).sections;
+    if (
+      !declaredSections ||
+      typeof declaredSections !== "object" ||
+      Array.isArray(declaredSections)
+    ) {
+      throw new InspectInvalid("snapshot_invalid");
+    }
+    const sections: Record<string, unknown> = {};
+    for (const name of Object.keys(declaredSections).sort()) {
+      sections[name] = parseCurrentJson(
+        path.join(
+          topic.sectionsRoot,
+          canonicalSynthesisTopicSectionFileName(name),
+        ),
+      );
+    }
+    const snapshot = rebuildSynthesisTopicCanonicalSnapshot({
+      topicId: inspected.topicId,
+      pathId: inspected.pathId,
+      manifest,
+      artifact,
+      metadata,
+      sections,
+    });
+    return {
+      status: "ready",
+      topicId: inspected.topicId,
+      pathId: inspected.pathId,
+      snapshot,
+      diagnostics: [],
+    };
+  } catch (error) {
+    return {
+      status: "invalid",
+      topicId: inspected.topicId,
+      pathId: inspected.pathId,
+      snapshot: null,
+      diagnostics: [
+        error instanceof InspectInvalid ? error.diagnostic : "snapshot_invalid",
+      ],
+    };
+  }
+}
+
 function writeStaging(
   paths: StorePaths,
   snapshot: ReturnType<typeof rebuildSynthesisTopicCanonicalSnapshot>,
@@ -653,6 +719,9 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
     paths,
     inspect(request) {
       return inspectCurrent(paths, request);
+    },
+    readCurrent(request) {
+      return readCurrent(paths, request);
     },
     promote(args) {
       const snapshot = rebuildSynthesisTopicCanonicalSnapshot(args.snapshot);

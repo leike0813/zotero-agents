@@ -83,6 +83,22 @@ export type SynthesisTopicCanonicalInspectResult = {
   diagnostics: SynthesisTopicCanonicalDiagnostic[];
 };
 
+export type SynthesisTopicCanonicalReadResult =
+  | {
+      status: "ready";
+      topicId: string;
+      pathId: string;
+      snapshot: SynthesisTopicCanonicalSnapshot;
+      diagnostics: [];
+    }
+  | {
+      status: "absent" | "invalid";
+      topicId: string;
+      pathId: string;
+      snapshot: null;
+      diagnostics: SynthesisTopicCanonicalDiagnostic[];
+    };
+
 export type SynthesisTopicCanonicalBasis = {
   manifestHash: string;
   artifactHash: string;
@@ -103,6 +119,9 @@ export interface SynthesisTopicCanonicalStore {
   inspect(
     request: SynthesisTopicCanonicalInspectRequest,
   ): SynthesisTopicCanonicalInspectResult;
+  readCurrent(
+    request: SynthesisTopicCanonicalInspectRequest,
+  ): SynthesisTopicCanonicalReadResult;
   promote(args: {
     expectedBasis: SynthesisTopicCanonicalBasis | null;
     snapshot: SynthesisTopicCanonicalSnapshot;

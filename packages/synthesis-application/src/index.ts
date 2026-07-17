@@ -13,6 +13,8 @@ import type {
 } from "../../synthesis-repository/src/index.js";
 
 export * from "./topicCanonical.js";
+export * from "./topicApplyDecision.js";
+export * from "./topicApplication.js";
 
 export type SynthesisWorkbenchOperationalRepository = {
   getCacheBasis(cacheKey: string): SynthesisCacheBasisRecord | null;

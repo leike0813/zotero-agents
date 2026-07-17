@@ -20,6 +20,7 @@ export * from "./sync";
 export * from "./tagEffect";
 export * from "./tags";
 export * from "./topics";
+export * from "./topicApplication";
 export * from "./topicGraph";
 export * from "./workflow";
 export * from "./workflowReview";

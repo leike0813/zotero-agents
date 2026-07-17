@@ -67,6 +67,7 @@ import {
   type SynthesisSidecarIsolatedRepository,
 } from "./isolatedRepository.js";
 import { openSynthesisSidecarTopicCanonicalStore } from "./topicCanonicalStoreNode.js";
+import { createSynthesisSidecarTopicApplication } from "./topicApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -296,6 +297,10 @@ export async function startSynthesisSidecarServer(
         "citation-graph-transfers",
       ),
     });
+  const topicApplication = createSynthesisSidecarTopicApplication({
+    canonicalStore,
+    repository: repository.store,
+  });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -309,6 +314,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    topicApplication.stopAdmission();
     canonicalStore.stopAdmission();
     transferExecutor.shutdown();
     repository.close();

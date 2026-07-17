@@ -2,6 +2,10 @@ export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION =
   "synthesis-repository-foundation.v1" as const;
 export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY =
   "repository_foundation_schema_version" as const;
+export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =
+  "synthesis-topic-application-repository.v1" as const;
+export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
+  "topic_application_schema_version" as const;
 
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
@@ -84,6 +88,34 @@ export type SynthesisOperationStatusUpdate = {
   diagnosticsJson?: string;
 };
 
+export type SynthesisTopicApplicationStateRecord = {
+  topicId: string;
+  pathId: string;
+  title: string;
+  definition: string;
+  language: string;
+  operation: string;
+  manifestHash: string;
+  artifactHash: string;
+  metadataHash: string;
+  bundleHash: string;
+  paperCount: number;
+  topicDefinitionJson: string;
+  topicResolverJson: string;
+  resolvedPaperSetJson: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type SynthesisTopicApplicationProjectionRecord = {
+  topicId: string;
+  topicGraphJson: string;
+  conceptsJson: string;
+  interestMetadataJson: string;
+  discoveryJson: string;
+  updatedAt?: string;
+};
+
 export const SYNTHESIS_REPOSITORY_FOUNDATION_TABLES = [
   "synt_schema_meta",
   "synt_cache_basis",
@@ -93,6 +125,15 @@ export const SYNTHESIS_REPOSITORY_FOUNDATION_TABLES = [
 export const SYNTHESIS_REPOSITORY_FOUNDATION_INDEXES = [
   "idx_synt_cache_basis_kind_status",
   "idx_synt_operation_type_status_updated",
+] as const;
+
+export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_TABLES = [
+  "synt_topic_application_state",
+  "synt_topic_application_projection",
+] as const;
+
+export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_INDEXES = [
+  "idx_synt_topic_application_state_updated",
 ] as const;
 
 const cleanString = (value: unknown) => String(value ?? "").trim();
@@ -273,6 +314,133 @@ export function ensureSynthesisRepositoryFoundationSchema(db: SqlAdapter) {
       value: SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
     },
   );
+}
+
+export function ensureSynthesisTopicApplicationRepositorySchema(
+  db: SqlAdapter,
+) {
+  ensureSynthesisRepositoryFoundationSchema(db);
+  const current = cleanString(
+    db.get("SELECT value FROM synt_schema_meta WHERE key=@key LIMIT 1", {
+      key: SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY,
+    })?.value,
+  );
+  if (
+    current &&
+    current !== SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION
+  ) {
+    throw new Error("repository_topic_application_schema_unsupported");
+  }
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_topic_application_state (
+      topic_id TEXT PRIMARY KEY,
+      path_id TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      definition TEXT NOT NULL DEFAULT '',
+      language TEXT NOT NULL DEFAULT 'auto',
+      operation TEXT NOT NULL DEFAULT '',
+      manifest_hash TEXT NOT NULL,
+      artifact_hash TEXT NOT NULL,
+      metadata_hash TEXT NOT NULL,
+      bundle_hash TEXT NOT NULL,
+      paper_count INTEGER NOT NULL DEFAULT 0,
+      topic_definition_json TEXT NOT NULL DEFAULT '{}',
+      topic_resolver_json TEXT NOT NULL DEFAULT '{}',
+      resolved_paper_set_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS synt_topic_application_projection (
+      topic_id TEXT PRIMARY KEY,
+      topic_graph_json TEXT NOT NULL DEFAULT '{}',
+      concepts_json TEXT NOT NULL DEFAULT '{}',
+      interest_metadata_json TEXT NOT NULL DEFAULT '{}',
+      discovery_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )
+  `);
+  db.run(`
+    CREATE INDEX IF NOT EXISTS idx_synt_topic_application_state_updated
+      ON synt_topic_application_state(updated_at DESC, topic_id ASC)
+  `);
+  db.run(
+    "INSERT OR REPLACE INTO synt_schema_meta (key, value) VALUES (@key, @value)",
+    {
+      key: SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY,
+      value: SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION,
+    },
+  );
+}
+
+function strictJsonText(value: unknown) {
+  const text = cleanString(value) || "{}";
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("repository_topic_application_json_invalid");
+    }
+  } catch {
+    throw new Error("repository_topic_application_json_invalid");
+  }
+  return text;
+}
+
+export function rebuildSynthesisTopicApplicationStateRow(
+  row: SqlRow,
+): SynthesisTopicApplicationStateRecord {
+  const topicId = cleanString(row.topic_id);
+  const pathId = cleanString(row.path_id);
+  const manifestHash = cleanString(row.manifest_hash);
+  const artifactHash = cleanString(row.artifact_hash);
+  const metadataHash = cleanString(row.metadata_hash);
+  const bundleHash = cleanString(row.bundle_hash);
+  if (
+    !topicId ||
+    !pathId ||
+    !manifestHash ||
+    !artifactHash ||
+    !metadataHash ||
+    !bundleHash
+  ) {
+    throw new Error("repository_topic_application_state_invalid");
+  }
+  return {
+    topicId,
+    pathId,
+    title: cleanString(row.title),
+    definition: cleanString(row.definition),
+    language: cleanString(row.language) || "auto",
+    operation: cleanString(row.operation),
+    manifestHash,
+    artifactHash,
+    metadataHash,
+    bundleHash,
+    paperCount: nonNegativeInt(row.paper_count),
+    topicDefinitionJson: strictJsonText(row.topic_definition_json),
+    topicResolverJson: strictJsonText(row.topic_resolver_json),
+    resolvedPaperSetJson: strictJsonText(row.resolved_paper_set_json),
+    createdAt: cleanString(row.created_at) || undefined,
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
+}
+
+export function rebuildSynthesisTopicApplicationProjectionRow(
+  row: SqlRow,
+): SynthesisTopicApplicationProjectionRecord {
+  const topicId = cleanString(row.topic_id);
+  if (!topicId) {
+    throw new Error("repository_topic_application_projection_invalid");
+  }
+  return {
+    topicId,
+    topicGraphJson: strictJsonText(row.topic_graph_json),
+    conceptsJson: strictJsonText(row.concepts_json),
+    interestMetadataJson: strictJsonText(row.interest_metadata_json),
+    discoveryJson: strictJsonText(row.discovery_json),
+    updatedAt: cleanString(row.updated_at) || undefined,
+  };
 }
 
 export function getSynthesisRepositoryFoundationSchemaVersion(db: SqlAdapter) {
@@ -525,6 +693,124 @@ export function listSynthesisOperations(
   return limit ? rows.slice(0, limit) : rows;
 }
 
+export function getSynthesisTopicApplicationState(
+  db: SqlAdapter,
+  topicIdRaw: string,
+) {
+  const topicId = cleanString(topicIdRaw);
+  if (!topicId) return null;
+  const row = db.get(
+    "SELECT * FROM synt_topic_application_state WHERE topic_id=@topic_id LIMIT 1",
+    { topic_id: topicId },
+  );
+  return row ? rebuildSynthesisTopicApplicationStateRow(row) : null;
+}
+
+export function listSynthesisTopicApplicationStates(
+  db: SqlAdapter,
+  args: { offset?: number; limit?: number } = {},
+) {
+  const offset = nonNegativeInt(args.offset);
+  const limit = Math.max(1, nonNegativeInt(args.limit) || 50);
+  const total = nonNegativeInt(
+    db.get("SELECT COUNT(*) AS count FROM synt_topic_application_state")?.count,
+  );
+  const rows = db
+    .all(
+      `SELECT * FROM synt_topic_application_state
+       ORDER BY updated_at DESC, topic_id ASC
+       LIMIT @limit OFFSET @offset`,
+      { limit, offset },
+    )
+    .map(rebuildSynthesisTopicApplicationStateRow);
+  return { rows, total };
+}
+
+export function upsertSynthesisTopicApplicationState(
+  db: SqlAdapter,
+  record: SynthesisTopicApplicationStateRecord,
+  now: () => string,
+) {
+  const topicId = cleanString(record.topicId);
+  const pathId = cleanString(record.pathId);
+  if (!topicId || !pathId) {
+    throw new Error("repository_topic_application_state_invalid");
+  }
+  const timestamp = now();
+  db.run(
+    `INSERT OR REPLACE INTO synt_topic_application_state (
+      topic_id, path_id, title, definition, language, operation,
+      manifest_hash, artifact_hash, metadata_hash, bundle_hash, paper_count,
+      topic_definition_json, topic_resolver_json, resolved_paper_set_json,
+      created_at, updated_at
+    ) VALUES (
+      @topic_id, @path_id, @title, @definition, @language, @operation,
+      @manifest_hash, @artifact_hash, @metadata_hash, @bundle_hash, @paper_count,
+      @topic_definition_json, @topic_resolver_json, @resolved_paper_set_json,
+      @created_at, @updated_at
+    )`,
+    {
+      topic_id: topicId,
+      path_id: pathId,
+      title: cleanString(record.title),
+      definition: cleanString(record.definition),
+      language: cleanString(record.language) || "auto",
+      operation: cleanString(record.operation),
+      manifest_hash: cleanString(record.manifestHash),
+      artifact_hash: cleanString(record.artifactHash),
+      metadata_hash: cleanString(record.metadataHash),
+      bundle_hash: cleanString(record.bundleHash),
+      paper_count: nonNegativeInt(record.paperCount),
+      topic_definition_json: strictJsonText(record.topicDefinitionJson),
+      topic_resolver_json: strictJsonText(record.topicResolverJson),
+      resolved_paper_set_json: strictJsonText(record.resolvedPaperSetJson),
+      created_at: cleanString(record.createdAt) || timestamp,
+      updated_at: cleanString(record.updatedAt) || timestamp,
+    },
+  );
+}
+
+export function getSynthesisTopicApplicationProjection(
+  db: SqlAdapter,
+  topicIdRaw: string,
+) {
+  const topicId = cleanString(topicIdRaw);
+  if (!topicId) return null;
+  const row = db.get(
+    "SELECT * FROM synt_topic_application_projection WHERE topic_id=@topic_id LIMIT 1",
+    { topic_id: topicId },
+  );
+  return row ? rebuildSynthesisTopicApplicationProjectionRow(row) : null;
+}
+
+export function upsertSynthesisTopicApplicationProjection(
+  db: SqlAdapter,
+  record: SynthesisTopicApplicationProjectionRecord,
+  now: () => string,
+) {
+  const topicId = cleanString(record.topicId);
+  if (!topicId) {
+    throw new Error("repository_topic_application_projection_invalid");
+  }
+  db.run(
+    `INSERT OR REPLACE INTO synt_topic_application_projection (
+      topic_id, topic_graph_json, concepts_json, interest_metadata_json,
+      discovery_json, updated_at
+    ) VALUES (
+      @topic_id, @topic_graph_json, @concepts_json, @interest_metadata_json,
+      @discovery_json, @updated_at
+    )`,
+    {
+      topic_id: topicId,
+      topic_graph_json: strictJsonText(record.topicGraphJson),
+      concepts_json: strictJsonText(record.conceptsJson),
+      interest_metadata_json: strictJsonText(record.interestMetadataJson),
+      discovery_json: strictJsonText(record.discoveryJson),
+      updated_at: cleanString(record.updatedAt) || now(),
+    },
+  );
+}
+
 export type SynthesisRepositoryFoundationStore = ReturnType<
   typeof createSynthesisRepositoryFoundationStore
 >;
@@ -536,10 +822,17 @@ export function createSynthesisRepositoryFoundationStore(options: {
   const { db } = options;
   const now = options.now ?? (() => new Date().toISOString());
   let initialized = false;
+  let topicApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
     initialized = true;
+  };
+  const initializeTopicApplication = () => {
+    initialize();
+    if (topicApplicationInitialized) return;
+    ensureSynthesisTopicApplicationRepositorySchema(db);
+    topicApplicationInitialized = true;
   };
   return {
     initialize,
@@ -601,6 +894,29 @@ export function createSynthesisRepositoryFoundationStore(options: {
         }
         return running.length;
       });
+    },
+    initializeTopicApplication,
+    getTopicApplicationState(topicId: string) {
+      initializeTopicApplication();
+      return getSynthesisTopicApplicationState(db, topicId);
+    },
+    listTopicApplicationStates(args?: { offset?: number; limit?: number }) {
+      initializeTopicApplication();
+      return listSynthesisTopicApplicationStates(db, args);
+    },
+    upsertTopicApplicationState(record: SynthesisTopicApplicationStateRecord) {
+      initializeTopicApplication();
+      upsertSynthesisTopicApplicationState(db, record, now);
+    },
+    getTopicApplicationProjection(topicId: string) {
+      initializeTopicApplication();
+      return getSynthesisTopicApplicationProjection(db, topicId);
+    },
+    upsertTopicApplicationProjection(
+      record: SynthesisTopicApplicationProjectionRecord,
+    ) {
+      initializeTopicApplication();
+      upsertSynthesisTopicApplicationProjection(db, record, now);
     },
   };
 }

@@ -48,24 +48,26 @@ ids only.
 
 ## SQLite Policy
 
-The service's WS5 shadow database is limited to three foundation tables and
-short synchronous main-process transactions. Its only application read is the
-`workbench.chrome.read` canary: two fixed indexed cache lookups plus at most 50
-running and 20 current failed operations, under the 150 ms chrome target. It
-performs no engine compute, Host/file/network IO, production reads, review
-queries, or content-surface reads. Startup schema validation and running-operation
-reconciliation complete before readiness; health/handshake use a maintained
-snapshot and never query row counts. Adding table families or domain workload
-requires a later parity design rather than expanding this canary implicitly.
+The service's WS5 shadow database begins with the three foundation tables and
+adds isolated Topic application state and projection records. Its authenticated
+application read remains the `workbench.chrome.read` canary: two fixed indexed
+cache lookups plus at most 50 running and 20 current failed operations, under
+the 150 ms chrome target. The private Topic application lists indexed state and
+loads at most one canonical Topic for detail; it is not remotely routed and
+performs no Host, production, or Zotero reads. Startup schema validation and
+running-operation reconciliation complete before readiness; health/handshake
+use maintained snapshots and never query row counts.
 
 The WS5 Topic canonical shadow is also main-process owned, but it is not a hot
-path or production apply route. Inspect reads one requested Topic and returns
-only three file hashes plus sorted section descriptors under the general 1 MiB
-and 50,000-node wire limits; it never enters the compute worker queue. Canonical
-promotion is globally single-concurrency with immediate backpressure, performs
-all validation and expected-basis checks before the first write, and fsyncs a
-complete staging tree before journaled rename. Adding Topic list/detail/apply,
-assets, archives, or automatic cleanup requires a later application change.
+path or production apply route. Authenticated inspect reads one requested Topic
+and returns only three file hashes plus sorted section descriptors under the
+general 1 MiB and 50,000-node wire limits; it never enters the compute worker
+queue. The private application resolves only bounded materialized assets,
+assembles or patches a complete structured artifact, and then uses the same
+globally single-concurrency CAS promotion. Promotion validates its expected
+basis before the first write and fsyncs a complete staging tree before
+journaled rename. Archives, automatic cleanup, production fallback, and remote
+apply admission remain absent.
 
 Write transactions should be short:
 

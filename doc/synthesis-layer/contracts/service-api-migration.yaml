@@ -6,7 +6,8 @@ service_factory: createSynthesisService
 isolated_repository:
   mode: isolated_shadow
   schema_version: synthesis-repository-foundation.v1
-  table_families: [schema_meta, cache_basis, operation]
+  application_schema_version: synthesis-topic-application-repository.v1
+  table_families: [schema_meta, cache_basis, operation, topic_application_state, topic_application_projection]
   production_database_owner: plugin_composition
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false
@@ -17,6 +18,16 @@ isolated_topic_canonical_store:
   schema_version: synthesis-topic-canonical-store.v1
   root_scope: profile_runtime_root
   capability: topics.canonical.inspect
+  production_route: false
+  production_canonical_file_owner: plugin_composition
+  production_mutation_enabled: false
+
+isolated_topic_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [list, detail, apply]
+  asset_authority: materialized_only
+  remote_capability: false
   production_route: false
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false

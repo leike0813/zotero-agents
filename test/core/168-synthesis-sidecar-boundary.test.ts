@@ -55,6 +55,7 @@ describe("Synthesis sidecar migration boundary", function () {
       isolated_repository: {
         mode: string;
         schema_version: string;
+        application_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -70,6 +71,16 @@ describe("Synthesis sidecar migration boundary", function () {
         production_canonical_file_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_topic_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        asset_authority: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        production_canonical_file_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -78,7 +89,14 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(rawInventory.isolated_repository, {
       mode: "isolated_shadow",
       schema_version: "synthesis-repository-foundation.v1",
-      table_families: ["schema_meta", "cache_basis", "operation"],
+      application_schema_version: "synthesis-topic-application-repository.v1",
+      table_families: [
+        "schema_meta",
+        "cache_basis",
+        "operation",
+        "topic_application_state",
+        "topic_application_projection",
+      ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
@@ -89,6 +107,16 @@ describe("Synthesis sidecar migration boundary", function () {
       schema_version: "synthesis-topic-canonical-store.v1",
       root_scope: "profile_runtime_root",
       capability: "topics.canonical.inspect",
+      production_route: false,
+      production_canonical_file_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_topic_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: ["list", "detail", "apply"],
+      asset_authority: "materialized_only",
+      remote_capability: false,
       production_route: false,
       production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
@@ -423,6 +451,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./sidecarSystem"');
     assert.include(contractIndex, 'export * from "./sidecarLifecycle"');
     assert.include(contractIndex, 'export * from "./sidecarCanonicalStore"');
+    assert.include(contractIndex, 'export * from "./topicApplication"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
@@ -471,6 +500,18 @@ describe("Synthesis sidecar migration boundary", function () {
       topicCanonicalApplication,
       /(?:node:|globalThis\.Zotero|zotero-plugin|child_process|worker_threads|src\/modules)/,
     );
+    const topicApplication = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "packages/synthesis-application/src/topicApplication.ts",
+      ),
+      "utf8",
+    );
+    assert.include(topicApplication, "createSynthesisTopicApplication");
+    assert.notMatch(
+      topicApplication,
+      /(?:node:|globalThis\.Zotero|zotero-plugin|child_process|worker_threads|src\/modules)/,
+    );
     const canonicalFilesystemOwners = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
       .filter(
@@ -491,6 +532,8 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.notInclude(workbench, "synthesisSidecarWorkbenchClient");
     assert.notInclude(legacyComposition, "synthesisSidecarWorkbenchClient");
+    assert.notInclude(legacyComposition, "topicApplicationNode");
+    assert.notInclude(workbench, "topicApplicationNode");
     const computeWorker = fs.readFileSync(
       path.join(sidecarAppRoot, "src/computeWorker.ts"),
       "utf8",

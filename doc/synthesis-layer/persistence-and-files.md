@@ -79,7 +79,10 @@ only opaque profile/data-root identities; it never supplies the production DB
 or canonical root. Marker/schema mismatch fails service startup before
 discovery. Shadow rows persist across service restart so interrupted `running`
 operations can become `canceled`; terminal operation history and cache-basis
-rows remain. Shutdown closes the handle but does not delete the shadow root.
+rows remain. The same isolated database stores strict Topic application state
+and JSON-safe derived graph/concept/interest/discovery projections. These rows
+are private application state, not a production repository mirror. Shutdown
+closes the handle but does not delete the shadow root.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots
@@ -88,7 +91,9 @@ the one journal and receipt recover an interrupted commit without scanning Topic
 content. Per-Topic corruption is reported as `invalid` by
 `topics.canonical.inspect`; identity or malformed journal state fails closed.
 Production `data/synthesis/topics/**`, Topic apply, archives, assets, discovery,
-and WebDAV remain plugin-owned.
+and WebDAV remain plugin-owned. Internally, the service-owned Topic application
+may read one complete shadow current and promote a bounded materialized bundle;
+this method is not exposed through authenticated RPC and accepts no caller path.
 
 ## SQLite Table Families
 

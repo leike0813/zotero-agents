@@ -1121,6 +1121,17 @@ graph layout 作为第一条 process canary，因为：
   完整 staging、fsync、expected-basis CAS、单 journal/receipt、rollback 与 restart recovery。
   认证 `topics.canonical.inspect` 只返回 hashes/descriptors，不进入 worker pool，也不提供
   apply/promote/archive capability。
+- `add-synthesis-sidecar-topic-application-foundation` 在隔离 composition 内增加严格
+  Topic list/detail/apply：只接受有界 materialized assets，支持 complete 与 structured
+  patch assembly，使用 expected-basis CAS 作为 commit point，并在 commit 后幂等写入
+  Topic registry、graph、concept、interest 与 discovery JSON-safe projection。应用只从
+  indexed shadow state 列表、detail 最多读取一个 complete current，restart 后状态保持。
+  它在 repository/canonical recovery 后初始化、shutdown 时先停止 admission，且没有
+  注册 authenticated RPC、worker route 或 production `SynthesisClient` route。
+- production Topic bundle validation 与 optimistic apply decision 已移至环境中立
+  application SSOT 并由插件兼容导出复用；production canonical metadata hash 语义与严格
+  shadow envelope 不同，因此 production list/detail/apply 明确保留原 composition，避免
+  隐式 hash 漂移。完整迁移与 single-writer cutover 仍由后续 change 负责。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
@@ -1146,7 +1157,7 @@ graph layout 作为第一条 process canary，因为：
 
 1. schema/health/cache basis/operations；
 2. Workbench chrome；
-3. Topic canonical read/apply；
+3. Topic canonical read/apply（隔离 foundation 已完成；production cutover 待后续 change）；
 4. graph read/layout/rebuild；
 5. reference sidecar/matching/review；
 6. tags/concepts/topic graph；
