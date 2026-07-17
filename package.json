@@ -45,6 +45,7 @@
     "check:synthesis-contracts": "tsc -p packages/synthesis-contracts/tsconfig.json --noEmit",
     "check:synthesis-service": "tsc -p apps/synthesis-service/tsconfig.json --noEmit",
     "build:synthesis-service": "tsc -p apps/synthesis-service/tsconfig.build.json",
+    "benchmark:synthesis-citation-graph-build-sidecar": "npm run build:synthesis-service && tsx scripts/benchmark-synthesis-citation-graph-build-sidecar.ts",
     "package:synthesis-sidecar-runtime": "tsx scripts/package-synthesis-sidecar-runtime.ts",
     "check:synthesis-sidecar-runtime-freshness": "tsx scripts/check-synthesis-sidecar-runtime-freshness.ts",
     "check:synthesis-sidecar-runtime-xpi": "tsx scripts/check-synthesis-sidecar-runtime-xpi.ts",

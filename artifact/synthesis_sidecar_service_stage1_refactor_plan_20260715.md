@@ -1658,6 +1658,7 @@ hostBridgeCapabilityRegistry
 - [ ] 重计算不占用 Node service 主事件循环；
 - [ ] target tier worker 满载时 health、progress、cancel 和 shutdown 保持响应；
 - [ ] normal/target/stress benchmark 记录 worker、memory、event-loop 和 serialization 指标；
+  - 2026-07-17：canary、2k/20k boundary 和 normal 已记录；target/stress 在 768 MiB 隔离父进程内终止，等待有界 large-transfer layout 后继续，因此本项保持未完成。
 - [ ] cutover/rollback/restore 演练通过。
 
 ### 清理与发布

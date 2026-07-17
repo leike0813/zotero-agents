@@ -136,6 +136,21 @@ coordinates or previous metrics without wait, retry, or in-process fallback.
 Canary failures cannot affect production graph state. Tag canonical
 validation remains synchronous inside the repository transaction.
 
+The reproducible Citation Graph build data-path benchmark is
+`npm run benchmark:synthesis-citation-graph-build-sidecar -- --profile <canary|boundary|normal|target|stress>`.
+Core 200 hard-gates deterministic fixture shape, semantic parity, and wire
+classification; absolute CPU, memory, event-loop, cancellation, and phase
+timings remain report-only observations. The 2026-07-17 baseline found that the
+2,000-source/20,000-reference boundary has a 5,045,133-byte / 460,027-node
+request and a 9,875,145-byte / 887,045-node response. The normal
+2,000-source/100,000-reference fixture has a 24,965,093-byte / 2,220,027-node
+request and a 71,757,129-byte / 6,714,045-node response; its direct kernel
+completed on the capture host, but strict result rebuilding exceeded seven
+seconds and the worker hit its five-second deadline. Target and stress
+materialization exhausted the isolated benchmark parent. These measurements
+reject direct production routing and do not establish target/stress budgets.
+See `artifact/synthesis_citation_graph_build_sidecar_baseline_20260717.md`.
+
 ## External Source Drift Policy
 
 The target model does not run automatic startup reconcile. Drift is discovered by direct reads, explicit inspect, or explicit repair. No legacy drift detector should remain enabled.

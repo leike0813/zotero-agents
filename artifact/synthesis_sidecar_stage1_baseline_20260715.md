@@ -104,3 +104,13 @@ semantics above. They may update method count, direct-consumer count, schema,
 fixtures, and performance measurements only together with the corresponding
 OpenSpec requirements and migration disposition. A passing in-process baseline
 does not authorize production sidecar ownership or dual writes.
+
+## Follow-up Baseline
+
+The 2026-07-17 Citation Graph build data-path capture closes the original
+payload/worker measurement gap for the canary, 2k/20k boundary, and normal
+tier. Target and stress terminate under the isolated parent memory budget, so
+the Stage 1 normal/target/stress worker gate remains open pending a bounded
+large-transfer layout. See
+`artifact/synthesis_citation_graph_build_sidecar_baseline_20260717.md` and run
+`npm run benchmark:synthesis-citation-graph-build-sidecar -- --profile <tier>`.
