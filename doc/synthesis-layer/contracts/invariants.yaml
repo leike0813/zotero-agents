@@ -43,7 +43,7 @@ invariants:
 
   - id: inv.runtime.sidecar_foundation_isolated
     severity: fatal
-    statement: The independent Node sidecar runtime is a loopback-only production-mutation-disabled control plane whose production worker routes are bounded Citation Graph layout and metrics; graph build remains an explicit canary. Its main process may own only the identity-bound isolated shadow repository and its private Topic and Citation Graph application projections, while workers remain persistence-free and no service path can access the plugin production repository, canonical writers, Zotero, Host effects, sync runtime, or child processes. Production worker routes have no in-process fallback.
+    statement: The independent Node sidecar runtime is a loopback-only production-mutation-disabled control plane whose production worker routes are bounded Citation Graph layout and metrics; graph build remains an explicit canary. Its main process may own only the identity-bound isolated shadow repository and its private Topic, Reference Refresh, and Citation Graph application projections, while workers remain persistence-free and no service path can access the plugin production repository, canonical writers, Zotero, Host effects, sync runtime, or child processes. Private Reference Refresh uses bounded prepare/apply materialization without a Host or RPC route. Production worker routes have no in-process fallback.
     evidence: Service application/repository/worker import-boundary, compute wire-capacity, and production-composition guards.
     test_refs:
       - file: test/core/152-synthesis-invariant-guards.test.ts

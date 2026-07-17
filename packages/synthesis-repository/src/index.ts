@@ -8,6 +8,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_application_schema_version" as const;
 
 export * from "./citationGraph.js";
+export * from "./referenceRefresh.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
   getSynthesisCitationGraphApplicationState,
@@ -26,6 +27,17 @@ import {
   type SynthesisCitationGraphStateReplacement,
   type SynthesisCitationLayoutRecord,
 } from "./citationGraph.js";
+import {
+  ensureSynthesisReferenceRefreshRepositorySchema,
+  getSynthesisReferenceApplicationState,
+  listSynthesisCanonicalReferences,
+  listSynthesisRawReferences,
+  listSynthesisReferenceArtifacts,
+  listSynthesisReferenceBindings,
+  listSynthesisReferenceSources,
+  replaceSynthesisReferenceProjection,
+  type SynthesisReferenceProjectionReplacement,
+} from "./referenceRefresh.js";
 
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
@@ -844,6 +856,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let initialized = false;
   let topicApplicationInitialized = false;
   let citationGraphApplicationInitialized = false;
+  let referenceRefreshApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -860,6 +873,12 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (citationGraphApplicationInitialized) return;
     ensureSynthesisCitationGraphApplicationRepositorySchema(db);
     citationGraphApplicationInitialized = true;
+  };
+  const initializeReferenceRefreshApplication = () => {
+    initialize();
+    if (referenceRefreshApplicationInitialized) return;
+    ensureSynthesisReferenceRefreshRepositorySchema(db);
+    referenceRefreshApplicationInitialized = true;
   };
   return {
     initialize,
@@ -924,6 +943,35 @@ export function createSynthesisRepositoryFoundationStore(options: {
     },
     initializeTopicApplication,
     initializeCitationGraphApplication,
+    initializeReferenceRefreshApplication,
+    getReferenceApplicationState() {
+      initializeReferenceRefreshApplication();
+      return getSynthesisReferenceApplicationState(db);
+    },
+    replaceReferenceProjection(args: SynthesisReferenceProjectionReplacement) {
+      initializeReferenceRefreshApplication();
+      return replaceSynthesisReferenceProjection(db, args);
+    },
+    listReferenceSources() {
+      initializeReferenceRefreshApplication();
+      return listSynthesisReferenceSources(db);
+    },
+    listReferenceArtifacts(sourceRefs?: string[]) {
+      initializeReferenceRefreshApplication();
+      return listSynthesisReferenceArtifacts(db, sourceRefs);
+    },
+    listRawReferences() {
+      initializeReferenceRefreshApplication();
+      return listSynthesisRawReferences(db);
+    },
+    listCanonicalReferences() {
+      initializeReferenceRefreshApplication();
+      return listSynthesisCanonicalReferences(db);
+    },
+    listReferenceBindings() {
+      initializeReferenceRefreshApplication();
+      return listSynthesisReferenceBindings(db);
+    },
     getCitationGraphApplicationState() {
       initializeCitationGraphApplication();
       return getSynthesisCitationGraphApplicationState(db);

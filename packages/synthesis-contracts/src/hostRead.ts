@@ -1,4 +1,4 @@
-import type { SynthesisJsonValue } from "./common";
+import type { SynthesisJsonValue } from "./common.js";
 
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_DEFAULT = 50 as const;
 export const SYNTHESIS_HOST_READ_PAGE_LIMIT_MAX = 100 as const;

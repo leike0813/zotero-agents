@@ -57,6 +57,7 @@ describe("Synthesis sidecar migration boundary", function () {
         schema_version: string;
         application_schema_version: string;
         citation_graph_application_schema_version: string;
+        reference_refresh_application_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -94,6 +95,20 @@ describe("Synthesis sidecar migration boundary", function () {
         production_database_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_reference_refresh_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        refresh_scope: string;
+        host_materialization: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        graph_execution: boolean;
+        related_items_effect: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -105,6 +120,8 @@ describe("Synthesis sidecar migration boundary", function () {
       application_schema_version: "synthesis-topic-application-repository.v1",
       citation_graph_application_schema_version:
         "synthesis-citation-graph-application-repository.v1",
+      reference_refresh_application_schema_version:
+        "synthesis-reference-refresh-repository.v1",
       table_families: [
         "schema_meta",
         "cache_basis",
@@ -119,6 +136,14 @@ describe("Synthesis sidecar migration boundary", function () {
         "citation_metrics_light",
         "citation_metrics_complex",
         "citation_layout_state",
+        "reference_application_state",
+        "reference_source",
+        "reference_artifact",
+        "reference_raw",
+        "reference_canonical",
+        "reference_redirect",
+        "reference_binding",
+        "reference_revision_review",
       ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
@@ -161,6 +186,27 @@ describe("Synthesis sidecar migration boundary", function () {
       remote_capability: false,
       production_route: false,
       automatic_invocation: false,
+      production_database_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_reference_refresh_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "inspect",
+        "read_sources",
+        "read_references",
+        "prepare_refresh",
+        "apply_refresh",
+        "discard_preparation",
+      ],
+      refresh_scope: "full_or_bounded_sources",
+      host_materialization: "prepare_apply",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      graph_execution: false,
+      related_items_effect: false,
       production_database_owner: "plugin_composition",
       production_mutation_enabled: false,
     });

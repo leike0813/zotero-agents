@@ -1139,6 +1139,13 @@ graph layout 作为第一条 process canary，因为：
   layout 只在 graph hash 仍 active 时提升。所有 kernel 继续通过同一 bounded worker，直接
   build admission 保持 8 MiB/250k/50k 且不自动转 packed transfer。该 application 没有
   authenticated RPC、自动 shadow invocation、production fallback 或 `SynthesisClient` route。
+- `add-synthesis-sidecar-reference-refresh-application-foundation` 已推进拆分优先级第 5 项的
+  refresh foundation：新增 private inspect/read/prepare/apply/discard application，严格完整
+  descriptor 先产生 changed-only Host read plan，再由单次 8 MiB/250k materialization 完成
+  full 或最多 100 sources 的 expected-reference CAS promotion。digest 不读取 payload；缺失、
+  多余、重复、locator/hash stale 在写入前失败；manual binding/redirect/rejected decision 保持，
+  protected stale canonical 只产生 revision review row。当前不包含 Advanced Matching、generic
+  review actions、graph incremental execution、related-items effect、Host route 或 production cutover。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

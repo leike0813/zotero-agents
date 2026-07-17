@@ -41,6 +41,12 @@ import {
   type SynthesisCitationLightMetricsRecord,
   type SynthesisCitationNodeRecord,
   type SynthesisCitationSourceOwnershipRecord,
+  type SynthesisArtifactSidecarRecord,
+  type SynthesisCanonicalReferenceRecord,
+  type SynthesisCanonicalReferenceRedirectRecord,
+  type SynthesisRawReferenceRecord,
+  type SynthesisRawReferenceStaleResult,
+  type SynthesisReferenceBindingRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -60,6 +66,12 @@ export type {
   SynthesisCitationLightMetricsRecord,
   SynthesisCitationNodeRecord,
   SynthesisCitationSourceOwnershipRecord,
+  SynthesisArtifactSidecarRecord,
+  SynthesisCanonicalReferenceRecord,
+  SynthesisCanonicalReferenceRedirectRecord,
+  SynthesisRawReferenceRecord,
+  SynthesisRawReferenceStaleResult,
+  SynthesisReferenceBindingRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type SynthesisRepositorySchemaEntry = {
@@ -89,80 +101,6 @@ export type SynthesisReviewItemRecord = {
   scopeRef?: string;
   blockedByReviewItemId?: string;
   payloadJson?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisArtifactSidecarRecord = {
-  sourceRef: string;
-  libraryId: number;
-  itemKey: string;
-  artifactType: "digest" | "references" | "citation_analysis" | string;
-  status: "available" | "missing" | "decode_error" | "unsupported" | string;
-  artifactHash?: string;
-  locatorJson?: string;
-  diagnosticsJson?: string;
-  scannedAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisRawReferenceRecord = {
-  rawReferenceId: string;
-  sourceRef: string;
-  referencesArtifactHash: string;
-  referenceIndex: number;
-  rawHash: string;
-  parsedTitle?: string;
-  normalizedTitle?: string;
-  year?: string;
-  authorsJson?: string;
-  rawReference?: string;
-  canonicalReferenceId?: string;
-  status?: "active" | "stale" | "parse_error" | string;
-  rolesJson?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisRawReferenceStaleResult = {
-  staleCount: number;
-  staleRawReferences: SynthesisRawReferenceRecord[];
-  canonicalReferenceIds: string[];
-};
-
-export type SynthesisCanonicalReferenceRecord = {
-  canonicalReferenceId: string;
-  title?: string;
-  normalizedTitle?: string;
-  year?: string;
-  authorsJson?: string;
-  identifiersJson?: string;
-  metadataHash?: string;
-  status?: "active" | "merged" | "stale" | string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCanonicalReferenceRedirectRecord = {
-  fromCanonicalReferenceId: string;
-  toCanonicalReferenceId: string;
-  reason?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisReferenceBindingRecord = {
-  bindingId: string;
-  canonicalReferenceId: string;
-  libraryId: number;
-  itemKey: string;
-  status: "accepted" | "candidate" | "rejected" | "stale_target";
-  confidence?: string;
-  reviewer?: string;
-  basisHash?: string;
   diagnosticsJson?: string;
   createdAt?: string;
   updatedAt?: string;

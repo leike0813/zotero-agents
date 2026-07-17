@@ -165,6 +165,11 @@ import {
   computeSynthesisReferenceDedupeWithEngine,
 } from "./referenceMatcherEngineAdapter";
 import { classifySynthesisReferenceQuality } from "./referenceQualityGate";
+import {
+  buildSynthesisCanonicalReferenceRecord,
+  normalizeSynthesisReferenceRole,
+  synthesisReferenceIdentity,
+} from "../../../packages/synthesis-application/src/referenceProjection";
 import { createSynthesisJsonImportService } from "./jsonImport";
 import { createSynthesisCheckpointExportService } from "./checkpointExport";
 import {
@@ -821,28 +826,12 @@ export const SYNTHESIS_ALLOWED_CITATION_FUNCTIONS = [
   "historical",
   "uncategorized",
 ] as const;
-const SYNTHESIS_ALLOWED_CITATION_FUNCTION_SET = new Set(
-  SYNTHESIS_ALLOWED_CITATION_FUNCTIONS,
-);
-
 function cleanString(value: unknown) {
   return String(value || "").trim();
 }
 
 function normalizeCitationRole(value: unknown) {
-  const normalized = cleanString(value).toLowerCase().replace(/\s+/g, "_");
-  if (
-    !normalized ||
-    normalized === "all" ||
-    normalized === "citation" ||
-    normalized === "uncategorized" ||
-    !SYNTHESIS_ALLOWED_CITATION_FUNCTION_SET.has(
-      normalized as (typeof SYNTHESIS_ALLOWED_CITATION_FUNCTIONS)[number],
-    )
-  ) {
-    return SYNTHESIS_UNKNOWN_CITATION_ROLE;
-  }
-  return normalized;
+  return normalizeSynthesisReferenceRole(value);
 }
 
 function citationRoleEntries(
@@ -9243,19 +9232,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function sidecarReferenceIdentity(reference: Record<string, unknown>) {
-    const citekey = referenceCitekey(reference).toLowerCase();
-    const title = referenceTitle(reference);
-    const normalizedTitle = normalizeSynthesisLiteratureTitle(title);
-    const year = referenceYear(reference);
-    const authors = referenceAuthors(reference);
-    return {
-      citekey,
-      title,
-      normalizedTitle,
-      year,
-      authors,
-      raw: referenceRaw(reference),
-    };
+    return synthesisReferenceIdentity(reference);
   }
 
   function sidecarShortKey(value: unknown) {
@@ -9277,30 +9254,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     reference: Record<string, unknown>,
     timestamp: string,
   ): SynthesisCanonicalReferenceRecord {
-    const identity = sidecarReferenceIdentity(reference);
-    const metadataHash = hashCanonicalJson({
-      citekey: identity.citekey,
-      normalized_title: identity.normalizedTitle,
-      year: identity.year,
-      authors: identity.authors,
-    });
-    return {
-      canonicalReferenceId: `cref:${metadataHash.slice(
-        "sha256:".length,
-        "sha256:".length + 24,
-      )}`,
-      title: identity.title,
-      normalizedTitle: identity.normalizedTitle,
-      year: identity.year,
-      authorsJson: JSON.stringify(identity.authors),
-      identifiersJson: JSON.stringify({
-        citekey: identity.citekey || undefined,
-      }),
-      metadataHash,
-      status: "active",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
+    return buildSynthesisCanonicalReferenceRecord(reference, timestamp);
   }
 
   function referenceBindingForMatchedItem(args: {

@@ -69,6 +69,7 @@ import {
 import { openSynthesisSidecarTopicCanonicalStore } from "./topicCanonicalStoreNode.js";
 import { createSynthesisSidecarTopicApplication } from "./topicApplicationNode.js";
 import { createSynthesisSidecarCitationGraphApplication } from "./citationGraphApplicationNode.js";
+import { createSynthesisSidecarReferenceRefreshApplication } from "./referenceRefreshApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -307,6 +308,10 @@ export async function startSynthesisSidecarServer(
       repository: repository.store,
       computePool,
     });
+  const referenceRefreshApplication =
+    createSynthesisSidecarReferenceRefreshApplication({
+      repository: repository.store,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -322,6 +327,7 @@ export async function startSynthesisSidecarServer(
     lifecycleState = "stopping";
     topicApplication.stopAdmission();
     citationGraphApplication.stopAdmission();
+    referenceRefreshApplication.stopAdmission();
     canonicalStore.stopAdmission();
     transferExecutor.shutdown();
     writeServiceLog("service_stopping", {
@@ -329,6 +335,7 @@ export async function startSynthesisSidecarServer(
       serviceInstanceId,
     });
     void (async () => {
+      await referenceRefreshApplication.shutdown();
       await citationGraphApplication.shutdown();
       repository.close();
       await Promise.allSettled([
@@ -780,6 +787,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    await referenceRefreshApplication.shutdown();
     await citationGraphApplication.shutdown();
     canonicalStore.close();
     repository.close();

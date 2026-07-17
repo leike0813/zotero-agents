@@ -10,6 +10,7 @@ export * from "./itemRef";
 export * from "./libraryIndex";
 export * from "./lifecycle";
 export * from "./references";
+export * from "./referenceRefreshApplication";
 export * from "./representativeImageRead";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";

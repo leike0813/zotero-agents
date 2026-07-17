@@ -135,6 +135,8 @@ This refresh must expose progress from real counts: scanned artifact sources, ch
 
 On success, reference refresh marks `reference-sidecar:library` ready in `synt_cache_basis`. It also marks `citation-graph:library` and `related-items-sync:global` stale with bounded diagnostics for changed source refs, binding canonical ids, and redirect canonical ids where applicable. It does not start graph refresh, graph bootstrap, or related-items sync. Refresh progress and terminal failure are recorded in `synt_operation`; operation rows are not data-readiness sources.
 
+The sidecar now composes the same boundary as a private shadow Reference Refresh application. `prepareRefresh` receives stable library summaries and complete digest/references/citation-analysis descriptors, compares them with persisted artifact state, and returns only changed references plus same-source citation-analysis reads. Digest is descriptor-only. `applyRefresh` consumes exactly one locator/hash-bound materialization, projects shared quality/role/canonical/deterministic-binding rules outside SQLite, then compare-and-swap promotes a full or at-most-100-source projection. It preserves unrelated rows and protected user decisions; protected stale canonicals produce revision-review rows. This application has no HTTP capability, Host adapter, automatic invocation, Advanced Matching, graph execution, related-items effect, production fallback, or `SynthesisClient` route.
+
 ## Workflow Apply
 
 `literature-analysis` apply is an explicit workflow action and may run the same single-source pipeline:

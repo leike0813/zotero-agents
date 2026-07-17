@@ -6,6 +6,8 @@ import {
   SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_META_KEY,
   SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION,
   SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+  SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY,
+  SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
   createSynthesisRepositoryFoundationStore,
 } from "../../packages/synthesis-repository/src/index";
 import { openSynthesisNodeSqliteAdapter } from "../../apps/synthesis-service/src/repositoryNodeSqlite";
@@ -96,6 +98,47 @@ describe("Synthesis sidecar isolated repository foundation", function () {
         },
       )?.value,
       SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION,
+    );
+    assert.equal(
+      store.getSchemaVersion(),
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    connection.close();
+  });
+
+  it("installs the isolated Reference Refresh projection schema idempotently", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const connection = openSynthesisNodeSqliteAdapter(
+      path.join(root, "synthesis.db"),
+    );
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    store.initializeReferenceRefreshApplication();
+    store.initializeReferenceRefreshApplication();
+    const tables = connection.adapter
+      .all(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'synt_reference_%' ORDER BY name",
+      )
+      .map((row) => row.name);
+    assert.deepEqual(tables, [
+      "synt_reference_application_state",
+      "synt_reference_artifact",
+      "synt_reference_binding",
+      "synt_reference_canonical",
+      "synt_reference_raw",
+      "synt_reference_redirect",
+      "synt_reference_revision_review",
+      "synt_reference_source",
+    ]);
+    assert.equal(
+      connection.adapter.get(
+        "SELECT value FROM synt_schema_meta WHERE key=@key LIMIT 1",
+        { key: SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_META_KEY },
+      )?.value,
+      SYNTHESIS_REFERENCE_REFRESH_REPOSITORY_SCHEMA_VERSION,
     );
     assert.equal(
       store.getSchemaVersion(),

@@ -15,6 +15,8 @@ import type {
 export * from "./topicCanonical.js";
 export * from "./citationGraphApplication.js";
 export * from "./citationGraphProjection.js";
+export * from "./referenceProjection.js";
+export * from "./referenceRefreshApplication.js";
 export * from "./topicApplyDecision.js";
 export * from "./topicApplication.js";
 
