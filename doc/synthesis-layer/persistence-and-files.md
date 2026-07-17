@@ -15,6 +15,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
 | Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing exactly schema metadata, cache basis, and operation rows. It serves the authenticated operational Workbench chrome canary but is not a production mirror, production Workbench source, or mutation owner. |
+| Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -50,6 +51,11 @@ zotero-agents/
       profiles/<profileId>/shadow-repository/<dataRootId>/
         identity.json
         synthesis.db
+      profiles/<profileId>/shadow-canonical/<dataRootId>/
+        identity.json
+        transaction.json       # present only during an in-flight commit
+        topics/<pathId>/current/{manifest,artifact,metadata}.json
+        topics/<pathId>/current/sections/*.json
     acp/**
     cache/**
     logs/**
@@ -74,6 +80,15 @@ or canonical root. Marker/schema mismatch fails service startup before
 discovery. Shadow rows persist across service restart so interrupted `running`
 operations can become `canceled`; terminal operation history and cache-basis
 rows remain. Shutdown closes the handle but does not delete the shadow root.
+
+The sibling Topic canonical shadow uses the same opaque profile/data-root
+identity but never receives a caller-supplied canonical path. Complete snapshots
+are canonicalized and fsynced in global staging before a CAS-guarded rename;
+the one journal and receipt recover an interrupted commit without scanning Topic
+content. Per-Topic corruption is reported as `invalid` by
+`topics.canonical.inspect`; identity or malformed journal state fails closed.
+Production `data/synthesis/topics/**`, Topic apply, archives, assets, discovery,
+and WebDAV remain plugin-owned.
 
 ## SQLite Table Families
 

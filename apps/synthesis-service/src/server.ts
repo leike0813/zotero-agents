@@ -66,6 +66,12 @@ import {
   openSynthesisSidecarIsolatedRepository,
   type SynthesisSidecarIsolatedRepository,
 } from "./isolatedRepository.js";
+import { openSynthesisSidecarTopicCanonicalStore } from "./topicCanonicalStoreNode.js";
+import {
+  rebuildSynthesisTopicCanonicalInspectRequest,
+  rebuildSynthesisTopicCanonicalInspectResult,
+  type SynthesisTopicCanonicalStore,
+} from "../../../packages/synthesis-application/src/topicCanonical.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const SHUTDOWN_GRACE_MS = 500;
@@ -83,6 +89,7 @@ type SynthesisSidecarServerOptions = {
   transferOwner?: CitationGraphTransferOwner;
   transferExecutor?: CitationGraphBuildTransferExecutor;
   repository?: SynthesisSidecarIsolatedRepository;
+  canonicalStore?: SynthesisTopicCanonicalStore;
 };
 
 function bearerToken(request: IncomingMessage): string {
@@ -252,13 +259,33 @@ export async function startSynthesisSidecarServer(
   const server: Server = createServer();
   const computePool =
     options.computePool ?? createSynthesisSidecarComputeWorkerPool();
-  const repository =
-    options.repository ??
-    openSynthesisSidecarIsolatedRepository({
-      profileRuntimeRoot: config.profileRuntimeRoot,
-      profileId: config.profileId,
-      dataRootId: config.dataRootId,
-    });
+  let canonicalStore: SynthesisTopicCanonicalStore;
+  try {
+    canonicalStore =
+      options.canonicalStore ??
+      openSynthesisSidecarTopicCanonicalStore({
+        profileRuntimeRoot: config.profileRuntimeRoot,
+        profileId: config.profileId,
+        dataRootId: config.dataRootId,
+      });
+  } catch (error) {
+    await computePool.shutdown();
+    throw error;
+  }
+  let repository: SynthesisSidecarIsolatedRepository;
+  try {
+    repository =
+      options.repository ??
+      openSynthesisSidecarIsolatedRepository({
+        profileRuntimeRoot: config.profileRuntimeRoot,
+        profileId: config.profileId,
+        dataRootId: config.dataRootId,
+      });
+  } catch (error) {
+    canonicalStore.close();
+    await computePool.shutdown();
+    throw error;
+  }
   const transferOwner =
     options.transferOwner ??
     createCitationGraphTransferOwner({
@@ -282,6 +309,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    canonicalStore.stopAdmission();
     transferExecutor.shutdown();
     repository.close();
     writeServiceLog("service_stopping", {
@@ -330,6 +358,7 @@ export async function startSynthesisSidecarServer(
           bundleId: config.bundleId,
           lifecycleState,
           repository: repository.snapshot(),
+          canonicalStore: canonicalStore.snapshot(),
           computePool: computePool.snapshot(),
           citationGraphTransfer: transferOwner.snapshot(),
         };
@@ -509,6 +538,41 @@ export async function startSynthesisSidecarServer(
           );
           return;
         }
+        if (call.capability === "topics.canonical.inspect") {
+          let result;
+          try {
+            const request = rebuildSynthesisTopicCanonicalInspectRequest(
+              call.payload,
+            );
+            result = rebuildSynthesisTopicCanonicalInspectResult(
+              canonicalStore.inspect(request),
+            );
+          } catch {
+            throw new SidecarRuntimeError({
+              status: 400,
+              code: "invalid_request",
+              message: "The Topic canonical inspect request is invalid.",
+            });
+          }
+          writeJson(
+            response,
+            200,
+            success({
+              requestId: call.requestId,
+              serviceInstanceId,
+              data: toSynthesisJsonObject(
+                result,
+                "topicCanonicalInspectResult",
+              ),
+            }),
+            {},
+            {
+              maxBytes: SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes,
+              maxJsonNodes: SYNTHESIS_SIDECAR_LIMITS.jsonNodes,
+            },
+          );
+          return;
+        }
       }
       if (isSynthesisSidecarWorkerCapability(call.capability)) {
         let runCompute: (signal: AbortSignal) => Promise<unknown>;
@@ -633,6 +697,7 @@ export async function startSynthesisSidecarServer(
               mutationEnabled: false,
               lifecycleState: "ready",
               repository: repository.snapshot(),
+              canonicalStore: canonicalStore.snapshot(),
               computePool: computePool.snapshot(),
               citationGraphTransfer: transferOwner.snapshot(),
             },
@@ -700,6 +765,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    canonicalStore.close();
     repository.close();
     await Promise.allSettled([
       computePool.shutdown(),

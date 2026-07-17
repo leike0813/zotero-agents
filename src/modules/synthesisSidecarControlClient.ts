@@ -5,6 +5,7 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
   rebuildSynthesisSidecarComputePoolSnapshot,
   rebuildSynthesisSidecarRepositorySnapshot,
+  rebuildSynthesisTopicCanonicalStoreSnapshot,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarHandshakeResult,
   type SynthesisSidecarHealth,
@@ -61,11 +62,15 @@ function validateHealth(
   const health = value as Partial<SynthesisSidecarHealth>;
   let computePool;
   let repository;
+  let canonicalStore;
   try {
     computePool = rebuildSynthesisSidecarComputePoolSnapshot(
       health.computePool,
     );
     repository = rebuildSynthesisSidecarRepositorySnapshot(health.repository);
+    canonicalStore = rebuildSynthesisTopicCanonicalStoreSnapshot(
+      health.canonicalStore,
+    );
   } catch {
     throw new Error("sidecar_health_identity_mismatch");
   }
@@ -81,7 +86,12 @@ function validateHealth(
   ) {
     throw new Error("sidecar_health_identity_mismatch");
   }
-  return { ...(health as SynthesisSidecarHealth), computePool, repository };
+  return {
+    ...(health as SynthesisSidecarHealth),
+    computePool,
+    repository,
+    canonicalStore,
+  };
 }
 
 function validateHandshake(
@@ -96,9 +106,13 @@ function validateHandshake(
   const data = response.data;
   let computePool;
   let repository;
+  let canonicalStore;
   try {
     computePool = rebuildSynthesisSidecarComputePoolSnapshot(data?.computePool);
     repository = rebuildSynthesisSidecarRepositorySnapshot(data?.repository);
+    canonicalStore = rebuildSynthesisTopicCanonicalStoreSnapshot(
+      data?.canonicalStore,
+    );
   } catch {
     throw new Error("sidecar_handshake_identity_mismatch");
   }
@@ -130,6 +144,7 @@ function validateHandshake(
     ...(data as SynthesisSidecarHandshakeResult),
     computePool,
     repository,
+    canonicalStore,
   };
 }
 

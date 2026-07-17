@@ -61,6 +61,15 @@ describe("Synthesis sidecar migration boundary", function () {
         production_mutation_enabled: boolean;
         remote_capability: boolean;
       };
+      isolated_topic_canonical_store: {
+        mode: string;
+        schema_version: string;
+        root_scope: string;
+        capability: string;
+        production_route: boolean;
+        production_canonical_file_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -74,6 +83,15 @@ describe("Synthesis sidecar migration boundary", function () {
       production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
       remote_capability: false,
+    });
+    assert.deepEqual(rawInventory.isolated_topic_canonical_store, {
+      mode: "isolated_shadow",
+      schema_version: "synthesis-topic-canonical-store.v1",
+      root_scope: "profile_runtime_root",
+      capability: "topics.canonical.inspect",
+      production_route: false,
+      production_canonical_file_owner: "plugin_composition",
+      production_mutation_enabled: false,
     });
     assert.deepEqual(
       rawInventory.internal_engines.map((engine) => engine.id),
@@ -404,6 +422,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./webDavSyncPort"');
     assert.include(contractIndex, 'export * from "./sidecarSystem"');
     assert.include(contractIndex, 'export * from "./sidecarLifecycle"');
+    assert.include(contractIndex, 'export * from "./sidecarCanonicalStore"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
@@ -440,6 +459,28 @@ describe("Synthesis sidecar migration boundary", function () {
       applicationFoundation,
       /(?:node:|globalThis\.Zotero|zotero-plugin|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules)/,
     );
+    const topicCanonicalApplication = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "packages/synthesis-application/src/topicCanonical.ts",
+      ),
+      "utf8",
+    );
+    assert.include(topicCanonicalApplication, "SynthesisTopicCanonicalStore");
+    assert.notMatch(
+      topicCanonicalApplication,
+      /(?:node:|globalThis\.Zotero|zotero-plugin|child_process|worker_threads|src\/modules)/,
+    );
+    const canonicalFilesystemOwners = fs
+      .readdirSync(path.join(sidecarAppRoot, "src"))
+      .filter(
+        (entry) =>
+          entry.endsWith(".ts") &&
+          fs
+            .readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8")
+            .includes("shadow-canonical"),
+      );
+    assert.deepEqual(canonicalFilesystemOwners, ["topicCanonicalStoreNode.ts"]);
     const workbenchCanaryClient = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarWorkbenchClient.ts"),
       "utf8",
@@ -456,7 +497,7 @@ describe("Synthesis sidecar migration boundary", function () {
     );
     assert.notMatch(
       computeWorker,
-      /(?:node:sqlite|synthesis-repository|isolatedRepository|repositoryNodeSqlite)/,
+      /(?:node:sqlite|synthesis-repository|isolatedRepository|repositoryNodeSqlite|topicCanonicalStore)/,
     );
     const workerThreadUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))

@@ -69,10 +69,12 @@ runtime under the profile-scoped supervisor described in
 or user shell.
 
 The service remains production-mutation-disabled and does not access production
-`synthesis.db` or Topic canonical current files. Its main process opens only the
-persistent identity-bound three-table shadow repository beneath the profile
-runtime root; built-in `node:sqlite` comes from the pinned Node runtime and adds
-no third-party dependency or license. The default `SynthesisClient`
+`synthesis.db` or Topic canonical current files. Its main process opens the
+persistent identity-bound three-table shadow repository and Topic canonical
+shadow beneath the profile runtime root. The bundle includes the environment-
+neutral canonical application rules and the sole Node filesystem adapter;
+built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
+third-party dependency or license. The default `SynthesisClient`
 routes Citation Graph layout and metrics computation to its lazy bounded worker;
 Unified Citation Graph build is packaged as monolithic and packed-transfer
 authenticated internal canaries while its production composition remains in
@@ -80,12 +82,12 @@ process. The same bundle
 contains the authenticated graph-build transfer owner, manifest contracts, and
 row-page validators; sealed sessions can explicitly invoke the packed worker
 and atomically publish paged output. DB reads,
-graph-basis checks, promotion, canonical files, and the other production engines
+graph-basis checks, production promotion/canonical files, and the other production engines
 remain plugin-owned. Compute JSON request and response envelopes are capped at
 8 MiB and the graph-build module requires no additional runtime dependency or
 asset or license.
 
 Source routing does not regenerate platform prebuilds. Production release
 freshness and XPI checks fail closed until every bundled platform runtime
-matches the current service/worker/engine/repository/D3/package-version/lockfile
+matches the current service/worker/engine/repository/canonical-store/D3/package-version/lockfile
 fingerprint produced by the separate release pipeline.

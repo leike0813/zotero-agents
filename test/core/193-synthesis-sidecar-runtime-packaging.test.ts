@@ -183,13 +183,16 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js",
       "service/apps/synthesis-service/src/isolatedRepository.js",
       "service/apps/synthesis-service/src/repositoryNodeSqlite.js",
+      "service/apps/synthesis-service/src/topicCanonicalStoreNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
       "service/packages/synthesis-engine/src/citationGraphBuildPacked.js",
       "service/packages/synthesis-contracts/src/sidecarTransfer.js",
+      "service/packages/synthesis-contracts/src/sidecarCanonicalStore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
       "service/packages/synthesis-application/src/index.js",
+      "service/packages/synthesis-application/src/topicCanonical.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
@@ -460,9 +463,17 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "apps/synthesis-service/src/repositoryNodeSqlite.ts",
     );
+    assert.include(
+      first.inputs,
+      "apps/synthesis-service/src/topicCanonicalStoreNode.ts",
+    );
     assert.include(first.inputs, "packages/synthesis-repository/src/index.ts");
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/topicCanonical.ts",
+    );
     assert.include(first.inputs, "packages/synthesis-application/package.json");
     assert.include(
       first.inputs,
@@ -471,6 +482,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/sidecarTransfer.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/sidecarCanonicalStore.ts",
     );
     assert.include(
       first.inputs,
@@ -510,10 +525,16 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(xpiCheck, "citationGraphTransferOwner.js");
     assert.include(xpiCheck, "sidecarTransfer.js");
+    assert.include(xpiCheck, "sidecarCanonicalStore.js");
     assert.include(xpiCheck, "isolatedRepository.js");
     assert.include(xpiCheck, "repositoryNodeSqlite.js");
+    assert.include(xpiCheck, "topicCanonicalStoreNode.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-application/src/topicCanonical.js",
+    );
     assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");

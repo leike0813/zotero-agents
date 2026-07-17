@@ -8,6 +8,7 @@ import {
 } from "../../packages/synthesis-repository/src/index";
 import { openSynthesisNodeSqliteAdapter } from "../../apps/synthesis-service/src/repositoryNodeSqlite";
 import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
+import { openSynthesisSidecarTopicCanonicalStore } from "../../apps/synthesis-service/src/topicCanonicalStoreNode";
 
 const PROFILE_ID = "1".repeat(64);
 const DATA_ROOT_ID = "2".repeat(64);
@@ -219,5 +220,24 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
     );
     reopened.close();
+  });
+
+  it("keeps repository and Topic canonical shadow owners independent", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const options = {
+      profileRuntimeRoot: path.join(root, "profile-runtime"),
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    };
+    const repository = openSynthesisSidecarIsolatedRepository(options);
+    const canonicalStore = openSynthesisSidecarTopicCanonicalStore(options);
+    assert.notEqual(repository.paths.root, canonicalStore.paths.root);
+    assert.equal(repository.snapshot().state, "ready");
+    assert.equal(canonicalStore.snapshot().state, "ready");
+    canonicalStore.close();
+    assert.equal(repository.snapshot().state, "ready");
+    repository.close();
+    assert.equal(canonicalStore.snapshot().state, "stopping");
   });
 });

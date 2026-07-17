@@ -12,6 +12,7 @@ export * from "./references";
 export * from "./representativeImageRead";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";
+export * from "./sidecarCanonicalStore";
 export * from "./sidecarSystem";
 export * from "./sidecarTransfer";
 export * from "./sidecarRuntimeBundle";

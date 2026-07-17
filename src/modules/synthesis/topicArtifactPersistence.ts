@@ -1,4 +1,8 @@
-import { canonicalizeJson, hashCanonicalJson } from "./foundation";
+import {
+  canonicalSynthesisTopicJsonText,
+  canonicalSynthesisTopicSectionFileName,
+  computeSynthesisTopicCurrentHashes,
+} from "../../../packages/synthesis-application/src/topicCanonical";
 
 export function computeTopicCurrentHashes(args: {
   manifest: unknown;
@@ -6,26 +10,20 @@ export function computeTopicCurrentHashes(args: {
   metadata: unknown;
   sections: Record<string, unknown>;
 }) {
-  const section_hashes = Object.fromEntries(
-    Object.entries(args.sections || {}).map(([name, value]) => [
-      name,
-      hashCanonicalJson(value),
-    ]),
-  );
-  const structuredHash = hashCanonicalJson(args.artifact);
+  const hashes = computeSynthesisTopicCurrentHashes(args);
   return {
-    manifest_hash: hashCanonicalJson(args.manifest),
-    structured_hash: structuredHash,
-    artifact_hash: structuredHash,
-    metadata_hash: hashCanonicalJson(args.metadata),
-    section_hashes,
+    manifest_hash: hashes.manifestHash,
+    structured_hash: hashes.structuredHash,
+    artifact_hash: hashes.artifactHash,
+    metadata_hash: hashes.metadataHash,
+    section_hashes: hashes.sectionHashes,
   };
 }
 
 export function canonicalSectionFileName(section: string) {
-  return `${section.replace(/_/g, "-")}.json`;
+  return canonicalSynthesisTopicSectionFileName(section);
 }
 
 export function canonicalJsonText(value: unknown) {
-  return `${canonicalizeJson(value)}\n`;
+  return canonicalSynthesisTopicJsonText(value);
 }

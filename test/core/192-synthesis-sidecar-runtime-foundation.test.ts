@@ -24,6 +24,7 @@ import {
   rebuildSynthesisSidecarCallRequest,
   rebuildSynthesisSidecarComputePoolSnapshot,
   rebuildSynthesisSidecarRepositorySnapshot,
+  rebuildSynthesisTopicCanonicalStoreSnapshot,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../../packages/synthesis-contracts/src/sidecarTransfer";
 import { acquireSynthesisSidecarServiceLifecycle } from "../../apps/synthesis-service/src/lifecycle";
@@ -270,6 +271,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       "system.handshake",
       "system.shutdown",
       "workbench.chrome.read",
+      "topics.canonical.inspect",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
       "compute.citation_graph_build",
@@ -277,6 +279,9 @@ describe("Synthesis sidecar runtime foundation", function () {
     ]);
     assert.isTrue(isSynthesisSidecarSystemCapability("system.handshake"));
     assert.isTrue(isSynthesisSidecarGeneralCapability("workbench.chrome.read"));
+    assert.isTrue(
+      isSynthesisSidecarGeneralCapability("topics.canonical.inspect"),
+    );
     assert.isFalse(
       isSynthesisSidecarGeneralCapability("compute.citation_graph_layout"),
     );
@@ -410,6 +415,18 @@ describe("Synthesis sidecar runtime foundation", function () {
       schemaVersion: "synthesis-repository-foundation.v1",
     });
     assert.notInclude(JSON.stringify(health.repository), service.profileRoot);
+    assert.deepEqual(
+      rebuildSynthesisTopicCanonicalStoreSnapshot(health.canonicalStore),
+      health.canonicalStore,
+    );
+    assert.deepInclude(health.canonicalStore as Record<string, unknown>, {
+      state: "ready",
+      schemaVersion: "synthesis-topic-canonical-store.v1",
+    });
+    assert.notInclude(
+      JSON.stringify(health.canonicalStore),
+      service.profileRoot,
+    );
     assert.isString(health.serviceInstanceId);
     assert.notProperty(health, "profileId");
     assert.notProperty(health, "runtimeRootId");
@@ -443,6 +460,7 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.deepEqual(data.computePool, health.computePool);
     assert.deepEqual(data.citationGraphTransfer, health.citationGraphTransfer);
     assert.deepEqual(data.repository, health.repository);
+    assert.deepEqual(data.canonicalStore, health.canonicalStore);
     assert.equal(data.mutationEnabled, false);
     assert.isTrue(
       fs.existsSync(
@@ -451,6 +469,16 @@ describe("Synthesis sidecar runtime foundation", function () {
           "shadow-repository",
           DATA_ROOT_ID,
           "synthesis.db",
+        ),
+      ),
+    );
+    assert.isTrue(
+      fs.existsSync(
+        path.join(
+          service.profileRoot,
+          "shadow-canonical",
+          DATA_ROOT_ID,
+          "identity.json",
         ),
       ),
     );

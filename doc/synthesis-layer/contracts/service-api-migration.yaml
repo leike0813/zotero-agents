@@ -12,11 +12,26 @@ isolated_repository:
   production_mutation_enabled: false
   remote_capability: false
 
+isolated_topic_canonical_store:
+  mode: isolated_shadow
+  schema_version: synthesis-topic-canonical-store.v1
+  root_scope: profile_runtime_root
+  capability: topics.canonical.inspect
+  production_route: false
+  production_canonical_file_owner: plugin_composition
+  production_mutation_enabled: false
+
 application_canaries:
   - id: workbench_chrome_operational
     package: packages/synthesis-application
     capability: workbench.chrome.read
     repository_mode: isolated_shadow
+    production_route: false
+    production_mutation_enabled: false
+  - id: topic_canonical_inspect
+    package: packages/synthesis-application
+    capability: topics.canonical.inspect
+    canonical_store_mode: isolated_shadow
     production_route: false
     production_mutation_enabled: false
 

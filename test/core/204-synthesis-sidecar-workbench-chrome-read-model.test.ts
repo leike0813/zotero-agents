@@ -303,8 +303,15 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       );
       const health = (await (
         await fetch(`${connection.baseUrl}/synthesis/v1/health`)
-      ).json()) as { computePool: { state: string } };
+      ).json()) as {
+        computePool: { state: string };
+        canonicalStore: { state: string; schemaVersion: string };
+      };
       assert.equal(health.computePool.state, "busy");
+      assert.deepInclude(health.canonicalStore, {
+        state: "ready",
+        schemaVersion: "synthesis-topic-canonical-store.v1",
+      });
 
       const unauthorized = await fetch(
         `${connection.baseUrl}${SYNTHESIS_SIDECAR_CALL_PATH}`,

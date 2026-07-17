@@ -352,6 +352,7 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.include(server, "computePool.shutdown()");
     assert.include(server, "transferOwner.shutdown()");
     assert.include(server, "repository.close()");
+    assert.include(server, "canonicalStore.stopAdmission()");
     assert.include(server, "const SHUTDOWN_GRACE_MS = 500");
     assert.include(pool, "shutdownTimeoutMs: 500");
     assert.include(pool, "target.terminate()");

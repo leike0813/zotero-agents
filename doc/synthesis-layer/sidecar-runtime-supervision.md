@@ -9,9 +9,12 @@ The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
 discovery it opens only an identity-bound persistent shadow repository under
 the profile runtime root, establishes the three-table foundation schema, and
-reconciles interrupted shadow operations. Identity or schema corruption aborts
-startup. Health and handshake return the same path-free O(1) repository
-snapshot; `mutationEnabled: false` continues to describe production authority.
+reconciles interrupted shadow operations. It also opens an identity-bound Topic
+canonical shadow under the same profile root and recovers only its one global
+transaction journal; it does not scan Topics during startup. Identity, schema,
+or malformed-journal corruption aborts startup. Health and handshake return
+path-free O(1) repository and canonical-store snapshots; `mutationEnabled:
+false` continues to describe production authority.
 The default
 production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph
@@ -33,12 +36,23 @@ runtime/synthesis/service-runtime/profiles/<profileId>/
   shadow-repository/<dataRootId>/
     identity.json
     synthesis.db
+  shadow-canonical/<dataRootId>/
+    identity.json
+    transaction.json       # only while a commit is in flight
+    staging/               # only while a commit is in flight
+    backup/                # only while a commit is in flight
+    topics/<pathId>/current/**
 ```
 
 The Node service obtains the runtime-instance owner before listening. A live
 owner prevents a second service for the same profile. This lock protects only
 sidecar process identity; it is not the production database or canonical-file
 owner lock used by a future cutover.
+
+The authenticated `topics.canonical.inspect` general capability reads the
+shadow owner directly in the main process and exposes no payload or write
+operation. Topic promotion is an internal port only; it is not advertised by
+discovery and is not connected to production Topic apply.
 
 The config contains launch-scoped secrets and is deleted by the service after
 it obtains ownership. Discovery is written atomically after loopback listen and
@@ -103,8 +117,9 @@ Owner conflicts, unsupported or corrupt runtimes, private-file failures, and
 identity incompatibility require explicit recovery.
 
 stdout and stderr are continuously drained with bounded retained tails and do
-not drive per-chunk state updates. Controlled shutdown stops compute admission,
-cancels queued and active tasks, marks the repository stopping, closes SQLite,
+not drive per-chunk state updates. Controlled shutdown stops compute and
+canonical-write admission, cancels queued and active tasks, marks the repository
+and canonical shadow stopping, closes SQLite,
 and terminates the worker within one 500 ms service budget before closing the
 server. The plugin then waits within its own shutdown
 budget and directly kills the service process if required; terminating that Node

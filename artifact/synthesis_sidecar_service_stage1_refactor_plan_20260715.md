@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository 与 Topic canonical shadow foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1115,9 +1115,15 @@ graph layout 作为第一条 process canary，因为：
   readiness 与最多 50 个 running、20 个 current failed operation。插件 chrome/progress
   复用同一投影；认证 `workbench.chrome.read` 只针对隔离 shadow 运行，不接入生产
   `SynthesisClient` 或 Workbench。
+- `packages/synthesis-application` 同时收口 Topic canonical snapshot、hash、path/section
+  filename、canonical text 与 inspect projection；插件通过兼容导出复用同一规则。
+  service 主进程只在 `shadow-canonical/<dataRootId>/` 持有 identity-bound shadow，使用
+  完整 staging、fsync、expected-basis CAS、单 journal/receipt、rollback 与 restart recovery。
+  认证 `topics.canonical.inspect` 只返回 hashes/descriptors，不进入 worker pool，也不提供
+  apply/promote/archive capability。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
-  `synthesis.db`、canonical files、Host capability 或公开 `SynthesisClient`。
+  `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
 
 #### 任务
 

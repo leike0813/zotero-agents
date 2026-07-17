@@ -5,6 +5,13 @@ import {
 } from "./common.js";
 import type { SynthesisSidecarTransferSnapshot } from "./sidecarTransfer.js";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../packages/synthesis-repository/src/index.js";
+import {
+  rebuildSynthesisTopicCanonicalStoreSnapshot,
+  type SynthesisTopicCanonicalStoreSnapshot,
+} from "./sidecarCanonicalStore.js";
+
+export { rebuildSynthesisTopicCanonicalStoreSnapshot };
+export type { SynthesisTopicCanonicalStoreSnapshot };
 
 export const SYNTHESIS_SIDECAR_PROTOCOL = "synthesis-sidecar.v1" as const;
 export const SYNTHESIS_SIDECAR_HEALTH_PATH = "/synthesis/v1/health" as const;
@@ -16,6 +23,7 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
 ] as const;
 export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
   "workbench.chrome.read",
+  "topics.canonical.inspect",
 ] as const;
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",
@@ -98,6 +106,7 @@ export type SynthesisSidecarHealth = {
   bundleId: string;
   lifecycleState: SynthesisSidecarLifecycleState;
   repository: SynthesisSidecarRepositorySnapshot;
+  canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
   computePool: SynthesisSidecarComputePoolSnapshot;
   citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };
@@ -123,6 +132,7 @@ export type SynthesisSidecarHandshakeResult = {
   mutationEnabled: false;
   lifecycleState: "ready";
   repository: SynthesisSidecarRepositorySnapshot;
+  canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
   computePool: SynthesisSidecarComputePoolSnapshot;
   citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };

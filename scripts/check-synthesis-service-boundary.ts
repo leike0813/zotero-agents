@@ -71,6 +71,9 @@ const WORKER_THREAD_ALLOWLIST = new Set([
 const NODE_SQLITE_ALLOWLIST = new Set([
   "apps/synthesis-service/src/repositoryNodeSqlite.ts",
 ]);
+const TOPIC_CANONICAL_NODE_ALLOWLIST = new Set([
+  "apps/synthesis-service/src/topicCanonicalStoreNode.ts",
+]);
 const CONTRACT_SOURCE_IMPORT_ALLOWLIST = new Map([
   [
     "packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -269,6 +272,16 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
       violations.push(`${relativePath}: node:sqlite import is not allowed`);
     }
     if (
+      !TOPIC_CANONICAL_NODE_ALLOWLIST.has(relativePath) &&
+      ((/from\s+["']node:fs["']/.test(source) &&
+        /topicCanonicalStore/i.test(source)) ||
+        /shadow-canonical/.test(source))
+    ) {
+      violations.push(
+        `${relativePath}: Topic canonical filesystem authority is not allowed`,
+      );
+    }
+    if (
       relativePath.endsWith("/computeWorker.ts") &&
       /synthesis-repository|isolatedRepository|repositoryNodeSqlite/.test(
         source,
@@ -316,7 +329,7 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
     if (
-      /node:|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules|globalThis\.Zotero|zotero-plugin|HostEffect|HostRead|canonical(?:Store|File|Path)|topicArtifactPersistence|Window|Document|HTMLElement/.test(
+      /node:|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules|globalThis\.Zotero|zotero-plugin|HostEffect|HostRead|topicArtifactPersistence|Window|Document|HTMLElement/.test(
         source,
       )
     ) {
@@ -339,7 +352,9 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
         const specifier = statement.moduleSpecifier.text;
         if (
           !specifier.includes("synthesis-contracts/src/") &&
-          !specifier.includes("synthesis-repository/src/")
+          !specifier.includes("synthesis-repository/src/") &&
+          !specifier.includes("synthesis-engine/src/") &&
+          !specifier.startsWith("./")
         ) {
           violations.push(
             `${relativePath}: forbidden application import ${specifier}`,

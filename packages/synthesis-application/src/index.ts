@@ -12,6 +12,8 @@ import type {
   SynthesisOperationRecord,
 } from "../../synthesis-repository/src/index.js";
 
+export * from "./topicCanonical.js";
+
 export type SynthesisWorkbenchOperationalRepository = {
   getCacheBasis(cacheKey: string): SynthesisCacheBasisRecord | null;
   listOperations(args?: {

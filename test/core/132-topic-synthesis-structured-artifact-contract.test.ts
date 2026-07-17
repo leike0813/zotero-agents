@@ -682,6 +682,13 @@ describe("Topic synthesis structured artifact contract", function () {
       module,
       "computeTopicCurrentHashes",
     );
+    const application = await importOptional(
+      "../../packages/synthesis-application/src/topicCanonical",
+    );
+    const computeSharedHashes = requireExport(
+      application,
+      "computeSynthesisTopicCurrentHashes",
+    );
 
     const hashes = computeTopicCurrentHashes({
       manifest: { schema_id: "synthesis.topic_current_manifest", sections: {} },
@@ -703,6 +710,38 @@ describe("Topic synthesis structured artifact contract", function () {
     assert.notProperty(hashes, "markdown_hash");
     assert.notProperty(hashes, "export_hash");
     assert.match(hashes.section_hashes.claims, /^sha256:/);
+    const shared = computeSharedHashes({
+      manifest: { schema_id: "synthesis.topic_current_manifest", sections: {} },
+      artifact: structuredArtifact(),
+      metadata: { topic_id: "object-detection", language: "zh-CN" },
+      sections: {
+        claims: [{ id: "claim:detector-evolution" }],
+      },
+    });
+    assert.deepEqual(hashes, {
+      manifest_hash: shared.manifestHash,
+      structured_hash: shared.structuredHash,
+      artifact_hash: shared.artifactHash,
+      metadata_hash: shared.metadataHash,
+      section_hashes: shared.sectionHashes,
+    });
+    assert.equal(
+      requireExport(module, "canonicalSectionFileName")("source_papers"),
+      requireExport(
+        application,
+        "canonicalSynthesisTopicSectionFileName",
+      )("source_papers"),
+    );
+    assert.equal(
+      requireExport(module, "canonicalJsonText")({ z: 1, a: 2 }),
+      requireExport(
+        application,
+        "canonicalSynthesisTopicJsonText",
+      )({
+        z: 1,
+        a: 2,
+      }),
+    );
   });
 
   it("validates claims and timeline events against source paper links", async function () {

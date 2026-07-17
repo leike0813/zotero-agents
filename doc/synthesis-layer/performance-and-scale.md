@@ -58,6 +58,15 @@ reconciliation complete before readiness; health/handshake use a maintained
 snapshot and never query row counts. Adding table families or domain workload
 requires a later parity design rather than expanding this canary implicitly.
 
+The WS5 Topic canonical shadow is also main-process owned, but it is not a hot
+path or production apply route. Inspect reads one requested Topic and returns
+only three file hashes plus sorted section descriptors under the general 1 MiB
+and 50,000-node wire limits; it never enters the compute worker queue. Canonical
+promotion is globally single-concurrency with immediate backpressure, performs
+all validation and expected-basis checks before the first write, and fsyncs a
+complete staging tree before journaled rename. Adding Topic list/detail/apply,
+assets, archives, or automatic cleanup requires a later application change.
+
 Write transactions should be short:
 
 - target: <= 100 ms;
