@@ -156,13 +156,41 @@ describe("host bridge server phase 1", function () {
     );
   });
 
-  it("measures Host Bridge input fragments without a real Zotero socket", function () {
+  it("profiles asynchronous Host Bridge input waits without a real Zotero socket", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-host-input",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
     const raw = rawHttpRequestBytes({
       method: "POST",
       path: "/bridge/v1/health",
+      headers: {
+        "X-Zotero-Bridge-Scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "profiled-host-input",
+        }),
+      },
       bodyBytes: new TextEncoder().encode("{}"),
     });
     const chunks = [raw.slice(0, 23), raw.slice(23)];
+    let readError: Error | null = null;
+    let callback: { onInputStreamReady(input: unknown): void } | null = null;
+    const inputStream = {
+      asyncWait(nextCallback: typeof callback) {
+        callback = nextCallback;
+        if (callback && chunks.length) {
+          const ready = callback;
+          queueMicrotask(() => ready.onInputStreamReady(inputStream));
+        }
+      },
+      close() {
+        return;
+      },
+    };
     const binaryStream = {
       setInputStream() {
         return;
@@ -171,16 +199,20 @@ describe("host bridge server phase 1", function () {
         return chunks[0]?.byteLength || 0;
       },
       readByteArray() {
+        if (readError) throw readError;
         return Array.from(chunks.shift() || []);
       },
-      close() {
-        return;
-      },
+      close: () => inputStream.close(),
     };
     const runtime = globalThis as typeof globalThis & {
       Components?: unknown;
+      Services?: unknown;
     };
     const previous = Object.getOwnPropertyDescriptor(runtime, "Components");
+    const previousServices = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Services",
+    );
     Object.defineProperty(runtime, "Components", {
       configurable: true,
       value: {
@@ -189,20 +221,76 @@ describe("host bridge server phase 1", function () {
             createInstance: () => binaryStream,
           },
         },
-        interfaces: { nsIBinaryInputStream: {} },
+        interfaces: {
+          nsIAsyncInputStream: {},
+          nsIBinaryInputStream: {},
+        },
       },
     });
+    Object.defineProperty(runtime, "Services", {
+      configurable: true,
+      value: { tm: { mainThread: {} } },
+    });
     try {
-      const input = hostBridgeServerInternalsForTests.readInputStream({});
-      assert.deepEqual(Array.from(input.bytes), Array.from(raw));
-      assert.equal(input.fragments, 2);
-      assert.equal(input.unavailableReads, 0);
-      assert.isAtLeast(input.durationMs, 0);
+      const request =
+        await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+          inputStream,
+        );
+      assert.equal(request.path, "/bridge/v1/health");
+      const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics || [];
+      assert.equal(
+        metrics.find((entry) => entry.name === "host_input_fragment")?.counter
+          ?.total,
+        2,
+      );
+      assert.equal(
+        metrics.find((entry) => entry.name === "host_input_wait")?.counter
+          ?.total,
+        2,
+      );
+      assert.equal(
+        metrics.find(
+          (entry) => entry.name === "host_input_callback_max_duration",
+        )?.duration?.count,
+        1,
+      );
+      assert.isUndefined(
+        metrics.find((entry) => entry.name === "host_input_unavailable"),
+      );
+
+      readError = new Error("synthetic input failure");
+      chunks.push(Uint8Array.of(1));
+      let failure: unknown;
+      try {
+        await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+          inputStream,
+        );
+      } catch (error) {
+        failure = error;
+      }
+      assert.equal((failure as { code?: string })?.code, "read_failed");
+      const failedMetrics = snapshotAcpRuntimeProfiles()?.global.metrics || [];
+      assert.equal(
+        failedMetrics.find((entry) => entry.name === "host_input_wait")?.counter
+          ?.total,
+        1,
+      );
+      assert.equal(
+        failedMetrics.find(
+          (entry) => entry.name === "host_input_callback_max_duration",
+        )?.duration?.count,
+        1,
+      );
     } finally {
       if (previous) {
         Object.defineProperty(runtime, "Components", previous);
       } else {
         delete runtime.Components;
+      }
+      if (previousServices) {
+        Object.defineProperty(runtime, "Services", previousServices);
+      } else {
+        delete runtime.Services;
       }
     }
   });

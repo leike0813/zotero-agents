@@ -98,6 +98,12 @@ import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { invalidateDefaultSynthesisService } from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
+import {
+  HostHttpRequestReadError,
+  readHostHttpRequest,
+  type HostHttpRequestReadResult,
+  type HostHttpRequestReadStats,
+} from "./hostHttpRequestReader";
 
 export { redactHostBridgeToken };
 
@@ -172,6 +178,16 @@ type RawHttpResponse =
       binary: true;
     };
 
+type AcceptedHostConnection = {
+  generation: number;
+  transport: any;
+  inputStream: any;
+  outputStream: any;
+  abortController: AbortController;
+  outputClosed: boolean;
+  transportClosed: boolean;
+};
+
 let supervisorEnabled = false;
 let controlledShutdown = false;
 let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -182,6 +198,8 @@ let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
 let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
   undefined;
+let serverGeneration = 0;
+const acceptedConnections = new Set<AcceptedHostConnection>();
 
 function nowIso() {
   return new Date().toISOString();
@@ -493,24 +511,6 @@ function bytesToLatin1String(bytes: Uint8Array) {
   return chunks.join("");
 }
 
-function binaryStringToBytes(text: string) {
-  const bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index += 1) {
-    bytes[index] = text.charCodeAt(index) & 0xff;
-  }
-  return bytes;
-}
-
-function concatBytes(chunks: Uint8Array[], totalLength: number) {
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
-}
-
 function findHeaderSeparator(bytes: Uint8Array) {
   for (let index = 0; index <= bytes.length - 4; index += 1) {
     if (
@@ -580,98 +580,6 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
     bodyBytes: boundedBodyBytes,
     bodyByteLength: boundedBodyBytes.byteLength,
     parseError: parsedPath.parseError || bodyParseError,
-  };
-}
-
-function parseHttpRequest(raw: string): HttpRequest {
-  return parseHttpRequestBytes(binaryStringToBytes(raw));
-}
-
-function tryParseHeaders(bytes: Uint8Array) {
-  const splitIndex = findHeaderSeparator(bytes);
-  if (splitIndex < 0) {
-    return null;
-  }
-  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
-  const { headers } = parseHttpHeaders(headerText);
-  return {
-    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
-    contentLength: Number(headers["content-length"] || 0),
-  };
-}
-
-function isClosedStreamError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return (
-    message.includes("NS_BASE_STREAM_CLOSED") || message.includes("0x80470002")
-  );
-}
-
-function readInputStream(inputStream: any) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
-  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
-  const scriptableFactory = classes?.["@mozilla.org/scriptableinputstream;1"];
-  const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!binaryFactory && !scriptableFactory) {
-    throw new Error("Zotero scriptable input stream is unavailable");
-  }
-  const stream =
-    binaryFactory && nsIBinaryInputStream
-      ? binaryFactory.createInstance(nsIBinaryInputStream)
-      : scriptableFactory.createInstance(nsIScriptableInputStream);
-  if (binaryFactory && nsIBinaryInputStream) {
-    stream.setInputStream(inputStream);
-  } else {
-    stream.init(inputStream);
-  }
-  const chunks: Uint8Array[] = [];
-  let totalLength = 0;
-  let fragments = 0;
-  let unavailableReads = 0;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 500) {
-    let available = 0;
-    try {
-      available = Number(
-        stream.available?.() || inputStream.available?.() || 0,
-      );
-    } catch (error) {
-      if (isClosedStreamError(error)) {
-        break;
-      }
-      throw error;
-    }
-    if (available <= 0) {
-      unavailableReads += 1;
-      const current = concatBytes(chunks, totalLength);
-      const parsed = tryParseHeaders(current);
-      if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-        break;
-      }
-      continue;
-    }
-    const chunk =
-      binaryFactory && nsIBinaryInputStream
-        ? Uint8Array.from(stream.readByteArray(available) || [])
-        : binaryStringToBytes(stream.read(available));
-    chunks.push(chunk);
-    fragments += 1;
-    totalLength += chunk.length;
-    const current = concatBytes(chunks, totalLength);
-    const parsed = tryParseHeaders(current);
-    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-      break;
-    }
-  }
-  stream.close?.();
-  return {
-    bytes: concatBytes(chunks, totalLength),
-    durationMs: Date.now() - startedAt,
-    fragments,
-    unavailableReads,
   };
 }
 
@@ -1085,10 +993,15 @@ function buildCapabilityApprovalPrompt(
   };
 }
 
-function writeOutputStream(outputStream: any, response: RawHttpResponse) {
+function writeOutputStream(
+  outputStream: any,
+  response: RawHttpResponse,
+  markClosed: () => void = () => undefined,
+) {
   if (typeof response !== "string") {
     outputStream.write(response.headers, response.headers.length);
     writeBinaryOutputStream(outputStream, response.body);
+    markClosed();
     outputStream.close?.();
     return;
   }
@@ -1102,10 +1015,12 @@ function writeOutputStream(outputStream: any, response: RawHttpResponse) {
     const converter = converterFactory.createInstance(nsIConverterOutputStream);
     converter.init(outputStream, "UTF-8");
     converter.writeString(response);
+    markClosed();
     converter.close();
     return;
   }
   outputStream.write(response, response.length);
+  markClosed();
   outputStream.close?.();
 }
 
@@ -3335,21 +3250,24 @@ async function handleHttpRequest(request: HttpRequest) {
   return handleHttpRequestImpl(request);
 }
 
-function readProfiledHostBridgeRequest(inputStream: any) {
-  const input = readInputStream(inputStream);
-  const request = parseHttpRequestBytes(input.bytes);
+function recordHostInputMetrics(
+  input: HostHttpRequestReadStats,
+  request: HttpRequest | null,
+) {
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
       ? isDebugModeEnabled()
       : __debug_mode__)
   ) {
-    const requestId = performanceProfileRequestIdForHostRequest(request);
+    const requestId = request
+      ? performanceProfileRequestIdForHostRequest(request)
+      : null;
     incrementAcpRuntimeMetric(
       requestId,
       "host_input_bytes",
       {},
-      input.bytes.byteLength,
+      input.inputBytes,
     );
     incrementAcpRuntimeMetric(
       requestId,
@@ -3357,40 +3275,244 @@ function readProfiledHostBridgeRequest(inputStream: any) {
       {},
       input.fragments,
     );
-    incrementAcpRuntimeMetric(
-      requestId,
-      "host_input_unavailable",
-      {},
-      input.unavailableReads,
-    );
+    incrementAcpRuntimeMetric(requestId, "host_input_wait", {}, input.waits);
     observeAcpRuntimeDuration(
       requestId,
       "host_input_duration",
       {},
       input.durationMs,
     );
+    observeAcpRuntimeDuration(
+      requestId,
+      "host_input_callback_max_duration",
+      {},
+      input.maxCallbackDurationMs,
+    );
   }
-  return request;
 }
 
-function listen(serverSocket: any) {
+function statsForReadResult(
+  input: HostHttpRequestReadResult,
+): HostHttpRequestReadStats {
+  return {
+    inputBytes: input.bytes.byteLength,
+    headerBytes: input.headerBytes,
+    bodyBytes: input.bodyBytes,
+    contentLength: input.contentLength,
+    fragments: input.fragments,
+    waits: input.waits,
+    durationMs: input.durationMs,
+    maxCallbackDurationMs: input.maxCallbackDurationMs,
+  };
+}
+
+async function readProfiledHostBridgeRequest(
+  inputStream: any,
+  signal?: AbortSignal,
+) {
+  try {
+    const input = await readHostHttpRequest(inputStream, { signal });
+    const request = parseHttpRequestBytes(input.bytes);
+    recordHostInputMetrics(statsForReadResult(input), request);
+    return request;
+  } catch (error) {
+    if (error instanceof HostHttpRequestReadError) {
+      recordHostInputMetrics(error.stats, null);
+    }
+    throw error;
+  }
+}
+
+function requestReadErrorResponse(error: HostHttpRequestReadError) {
+  const details = { readerCode: error.code };
+  switch (error.code) {
+    case "header_too_large":
+      return response(
+        431,
+        "Request Header Fields Too Large",
+        hostBridgeError("bad_request", error.message, "validation", details),
+      );
+    case "body_too_large":
+      return response(
+        413,
+        "Payload Too Large",
+        hostBridgeError(
+          "request_body_too_large",
+          error.message,
+          "validation",
+          details,
+        ),
+      );
+    case "idle_timeout":
+    case "total_timeout":
+      return response(
+        408,
+        "Request Timeout",
+        hostBridgeError("bad_request", error.message, "connection", details),
+      );
+    case "invalid_content_length":
+    case "transfer_encoding_unsupported":
+    case "invalid_framing":
+    case "early_eof":
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError("bad_request", error.message, "protocol", details),
+      );
+    case "async_stream_unavailable":
+    case "read_failed":
+      return response(
+        500,
+        "Internal Server Error",
+        hostBridgeError("internal_error", error.message, "internal", details),
+        error.message,
+      );
+    case "aborted":
+      return null;
+  }
+}
+
+function closeOutputOnce(connection: AcceptedHostConnection) {
+  if (connection.outputClosed) return;
+  connection.outputClosed = true;
+  try {
+    connection.outputStream?.close?.();
+  } catch {
+    // Best-effort accepted-connection cleanup.
+  }
+}
+
+function closeTransportOnce(connection: AcceptedHostConnection) {
+  if (connection.transportClosed) return;
+  connection.transportClosed = true;
+  try {
+    connection.transport?.close?.(0);
+  } catch {
+    // Best-effort accepted-connection cleanup.
+  }
+}
+
+function closeAcceptedConnection(connection: AcceptedHostConnection) {
+  connection.abortController.abort();
+  closeOutputOnce(connection);
+  closeTransportOnce(connection);
+  acceptedConnections.delete(connection);
+}
+
+function closeAllAcceptedConnections() {
+  for (const connection of [...acceptedConnections]) {
+    closeAcceptedConnection(connection);
+  }
+}
+
+async function processAcceptedConnection(connection: AcceptedHostConnection) {
+  let responseWriteStarted = false;
+  try {
+    const request = await readProfiledHostBridgeRequest(
+      connection.inputStream,
+      connection.abortController.signal,
+    );
+    if (
+      connection.abortController.signal.aborted ||
+      connection.generation !== serverGeneration
+    ) {
+      return;
+    }
+    const rawResponse = await handleHttpRequest(request);
+    if (
+      connection.abortController.signal.aborted ||
+      connection.generation !== serverGeneration
+    ) {
+      return;
+    }
+    responseWriteStarted = true;
+    writeOutputStream(connection.outputStream, rawResponse, () => {
+      connection.outputClosed = true;
+    });
+  } catch (error) {
+    if (
+      connection.abortController.signal.aborted ||
+      connection.generation !== serverGeneration ||
+      responseWriteStarted
+    ) {
+      return;
+    }
+    const rawResponse =
+      error instanceof HostHttpRequestReadError
+        ? requestReadErrorResponse(error)
+        : response(
+            500,
+            "Internal Server Error",
+            hostBridgeError(
+              "internal_error",
+              "Host Access request failed",
+              "internal",
+            ),
+            errorMessage(error),
+          );
+    if (rawResponse) {
+      try {
+        responseWriteStarted = true;
+        writeOutputStream(connection.outputStream, rawResponse, () => {
+          connection.outputClosed = true;
+        });
+      } catch {
+        // The peer may already be closed; cleanup remains local to this request.
+      }
+    }
+  } finally {
+    closeAcceptedConnection(connection);
+  }
+}
+
+function rejectStaleTransport(transport: any) {
+  try {
+    transport?.close?.(0);
+  } catch {
+    // Best-effort stale transport cleanup.
+  }
+}
+
+function listen(serverSocket: any, generation: number) {
   const listener = {
     onSocketAccepted: (_socket: any, transport: any) => {
-      void (async () => {
-        const inputStream = transport.openInputStream(0, 0, 0);
-        const outputStream = transport.openOutputStream(0, 0, 0);
-        const request = readProfiledHostBridgeRequest(inputStream);
-        const rawResponse = await handleHttpRequest(request);
-        writeOutputStream(outputStream, rawResponse);
-      })().catch((error) => {
-        updateState({
-          status: "error",
-          lastError:
-            error instanceof Error ? error.message : String(error || ""),
-        });
-      });
+      if (generation !== serverGeneration) {
+        rejectStaleTransport(transport);
+        return;
+      }
+      let inputStream: any;
+      let outputStream: any;
+      try {
+        outputStream = transport.openOutputStream(0, 0, 0);
+        inputStream = transport.openInputStream(0, 0, 0);
+      } catch {
+        try {
+          outputStream?.close?.();
+        } catch {
+          // Best-effort failed-accept cleanup.
+        }
+        rejectStaleTransport(transport);
+        return;
+      }
+      const connection: AcceptedHostConnection = {
+        generation,
+        transport,
+        inputStream,
+        outputStream,
+        abortController: new AbortController(),
+        outputClosed: false,
+        transportClosed: false,
+      };
+      acceptedConnections.add(connection);
+      void processAcceptedConnection(connection);
     },
     onStopListening: () => {
+      if (
+        generation !== serverGeneration ||
+        state.serverSocket !== serverSocket
+      ) {
+        return;
+      }
       if (state.status === "running") {
         const reason =
           "Host Bridge socket stopped unexpectedly; attempting restart.";
@@ -3451,7 +3573,8 @@ async function startServer() {
   const tryBind = async (port: number, mode: HostBridgePortMode) => {
     const serverSocket = createConfiguredServerSocket(port, config.bindMode);
     const token = getHostBridgeToken();
-    listen(serverSocket);
+    const generation = ++serverGeneration;
+    listen(serverSocket, generation);
     updateState({
       status: "running",
       host: config.host,
@@ -3547,11 +3670,13 @@ export async function ensureHostBridgeServer() {
 export async function shutdownHostBridgeServer() {
   controlledShutdown = true;
   clearRecoveryTimer();
+  serverGeneration += 1;
   try {
     state.serverSocket?.close?.();
   } catch {
     // Best-effort shutdown.
   }
+  closeAllAcceptedConnections();
   state = createEmptyState("stopped");
   startingPromise = null;
   controlledShutdown = false;
@@ -3589,11 +3714,13 @@ export async function stopHostBridgeSupervisor() {
   controlledShutdown = true;
   clearRecoveryTimer();
   clearSupervisorTimer();
+  serverGeneration += 1;
   try {
     state.serverSocket?.close?.();
   } catch {
     // Best-effort shutdown.
   }
+  closeAllAcceptedConnections();
   state = createEmptyState("stopped");
   startingPromise = null;
   controlledShutdown = false;
@@ -3707,6 +3834,7 @@ export function resetHostBridgeServerForTests() {
   startingPromise = null;
   serverSocketFactory = createServerSocket;
   synthesisServiceResolverForTests = undefined;
+  acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
 }
@@ -3751,7 +3879,6 @@ export const hostBridgeServerInternalsForTests = {
     RECOVERY_DELAY_MS,
     SUPERVISOR_INTERVAL_MS,
   },
-  readInputStream,
   readProfiledHostBridgeRequest,
   parseHttpRequestBytes,
   setServerSocketFactory(

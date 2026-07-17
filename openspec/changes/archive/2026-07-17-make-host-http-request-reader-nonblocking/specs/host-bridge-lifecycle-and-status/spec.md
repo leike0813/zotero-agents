@@ -1,8 +1,5 @@
-# host-bridge-lifecycle-and-status Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change harden-host-bridge-lifecycle-and-status. Update Purpose after archive.
-## Requirements
 ### Requirement: Supervised Host Bridge Lifecycle
 
 The plugin SHALL treat Host Bridge supervision as the single Host Access listener and accepted-connection lifecycle. Each accepted connection SHALL belong to the listener generation that accepted it.
@@ -42,44 +39,4 @@ The plugin SHALL treat Host Bridge supervision as the single Host Access listene
 
 - **WHEN** a stop or request callback from an older listener generation arrives after a new listener is running
 - **THEN** the callback SHALL NOT modify the new listener state or close a new-generation connection.
-
-### Requirement: Configurable Pinned Port
-
-The plugin SHALL allow users to pin Host Bridge to a fixed local port.
-
-#### Scenario: Pinned port is used
-
-- **GIVEN** `hostBridgePinPortEnabled` is true
-- **AND** `hostBridgePinnedPort` is a valid available port
-- **WHEN** Host Bridge starts
-- **THEN** it SHALL bind the configured port
-- **AND** the status snapshot SHALL report `portMode = "pinned"`.
-
-#### Scenario: Pinned port conflict falls back
-
-- **GIVEN** `hostBridgePinPortEnabled` is true
-- **AND** the configured port cannot be bound
-- **WHEN** Host Bridge starts
-- **THEN** the plugin SHALL set `hostBridgePinPortEnabled` to false
-- **AND** Host Bridge SHALL fall back to the random port range
-- **AND** the status snapshot SHALL report fallback diagnostics.
-
-### Requirement: Host Bridge Status Snapshot
-
-The Host Bridge status snapshot SHALL include lifecycle and port diagnostics for
-the unified Host Access listener.
-
-#### Scenario: MCP status is derived from Host Access listener
-
-- **WHEN** MCP status is requested
-- **THEN** it SHALL report route enablement, endpoint, port, and diagnostics
-  derived from the unified Host Access listener
-- **AND** it SHALL NOT report an independent socket port.
-
-#### Scenario: Snapshot exposes non-secret diagnostics
-
-- **WHEN** Host Bridge status is requested
-- **THEN** the snapshot SHALL include `portMode`, `pinPortEnabled`,
-  `pinnedPort`, `supervised`, `restartCount`, and `lastRecoveryReason`
-- **AND** the snapshot SHALL NOT expose bearer tokens or unrelated local paths.
 

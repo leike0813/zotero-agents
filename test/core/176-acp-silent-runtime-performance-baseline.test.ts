@@ -29,6 +29,12 @@ describe("ACP silent runtime performance baseline", function () {
       assert.equal(metric("run_persist_duration")?.duration?.count, 51);
       assert.isAbove(metric("host_input_bytes")?.counter?.total || 0, 0);
       assert.equal(metric("host_input_fragment")?.counter?.total, 2);
+      assert.equal(metric("host_input_wait")?.counter?.total, 2);
+      assert.equal(
+        metric("host_input_callback_max_duration")?.duration?.count,
+        1,
+      );
+      assert.isUndefined(metric("host_input_unavailable"));
       assert.equal(metric("host_request_duration")?.duration?.count, 1);
       assert.equal(metric("buffered_write_batch")?.counter?.total, 1);
       assert.equal(metric("buffered_write_bytes")?.counter?.total, 64);

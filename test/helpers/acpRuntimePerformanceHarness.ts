@@ -176,6 +176,17 @@ async function exerciseR1ProductionSeams(
 function installFragmentedBinaryInput(raw: Uint8Array) {
   const midpoint = Math.max(1, Math.floor(raw.byteLength / 2));
   const chunks = [raw.slice(0, midpoint), raw.slice(midpoint)];
+  let callback: { onInputStreamReady(input: unknown): void } | null = null;
+  const inputStream = {
+    asyncWait(nextCallback: typeof callback) {
+      callback = nextCallback;
+      if (callback && chunks.length) {
+        const ready = callback;
+        queueMicrotask(() => ready.onInputStreamReady(inputStream));
+      }
+    },
+    close() {},
+  };
   const binaryStream = {
     setInputStream() {},
     available() {
@@ -184,10 +195,14 @@ function installFragmentedBinaryInput(raw: Uint8Array) {
     readByteArray() {
       return Array.from(chunks.shift() || []);
     },
-    close() {},
+    close: () => inputStream.close(),
   };
-  const runtime = globalThis as typeof globalThis & { Components?: unknown };
+  const runtime = globalThis as typeof globalThis & {
+    Components?: unknown;
+    Services?: unknown;
+  };
   const previous = Object.getOwnPropertyDescriptor(runtime, "Components");
+  const previousServices = Object.getOwnPropertyDescriptor(runtime, "Services");
   Object.defineProperty(runtime, "Components", {
     configurable: true,
     value: {
@@ -196,15 +211,30 @@ function installFragmentedBinaryInput(raw: Uint8Array) {
           createInstance: () => binaryStream,
         },
       },
-      interfaces: { nsIBinaryInputStream: {} },
+      interfaces: {
+        nsIAsyncInputStream: {},
+        nsIBinaryInputStream: {},
+      },
     },
   });
-  return () => {
-    if (previous) {
-      Object.defineProperty(runtime, "Components", previous);
-    } else {
-      delete runtime.Components;
-    }
+  Object.defineProperty(runtime, "Services", {
+    configurable: true,
+    value: { tm: { mainThread: {} } },
+  });
+  return {
+    inputStream,
+    restore() {
+      if (previous) {
+        Object.defineProperty(runtime, "Components", previous);
+      } else {
+        delete runtime.Components;
+      }
+      if (previousServices) {
+        Object.defineProperty(runtime, "Services", previousServices);
+      } else {
+        delete runtime.Services;
+      }
+    },
   };
 }
 
@@ -220,11 +250,13 @@ async function exerciseR2ProductionSeams(requestId: string) {
       "",
     ].join("\r\n"),
   );
-  const restore = installFragmentedBinaryInput(raw);
+  const installed = installFragmentedBinaryInput(raw);
   try {
-    hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest({});
+    await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+      installed.inputStream,
+    );
   } finally {
-    restore();
+    installed.restore();
   }
   configureHostBridgeServerForTests({ token: "fixture-host-bridge-token" });
   await handleHostBridgeHttpRequestForTests({

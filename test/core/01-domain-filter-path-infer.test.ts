@@ -114,6 +114,26 @@ describe("domain filter path inference", function () {
     );
   });
 
+  it("allows the fragmented Host Bridge socket fixture in Zotero lite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/core/182-host-bridge-socket.integration.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "core",
+        testDomain: "core",
+        fullTitle:
+          "host bridge socket integration in Zotero runtime keeps heartbeat alive across fragmented health, upload, and MCP requests",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
   it("allows the ACP Replay nested-frame regression in Zotero UI lite", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(

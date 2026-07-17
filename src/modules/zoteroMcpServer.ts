@@ -175,7 +175,6 @@ type ServerState = {
   port: number;
   endpoint: string;
   token: string;
-  serverSocket: any;
   lastRequestMethod: string;
   lastResponseStatus: number;
   lastError: string;
@@ -204,8 +203,6 @@ type HttpRequest = {
 };
 
 const HOST = "127.0.0.1";
-const PORT_MIN = 26370;
-const PORT_SPAN = 200;
 const MAX_RECENT_REQUESTS = 16;
 const DEFAULT_TOOL_QUEUE_PENDING_LIMIT = 8;
 const DEFAULT_TOOL_QUEUE_TIMEOUT_MS = 30000;
@@ -283,7 +280,6 @@ let activeTool = "";
 let runningStartedAt = "";
 let activeToolTimedOut = false;
 let runningTimedOutAt = "";
-let intentionalShutdown = false;
 let mcpRequestSequence = 0;
 
 class ZoteroMcpToolCallQueue {
@@ -533,7 +529,6 @@ function createEmptyState(status: ZoteroMcpServerStatus): ServerState {
     port: 0,
     endpoint: "",
     token: "",
-    serverSocket: null,
     lastRequestMethod: "",
     lastResponseStatus: 0,
     lastError: "",
@@ -804,108 +799,6 @@ export function subscribeZoteroMcpDiagnostics(
   return addListener(listener);
 }
 
-function getComponents() {
-  return (
-    (globalThis as any).Components ||
-    (globalThis as any).ChromeUtils?.importESModule?.(
-      "resource://gre/modules/Services.sys.mjs",
-    )?.Components
-  );
-}
-
-function createServerSocket(port: number) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const factory = classes?.["@mozilla.org/network/server-socket;1"];
-  const nsIServerSocket = interfaces?.nsIServerSocket;
-  if (!factory || !nsIServerSocket) {
-    throw new Error("Zotero nsIServerSocket is unavailable");
-  }
-  const socket = factory.createInstance(nsIServerSocket);
-  socket.init(port, true, -1);
-  return socket;
-}
-
-function pickStartPort() {
-  return PORT_MIN + Math.floor(Math.random() * PORT_SPAN);
-}
-
-function readInputStream(
-  inputStream: any,
-  args: {
-    close?: boolean;
-  } = {},
-) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
-  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
-  const factory = classes?.["@mozilla.org/scriptableinputstream;1"];
-  const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!binaryFactory && !factory) {
-    throw new Error("Zotero scriptable input stream is unavailable");
-  }
-  const stream =
-    binaryFactory && nsIBinaryInputStream
-      ? binaryFactory.createInstance(nsIBinaryInputStream)
-      : factory.createInstance(nsIScriptableInputStream);
-  if (binaryFactory && nsIBinaryInputStream) {
-    stream.setInputStream(inputStream);
-  } else {
-    stream.init(inputStream);
-  }
-  const chunks: Uint8Array[] = [];
-  let totalLength = 0;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 500) {
-    let available = 0;
-    try {
-      available = Number(
-        stream.available?.() || inputStream.available?.() || 0,
-      );
-    } catch (error) {
-      if (isClosedStreamError(error)) {
-        break;
-      }
-      throw error;
-    }
-    if (available <= 0) {
-      const current = concatBytes(chunks, totalLength);
-      if (findHeaderSeparator(current) >= 0) {
-        const parsed = tryParseHeaders(current);
-        if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-          break;
-        }
-      }
-      continue;
-    }
-    const chunk =
-      binaryFactory && nsIBinaryInputStream
-        ? Uint8Array.from(stream.readByteArray(available) || [])
-        : binaryStringToBytes(stream.read(available));
-    chunks.push(chunk);
-    totalLength += chunk.length;
-    const current = concatBytes(chunks, totalLength);
-    const parsed = tryParseHeaders(current);
-    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-      break;
-    }
-  }
-  if (args.close !== false) {
-    stream.close?.();
-  }
-  return concatBytes(chunks, totalLength);
-}
-
-function isClosedStreamError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return (
-    message.includes("NS_BASE_STREAM_CLOSED") || message.includes("0x80470002")
-  );
-}
-
 function bytesToLatin1String(bytes: Uint8Array) {
   const chunks: string[] = [];
   const chunkSize = 0x8000;
@@ -915,24 +808,6 @@ function bytesToLatin1String(bytes: Uint8Array) {
     );
   }
   return chunks.join("");
-}
-
-function binaryStringToBytes(text: string) {
-  const bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index += 1) {
-    bytes[index] = text.charCodeAt(index) & 0xff;
-  }
-  return bytes;
-}
-
-function concatBytes(chunks: Uint8Array[], totalLength: number) {
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
 }
 
 function findHeaderSeparator(bytes: Uint8Array) {
@@ -972,19 +847,6 @@ function parseHttpHeaders(headerText: string) {
       .trim();
   }
   return headers;
-}
-
-function tryParseHeaders(bytes: Uint8Array) {
-  const splitIndex = findHeaderSeparator(bytes);
-  if (splitIndex < 0) {
-    return null;
-  }
-  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
-  const headers = parseHttpHeaders(headerText);
-  return {
-    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
-    contentLength: Number(headers["content-length"] || 0),
-  };
 }
 
 function safeDecodeURIComponent(value: string) {
@@ -1044,33 +906,10 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
   };
 }
 
-function parseHttpRequest(raw: string): HttpRequest {
-  return parseHttpRequestBytes(binaryStringToBytes(raw));
-}
-
 function utf8ByteLength(text: string) {
   return typeof TextEncoder === "function"
     ? new TextEncoder().encode(text).length
     : text.length;
-}
-
-function writeOutputStream(outputStream: any, response: string) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const converterFactory =
-    classes?.["@mozilla.org/intl/converter-output-stream;1"];
-  const nsIConverterOutputStream = interfaces?.nsIConverterOutputStream;
-  if (converterFactory && nsIConverterOutputStream) {
-    const converter = converterFactory.createInstance(nsIConverterOutputStream);
-    converter.init(outputStream, "UTF-8");
-    converter.writeString(response);
-    converter.close();
-    return "converter-output-stream";
-  }
-  outputStream.write(response, response.length);
-  outputStream.close?.();
-  return "raw-output-stream";
 }
 
 function buildHttpResponse(args: {
@@ -2361,52 +2200,6 @@ async function handleHttpRequest(
   }
 }
 
-function scheduleWatchdogRestart(reason: string) {
-  if (intentionalShutdown || state.status === "starting") {
-    return;
-  }
-  const preferredPort = state.port;
-  const listeners = state.listeners;
-  restartCount += 1;
-  lastRestartAt = nowIso();
-  lastFatalError = reason;
-  updateState({
-    status: "starting",
-    lastError: reason,
-  });
-  try {
-    state.serverSocket?.close?.();
-  } catch {
-    // Best effort.
-  }
-  toolCallQueue.reset();
-  activeTool = "";
-  runningStartedAt = "";
-  activeToolTimedOut = false;
-  runningTimedOutAt = "";
-  emit({
-    kind: "zotero_mcp_error",
-    level: "warn",
-    message: "Zotero MCP watchdog restarting server",
-    detail: reason,
-  });
-  startingPromise = startServer(preferredPort)
-    .catch((error) => {
-      updateState({
-        status: "error",
-        lastError: compactMcpError(error),
-      });
-      return Promise.reject(error);
-    })
-    .finally(() => {
-      startingPromise = null;
-      state.listeners = listeners;
-    });
-  void startingPromise.catch(() => {
-    // Diagnostics already captured; keep the current ACP session alive.
-  });
-}
-
 function buildRequestFailureResponse(rawRequest: string, error: unknown) {
   const message = compactMcpError(error);
   return buildHttpResponse({
@@ -2419,116 +2212,6 @@ function buildRequestFailureResponse(rawRequest: string, error: unknown) {
           message,
         },
   });
-}
-
-function listen(serverSocket: any) {
-  const listener = {
-    onSocketAccepted(_server: unknown, transport: any) {
-      void (async () => {
-        let output: any;
-        let rawRequest = new Uint8Array();
-        try {
-          const input = transport.openInputStream(0, 0, 0);
-          output = transport.openOutputStream(0, 0, 0);
-          rawRequest = readInputStream(input, { close: false });
-          if (!rawRequest.length) {
-            transport.close?.(0);
-            return;
-          }
-          const request = parseHttpRequestBytes(rawRequest);
-          const requestId = createMcpRequestId();
-          const response = await handleHttpRequest(request, requestId);
-          appendMcpRuntimeLog({
-            requestId,
-            stage: "response.write.started",
-            phase: "response",
-            request,
-            responseBytes: response.length,
-            details: responseFacts(response),
-          });
-          try {
-            const writeStartedAt = Date.now();
-            const writerType = writeOutputStream(output, response);
-            appendMcpRuntimeLog({
-              requestId,
-              stage: "response.write.finished",
-              phase: "response",
-              request,
-              responseBytes: response.length,
-              durationMs: Date.now() - writeStartedAt,
-              details: {
-                ...responseFacts(response),
-                writerType,
-                closeOutcome: "closed",
-              },
-            });
-          } catch (error) {
-            appendMcpRuntimeLog({
-              requestId,
-              stage: "response.write.failed",
-              phase: "response",
-              level: "error",
-              request,
-              responseBytes: response.length,
-              details: responseFacts(response),
-              error,
-            });
-            throw error;
-          }
-          transport.close?.(0);
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error || "");
-          lastFatalError = message;
-          updateState({
-            status: state.status === "running" ? "running" : "error",
-            lastError: message,
-          });
-          emit({
-            kind: "zotero_mcp_error",
-            level: "error",
-            message: "Zotero MCP request failed",
-            detail: message,
-          });
-          appendMcpRuntimeLog({
-            requestId: "zotero-mcp-listener",
-            stage: "request.fatal",
-            phase: "request",
-            level: "error",
-            error,
-          });
-          try {
-            if (output) {
-              writeOutputStream(
-                output,
-                buildRequestFailureResponse(
-                  bytesToLatin1String(rawRequest),
-                  error,
-                ),
-              );
-            }
-          } catch {
-            // Fall through to socket close.
-          }
-          scheduleWatchdogRestart(message);
-          try {
-            transport.close?.(0);
-          } catch {
-            // Best effort cleanup.
-          }
-        }
-      })();
-    },
-    onStopListening() {
-      if (state.status === "running") {
-        updateState({
-          status: "stopped",
-        });
-        scheduleWatchdogRestart("server socket stopped");
-      }
-    },
-  };
-  serverSocket.asyncListen(listener);
 }
 
 function buildDescriptor(): ZoteroMcpServerDescriptor {
@@ -2609,7 +2292,7 @@ function endpointFacts(endpoint: string) {
   }
 }
 
-async function startServer(_preferredPort?: number) {
+async function startServer() {
   updateState({
     status: "starting",
     lastError: "",
@@ -2631,7 +2314,6 @@ async function startServer(_preferredPort?: number) {
       port: facts.port,
       endpoint,
       token,
-      serverSocket: null,
       lastError: "",
     });
     if (previousEndpoint && previousEndpoint !== endpoint) {
@@ -2710,7 +2392,6 @@ export async function ensureZoteroMcpServer(
 }
 
 export async function shutdownZoteroMcpServer() {
-  intentionalShutdown = true;
   const listeners = state.listeners;
   state = createEmptyState("stopped");
   state.listeners = listeners;
@@ -2721,7 +2402,6 @@ export async function shutdownZoteroMcpServer() {
   runningTimedOutAt = "";
   descriptorInjected = false;
   descriptorInjectedAt = "";
-  intentionalShutdown = false;
 }
 
 export async function handleZoteroMcpHostAccessRequest(request: HttpRequest) {

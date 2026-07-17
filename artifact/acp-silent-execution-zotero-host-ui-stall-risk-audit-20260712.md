@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 已于 2026-07-17 完成实现及 Zotero 9 机制验收，Zotero 7 宿主验收待补
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -52,7 +52,7 @@ Node 测试验证了调用边界、bytes 归属、ack 完整性和 DOM identity�
 
 后续旧 Skills trace 回放暴露了 measurement window 竞态：warm-up 出现 `post=8, shell=8, child=7, render=7`，而相邻 formal 轮又出现 `child/render=9` 或 `shell=9`。这证明旧 drain 以 child delivery revision 加一个 animation frame 结束时，最后的异步 host acknowledgement 可能跨轮计数；聚合 `ack >= post` 还会让迟到 acknowledgement 掩盖 identity 缺口。当前实现改为由 host 维护有界 publication lifecycle ledger，强制诊断发布返回准确 ID，drain 等待该 ID 的 `render-complete applied` 以及同 tab 较早 pending publication 收敛；Replay 按 ID 集合匹配 post、shell-forward、child-apply、render-ack。shell cache 中被新 generation 取代的 identified snapshot 会获得显式 `superseded` 终态，owner-first 期间的瞬时 `old-owner` probe 会单飞重试；Chat/Skills child 同一 frame 前收到的 identified snapshots 也按序 apply/ack，不再被单槽 pending snapshot 静默覆盖。旧报告中的 formal `captured` 因而不再作为 R3 完整性证据，必须用修复后的矩阵重采。
 
-相同 provenance 的治理后 live Chat matrix、Zotero 7 formal run，以及 Zotero 9 recorded-cadence formal run 仍未生成；在这些结果产生前，只能确认 R3 区域发布实现与当前 Zotero 9 机制验收完成，不能声明 baseline 次数、实际 posted bytes 或 `>100ms` drift bucket 已在正式 before/after 矩阵中改善。R1、R2 风险保持本文原结论，未在本 change 中顺带修改。
+相同 provenance 的治理后 live Chat matrix、Zotero 7 formal run，以及 Zotero 9 recorded-cadence formal run 仍未生成；在这些结果产生前，只能确认 R3 区域发布实现与当前 Zotero 9 机制验收完成，不能声明 baseline 次数、实际 posted bytes 或 `>100ms` drift bucket 已在正式 before/after 矩阵中改善。该 R3 change 当时未顺带修改 R1、R2；R2 后续状态见 6.5 与 18.8。
 
 ## 2. 总结结论
 
@@ -240,7 +240,7 @@ Zotero adapter 使用 `conn.execute` / `statement.execute()`，属于同步 mozS
 - Task Manager 打开/关闭时的差异；
 - Assistant Workspace 打开/关闭时的差异。
 
-## 6. R2：Host Bridge socket 同步忙等
+## 6. R2：Host Bridge socket 请求读取
 
 ### 6.1 调用链
 
@@ -287,6 +287,32 @@ MCP tool 层的 `runningLimit = 1` 不能覆盖：
 - 请求 header/body 到达分片数；
 - 同时 accepted/in-flight 连接数；
 - 超过 16ms、50ms、100ms 的调用分布。
+
+### 6.5 当前实现状态（2026-07-17）
+
+`make-host-http-request-reader-nonblocking` 已将上述同步读取原子替换为
+`src/modules/hostHttpRequestReader.ts` 的事件驱动 reader。reader 只在
+`nsIAsyncInputStream.asyncWait()` 派发到 Zotero 主线程的 readiness callback
+中读取当前 `available()` bytes；未完整时重新注册一次性通知，不再同步等待未来
+网络数据，也不保留 input pump 或同步 fallback。
+
+实施时确认了一处审计代码漂移：生产 `/mcp` 在本 change 之前已经由
+`hostBridgeServer.ts` 的统一 Host Access listener 路由，
+`zoteroMcpServer.ts` 中独立 socket、同步 reader/writer、listener 与 watchdog
+链均不可达。本 change 删除了该遗留双轨；MCP parser、JSON-RPC handler、failure
+response 测试 helper 和公开 descriptor/status DTO 保持不变。
+
+当前读取合同为：64 KiB header、16 MiB transport body、500ms idle timeout、
+30s hard deadline；每次非空读取重置 idle timer，hard deadline 不移动。缺少
+`Content-Length` 视为零 body；非法/负数/冲突 Content-Length、chunked transfer、
+超额或额外 body bytes、提前 EOF 均在业务 handler 前失败。普通 route 的 1 MiB
+与 upload 的 16 MiB 业务限制仍由 Host Bridge handler 作为 SSOT 执行。
+
+accepted connection 现在由 listener generation 拥有。shutdown/restart 先失效
+generation，再 abort/关闭全部 accepted connection；迟到 stop/request callback
+不能修改新 server。请求级 timeout、framing、EOF 或 read error 只清理本连接并映射
+431/413/408/400/500，不再把 listener 状态改成 `error`。R2 仍不处理 response
+writer（R11）或 accepted connection 数量/背压（R5）。
 
 ## 7. R3：静默模式仍触发完整 Assistant Workspace snapshot
 
@@ -1540,7 +1566,7 @@ src/modules/assistantWorkspacePublication.ts
 
 R2 可以直接修，不需要等 profiler 证明 busy-spin 是错误设计。
 
-#### 新模块与 DTO
+#### 当前模块与 DTO
 
 新增：
 
@@ -1554,11 +1580,11 @@ type HostHttpRequestReadResult = {
   headerBytes: number;
   bodyBytes: number;
   contentLength: number;
+  fragments: number;
+  waits: number;
+  durationMs: number;
+  maxCallbackDurationMs: number;
 };
-
-interface HostHttpRequestReader {
-  read(input: nsIAsyncInputStream): Promise<HostHttpRequestReadResult>;
-}
 ```
 
 实现只在 `nsIAsyncInputStream.asyncWait/onInputStreamReady` 回调中读取 `available()` bytes；在读取过程中执行 header、普通 body、upload body 上限和 deadline 检查。
@@ -1566,21 +1592,46 @@ interface HostHttpRequestReader {
 #### 修改与删除
 
 - 修改 `src/modules/hostBridgeServer.ts`；
-- 修改 `src/modules/zoteroMcpServer.ts`，复用同一 reader；
-- 删除两个 server 内的同步 `readInputStream()`，不保留 fallback 双轨。
+- `src/modules/hostBridgeServer.ts` 作为唯一 socket owner 调用共享 reader；
+- `src/modules/zoteroMcpServer.ts` 保留 MCP route handler，删除不可达的独立
+  socket/read/write/watchdog 链；
+- 删除生产路径全部同步 `readInputStream()`，不保留 fallback 双轨。
 
 HTTP path、auth、status、capability 和 CLI response 不变。
 
 #### 验证
 
-扩展 `test/core/106-host-bridge-server.test.ts` 和 MCP server 对应测试：
+`test/core/181-host-http-request-reader.test.ts`、
+`test/core/182-host-bridge-socket.integration.test.ts` 与现有 Host Bridge/MCP
+测试覆盖：
 
 - 分片 header/body；
 - `available() === 0` 后再到达；
 - header/body 超限；
 - timeout；
-- 并发慢连接；
 - accepted callback 立即返回，最终 parser 结果与现有行为一致。
+
+自动化 Node 验证已覆盖 reader、connection lifecycle、partial upload、stale
+generation、MCP 回归与 profiler/baseline；成功与结构化失败读取均验证了 wait 与
+callback duration 聚合。2026-07-17 的针对性回归为 40 passed，完整
+`npm run test:node:core` 为 2361 passed、59 pending、54 failed。本 change 涉及的
+reader、Host Bridge、MCP 与 profiler 用例均通过；完整 suite 的失败集中于既有 topic
+synthesis Python gate、ACP session manager timeout/recorder idle 和 suite governance
+裸 `Zotero` 检查，其中代表性 topic synthesis 与 ACP timeout 用例独立复跑仍失败，
+没有把这些失败归为 R2 通过证据。
+
+真实 Zotero fixture 使用 timer 分开发送 header/body，并在间隔中累计 heartbeat；
+同一 fixture 覆盖 health、binary upload 和 `/mcp` JSON-RPC。当前已安装宿主
+`/usr/bin/zotero` 的 Debian package 版本为 9.0.4-1：针对性 fixture 为 1 passed，
+完整 `npm run test:zotero:core` 为 24 passed，分片间 heartbeat 持续。测试进程内的
+原始响应读取沿用既有 MCP socket fixture 的 request-log fallback，以规避同一 Zotero
+进程内客户端先观察到 stream close 的已知测试限制；Node lifecycle fixture 仍逐字节
+校验实际响应。当前文件系统未发现 Zotero 7 可执行文件，因此 Zotero 7 未运行，不能
+据此声明双版本验收完成。
+
+`npm run lint:check`、`npm run build` 与
+`openspec validate make-host-http-request-reader-nonblocking --type change --strict --no-interactive`
+均通过。
 
 治理效果门：慢分片不再产生单次近 500ms 的同步 socket read。
 
