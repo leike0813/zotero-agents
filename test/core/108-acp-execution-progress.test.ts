@@ -1,13 +1,11 @@
 import { assert } from "chai";
 import {
-  discardAcpExecutionProgressCandidate,
   finishAcpExecutionProgress,
   releaseAcpExecutionProgress,
   resetAcpExecutionProgress,
   resetAllAcpExecutionProgressForTests,
   restoreAcpExecutionProgress,
   snapshotAcpExecutionProgress,
-  takeAcpExecutionProgressTerminalCandidate,
   updateAcpExecutionProgress,
 } from "../../src/modules/acpExecutionProgress";
 
@@ -24,25 +22,25 @@ describe("ACP execution progress", function () {
     content: { type: "text", text: value },
   });
 
-  it("counts consecutive assistant chunks once and retains the candidate", function () {
+  it("counts consecutive assistant chunks once without retaining text", function () {
     assert.isTrue(
       updateAcpExecutionProgress("owner", text("one")).countChanged,
     );
     assert.isFalse(
       updateAcpExecutionProgress("owner", text(" two")).countChanged,
     );
-    assert.deepEqual(snapshotAcpExecutionProgress("owner")?.current, {
+    const snapshot = snapshotAcpExecutionProgress("owner");
+    assert.deepEqual(snapshot?.current, {
       assistant: 1,
       thought: 0,
       tool: 0,
     });
-    assert.deepEqual(snapshotAcpExecutionProgress("owner")?.cumulative, {
+    assert.deepEqual(snapshot?.cumulative, {
       assistant: 1,
       thought: 0,
       tool: 0,
     });
-    assert.equal(takeAcpExecutionProgressTerminalCandidate("owner"), "one two");
-    assert.equal(takeAcpExecutionProgressTerminalCandidate("owner"), "");
+    assert.notProperty(snapshot as any, "terminalCandidateChunks");
   });
 
   for (const sessionUpdate of [
@@ -52,11 +50,10 @@ describe("ACP execution progress", function () {
     "turn_boundary",
     "agent_thought_chunk",
   ]) {
-    it(`closes and discards on ${sessionUpdate}`, function () {
-      updateAcpExecutionProgress("owner", text("discarded"));
+    it(`closes the segment on ${sessionUpdate}`, function () {
+      updateAcpExecutionProgress("owner", text("first"));
       const change = updateAcpExecutionProgress("owner", { sessionUpdate });
       assert.isTrue(change.segmentClosed);
-      assert.equal(takeAcpExecutionProgressTerminalCandidate("owner"), "");
       assert.isTrue(
         updateAcpExecutionProgress("owner", text("next")).countChanged,
       );
@@ -77,15 +74,10 @@ describe("ACP execution progress", function () {
       updateAcpExecutionProgress("owner", text("one"));
       assert.deepEqual(updateAcpExecutionProgress("owner", { sessionUpdate }), {
         countChanged: false,
-        candidateChanged: false,
         segmentClosed: false,
       });
       assert.isFalse(
         updateAcpExecutionProgress("owner", text("two")).countChanged,
-      );
-      assert.equal(
-        takeAcpExecutionProgressTerminalCandidate("owner"),
-        "onetwo",
       );
     });
   }
@@ -163,16 +155,17 @@ describe("ACP execution progress", function () {
     });
   });
 
-  it("retains the candidate at a terminal boundary", function () {
+  it("closes the segment at a terminal boundary without changing counts", function () {
     updateAcpExecutionProgress("owner", text("final"));
-    updateAcpExecutionProgress("owner", { sessionUpdate: "request_terminal" });
-    assert.equal(takeAcpExecutionProgressTerminalCandidate("owner"), "final");
+    const change = updateAcpExecutionProgress("owner", {
+      sessionUpdate: "request_terminal",
+    });
+    assert.isTrue(change.segmentClosed);
+    assert.equal(snapshotAcpExecutionProgress("owner")?.current.assistant, 1);
   });
 
-  it("resets, discards, and releases owner state", function () {
-    updateAcpExecutionProgress("owner", text("candidate"));
-    discardAcpExecutionProgressCandidate("owner");
-    assert.equal(takeAcpExecutionProgressTerminalCandidate("owner"), "");
+  it("resets and releases owner state", function () {
+    updateAcpExecutionProgress("owner", text("counted"));
     const reset = resetAcpExecutionProgress("owner");
     assert.deepEqual(reset.current, { assistant: 0, thought: 0, tool: 0 });
     releaseAcpExecutionProgress("owner");

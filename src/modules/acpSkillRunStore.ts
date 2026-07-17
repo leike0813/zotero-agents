@@ -25,7 +25,6 @@ import {
   subscribeAssistantExecutionDisplayMode,
 } from "./assistantExecutionDisplayPolicy";
 import {
-  discardAcpExecutionProgressCandidate,
   finishAcpExecutionProgress,
   releaseAcpExecutionProgress,
   resetAcpExecutionProgress,
@@ -2508,8 +2507,6 @@ function ensureHydrated() {
               acpSkillRunWorkspaceChange(record.requestId, ["transcript"]),
             );
           }
-        } else if (lastExecutionDisplayMode === "silent") {
-          discardAcpExecutionProgressCandidate(record.requestId);
         }
       }
       lastExecutionDisplayMode = mode;
@@ -4427,7 +4424,6 @@ export function completeAcpSkillRunTranscriptTurnBoundary(
     return;
   }
   if (isAssistantSilentExecutionMode()) {
-    discardAcpExecutionProgressCandidate(requestId);
     return;
   }
   const now = nowIso();

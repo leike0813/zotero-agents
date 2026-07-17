@@ -81,6 +81,25 @@ import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExe
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+  const useScriptedPrompt = (
+    script: (
+      adapter: FakeAcpConnectionAdapter,
+      args: { sessionId: string; message: string },
+    ) => Promise<{ stopReason: string }>,
+  ) => {
+    setAcpConnectionAdapterFactoryForTests(async (factoryArgs) => {
+      const adapter = new FakeAcpConnectionAdapter();
+      adapter.semanticTraceContext = factoryArgs.semanticTraceContext;
+      adapter.prompt = async (args) => {
+        adapter.prompts.push(args.message);
+        return script(adapter, args);
+      };
+      harness.lastAdapter = adapter;
+      harness.lastFactoryArgs = factoryArgs;
+      harness.adapters.add(adapter);
+      return adapter;
+    });
+  };
 
   it("initializes empty ACP Chat counters and promotes legacy counters at the next prompt", async function () {
     await startNewAcpConversation();
@@ -165,6 +184,141 @@ describe("acp session manager", function () {
       tool: 1,
     });
     assert.isFalse((panel.messageCounts as any)?.active);
+  });
+
+  it("persists only the final silent assistant segment across semantic boundaries", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "discarded" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "usage_update", used: 1, size: 10 },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " continuation" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "tool_call", toolCallId: "tool-1" },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "kept" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1" },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " final" },
+        },
+      });
+      return { stopReason: "end_turn" };
+    });
+    setAssistantExecutionDisplayMode("silent");
+
+    await sendAcpConversationPrompt({ message: "segmented silent result" });
+
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["kept final"],
+    );
+    assert.equal(assistant[0]?.state, "complete");
+  });
+
+  it("preserves the silent assistant candidate on prompt error", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "partial result" },
+        },
+      });
+      throw new Error("scripted prompt failure");
+    });
+    setAssistantExecutionDisplayMode("silent");
+
+    let thrown: unknown;
+    try {
+      await sendAcpConversationPrompt({ message: "failing silent result" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, Error);
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["partial result"],
+    );
+    assert.equal(assistant[0]?.state, "error");
+  });
+
+  it("starts a fresh silent terminal segment after a live mode transition", async function () {
+    let releasePrompt: (() => void) | undefined;
+    let markPromptReady: (() => void) | undefined;
+    const promptReady = new Promise<void>((resolve) => {
+      markPromptReady = resolve;
+    });
+    useScriptedPrompt(async () => {
+      await new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+        markPromptReady?.();
+      });
+      return { stopReason: "end_turn" };
+    });
+
+    const prompt = sendAcpConversationPrompt({ message: "mode transition" });
+    await promptReady;
+    const prompting = await waitForAcpConversationSnapshot(
+      (snapshot) => snapshot.busy,
+    );
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: prompting.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible before" },
+      },
+    });
+    setAssistantExecutionDisplayMode("silent");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: prompting.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "silent after" },
+      },
+    });
+    releasePrompt?.();
+    await prompt;
+
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["visible before", "silent after"],
+    );
   });
 
   it("seals visible history and never backfills content across silent transitions", async function () {
