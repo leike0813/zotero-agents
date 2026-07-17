@@ -186,6 +186,8 @@ below the engine's maximum envelope, so production routing remains blocked on a
 separate bounded transfer/data-layout change. Canary failure has no repository,
 basis, promotion, canonical-file, or operation authority.
 
+The sidecar also composes a private Citation Graph shadow application over its identity-bound isolated repository. It accepts only full-scope build-engine requests, uses a null expected graph only for initial creation, returns unchanged for an identical canonical input unless forced, and compare-and-swap promotes structure plus light metrics. Complex metrics run after that commit and return a stable warning on failure; layout remains an explicit operation. Slice, metrics, and layout reads are bounded persisted projections. This application is not an HTTP capability, is never invoked automatically, and does not read or fall back to the production graph repository.
+
 Citation graph structure is derived from:
 
 1. active raw references;

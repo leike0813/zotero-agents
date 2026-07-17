@@ -13,6 +13,8 @@ import type {
 } from "../../synthesis-repository/src/index.js";
 
 export * from "./topicCanonical.js";
+export * from "./citationGraphApplication.js";
+export * from "./citationGraphProjection.js";
 export * from "./topicApplyDecision.js";
 export * from "./topicApplication.js";
 

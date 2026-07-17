@@ -1132,6 +1132,13 @@ graph layout 作为第一条 process canary，因为：
   application SSOT 并由插件兼容导出复用；production canonical metadata hash 语义与严格
   shadow envelope 不同，因此 production list/detail/apply 明确保留原 composition，避免
   隐式 hash 漂移。完整迁移与 single-writer cutover 仍由后续 change 负责。
+- `add-synthesis-sidecar-citation-graph-application-foundation` 已完成拆分优先级第 4 项的
+  私有 shadow application：严格 full rebuild、bounded slice/metrics/layout reads、显式
+  metrics/layout recompute 与全局单 mutation admission 组合在 recovery 后的隔离 repository
+  之上。结构/light metrics 在一个 expected-graph transaction 内替换；complex metrics 和
+  layout 只在 graph hash 仍 active 时提升。所有 kernel 继续通过同一 bounded worker，直接
+  build admission 保持 8 MiB/250k/50k 且不自动转 packed transfer。该 application 没有
+  authenticated RPC、自动 shadow invocation、production fallback 或 `SynthesisClient` route。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

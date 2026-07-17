@@ -49,7 +49,7 @@ ids only.
 ## SQLite Policy
 
 The service's WS5 shadow database begins with the three foundation tables and
-adds isolated Topic application state and projection records. Its authenticated
+adds isolated Topic and Citation Graph application state and projection records. Its authenticated
 application read remains the `workbench.chrome.read` canary: two fixed indexed
 cache lookups plus at most 50 running and 20 current failed operations, under
 the 150 ms chrome target. The private Topic application lists indexed state and
@@ -57,6 +57,8 @@ loads at most one canonical Topic for detail; it is not remotely routed and
 performs no Host, production, or Zotero reads. Startup schema validation and
 running-operation reconciliation complete before readiness; health/handshake
 use maintained snapshots and never query row counts.
+
+Private Citation Graph mutations are globally single-flight before they reach the worker pool, so a competitor returns busy instead of consuming either queued slot. Full build input also applies the 8 MiB/250,000-node monolithic admission and 50,000-node result cap directly; it never switches to packed transfer. Worker compute stays outside SQLite, full replacement is one short CAS transaction, and metrics/layout promotion performs a second active-graph check. Bounded reads remain available during compute.
 
 The WS5 Topic canonical shadow is also main-process owned, but it is not a hot
 path or production apply route. Authenticated inspect reads one requested Topic

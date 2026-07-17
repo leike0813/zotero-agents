@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_META_KEY,
+  SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION,
   SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
   createSynthesisRepositoryFoundationStore,
 } from "../../packages/synthesis-repository/src/index";
@@ -49,6 +51,52 @@ describe("Synthesis sidecar isolated repository foundation", function () {
       "synt_operation",
       "synt_schema_meta",
     ]);
+    assert.equal(
+      store.getSchemaVersion(),
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    connection.close();
+  });
+
+  it("installs the isolated Citation Graph application schema without changing the foundation snapshot", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const connection = openSynthesisNodeSqliteAdapter(
+      path.join(root, "synthesis.db"),
+    );
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    store.initializeCitationGraphApplication();
+    store.initializeCitationGraphApplication();
+    const tables = connection.adapter
+      .all(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'synt_%' ORDER BY name",
+      )
+      .map((row) => row.name);
+    assert.deepEqual(tables, [
+      "synt_cache_basis",
+      "synt_citation_edge",
+      "synt_citation_graph_application_state",
+      "synt_citation_incoming_group",
+      "synt_citation_layout_state",
+      "synt_citation_metrics_complex",
+      "synt_citation_metrics_light",
+      "synt_citation_node",
+      "synt_citation_source_ownership",
+      "synt_operation",
+      "synt_schema_meta",
+    ]);
+    assert.equal(
+      connection.adapter.get(
+        "SELECT value FROM synt_schema_meta WHERE key=@key LIMIT 1",
+        {
+          key: SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_META_KEY,
+        },
+      )?.value,
+      SYNTHESIS_CITATION_GRAPH_APPLICATION_REPOSITORY_SCHEMA_VERSION,
+    );
     assert.equal(
       store.getSchemaVersion(),
       SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,

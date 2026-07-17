@@ -185,6 +185,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/repositoryNodeSqlite.js",
       "service/apps/synthesis-service/src/topicCanonicalStoreNode.js",
       "service/apps/synthesis-service/src/topicApplicationNode.js",
+      "service/apps/synthesis-service/src/citationGraphApplicationNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
@@ -192,12 +193,16 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/sidecarTransfer.js",
       "service/packages/synthesis-contracts/src/sidecarCanonicalStore.js",
       "service/packages/synthesis-contracts/src/topicApplication.js",
+      "service/packages/synthesis-contracts/src/citationGraphApplication.js",
       "service/packages/synthesis-contracts/src/workbench.js",
       "service/packages/synthesis-application/src/index.js",
       "service/packages/synthesis-application/src/topicCanonical.js",
       "service/packages/synthesis-application/src/topicApplyDecision.js",
       "service/packages/synthesis-application/src/topicApplication.js",
+      "service/packages/synthesis-application/src/citationGraphApplication.js",
+      "service/packages/synthesis-application/src/citationGraphProjection.js",
       "service/packages/synthesis-repository/src/index.js",
+      "service/packages/synthesis-repository/src/citationGraph.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -476,8 +481,20 @@ describe("Synthesis sidecar runtime packaging", function () {
       "apps/synthesis-service/src/topicApplicationNode.ts",
     );
     assert.include(first.inputs, "packages/synthesis-repository/src/index.ts");
+    assert.include(
+      first.inputs,
+      "packages/synthesis-repository/src/citationGraph.ts",
+    );
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/citationGraphApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/citationGraphProjection.ts",
+    );
     assert.include(
       first.inputs,
       "packages/synthesis-application/src/topicCanonical.ts",
@@ -506,6 +523,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/topicApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/citationGraphApplication.ts",
     );
     assert.include(
       first.inputs,
@@ -550,7 +571,12 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(xpiCheck, "repositoryNodeSqlite.js");
     assert.include(xpiCheck, "topicCanonicalStoreNode.js");
     assert.include(xpiCheck, "topicApplicationNode.js");
+    assert.include(xpiCheck, "citationGraphApplicationNode.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-repository/src/citationGraph.js",
+    );
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
     assert.include(
       xpiCheck,
@@ -562,7 +588,19 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       xpiCheck,
+      "packages/synthesis-application/src/citationGraphApplication.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-application/src/citationGraphProjection.js",
+    );
+    assert.include(
+      xpiCheck,
       "packages/synthesis-contracts/src/topicApplication.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-contracts/src/citationGraphApplication.js",
     );
     assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");

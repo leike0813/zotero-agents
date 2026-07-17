@@ -56,6 +56,7 @@ describe("Synthesis sidecar migration boundary", function () {
         mode: string;
         schema_version: string;
         application_schema_version: string;
+        citation_graph_application_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -81,6 +82,18 @@ describe("Synthesis sidecar migration boundary", function () {
         production_canonical_file_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_citation_graph_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        build_scope: string;
+        compute_owner: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -90,12 +103,22 @@ describe("Synthesis sidecar migration boundary", function () {
       mode: "isolated_shadow",
       schema_version: "synthesis-repository-foundation.v1",
       application_schema_version: "synthesis-topic-application-repository.v1",
+      citation_graph_application_schema_version:
+        "synthesis-citation-graph-application-repository.v1",
       table_families: [
         "schema_meta",
         "cache_basis",
         "operation",
         "topic_application_state",
         "topic_application_projection",
+        "citation_graph_application_state",
+        "citation_node",
+        "citation_edge",
+        "citation_source_ownership",
+        "citation_incoming_group",
+        "citation_metrics_light",
+        "citation_metrics_complex",
+        "citation_layout_state",
       ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
@@ -119,6 +142,26 @@ describe("Synthesis sidecar migration boundary", function () {
       remote_capability: false,
       production_route: false,
       production_canonical_file_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_citation_graph_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "inspect",
+        "read_slice",
+        "read_metrics",
+        "read_layout",
+        "rebuild_full",
+        "refresh_metrics",
+        "recompute_layout",
+      ],
+      build_scope: "full_only",
+      compute_owner: "sidecar_worker",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      production_database_owner: "plugin_composition",
       production_mutation_enabled: false,
     });
     assert.deepEqual(

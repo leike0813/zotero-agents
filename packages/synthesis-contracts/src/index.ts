@@ -1,4 +1,5 @@
 export * from "./client";
+export * from "./citationGraphApplication";
 export * from "./common";
 export * from "./concepts";
 export * from "./debug";

@@ -8,7 +8,7 @@ system Node, PATH, npm, a login shell, or the ACP process-control registry.
 The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
 discovery it opens only an identity-bound persistent shadow repository under
-the profile runtime root, establishes the three-table foundation schema, and
+the profile runtime root, establishes foundation plus private Topic/Citation Graph application schemas, and
 reconciles interrupted shadow operations. It then initializes isolated Topic
 application state and composes a private list/detail/apply application after
 repository and canonical recovery. It also opens an identity-bound Topic
@@ -16,8 +16,8 @@ canonical shadow under the same profile root and recovers only its one global
 transaction journal; it does not scan Topics during startup. Identity, schema,
 or malformed-journal corruption aborts startup. Health and handshake return
 path-free O(1) repository and canonical-store snapshots; `mutationEnabled:
-false` continues to describe production authority. No Topic application method
-is admitted by the HTTP router.
+false` continues to describe production authority. No Topic or Citation Graph application method
+is admitted by the HTTP router. The private Citation Graph application uses the same single compute worker but owns an immediate-fail mutation lease and persists only graph-basis-guarded shadow projections.
 The default
 production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph
@@ -121,8 +121,8 @@ identity incompatibility require explicit recovery.
 
 stdout and stderr are continuously drained with bounded retained tails and do
 not drive per-chunk state updates. Controlled shutdown stops compute, Topic
-application, and canonical-write admission, cancels queued and active tasks,
-marks the repository and canonical shadow stopping, closes SQLite,
+Topic/Citation Graph application and canonical-write admission, cancels queued and active tasks,
+awaits active graph compute, then marks the repository and canonical shadow stopping and closes SQLite,
 and terminates the worker within one 500 ms service budget before closing the
 server. The plugin then waits within its own shutdown
 budget and directly kills the service process if required; terminating that Node

@@ -68,6 +68,7 @@ import {
 } from "./isolatedRepository.js";
 import { openSynthesisSidecarTopicCanonicalStore } from "./topicCanonicalStoreNode.js";
 import { createSynthesisSidecarTopicApplication } from "./topicApplicationNode.js";
+import { createSynthesisSidecarCitationGraphApplication } from "./citationGraphApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -301,6 +302,11 @@ export async function startSynthesisSidecarServer(
     canonicalStore,
     repository: repository.store,
   });
+  const citationGraphApplication =
+    createSynthesisSidecarCitationGraphApplication({
+      repository: repository.store,
+      computePool,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -315,17 +321,20 @@ export async function startSynthesisSidecarServer(
     shutdownStarted = true;
     lifecycleState = "stopping";
     topicApplication.stopAdmission();
+    citationGraphApplication.stopAdmission();
     canonicalStore.stopAdmission();
     transferExecutor.shutdown();
-    repository.close();
     writeServiceLog("service_stopping", {
       reason,
       serviceInstanceId,
     });
-    void Promise.allSettled([
-      computePool.shutdown(),
-      transferOwner.shutdown(),
-    ]).finally(() => {
+    void (async () => {
+      await citationGraphApplication.shutdown();
+      repository.close();
+      await Promise.allSettled([
+        computePool.shutdown(),
+        transferOwner.shutdown(),
+      ]);
       const forceTimer = setTimeout(() => {
         for (const socket of sockets) {
           socket.destroy();
@@ -339,7 +348,7 @@ export async function startSynthesisSidecarServer(
         resolveStopped();
       });
       server.closeIdleConnections?.();
-    });
+    })();
   };
 
   server.on("request", async (request, response) => {
@@ -771,6 +780,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    await citationGraphApplication.shutdown();
     canonicalStore.close();
     repository.close();
     await Promise.allSettled([

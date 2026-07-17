@@ -2,6 +2,7 @@ import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { getGuardedSqliteConnection } from "../guardedSqlite";
 import {
   ensureSynthesisRepositoryFoundationSchema,
+  ensureSynthesisCitationGraphProjectionSchema,
   getSynthesisCacheBasis,
   getSynthesisOperation,
   listSynthesisCacheBasis,
@@ -9,6 +10,21 @@ import {
   updateSynthesisOperationStatus,
   upsertSynthesisCacheBasis,
   upsertSynthesisOperation,
+  rebuildSynthesisCitationComplexMetricsRow,
+  rebuildSynthesisCitationEdgeRow,
+  rebuildSynthesisCitationIncomingGroupRow,
+  rebuildSynthesisCitationLayoutRow,
+  rebuildSynthesisCitationLightMetricsRow,
+  rebuildSynthesisCitationNodeRow,
+  rebuildSynthesisCitationSourceOwnershipRow,
+  replaceSynthesisCitationGraphRows,
+  upsertSynthesisCitationComplexMetrics,
+  upsertSynthesisCitationEdge,
+  upsertSynthesisCitationIncomingGroup,
+  upsertSynthesisCitationLayout,
+  upsertSynthesisCitationLightMetrics,
+  upsertSynthesisCitationNode,
+  upsertSynthesisCitationSourceOwnership,
   type SqlAdapter,
   type SqlParams,
   type SqlPrimitive,
@@ -17,6 +33,14 @@ import {
   type SynthesisOperationProgressMode,
   type SynthesisOperationRecord,
   type SynthesisOperationStatus,
+  type SynthesisCitationComplexMetricsRecord,
+  type SynthesisCitationEdgeRecord,
+  type SynthesisCitationIncomingGroupRecord,
+  type SynthesisCitationLayoutRecord,
+  type SynthesisCitationLayoutStatus,
+  type SynthesisCitationLightMetricsRecord,
+  type SynthesisCitationNodeRecord,
+  type SynthesisCitationSourceOwnershipRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -28,6 +52,14 @@ export type {
   SynthesisOperationProgressMode,
   SynthesisOperationRecord,
   SynthesisOperationStatus,
+  SynthesisCitationComplexMetricsRecord,
+  SynthesisCitationEdgeRecord,
+  SynthesisCitationIncomingGroupRecord,
+  SynthesisCitationLayoutRecord,
+  SynthesisCitationLayoutStatus,
+  SynthesisCitationLightMetricsRecord,
+  SynthesisCitationNodeRecord,
+  SynthesisCitationSourceOwnershipRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type SynthesisRepositorySchemaEntry = {
@@ -179,109 +211,6 @@ export type SynthesisReviewActionCacheEffect = {
   cacheKind: string;
   scopeKind: string;
   scopeRef: string;
-};
-
-export type SynthesisCitationNodeRecord = {
-  literatureItemId: string;
-  nodeStatus: string;
-  hasZoteroBinding: boolean;
-  title?: string;
-  year?: string;
-  authorsJson?: string;
-  summaryJson?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationEdgeRecord = {
-  edgeId: string;
-  sourceLiteratureItemId: string;
-  targetLiteratureItemId?: string;
-  referenceInstanceId?: string;
-  resolutionId?: string;
-  edgeStatus: string;
-  rolesJson?: string;
-  weight?: number;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationSourceOwnershipRecord = {
-  sourceLiteratureItemId: string;
-  edgeId: string;
-  referenceInstanceId?: string;
-  targetLiteratureItemId?: string;
-  edgeStatus: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationIncomingGroupRecord = {
-  targetLiteratureItemId: string;
-  sourceLiteratureItemId: string;
-  edgeId: string;
-  referenceInstanceId?: string;
-  edgeStatus: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationLightMetricsRecord = {
-  literatureItemId: string;
-  outgoingCount: number;
-  incomingCount: number;
-  matchedOutgoingCount: number;
-  unresolvedOutgoingCount: number;
-  ambiguousOutgoingCount: number;
-  localDegree: number;
-  sourceStructureVersion: number;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationComplexMetricsRecord = {
-  literatureItemId: string;
-  nodeId: string;
-  paperRef?: string;
-  itemKey?: string;
-  title?: string;
-  year?: string;
-  internalInDegree: number;
-  internalOutDegree: number;
-  externalReferenceCount: number;
-  unresolvedReferenceCount: number;
-  internalPagerank: number;
-  componentId: string;
-  componentSize: number;
-  isIsolated: boolean;
-  ageNorm: number;
-  recencyNorm: number;
-  inDegreeNorm: number;
-  outDegreeNorm: number;
-  pagerankNorm: number;
-  foundationScore: number;
-  frontierScore: number;
-  synthesisRoleHintsJson?: string;
-  sourceStructureVersion: number;
-  sourceGraphHash: string;
-  metricsHash: string;
-  status: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCitationLayoutStatus =
-  | "missing"
-  | "ready"
-  | "dirty"
-  | "running"
-  | "failed";
-
-export type SynthesisCitationLayoutRecord = {
-  layoutKey: string;
-  viewKey: string;
-  preset: string;
-  graphHash: string;
-  status: SynthesisCitationLayoutStatus;
-  layoutJson?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
 };
 
 export type SynthesisRelatedItemsSyncStatus =
@@ -2640,117 +2569,11 @@ function ensureSchema(db: SqlAdapter) {
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_node (
-      literature_item_id TEXT PRIMARY KEY,
-      node_status TEXT NOT NULL DEFAULT 'active',
-      has_zotero_binding INTEGER NOT NULL DEFAULT 0,
-      title TEXT NOT NULL DEFAULT '',
-      year TEXT NOT NULL DEFAULT '',
-      authors_json TEXT NOT NULL DEFAULT '[]',
-      summary_json TEXT NOT NULL DEFAULT '{}',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
+  ensureSynthesisCitationGraphProjectionSchema(db, { indexes: false });
   applyOptionalMigration(
     db,
     "ALTER TABLE synt_citation_node ADD COLUMN authors_json TEXT NOT NULL DEFAULT '[]'",
   );
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_edge (
-      edge_id TEXT PRIMARY KEY,
-      source_literature_item_id TEXT NOT NULL,
-      target_literature_item_id TEXT NOT NULL DEFAULT '',
-      reference_instance_id TEXT NOT NULL DEFAULT '',
-      resolution_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unbound',
-      roles_json TEXT NOT NULL DEFAULT '[]',
-      weight REAL NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      UNIQUE(source_literature_item_id, reference_instance_id)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_source_ownership (
-      source_literature_item_id TEXT NOT NULL,
-      edge_id TEXT NOT NULL,
-      reference_instance_id TEXT NOT NULL DEFAULT '',
-      target_literature_item_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unbound',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (source_literature_item_id, edge_id)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_incoming_group (
-      target_literature_item_id TEXT NOT NULL,
-      source_literature_item_id TEXT NOT NULL,
-      edge_id TEXT NOT NULL,
-      reference_instance_id TEXT NOT NULL DEFAULT '',
-      edge_status TEXT NOT NULL DEFAULT 'unbound',
-      updated_at TEXT NOT NULL DEFAULT '',
-      PRIMARY KEY (target_literature_item_id, edge_id)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_metrics_light (
-      literature_item_id TEXT PRIMARY KEY,
-      outgoing_count INTEGER NOT NULL DEFAULT 0,
-      incoming_count INTEGER NOT NULL DEFAULT 0,
-      matched_outgoing_count INTEGER NOT NULL DEFAULT 0,
-      unresolved_outgoing_count INTEGER NOT NULL DEFAULT 0,
-      ambiguous_outgoing_count INTEGER NOT NULL DEFAULT 0,
-      local_degree INTEGER NOT NULL DEFAULT 0,
-      source_structure_version INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_metrics_complex (
-      literature_item_id TEXT PRIMARY KEY,
-      node_id TEXT NOT NULL DEFAULT '',
-      paper_ref TEXT NOT NULL DEFAULT '',
-      item_key TEXT NOT NULL DEFAULT '',
-      title TEXT NOT NULL DEFAULT '',
-      year TEXT NOT NULL DEFAULT '',
-      internal_in_degree INTEGER NOT NULL DEFAULT 0,
-      internal_out_degree INTEGER NOT NULL DEFAULT 0,
-      external_reference_count INTEGER NOT NULL DEFAULT 0,
-      unresolved_reference_count INTEGER NOT NULL DEFAULT 0,
-      internal_pagerank REAL NOT NULL DEFAULT 0,
-      component_id TEXT NOT NULL DEFAULT '',
-      component_size INTEGER NOT NULL DEFAULT 0,
-      is_isolated INTEGER NOT NULL DEFAULT 0,
-      age_norm REAL NOT NULL DEFAULT 0,
-      recency_norm REAL NOT NULL DEFAULT 0,
-      in_degree_norm REAL NOT NULL DEFAULT 0,
-      out_degree_norm REAL NOT NULL DEFAULT 0,
-      pagerank_norm REAL NOT NULL DEFAULT 0,
-      foundation_score REAL NOT NULL DEFAULT 0,
-      frontier_score REAL NOT NULL DEFAULT 0,
-      synthesis_role_hints_json TEXT NOT NULL DEFAULT '[]',
-      source_structure_version INTEGER NOT NULL DEFAULT 0,
-      source_graph_hash TEXT NOT NULL DEFAULT '',
-      metrics_hash TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'ready',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_citation_layout_state (
-      layout_key TEXT PRIMARY KEY,
-      view_key TEXT NOT NULL DEFAULT 'workbench_overview',
-      preset TEXT NOT NULL DEFAULT 'force',
-      graph_hash TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'missing',
-      layout_json TEXT NOT NULL DEFAULT '{}',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      UNIQUE(view_key, preset)
-    );
-  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_related_items_sync_effect (
       effect_id TEXT PRIMARY KEY,
@@ -3505,166 +3328,24 @@ function rowToReferenceMatchProposal(
   };
 }
 
-function rowToCitationNode(row: SqlRow): SynthesisCitationNodeRecord {
-  return {
-    literatureItemId: cleanString(row.literature_item_id),
-    nodeStatus: cleanString(row.node_status) || "active",
-    hasZoteroBinding: Boolean(Number(row.has_zotero_binding) || 0),
-    title: cleanString(row.title) || undefined,
-    year: cleanString(row.year) || undefined,
-    authorsJson: cleanString(row.authors_json) || "[]",
-    summaryJson: cleanString(row.summary_json) || "{}",
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToCitationEdge(row: SqlRow): SynthesisCitationEdgeRecord {
-  return {
-    edgeId: cleanString(row.edge_id),
-    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
-    targetLiteratureItemId:
-      cleanString(row.target_literature_item_id) || undefined,
-    referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
-    resolutionId: cleanString(row.resolution_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unbound",
-    rolesJson: cleanString(row.roles_json) || "[]",
-    weight: Number(row.weight) || 0,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToCitationSourceOwnership(
-  row: SqlRow,
-): SynthesisCitationSourceOwnershipRecord {
-  return {
-    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
-    edgeId: cleanString(row.edge_id),
-    referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
-    targetLiteratureItemId:
-      cleanString(row.target_literature_item_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unbound",
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToCitationIncomingGroup(
-  row: SqlRow,
-): SynthesisCitationIncomingGroupRecord {
-  return {
-    targetLiteratureItemId: cleanString(row.target_literature_item_id),
-    sourceLiteratureItemId: cleanString(row.source_literature_item_id),
-    edgeId: cleanString(row.edge_id),
-    referenceInstanceId: cleanString(row.reference_instance_id) || undefined,
-    edgeStatus: cleanString(row.edge_status) || "unbound",
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToCitationLightMetrics(
-  row: SqlRow,
-): SynthesisCitationLightMetricsRecord {
-  return {
-    literatureItemId: cleanString(row.literature_item_id),
-    outgoingCount: Math.max(0, Math.floor(Number(row.outgoing_count) || 0)),
-    incomingCount: Math.max(0, Math.floor(Number(row.incoming_count) || 0)),
-    matchedOutgoingCount: Math.max(
-      0,
-      Math.floor(Number(row.matched_outgoing_count) || 0),
-    ),
-    unresolvedOutgoingCount: Math.max(
-      0,
-      Math.floor(Number(row.unresolved_outgoing_count) || 0),
-    ),
-    ambiguousOutgoingCount: Math.max(
-      0,
-      Math.floor(Number(row.ambiguous_outgoing_count) || 0),
-    ),
-    localDegree: Math.max(0, Math.floor(Number(row.local_degree) || 0)),
-    sourceStructureVersion: Math.max(
-      0,
-      Math.floor(Number(row.source_structure_version) || 0),
-    ),
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToCitationComplexMetrics(
-  row: SqlRow,
-): SynthesisCitationComplexMetricsRecord {
-  return {
-    literatureItemId: cleanString(row.literature_item_id),
-    nodeId: cleanString(row.node_id),
-    paperRef: cleanString(row.paper_ref) || undefined,
-    itemKey: cleanString(row.item_key) || undefined,
-    title: cleanString(row.title) || undefined,
-    year: cleanString(row.year) || undefined,
-    internalInDegree: Math.max(
-      0,
-      Math.floor(Number(row.internal_in_degree) || 0),
-    ),
-    internalOutDegree: Math.max(
-      0,
-      Math.floor(Number(row.internal_out_degree) || 0),
-    ),
-    externalReferenceCount: Math.max(
-      0,
-      Math.floor(Number(row.external_reference_count) || 0),
-    ),
-    unresolvedReferenceCount: Math.max(
-      0,
-      Math.floor(Number(row.unresolved_reference_count) || 0),
-    ),
-    internalPagerank: Number(row.internal_pagerank) || 0,
-    componentId: cleanString(row.component_id),
-    componentSize: Math.max(0, Math.floor(Number(row.component_size) || 0)),
-    isIsolated: Boolean(Number(row.is_isolated) || 0),
-    ageNorm: Number(row.age_norm) || 0,
-    recencyNorm: Number(row.recency_norm) || 0,
-    inDegreeNorm: Number(row.in_degree_norm) || 0,
-    outDegreeNorm: Number(row.out_degree_norm) || 0,
-    pagerankNorm: Number(row.pagerank_norm) || 0,
-    foundationScore: Number(row.foundation_score) || 0,
-    frontierScore: Number(row.frontier_score) || 0,
-    synthesisRoleHintsJson: cleanString(row.synthesis_role_hints_json) || "[]",
-    sourceStructureVersion: Math.max(
-      0,
-      Math.floor(Number(row.source_structure_version) || 0),
-    ),
-    sourceGraphHash: cleanString(row.source_graph_hash),
-    metricsHash: cleanString(row.metrics_hash),
-    status: cleanString(row.status) || "ready",
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
+const rowToCitationNode = rebuildSynthesisCitationNodeRow;
+const rowToCitationEdge = rebuildSynthesisCitationEdgeRow;
+const rowToCitationSourceOwnership = rebuildSynthesisCitationSourceOwnershipRow;
+const rowToCitationIncomingGroup = rebuildSynthesisCitationIncomingGroupRow;
+const rowToCitationLightMetrics = rebuildSynthesisCitationLightMetricsRow;
+const rowToCitationComplexMetrics = rebuildSynthesisCitationComplexMetricsRow;
+const rowToCitationLayoutState = rebuildSynthesisCitationLayoutRow;
 
 function normalizeCitationLayoutStatus(
   value: unknown,
 ): SynthesisCitationLayoutStatus {
   const status = cleanString(value);
-  if (
-    status === "ready" ||
+  return status === "ready" ||
     status === "dirty" ||
     status === "running" ||
     status === "failed"
-  ) {
-    return status;
-  }
-  return "missing";
-}
-
-function rowToCitationLayoutState(row: SqlRow): SynthesisCitationLayoutRecord {
-  return {
-    layoutKey: cleanString(row.layout_key),
-    viewKey: cleanString(row.view_key) || "workbench_overview",
-    preset: cleanString(row.preset) || "force",
-    graphHash: cleanString(row.graph_hash),
-    status: normalizeCitationLayoutStatus(row.status),
-    layoutJson: cleanString(row.layout_json) || "{}",
-    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
+    ? status
+    : "missing";
 }
 
 function normalizeRelatedItemsSyncStatus(
@@ -5452,34 +5133,7 @@ export class SynthesisRepository {
   private replaceCitationGraphStateRows(
     state: SynthesisCitationGraphStateReplacement,
   ) {
-    for (const table of [
-      "synt_citation_metrics_light",
-      "synt_citation_metrics_complex",
-      "synt_citation_incoming_group",
-      "synt_citation_source_ownership",
-      "synt_citation_edge",
-      "synt_citation_node",
-    ]) {
-      this.db.run(`DELETE FROM ${table}`);
-    }
-    for (const record of state.nodes) {
-      this.upsertCitationNode(record);
-    }
-    for (const record of state.edges || []) {
-      this.upsertCitationEdge(record);
-    }
-    for (const record of state.sourceOwnership || []) {
-      this.upsertCitationSourceOwnership(record);
-    }
-    for (const record of state.incomingGroups || []) {
-      this.upsertCitationIncomingGroup(record);
-    }
-    for (const record of state.lightweightMetrics || []) {
-      this.upsertCitationLightMetrics(record);
-    }
-    for (const record of state.complexMetrics || []) {
-      this.upsertCitationComplexMetrics(record);
-    }
+    replaceSynthesisCitationGraphRows(this.db, state, this.now());
   }
 
   replaceCitationGraphState(state: SynthesisCitationGraphStateReplacement) {
@@ -5689,325 +5343,34 @@ export class SynthesisRepository {
 
   upsertCitationNode(record: SynthesisCitationNodeRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_node (
-          literature_item_id,
-          node_status,
-          has_zotero_binding,
-          title,
-          year,
-          authors_json,
-          summary_json,
-          updated_at
-        )
-        VALUES (
-          @literature_item_id,
-          @node_status,
-          @has_zotero_binding,
-          @title,
-          @year,
-          @authors_json,
-          @summary_json,
-          @updated_at
-        )
-      `,
-      {
-        literature_item_id: cleanString(record.literatureItemId),
-        node_status: cleanString(record.nodeStatus) || "active",
-        has_zotero_binding: record.hasZoteroBinding ? 1 : 0,
-        title: cleanString(record.title),
-        year: cleanString(record.year),
-        authors_json: cleanString(record.authorsJson) || "[]",
-        summary_json: cleanString(record.summaryJson) || "{}",
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationNode(this.db, record, this.now());
   }
 
   upsertCitationEdge(record: SynthesisCitationEdgeRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_edge (
-          edge_id,
-          source_literature_item_id,
-          target_literature_item_id,
-          reference_instance_id,
-          resolution_id,
-          edge_status,
-          roles_json,
-          weight,
-          created_at,
-          updated_at
-        )
-        VALUES (
-          @edge_id,
-          @source_literature_item_id,
-          @target_literature_item_id,
-          @reference_instance_id,
-          @resolution_id,
-          @edge_status,
-          @roles_json,
-          @weight,
-          @created_at,
-          @updated_at
-        )
-      `,
-      {
-        edge_id: cleanString(record.edgeId),
-        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
-        target_literature_item_id: cleanString(record.targetLiteratureItemId),
-        reference_instance_id: cleanString(record.referenceInstanceId),
-        resolution_id: cleanString(record.resolutionId),
-        edge_status: cleanString(record.edgeStatus) || "unbound",
-        roles_json: cleanString(record.rolesJson) || "[]",
-        weight: Number.isFinite(Number(record.weight))
-          ? Number(record.weight)
-          : 1,
-        created_at: cleanString(record.createdAt) || this.now(),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationEdge(this.db, record, this.now());
   }
 
   upsertCitationSourceOwnership(
     record: SynthesisCitationSourceOwnershipRecord,
   ) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_source_ownership (
-          source_literature_item_id,
-          edge_id,
-          reference_instance_id,
-          target_literature_item_id,
-          edge_status,
-          updated_at
-        )
-        VALUES (
-          @source_literature_item_id,
-          @edge_id,
-          @reference_instance_id,
-          @target_literature_item_id,
-          @edge_status,
-          @updated_at
-        )
-      `,
-      {
-        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
-        edge_id: cleanString(record.edgeId),
-        reference_instance_id: cleanString(record.referenceInstanceId),
-        target_literature_item_id: cleanString(record.targetLiteratureItemId),
-        edge_status: cleanString(record.edgeStatus) || "unbound",
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationSourceOwnership(this.db, record, this.now());
   }
 
   upsertCitationIncomingGroup(record: SynthesisCitationIncomingGroupRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_incoming_group (
-          target_literature_item_id,
-          source_literature_item_id,
-          edge_id,
-          reference_instance_id,
-          edge_status,
-          updated_at
-        )
-        VALUES (
-          @target_literature_item_id,
-          @source_literature_item_id,
-          @edge_id,
-          @reference_instance_id,
-          @edge_status,
-          @updated_at
-        )
-      `,
-      {
-        target_literature_item_id: cleanString(record.targetLiteratureItemId),
-        source_literature_item_id: cleanString(record.sourceLiteratureItemId),
-        edge_id: cleanString(record.edgeId),
-        reference_instance_id: cleanString(record.referenceInstanceId),
-        edge_status: cleanString(record.edgeStatus) || "unbound",
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationIncomingGroup(this.db, record, this.now());
   }
 
   upsertCitationLightMetrics(record: SynthesisCitationLightMetricsRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_metrics_light (
-          literature_item_id,
-          outgoing_count,
-          incoming_count,
-          matched_outgoing_count,
-          unresolved_outgoing_count,
-          ambiguous_outgoing_count,
-          local_degree,
-          source_structure_version,
-          updated_at
-        )
-        VALUES (
-          @literature_item_id,
-          @outgoing_count,
-          @incoming_count,
-          @matched_outgoing_count,
-          @unresolved_outgoing_count,
-          @ambiguous_outgoing_count,
-          @local_degree,
-          @source_structure_version,
-          @updated_at
-        )
-      `,
-      {
-        literature_item_id: cleanString(record.literatureItemId),
-        outgoing_count: Math.max(
-          0,
-          Math.floor(Number(record.outgoingCount) || 0),
-        ),
-        incoming_count: Math.max(
-          0,
-          Math.floor(Number(record.incomingCount) || 0),
-        ),
-        matched_outgoing_count: Math.max(
-          0,
-          Math.floor(Number(record.matchedOutgoingCount) || 0),
-        ),
-        unresolved_outgoing_count: Math.max(
-          0,
-          Math.floor(Number(record.unresolvedOutgoingCount) || 0),
-        ),
-        ambiguous_outgoing_count: Math.max(
-          0,
-          Math.floor(Number(record.ambiguousOutgoingCount) || 0),
-        ),
-        local_degree: Math.max(0, Math.floor(Number(record.localDegree) || 0)),
-        source_structure_version: Math.max(
-          0,
-          Math.floor(Number(record.sourceStructureVersion) || 0),
-        ),
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationLightMetrics(this.db, record, this.now());
   }
 
   upsertCitationComplexMetrics(record: SynthesisCitationComplexMetricsRecord) {
     this.initialize();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_metrics_complex (
-          literature_item_id,
-          node_id,
-          paper_ref,
-          item_key,
-          title,
-          year,
-          internal_in_degree,
-          internal_out_degree,
-          external_reference_count,
-          unresolved_reference_count,
-          internal_pagerank,
-          component_id,
-          component_size,
-          is_isolated,
-          age_norm,
-          recency_norm,
-          in_degree_norm,
-          out_degree_norm,
-          pagerank_norm,
-          foundation_score,
-          frontier_score,
-          synthesis_role_hints_json,
-          source_structure_version,
-          source_graph_hash,
-          metrics_hash,
-          status,
-          updated_at
-        )
-        VALUES (
-          @literature_item_id,
-          @node_id,
-          @paper_ref,
-          @item_key,
-          @title,
-          @year,
-          @internal_in_degree,
-          @internal_out_degree,
-          @external_reference_count,
-          @unresolved_reference_count,
-          @internal_pagerank,
-          @component_id,
-          @component_size,
-          @is_isolated,
-          @age_norm,
-          @recency_norm,
-          @in_degree_norm,
-          @out_degree_norm,
-          @pagerank_norm,
-          @foundation_score,
-          @frontier_score,
-          @synthesis_role_hints_json,
-          @source_structure_version,
-          @source_graph_hash,
-          @metrics_hash,
-          @status,
-          @updated_at
-        )
-      `,
-      {
-        literature_item_id: cleanString(record.literatureItemId),
-        node_id: cleanString(record.nodeId),
-        paper_ref: cleanString(record.paperRef),
-        item_key: cleanString(record.itemKey),
-        title: cleanString(record.title),
-        year: cleanString(record.year),
-        internal_in_degree: Math.max(
-          0,
-          Math.floor(Number(record.internalInDegree) || 0),
-        ),
-        internal_out_degree: Math.max(
-          0,
-          Math.floor(Number(record.internalOutDegree) || 0),
-        ),
-        external_reference_count: Math.max(
-          0,
-          Math.floor(Number(record.externalReferenceCount) || 0),
-        ),
-        unresolved_reference_count: Math.max(
-          0,
-          Math.floor(Number(record.unresolvedReferenceCount) || 0),
-        ),
-        internal_pagerank: Number(record.internalPagerank) || 0,
-        component_id: cleanString(record.componentId),
-        component_size: Math.max(
-          0,
-          Math.floor(Number(record.componentSize) || 0),
-        ),
-        is_isolated: record.isIsolated ? 1 : 0,
-        age_norm: Number(record.ageNorm) || 0,
-        recency_norm: Number(record.recencyNorm) || 0,
-        in_degree_norm: Number(record.inDegreeNorm) || 0,
-        out_degree_norm: Number(record.outDegreeNorm) || 0,
-        pagerank_norm: Number(record.pagerankNorm) || 0,
-        foundation_score: Number(record.foundationScore) || 0,
-        frontier_score: Number(record.frontierScore) || 0,
-        synthesis_role_hints_json:
-          cleanString(record.synthesisRoleHintsJson) || "[]",
-        source_structure_version: Math.max(
-          0,
-          Math.floor(Number(record.sourceStructureVersion) || 0),
-        ),
-        source_graph_hash: cleanString(record.sourceGraphHash),
-        metrics_hash: cleanString(record.metricsHash),
-        status: cleanString(record.status) || "ready",
-        updated_at: cleanString(record.updatedAt) || this.now(),
-      },
-    );
+    upsertSynthesisCitationComplexMetrics(this.db, record, this.now());
   }
 
   upsertLiteratureMatchingMetadata(
@@ -6780,42 +6143,17 @@ export class SynthesisRepository {
     const viewKey = cleanString(record.viewKey) || "workbench_overview";
     const preset = cleanString(record.preset) || "force";
     const timestamp = cleanString(record.updatedAt) || this.now();
-    const existing = this.getCitationGraphLayoutState({ viewKey, preset });
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_citation_layout_state (
-          layout_key,
-          view_key,
-          preset,
-          graph_hash,
-          status,
-          layout_json,
-          diagnostics_json,
-          created_at,
-          updated_at
-        ) VALUES (
-          @layout_key,
-          @view_key,
-          @preset,
-          @graph_hash,
-          @status,
-          @layout_json,
-          @diagnostics_json,
-          @created_at,
-          @updated_at
-        )
-      `,
+    upsertSynthesisCitationLayout(
+      this.db,
       {
-        layout_key: this.citationLayoutKey({ viewKey, preset }),
-        view_key: viewKey,
+        ...record,
+        layoutKey: this.citationLayoutKey({ viewKey, preset }),
+        viewKey,
         preset,
-        graph_hash: cleanString(record.graphHash),
         status: normalizeCitationLayoutStatus(record.status),
-        layout_json: cleanString(record.layoutJson) || "{}",
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        created_at: existing?.createdAt || timestamp,
-        updated_at: timestamp,
+        updatedAt: timestamp,
       },
+      timestamp,
     );
     return this.getCitationGraphLayoutState({ viewKey, preset });
   }

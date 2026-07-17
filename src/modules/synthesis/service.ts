@@ -24,6 +24,8 @@ import {
 } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import {
   isSynthesisWorkbenchCurrentFailedOperation,
+  hashSynthesisCitationGraphRows,
+  hashSynthesisCitationLightMetricsRows,
   readSynthesisWorkbenchOperationalChrome,
 } from "../../../packages/synthesis-application/src/index";
 import {
@@ -2843,44 +2845,11 @@ function dbCitationGraphHash(args: {
   edges: SynthesisCitationEdgeRecord[];
   metrics?: SynthesisCitationLightMetricsRecord[];
 }) {
-  return hashCanonicalJson({
-    storage: "sqlite",
-    nodes: args.nodes.map((node) => [
-      node.literatureItemId,
-      node.nodeStatus,
-      node.updatedAt || "",
-    ]),
-    edges: args.edges.map((edge) => [
-      edge.edgeId,
-      edge.sourceLiteratureItemId,
-      edge.targetLiteratureItemId || "",
-      edge.edgeStatus,
-      edge.updatedAt || "",
-    ]),
-    metrics: (args.metrics || []).map((metric) => [
-      metric.literatureItemId,
-      metric.localDegree,
-      metric.sourceStructureVersion,
-      metric.updatedAt || "",
-    ]),
-  });
+  return hashSynthesisCitationGraphRows(args);
 }
 
 function dbCitationMetricsHash(metrics: SynthesisCitationLightMetricsRecord[]) {
-  return hashCanonicalJson({
-    storage: "sqlite",
-    metrics: metrics.map((metric) => [
-      metric.literatureItemId,
-      metric.incomingCount,
-      metric.outgoingCount,
-      metric.matchedOutgoingCount,
-      metric.unresolvedOutgoingCount,
-      metric.ambiguousOutgoingCount,
-      metric.localDegree,
-      metric.sourceStructureVersion,
-      metric.updatedAt || "",
-    ]),
-  });
+  return hashSynthesisCitationLightMetricsRows(metrics);
 }
 
 function dbComplexMetricToLibraryMetric(

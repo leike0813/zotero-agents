@@ -6,6 +6,7 @@ import {
   type SynthesisCitationGraphBuildResult,
   type SynthesisCitationGraphBuildTargetKind,
 } from "../../../packages/synthesis-engine/src/citationGraphBuild";
+import { projectSynthesisCitationGraphBuildRecords } from "../../../packages/synthesis-application/src/citationGraphProjection";
 import type {
   SynthesisCitationEdgeRecord,
   SynthesisCitationIncomingGroupRecord,
@@ -102,95 +103,40 @@ export function projectProductionCitationGraphEngineResult(args: {
   timestamp: string;
 }): SynthesisProductionCitationGraphRecords {
   const request = buildProductionCitationGraphEngineRequest(args.input);
-  const result = rebuildSynthesisCitationGraphBuildResult(args.result, request);
-  const inputByEdgeId = new Map(
-    args.input.references.map((reference) => [reference.edgeId, reference]),
-  );
-  const resolvedByEdgeId = new Map(
-    result.resolvedEdges.map((edge) => [edge.edgeId, edge]),
-  );
-  const nodes = new Map<string, SynthesisCitationNodeRecord>();
-  for (const node of result.nodes) {
-    nodes.set(node.nodeId, {
-      literatureItemId: node.nodeId,
-      nodeStatus: "active",
-      hasZoteroBinding: node.kind === "library_paper",
-      title: node.title || node.nodeId,
-      year: node.year,
-      authorsJson: JSON.stringify(node.authors),
-      summaryJson: JSON.stringify(
-        node.kind === "library_paper"
-          ? {
-              source_ref: node.nodeId,
-              cache_owner: "reference_sidecar",
-            }
-          : {
-              canonical_reference_id: node.nodeId,
-              cache_owner: "reference_sidecar",
-            },
-      ),
-      updatedAt: args.timestamp,
-    });
-  }
-  const edges = args.input.references.map(
-    (input): SynthesisCitationEdgeRecord => {
-      const edge = resolvedByEdgeId.get(input.edgeId);
-      if (!edge || !inputByEdgeId.has(edge.edgeId)) {
-        throw new Error("citation_graph_build_result_missing_input_edge");
-      }
-      return {
-        edgeId: edge.edgeId,
-        sourceLiteratureItemId: edge.sourceId,
-        targetLiteratureItemId: edge.targetId,
-        referenceInstanceId: edge.referenceId,
-        resolutionId: input.resolutionId,
-        edgeStatus: edge.status,
-        rolesJson: input.rolesJson || JSON.stringify(edge.roles),
-        weight: edge.weight,
-        createdAt: input.createdAt || args.timestamp,
-        updatedAt: args.timestamp,
-      };
-    },
-  );
-  const sourceOwnership = edges.map(
-    (edge): SynthesisCitationSourceOwnershipRecord => ({
-      sourceLiteratureItemId: edge.sourceLiteratureItemId,
-      edgeId: edge.edgeId,
-      referenceInstanceId: edge.referenceInstanceId,
-      targetLiteratureItemId: edge.targetLiteratureItemId,
-      edgeStatus: edge.edgeStatus,
-      updatedAt: args.timestamp,
-    }),
-  );
-  const incomingGroups = edges.map(
-    (edge): SynthesisCitationIncomingGroupRecord => ({
-      targetLiteratureItemId: edge.targetLiteratureItemId || "",
-      sourceLiteratureItemId: edge.sourceLiteratureItemId,
-      edgeId: edge.edgeId,
-      referenceInstanceId: edge.referenceInstanceId,
-      edgeStatus: edge.edgeStatus,
-      updatedAt: args.timestamp,
-    }),
-  );
-  const lightweightMetrics = result.lightMetrics.map(
-    (metric): SynthesisCitationLightMetricsRecord => ({
-      literatureItemId: metric.nodeId,
-      outgoingCount: metric.outgoingCount,
-      incomingCount: metric.incomingCount,
-      localDegree: metric.localDegree,
-      matchedOutgoingCount: metric.matchedOutgoingCount,
-      unresolvedOutgoingCount: metric.unresolvedOutgoingCount,
-      ambiguousOutgoingCount: metric.ambiguousOutgoingCount,
-      sourceStructureVersion: Date.parse(args.timestamp) || 0,
-      updatedAt: args.timestamp,
-    }),
-  );
+  const projected = projectSynthesisCitationGraphBuildRecords({
+    request,
+    result: args.result,
+    timestamp: args.timestamp,
+    edgeOrder: args.input.references.map((reference) => reference.edgeId),
+    edgeMetadata: new Map(
+      args.input.references.map((reference) => [
+        reference.edgeId,
+        {
+          resolutionId: reference.resolutionId,
+          rolesJson: reference.rolesJson,
+          createdAt: reference.createdAt,
+        },
+      ]),
+    ),
+    nodeSummary: (node) =>
+      node.kind === "library_paper"
+        ? {
+            source_ref: node.nodeId,
+            cache_owner: "reference_sidecar",
+          }
+        : {
+            canonical_reference_id: node.nodeId,
+            cache_owner: "reference_sidecar",
+          },
+  });
   return {
-    nodes,
-    edges,
-    lightweightMetrics,
-    sourceOwnership,
-    incomingGroups,
+    nodes: new Map(
+      projected.nodes.map((node) => [node.literatureItemId, node]),
+    ),
+    edges: projected.edges,
+    lightweightMetrics: projected.lightweightMetrics,
+    sourceOwnership: projected.sourceOwnership,
+    incomingGroups: projected.incomingGroups,
   };
 }
 

@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing exactly schema metadata, cache basis, and operation rows. It serves the authenticated operational Workbench chrome canary but is not a production mirror, production Workbench source, or mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation, Topic application, and Citation Graph application tables. Citation Graph structure/light metrics replace atomically with the application state singleton; complex metrics and layouts are graph-basis-bound projections. It is not a production mirror, production Workbench source, or mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -79,10 +79,13 @@ only opaque profile/data-root identities; it never supplies the production DB
 or canonical root. Marker/schema mismatch fails service startup before
 discovery. Shadow rows persist across service restart so interrupted `running`
 operations can become `canceled`; terminal operation history and cache-basis
-rows remain. The same isolated database stores strict Topic application state
-and JSON-safe derived graph/concept/interest/discovery projections. These rows
+rows remain. The same isolated database stores strict Topic application state,
+JSON-safe derived graph/concept/interest/discovery projections, and private
+Citation Graph structure, metrics, layout, and active-basis state. These rows
 are private application state, not a production repository mirror. Shutdown
 closes the handle but does not delete the shadow root.
+
+The Citation Graph application state records only the active canonical build-result hash, input hash, optional metrics hash, and node/edge counts. Full replacement rechecks the expected active hash and replaces nodes, edges, ownership, incoming groups, and light metrics in one transaction. Rebuild invalidates old complex metrics and layouts; later worker results promote only while their graph hash is still active. Reads never require an in-memory full mirror or production fallback.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots

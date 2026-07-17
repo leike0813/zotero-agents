@@ -7,6 +7,26 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_application_schema_version" as const;
 
+export * from "./citationGraph.js";
+import {
+  ensureSynthesisCitationGraphApplicationRepositorySchema,
+  getSynthesisCitationGraphApplicationState,
+  getSynthesisCitationLayout,
+  listSynthesisCitationComplexMetrics,
+  listSynthesisCitationEdges,
+  listSynthesisCitationIncomingGroups,
+  listSynthesisCitationLayouts,
+  listSynthesisCitationLightMetrics,
+  listSynthesisCitationNodes,
+  listSynthesisCitationSourceOwnership,
+  promoteSynthesisCitationGraphComplexMetrics,
+  promoteSynthesisCitationGraphLayout,
+  replaceSynthesisCitationGraphApplicationState,
+  type SynthesisCitationComplexMetricsRecord,
+  type SynthesisCitationGraphStateReplacement,
+  type SynthesisCitationLayoutRecord,
+} from "./citationGraph.js";
+
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
 export type SqlRow = Record<string, unknown>;
@@ -823,6 +843,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   const now = options.now ?? (() => new Date().toISOString());
   let initialized = false;
   let topicApplicationInitialized = false;
+  let citationGraphApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -833,6 +854,12 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (topicApplicationInitialized) return;
     ensureSynthesisTopicApplicationRepositorySchema(db);
     topicApplicationInitialized = true;
+  };
+  const initializeCitationGraphApplication = () => {
+    initialize();
+    if (citationGraphApplicationInitialized) return;
+    ensureSynthesisCitationGraphApplicationRepositorySchema(db);
+    citationGraphApplicationInitialized = true;
   };
   return {
     initialize,
@@ -896,6 +923,70 @@ export function createSynthesisRepositoryFoundationStore(options: {
       });
     },
     initializeTopicApplication,
+    initializeCitationGraphApplication,
+    getCitationGraphApplicationState() {
+      initializeCitationGraphApplication();
+      return getSynthesisCitationGraphApplicationState(db);
+    },
+    replaceCitationGraphApplicationState(args: {
+      expectedGraphHash: string | null;
+      graphHash: string;
+      inputHash: string;
+      state: SynthesisCitationGraphStateReplacement;
+      now: string;
+    }) {
+      initializeCitationGraphApplication();
+      return replaceSynthesisCitationGraphApplicationState(db, args);
+    },
+    promoteCitationGraphComplexMetrics(args: {
+      expectedGraphHash: string;
+      metricsHash: string;
+      records: SynthesisCitationComplexMetricsRecord[];
+      now: string;
+    }) {
+      initializeCitationGraphApplication();
+      return promoteSynthesisCitationGraphComplexMetrics(db, args);
+    },
+    promoteCitationGraphLayout(args: {
+      expectedGraphHash: string;
+      record: SynthesisCitationLayoutRecord;
+      now: string;
+    }) {
+      initializeCitationGraphApplication();
+      return promoteSynthesisCitationGraphLayout(db, args);
+    },
+    listCitationNodes() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationNodes(db);
+    },
+    listCitationEdges() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationEdges(db);
+    },
+    listCitationSourceOwnership() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationSourceOwnership(db);
+    },
+    listCitationIncomingGroups() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationIncomingGroups(db);
+    },
+    listCitationLightMetrics() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationLightMetrics(db);
+    },
+    listCitationComplexMetrics() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationComplexMetrics(db);
+    },
+    getCitationGraphLayout(layoutKey: string) {
+      initializeCitationGraphApplication();
+      return getSynthesisCitationLayout(db, layoutKey);
+    },
+    listCitationGraphLayouts() {
+      initializeCitationGraphApplication();
+      return listSynthesisCitationLayouts(db);
+    },
     getTopicApplicationState(topicId: string) {
       initializeTopicApplication();
       return getSynthesisTopicApplicationState(db, topicId);

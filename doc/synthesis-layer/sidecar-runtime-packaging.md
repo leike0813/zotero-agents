@@ -71,9 +71,9 @@ or user shell.
 The service remains production-mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. Its main process opens the
 persistent identity-bound shadow repository and Topic canonical shadow beneath
-the profile runtime root, then composes a private Topic application over those
-isolated owners. The bundle includes the environment-neutral strict Topic
-contracts, application rules, repository records, and the sole Node filesystem
+the profile runtime root, then composes private Topic and Citation Graph applications over those
+isolated owners. The bundle includes the environment-neutral strict Topic/Graph
+contracts, application rules and projections, repository records/schema, and designated Node adapters. The sole Node filesystem
 adapter;
 built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
 third-party dependency or license. The default `SynthesisClient`
@@ -91,5 +91,5 @@ asset or license.
 
 Source routing does not regenerate platform prebuilds. Production release
 freshness and XPI checks fail closed until every bundled platform runtime
-matches the current service/worker/engine/repository/Topic-application/canonical-store/D3/package-version/lockfile
+matches the current service/worker/engine/repository/Topic-and-Graph-application/canonical-store/D3/package-version/lockfile
 fingerprint produced by the separate release pipeline.
