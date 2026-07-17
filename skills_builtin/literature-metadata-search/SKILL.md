@@ -48,8 +48,13 @@ return the failed output shape with `error.code: "invalid_input"`.
    with quoted title plus author/year/venue terms. Use OpenAlex, Crossref,
    Semantic Scholar, PubMed, arXiv, publisher pages, university repositories,
    thesis repositories, and library catalogs as appropriate for the item type.
-4. Compare candidates against the input record before emitting metadata.
-5. Return `succeeded` only for one trustworthy candidate. Return `skipped` when
+4. For a Chinese-language paper, continue to an authoritative original Chinese
+   source that can verify the complete Chinese-character creator names and
+   order. Prefer the official journal, publisher, degree-granting institution,
+   institutional repository, China DOI, or publicly accessible Chinese
+   bibliographic metadata.
+5. Compare candidates against the input record before emitting metadata.
+6. Return `succeeded` only for one trustworthy candidate. Return `skipped` when
    there is no trustworthy candidate, multiple conflicting candidates, or only
    weak/secondary evidence.
 
@@ -104,6 +109,22 @@ abstracts, or page ranges.
 
 Creators belong in `metadata.creators`. Use `creatorType` and either
 `firstName`/`lastName` or `name`. Preserve organization authors with `name`.
+Treat a paper as Chinese-language only when its original publication language is
+Chinese, as shown by the input language or an authoritative original record.
+Author nationality, name, affiliation, publication country, or a translated
+Chinese title alone is not sufficient. For such a paper, emit the complete
+author list in its authoritative Chinese-character form and original order. If
+the source provides both Chinese and romanized or translated names, emit only
+the Chinese names. Do not guess, infer, or back-transliterate Chinese characters
+from pinyin, romanized, or translated names. This rule does not apply to an
+English-language paper merely because its authors are Chinese; preserve the
+officially published romanized names for that work.
+
+A non-empty `metadata.creators` array is a complete replacement list. Never emit
+a partial creator list. If the complete Chinese-character list cannot be
+verified, emit `metadata.creators: []` so the caller preserves existing creators,
+continue with other evidence-backed fields, and add a warning with code
+`native_creator_names_unverified`.
 
 ## Evidence
 
@@ -236,5 +257,7 @@ Before final stdout, verify:
 - `metadata.itemType`, when present, is an evidence-backed regular bibliographic
   type and is never placed in `metadata.fields`.
 - `metadata.creators` is present as an array, even when empty.
+- A non-empty `metadata.creators` is a complete, evidence-backed replacement
+  list; unverified native creator names leave it empty.
 - `warnings` and `evidence` are arrays.
 - `error` is `{}` unless `status` is `failed`.

@@ -39,6 +39,8 @@
   "workflows.literature-search-ingest.skills.literature-search-ingest.name": "🔎 文献検索取り込み",
   "workflows.literature-search-ingest.taskNameTemplate": "文献を検索して取り込み：{query}",
   "workflows.literature-metadata-curator.label": "文献メタデータ修正",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.description": "Zotero の識別子検索を省略し、literature-metadata-search を直接実行します。",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.title": "識別子による高速検索をスキップ",
   "workflows.literature-metadata-curator.skills.literature-metadata-search.name": "📇 文献メタデータ検索",
   "workflows.literature-metadata-curator.taskNameTemplate": "文献メタデータを修正",
   "workflows.literature-translator.label": "文献翻訳",

@@ -39,6 +39,8 @@
   "workflows.literature-search-ingest.skills.literature-search-ingest.name": "🔎 문헌 검색 수집",
   "workflows.literature-search-ingest.taskNameTemplate": "문헌 검색 및 수집: {query}",
   "workflows.literature-metadata-curator.label": "문헌 메타데이터 정리",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.description": "Zotero 식별자 검색을 건너뛰고 literature-metadata-search를 바로 실행합니다.",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.title": "식별자 빠른 경로 건너뛰기",
   "workflows.literature-metadata-curator.skills.literature-metadata-search.name": "📇 문헌 메타데이터 검색",
   "workflows.literature-metadata-curator.taskNameTemplate": "문헌 메타데이터 정리",
   "workflows.literature-translator.label": "문헌 번역",

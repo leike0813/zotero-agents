@@ -80,6 +80,7 @@
         },
         "creators": {
           "type": "array",
+          "description": "Complete evidence-backed creator replacement list. Use an empty array when no complete supported replacement should be applied.",
           "items": {
             "type": "object",
             "required": ["creatorType"],

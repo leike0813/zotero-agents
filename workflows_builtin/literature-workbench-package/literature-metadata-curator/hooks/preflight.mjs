@@ -183,7 +183,7 @@ async function translateIdentifier({ runtime, identifier }) {
   }
 }
 
-async function preflightImpl({ selectionContext, runtime }) {
+async function preflightImpl({ selectionContext, executionOptions, runtime }) {
   const parent = resolveParentItem(selectionContext, runtime);
   const parentSnapshot = buildParentSnapshot(parent);
   const identifier = selectIdentifier(parentSnapshot);
@@ -205,6 +205,15 @@ async function preflightImpl({ selectionContext, runtime }) {
           },
         ],
       }),
+    };
+  }
+
+  if (
+    executionOptions?.workflowParams?.skip_identifier_fast_path === true
+  ) {
+    return {
+      kind: "continue",
+      context: buildFallbackContext(baseContext),
     };
   }
 

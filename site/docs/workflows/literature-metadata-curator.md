@@ -8,17 +8,21 @@ Query, correct, and complete bibliographic metadata for a selected Zotero parent
 
 | Parameter | Required | Description |
 | --- | --- | --- |
+| Skip identifier fast path | No (default: off) | Bypass Zotero identifier lookup and run `literature-metadata-search` directly. |
 
-No user-configurable parameters. Select exactly one parent item in the Zotero item list. Attachments and multiple items are not accepted.
+Select exactly one parent item in the Zotero item list. Attachments and multiple items are not accepted.
 
 ## Behavior
 
-The workflow runs fully automatically without user confirmation. It follows two paths:
+The workflow runs fully automatically without user confirmation. It uses these routes:
 
-1. **Local fast path**: If the item has a DOI, ISBN, or a URL that deterministically resolves to a DOI, arXiv, or PubMed identifier, the workflow calls `runtime.hostApi.metadata.translateIdentifier` (a controlled read-only Zotero `Translate.Search` facade). When the candidate identifier matches and contains valuable bibliographic information, results are written back directly.
-2. **Skill-Runner fallback**: If no reliable identifier exists, local search returns no results, the translator fails, the candidate is untrusted, or the identifier does not match, the workflow runs the `literature-metadata-search` skill for lightweight web-based metadata retrieval.
+1. **Local fast path (default)**: If the item has a DOI, ISBN, or a URL that deterministically resolves to a DOI, arXiv, or PubMed identifier, the workflow calls `runtime.hostApi.metadata.translateIdentifier` (a controlled read-only Zotero `Translate.Search` facade). When the candidate identifier matches and contains valuable bibliographic information, results are written back directly.
+2. **Forced Agent search**: When **Skip identifier fast path** is enabled, the workflow bypasses local lookup and runs `literature-metadata-search` directly. The identifier remains available to the Agent as search context.
+3. **Skill-Runner fallback**: When the option is off but no reliable identifier exists, local search returns no results, the translator fails, the candidate is untrusted, or the identifier does not match, the workflow runs the same skill for web-based metadata retrieval.
 
-Both paths share the same canonical result format and apply handler.
+All routes share the same canonical result format and apply handler.
+
+If an item already has a DOI, ISBN, or another supported identifier but the default run returns incorrect metadata, enable **Skip identifier fast path** to force Agent-based web search. This does not relax candidate matching or evidence requirements.
 
 ### Write-back Rules
 
@@ -28,6 +32,8 @@ The workflow updates the parent item's bibliographic fields:
 - Journal/conference/book/thesis/report fields (journal name, volume/issue/pages, publisher, conference name, school, report type, etc.)
 - Creators (authors, institutional authors, etc.)
 - `itemType` when supported by high-confidence evidence (e.g., journal article corrected to thesis)
+
+For a paper originally published in Chinese, the Agent writes Chinese-character author names only when an authoritative source verifies the complete author list. It does not replace creators with pinyin, translated names, or guessed Chinese characters; when the complete Chinese list cannot be verified, existing creators are preserved.
 
 The workflow does **not** modify attachments, notes, tags, collections, related items, PDF files, or web snapshots.
 
@@ -39,8 +45,8 @@ Metadata changes are applied directly to the selected Zotero parent item. No int
 
 ## Model Recommendation
 
-- **Fast path hit** (DOI/ISBN/supported URL identifier present): No backend model needed.
-- **Fallback to `literature-metadata-search`**: A model with web search capability is recommended. The task is lightweight retrieval and evidence verification — it does not require long-form writing ability, but must distinguish homonyms, preprint vs. published versions, papers vs. theses, and different editions.
+- **Fast path hit** (supported identifier present and the option is off): No backend model needed.
+- **Skip option enabled or fallback to `literature-metadata-search`**: A model with web search capability is recommended. The task is lightweight retrieval and evidence verification — it does not require long-form writing ability, but must distinguish homonyms, preprint vs. published versions, papers vs. theses, and different editions.
 
 ## Dependencies
 

@@ -18,12 +18,13 @@
 
 全自动，无需用户确认候选。
 
-执行时有两条路径：
+执行时有三种进入方式：
 
-1. **本地 fast path**：如果条目有 DOI、ISBN，或 URL 可确定性解析出 DOI、arXiv、PubMed 标识符，先通过 `runtime.hostApi.metadata.translateIdentifier` 调用受控的 Zotero `Translate.Search` 只读 facade。候选标识符匹配且包含有价值书目信息时，直接通过 `applyResult` 写回。
-2. **SkillRunner fallback**：如果没有可靠标识符、本地检索无结果、translator 失败、候选不可信或标识符不匹配，则运行 `literature-metadata-search` skill 做轻量联网元数据检索。
+1. **本地 fast path（默认）**：如果条目有 DOI、ISBN，或 URL 可确定性解析出 DOI、arXiv、PubMed 标识符，先通过 `runtime.hostApi.metadata.translateIdentifier` 调用受控的 Zotero `Translate.Search` 只读 facade。候选标识符匹配且包含有价值书目信息时，直接通过 `applyResult` 写回。
+2. **强制 Agent 搜索**：启用“跳过标识符快速模式”后，不执行上述本地检索，直接运行 `literature-metadata-search` skill。标识符仍会作为 Agent 的检索线索。
+3. **SkillRunner fallback**：未启用该选项，但没有可靠标识符、本地检索无结果、translator 失败、候选不可信或标识符不匹配时，也会运行 `literature-metadata-search` skill 做轻量联网元数据检索。
 
-两条路径使用同一个 canonical result 和同一个 apply handler。
+所有路径使用同一个 canonical result 和同一个 apply handler。
 
 ## 产出什么？
 
@@ -34,6 +35,8 @@ workflow 会更新父条目的书目信息：
 - creators（作者、机构作者等）
 - 高置信证据支持时的 `itemType`（例如期刊论文改为学位论文）
 
+对于原始发表语言为中文的论文，Agent 只在权威来源能够核实完整作者名单时写入中文姓名，不会用英文拼音、译名或根据拼音猜测的汉字覆盖作者。无法核实完整中文作者名单时会保留条目现有作者。
+
 workflow 不会修改：
 
 - 附件、笔记、标签、collection、related items
@@ -43,13 +46,17 @@ workflow 不会修改：
 
 ## 参数说明
 
-无用户参数。
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| 跳过标识符快速模式 | 关闭 | 跳过 Zotero 标识符检索，直接运行 `literature-metadata-search`。 |
+
+如果条目已有 DOI、ISBN 等标识符，但默认执行未能获取正确元数据，可尝试开启该选项，强制进入 Agent 联网搜索流程。该选项不会降低候选匹配和证据要求。
 
 ## 模型建议
 
-🟡 有 DOI、ISBN 或受支持 URL 标识符且 fast path 命中时不依赖后端模型。
+🟡 有 DOI、ISBN 或受支持 URL 标识符、未跳过 fast path 且命中时不依赖后端模型。
 
-🔴 进入 `literature-metadata-search` 时建议使用具备联网搜索能力的模型。任务本身是轻量检索与证据核对，不需要长程写作能力，但需要严格区分同名、预印本/正式版、论文/学位论文和不同版本。
+🔴 启用跳过选项或回退到 `literature-metadata-search` 时，建议使用具备联网搜索能力的模型。任务本身是轻量检索与证据核对，不需要长程写作能力，但需要严格区分同名、预印本/正式版、论文/学位论文和不同版本。
 
 ## 依赖
 

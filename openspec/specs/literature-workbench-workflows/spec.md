@@ -86,11 +86,21 @@ missing-PDF references, and non-empty ingest failures only.
 #### Scenario: Local identifier lookup short-circuits provider dispatch
 
 - **GIVEN** the selected parent item has a DOI, ISBN, or supported URL-derived identifier
+- **AND** `skip_identifier_fast_path` is absent or `false`
 - **AND** Zotero Translate Search returns a trustworthy metadata item for that identifier through the Host API metadata facade
 - **WHEN** the workflow preflight runs under the precompiled package hook contract
 - **THEN** preflight SHALL return `kind: "short-circuit-apply"`
 - **AND** the short-circuit result JSON SHALL use `kind: "literature_metadata_curation"`
 - **AND** provider dispatch SHALL NOT be required for that input unit.
+
+#### Scenario: Explicit skip dispatches the metadata search skill
+
+- **GIVEN** the selected parent item has a supported identifier
+- **AND** `skip_identifier_fast_path` is `true`
+- **WHEN** the workflow preflight runs
+- **THEN** preflight SHALL NOT call the Host API or direct-runtime Zotero Translate Search
+- **AND** `buildRequest` SHALL create one automatic `skillrunner.job.v1` request for `literature-metadata-search`
+- **AND** the selected identifier SHALL remain in the request input as search context.
 
 #### Scenario: Inconclusive local lookup falls back to SkillRunner
 
@@ -141,6 +151,36 @@ The `literature-metadata-search` skill SHALL search for bibliographic metadata w
 - **THEN** it SHALL output a JSON object with `kind: "literature_metadata_curation"`
 - **AND** it SHALL include normalized metadata under `metadata.fields` and optionally `metadata.creators`.
 
+### Requirement: Literature metadata search skill SHALL preserve authoritative Chinese creator names
+
+For a paper originally published in Chinese, the skill SHALL prefer the complete
+Chinese-character creator list from an authoritative original source over
+romanized or translated creator names.
+
+#### Scenario: Complete Chinese creator list is verified
+
+- **GIVEN** the paper's original publication language is Chinese
+- **AND** an authoritative original source verifies the complete creator list and order
+- **WHEN** the skill emits `metadata.creators`
+- **THEN** it SHALL use the verified Chinese-character names in source order
+- **AND** it SHALL NOT substitute pinyin or translated names.
+
+#### Scenario: Complete Chinese creator list cannot be verified
+
+- **GIVEN** the paper's original publication language is Chinese
+- **AND** only romanized names or an incomplete Chinese creator list can be verified
+- **WHEN** the skill emits otherwise applicable metadata
+- **THEN** it SHALL NOT infer or back-transliterate Chinese characters
+- **AND** it SHALL emit an empty `metadata.creators` array so existing creators are preserved
+- **AND** it SHALL include a warning with code `native_creator_names_unverified`.
+
+#### Scenario: Chinese authors publish an English-language paper
+
+- **GIVEN** the original publication language is not Chinese
+- **WHEN** the skill evaluates creator names
+- **THEN** author nationality, name, affiliation, or publication country alone SHALL NOT trigger Chinese-character replacement
+- **AND** the skill SHALL preserve the officially published creator form.
+
 ### Requirement: Literature metadata search skill SHALL expose an automation-facing contract
 
 The `literature-metadata-search` skill SHALL provide runner-readable schemas and instructions so it can be executed by workflows or injected agents without plugin-specific assumptions.
@@ -177,4 +217,3 @@ ACP Chat SHALL materialize the `literature-metadata-search` skill alongside the 
 - **WHEN** an ACP Chat session prepares injected skills
 - **THEN** the injected skill id list SHALL include `literature-metadata-search`
 - **AND** the skill SHALL be copied into each resolved ACP Chat skill root when present in the plugin skill registry.
-

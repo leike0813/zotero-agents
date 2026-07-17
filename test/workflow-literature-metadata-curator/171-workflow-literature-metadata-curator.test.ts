@@ -137,7 +137,11 @@ function makeHostApiOnlyRuntime(
 }
 
 async function withMockGlobalTranslate<T>(
-  args: { items?: TranslateCandidate[]; translators?: unknown[] },
+  args: {
+    items?: TranslateCandidate[];
+    translators?: unknown[];
+    onTranslate?: () => void;
+  },
   callback: () => Promise<T>,
 ): Promise<T> {
   class Search {
@@ -170,6 +174,7 @@ async function withMockGlobalTranslate<T>(
     }
 
     async translate() {
+      args.onTranslate?.();
       return args.items || [];
     }
   }
@@ -279,6 +284,17 @@ describe("workflow: literature-metadata-curator", function () {
     assert.include(skill, "Crossref");
     assert.include(skill, "OpenAlex");
     assert.include(skill, "Sci-Hub");
+    const normalizedSkill = skill.replace(/\s+/g, " ");
+    assert.match(
+      normalizedSkill,
+      /Chinese-language (paper|work).*Chinese-character creator names/i,
+    );
+    assert.match(
+      normalizedSkill,
+      /do not (guess|infer|back-transliterate).*Chinese characters/i,
+    );
+    assert.include(normalizedSkill, "native_creator_names_unverified");
+    assert.equal(runner.version, "1.2.0");
     for (const key of ["parent", "identifier", "diagnostics"]) {
       assert.equal(
         inputSchema.properties?.[key]?.["x-input-source"],
@@ -367,6 +383,13 @@ describe("workflow: literature-metadata-curator", function () {
     const workflow = await getWorkflow();
     assert.equal(workflow.manifest.provider, "skillrunner");
     assert.equal(workflow.manifest.inputs?.unit, "parent");
+    assert.equal(
+      workflow.manifest.parameters?.skip_identifier_fast_path?.type,
+      "boolean",
+    );
+    assert.isFalse(
+      workflow.manifest.parameters?.skip_identifier_fast_path?.default,
+    );
     assert.equal(
       workflow.manifest.validateSelection?.select?.policy,
       "literature-parent",
@@ -607,6 +630,46 @@ describe("workflow: literature-metadata-curator", function () {
         .metadata.itemType,
       "conferencePaper",
     );
+  });
+
+  it("skips identifier lookup and submits the skill when explicitly requested", async function () {
+    const workflow = await getWorkflow();
+    const parent = await createParent({
+      title: "Force agent search",
+      doi: "10.1000/force-agent-search",
+    });
+    let translateCalls = 0;
+
+    const requests = (await withMockGlobalTranslate(
+      {
+        items: [
+          {
+            DOI: "10.1000/force-agent-search",
+            title: "Local shortcut result",
+          },
+        ],
+        onTranslate: () => {
+          translateCalls += 1;
+        },
+      },
+      async () =>
+        executeBuildRequests({
+          workflow,
+          selectionContext: await buildSelectionContext([parent]),
+          executionOptions: {
+            workflowParams: { skip_identifier_fast_path: true },
+          },
+        }),
+    )) as any[];
+
+    assert.equal(translateCalls, 0);
+    assert.lengthOf(requests, 1);
+    assert.equal(requests[0].skill_id, "literature-metadata-search");
+    assert.deepInclude(requests[0].input.identifier, {
+      type: "DOI",
+      normalized: "10.1000/force-agent-search",
+    });
+    assert.lengthOf((requests as any).__preflight.shortCircuitApplies, 0);
   });
 
   it("uses hostApi metadata fast path for DOI, ISBN, and supported URL identifiers", async function () {
@@ -962,6 +1025,42 @@ describe("workflow: literature-metadata-curator", function () {
         name: "Metadata Group",
         creatorType: "author",
       },
+    ]);
+  });
+
+  it("preserves existing creators when canonical metadata has no replacement list", async function () {
+    const parent = await createParent({ title: "Chinese paper" });
+    (parent as any).setCreators([
+      { firstName: "Existing", lastName: "Author", creatorType: "author" },
+    ]);
+    await parent.saveTx();
+
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: {
+            fields: { title: "已核实的中文论文标题" },
+            creators: [],
+          },
+          warnings: [
+            {
+              code: "native_creator_names_unverified",
+              message: "Native creator names could not be verified.",
+            },
+          ],
+        },
+      },
+      runtime: { zotero: Zotero, handlers },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.equal(parent.getField("title"), "已核实的中文论文标题");
+    assert.deepEqual((parent as any).getCreators(), [
+      { firstName: "Existing", lastName: "Author", creatorType: "author" },
     ]);
   });
 
