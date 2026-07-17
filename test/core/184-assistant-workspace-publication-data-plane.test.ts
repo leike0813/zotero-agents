@@ -839,6 +839,59 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
+  it("keeps child-visible region revisions monotonic across host deactivation", async function () {
+    const vm = await import("vm");
+    const code = await readFile(
+      "addon/content/shared/assistant/assistant-workspace-acp-child.js",
+      "utf8",
+    );
+    const context = { window: {} as Record<string, unknown> };
+    vm.runInNewContext(code, context);
+    const receiver = (
+      context.window as any
+    ).AssistantWorkspaceAcpChild.createReceiver({ source: "acp-chat" });
+    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const posts: AssistantWorkspacePublication[] = [];
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "deactivation-continuity",
+      getActiveOwner: () => owner,
+      post: (publication) => {
+        posts.push(publication);
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+    });
+    const publish = () =>
+      coordinator.publishRegion({
+        owner,
+        publicationKind: "owner-control",
+        cause: "activation",
+        payload: ownerControl(),
+        force: true,
+      });
+
+    const first = publish();
+    assert.isDefined(first);
+    const firstResult = receiver.apply({}, first, owner.ownerKey);
+    assert.isTrue(firstResult.accepted);
+
+    runtime.deactivate();
+
+    const second = publish();
+    assert.isDefined(second);
+    assert.isAbove(second!.regionRevision, first!.regionRevision);
+    const secondResult = receiver.apply(
+      firstResult.snapshot,
+      second,
+      owner.ownerKey,
+    );
+    assert.isTrue(secondResult.accepted);
+    assert.deepEqual(posts, [first, second]);
+  });
+
   it("retries an identical region when transport did not accept the first post", function () {
     const owner = assistantWorkspaceTestOwner("acp-chat");
     let accepts = false;

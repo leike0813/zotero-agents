@@ -176,7 +176,7 @@ describe("ACP Replay publication in the Zotero runtime", function () {
     }
   });
 
-  it("confirms ACP Chat and ACP Skills snapshots through the real nested Workspace frames", async function () {
+  it("keeps ACP publications valid when the real nested Workspace frames are hidden and reopened", async function () {
     if (!hasRealZoteroRuntime()) {
       this.skip();
     }
@@ -184,21 +184,28 @@ describe("ACP Replay publication in the Zotero runtime", function () {
     const previous = getAssistantWorkspaceReplayState();
     try {
       for (const tab of ["acp-chat", "acp-skills"] as const) {
-        const opened = await openAssistantWorkspaceSidebar({
+        let opened = await openAssistantWorkspaceSidebar({
           tab,
           target: previous.target,
         });
         assert.isTrue(opened, `${tab} Workspace did not open`);
         const options = { tab };
-        const result = await drainAcpRuntimeReplayPublication({
-          tab,
-          timeoutMs: 10_000,
-          inspect: () =>
-            inspectAssistantWorkspaceDiagnosticsPublication(options),
-          forcePublish: () =>
-            forceAssistantWorkspaceDiagnosticsPublication(options),
-        });
-        assert.deepEqual(result, { ok: true }, tab);
+        const drain = () =>
+          drainAcpRuntimeReplayPublication({
+            tab,
+            timeoutMs: 10_000,
+            inspect: () =>
+              inspectAssistantWorkspaceDiagnosticsPublication(options),
+            forcePublish: () =>
+              forceAssistantWorkspaceDiagnosticsPublication(options),
+          });
+        assert.deepEqual(await drain(), { ok: true }, `${tab}/initial`);
+
+        const target = getAssistantWorkspaceReplayState().target;
+        assert.isTrue(closeAssistantWorkspaceSidebar(), `${tab} did not close`);
+        opened = await openAssistantWorkspaceSidebar({ tab, target });
+        assert.isTrue(opened, `${tab} Workspace did not reopen`);
+        assert.deepEqual(await drain(), { ok: true }, `${tab}/reopened`);
       }
     } finally {
       if (!previous.open) {

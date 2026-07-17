@@ -520,9 +520,11 @@ function updateAssistantAttentionIndicator(
   updateAssistantToolbarAttention(host.win, waitingCount);
 }
 
-function resetWorkspacePublicationRuntime(host: AssistantWorkspaceHostRuntime) {
+function deactivateWorkspacePublicationRuntime(
+  host: AssistantWorkspaceHostRuntime,
+) {
   host.pendingSnapshotTab = undefined;
-  host.publicationRuntime?.reset();
+  host.publicationRuntime?.deactivate();
   for (const lifecycle of host.publicationLifecycles.values()) {
     if (lifecycle.state !== "pending") continue;
     lifecycle.state = "rejected";
@@ -555,7 +557,7 @@ function deactivateTarget(
     setButtonSelected(host.reader.button, false);
   }
   if (host.activeTarget === target) {
-    resetWorkspacePublicationRuntime(host);
+    deactivateWorkspacePublicationRuntime(host);
     host.drawerOpen = false;
     host.activeTarget = null;
     setShellActiveTarget(host, null);

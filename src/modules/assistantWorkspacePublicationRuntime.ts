@@ -746,17 +746,24 @@ export class AssistantWorkspacePublicationRuntime {
     }
   }
 
+  // Workspace deactivation hides the existing child document. Preserve owner
+  // and revision continuity while discarding work that can no longer render.
+  deactivate() {
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    this.pending.clear();
+    this.detailsRequestEpoch.clear();
+    this.options.coordinator.reset();
+  }
+
   reset(source?: AssistantWorkspaceOwner["source"]) {
     if (!source) {
-      if (this.flushTimer) clearTimeout(this.flushTimer);
-      this.flushTimer = null;
+      this.deactivate();
       for (const owner of this.owners.values()) {
         this.options.coordinator.clearOwner(owner);
         this.options.hooks?.onOwnerCleared?.(owner);
       }
       this.owners.clear();
-      this.pending.clear();
-      this.options.coordinator.reset();
       return;
     }
     const owner = this.owners.get(source);
@@ -767,6 +774,9 @@ export class AssistantWorkspacePublicationRuntime {
     this.owners.delete(source);
     for (const [key, lane] of this.pending) {
       if (lane.source === source) this.pending.delete(key);
+    }
+    for (const key of this.detailsRequestEpoch.keys()) {
+      if (key.startsWith(`${source}\n`)) this.detailsRequestEpoch.delete(key);
     }
   }
 
