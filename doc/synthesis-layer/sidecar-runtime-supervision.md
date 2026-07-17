@@ -6,7 +6,13 @@ service entrypoint returned by the runtime installer. It does not inspect
 system Node, PATH, npm, a login shell, or the ACP process-control registry.
 
 The service is still mutation-disabled. It does not open production
-`synthesis.db`, Topic canonical files, or Host capabilities. The default
+`synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
+discovery it opens only an identity-bound persistent shadow repository under
+the profile runtime root, establishes the three-table foundation schema, and
+reconciles interrupted shadow operations. Identity or schema corruption aborts
+startup. Health and handshake return the same path-free O(1) repository
+snapshot; `mutationEnabled: false` continues to describe production authority.
+The default
 production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph
 reads, basis checks, promotion, and the other six production engines. Unified
@@ -24,6 +30,9 @@ runtime/synthesis/service-runtime/profiles/<profileId>/
   sessions/<supervisorInstanceId>/
     config.json
     lease.json
+  shadow-repository/<dataRootId>/
+    identity.json
+    synthesis.db
 ```
 
 The Node service obtains the runtime-instance owner before listening. A live
@@ -95,7 +104,8 @@ identity incompatibility require explicit recovery.
 
 stdout and stderr are continuously drained with bounded retained tails and do
 not drive per-chunk state updates. Controlled shutdown stops compute admission,
-cancels queued and active tasks, and terminates the worker within one 500 ms pool
-budget before closing the server. The plugin then waits within its own shutdown
+cancels queued and active tasks, marks the repository stopping, closes SQLite,
+and terminates the worker within one 500 ms service budget before closing the
+server. The plugin then waits within its own shutdown
 budget and directly kills the service process if required; terminating that Node
 process also terminates its worker threads.

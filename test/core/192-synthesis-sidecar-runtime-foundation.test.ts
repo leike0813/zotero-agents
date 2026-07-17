@@ -22,6 +22,7 @@ import {
   isSynthesisSidecarSystemCapability,
   rebuildSynthesisSidecarCallRequest,
   rebuildSynthesisSidecarComputePoolSnapshot,
+  rebuildSynthesisSidecarRepositorySnapshot,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../../packages/synthesis-contracts/src/sidecarTransfer";
 import { acquireSynthesisSidecarServiceLifecycle } from "../../apps/synthesis-service/src/lifecycle";
@@ -323,6 +324,22 @@ describe("Synthesis sidecar runtime foundation", function () {
         failureCount: 0,
       }),
     );
+    const repositorySnapshot = {
+      mode: "isolated_shadow" as const,
+      state: "ready" as const,
+      schemaVersion: "synthesis-repository-foundation.v1" as const,
+      repositoryId: "a".repeat(64),
+    };
+    assert.deepEqual(
+      rebuildSynthesisSidecarRepositorySnapshot(repositorySnapshot),
+      repositorySnapshot,
+    );
+    assert.throws(() =>
+      rebuildSynthesisSidecarRepositorySnapshot({
+        ...repositorySnapshot,
+        path: "/must/not/leak",
+      }),
+    );
     assert.equal(SYNTHESIS_SIDECAR_HEALTH_PATH, "/synthesis/v1/health");
     assert.equal(SYNTHESIS_SIDECAR_CALL_PATH, "/synthesis/v1/call");
     assert.deepEqual(
@@ -377,6 +394,16 @@ describe("Synthesis sidecar runtime foundation", function () {
       sessions: 0,
       stagedBytes: 0,
     });
+    assert.deepEqual(
+      rebuildSynthesisSidecarRepositorySnapshot(health.repository),
+      health.repository,
+    );
+    assert.deepInclude(health.repository as Record<string, unknown>, {
+      mode: "isolated_shadow",
+      state: "ready",
+      schemaVersion: "synthesis-repository-foundation.v1",
+    });
+    assert.notInclude(JSON.stringify(health.repository), service.profileRoot);
     assert.isString(health.serviceInstanceId);
     assert.notProperty(health, "profileId");
     assert.notProperty(health, "runtimeRootId");
@@ -409,6 +436,18 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.deepEqual(data.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
     assert.deepEqual(data.computePool, health.computePool);
     assert.deepEqual(data.citationGraphTransfer, health.citationGraphTransfer);
+    assert.deepEqual(data.repository, health.repository);
+    assert.equal(data.mutationEnabled, false);
+    assert.isTrue(
+      fs.existsSync(
+        path.join(
+          service.profileRoot,
+          "shadow-repository",
+          DATA_ROOT_ID,
+          "synthesis.db",
+        ),
+      ),
+    );
     const transferMissingAuth = await call(service, "", {
       ...handshakeRequest(),
       requestId: "request:transfer-unauthorized",
@@ -569,6 +608,64 @@ describe("Synthesis sidecar runtime foundation", function () {
       error: { code: string };
     };
     assert.equal(oversized.error.code, "request_body_too_large");
+  });
+
+  it("does not publish discovery when repository identity is corrupt", async function () {
+    const tempRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-sidecar-repository-fail-"),
+    );
+    const profileRoot = path.join(tempRoot, "profile-runtime");
+    const sessionRoot = path.join(
+      profileRoot,
+      "sessions",
+      SUPERVISOR_INSTANCE_ID,
+    );
+    fs.mkdirSync(sessionRoot, { recursive: true });
+    fs.mkdirSync(path.join(profileRoot, "shadow-repository", DATA_ROOT_ID), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(
+        profileRoot,
+        "shadow-repository",
+        DATA_ROOT_ID,
+        "identity.json",
+      ),
+      '{"schema":"corrupt"}\n',
+      "utf8",
+    );
+    const configPath = path.join(sessionRoot, "config.json");
+    fs.writeFileSync(configPath, `${JSON.stringify(config(profileRoot))}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    fs.writeFileSync(
+      path.join(sessionRoot, "lease.json"),
+      `${JSON.stringify({
+        schema: SYNTHESIS_SIDECAR_LEASE_SCHEMA,
+        profileId: PROFILE_ID,
+        supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
+        leaseNonce: LEASE_NONCE,
+        updatedAtMs: Date.now(),
+      })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    const child = spawn(
+      process.execPath,
+      [BUILD_ENTRY, "--config", configPath],
+      {
+        cwd: ROOT,
+        env: { ...process.env, PATH: "" },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    child.stdin.end();
+    const exitCode = await new Promise<number | null>((resolve) =>
+      child.once("exit", resolve),
+    );
+    assert.notEqual(exitCode, 0);
+    assert.isFalse(fs.existsSync(path.join(profileRoot, "discovery.json")));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
   });
 
   it("keeps lifecycle authorization distinct and redacts diagnostics", async function () {

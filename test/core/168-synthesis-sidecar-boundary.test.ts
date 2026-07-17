@@ -52,11 +52,29 @@ describe("Synthesis sidecar migration boundary", function () {
         sidecar_worker_canary?: boolean;
         sidecar_streaming_worker_canary?: boolean;
       }>;
+      isolated_repository: {
+        mode: string;
+        schema_version: string;
+        table_families: string[];
+        production_database_owner: string;
+        production_canonical_file_owner: string;
+        production_mutation_enabled: boolean;
+        remote_capability: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
       "workbench_warmup",
     );
+    assert.deepEqual(rawInventory.isolated_repository, {
+      mode: "isolated_shadow",
+      schema_version: "synthesis-repository-foundation.v1",
+      table_families: ["schema_meta", "cache_basis", "operation"],
+      production_database_owner: "plugin_composition",
+      production_canonical_file_owner: "plugin_composition",
+      production_mutation_enabled: false,
+      remote_capability: false,
+    });
     assert.deepEqual(
       rawInventory.internal_engines.map((engine) => engine.id),
       [
@@ -389,9 +407,35 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
-      /(?:src\/modules\/synthesis|synthesis\/service|repository|hostEffect|webDavSync|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|webDavSync|globalThis\.Zotero|zotero-plugin)/i,
     );
     assert.notInclude(sidecarAppSource, "node:child_process");
+    const sqliteUsers = fs
+      .readdirSync(path.join(sidecarAppRoot, "src"))
+      .filter(
+        (entry) =>
+          entry.endsWith(".ts") &&
+          fs
+            .readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8")
+            .includes("node:sqlite"),
+      );
+    assert.deepEqual(sqliteUsers, ["repositoryNodeSqlite.ts"]);
+    const repositoryFoundation = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-repository/src/index.ts"),
+      "utf8",
+    );
+    assert.notMatch(
+      repositoryFoundation,
+      /(?:node:|Zotero|child_process|worker_threads|src\/modules\/synthesis)/,
+    );
+    const computeWorker = fs.readFileSync(
+      path.join(sidecarAppRoot, "src/computeWorker.ts"),
+      "utf8",
+    );
+    assert.notMatch(
+      computeWorker,
+      /(?:node:sqlite|synthesis-repository|isolatedRepository|repositoryNodeSqlite)/,
+    );
     const workerThreadUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
       .filter(

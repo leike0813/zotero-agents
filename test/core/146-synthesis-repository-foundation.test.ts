@@ -27,6 +27,11 @@ import {
   applySynthesisUiAction,
   createDefaultSynthesisUiState,
 } from "../../src/modules/synthesis/uiModel";
+import {
+  SYNTHESIS_REPOSITORY_FOUNDATION_INDEXES,
+  SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+  SYNTHESIS_REPOSITORY_FOUNDATION_TABLES,
+} from "../../packages/synthesis-repository/src/index";
 
 function createSynthesisBusyError() {
   const error = new Error("database is locked: SQLITE_BUSY");
@@ -279,6 +284,32 @@ describe("Synthesis repository foundation", function () {
     assert.equal(
       repository.getSchemaVersion(),
       "2026-06-01.sidecar-cache-hard-cut",
+    );
+  });
+
+  it("reuses the shared foundation schema while retaining the full plugin schema", async function () {
+    const repository = createSynthesisRepository();
+    repository.initialize();
+    const schemaNames = repository.inspectSchema().map((entry) => entry.name);
+    assert.includeMembers(schemaNames, [
+      ...SYNTHESIS_REPOSITORY_FOUNDATION_TABLES,
+      ...SYNTHESIS_REPOSITORY_FOUNDATION_INDEXES,
+    ]);
+    assert.isAbove(
+      schemaNames.length,
+      SYNTHESIS_REPOSITORY_FOUNDATION_TABLES.length,
+    );
+
+    const source = await fs.readFile(
+      path.join(process.cwd(), "src/modules/synthesis/repository.ts"),
+      "utf8",
+    );
+    assert.include(source, "ensureSynthesisRepositoryFoundationSchema(db)");
+    assert.notInclude(source, "CREATE TABLE IF NOT EXISTS synt_cache_basis");
+    assert.notInclude(source, "CREATE TABLE IF NOT EXISTS synt_operation");
+    assert.equal(
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+      "synthesis-repository-foundation.v1",
     );
   });
 

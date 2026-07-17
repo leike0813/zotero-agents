@@ -1,16 +1,34 @@
 import { getRuntimePersistencePaths } from "../runtimePersistence";
 import { getGuardedSqliteConnection } from "../guardedSqlite";
+import {
+  ensureSynthesisRepositoryFoundationSchema,
+  getSynthesisCacheBasis,
+  getSynthesisOperation,
+  listSynthesisCacheBasis,
+  listSynthesisOperations,
+  updateSynthesisOperationStatus,
+  upsertSynthesisCacheBasis,
+  upsertSynthesisOperation,
+  type SqlAdapter,
+  type SqlParams,
+  type SqlPrimitive,
+  type SqlRow,
+  type SynthesisCacheBasisRecord,
+  type SynthesisOperationProgressMode,
+  type SynthesisOperationRecord,
+  type SynthesisOperationStatus,
+} from "../../../packages/synthesis-repository/src/index";
 
-export type SqlPrimitive = string | number | null;
-export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
-export type SqlRow = Record<string, unknown>;
-
-export type SqlAdapter = {
-  run: (sql: string, params?: SqlParams) => void;
-  all: (sql: string, params?: SqlParams) => SqlRow[];
-  get: (sql: string, params?: SqlParams) => SqlRow | null;
-  transaction: <T>(fn: () => T) => T;
-};
+export type {
+  SqlAdapter,
+  SqlParams,
+  SqlPrimitive,
+  SqlRow,
+  SynthesisCacheBasisRecord,
+  SynthesisOperationProgressMode,
+  SynthesisOperationRecord,
+  SynthesisOperationStatus,
+} from "../../../packages/synthesis-repository/src/index";
 
 export type SynthesisRepositorySchemaEntry = {
   name: string;
@@ -41,58 +59,6 @@ export type SynthesisReviewItemRecord = {
   payloadJson?: string;
   diagnosticsJson?: string;
   createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisOperationStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "failed"
-  | "canceled";
-
-export type SynthesisOperationProgressMode = "determinate" | "indeterminate";
-
-export type SynthesisOperationRecord = {
-  operationId: string;
-  operationType: string;
-  libraryId?: number;
-  scopeKind?: string;
-  scopeRef?: string;
-  status?: SynthesisOperationStatus;
-  label?: string;
-  phase?: string;
-  phaseLabel?: string;
-  message?: string;
-  progressMode?: SynthesisOperationProgressMode;
-  processedCount?: number;
-  skippedCount?: number;
-  failedCount?: number;
-  totalCount?: number;
-  basisKind?: string;
-  basisValue?: string;
-  sourceHash?: string;
-  diagnosticsJson?: string;
-  createdAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisCacheBasisRecord = {
-  cacheKey: string;
-  cacheKind: string;
-  scopeKind?: string;
-  scopeRef?: string;
-  status?: "missing" | "ready" | "stale" | "refreshing" | "failed";
-  basisKind?: string;
-  basisValue?: string;
-  sourceHash?: string;
-  policyVersion?: string;
-  activeOperationId?: string;
-  refreshedAt?: string;
-  staleReason?: string;
-  diagnosticsJson?: string;
   updatedAt?: string;
 };
 
@@ -965,41 +931,6 @@ function nonNegativeInt(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function normalizeOperationStatus(value: unknown): SynthesisOperationStatus {
-  const normalized = cleanString(value);
-  if (
-    normalized === "pending" ||
-    normalized === "running" ||
-    normalized === "completed" ||
-    normalized === "failed" ||
-    normalized === "canceled"
-  ) {
-    return normalized;
-  }
-  return "pending";
-}
-
-function normalizeOperationProgressMode(
-  value: unknown,
-): SynthesisOperationProgressMode {
-  return cleanString(value) === "determinate" ? "determinate" : "indeterminate";
-}
-
-function normalizeCacheBasisStatus(
-  value: unknown,
-): NonNullable<SynthesisCacheBasisRecord["status"]> {
-  const normalized = cleanString(value);
-  if (
-    normalized === "ready" ||
-    normalized === "stale" ||
-    normalized === "refreshing" ||
-    normalized === "failed"
-  ) {
-    return normalized;
-  }
-  return "missing";
-}
-
 function normalizeReferenceBindingState(
   value: unknown,
 ): SynthesisReferenceBindingRecord["status"] {
@@ -1758,8 +1689,8 @@ function createMemoryAdapter(): SqlAdapter {
       }
       if (normalized.startsWith("insert or replace into synt_schema_meta")) {
         state.schemaMeta.set(
-          cleanString(params.meta_key),
-          cleanString(params.meta_value),
+          cleanString(params.meta_key ?? params.key),
+          cleanString(params.meta_value ?? params.value),
         );
         return;
       }
@@ -2113,7 +2044,7 @@ function createMemoryAdapter(): SqlAdapter {
         );
       }
       if (normalized.includes("from synt_schema_meta")) {
-        const metaKey = cleanString(params.meta_key);
+        const metaKey = cleanString(params.meta_key ?? params.key);
         if (metaKey) {
           const value = state.schemaMeta.get(metaKey);
           return value === undefined ? [] : [{ key: metaKey, value }];
@@ -2597,30 +2528,7 @@ function migrateLegacySynthesisRowsIfNeeded(args: {
 }
 
 function ensureSchema(db: SqlAdapter) {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_schema_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_cache_basis (
-      cache_key TEXT PRIMARY KEY,
-      cache_kind TEXT NOT NULL,
-      scope_kind TEXT NOT NULL DEFAULT '',
-      scope_ref TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'missing',
-      basis_kind TEXT NOT NULL DEFAULT '',
-      basis_value TEXT NOT NULL DEFAULT '',
-      source_hash TEXT NOT NULL DEFAULT '',
-      policy_version TEXT NOT NULL DEFAULT '',
-      active_operation_id TEXT NOT NULL DEFAULT '',
-      refreshed_at TEXT NOT NULL DEFAULT '',
-      stale_reason TEXT NOT NULL DEFAULT '',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
+  ensureSynthesisRepositoryFoundationSchema(db);
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_canonical_store_record (
       record_id TEXT PRIMARY KEY,
@@ -3170,38 +3078,7 @@ function ensureSchema(db: SqlAdapter) {
       updated_at TEXT NOT NULL DEFAULT ''
     );
   `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_operation (
-      operation_id TEXT PRIMARY KEY,
-      operation_type TEXT NOT NULL,
-      library_id INTEGER NOT NULL DEFAULT 0,
-      scope_kind TEXT NOT NULL DEFAULT '',
-      scope_ref TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'pending',
-      label TEXT NOT NULL DEFAULT '',
-      phase TEXT NOT NULL DEFAULT '',
-      phase_label TEXT NOT NULL DEFAULT '',
-      message TEXT NOT NULL DEFAULT '',
-      progress_mode TEXT NOT NULL DEFAULT 'indeterminate',
-      processed_count INTEGER NOT NULL DEFAULT 0,
-      skipped_count INTEGER NOT NULL DEFAULT 0,
-      failed_count INTEGER NOT NULL DEFAULT 0,
-      total_count INTEGER NOT NULL DEFAULT 0,
-      basis_kind TEXT NOT NULL DEFAULT '',
-      basis_value TEXT NOT NULL DEFAULT '',
-      source_hash TEXT NOT NULL DEFAULT '',
-      diagnostics_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      started_at TEXT NOT NULL DEFAULT '',
-      completed_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
   dropRemovedSynchronizationTables(db);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_cache_basis_kind_status
-      ON synt_cache_basis(cache_kind, status, updated_at DESC);
-  `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_canonical_store_record_kind_created
       ON synt_canonical_store_record(record_kind, created_at DESC);
@@ -3469,10 +3346,6 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_review_item_blocked_status
       ON synt_review_item(blocked_by_review_item_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_operation_type_status_updated
-      ON synt_operation(operation_type, status, updated_at DESC);
   `);
   db.run(
     `
@@ -3912,25 +3785,6 @@ function rowToTopicDiscoveryHint(
   };
 }
 
-function rowToCacheBasis(row: SqlRow): SynthesisCacheBasisRecord {
-  return {
-    cacheKey: cleanString(row.cache_key),
-    cacheKind: cleanString(row.cache_kind),
-    scopeKind: cleanString(row.scope_kind) || undefined,
-    scopeRef: cleanString(row.scope_ref) || undefined,
-    status: normalizeCacheBasisStatus(row.status),
-    basisKind: cleanString(row.basis_kind) || undefined,
-    basisValue: cleanString(row.basis_value) || undefined,
-    sourceHash: cleanString(row.source_hash) || undefined,
-    policyVersion: cleanString(row.policy_version) || undefined,
-    activeOperationId: cleanString(row.active_operation_id) || undefined,
-    refreshedAt: cleanString(row.refreshed_at) || undefined,
-    staleReason: cleanString(row.stale_reason) || undefined,
-    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
 function rowToTopicGraphNode(row: SqlRow): SynthesisTopicGraphNodeRecord {
   return {
     topicId: cleanString(row.topic_id),
@@ -4187,34 +4041,6 @@ function rowToReviewItem(row: SqlRow): SynthesisReviewItemRecord {
     payloadJson: cleanString(row.payload_json) || "{}",
     diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
     createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
-}
-
-function rowToOperation(row: SqlRow): SynthesisOperationRecord {
-  return {
-    operationId: cleanString(row.operation_id),
-    operationType: cleanString(row.operation_type),
-    libraryId: Math.max(0, Math.floor(Number(row.library_id) || 0)),
-    scopeKind: cleanString(row.scope_kind) || undefined,
-    scopeRef: cleanString(row.scope_ref) || undefined,
-    status: normalizeOperationStatus(row.status),
-    label: cleanString(row.label) || undefined,
-    phase: cleanString(row.phase) || undefined,
-    phaseLabel: cleanString(row.phase_label) || undefined,
-    message: cleanString(row.message) || undefined,
-    progressMode: normalizeOperationProgressMode(row.progress_mode),
-    processedCount: nonNegativeInt(row.processed_count),
-    skippedCount: nonNegativeInt(row.skipped_count),
-    failedCount: nonNegativeInt(row.failed_count),
-    totalCount: nonNegativeInt(row.total_count),
-    basisKind: cleanString(row.basis_kind) || undefined,
-    basisValue: cleanString(row.basis_value) || undefined,
-    sourceHash: cleanString(row.source_hash) || undefined,
-    diagnosticsJson: cleanString(row.diagnostics_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    startedAt: cleanString(row.started_at) || undefined,
-    completedAt: cleanString(row.completed_at) || undefined,
     updatedAt: cleanString(row.updated_at) || undefined,
   };
 }
@@ -4629,109 +4455,17 @@ export class SynthesisRepository {
 
   getCacheBasis(cacheKeyRaw: string) {
     this.initialize();
-    const cacheKey = cleanString(cacheKeyRaw);
-    if (!cacheKey) {
-      return null;
-    }
-    const row = this.db.get(
-      `
-        SELECT *
-        FROM synt_cache_basis
-        WHERE cache_key=@cache_key
-        LIMIT 1
-      `,
-      { cache_key: cacheKey },
-    );
-    return row ? rowToCacheBasis(row) : null;
+    return getSynthesisCacheBasis(this.db, cacheKeyRaw);
   }
 
   upsertCacheBasis(record: SynthesisCacheBasisRecord) {
     this.initialize();
-    const cacheKey = cleanString(record.cacheKey);
-    if (!cacheKey) {
-      throw new Error("cacheKey must be non-empty");
-    }
-    const timestamp = this.now();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_cache_basis (
-          cache_key,
-          cache_kind,
-          scope_kind,
-          scope_ref,
-          status,
-          basis_kind,
-          basis_value,
-          source_hash,
-          policy_version,
-          active_operation_id,
-          refreshed_at,
-          stale_reason,
-          diagnostics_json,
-          updated_at
-        )
-        VALUES (
-          @cache_key,
-          @cache_kind,
-          @scope_kind,
-          @scope_ref,
-          @status,
-          @basis_kind,
-          @basis_value,
-          @source_hash,
-          @policy_version,
-          @active_operation_id,
-          @refreshed_at,
-          @stale_reason,
-          @diagnostics_json,
-          @updated_at
-        )
-      `,
-      {
-        cache_key: cacheKey,
-        cache_kind: cleanString(record.cacheKind),
-        scope_kind: cleanString(record.scopeKind),
-        scope_ref: cleanString(record.scopeRef),
-        status: normalizeCacheBasisStatus(record.status),
-        basis_kind: cleanString(record.basisKind),
-        basis_value: cleanString(record.basisValue),
-        source_hash: cleanString(record.sourceHash),
-        policy_version: cleanString(record.policyVersion),
-        active_operation_id: cleanString(record.activeOperationId),
-        refreshed_at: cleanString(record.refreshedAt),
-        stale_reason: cleanString(record.staleReason),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        updated_at: cleanString(record.updatedAt) || timestamp,
-      },
-    );
+    upsertSynthesisCacheBasis(this.db, record, this.now);
   }
 
   listCacheBasis(args: { cacheKinds?: string[]; statuses?: string[] } = {}) {
     this.initialize();
-    const cacheKinds = new Set(
-      (args.cacheKinds || []).map(cleanString).filter(Boolean),
-    );
-    const statuses = new Set(
-      (args.statuses || []).map(cleanString).filter(Boolean),
-    );
-    const clauses: string[] = [];
-    const params: SqlParams = {};
-    appendInFilter(clauses, params, "cache_kind", "cache_kind", cacheKinds);
-    appendInFilter(clauses, params, "status", "status", statuses);
-    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-    return this.db
-      .all(
-        `
-          SELECT *
-          FROM synt_cache_basis
-          ${where}
-          ORDER BY updated_at DESC, cache_key ASC
-        `,
-        params,
-      )
-      .map(rowToCacheBasis)
-      .filter((row) => !cacheKinds.size || cacheKinds.has(row.cacheKind))
-      .filter((row) => !statuses.size || statuses.has(row.status || ""));
+    return listSynthesisCacheBasis(this.db, args);
   }
 
   upsertCanonicalStoreRecord(record: SynthesisCanonicalStoreRecord) {
@@ -6499,108 +6233,12 @@ export class SynthesisRepository {
 
   upsertOperation(record: SynthesisOperationRecord) {
     this.initialize();
-    const operationId = cleanString(record.operationId);
-    if (!operationId) {
-      throw new Error("operationId must be non-empty");
-    }
-    const timestamp = this.now();
-    this.db.run(
-      `
-        INSERT OR REPLACE INTO synt_operation (
-          operation_id,
-          operation_type,
-          library_id,
-          scope_kind,
-          scope_ref,
-          status,
-          label,
-          phase,
-          phase_label,
-          message,
-          progress_mode,
-          processed_count,
-          skipped_count,
-          failed_count,
-          total_count,
-          basis_kind,
-          basis_value,
-          source_hash,
-          diagnostics_json,
-          created_at,
-          started_at,
-          completed_at,
-          updated_at
-        )
-        VALUES (
-          @operation_id,
-          @operation_type,
-          @library_id,
-          @scope_kind,
-          @scope_ref,
-          @status,
-          @label,
-          @phase,
-          @phase_label,
-          @message,
-          @progress_mode,
-          @processed_count,
-          @skipped_count,
-          @failed_count,
-          @total_count,
-          @basis_kind,
-          @basis_value,
-          @source_hash,
-          @diagnostics_json,
-          @created_at,
-          @started_at,
-          @completed_at,
-          @updated_at
-        )
-      `,
-      {
-        operation_id: operationId,
-        operation_type: cleanString(record.operationType),
-        library_id: Math.max(0, Math.floor(Number(record.libraryId) || 0)),
-        scope_kind: cleanString(record.scopeKind),
-        scope_ref: cleanString(record.scopeRef),
-        status: normalizeOperationStatus(record.status),
-        label: cleanString(record.label),
-        phase: cleanString(record.phase),
-        phase_label: cleanString(record.phaseLabel),
-        message: cleanString(record.message),
-        progress_mode: normalizeOperationProgressMode(record.progressMode),
-        processed_count: nonNegativeInt(record.processedCount),
-        skipped_count: nonNegativeInt(record.skippedCount),
-        failed_count: nonNegativeInt(record.failedCount),
-        total_count: nonNegativeInt(record.totalCount),
-        basis_kind: cleanString(record.basisKind),
-        basis_value: cleanString(record.basisValue),
-        source_hash: cleanString(record.sourceHash),
-        diagnostics_json: cleanString(record.diagnosticsJson) || "[]",
-        created_at: cleanString(record.createdAt) || timestamp,
-        started_at: cleanString(record.startedAt) || timestamp,
-        completed_at: cleanString(record.completedAt),
-        updated_at: cleanString(record.updatedAt) || timestamp,
-      },
-    );
+    upsertSynthesisOperation(this.db, record, this.now);
   }
 
   getOperation(operationIdRaw: string) {
     this.initialize();
-    const operationId = cleanString(operationIdRaw);
-    if (!operationId) {
-      return null;
-    }
-    const row = this.db.get(
-      `
-        SELECT *
-        FROM synt_operation
-        WHERE operation_id=@operation_id
-        LIMIT 1
-      `,
-      { operation_id: operationId },
-    );
-    return row ? rowToOperation(row) : null;
+    return getSynthesisOperation(this.db, operationIdRaw);
   }
 
   updateOperationStatus(args: {
@@ -6615,46 +6253,8 @@ export class SynthesisRepository {
     totalCount?: number;
     diagnosticsJson?: string;
   }) {
-    const existing = this.getOperation(args.operationId);
-    if (!existing) {
-      return null;
-    }
-    const timestamp = this.now();
-    const completedAt = ["completed", "failed", "canceled"].includes(
-      args.status,
-    )
-      ? timestamp
-      : existing.completedAt;
-    const next: SynthesisOperationRecord = {
-      ...existing,
-      status: args.status,
-      phase: args.phase !== undefined ? args.phase : existing.phase,
-      phaseLabel:
-        args.phaseLabel !== undefined ? args.phaseLabel : existing.phaseLabel,
-      message: args.message !== undefined ? args.message : existing.message,
-      processedCount:
-        args.processedCount !== undefined
-          ? args.processedCount
-          : existing.processedCount,
-      skippedCount:
-        args.skippedCount !== undefined
-          ? args.skippedCount
-          : existing.skippedCount,
-      failedCount:
-        args.failedCount !== undefined
-          ? args.failedCount
-          : existing.failedCount,
-      totalCount:
-        args.totalCount !== undefined ? args.totalCount : existing.totalCount,
-      diagnosticsJson:
-        args.diagnosticsJson !== undefined
-          ? args.diagnosticsJson
-          : existing.diagnosticsJson,
-      completedAt,
-      updatedAt: timestamp,
-    };
-    this.upsertOperation(next);
-    return next;
+    this.initialize();
+    return updateSynthesisOperationStatus(this.db, args, this.now);
   }
 
   listOperations(
@@ -6666,56 +6266,7 @@ export class SynthesisRepository {
     } = {},
   ) {
     this.initialize();
-    const statuses = new Set(
-      (args.statuses || []).map(cleanString).filter(Boolean),
-    );
-    const operationTypes = new Set(
-      (args.operationTypes || []).map(cleanString).filter(Boolean),
-    );
-    const terminal = new Set(["completed", "failed", "canceled"]);
-    const limit = Math.max(0, Math.floor(Number(args.limit) || 0));
-    const clauses: string[] = [];
-    const params: SqlParams = {};
-    appendInFilter(clauses, params, "status", "status", statuses);
-    appendInFilter(
-      clauses,
-      params,
-      "operation_type",
-      "operation_type",
-      operationTypes,
-    );
-    if (!args.includeCompleted) {
-      clauses.push("status NOT IN ('completed', 'failed', 'canceled')");
-    }
-    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
-    const limitSql = appendLimitClause(params, limit);
-    const rows = this.db
-      .all(
-        `
-          SELECT *
-          FROM synt_operation
-          ${where}
-          ORDER BY updated_at DESC, operation_id ASC
-          ${limitSql}
-        `,
-        params,
-      )
-      .map(rowToOperation)
-      .filter((row) => !statuses.size || statuses.has(row.status || ""))
-      .filter(
-        (row) => !operationTypes.size || operationTypes.has(row.operationType),
-      )
-      .filter(
-        (row) =>
-          args.includeCompleted ||
-          !terminal.has(normalizeOperationStatus(row.status)),
-      )
-      .sort(
-        (left, right) =>
-          (right.updatedAt || "").localeCompare(left.updatedAt || "") ||
-          left.operationId.localeCompare(right.operationId),
-      );
-    return limit > 0 ? rows.slice(0, limit) : rows;
+    return listSynthesisOperations(this.db, args);
   }
 
   listReferenceFacts(

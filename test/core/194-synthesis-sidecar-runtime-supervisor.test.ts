@@ -351,6 +351,8 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.include(entrypoint, 'runtime.beginShutdown("host_pipe_eof")');
     assert.include(server, "computePool.shutdown()");
     assert.include(server, "transferOwner.shutdown()");
+    assert.include(server, "repository.close()");
+    assert.include(server, "const SHUTDOWN_GRACE_MS = 500");
     assert.include(pool, "shutdownTimeoutMs: 500");
     assert.include(pool, "target.terminate()");
     assert.notInclude(pool, "node:child_process");
@@ -363,6 +365,16 @@ describe("Synthesis sidecar runtime supervisor", function () {
     );
     assert.notInclude(transferOwner, "node:child_process");
     assert.notInclude(transferOwner, "node:worker_threads");
+    const repositoryOwner = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "apps/synthesis-service/src/isolatedRepository.ts",
+      ),
+      "utf8",
+    );
+    assert.include(repositoryOwner, '"shadow-repository"');
+    assert.notInclude(repositoryOwner, "sessions");
+    assert.notInclude(repositoryOwner, "rmSync");
   });
 
   it("bounds retained diagnostic tails", function () {

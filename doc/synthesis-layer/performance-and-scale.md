@@ -48,6 +48,14 @@ ids only.
 
 ## SQLite Policy
 
+The service's WS5 shadow database is limited to three foundation tables and
+short synchronous main-process transactions. It performs no engine compute,
+Host/file/network IO, production reads, or Workbench queries. Startup schema
+validation and running-operation reconciliation complete before readiness;
+health/handshake use a maintained snapshot and never query row counts. Adding
+table families or domain workload requires a later parity design rather than
+expanding this canary implicitly.
+
 Write transactions should be short:
 
 - target: <= 100 ms;

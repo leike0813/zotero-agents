@@ -14,6 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing exactly schema metadata, cache basis, and operation rows. It is identity-bound test infrastructure, not a production mirror, Workbench source, or mutation owner. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -46,6 +47,9 @@ zotero-agents/
       previous.json
       staging/**
       versions/<bundleId>/**
+      profiles/<profileId>/shadow-repository/<dataRootId>/
+        identity.json
+        synthesis.db
     acp/**
     cache/**
     logs/**
@@ -62,6 +66,14 @@ runtime installer. Its manifest paths are strict relative paths; staging,
 repair, activation, rollback, and cleanup cannot target an external path. The
 directory does not prove that a service process is running or owns production
 data.
+
+The profile shadow repository is different from both the immutable runtime
+versions and production `state/synthesis.db`. Runtime configuration supplies
+only opaque profile/data-root identities; it never supplies the production DB
+or canonical root. Marker/schema mismatch fails service startup before
+discovery. Shadow rows persist across service restart so interrupted `running`
+operations can become `canceled`; terminal operation history and cache-basis
+rows remain. Shutdown closes the handle but does not delete the shadow root.
 
 ## SQLite Table Families
 

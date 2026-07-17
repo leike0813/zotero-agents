@@ -1,0 +1,223 @@
+import { assert } from "chai";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+  createSynthesisRepositoryFoundationStore,
+} from "../../packages/synthesis-repository/src/index";
+import { openSynthesisNodeSqliteAdapter } from "../../apps/synthesis-service/src/repositoryNodeSqlite";
+import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
+
+const PROFILE_ID = "1".repeat(64);
+const DATA_ROOT_ID = "2".repeat(64);
+
+function tempRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "zs-sidecar-repository-"));
+}
+
+describe("Synthesis sidecar isolated repository foundation", function () {
+  const roots: string[] = [];
+
+  afterEach(function () {
+    for (const root of roots.splice(0)) {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses real node:sqlite with an idempotent exact three-table schema", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const databasePath = path.join(root, "synthesis.db");
+    const connection = openSynthesisNodeSqliteAdapter(databasePath);
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+
+    store.initialize();
+    store.initialize();
+
+    const tables = connection.adapter
+      .all(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'synt_%' ORDER BY name",
+      )
+      .map((row) => row.name);
+    assert.deepEqual(tables, [
+      "synt_cache_basis",
+      "synt_operation",
+      "synt_schema_meta",
+    ]);
+    assert.equal(
+      store.getSchemaVersion(),
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    connection.close();
+  });
+
+  it("commits, rolls back, and isolates nested savepoints", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const connection = openSynthesisNodeSqliteAdapter(
+      path.join(root, "synthesis.db"),
+    );
+    const store = createSynthesisRepositoryFoundationStore({
+      db: connection.adapter,
+      now: () => "2026-07-17T00:00:00.000Z",
+    });
+    store.initialize();
+
+    connection.adapter.transaction(() => {
+      store.upsertCacheBasis({ cacheKey: "outer", cacheKind: "test" });
+      assert.throws(() =>
+        connection.adapter.transaction(() => {
+          store.upsertCacheBasis({ cacheKey: "inner", cacheKind: "test" });
+          throw new Error("rollback inner");
+        }),
+      );
+      store.upsertCacheBasis({ cacheKey: "outer-2", cacheKind: "test" });
+    });
+    assert.isNull(store.getCacheBasis("inner"));
+    assert.isNotNull(store.getCacheBasis("outer"));
+    assert.isNotNull(store.getCacheBasis("outer-2"));
+
+    assert.throws(() =>
+      connection.adapter.transaction(() => {
+        store.upsertCacheBasis({ cacheKey: "rollback", cacheKind: "test" });
+        throw new Error("rollback outer");
+      }),
+    );
+    assert.isNull(store.getCacheBasis("rollback"));
+    connection.close();
+  });
+
+  it("persists foundation rows and reconciles only running operations on restart", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const profileRuntimeRoot = path.join(root, "profile-runtime");
+    const nowValues = [
+      "2026-07-17T00:00:00.000Z",
+      "2026-07-17T00:00:01.000Z",
+      "2026-07-17T00:00:02.000Z",
+    ];
+    const first = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+      now: () => nowValues.shift() || "2026-07-17T00:00:03.000Z",
+    });
+    first.store.upsertCacheBasis({ cacheKey: "basis", cacheKind: "layout" });
+    first.store.upsertOperation({
+      operationId: "running",
+      operationType: "canary",
+      status: "running",
+    });
+    first.store.upsertOperation({
+      operationId: "completed",
+      operationType: "canary",
+      status: "completed",
+    });
+    const repositoryId = first.snapshot().repositoryId;
+    first.close();
+
+    const second = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+      now: () => "2026-07-17T00:01:00.000Z",
+    });
+    assert.equal(second.snapshot().repositoryId, repositoryId);
+    assert.equal(second.store.getOperation("running")?.status, "canceled");
+    assert.equal(second.store.getOperation("completed")?.status, "completed");
+    assert.isNotNull(second.store.getCacheBasis("basis"));
+    second.close();
+  });
+
+  it("fails closed on marker corruption and keeps paths out of snapshots", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const profileRuntimeRoot = path.join(root, "profile-runtime");
+    const first = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    const snapshot = first.snapshot();
+    assert.deepEqual(Object.keys(snapshot).sort(), [
+      "mode",
+      "repositoryId",
+      "schemaVersion",
+      "state",
+    ]);
+    assert.notInclude(JSON.stringify(snapshot), profileRuntimeRoot);
+    const markerPath = first.paths.markerPath;
+    const databasePath = first.paths.databasePath;
+    first.close();
+    fs.writeFileSync(markerPath, '{"schema":"corrupt"}\n', "utf8");
+
+    assert.throws(
+      () =>
+        openSynthesisSidecarIsolatedRepository({
+          profileRuntimeRoot,
+          profileId: PROFILE_ID,
+          dataRootId: DATA_ROOT_ID,
+        }),
+      /repository_identity_invalid/,
+    );
+    assert.isTrue(fs.existsSync(databasePath));
+  });
+
+  it("fails closed on an unsupported persisted foundation schema", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const options = {
+      profileRuntimeRoot: path.join(root, "profile-runtime"),
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    };
+    const owner = openSynthesisSidecarIsolatedRepository(options);
+    const databasePath = owner.paths.databasePath;
+    owner.close();
+    const connection = openSynthesisNodeSqliteAdapter(databasePath);
+    connection.adapter.run(
+      "UPDATE synt_schema_meta SET value=@value WHERE key=@key",
+      {
+        key: "repository_foundation_schema_version",
+        value: "synthesis-repository-foundation.v999",
+      },
+    );
+    connection.close();
+
+    assert.throws(
+      () => openSynthesisSidecarIsolatedRepository(options),
+      /repository_foundation_schema_unsupported/,
+    );
+  });
+
+  it("uses owner-only POSIX permissions and releases the database promptly", function () {
+    const root = tempRoot();
+    roots.push(root);
+    const startedAt = Date.now();
+    const owner = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: path.join(root, "profile-runtime"),
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(owner.paths.root).mode & 0o777, 0o700);
+      assert.equal(fs.statSync(owner.paths.databasePath).mode & 0o777, 0o600);
+    }
+    owner.close();
+    assert.isBelow(Date.now() - startedAt, 500);
+
+    const reopened = openSynthesisNodeSqliteAdapter(owner.paths.databasePath);
+    assert.equal(
+      reopened.adapter.get(
+        "SELECT value FROM synt_schema_meta WHERE key=@key",
+        { key: "repository_foundation_schema_version" },
+      )?.value,
+      SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
+    );
+    reopened.close();
+  });
+});

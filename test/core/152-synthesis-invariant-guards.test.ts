@@ -119,13 +119,28 @@ describe("Synthesis invariant guards", function () {
       .join("\n");
     assert.notMatch(
       sources,
-      /(?:src\/modules\/synthesis|synthesis\/service|repository|hostEffect|webDavSync|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|webDavSync|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
+    );
+    const sqliteUsers = fs
+      .readdirSync(repoPath("apps/synthesis-service/src"))
+      .filter(
+        (entry) =>
+          entry.endsWith(".ts") &&
+          readRepoText(`apps/synthesis-service/src/${entry}`).includes(
+            "node:sqlite",
+          ),
+      );
+    assert.deepEqual(sqliteUsers, ["repositoryNodeSqlite.ts"]);
+    assert.notMatch(
+      readRepoText("packages/synthesis-repository/src/index.ts"),
+      /(?:node:|Zotero|child_process|worker_threads|src\/modules\/synthesis)/,
     );
     assert.include(sources, "citation_graph_layout.v1");
     assert.include(sources, "citation_graph_metrics.v1");
     assert.include(sources, "SYNTHESIS_SIDECAR_COMPUTE_LIMITS");
     assert.include(sources, "computeRequestBodyBytes");
     assert.include(sources, "computeResponseBodyBytes");
+    assert.include(sources, '"isolated_shadow"');
     assert.include(
       readRepoText("src/modules/synthesisClient/defaultClient.ts"),
       "createDefaultLegacySynthesisClientComposition",

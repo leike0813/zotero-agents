@@ -56,9 +56,22 @@ const INVENTORY_PATH = path.join(
 );
 const CONTRACTS_ROOT = path.join(ROOT_DIR, "packages/synthesis-contracts/src");
 const SIDECAR_APP_ROOT = path.join(ROOT_DIR, "apps/synthesis-service/src");
+const REPOSITORY_ROOT = path.join(
+  ROOT_DIR,
+  "packages/synthesis-repository/src",
+);
 const WORKER_THREAD_ALLOWLIST = new Set([
   "apps/synthesis-service/src/computeWorker.ts",
   "apps/synthesis-service/src/computeWorkerPool.ts",
+]);
+const NODE_SQLITE_ALLOWLIST = new Set([
+  "apps/synthesis-service/src/repositoryNodeSqlite.ts",
+]);
+const CONTRACT_SOURCE_IMPORT_ALLOWLIST = new Map([
+  [
+    "packages/synthesis-contracts/src/sidecarSystem.ts",
+    new Set(["../../../packages/synthesis-repository/src/index.js"]),
+  ],
 ]);
 const VALID_CATEGORIES = new Set<MethodCategory>([
   "query",
@@ -217,7 +230,10 @@ export function findSynthesisContractBoundaryViolations(): string[] {
         if (
           specifier.startsWith("node:") ||
           specifier.startsWith("zotero-") ||
-          specifier.includes("/src/") ||
+          (specifier.includes("/src/") &&
+            !CONTRACT_SOURCE_IMPORT_ALLOWLIST.get(relativePath)?.has(
+              specifier,
+            )) ||
           specifier.endsWith("/src")
         ) {
           violations.push(`${relativePath}: forbidden import ${specifier}`);
@@ -243,6 +259,22 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
       violations.push(`${relativePath}: worker_threads import is not allowed`);
     }
     if (
+      /from\s+["']node:sqlite["']/.test(source) &&
+      !NODE_SQLITE_ALLOWLIST.has(relativePath)
+    ) {
+      violations.push(`${relativePath}: node:sqlite import is not allowed`);
+    }
+    if (
+      relativePath.endsWith("/computeWorker.ts") &&
+      /synthesis-repository|isolatedRepository|repositoryNodeSqlite/.test(
+        source,
+      )
+    ) {
+      violations.push(
+        `${relativePath}: worker repository access is not allowed`,
+      );
+    }
+    if (
       /\bnew\s+Worker\s*\(/.test(source) &&
       !relativePath.endsWith("/computeWorkerPool.ts")
     ) {
@@ -251,7 +283,7 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
     for (const forbidden of [
       /node:child_process/,
       /src\/modules\/synthesis/,
-      /synthesis\/repository/,
+      /src\/modules\/synthesis\/repository/,
       /synthesis\/service/,
       /hostEffect|hostRead|webDavSync/,
       /globalThis\.Zotero|zotero-plugin/,
@@ -261,6 +293,19 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
           `${relativePath}: forbidden service authority ${forbidden.source}`,
         );
       }
+    }
+  }
+  for (const filePath of walkTypeScriptFiles(REPOSITORY_ROOT)) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    if (
+      /node:|globalThis\.Zotero|zotero-plugin|src\/modules\/synthesis|child_process|worker_threads/.test(
+        source,
+      )
+    ) {
+      violations.push(
+        `${relativePath}: repository foundation is not environment neutral`,
+      );
     }
   }
   for (const filePath of walkTypeScriptFiles(

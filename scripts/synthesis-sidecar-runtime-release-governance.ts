@@ -35,6 +35,8 @@ const FINGERPRINT_STATIC_INPUTS = [
   "package-lock.json",
   "packages/synthesis-engine/package.json",
   "packages/synthesis-engine/tsconfig.json",
+  "packages/synthesis-repository/package.json",
+  "packages/synthesis-repository/tsconfig.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -75,6 +77,7 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
   const dynamicInputs = [
     ...(await collectFiles(root, "apps/synthesis-service/src")),
     ...(await collectFiles(root, "packages/synthesis-engine/src")),
+    ...(await collectFiles(root, "packages/synthesis-repository/src")),
     ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
       (file) =>
         file.endsWith("/sidecarLifecycle.ts") ||

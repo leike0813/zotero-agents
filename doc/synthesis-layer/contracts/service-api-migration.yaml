@@ -3,6 +3,15 @@ description: Current public Synthesis service migration inventory and direct-con
 service_source: src/modules/synthesis/service.ts
 service_factory: createSynthesisService
 
+isolated_repository:
+  mode: isolated_shadow
+  schema_version: synthesis-repository-foundation.v1
+  table_families: [schema_meta, cache_basis, operation]
+  production_database_owner: plugin_composition
+  production_canonical_file_owner: plugin_composition
+  production_mutation_enabled: false
+  remote_capability: false
+
 internal_engines:
   - id: citation_graph_build
     contract: SynthesisCitationGraphBuildEngine

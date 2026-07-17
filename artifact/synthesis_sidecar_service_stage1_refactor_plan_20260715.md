@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：待建立 OpenSpec changes 的实施规划
+> 状态：实施中；WS5 已建立隔离 repository foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1096,6 +1096,24 @@ graph layout 作为第一条 process canary，因为：
 #### 目标
 
 让完整 Synthesis application 能在 Node service 内对隔离 fixture 运行。
+
+#### 当前进度
+
+- 已交付 `add-synthesis-sidecar-isolated-repository-foundation`：新增环境中立的
+  `packages/synthesis-repository`，将 `synt_schema_meta`、`synt_cache_basis`、
+  `synt_operation` 的类型、严格 row rebuild、DDL/index 和 CRUD 收敛为 SSOT；插件
+  repository 已复用该 foundation，其他 table family、Zotero adapter、legacy migration
+  与生产 composition 保持原位。
+- service 主进程使用固定 Node `24.18.0` 自带的 `node:sqlite`，只在
+  `profileRuntimeRoot/shadow-repository/<dataRootId>/synthesis.db` 打开持久化隔离库；
+  marker/schema/reconcile 在 discovery 前完成，running operation 在 restart 时取消，
+  terminal operation 与 cache basis 保留。
+- health/handshake 只暴露 path-free O(1) `isolated_shadow` snapshot；
+  `mutationEnabled: false`、108 methods / 1 direct consumer、八个 engine 的生产 owner
+  和两个 production worker 均未改变。
+- 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
+  WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
+  `synthesis.db`、canonical files、Host capability 或公开 `SynthesisClient`。
 
 #### 任务
 

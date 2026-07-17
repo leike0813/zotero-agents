@@ -56,9 +56,13 @@ import {
   createCitationGraphBuildTransferExecutor,
   type CitationGraphBuildTransferExecutor,
 } from "./citationGraphBuildTransferExecutor.js";
+import {
+  openSynthesisSidecarIsolatedRepository,
+  type SynthesisSidecarIsolatedRepository,
+} from "./isolatedRepository.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
-const SHUTDOWN_GRACE_MS = 1000;
+const SHUTDOWN_GRACE_MS = 500;
 
 export type SynthesisSidecarRuntime = {
   host: typeof LOOPBACK_HOST;
@@ -72,6 +76,7 @@ type SynthesisSidecarServerOptions = {
   computePool?: SynthesisSidecarComputeWorkerPool;
   transferOwner?: CitationGraphTransferOwner;
   transferExecutor?: CitationGraphBuildTransferExecutor;
+  repository?: SynthesisSidecarIsolatedRepository;
 };
 
 function bearerToken(request: IncomingMessage): string {
@@ -241,6 +246,13 @@ export async function startSynthesisSidecarServer(
   const server: Server = createServer();
   const computePool =
     options.computePool ?? createSynthesisSidecarComputeWorkerPool();
+  const repository =
+    options.repository ??
+    openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: config.profileRuntimeRoot,
+      profileId: config.profileId,
+      dataRootId: config.dataRootId,
+    });
   const transferOwner =
     options.transferOwner ??
     createCitationGraphTransferOwner({
@@ -265,6 +277,7 @@ export async function startSynthesisSidecarServer(
     shutdownStarted = true;
     lifecycleState = "stopping";
     transferExecutor.shutdown();
+    repository.close();
     writeServiceLog("service_stopping", {
       reason,
       serviceInstanceId,
@@ -310,6 +323,7 @@ export async function startSynthesisSidecarServer(
           supervisorInstanceId: config.supervisorInstanceId,
           bundleId: config.bundleId,
           lifecycleState,
+          repository: repository.snapshot(),
           computePool: computePool.snapshot(),
           citationGraphTransfer: transferOwner.snapshot(),
         };
@@ -581,6 +595,7 @@ export async function startSynthesisSidecarServer(
               capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
               mutationEnabled: false,
               lifecycleState: "ready",
+              repository: repository.snapshot(),
               computePool: computePool.snapshot(),
               citationGraphTransfer: transferOwner.snapshot(),
             },
@@ -632,18 +647,29 @@ export async function startSynthesisSidecarServer(
     socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
   });
 
-  const port = await new Promise<number>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(config.port, LOOPBACK_HOST, () => {
-      server.off("error", reject);
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("Synthesis sidecar server address is unavailable"));
-        return;
-      }
-      resolve(address.port);
+  let port: number;
+  try {
+    port = await new Promise<number>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(config.port, LOOPBACK_HOST, () => {
+        server.off("error", reject);
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("Synthesis sidecar server address is unavailable"));
+          return;
+        }
+        resolve(address.port);
+      });
     });
-  });
+  } catch (error) {
+    transferExecutor.shutdown();
+    repository.close();
+    await Promise.allSettled([
+      computePool.shutdown(),
+      transferOwner.shutdown(),
+    ]);
+    throw error;
+  }
   lifecycleState = "ready";
   writeServiceLog("service_listening", {
     host: LOOPBACK_HOST,

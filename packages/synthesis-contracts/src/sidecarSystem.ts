@@ -4,6 +4,7 @@ import {
   type SynthesisJsonObject,
 } from "./common.js";
 import type { SynthesisSidecarTransferSnapshot } from "./sidecarTransfer.js";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../packages/synthesis-repository/src/index.js";
 
 export const SYNTHESIS_SIDECAR_PROTOCOL = "synthesis-sidecar.v1" as const;
 export const SYNTHESIS_SIDECAR_HEALTH_PATH = "/synthesis/v1/health" as const;
@@ -67,6 +68,13 @@ export type SynthesisSidecarComputePoolSnapshot = {
   failureCount: number;
 };
 
+export type SynthesisSidecarRepositorySnapshot = {
+  mode: "isolated_shadow";
+  state: "ready" | "stopping";
+  schemaVersion: typeof SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION;
+  repositoryId: string;
+};
+
 export type SynthesisSidecarCallRequest = {
   protocol: string;
   requestId: string;
@@ -83,6 +91,7 @@ export type SynthesisSidecarHealth = {
   supervisorInstanceId: string;
   bundleId: string;
   lifecycleState: SynthesisSidecarLifecycleState;
+  repository: SynthesisSidecarRepositorySnapshot;
   computePool: SynthesisSidecarComputePoolSnapshot;
   citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };
@@ -107,6 +116,7 @@ export type SynthesisSidecarHandshakeResult = {
   capabilities: SynthesisSidecarCapability[];
   mutationEnabled: false;
   lifecycleState: "ready";
+  repository: SynthesisSidecarRepositorySnapshot;
   computePool: SynthesisSidecarComputePoolSnapshot;
   citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };
@@ -325,5 +335,34 @@ export function rebuildSynthesisSidecarComputePoolSnapshot(
       json.failureCount,
       "sidecarComputePoolSnapshot.failureCount",
     ),
+  };
+}
+
+export function rebuildSynthesisSidecarRepositorySnapshot(
+  value: unknown,
+): SynthesisSidecarRepositorySnapshot {
+  const json = toSynthesisJsonObject(value, "sidecarRepositorySnapshot");
+  const expected = ["mode", "state", "schemaVersion", "repositoryId"].sort();
+  const keys = Object.keys(json).sort();
+  if (
+    keys.length !== expected.length ||
+    keys.some((key, index) => key !== expected[index]) ||
+    json.mode !== "isolated_shadow" ||
+    (json.state !== "ready" && json.state !== "stopping") ||
+    json.schemaVersion !== SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION ||
+    typeof json.repositoryId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(json.repositoryId)
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarRepositorySnapshot is invalid",
+      { location: "sidecarRepositorySnapshot" },
+    );
+  }
+  return {
+    mode: json.mode,
+    state: json.state,
+    schemaVersion: json.schemaVersion,
+    repositoryId: json.repositoryId,
   };
 }
