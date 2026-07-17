@@ -23,6 +23,7 @@ import {
   rebuildSynthesisSidecarCallRequest,
   rebuildSynthesisSidecarComputePoolSnapshot,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { rebuildSynthesisSidecarTransferSnapshot } from "../../packages/synthesis-contracts/src/sidecarTransfer";
 import { acquireSynthesisSidecarServiceLifecycle } from "../../apps/synthesis-service/src/lifecycle";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -269,6 +270,7 @@ describe("Synthesis sidecar runtime foundation", function () {
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
       "compute.citation_graph_build",
+      "compute.citation_graph_build_transfer",
     ]);
     assert.isTrue(isSynthesisSidecarSystemCapability("system.handshake"));
     assert.isFalse(
@@ -282,6 +284,19 @@ describe("Synthesis sidecar runtime foundation", function () {
     );
     assert.isTrue(
       isSynthesisSidecarComputeCapability("compute.citation_graph_build"),
+    );
+    assert.isTrue(
+      isSynthesisSidecarComputeCapability(
+        "compute.citation_graph_build_transfer",
+      ),
+    );
+    assert.deepEqual(
+      rebuildSynthesisSidecarTransferSnapshot({
+        state: "idle",
+        sessions: 0,
+        stagedBytes: 0,
+      }),
+      { state: "idle", sessions: 0, stagedBytes: 0 },
     );
     assert.deepEqual(
       rebuildSynthesisSidecarComputePoolSnapshot({
@@ -357,6 +372,11 @@ describe("Synthesis sidecar runtime foundation", function () {
       restartCount: 0,
       failureCount: 0,
     });
+    assert.deepEqual(health.citationGraphTransfer, {
+      state: "idle",
+      sessions: 0,
+      stagedBytes: 0,
+    });
     assert.isString(health.serviceInstanceId);
     assert.notProperty(health, "profileId");
     assert.notProperty(health, "runtimeRootId");
@@ -388,6 +408,18 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.equal(data.mutationEnabled, false);
     assert.deepEqual(data.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
     assert.deepEqual(data.computePool, health.computePool);
+    assert.deepEqual(data.citationGraphTransfer, health.citationGraphTransfer);
+    const transferMissingAuth = await call(service, "", {
+      ...handshakeRequest(),
+      requestId: "request:transfer-unauthorized",
+      capability: "compute.citation_graph_build_transfer",
+      payload: {},
+    });
+    assert.equal(transferMissingAuth.status, 401);
+    assert.equal(
+      (transferMissingAuth.body.error as Record<string, unknown>).code,
+      "unauthorized",
+    );
     assert.isFalse(fs.existsSync(service.configPath));
     const discovery = rebuildSynthesisSidecarDiscovery(
       JSON.parse(fs.readFileSync(service.discoveryPath, "utf8")),

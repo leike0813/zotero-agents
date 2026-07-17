@@ -79,6 +79,7 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
       (file) =>
         file.endsWith("/sidecarLifecycle.ts") ||
         file.endsWith("/sidecarSystem.ts") ||
+        file.endsWith("/sidecarTransfer.ts") ||
         file.endsWith("/sidecarRuntimeBundle.ts"),
     ),
     ...computeRuntimeInputs,

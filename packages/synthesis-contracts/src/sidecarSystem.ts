@@ -3,6 +3,7 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common.js";
+import type { SynthesisSidecarTransferSnapshot } from "./sidecarTransfer.js";
 
 export const SYNTHESIS_SIDECAR_PROTOCOL = "synthesis-sidecar.v1" as const;
 export const SYNTHESIS_SIDECAR_HEALTH_PATH = "/synthesis/v1/health" as const;
@@ -13,6 +14,12 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
   "system.shutdown",
 ] as const;
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
+  "compute.citation_graph_layout",
+  "compute.citation_graph_metrics",
+  "compute.citation_graph_build",
+  "compute.citation_graph_build_transfer",
+] as const;
+export const SYNTHESIS_SIDECAR_WORKER_CAPABILITIES = [
   "compute.citation_graph_layout",
   "compute.citation_graph_metrics",
   "compute.citation_graph_build",
@@ -40,6 +47,8 @@ export type SynthesisSidecarSystemCapability =
   (typeof SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES)[number];
 export type SynthesisSidecarComputeCapability =
   (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
+export type SynthesisSidecarWorkerCapability =
+  (typeof SYNTHESIS_SIDECAR_WORKER_CAPABILITIES)[number];
 export type SynthesisSidecarCapability =
   (typeof SYNTHESIS_SIDECAR_CAPABILITIES)[number];
 
@@ -75,6 +84,7 @@ export type SynthesisSidecarHealth = {
   bundleId: string;
   lifecycleState: SynthesisSidecarLifecycleState;
   computePool: SynthesisSidecarComputePoolSnapshot;
+  citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };
 
 export type SynthesisSidecarHandshakePayload = {
@@ -98,6 +108,7 @@ export type SynthesisSidecarHandshakeResult = {
   mutationEnabled: false;
   lifecycleState: "ready";
   computePool: SynthesisSidecarComputePoolSnapshot;
+  citationGraphTransfer: SynthesisSidecarTransferSnapshot;
 };
 
 export type SynthesisSidecarShutdownResult = {
@@ -130,6 +141,13 @@ export const SYNTHESIS_SIDECAR_ERROR_CODES = [
   "worker_crashed",
   "worker_result_invalid",
   "worker_unavailable",
+  "transfer_busy",
+  "transfer_not_found",
+  "transfer_conflict",
+  "transfer_limit_exceeded",
+  "transfer_incomplete",
+  "transfer_output_not_ready",
+  "transfer_stopping",
   "internal_error",
 ] as const;
 
@@ -218,6 +236,14 @@ export function isSynthesisSidecarComputeCapability(
   value: string,
 ): value is SynthesisSidecarComputeCapability {
   return (SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarWorkerCapability(
+  value: string,
+): value is SynthesisSidecarWorkerCapability {
+  return (SYNTHESIS_SIDECAR_WORKER_CAPABILITIES as readonly string[]).includes(
     value,
   );
 }

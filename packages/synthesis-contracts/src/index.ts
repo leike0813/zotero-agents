@@ -13,6 +13,7 @@ export * from "./representativeImageRead";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";
 export * from "./sidecarSystem";
+export * from "./sidecarTransfer";
 export * from "./sidecarRuntimeBundle";
 export * from "./sync";
 export * from "./tagEffect";

@@ -306,6 +306,8 @@ describe("Synthesis Citation Graph layout engine", function () {
       (match) => match[1],
     );
     assert.include(imports, "d3-force");
+    assert.include(imports, "./citationGraphBuild.ts");
+    assert.include(source, "synthesis-citation-graph-build-transfer.v1");
     for (const specifier of imports) {
       assert.notMatch(
         specifier,

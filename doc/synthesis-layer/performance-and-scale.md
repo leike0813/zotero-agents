@@ -128,8 +128,12 @@ deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
 and system requests retain the 1 MiB cap. The byte envelope remains independent
 from the graph engines' 5,000-node/20,000-edge bounds, so an engine-valid but
 wire-oversized DTO fails closed. Graph build's larger 25,000-source /
-1,250,000-reference / 750,000-target contract therefore requires a later bounded
-transfer layout before production routing. The lazy worker and O(1) health snapshot keep
+1,250,000-reference / 750,000-target contract therefore uses a separate bounded
+staging capability before any future production routing. Transfer pages cap at
+4 MiB / 100,000 JSON nodes, each direction at 256 pages / 1 GiB, and the service
+at two sessions / 2 GiB; five-minute idle and thirty-minute absolute TTLs bound
+retention. Staging validates one page at a time and does not invoke the worker.
+The lazy worker and O(1) health and transfer snapshots keep
 supervisor steady-state overhead low. The plugin retains DB reads and
 hash-guarded promotion, and unavailable/busy/failed compute preserves stale
 coordinates or previous metrics without wait, retry, or in-process fallback.

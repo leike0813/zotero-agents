@@ -50,6 +50,10 @@ function utf8Bytes(input: string) {
   return Uint8Array.from(bytes);
 }
 
+export function byteLengthSynthesisEngineText(input: unknown) {
+  return utf8Bytes(String(input ?? "")).byteLength;
+}
+
 function rightRotate(value: number, amount: number) {
   return (value >>> amount) | (value << (32 - amount));
 }

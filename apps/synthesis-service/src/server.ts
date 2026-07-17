@@ -6,6 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { Socket } from "node:net";
+import path from "node:path";
 import {
   SYNTHESIS_SIDECAR_CALL_PATH,
   SYNTHESIS_SIDECAR_CAPABILITIES,
@@ -13,12 +14,13 @@ import {
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarCapability,
-  isSynthesisSidecarComputeCapability,
+  isSynthesisSidecarWorkerCapability,
   isSynthesisSidecarSystemCapability,
   type SynthesisSidecarHealth,
   type SynthesisSidecarLifecycleState,
   type SynthesisSidecarSuccess,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
+import { rebuildSynthesisSidecarTransferAction } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
@@ -45,6 +47,11 @@ import {
   readRequestBody,
 } from "./request.js";
 import type { SynthesisSidecarRuntimeConfig } from "./runtimeConfig.js";
+import {
+  CitationGraphTransferError,
+  createCitationGraphTransferOwner,
+  type CitationGraphTransferOwner,
+} from "./citationGraphTransferOwner.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const SHUTDOWN_GRACE_MS = 1000;
@@ -59,6 +66,7 @@ export type SynthesisSidecarRuntime = {
 
 type SynthesisSidecarServerOptions = {
   computePool?: SynthesisSidecarComputeWorkerPool;
+  transferOwner?: CitationGraphTransferOwner;
 };
 
 function bearerToken(request: IncomingMessage): string {
@@ -195,6 +203,24 @@ function computeRuntimeError(error: ComputeWorkerPoolError) {
   });
 }
 
+function transferRuntimeError(error: CitationGraphTransferError) {
+  const statusByCode = {
+    transfer_busy: 429,
+    transfer_not_found: 404,
+    transfer_conflict: 409,
+    transfer_limit_exceeded: 413,
+    transfer_incomplete: 409,
+    transfer_output_not_ready: 409,
+    transfer_stopping: 503,
+  } as const;
+  return new SidecarRuntimeError({
+    status: statusByCode[error.code],
+    code: error.code,
+    message: "The Citation Graph transfer request failed.",
+    retryable: error.retryable,
+  });
+}
+
 export async function startSynthesisSidecarServer(
   config: SynthesisSidecarRuntimeConfig,
   serviceInstanceId: string,
@@ -210,6 +236,16 @@ export async function startSynthesisSidecarServer(
   const server: Server = createServer();
   const computePool =
     options.computePool ?? createSynthesisSidecarComputeWorkerPool();
+  const transferOwner =
+    options.transferOwner ??
+    createCitationGraphTransferOwner({
+      root: path.join(
+        config.profileRuntimeRoot,
+        "sessions",
+        config.supervisorInstanceId,
+        "citation-graph-transfers",
+      ),
+    });
 
   const beginShutdown = (reason: string) => {
     if (shutdownStarted) {
@@ -221,7 +257,10 @@ export async function startSynthesisSidecarServer(
       reason,
       serviceInstanceId,
     });
-    void computePool.shutdown().finally(() => {
+    void Promise.allSettled([
+      computePool.shutdown(),
+      transferOwner.shutdown(),
+    ]).finally(() => {
       const forceTimer = setTimeout(() => {
         for (const socket of sockets) {
           socket.destroy();
@@ -260,6 +299,7 @@ export async function startSynthesisSidecarServer(
           bundleId: config.bundleId,
           lifecycleState,
           computePool: computePool.snapshot(),
+          citationGraphTransfer: transferOwner.snapshot(),
         };
         writeJson(response, 200, health);
         return;
@@ -337,7 +377,70 @@ export async function startSynthesisSidecarServer(
           retryable: true,
         });
       }
-      if (isSynthesisSidecarComputeCapability(call.capability)) {
+      if (call.capability === "compute.citation_graph_build_transfer") {
+        try {
+          const action = rebuildSynthesisSidecarTransferAction(call.payload);
+          let result: unknown;
+          switch (action.action) {
+            case "begin":
+              result = transferOwner.begin(
+                action.idempotencyKey,
+                action.manifest,
+              );
+              break;
+            case "put_input_page":
+              result = transferOwner.putInputPage(
+                action.sessionId,
+                action.page,
+              );
+              break;
+            case "seal_input":
+              result = transferOwner.sealInput(action.sessionId);
+              break;
+            case "status":
+              result = transferOwner.status(action.sessionId);
+              break;
+            case "get_output_manifest":
+              result = transferOwner.getOutputManifest(action.sessionId);
+              break;
+            case "get_output_page":
+              result = transferOwner.getOutputPage(
+                action.sessionId,
+                action.kind,
+                action.pageIndex,
+              );
+              break;
+            case "cancel":
+              result = transferOwner.cancel(action.sessionId);
+              break;
+          }
+          writeJson(
+            response,
+            200,
+            success({
+              requestId: call.requestId,
+              serviceInstanceId,
+              data: toSynthesisJsonObject(result, "transferResult"),
+            }),
+            {},
+            {
+              maxBytes: SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
+              maxJsonNodes: SYNTHESIS_SIDECAR_LIMITS.computeResponseJsonNodes,
+            },
+          );
+        } catch (error) {
+          if (error instanceof CitationGraphTransferError) {
+            throw transferRuntimeError(error);
+          }
+          throw new SidecarRuntimeError({
+            status: 400,
+            code: "invalid_request",
+            message: "The Citation Graph transfer payload is invalid.",
+          });
+        }
+        return;
+      }
+      if (isSynthesisSidecarWorkerCapability(call.capability)) {
         let runCompute: (signal: AbortSignal) => Promise<unknown>;
         try {
           switch (call.capability) {
@@ -460,6 +563,7 @@ export async function startSynthesisSidecarServer(
               mutationEnabled: false,
               lifecycleState: "ready",
               computePool: computePool.snapshot(),
+              citationGraphTransfer: transferOwner.snapshot(),
             },
           }),
         );

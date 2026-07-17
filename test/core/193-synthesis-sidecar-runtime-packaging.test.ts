@@ -179,8 +179,11 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/computeWorker.js",
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
+      "service/apps/synthesis-service/src/citationGraphTransferOwner.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
+      "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
+      "service/packages/synthesis-contracts/src/sidecarTransfer.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -423,7 +426,19 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       first.inputs,
+      "packages/synthesis-engine/src/citationGraphBuildTransfer.ts",
+    );
+    assert.include(
+      first.inputs,
+      "apps/synthesis-service/src/citationGraphTransferOwner.ts",
+    );
+    assert.include(
+      first.inputs,
       "packages/synthesis-contracts/src/sidecarSystem.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/sidecarTransfer.ts",
     );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
@@ -453,6 +468,12 @@ describe("Synthesis sidecar runtime packaging", function () {
       xpiCheck,
       "packages/synthesis-engine/src/citationGraphBuild.js",
     );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-engine/src/citationGraphBuildTransfer.js",
+    );
+    assert.include(xpiCheck, "citationGraphTransferOwner.js");
+    assert.include(xpiCheck, "sidecarTransfer.js");
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(

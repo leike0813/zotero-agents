@@ -350,9 +350,19 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.include(entrypoint, 'runtime.beginShutdown("host_lease")');
     assert.include(entrypoint, 'runtime.beginShutdown("host_pipe_eof")');
     assert.include(server, "computePool.shutdown()");
+    assert.include(server, "transferOwner.shutdown()");
     assert.include(pool, "shutdownTimeoutMs: 500");
     assert.include(pool, "target.terminate()");
     assert.notInclude(pool, "node:child_process");
+    const transferOwner = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "apps/synthesis-service/src/citationGraphTransferOwner.ts",
+      ),
+      "utf8",
+    );
+    assert.notInclude(transferOwner, "node:child_process");
+    assert.notInclude(transferOwner, "node:worker_threads");
   });
 
   it("bounds retained diagnostic tails", function () {

@@ -259,6 +259,13 @@ function finitePositive(value: unknown, location: string) {
   return value;
 }
 
+function nonNegativeInteger(value: unknown, location: string) {
+  if (!Number.isInteger(value) || Number(value) < 0) {
+    return invalid(`${location} must be a non-negative integer`);
+  }
+  return Number(value);
+}
+
 function stringList(
   value: unknown,
   location: string,
@@ -402,6 +409,274 @@ function rebuildReference(
     reference.targetYear = targetYear;
   }
   return reference;
+}
+
+export function rebuildSynthesisCitationGraphBuildScope(value: unknown) {
+  return rebuildScope(value);
+}
+
+export function rebuildSynthesisCitationGraphBuildRolePriority(value: unknown) {
+  return stringList(value ?? [], "rolePriority", { unique: true });
+}
+
+export function rebuildSynthesisCitationGraphBuildLibraryNodePage(
+  value: unknown,
+) {
+  return jsonArray(value, "libraryNodes").map((entry, index) =>
+    rebuildLibraryNode(entry, `libraryNodes[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildReferencePage(
+  value: unknown,
+) {
+  return jsonArray(value, "references").map((entry, index) =>
+    rebuildReference(entry, `references[${index}]`),
+  );
+}
+
+function rebuildBuildNode(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildNode {
+  const object = jsonObject(value, location);
+  const node: SynthesisCitationGraphBuildNode = {
+    nodeId: requiredString(object.nodeId, `${location}.nodeId`, IDENTIFIER_MAX),
+    kind: targetKind(object.kind, `${location}.kind`),
+    authors: stringList(object.authors ?? [], `${location}.authors`),
+    aliases: stringList(object.aliases ?? [], `${location}.aliases`, {
+      unique: true,
+      sort: true,
+    }),
+  };
+  const title = optionalString(object.title, `${location}.title`);
+  const year = optionalString(object.year, `${location}.year`);
+  if (title !== undefined) {
+    node.title = title;
+  }
+  if (year !== undefined) {
+    node.year = year;
+  }
+  return node;
+}
+
+function rebuildResolvedEdge(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildResolvedEdge {
+  const object = jsonObject(value, location);
+  if (object.status !== "accepted" && object.status !== "unbound") {
+    return invalid(`${location}.status is invalid`);
+  }
+  return {
+    edgeId: requiredString(object.edgeId, `${location}.edgeId`, IDENTIFIER_MAX),
+    referenceId: requiredString(
+      object.referenceId,
+      `${location}.referenceId`,
+      IDENTIFIER_MAX,
+    ),
+    sourceId: requiredString(
+      object.sourceId,
+      `${location}.sourceId`,
+      IDENTIFIER_MAX,
+    ),
+    targetId: requiredString(
+      object.targetId,
+      `${location}.targetId`,
+      IDENTIFIER_MAX,
+    ),
+    status: object.status,
+    roles: stringList(object.roles ?? [], `${location}.roles`),
+    weight: finitePositive(object.weight, `${location}.weight`),
+  };
+}
+
+function rebuildRoleEvidence(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildRoleEvidence {
+  const object = jsonObject(value, location);
+  return {
+    role: requiredString(object.role, `${location}.role`, ROLE_MAX),
+    count: positiveInteger(object.count, `${location}.count`),
+  };
+}
+
+function rebuildAggregateEdge(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildAggregateEdge {
+  const object = jsonObject(value, location);
+  return {
+    sourceId: requiredString(
+      object.sourceId,
+      `${location}.sourceId`,
+      IDENTIFIER_MAX,
+    ),
+    targetId: requiredString(
+      object.targetId,
+      `${location}.targetId`,
+      IDENTIFIER_MAX,
+    ),
+    mentionCount: positiveInteger(
+      object.mentionCount,
+      `${location}.mentionCount`,
+    ),
+    primaryRole: requiredString(
+      object.primaryRole,
+      `${location}.primaryRole`,
+      ROLE_MAX,
+    ),
+    auxRoles: jsonArray(object.auxRoles ?? [], `${location}.auxRoles`).map(
+      (entry, index) =>
+        rebuildRoleEvidence(entry, `${location}.auxRoles[${index}]`),
+    ),
+    roleEvidence: jsonArray(
+      object.roleEvidence ?? [],
+      `${location}.roleEvidence`,
+    ).map((entry, index) =>
+      rebuildRoleEvidence(entry, `${location}.roleEvidence[${index}]`),
+    ),
+    sourceRefs: stringList(object.sourceRefs ?? [], `${location}.sourceRefs`, {
+      unique: true,
+      sort: true,
+    }),
+  };
+}
+
+function rebuildOwnership(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildOwnership {
+  const object = jsonObject(value, location);
+  if (object.status !== "accepted" && object.status !== "unbound") {
+    return invalid(`${location}.status is invalid`);
+  }
+  return {
+    sourceId: requiredString(
+      object.sourceId,
+      `${location}.sourceId`,
+      IDENTIFIER_MAX,
+    ),
+    edgeId: requiredString(object.edgeId, `${location}.edgeId`, IDENTIFIER_MAX),
+    referenceId: requiredString(
+      object.referenceId,
+      `${location}.referenceId`,
+      IDENTIFIER_MAX,
+    ),
+    targetId: requiredString(
+      object.targetId,
+      `${location}.targetId`,
+      IDENTIFIER_MAX,
+    ),
+    status: object.status,
+  };
+}
+
+function rebuildLightMetric(
+  value: unknown,
+  location: string,
+): SynthesisCitationGraphBuildLightMetric {
+  const object = jsonObject(value, location);
+  const ambiguousOutgoingCount = nonNegativeInteger(
+    object.ambiguousOutgoingCount,
+    `${location}.ambiguousOutgoingCount`,
+  );
+  if (ambiguousOutgoingCount !== 0) {
+    return invalid(`${location}.ambiguousOutgoingCount must be zero`);
+  }
+  return {
+    nodeId: requiredString(object.nodeId, `${location}.nodeId`, IDENTIFIER_MAX),
+    outgoingCount: nonNegativeInteger(
+      object.outgoingCount,
+      `${location}.outgoingCount`,
+    ),
+    incomingCount: nonNegativeInteger(
+      object.incomingCount,
+      `${location}.incomingCount`,
+    ),
+    localDegree: nonNegativeInteger(
+      object.localDegree,
+      `${location}.localDegree`,
+    ),
+    matchedOutgoingCount: nonNegativeInteger(
+      object.matchedOutgoingCount,
+      `${location}.matchedOutgoingCount`,
+    ),
+    unresolvedOutgoingCount: nonNegativeInteger(
+      object.unresolvedOutgoingCount,
+      `${location}.unresolvedOutgoingCount`,
+    ),
+    ambiguousOutgoingCount: 0,
+  };
+}
+
+export function rebuildSynthesisCitationGraphBuildNodePage(value: unknown) {
+  return jsonArray(value, "nodes").map((entry, index) =>
+    rebuildBuildNode(entry, `nodes[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildResolvedEdgePage(
+  value: unknown,
+) {
+  return jsonArray(value, "resolvedEdges").map((entry, index) =>
+    rebuildResolvedEdge(entry, `resolvedEdges[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildAggregateEdgePage(
+  value: unknown,
+) {
+  return jsonArray(value, "aggregateEdges").map((entry, index) =>
+    rebuildAggregateEdge(entry, `aggregateEdges[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildOwnershipPage(
+  value: unknown,
+  location = "sourceOwnership",
+) {
+  return jsonArray(value, location).map((entry, index) =>
+    rebuildOwnership(entry, `${location}[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildLightMetricPage(
+  value: unknown,
+) {
+  return jsonArray(value, "lightMetrics").map((entry, index) =>
+    rebuildLightMetric(entry, `lightMetrics[${index}]`),
+  );
+}
+
+export function rebuildSynthesisCitationGraphBuildDiagnostics(value: unknown) {
+  const object = jsonObject(value, "diagnostics");
+  const nodeCounts = jsonObject(object.nodeCounts, "diagnostics.nodeCounts");
+  return {
+    nodeCounts: {
+      library_paper: nonNegativeInteger(
+        nodeCounts.library_paper,
+        "diagnostics.nodeCounts.library_paper",
+      ),
+      external_reference: nonNegativeInteger(
+        nodeCounts.external_reference,
+        "diagnostics.nodeCounts.external_reference",
+      ),
+      unresolved_reference: nonNegativeInteger(
+        nodeCounts.unresolved_reference,
+        "diagnostics.nodeCounts.unresolved_reference",
+      ),
+    },
+    referenceCount: nonNegativeInteger(
+      object.referenceCount,
+      "diagnostics.referenceCount",
+    ),
+    aggregateEdgeCount: nonNegativeInteger(
+      object.aggregateEdgeCount,
+      "diagnostics.aggregateEdgeCount",
+    ),
+  };
 }
 
 export function rebuildSynthesisCitationGraphBuildRequest(

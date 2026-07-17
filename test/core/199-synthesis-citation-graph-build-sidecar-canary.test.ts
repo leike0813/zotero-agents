@@ -252,6 +252,10 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
       [...SYNTHESIS_SIDECAR_CAPABILITIES],
       "compute.citation_graph_build",
     );
+    assert.include(
+      [...SYNTHESIS_SIDECAR_CAPABILITIES],
+      "compute.citation_graph_build_transfer",
+    );
     const inventory = parseYaml(
       fs.readFileSync(
         path.join(
@@ -266,6 +270,7 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
         implementation: string;
         production_worker: boolean;
         sidecar_worker_canary?: boolean;
+        sidecar_transfer_canary?: boolean;
       }>;
     };
     assert.deepInclude(
@@ -276,6 +281,7 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
         implementation: "in_process",
         production_worker: false,
         sidecar_worker_canary: true,
+        sidecar_transfer_canary: true,
       },
     );
     assert.isFalse(
@@ -286,5 +292,10 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
         ),
       ),
     );
+    const productionService = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesis/service.ts"),
+      "utf8",
+    );
+    assert.notInclude(productionService, "synthesisSidecarTransferClient");
   });
 });

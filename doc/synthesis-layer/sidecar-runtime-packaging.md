@@ -26,8 +26,8 @@ runtime file's size, SHA-256, and executable state. Unsafe relative paths,
 unknown fields, duplicate paths, symlinks, and incomplete runtime entrypoints
 are rejected.
 
-The build fingerprint covers service and worker sources, shared sidecar
-contracts including wire-capacity constants, synthesis-engine sources, D3
+The build fingerprint covers service, worker, and graph-transfer owner sources,
+shared sidecar contracts including wire-capacity and transfer constants, synthesis-engine sources, D3
 runtime package metadata and files, root package metadata, and the lockfile.
 Runtime assembly never runs npm or downloads dependencies. Source verification
 checks these inputs without publishing the five platform prebuilds; publication
@@ -67,11 +67,13 @@ The service remains mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. The default `SynthesisClient`
 routes Citation Graph layout and metrics computation to its lazy bounded worker;
 Unified Citation Graph build is packaged as a third authenticated internal
-canary while its production composition remains in process. DB reads,
+canary while its production composition remains in process. The same bundle
+contains the authenticated graph-build transfer owner, manifest contracts, and
+row-page validators; this staging path does not spawn compute. DB reads,
 graph-basis checks, promotion, canonical files, and the other production engines
 remain plugin-owned. Compute JSON request and response envelopes are capped at
 8 MiB and the graph-build module requires no additional runtime dependency or
-asset.
+asset or license.
 
 Source routing does not regenerate platform prebuilds. Production release
 freshness and XPI checks fail closed until every bundled platform runtime

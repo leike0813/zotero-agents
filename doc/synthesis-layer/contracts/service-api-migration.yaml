@@ -8,6 +8,7 @@ internal_engines:
     contract: SynthesisCitationGraphBuildEngine
     implementation: in_process
     sidecar_worker_canary: true
+    sidecar_transfer_canary: true
     production_worker: false
   - id: citation_graph_layout
     contract: SynthesisCitationGraphLayoutEngine

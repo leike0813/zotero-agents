@@ -1021,6 +1021,13 @@ graph layout 作为第一条 process canary，因为：
   engine，现有 8 MiB、250,000 request nodes、50,000 response nodes 不承诺承载
   25,000 sources / 1,250,000 references / 750,000 targets 的 engine 上界，大载荷
   transfer/data layout 由后续独立 change 解决。
+- 已交付 `define-synthesis-citation-graph-build-large-transfer-contract`：新增
+  authenticated `compute.citation_graph_build_transfer` staging session，以 4 MiB、
+  100,000 JSON nodes 的 canonical row pages、完整 manifest/root hash、幂等重试、
+  两 session/2 GiB service 上限、idle/absolute TTL 和 500ms logical shutdown
+  预算承载超过单一 8 MiB envelope 的输入与结果访问。该 capability 不启动 worker，
+  output publication 仅为 service 内部边界；生产 graph build、Host/basis/DB promotion
+  仍由插件持有，packed worker consumption 由下一独立 change 实现。
 - runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
   数据；五平台 prebuild 由独立 release 流程按新 fingerprint 重新生成和同步，
   在此之前 freshness/XPI release gate 保持 fail closed。

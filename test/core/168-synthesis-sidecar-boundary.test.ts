@@ -730,6 +730,7 @@ describe("Synthesis sidecar migration boundary", function () {
       "./tagVocabulary.ts",
       "./topicGraphIndex.ts",
       "./topicStructuredArtifact.ts",
+      "./citationGraphBuildTransfer.ts",
     ]);
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
