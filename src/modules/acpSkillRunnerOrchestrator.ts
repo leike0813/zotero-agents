@@ -64,6 +64,8 @@ import {
   startAcpRuntimeProfile,
 } from "./acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
+import { recordAcpRuntimeDiagnostic } from "./acpDiagnosticRouter";
+import type { AcpDiagnosticsEntry } from "./acpTypes";
 import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
@@ -278,6 +280,28 @@ class AcpPromptFailureError extends Error {
 
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function recordAcpSkillRunAdapterDiagnostic(args: {
+  requestId: string;
+  runtimeDir?: string;
+  backendId?: string;
+  entry: AcpDiagnosticsEntry;
+}) {
+  recordAcpRuntimeDiagnostic({
+    surface: "acp-skills",
+    ownerKey: args.requestId,
+    requestId: args.requestId,
+    backendId: args.backendId,
+    entry: args.entry,
+    debugAuditSink: (entry) => {
+      void appendAcpSkillRunAuditDiagnostic({
+        requestId: args.requestId,
+        runtimeDir: args.runtimeDir,
+        entry,
+      });
+    },
+  });
 }
 
 function resolveAcpProfileZoteroMajor(): 7 | 9 | "unknown" {
@@ -3168,38 +3192,12 @@ export async function recoverAcpSkillRunConversation(args: {
     }
     recordAcpSkillRunSessionUpdate(requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
-    if (
-      __acp_runtime_performance_profiler_enabled__ &&
-      (typeof __debug_mode__ === "undefined"
-        ? isDebugModeEnabled()
-        : __debug_mode__)
-    ) {
-      incrementAcpRuntimeMetric(requestId, "diagnostic_run_upsert");
-    }
-    await appendAcpSkillRunAuditDiagnostic({
+  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+    recordAcpSkillRunAdapterDiagnostic({
       requestId,
       runtimeDir: record.runtimeDir,
+      backendId: backend.id,
       entry,
-    });
-    upsertAcpSkillRun({
-      requestId,
-      event: {
-        stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
-        message: normalizeString(entry.message) || "ACP diagnostic",
-        level:
-          entry.level === "error"
-            ? "error"
-            : entry.level === "warn"
-              ? "warn"
-              : "info",
-        details: {
-          detail: normalizeString(entry.detail),
-          stage: entry.stage,
-          errorName: entry.errorName,
-          code: entry.code,
-        },
-      },
     });
   });
   unsubscribeClose = adapter.onClose(async (event) => {
@@ -4775,42 +4773,12 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     recordAcpSkillRunSessionUpdate(workspace.requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
-    if (
-      __acp_runtime_performance_profiler_enabled__ &&
-      (typeof __debug_mode__ === "undefined"
-        ? isDebugModeEnabled()
-        : __debug_mode__)
-    ) {
-      incrementAcpRuntimeMetric(workspace.requestId, "diagnostic_run_upsert");
-    }
-    await appendAcpSkillRunAuditDiagnostic({
+  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+    recordAcpSkillRunAdapterDiagnostic({
       requestId: workspace.requestId,
       runtimeDir: workspace.runtimeDir,
+      backendId: args.backend.id,
       entry,
-    });
-    upsertAcpSkillRun({
-      requestId: workspace.requestId,
-      event: {
-        stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
-        message: normalizeString(entry.message) || "ACP diagnostic",
-        level:
-          entry.level === "error"
-            ? "error"
-            : entry.level === "warn"
-              ? "warn"
-              : "info",
-        details: {
-          detail: normalizeString(entry.detail),
-          stage: entry.stage,
-          errorName: entry.errorName,
-          code: entry.code,
-          commandLine:
-            entry.kind === "spawned"
-              ? normalizeString(entry.detail)
-              : undefined,
-        },
-      },
     });
   });
   unsubscribeClose = adapter.onClose(async (event) => {

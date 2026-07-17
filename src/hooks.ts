@@ -106,7 +106,7 @@ import {
   setAssistantExecutionDisplayMode,
 } from "./modules/assistantExecutionDisplayPolicy";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
-import { flushAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
+import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -1101,7 +1101,7 @@ async function onShutdown(): Promise<void> {
   );
   await runShutdownStepWithTimeout(
     "acp-audit-drain",
-    flushAcpSkillRunAuditTrailWrites,
+    releaseAcpSkillRunAuditTrailWrites,
   );
   await runShutdownStepWithTimeout(
     "acp-websocket-bridge-shutdown",

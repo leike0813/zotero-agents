@@ -20,7 +20,7 @@ import {
 } from "./acpSessionConfigOptions";
 import {
   appendAcpSkillRunTransportAuditEvent,
-  flushAcpSkillRunAuditTrailWrites,
+  releaseAcpSkillRunAuditTrailWrites,
   resolveAcpSkillRunAuditTrailFiles,
   shouldWriteDetailedAcpAuditArtifacts,
 } from "./acpSkillRunAuditTrail";
@@ -528,7 +528,7 @@ export async function probeAcpBackendRuntimeOptions(args: {
       }
     }
     await adapter?.close().catch(() => undefined);
-    await flushAcpSkillRunAuditTrailWrites(auditRuntimeDir).catch(
+    await releaseAcpSkillRunAuditTrailWrites(auditRuntimeDir).catch(
       () => undefined,
     );
   }

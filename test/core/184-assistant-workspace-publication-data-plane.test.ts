@@ -544,6 +544,87 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
+  it("keeps diagnostic-only owner presentation reads out of transcript and other managed regions", async function () {
+    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const posts: AssistantWorkspacePublication[] = [];
+    const regionReads: string[][] = [];
+    let transcriptReads = 0;
+    let changed = false;
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "acp-chat" as const,
+      supportedKinds: expectedKinds,
+      selectedOwner: () => owner,
+      mapChange: () => ({
+        owner,
+        targetsActiveOwner: true,
+        publicationKinds: ["owner-presentation"] as const,
+      }),
+      readOwnerNavigation: async () => navigation(owner),
+      readOwnerRegions: async ({ kinds }) => {
+        regionReads.push([...kinds]);
+        return {
+          "owner-presentation": {
+            title: changed ? "Conversation updated" : "Conversation",
+            subtitle: null,
+            description: null,
+            notice: null,
+            metadata: [],
+            usage: null,
+          },
+        };
+      },
+      readTranscriptPage: async () => {
+        transcriptReads += 1;
+        return createReadyTranscriptRegion(
+          owner,
+          assistantWorkspaceTestPage(owner),
+          0,
+        );
+      },
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "diagnostic-owner-presentation",
+      getActiveOwner: () => owner,
+      post: (publication) => {
+        posts.push(publication);
+        if (
+          publication.publicationKind === "transcript" &&
+          (publication.payload as { status?: string }).status === "loading"
+        ) {
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            });
+          });
+        }
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+    });
+    await runtime.initialize({ adapter, context: {}, cause: "activation" });
+    posts.length = 0;
+    regionReads.length = 0;
+    transcriptReads = 0;
+    changed = true;
+
+    runtime.schedule({ adapter, change: {}, context: {} });
+    await runtime.flush();
+
+    assert.deepEqual(regionReads, [["owner-presentation"]]);
+    assert.equal(transcriptReads, 0);
+    assert.deepEqual(
+      posts.map((publication) => publication.publicationKind),
+      ["owner-presentation"],
+    );
+  });
+
   for (const source of ["acp-chat", "acp-skills"] as const) {
     it(`initializes ${source} owner-first and batch-reads owned regions once`, async function () {
       const owner = assistantWorkspaceTestOwner(source);

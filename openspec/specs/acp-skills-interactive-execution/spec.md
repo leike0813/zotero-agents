@@ -113,7 +113,7 @@ The main transcript SHALL show only canonical assistant messages. Invalid or rep
 
 ### Requirement: ACP Skills run archive marker
 
-ACP Skills SHALL support archiving terminal runs without deleting persisted run diagnostics, logs, workspace artifacts, result artifacts, or transcript records.
+ACP Skills SHALL support archiving terminal runs without deleting canonical business run history, request-scoped logs, workspace artifacts, result artifacts, transcript records, or debug audit artifacts already materialized before archive. Archiving SHALL NOT require adapter diagnostics to exist as canonical run events.
 
 Archived runs SHALL be hidden from the default ACP Skills Runs drawer and selected-run snapshot.
 
@@ -125,7 +125,7 @@ ACP Skills `Cancel Run` SHALL remain a non-terminal run lifecycle action and SHA
 - **When** the user activates the Archive item action for that run
 - **Then** the run record is marked with `archivedAt`
 - **And** the run no longer appears in default ACP Skills panel snapshots
-- **And** the run record and diagnostics remain persisted.
+- **And** canonical business history, transcript, result artifacts, request-scoped logs, and existing debug audit artifacts remain under their existing retention policy.
 
 ### Requirement: ACP Skills interruption is confirmed by prompt settlement
 

@@ -71,6 +71,16 @@ import {
   resolveAcpChatTranscriptPaths,
 } from "./acpConversationTranscriptStore";
 import { describeAcpError, serializeAcpError } from "./acpDiagnostics";
+import { recordAcpRuntimeDiagnostic } from "./acpDiagnosticRouter";
+import {
+  acpChatDiagnosticAuditOwnerKey,
+  activateAcpChatDiagnosticAuditOwner,
+  appendAcpChatDiagnosticAudit,
+  discardAcpChatDiagnosticAudit,
+  discardAllAcpChatDiagnosticAuditsForTests,
+  flushAcpChatDiagnosticAudit,
+  releaseAcpChatDiagnosticAudit,
+} from "./acpChatDiagnosticAuditTrail";
 import { isDebugModeEnabled } from "./debugMode";
 import {
   abandonAcpRuntimeSemanticTraceClaimAttempt,
@@ -1587,6 +1597,45 @@ function appendDiagnostic(
   if (String(entry.kind || "").trim() === "stderr") {
     sessionRuntime.snapshot.stderrTail = String(entry.detail || "").trim();
   }
+  const conversationId = normalizeConversationId(
+    sessionRuntime.snapshot.conversationId,
+  );
+  const ownerKey = acpChatDiagnosticAuditOwnerKey(
+    sessionRuntime.backendId,
+    conversationId,
+  );
+  const paths = conversationId
+    ? resolveAcpChatRuntimePaths(sessionRuntime.backendId, conversationId)
+    : undefined;
+  recordAcpRuntimeDiagnostic({
+    surface: "acp-chat",
+    ownerKey: ownerKey || sessionRuntime.key,
+    requestId: ownerKey || undefined,
+    backendId: sessionRuntime.backendId,
+    entry,
+    debugAuditSink:
+      ownerKey && paths
+        ? (evidence) => {
+            appendAcpChatDiagnosticAudit({
+              ownerKey,
+              path: paths.diagnosticsAuditPath,
+              requestId: ownerKey,
+              backendId: sessionRuntime.backendId,
+              conversationId,
+              entry: evidence,
+            });
+          }
+        : undefined,
+  });
+}
+
+function acpChatDiagnosticOwnerForRuntime(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  return acpChatDiagnosticAuditOwnerKey(
+    sessionRuntime.backendId,
+    sessionRuntime.snapshot.conversationId,
+  );
 }
 
 function appendErrorDiagnostic(args: {
@@ -3177,6 +3226,9 @@ function bindAdapter(
   sessionRuntime: AcpChatSessionRuntime,
   nextAdapter: AcpConnectionAdapter,
 ) {
+  activateAcpChatDiagnosticAuditOwner(
+    acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+  );
   sessionRuntime.unsubscribeUpdate = nextAdapter.onUpdate(async (event) => {
     touchLiveAcpChatSessionRuntime(sessionRuntime);
     handleSessionUpdate(
@@ -3207,6 +3259,9 @@ function bindAdapter(
       emitSessionRuntimeSnapshot(sessionRuntime, {
         uiReason: "boundary",
       });
+      void flushAcpChatDiagnosticAudit(
+        acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+      ).catch(() => undefined);
       return;
     }
     sessionRuntime.snapshot.status =
@@ -3228,12 +3283,16 @@ function bindAdapter(
         closeMessage || "ACP connection closed";
     }
     emitSessionRuntimeSnapshot(sessionRuntime);
+    void flushAcpChatDiagnosticAudit(
+      acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+    ).catch(() => undefined);
   });
   sessionRuntime.unsubscribeDiagnostics = nextAdapter.onDiagnostics((entry) => {
     touchLiveAcpChatSessionRuntime(sessionRuntime);
     appendDiagnostic(sessionRuntime, entry);
     emitSessionRuntimeSnapshot(sessionRuntime, {
       persist: false,
+      touchUpdatedAt: false,
       uiReason: "live",
       changeKinds: ["owner-presentation"],
     });
@@ -3252,7 +3311,9 @@ async function disconnectSessionRuntimeAdapter(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
   sessionRuntime.pendingPermissionResolver = null;
+  const diagnosticOwner = acpChatDiagnosticOwnerForRuntime(sessionRuntime);
   if (!sessionRuntime.adapter) {
+    await releaseAcpChatDiagnosticAudit(diagnosticOwner);
     return;
   }
   sessionRuntime.suppressCloseEvent = true;
@@ -3272,6 +3333,7 @@ async function disconnectSessionRuntimeAdapter(
     await current.close();
   } finally {
     sessionRuntime.suppressCloseEvent = false;
+    await releaseAcpChatDiagnosticAudit(diagnosticOwner);
   }
 }
 
@@ -4530,6 +4592,9 @@ export async function disconnectAcpConversation(args?: {
       stage: "disconnect",
     });
   }
+  await releaseAcpChatDiagnosticAudit(
+    acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+  );
   markSessionRuntimeConnectionIdle(sessionRuntime, { clearErrors: true });
   await flushPendingChatTranscriptWrites(sessionRuntime);
   releaseIdleBackgroundTranscriptMirror(sessionRuntime);
@@ -4967,6 +5032,9 @@ export async function archiveAcpConversation(args: {
   }
   const sessionRuntime = getOrCreateSessionRuntime(backendId, conversationId);
   assertAcpConversationArchiveAllowed(sessionRuntime);
+  await releaseAcpChatDiagnosticAudit(
+    acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+  );
   const archivedAt = nowIso();
   const allSessions = listAllAcpChatSessions(backendId);
   if (
@@ -5077,6 +5145,9 @@ export async function deleteActiveAcpConversation(args?: {
   if (!deletedConversationId) {
     return;
   }
+  await discardAcpChatDiagnosticAudit(
+    acpChatDiagnosticAuditOwnerKey(backendId, deletedConversationId),
+  );
   await disconnectSessionRuntimeAdapter(sessionRuntime);
   deleteAcpConversationState(backendId, deletedConversationId);
   sessionRuntimes.delete(sessionRuntime.key);
@@ -5494,7 +5565,7 @@ export function pruneAcpChatSessionRuntimesForBackends(
       .filter((entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE)
       .map((entry) => entry.id),
   );
-  const clearedBackends = new Set<string>();
+  const teardownByBackend = new Map<string, Promise<unknown>[]>();
   for (const [key, sessionRuntime] of Array.from(sessionRuntimes.entries())) {
     if (
       remainingAcpIds.has(sessionRuntime.backendId) ||
@@ -5502,12 +5573,19 @@ export function pruneAcpChatSessionRuntimesForBackends(
     ) {
       continue;
     }
-    void disconnectSessionRuntimeAdapter(sessionRuntime);
-    if (!clearedBackends.has(sessionRuntime.backendId)) {
-      clearAcpConversationState(sessionRuntime.backendId);
-      clearedBackends.add(sessionRuntime.backendId);
-    }
+    const teardown = discardAcpChatDiagnosticAudit(
+      acpChatDiagnosticOwnerForRuntime(sessionRuntime),
+    ).then(() => disconnectSessionRuntimeAdapter(sessionRuntime));
+    const backendTeardowns =
+      teardownByBackend.get(sessionRuntime.backendId) || [];
+    backendTeardowns.push(teardown);
+    teardownByBackend.set(sessionRuntime.backendId, backendTeardowns);
     sessionRuntimes.delete(key);
+  }
+  for (const [backendId, teardowns] of teardownByBackend) {
+    void Promise.allSettled(teardowns).then(() => {
+      clearAcpConversationState(backendId);
+    });
   }
   cachedAcpBackends = backends.filter(
     (entry) => normalizeBackendId(entry.type) === ACP_BACKEND_TYPE,
@@ -5564,6 +5642,7 @@ export async function shutdownAcpSessionManager() {
     );
   }
   await Promise.allSettled(pending);
+  await releaseAcpChatDiagnosticAudit();
   await flushPendingChatTranscriptWrites();
   await shutdownZoteroMcpServer();
   resetAcpConversationHostBridgePermissionHandlersForTests();
@@ -5817,6 +5896,9 @@ export async function cleanupSyntheticAcpChatReplay(args: {
     args.backendId,
     args.conversationId,
   );
+  await discardAcpChatDiagnosticAudit(
+    acpChatDiagnosticAuditOwnerKey(args.backendId, args.conversationId),
+  );
   await flushPendingChatTranscriptWrites(sessionRuntime);
   sessionRuntimes.delete(sessionRuntime.key);
   deleteAcpConversationState(args.backendId, args.conversationId);
@@ -5848,6 +5930,7 @@ export function resetAcpSessionManagerForTests() {
     sessionRuntime.unsubscribeHostBridgePermission?.();
   }
   resetAcpConversationHostBridgePermissionHandlersForTests();
+  discardAllAcpChatDiagnosticAuditsForTests();
   sessionRuntimes.clear();
   coldAcpChatTranscriptMirrorLru.clear();
   acpChatWorkspaceListeners.clear();

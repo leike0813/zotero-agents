@@ -11,6 +11,8 @@ import {
   resolveAcpChatRuntimePaths,
   upsertPluginTaskRequestEntry,
 } from "../helpers/acpSessionManagerHarness";
+import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
+import { createEmptyAcpConversationSnapshot } from "../../src/modules/acpTypes";
 
 describe("acp conversation store", function () {
   afterEach(function () {
@@ -101,6 +103,10 @@ describe("acp conversation store", function () {
         withConversation.runtimeDir,
         withConversation.conversationStorageDir,
       );
+      assert.equal(
+        withConversation.diagnosticsAuditPath,
+        `${withConversation.conversationStorageDir}\\diagnostics.ndjson`,
+      );
       assert.isFalse(
         withConversation.conversationStorageDir.startsWith(
           `${withConversation.agentWorkspaceDir}\\`,
@@ -113,6 +119,68 @@ describe("acp conversation store", function () {
         process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
       }
     }
+  });
+
+  it("keeps transient diagnostics out of conversation persistence and legacy hydration", function () {
+    const conversationId = "diagnostic-persistence-boundary";
+    const requestId = `conversation:${ACP_OPENCODE_BACKEND_ID}:${conversationId}`;
+    const snapshot = createEmptyAcpConversationSnapshot();
+    snapshot.backendId = ACP_OPENCODE_BACKEND_ID;
+    snapshot.conversationId = conversationId;
+    snapshot.conversationTitle = "Business title";
+    snapshot.sessionId = "remote-session";
+    snapshot.remoteSessionId = "remote-session";
+    snapshot.status = "connected";
+    snapshot.lastError = "business-visible error";
+    snapshot.showDiagnostics = true;
+    snapshot.diagnostics = [
+      {
+        id: "diagnostic-1",
+        ts: "2026-07-17T00:00:00.000Z",
+        kind: "jsonrpc_trace",
+        level: "info",
+        message: "trace",
+        detail: "method=session/update",
+      },
+    ];
+    snapshot.stderrTail = "stderr evidence";
+    snapshot.lastLifecycleEvent = "jsonrpc_trace";
+
+    saveAcpConversationState(snapshot);
+
+    const saved = getPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, requestId);
+    const savedPayload = JSON.parse(String(saved?.payload || "{}"));
+    assert.notProperty(savedPayload, "diagnostics");
+    assert.notProperty(savedPayload, "stderrTail");
+    assert.notProperty(savedPayload, "lastLifecycleEvent");
+    assert.equal(savedPayload.sessionId, "remote-session");
+    assert.equal(savedPayload.lastError, "business-visible error");
+    assert.isTrue(savedPayload.showDiagnostics);
+
+    upsertPluginTaskRequestEntry(PLUGIN_TASK_DOMAIN_ACP, {
+      requestId,
+      backendId: ACP_OPENCODE_BACKEND_ID,
+      state: "connected",
+      updatedAt: "2026-07-17T00:00:01.000Z",
+      payload: JSON.stringify({
+        ...savedPayload,
+        diagnostics: snapshot.diagnostics,
+        stderrTail: snapshot.stderrTail,
+        lastLifecycleEvent: snapshot.lastLifecycleEvent,
+      }),
+    });
+
+    const restored = loadAcpConversationState(
+      ACP_OPENCODE_BACKEND_ID,
+      conversationId,
+    ).snapshot;
+    assert.equal(restored.sessionId, "");
+    assert.equal(restored.remoteSessionId, "remote-session");
+    assert.equal(restored.lastError, "business-visible error");
+    assert.isTrue(restored.showDiagnostics);
+    assert.deepEqual(restored.diagnostics, []);
+    assert.equal(restored.stderrTail, "");
+    assert.equal(restored.lastLifecycleEvent, "");
   });
 
   it("resolves ACP session cwd to the shared ACP chat workspace", function () {

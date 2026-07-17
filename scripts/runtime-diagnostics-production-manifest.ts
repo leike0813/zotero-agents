@@ -89,6 +89,7 @@ export type RuntimeDiagnosticsFeatureName =
 export const runtimeDiagnosticsSharedExclusiveModules = [
   "src/modules/acpRuntimeDiagnosticsMode.ts",
   "src/modules/acpRuntimeSemanticTrace.ts",
+  "src/modules/acpChatDiagnosticAuditTrail.ts",
 ] as const;
 
 export const runtimeDiagnosticsExclusiveModules = [
@@ -108,6 +109,8 @@ export const forbiddenRuntimeMarkers = Object.fromEntries(
 export const forbiddenProductionRuntimeMarkers = [
   ...Object.values(forbiddenRuntimeMarkers).flat(),
   "zotero-agents.acp-runtime-semantic-trace.v1",
+  "zotero-skills.acp-chat.diagnostic.v1",
+  "acp-chat-diagnostic-audit",
 ] as const;
 
 export const runtimeDiagnosticsStaticAllowances = {

@@ -15,6 +15,10 @@ const profilerModuleBasename = path.basename(
   runtimeDiagnosticsFeatureGroups.profiler.exclusiveModules[0],
   ".ts",
 );
+const chatDiagnosticAuditModuleBasename = path.basename(
+  "src/modules/acpChatDiagnosticAuditTrail.ts",
+  ".ts",
+);
 
 const disabledProfilerModule = `
 export const ACP_RUNTIME_PERFORMANCE_PROFILE_SCHEMA = "";
@@ -32,6 +36,17 @@ export function observeAcpRuntimeGauge() {}
 export function snapshotAcpRuntimeProfiles() { return undefined; }
 export function configureAcpRuntimePerformanceProfilerForTests() {}
 export function resetAcpRuntimePerformanceProfilerForTests() {}
+`;
+
+const disabledChatDiagnosticAuditModule = `
+export function acpChatDiagnosticAuditOwnerKey() { return ""; }
+export function activateAcpChatDiagnosticAuditOwner() {}
+export function appendAcpChatDiagnosticAudit() {}
+export function flushAcpChatDiagnosticAudit() { return Promise.resolve(); }
+export function releaseAcpChatDiagnosticAudit() { return Promise.resolve(); }
+export function discardAcpChatDiagnosticAudit() { return Promise.resolve(); }
+export function resetAcpChatDiagnosticAuditForTests() { return Promise.resolve(); }
+export function discardAllAcpChatDiagnosticAuditsForTests() {}
 `;
 
 export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
@@ -59,6 +74,16 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
             sideEffects: false,
           };
         }
+        if (
+          debugDisabled &&
+          path.basename(args.path) === chatDiagnosticAuditModuleBasename
+        ) {
+          return {
+            path: chatDiagnosticAuditModuleBasename,
+            namespace: "runtime-diagnostics-disabled",
+            sideEffects: false,
+          };
+        }
         return {
           path: path.resolve(args.resolveDir, `${args.path}.ts`),
           sideEffects: false,
@@ -72,6 +97,16 @@ export const runtimeDiagnosticsSideEffectsPlugin: Plugin = {
       },
       () => ({
         contents: disabledProfilerModule,
+        loader: "js",
+      }),
+    );
+    build.onLoad(
+      {
+        filter: new RegExp(`^${chatDiagnosticAuditModuleBasename}$`),
+        namespace: "runtime-diagnostics-disabled",
+      },
+      () => ({
+        contents: disabledChatDiagnosticAuditModule,
         loader: "js",
       }),
     );

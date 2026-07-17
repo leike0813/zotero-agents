@@ -2164,6 +2164,7 @@ describe("acp session manager", function () {
 
   it("does not fan out high-frequency diagnostics as one UI snapshot per trace", async function () {
     await reconnectAcpConversation();
+    const before = getAcpConversationSnapshot();
     let snapshotCount = 0;
     const unsubscribe = subscribeAcpConversationSnapshots(() => {
       snapshotCount += 1;
@@ -2176,6 +2177,18 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     assert.isAtMost(snapshot.diagnostics.length, 40);
     assert.isBelow(snapshotCount, 20);
+    assert.equal(snapshot.updatedAt, before.updatedAt);
+
+    toggleAcpConversationStatusDetails();
+    const requestId = `conversation:${snapshot.backendId}:${snapshot.conversationId}`;
+    const persisted = getPluginTaskRequestEntry(
+      PLUGIN_TASK_DOMAIN_ACP,
+      requestId,
+    );
+    const payload = JSON.parse(String(persisted?.payload || "{}"));
+    assert.notProperty(payload, "diagnostics");
+    assert.notProperty(payload, "stderrTail");
+    assert.notProperty(payload, "lastLifecycleEvent");
   });
 
   it("keeps trailing transcript updates in the active turn while cancellation is requested", async function () {

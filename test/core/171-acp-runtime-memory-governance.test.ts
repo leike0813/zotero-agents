@@ -61,6 +61,11 @@ import {
   snapshotAcpRuntimeProfiles,
   startAcpRuntimeProfile,
 } from "../../src/modules/acpRuntimePerformanceProfiler";
+import { recordAcpRuntimeDiagnostic } from "../../src/modules/acpDiagnosticRouter";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -197,6 +202,108 @@ describe("ACP runtime memory governance", function () {
     } finally {
       releaseFirst?.();
       discardBufferedWriteKey(key);
+    }
+  });
+
+  it("bounds only explicitly configured pending writes and reports dropped audit evidence", async function () {
+    const boundedKey = `bounded-coordinator:${Date.now()}`;
+    const defaultKey = `default-coordinator:${Date.now()}`;
+    const boundedWritten: number[] = [];
+    const defaultWritten: number[] = [];
+    const overflows: Array<{
+      droppedEntries: number;
+      droppedBytes: number;
+      overflowEpisode: number;
+    }> = [];
+    try {
+      for (let entry = 1; entry <= 5; entry += 1) {
+        enqueueBufferedWrite({
+          key: boundedKey,
+          owner: "audit-owner",
+          entry,
+          bytes: 2,
+          sink: async (entries) => boundedWritten.push(...entries),
+          hardPendingLimit: {
+            maxEntries: 3,
+            maxBytes: 6,
+            overflow: "drop-oldest",
+            onOverflow: (event) => overflows.push(event),
+          },
+        });
+        enqueueBufferedWrite({
+          key: defaultKey,
+          owner: "business-owner",
+          entry,
+          bytes: 2,
+          sink: async (entries) => defaultWritten.push(...entries),
+        });
+      }
+
+      const bounded = getBufferedWriteDiagnosticsForTests().find(
+        (entry) => entry.key === boundedKey,
+      );
+      const unbounded = getBufferedWriteDiagnosticsForTests().find(
+        (entry) => entry.key === defaultKey,
+      );
+      assert.equal(bounded?.pendingEntries, 3);
+      assert.equal(bounded?.pendingBytes, 6);
+      assert.equal(bounded?.droppedEntries, 2);
+      assert.equal(bounded?.droppedBytes, 4);
+      assert.equal(bounded?.overflowEpisodes, 1);
+      assert.equal(unbounded?.pendingEntries, 5);
+      assert.equal(unbounded?.droppedEntries, 0);
+      assert.lengthOf(overflows, 1);
+
+      await flushBufferedWriteKey(boundedKey);
+      await flushBufferedWriteKey(defaultKey);
+      assert.deepEqual(boundedWritten, [3, 4, 5]);
+      assert.deepEqual(defaultWritten, [1, 2, 3, 4, 5]);
+    } finally {
+      discardBufferedWriteKey(boundedKey);
+      discardBufferedWriteKey(defaultKey);
+    }
+  });
+
+  it("routes only sanitized diagnostic evidence to debug audit and release warning logs", function () {
+    setDebugModeOverrideForTests(true);
+    clearRuntimeLogs();
+    const auditEntries: Array<Record<string, unknown>> = [];
+    try {
+      recordAcpRuntimeDiagnostic({
+        surface: "acp-skills",
+        ownerKey: "diagnostic-owner",
+        requestId: "diagnostic-router-test",
+        backendId: "backend-acp",
+        entry: {
+          id: "diagnostic-1",
+          ts: "2026-07-17T00:00:00.000Z",
+          kind: "provider_warning",
+          level: "warn",
+          message: "Bearer secret-token",
+          detail: "password=secret-value cookie=session-secret",
+          stage: "prompt",
+          errorName: "ProviderError",
+          code: "WARN",
+          data: { token: "must-not-persist" },
+          raw: { authorization: "must-not-persist" },
+        },
+        debugAuditSink: (entry) => auditEntries.push(entry),
+      });
+
+      assert.lengthOf(auditEntries, 1);
+      assert.notProperty(auditEntries[0], "raw");
+      assert.notProperty(auditEntries[0], "data");
+      assert.notInclude(String(auditEntries[0].message), "secret-token");
+      assert.notInclude(String(auditEntries[0].detail), "secret-value");
+      const logs = listRuntimeLogs({
+        requestId: "diagnostic-router-test",
+        levels: ["warn"],
+      });
+      assert.lengthOf(logs, 1);
+      assert.equal(logs[0].stage, "prompt");
+      assert.notInclude(JSON.stringify(logs[0]), "must-not-persist");
+    } finally {
+      clearRuntimeLogs();
     }
   });
 

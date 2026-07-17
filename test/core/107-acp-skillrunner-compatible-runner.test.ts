@@ -50,6 +50,7 @@ import {
   setAcpSkillRunReasoningEffort,
   setAcpSkillRunRuntimeOptions,
   shutdownAcpSkillRunConversations,
+  subscribeAcpSkillRunWorkspaceChanges,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { readAcpSkillRunOutputRevisions } from "../../src/modules/acpSkillRunPayloadStore";
@@ -117,6 +118,8 @@ import {
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import {
+  listPluginRunEventStoreEntries,
+  listPluginRunStoreEntries,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
@@ -619,6 +622,91 @@ function createPromptStopAdapter(args: {
   };
 }
 
+function createDiagnosticBurstAdapter() {
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  let diagnosticListener: ((entry: any) => void | Promise<void>) | null = null;
+  let resolvePromptStarted!: () => void;
+  let resolvePromptRelease!: () => void;
+  const promptStarted = new Promise<void>((resolve) => {
+    resolvePromptStarted = resolve;
+  });
+  const promptRelease = new Promise<void>((resolve) => {
+    resolvePromptRelease = resolve;
+  });
+  const adapter = {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake",
+      canLoadSession: true,
+      canResumeSession: true,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    },
+    onClose: () => () => undefined,
+    onDiagnostics: (listener: (entry: any) => void | Promise<void>) => {
+      diagnosticListener = listener;
+      return () => {
+        diagnosticListener = null;
+      };
+    },
+    onPermissionRequest: () => () => undefined,
+    newSession: async () => ({ sessionId: "session-diagnostic-burst" }),
+    loadSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    resumeSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    prompt: async ({ sessionId }: { sessionId: string }) => {
+      resolvePromptStarted();
+      await promptRelease;
+      await updateListener?.({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    },
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async () => undefined,
+    authenticate: async () => undefined,
+    close: async () => undefined,
+  } satisfies AcpConnectionAdapter;
+  return {
+    adapter,
+    promptStarted,
+    releasePrompt: () => resolvePromptRelease(),
+    emitInfoDiagnostics: async (count: number) => {
+      assert.isFunction(diagnosticListener);
+      for (let index = 0; index < count; index += 1) {
+        await diagnosticListener?.({
+          id: `diagnostic-${index}`,
+          ts: "2026-07-17T00:00:00.000Z",
+          kind: "jsonrpc_trace",
+          level: "info",
+          message: "JSON-RPC trace",
+          detail: `direction=in method=session/update index=${index}`,
+        });
+      }
+    },
+  };
+}
+
 async function runDemoAcpSkill(args: {
   root: string;
   entry: Awaited<ReturnType<typeof createSkill>>["entry"];
@@ -930,6 +1018,100 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
     resetRuntimeCommandRegistryForTests();
+  });
+
+  it("keeps adapter diagnostic bursts out of canonical run persistence and publication", async function () {
+    this.timeout(20_000);
+    setDebugModeOverrideForTests(false);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const diagnosticAdapter = createDiagnosticBurstAdapter();
+    let requestId = "";
+    const changes: unknown[] = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+    try {
+      const runPromise = runDemoAcpSkill({
+        root,
+        entry,
+        adapter: diagnosticAdapter.adapter,
+        createWorkspace: async (workspaceArgs) => {
+          const workspace = await createAcpSkillRunnerWorkspace({
+            ...workspaceArgs,
+            rootDir: root,
+          });
+          requestId = workspace.requestId;
+          return workspace;
+        },
+      });
+      await diagnosticAdapter.promptStarted;
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      changes.length = 0;
+
+      const beforeRecord = getAcpSkillRunRecord(requestId);
+      const beforeRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === requestId,
+      );
+      const beforeEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: beforeRunRow?.runKey || requestId,
+      });
+      const beforeProjection = {
+        status: beforeRecord?.status,
+        updatedAt: beforeRecord?.updatedAt,
+        events: beforeRecord?.events,
+        transcriptRevision: beforeRecord?.transcriptRevision,
+        transcriptEventSeq: beforeRecord?.transcriptEventSeq,
+        transcriptItemCount: beforeRecord?.transcriptItemCount,
+        result: beforeRecord?.result,
+        pendingPermission: beforeRecord?.pendingPermissionRequest,
+        recoveryState: beforeRecord?.conversationRecoveryState,
+      };
+
+      await diagnosticAdapter.emitInfoDiagnostics(10_000);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      const afterRecord = getAcpSkillRunRecord(requestId);
+      const afterRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === requestId,
+      );
+      const afterEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: afterRunRow?.runKey || requestId,
+      });
+      assert.deepEqual(
+        {
+          status: afterRecord?.status,
+          updatedAt: afterRecord?.updatedAt,
+          events: afterRecord?.events,
+          transcriptRevision: afterRecord?.transcriptRevision,
+          transcriptEventSeq: afterRecord?.transcriptEventSeq,
+          transcriptItemCount: afterRecord?.transcriptItemCount,
+          result: afterRecord?.result,
+          pendingPermission: afterRecord?.pendingPermissionRequest,
+          recoveryState: afterRecord?.conversationRecoveryState,
+        },
+        beforeProjection,
+      );
+      assert.deepEqual(afterRunRow, beforeRunRow);
+      assert.deepEqual(afterEventRows, beforeEventRows);
+      assert.deepEqual(changes, []);
+
+      diagnosticAdapter.releasePrompt();
+      const result = await runPromise;
+      assert.equal(result.requestId, requestId);
+      assert.equal(result.status, "succeeded");
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.outputConvergenceState,
+        "final",
+      );
+    } finally {
+      diagnosticAdapter.releasePrompt();
+      unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("batches plugin-owned audit updates into one physical append", async function () {
@@ -7729,6 +7911,14 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     let capturedMessage = "";
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let diagnosticListener:
+      | ((entry: {
+          kind: "info" | "stderr" | "lifecycle";
+          message: string;
+          data?: unknown;
+        }) => void)
+      | null = null;
+    let unsubscribeWorkspaceChanges: (() => void) | null = null;
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -7748,7 +7938,12 @@ describe("ACP SkillRunner-compatible runner", function () {
         };
       },
       onClose: () => () => undefined,
-      onDiagnostics: () => () => undefined,
+      onDiagnostics: (listener) => {
+        diagnosticListener = listener;
+        return () => {
+          diagnosticListener = null;
+        };
+      },
       onPermissionRequest: () => () => undefined,
       newSession: async () => ({ sessionId: "unused" }),
       loadSession: async ({ sessionId }) => ({ sessionId }),
@@ -7810,6 +8005,40 @@ describe("ACP SkillRunner-compatible runner", function () {
           dependencyProbe: async () => ({ ok: true }),
         },
       });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const workspaceChanges: unknown[] = [];
+      unsubscribeWorkspaceChanges = subscribeAcpSkillRunWorkspaceChanges(
+        (change) => workspaceChanges.push(change),
+      );
+      const beforeRecord = getAcpSkillRunRecord(workspace.requestId);
+      const beforeRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === workspace.requestId,
+      );
+      const beforeEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: beforeRunRow?.runKey || workspace.requestId,
+      });
+      diagnosticListener?.({
+        kind: "info",
+        message: "recovered adapter diagnostic",
+        data: { token: "must-not-enter-canonical-state" },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.deepEqual(getAcpSkillRunRecord(workspace.requestId), beforeRecord);
+      assert.deepEqual(
+        listPluginRunStoreEntries("acp").find(
+          (row) => row.requestId === workspace.requestId,
+        ),
+        beforeRunRow,
+      );
+      assert.deepEqual(
+        listPluginRunEventStoreEntries({
+          kind: "acp",
+          runKey: beforeRunRow?.runKey || workspace.requestId,
+        }),
+        beforeEventRows,
+      );
+      assert.deepEqual(workspaceChanges, []);
       await replyAcpSkillRun({
         requestId: workspace.requestId,
         message: "continue from here",
@@ -7828,6 +8057,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(capturedMessage, "Do not output Markdown fences.");
       assert.include(capturedMessage, "continue from here");
     } finally {
+      unsubscribeWorkspaceChanges?.();
       await fs.rm(root, { recursive: true, force: true });
     }
   });

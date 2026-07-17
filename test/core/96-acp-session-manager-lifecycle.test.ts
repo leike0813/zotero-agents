@@ -247,6 +247,50 @@ describe("acp session manager", function () {
     assert.equal(harness.lastAdapter?.closeCalls, 1);
   });
 
+  it("writes Chat diagnostics only to bounded debug audit evidence", async function () {
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-chat-diagnostic-audit-"),
+    );
+    const previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = runtimeRoot;
+    setDebugModeOverrideForTests(true);
+    try {
+      await connectAcpConversation();
+      const snapshot = getAcpConversationSnapshot();
+      harness.lastAdapter?.emitTraceDiagnostics(5);
+      await disconnectAcpConversation();
+
+      const auditPath = resolveAcpChatRuntimePaths(
+        snapshot.backendId,
+        snapshot.conversationId,
+      ).diagnosticsAuditPath;
+      const lines = (await fs.readFile(auditPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      assert.isAtLeast(lines.length, 5);
+      assert.isTrue(
+        lines.some(
+          (entry) =>
+            entry.source === "acp-chat-diagnostic" &&
+            entry.kind === "jsonrpc_trace",
+        ),
+      );
+      for (const entry of lines) {
+        assert.notProperty(entry, "raw");
+        assert.notProperty(entry, "data");
+      }
+    } finally {
+      setDebugModeOverrideForTests();
+      if (typeof previousRuntimeRoot === "undefined") {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
+      }
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
+  });
+
   it("claims Chat recording only from an eligible explicit connection", async function () {
     const traceRoot = await fs.mkdtemp(
       path.join(os.tmpdir(), "zs-acp-chat-trace-"),
@@ -428,13 +472,14 @@ describe("acp session manager", function () {
       busy?: boolean;
       sessionId?: string;
       remoteSessionId?: string;
-      lastLifecycleEvent?: string;
     };
     assert.equal(payload.status, "idle");
     assert.equal(payload.busy, false);
     assert.equal(payload.sessionId, "");
     assert.equal(payload.remoteSessionId, "session-1");
-    assert.equal(payload.lastLifecycleEvent, "shutdown-disconnected");
+    assert.notProperty(payload, "diagnostics");
+    assert.notProperty(payload, "stderrTail");
+    assert.notProperty(payload, "lastLifecycleEvent");
     assert.equal(harness.lastAdapter?.closeCalls, 1);
   });
 
@@ -456,18 +501,13 @@ describe("acp session manager", function () {
       status?: string;
       busy?: boolean;
       sessionId?: string;
-      lastLifecycleEvent?: string;
-      diagnostics?: Array<{ kind?: string }>;
     };
     assert.equal(payload.status, "idle");
     assert.equal(payload.busy, false);
     assert.equal(payload.sessionId, "");
-    assert.equal(payload.lastLifecycleEvent, "shutdown-disconnected");
-    assert.isTrue(
-      (payload.diagnostics || []).some(
-        (entry) => entry.kind === "shutdown_timeout",
-      ),
-    );
+    assert.notProperty(payload, "diagnostics");
+    assert.notProperty(payload, "stderrTail");
+    assert.notProperty(payload, "lastLifecycleEvent");
     assert.equal(harness.lastAdapter?.closeCalls, 1);
   });
 

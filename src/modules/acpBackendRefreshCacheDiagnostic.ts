@@ -40,7 +40,7 @@ import {
 } from "../utils/runtimeCompatibility";
 import {
   appendAcpSkillRunTransportAuditEvent,
-  flushAcpSkillRunAuditTrailWrites,
+  releaseAcpSkillRunAuditTrailWrites,
   resolveAcpSkillRunAuditTrailFiles,
   shouldWriteDetailedAcpAuditArtifacts,
 } from "./acpSkillRunAuditTrail";
@@ -4024,7 +4024,7 @@ async function runSingleBackendDiagnostic(args: {
         pushStage("adapter-close:failed", { error: serializeError(error) });
       }
     }
-    await flushAcpSkillRunAuditTrailWrites(auditRuntimeDir).catch(
+    await releaseAcpSkillRunAuditTrailWrites(auditRuntimeDir).catch(
       () => undefined,
     );
     result.diagnostics = diagnostics;

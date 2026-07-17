@@ -16,8 +16,22 @@ export type BufferedWriteDiagnostics = {
   forcedFlushes: number;
   failures: number;
   retries: number;
+  droppedEntries: number;
+  droppedBytes: number;
+  overflowEpisodes: number;
   pendingEntries: number;
   pendingBytes: number;
+};
+
+export type BufferedWriteHardPendingLimit = {
+  maxEntries: number;
+  maxBytes: number;
+  overflow: "drop-oldest";
+  onOverflow?: (event: {
+    droppedEntries: number;
+    droppedBytes: number;
+    overflowEpisode: number;
+  }) => void;
 };
 
 type Sink<T> = (entries: T[]) => Promise<void>;
@@ -38,6 +52,9 @@ type KeyState<T> = {
   failed: boolean;
   performanceProfileRequestId?: string;
   performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
+  hardPendingLimit?: BufferedWriteHardPendingLimit;
+  overflowActive: boolean;
+  discarded: boolean;
   diagnostics: Omit<
     BufferedWriteDiagnostics,
     "pendingEntries" | "pendingBytes"
@@ -45,6 +62,60 @@ type KeyState<T> = {
 };
 
 const states = new Map<string, KeyState<unknown>>();
+
+function normalizeHardPendingLimit(
+  value?: BufferedWriteHardPendingLimit,
+): BufferedWriteHardPendingLimit | undefined {
+  if (!value) {
+    return undefined;
+  }
+  return {
+    maxEntries: Math.max(1, Math.floor(value.maxEntries)),
+    maxBytes: Math.max(1, Math.floor(value.maxBytes)),
+    overflow: "drop-oldest",
+    onOverflow: value.onOverflow,
+  };
+}
+
+function enforceHardPendingLimit(state: KeyState<unknown>) {
+  const limit = state.hardPendingLimit;
+  if (!limit) {
+    return;
+  }
+  let droppedEntries = 0;
+  let droppedBytes = 0;
+  while (
+    state.pending.length > limit.maxEntries ||
+    state.pendingBytes > limit.maxBytes
+  ) {
+    const dropped = state.pending.shift();
+    if (!dropped) {
+      break;
+    }
+    state.pendingBytes = Math.max(0, state.pendingBytes - dropped.bytes);
+    droppedEntries += 1;
+    droppedBytes += dropped.bytes;
+  }
+  if (droppedEntries === 0) {
+    return;
+  }
+  state.diagnostics.droppedEntries += droppedEntries;
+  state.diagnostics.droppedBytes += droppedBytes;
+  if (state.overflowActive) {
+    return;
+  }
+  state.overflowActive = true;
+  state.diagnostics.overflowEpisodes += 1;
+  try {
+    limit.onOverflow?.({
+      droppedEntries,
+      droppedBytes,
+      overflowEpisode: state.diagnostics.overflowEpisodes,
+    });
+  } catch {
+    // Diagnostic overflow reporting must never affect the write owner.
+  }
+}
 
 function clearTimer(state: KeyState<unknown>) {
   if (state.timer) {
@@ -54,7 +125,12 @@ function clearTimer(state: KeyState<unknown>) {
 }
 
 function schedule(state: KeyState<unknown>) {
-  if (state.timer || state.draining || state.pending.length === 0) {
+  if (
+    state.discarded ||
+    state.timer ||
+    state.draining ||
+    state.pending.length === 0
+  ) {
     return;
   }
   state.timer = setTimeout(() => {
@@ -92,11 +168,13 @@ async function drain(state: KeyState<unknown>) {
     try {
       await state.sink(batch.map((entry) => entry.value));
       state.failed = false;
+      state.overflowActive = false;
     } catch (error) {
       state.diagnostics.failures += 1;
       state.failed = true;
       state.pending = [...batch, ...state.pending];
       state.pendingBytes += batchBytes;
+      enforceHardPendingLimit(state);
       throw error;
     }
   })();
@@ -134,7 +212,7 @@ async function drain(state: KeyState<unknown>) {
     if (state.draining === write) {
       state.draining = null;
     }
-    if (!state.failed) {
+    if (!state.failed && !state.discarded) {
       schedule(state);
     }
   }
@@ -148,6 +226,7 @@ export function enqueueBufferedWrite<T>(args: {
   sink: Sink<T>;
   performanceProfileRequestId?: string;
   performanceChannel?: "transcript" | "audit" | "runtime-log" | "other";
+  hardPendingLimit?: BufferedWriteHardPendingLimit;
 }) {
   let state = states.get(args.key) as KeyState<T> | undefined;
   if (!state) {
@@ -162,6 +241,9 @@ export function enqueueBufferedWrite<T>(args: {
       failed: false,
       performanceProfileRequestId: args.performanceProfileRequestId,
       performanceChannel: args.performanceChannel,
+      hardPendingLimit: normalizeHardPendingLimit(args.hardPendingLimit),
+      overflowActive: false,
+      discarded: false,
       diagnostics: {
         logicalEntries: 0,
         physicalWriteCycles: 0,
@@ -169,6 +251,9 @@ export function enqueueBufferedWrite<T>(args: {
         forcedFlushes: 0,
         failures: 0,
         retries: 0,
+        droppedEntries: 0,
+        droppedBytes: 0,
+        overflowEpisodes: 0,
       },
     };
     states.set(args.key, state as KeyState<unknown>);
@@ -177,11 +262,13 @@ export function enqueueBufferedWrite<T>(args: {
   state.sink = args.sink;
   state.performanceProfileRequestId = args.performanceProfileRequestId;
   state.performanceChannel = args.performanceChannel;
+  state.hardPendingLimit = normalizeHardPendingLimit(args.hardPendingLimit);
   const bytes = Math.max(0, Math.floor(args.bytes));
   state.pending.push({ value: args.entry, bytes });
   state.pendingBytes += bytes;
   state.diagnostics.logicalEntries += 1;
   state.diagnostics.bytes += bytes;
+  enforceHardPendingLimit(state as KeyState<unknown>);
   if (
     state.pending.length >= BUFFERED_WRITE_MAX_ENTRIES ||
     state.pendingBytes >= BUFFERED_WRITE_MAX_BYTES
@@ -236,8 +323,24 @@ export function discardBufferedWriteKey(key: string) {
   if (!state) {
     return;
   }
+  state.discarded = true;
   clearTimer(state);
   states.delete(key);
+}
+
+export async function discardBufferedWriteKeyAndWait(key: string) {
+  const state = states.get(key);
+  if (!state) {
+    return;
+  }
+  state.discarded = true;
+  state.pending = [];
+  state.pendingBytes = 0;
+  clearTimer(state);
+  states.delete(key);
+  if (state.draining) {
+    await Promise.allSettled([state.draining]);
+  }
 }
 
 export async function resetBufferedWriteCoordinatorForTests() {
