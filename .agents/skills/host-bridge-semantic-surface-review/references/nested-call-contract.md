@@ -4,7 +4,7 @@ The Host Bridge release pipeline calls this skill before rendering Host Bridge s
 
 ## Pipeline Entry
 
-The release pipeline should call this skill when changed files include Host Bridge capability, endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge specs, wrapper semantic source, or Zotero Librarian profile semantic source files.
+The release pipeline should call this skill when changed files include Host Bridge capability, endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge specs, shared control facts, CLI wrapper, Zotero Library Agent, or Zotero Librarian profile semantic source files.
 
 The first command inside this skill is:
 
@@ -20,6 +20,7 @@ Report the result in plain text with these fields:
 semantic review ran: yes
 context reviewRequired: true|false
 semantic source edits: <file list or none>
+surface boundary result: independent|blocked
 alignment result: aligned|edits applied|blocked
 next commands: <render/check commands>
 blocker: <only when blocked>
@@ -27,7 +28,7 @@ blocker: <only when blocked>
 
 ## Responsibilities
 
-This skill may edit semantic sources when review finds a mismatch.
+This skill may edit semantic sources when review finds a mismatch. It keeps on-demand agent policy independent from resident profile maintenance policy.
 
 This skill must not publish releases, run GitHub workflows, sync prebuilds, or treat generated output as source-of-truth content.
 

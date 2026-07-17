@@ -36,6 +36,8 @@ const DOCS = [
   "doc/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/SKILL.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+  "skills_builtin/zotero-library-agent/SKILL.md",
+  "skills_builtin/zotero-library-agent/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflows.md",
   "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
@@ -51,6 +53,7 @@ const CANONICAL_CLI_DOCS = [
   "skills_builtin/zotero-bridge-cli/SKILL.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
+  "skills_builtin/zotero-library-agent/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2",
 ];
@@ -62,6 +65,17 @@ const CURRENT_STATE_ONLY_DOCS = [
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
   "skills_builtin/zotero-bridge-cli/references/terminology.md",
+  "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
+  "skills_src/zotero-library-agent/semantic/SKILL.md",
+  "skills_src/zotero-library-agent/semantic/references/task-routing.md",
+  "skills_src/zotero-library-agent/semantic/references/workflow-execution.md",
+  "skills_src/zotero-library-agent/semantic/references/evidence-handoff.md",
+  "skills_builtin/zotero-library-agent/SKILL.md",
+  "skills_builtin/zotero-library-agent/references/task-routing.md",
+  "skills_builtin/zotero-library-agent/references/workflow-execution.md",
+  "skills_builtin/zotero-library-agent/references/evidence-handoff.md",
+  "skills_builtin/zotero-library-agent/references/control-invariants.md",
+  "skills_builtin/zotero-library-agent/references/terminology.md",
   "profiles_src/hermes/zotero-librarian/SOUL.md",
   "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
   "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
@@ -70,11 +84,13 @@ const CURRENT_STATE_ONLY_DOCS = [
   "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
   "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   "skills_src/host-bridge-shared/terminology.md",
+  "skills_src/host-bridge-shared/control-invariants.md",
   "profiles/hermes/zotero-librarian/SOUL.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/terminology.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/control-invariants.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
   "profiles/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
@@ -311,11 +327,27 @@ for (const docPath of CURRENT_STATE_ONLY_DOCS) {
 const sharedTerminology = read("skills_src/host-bridge-shared/terminology.md");
 for (const generatedTerminology of [
   "skills_builtin/zotero-bridge-cli/references/terminology.md",
+  "skills_builtin/zotero-library-agent/references/terminology.md",
   "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/terminology.md",
 ]) {
   if (read(generatedTerminology) !== sharedTerminology) {
     fail(
       `${generatedTerminology} is not rendered from shared terminology source`,
+    );
+  }
+}
+
+const sharedControlInvariants = read(
+  "skills_src/host-bridge-shared/control-invariants.md",
+);
+for (const generatedControlInvariants of [
+  "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
+  "skills_builtin/zotero-library-agent/references/control-invariants.md",
+  "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/control-invariants.md",
+]) {
+  if (read(generatedControlInvariants) !== sharedControlInvariants) {
+    fail(
+      `${generatedControlInvariants} is not rendered from shared control invariants source`,
     );
   }
 }
@@ -341,6 +373,7 @@ const wrapperSkill = read("skills_builtin/zotero-bridge-cli/SKILL.md");
 for (const required of [
   "references/agent-guidance.md",
   "references/terminology.md",
+  "references/control-invariants.md",
   "workflow agent-apply",
   "agentRunId",
   "agentRequestId",
@@ -350,6 +383,18 @@ for (const required of [
     fail(
       `zotero-bridge wrapper skill missing semantic guidance marker: ${required}`,
     );
+  }
+}
+
+const libraryAgentSkill = read("skills_builtin/zotero-library-agent/SKILL.md");
+for (const required of [
+  "references/control-invariants.md",
+  "references/task-routing.md",
+  "references/workflow-execution.md",
+  "references/evidence-handoff.md",
+]) {
+  if (!libraryAgentSkill.includes(required)) {
+    fail(`zotero-library-agent skill missing reference route: ${required}`);
   }
 }
 

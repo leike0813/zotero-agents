@@ -49,10 +49,14 @@ async function createFakeBridge(runRoot: string) {
   const binDir = path.join(runRoot, ".zotero-bridge", "bin");
   await fs.mkdir(binDir, { recursive: true });
   const bridge = path.join(binDir, "zotero-bridge");
-  const source = String.raw`#!/usr/bin/env node
+const source = String.raw`#!/usr/bin/env node
 const args = process.argv.slice(2);
-const inputIndex = args.indexOf("--input");
-const commandArgs = args.slice(0, inputIndex >= 0 ? inputIndex : args.length);
+if (args.includes("--input")) {
+  console.error("semantic reads must use --query");
+  process.exit(64);
+}
+const queryIndex = args.indexOf("--query");
+const commandArgs = args.slice(0, queryIndex >= 0 ? queryIndex : args.length);
 const command = commandArgs.join(" ");
 let data = {};
 if (command === "bridge status") data = { status: "ok" };

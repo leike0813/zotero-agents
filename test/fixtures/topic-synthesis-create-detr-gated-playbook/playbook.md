@@ -23,10 +23,10 @@
 zotero-bridge bridge status
 zotero-bridge debug status
 zotero-bridge bridge manifest
-zotero-bridge synthesis topic list --input '{}'
-zotero-bridge synthesis index library get --input '{"cursor":0,"limit":200}'
-zotero-bridge synthesis resolver resolve --input '{"tag":{"and":["model:DL/DETR"]}}'
-zotero-bridge synthesis artifact manifest --input '{"paper_refs":[...]}'
+zotero-bridge synthesis topic list --query '{}'
+zotero-bridge synthesis index library get --query '{"cursor":0,"limit":200}'
+zotero-bridge synthesis resolver resolve --query '{"tag":{"and":["model:DL/DETR"]}}'
+zotero-bridge synthesis artifact manifest --query '{"paper_refs":[...]}'
 ```
 
 `list-topics` 返回空 topic 列表，因此 create duplicate 判断为 `none`。`model:DL/DETR` resolver 返回 22 篇候选，本 playbook 为了后续测试稳定性只选择 5 篇代表论文。

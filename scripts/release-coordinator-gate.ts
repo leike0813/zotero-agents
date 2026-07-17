@@ -107,6 +107,9 @@ const HOST_BRIDGE_PREFIXES = [
   "cli/zotero-bridge/",
   "skills_builtin/zotero-bridge-cli/",
   "skills_src/zotero-bridge-cli/semantic/",
+  "skills_src/zotero-library-agent/",
+  "skills_src/host-bridge-shared/",
+  "skills_builtin/zotero-library-agent/",
   "profiles_src/hermes/zotero-librarian/",
   "profiles/hermes/zotero-librarian/",
 ] as const;
@@ -118,10 +121,14 @@ const HOST_BRIDGE_EXACT_FILES = new Set([
   "scripts/render-zotero-librarian-profile.ts",
   "scripts/check-zotero-librarian-profile.ts",
   "scripts/zotero-librarian-profile-version.ts",
+  "scripts/render-zotero-library-agent-bundle.ts",
+  "scripts/check-zotero-library-agent-bundle.ts",
+  "scripts/zotero-library-agent-bundle-version.ts",
   "scripts/build-zotero-bridge-cli.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
   "scripts/publish-host-bridge-cli-bundle.ps1",
   "scripts/publish-zotero-librarian-profile.ps1",
+  "scripts/publish-zotero-library-agent-bundle.ps1",
   ".github/workflows/build-zotero-bridge-cli.yml",
 ]);
 

@@ -320,21 +320,15 @@ def unwrap_bridge(value: Any) -> Any:
     return current
 
 
-def run_bridge(
+def run_bridge_args(
     run_root: Path,
     command: list[str],
-    payload: dict[str, Any] | None,
     call_name: str,
 ) -> Any:
     bridge = bridge_executable(run_root)
     host_dir = run_root / "runtime/host"
     host_dir.mkdir(parents=True, exist_ok=True)
     args = [str(bridge), *command]
-    if payload is not None:
-        input_path = host_dir / f"{call_name}.input.json"
-        write_json(input_path, payload)
-        relative = input_path.relative_to(run_root).as_posix()
-        args.extend(["--input", f"@{relative}"])
     completed = subprocess.run(
         args,
         cwd=run_root,
@@ -350,12 +344,26 @@ def run_bridge(
     return unwrap_bridge(parsed)
 
 
+def run_bridge_query(
+    run_root: Path,
+    command: list[str],
+    query: dict[str, Any],
+    call_name: str,
+) -> Any:
+    host_dir = run_root / "runtime/host"
+    host_dir.mkdir(parents=True, exist_ok=True)
+    input_path = host_dir / f"{call_name}.input.json"
+    write_json(input_path, query)
+    relative = input_path.relative_to(run_root).as_posix()
+    return run_bridge_args(run_root, [*command, "--query", f"@{relative}"], call_name)
+
+
 def page_topic_inventory(run_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     cursor = "0"
     page = 0
     while True:
-        data = run_bridge(
+        data = run_bridge_query(
             run_root,
             ["synthesis", "topic", "list"],
             {"cursor": cursor, "limit": 100},
@@ -512,7 +520,7 @@ def run_stage_00(conn: sqlite3.Connection, run_root: Path, input_path: str | Non
         },
     )
     try:
-        status = run_bridge(run_root, ["bridge", "status"], None, "stage00-bridge-status")
+        status = run_bridge_args(run_root, ["bridge", "status"], "stage00-bridge-status")
     except Exception as exc:  # noqa: BLE001
         add_diagnostic(conn, "host_bridge_unavailable", str(exc), severity="error")
         result = write_canceled(run_root, "host_unavailable", "Required Zotero Host Bridge access is unavailable.")
@@ -590,10 +598,10 @@ def run_stage_20(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     for index, row in enumerate(conn.execute("SELECT query_text FROM queries ORDER BY ordinal")):
         query = row[0]
         try:
-            result = run_bridge(
+            result = run_bridge_query(
                 run_root,
                 ["library", "item", "search"],
-                {"query": query, "limit": 50},
+                {"text": query, "limit": 50},
                 f"stage20-library-search-{index + 1}",
             )
             successful_searches += 1
@@ -748,7 +756,7 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     for index, topic_row in enumerate(selected_rows):
         topic_id = topic_row[0]
         try:
-            review = run_bridge(
+            review = run_bridge_query(
                 run_root,
                 ["synthesis", "topic", "get-review-input"],
                 {"topicId": topic_id, "maxGraphNodes": 100, "maxGraphEdges": 200, "maxChars": 20000, "includePaperArtifacts": False},
@@ -773,7 +781,7 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
     seed_refs = sorted(candidates)
     if seed_refs:
         try:
-            graph = run_bridge(
+            graph = run_bridge_query(
                 run_root,
                 ["synthesis", "graph", "query-cluster"],
                 {"source_paper_refs": seed_refs[:250], "cluster_policy": "bounded_external", "max_external_nodes": 0, "max_nodes": 500, "max_edges": 1000},
@@ -805,7 +813,7 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             cursor = "0"
             page = 0
             while True:
-                index_data = run_bridge(
+                index_data = run_bridge_query(
                     run_root,
                     ["synthesis", "index", "reference", "get"],
                     {"sourceRefs": refs, "cursor": cursor, "limit": 100},
@@ -822,7 +830,7 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
             add_diagnostic(conn, "reference_index_unavailable", str(exc))
 
         try:
-            export = run_bridge(
+            export = run_bridge_query(
                 run_root,
                 ["synthesis", "artifact", "export-filtered"],
                 {"run_root": str(run_root), "paper_refs": refs, "artifact_types": ["digest"]},
@@ -862,10 +870,9 @@ def run_stage_40(conn: sqlite3.Connection, run_root: Path) -> dict[str, Any]:
         ref = candidate["paper_ref"]
         library_id, key = ref.split(":", 1)
         try:
-            detail = run_bridge(
+            detail = run_bridge_args(
                 run_root,
-                ["library", "item", "get"],
-                {"libraryId": int(library_id), "key": key},
+                ["library", "item", "get", "--key", key, "--library-id", library_id],
                 f"stage40-item-detail-{index + 1}",
             )
             if isinstance(detail, dict):
@@ -994,7 +1001,7 @@ def page_graph_metrics(run_root: Path, refs: list[str]) -> tuple[dict[str, dict[
     available = False
     page = 0
     while True:
-        data = run_bridge(
+        data = run_bridge_query(
             run_root,
             ["synthesis", "graph", "get-metrics"],
             {"paperRefs": refs, "cursor": cursor, "limit": 100},
@@ -1020,7 +1027,7 @@ def page_graph_metrics(run_root: Path, refs: list[str]) -> tuple[dict[str, dict[
 
 def readiness_for_paper(run_root: Path, paper_ref: str, ordinal: int) -> tuple[float, dict[str, Any]]:
     library_id, key = paper_ref.split(":", 1)
-    result = run_bridge(
+    result = run_bridge_query(
         run_root,
         ["library", "readiness", "audit"],
         {"libraryId": int(library_id), "query": key, "checks": ["pdf", "markdown"], "limit": 10},

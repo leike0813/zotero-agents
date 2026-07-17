@@ -33,6 +33,7 @@ const REQUIRED_FILES = [
   "skills/zotero-librarian/references/workflows.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/terminology.md",
+  "skills/zotero-librarian/references/control-invariants.md",
   "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
@@ -63,6 +64,8 @@ const SEMANTIC_SOURCE_FILES = [
 ];
 const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
+const SHARED_CONTROL_INVARIANTS_SOURCE =
+  "skills_src/host-bridge-shared/control-invariants.md";
 const CANONICAL_TOP_LEVEL_COMMANDS = new Set([
   "bridge",
   "library",
@@ -163,6 +166,19 @@ function checkTerminologyReference(errors: string[]) {
     fail(
       errors,
       "profile terminology reference differs from shared terminology source",
+    );
+  }
+}
+
+function checkControlInvariantsReference(errors: string[]) {
+  const rendered = readProfile(
+    "skills/zotero-librarian/references/control-invariants.md",
+  );
+  const source = read(SHARED_CONTROL_INVARIANTS_SOURCE);
+  if (rendered !== source) {
+    fail(
+      errors,
+      "profile control invariants differ from shared control source",
     );
   }
 }
@@ -592,6 +608,7 @@ function checkBinaries(errors: string[]) {
 const errors: string[] = [];
 checkStructure(errors);
 checkTerminologyReference(errors);
+checkControlInvariantsReference(errors);
 checkProfileVersion(errors);
 checkSecrets(errors);
 checkHostBridgeSurface(errors);

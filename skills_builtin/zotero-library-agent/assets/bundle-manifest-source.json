@@ -1,0 +1,28 @@
+{
+  "schema": "zotero-library-agent.bundle.manifest-source.v1",
+  "releaseRepository": "https://github.com/leike0813/zotero-library-agent-bundle",
+  "sourceFiles": {
+    "version": "skills_src/zotero-library-agent/bundle-version.json",
+    "semantic": [
+      "skills_src/zotero-library-agent/semantic/SKILL.md",
+      "skills_src/zotero-library-agent/semantic/agents/openai.yaml",
+      "skills_src/zotero-library-agent/semantic/references/task-routing.md",
+      "skills_src/zotero-library-agent/semantic/references/workflow-execution.md",
+      "skills_src/zotero-library-agent/semantic/references/evidence-handoff.md",
+      "skills_src/zotero-library-agent/semantic/assets/evidence-bundle.schema.json",
+      "skills_src/zotero-library-agent/semantic/assets/evidence-input.example.json",
+      "skills_src/zotero-library-agent/semantic/scripts/zotero_library_agent.py"
+    ],
+    "shared": [
+      "skills_src/host-bridge-shared/terminology.md",
+      "skills_src/host-bridge-shared/control-invariants.md",
+      "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md"
+    ],
+    "cliRelease": "cli/zotero-bridge/release.json"
+  },
+  "generated": {
+    "bundleVersion": "0.2.0",
+    "cliVersion": "0.2.1",
+    "semanticChecksum": "17a25206c133c91978eed50cc1343004ab7b823734d94f1afb3c9e51b1ab0511"
+  }
+}

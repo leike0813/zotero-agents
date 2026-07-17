@@ -5,13 +5,14 @@
 1. Run `npx tsx scripts/host-bridge-semantic-review-context.ts`.
 2. If `reviewRequired` is false, inspect `recommendedFocus`. If it only reports generated-target drift, return to the release pipeline and recommend render/check verification.
 3. If `reviewRequired` is true, read every path in `specLayerChanges` that affects Host Bridge behavior.
-4. Read the wrapper semantic source and Zotero Librarian profile semantic source named in `surface-map.md`.
+4. Read the shared control facts, CLI wrapper, Zotero Library Agent, and Zotero Librarian profile semantic sources named in `surface-map.md`.
 5. Compare changed behavior against semantic guidance:
    - command family and command choice
    - workflow lifecycle and apply-back behavior
    - `workflowRunId`, `skillRunId`, `agentRunId`, and related handle boundaries
    - approval, mutation, reply, connect, cancel, and file-transfer behavior
    - profile operating principles and scheduled work assumptions
+   - on-demand versus resident task ownership
 6. Edit semantic sources only when the current guidance would cause an agent to choose the wrong command, use the wrong handle, skip a required review/apply path, or miss a new control surface that needs semantic explanation.
 7. Leave generated command lists, endpoint tables, and capability tables to the renderer.
 
@@ -31,6 +32,7 @@ After completion, return to the release pipeline so it can run:
 ```powershell
 npm run render:host-bridge-surface
 npm run check:host-bridge-doc-sync
+npm run check:zotero-library-agent-bundle
 npm run check:zotero-librarian-profile
 ```
 

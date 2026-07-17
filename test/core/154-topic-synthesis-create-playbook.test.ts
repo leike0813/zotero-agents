@@ -69,6 +69,52 @@ function resolverPapers(resolver: any): any[] {
 }
 
 describe("DETR create topic synthesis gated playbook", function () {
+  it("uses canonical Host Bridge query flags while preserving runtime input flags", async function () {
+    const semanticReadFiles = [
+      "playbook.md",
+      "transcripts/bridge/list-topics.command.json",
+      "transcripts/bridge/library-index-page-0.command.json",
+      "transcripts/bridge/resolver-discovery.command.json",
+      "transcripts/bridge/selected-paper-artifact-manifest.command.json",
+      "transcripts/gate-commands/03-prepare-gate-stage_10.json",
+      "transcripts/gate-commands/03-prepare-gate-stage_10.command.json",
+      "transcripts/gate-commands/05-prepare-gate-stage_20.json",
+      "transcripts/gate-commands/05-prepare-gate-stage_20.command.json",
+      "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/gate-transcript/002-stage_10_create_topic_context.json",
+      "workspace/runtime/acp/skill-runs/acp-skill-detr-create-topic-synthesis/runtime/gate-transcript/003-stage_20_resolver_and_workset.json",
+    ];
+
+    for (const relativePath of semanticReadFiles) {
+      const content = await fs.readFile(
+        path.join(playbookRoot, relativePath),
+        "utf8",
+      );
+      assert.include(content, "--query", relativePath);
+      assert.notInclude(content, "--input", relativePath);
+    }
+
+    const showcase = await fs.readFile(
+      path.join(playbookRoot, "showcase.html"),
+      "utf8",
+    );
+    assert.notMatch(showcase, /zotero-bridge[^\r\n]*--input/);
+    assert.match(
+      showcase,
+      /--db runtime\/topic-synthesis\.sqlite --input runtime\/input\.json/,
+    );
+
+    for (const relativePath of [
+      "transcripts/gate-commands/01-prepare-gate-stage_00.command.json",
+      "transcripts/gate-commands/02-prepare-run-stage_00.command.json",
+    ]) {
+      const runtimeCommand = await fs.readFile(
+        path.join(playbookRoot, relativePath),
+        "utf8",
+      );
+      assert.include(runtimeCommand, "--input", relativePath);
+    }
+  });
+
   it("keeps the playbook and mirrored ACP run workspace complete", async function () {
     const requiredFiles = [
       "playbook.md",

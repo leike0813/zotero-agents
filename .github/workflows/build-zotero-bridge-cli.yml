@@ -222,12 +222,15 @@ jobs:
       - name: Check zotero-librarian profile
         run: npm run check:zotero-librarian-profile
 
+      - name: Check Zotero Library Agent bundle
+        run: npm run check:zotero-library-agent-bundle
+
       - name: Commit CLI governance files
         if: github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add cli/zotero-bridge/Cargo.toml cli/zotero-bridge/Cargo.lock cli/zotero-bridge/release.json addon/bin/zotero-bridge-release.json doc/host-bridge-cli.md skills_builtin/zotero-bridge-cli skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2 profiles/hermes/zotero-librarian
+          git add cli/zotero-bridge/Cargo.toml cli/zotero-bridge/Cargo.lock cli/zotero-bridge/release.json addon/bin/zotero-bridge-release.json doc/host-bridge-cli.md skills_builtin/zotero-bridge-cli skills_builtin/zotero-library-agent skills_src/topic-synthesis/templates/fragments/zotero-bridge-cli.md.j2 profiles/hermes/zotero-librarian
           if ! git diff --cached --quiet; then
             git commit -m "chore(host-bridge-cli): record prebuild release"
             git push origin HEAD:${GITHUB_REF_NAME}
@@ -275,6 +278,12 @@ jobs:
           $remoteUrl = "https://x-access-token:{0}@github.com/{1}.git" -f $env:GH_TOKEN, $env:GITHUB_REPOSITORY
           git remote set-url origin $remoteUrl
           ./scripts/publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push
+
+      - name: Publish Zotero Library Agent bundle repository
+        shell: pwsh
+        run: |
+          $bundleRepoUrl = "https://x-access-token:{0}@github.com/leike0813/zotero-library-agent-bundle.git" -f $env:GH_TOKEN
+          ./scripts/publish-zotero-library-agent-bundle.ps1 -RepositoryUrl $bundleRepoUrl -AllowDirty -Push
 
       - name: Publish zotero-librarian profile repository
         shell: pwsh

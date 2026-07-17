@@ -1,0 +1,4 @@
+interface:
+  display_name: "Zotero Library Agent"
+  short_description: "Operate Zotero and Zotero Agents on demand"
+  default_prompt: "Use $zotero-library-agent to inspect my Zotero context and complete this library task safely."

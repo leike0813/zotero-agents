@@ -4,7 +4,7 @@
     "synthesis",
     "resolver",
     "resolve",
-    "--input",
+    "--query",
     "{\"tag\": {\"and\": [\"model:DL/DETR\"]}}"
   ],
   "cwd": "<redacted-local-path>",
