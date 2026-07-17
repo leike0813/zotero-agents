@@ -10,6 +10,7 @@ import {
   type SynthesisSidecarTransferSnapshot,
   type SynthesisSidecarTransferState,
   type SynthesisSidecarTransferStatus,
+  type SynthesisSidecarTransferExecutionFailureCode,
 } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
   canonicalizeSynthesisEngineJson,
@@ -41,7 +42,7 @@ export class CitationGraphTransferError extends Error {
 }
 
 type StoredPage = {
-  page: SynthesisSidecarTransferPage;
+  descriptor: SynthesisSidecarTransferPage["descriptor"];
   path: string;
 };
 
@@ -53,6 +54,15 @@ type Session = {
   inputPages: Map<string, StoredPage>;
   outputManifest?: SynthesisSidecarTransferManifest;
   outputPages: Map<string, StoredPage>;
+  attemptPages: Map<string, StoredPage>;
+  attemptBytes: number;
+  attempts: number;
+  currentAttempt?: number;
+  lastFailure?: {
+    code: SynthesisSidecarTransferExecutionFailureCode;
+    retryable: boolean;
+    atMs: number;
+  };
   stagedBytes: number;
   createdAtMs: number;
   lastActivityAtMs: number;
@@ -74,6 +84,43 @@ export type CitationGraphTransferOwner = {
     page: SynthesisSidecarTransferPage,
   ): SynthesisSidecarTransferStatus;
   sealInput(sessionId: string): SynthesisSidecarTransferStatus;
+  queueExecution(sessionId: string): {
+    attempt: number;
+    status: SynthesisSidecarTransferStatus;
+    admitted: boolean;
+  };
+  startExecution(
+    sessionId: string,
+    attempt: number,
+  ): SynthesisSidecarTransferStatus;
+  startOutput(
+    sessionId: string,
+    attempt: number,
+  ): SynthesisSidecarTransferStatus;
+  putAttemptOutputPage(
+    sessionId: string,
+    attempt: number,
+    page: SynthesisSidecarTransferPage,
+  ): SynthesisSidecarTransferStatus;
+  commitOutput(
+    sessionId: string,
+    attempt: number,
+    manifest: SynthesisSidecarTransferManifest,
+  ): SynthesisSidecarTransferStatus;
+  failExecution(
+    sessionId: string,
+    attempt: number,
+    failure: {
+      code: SynthesisSidecarTransferExecutionFailureCode;
+      retryable: boolean;
+    },
+  ): SynthesisSidecarTransferStatus | undefined;
+  inputManifest(sessionId: string): SynthesisSidecarTransferManifest;
+  getInputPage(
+    sessionId: string,
+    kind: string,
+    pageIndex: number,
+  ): SynthesisSidecarTransferPage;
   status(sessionId: string): SynthesisSidecarTransferStatus;
   beginOutput(
     sessionId: string,
@@ -139,11 +186,10 @@ function prepareRoot(root: string) {
 }
 
 function writePageAtomically(
-  sessionRoot: string,
-  direction: "input" | "output",
+  directionRoot: string,
   page: SynthesisSidecarTransferPage,
 ) {
-  const directory = path.join(sessionRoot, direction);
+  const directory = directionRoot;
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const basename = `${page.descriptor.kind}-${page.descriptor.pageIndex}.json`;
   const pathname = path.join(directory, basename);
@@ -158,6 +204,15 @@ function writePageAtomically(
     fs.chmodSync(pathname, 0o600);
   }
   return pathname;
+}
+
+function readStoredPage(stored: StoredPage) {
+  const parsed = JSON.parse(fs.readFileSync(stored.path, "utf8")) as unknown;
+  const page = strictPage(parsed as SynthesisSidecarTransferPage);
+  if (JSON.stringify(page.descriptor) !== JSON.stringify(stored.descriptor)) {
+    throw new CitationGraphTransferError("transfer_conflict");
+  }
+  return page;
 }
 
 function strictManifest(value: SynthesisSidecarTransferManifest) {
@@ -214,7 +269,7 @@ export function createCitationGraphTransferOwner(
     receivedPages: pages.size,
     totalPages: manifest.pages.length,
     stagedBytes: [...pages.values()].reduce(
-      (sum, stored) => sum + stored.page.descriptor.byteLength,
+      (sum, stored) => sum + stored.descriptor.byteLength,
       0,
     ),
   });
@@ -224,12 +279,27 @@ export function createCitationGraphTransferOwner(
       sessionId: session.sessionId,
       state: session.state,
       input: progress(session.inputManifest, session.inputPages),
+      execution: {
+        attempts: session.attempts,
+        ...(session.lastFailure
+          ? { lastFailure: { ...session.lastFailure } }
+          : {}),
+      },
       stagedBytes: session.stagedBytes,
       createdAtMs: session.createdAtMs,
       lastActivityAtMs: session.lastActivityAtMs,
     };
     if (session.outputManifest) {
       result.output = progress(session.outputManifest, session.outputPages);
+    } else if (
+      session.state === "publishing_output" &&
+      session.attemptPages.size > 0
+    ) {
+      result.output = {
+        receivedPages: session.attemptPages.size,
+        totalPages: session.attemptPages.size,
+        stagedBytes: session.attemptBytes,
+      };
     }
     return result;
   };
@@ -253,23 +323,25 @@ export function createCitationGraphTransferOwner(
 
   const storePage = (
     session: Session,
-    direction: "input" | "output",
-    manifest: SynthesisSidecarTransferManifest,
+    directory: string,
+    manifest: SynthesisSidecarTransferManifest | undefined,
     pages: Map<string, StoredPage>,
     pageInput: SynthesisSidecarTransferPage,
   ) => {
     const page = strictPage(pageInput);
-    const expected = expectedDescriptor(manifest, page);
-    if (
-      !expected ||
-      JSON.stringify(expected) !== JSON.stringify(page.descriptor)
-    ) {
-      throw new CitationGraphTransferError("transfer_conflict");
+    if (manifest) {
+      const expected = expectedDescriptor(manifest, page);
+      if (
+        !expected ||
+        JSON.stringify(expected) !== JSON.stringify(page.descriptor)
+      ) {
+        throw new CitationGraphTransferError("transfer_conflict");
+      }
     }
     const key = identity(page.descriptor.kind, page.descriptor.pageIndex);
     const existing = pages.get(key);
     if (existing) {
-      if (existing.page.descriptor.sha256 !== page.descriptor.sha256) {
+      if (existing.descriptor.sha256 !== page.descriptor.sha256) {
         throw new CitationGraphTransferError("transfer_conflict");
       }
       return status(session);
@@ -280,12 +352,8 @@ export function createCitationGraphTransferOwner(
     ) {
       throw new CitationGraphTransferError("transfer_limit_exceeded");
     }
-    const pathname = writePageAtomically(
-      path.join(root, session.sessionId),
-      direction,
-      page,
-    );
-    pages.set(key, { page, path: pathname });
+    const pathname = writePageAtomically(directory, page);
+    pages.set(key, { descriptor: page.descriptor, path: pathname });
     session.stagedBytes += page.descriptor.byteLength;
     stagedBytes += page.descriptor.byteLength;
     session.lastActivityAtMs = now();
@@ -299,6 +367,23 @@ export function createCitationGraphTransferOwner(
     manifest.pages.every((descriptor) =>
       pages.has(identity(descriptor.kind, descriptor.pageIndex)),
     );
+
+  const attemptRoot = (session: Session, attempt: number) =>
+    path.join(root, session.sessionId, `.attempt-${attempt}`);
+
+  const discardAttempt = (session: Session, attempt: number) => {
+    if (session.currentAttempt !== attempt) {
+      return;
+    }
+    session.stagedBytes -= session.attemptBytes;
+    stagedBytes -= session.attemptBytes;
+    session.attemptBytes = 0;
+    session.attemptPages.clear();
+    const pathname = attemptRoot(session, attempt);
+    if (fs.existsSync(pathname)) {
+      retirePath(path.join(root, session.sessionId), pathname);
+    }
+  };
 
   const owner: CitationGraphTransferOwner = {
     begin(idempotencyKey, manifestInput) {
@@ -330,6 +415,9 @@ export function createCitationGraphTransferOwner(
         inputManifest: manifest,
         inputPages: new Map(),
         outputPages: new Map(),
+        attemptPages: new Map(),
+        attemptBytes: 0,
+        attempts: 0,
         stagedBytes: 0,
         createdAtMs,
         lastActivityAtMs: createdAtMs,
@@ -347,7 +435,7 @@ export function createCitationGraphTransferOwner(
       }
       return storePage(
         session,
-        "input",
+        path.join(root, session.sessionId, "input"),
         session.inputManifest,
         session.inputPages,
         page,
@@ -370,13 +458,185 @@ export function createCitationGraphTransferOwner(
       return status(session);
     },
 
+    queueExecution(sessionId) {
+      const session = requireSession(sessionId);
+      if (
+        session.state === "queued" ||
+        session.state === "executing" ||
+        session.state === "publishing_output" ||
+        session.state === "completed"
+      ) {
+        return {
+          attempt: session.currentAttempt ?? session.attempts,
+          status: status(session),
+          admitted: false,
+        };
+      }
+      if (session.state !== "input_sealed") {
+        throw new CitationGraphTransferError("transfer_conflict");
+      }
+      session.attempts += 1;
+      session.currentAttempt = session.attempts;
+      session.lastFailure = undefined;
+      session.outputManifest = undefined;
+      session.outputPages.clear();
+      session.attemptPages.clear();
+      session.attemptBytes = 0;
+      session.state = "queued";
+      session.lastActivityAtMs = now();
+      fs.mkdirSync(attemptRoot(session, session.attempts), {
+        recursive: true,
+        mode: 0o700,
+      });
+      return {
+        attempt: session.attempts,
+        status: status(session),
+        admitted: true,
+      };
+    },
+
+    startExecution(sessionId, attempt) {
+      const session = requireSession(sessionId);
+      if (session.state !== "queued" || session.currentAttempt !== attempt) {
+        throw new CitationGraphTransferError("transfer_conflict");
+      }
+      session.state = "executing";
+      session.lastActivityAtMs = now();
+      return status(session);
+    },
+
+    startOutput(sessionId, attempt) {
+      const session = requireSession(sessionId);
+      if (session.state !== "executing" || session.currentAttempt !== attempt) {
+        throw new CitationGraphTransferError("transfer_conflict");
+      }
+      session.state = "publishing_output";
+      session.lastActivityAtMs = now();
+      fs.mkdirSync(path.join(attemptRoot(session, attempt), "output"), {
+        recursive: true,
+        mode: 0o700,
+      });
+      return status(session);
+    },
+
+    putAttemptOutputPage(sessionId, attempt, page) {
+      const session = requireSession(sessionId);
+      if (
+        session.state !== "publishing_output" ||
+        session.currentAttempt !== attempt ||
+        session.attemptPages.size >=
+          SYNTHESIS_SIDECAR_TRANSFER_LIMITS.directionPages
+      ) {
+        throw new CitationGraphTransferError("transfer_conflict");
+      }
+      const before = session.stagedBytes;
+      const result = storePage(
+        session,
+        path.join(attemptRoot(session, attempt), "output"),
+        session.outputManifest,
+        session.attemptPages,
+        page,
+      );
+      session.attemptBytes += session.stagedBytes - before;
+      if (
+        session.attemptBytes > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.directionBytes
+      ) {
+        discardAttempt(session, attempt);
+        session.state = "input_sealed";
+        throw new CitationGraphTransferError("transfer_limit_exceeded");
+      }
+      return result;
+    },
+
+    commitOutput(sessionId, attempt, manifestInput) {
+      const session = requireSession(sessionId);
+      const manifest = strictManifest(manifestInput);
+      if (
+        session.state !== "publishing_output" ||
+        session.currentAttempt !== attempt ||
+        manifest.direction !== "output" ||
+        manifest.pages.length !== session.attemptPages.size ||
+        !complete(manifest, session.attemptPages)
+      ) {
+        throw new CitationGraphTransferError("transfer_incomplete");
+      }
+      for (const descriptor of manifest.pages) {
+        const stored = session.attemptPages.get(
+          identity(descriptor.kind, descriptor.pageIndex),
+        );
+        if (
+          !stored ||
+          JSON.stringify(stored.descriptor) !== JSON.stringify(descriptor)
+        ) {
+          throw new CitationGraphTransferError("transfer_conflict");
+        }
+      }
+      const publishedRoot = path.join(root, session.sessionId, "output");
+      const stagedRoot = path.join(attemptRoot(session, attempt), "output");
+      if (fs.existsSync(publishedRoot)) {
+        retirePath(path.join(root, session.sessionId), publishedRoot);
+      }
+      fs.renameSync(stagedRoot, publishedRoot);
+      session.outputPages = new Map(
+        [...session.attemptPages].map(([key, stored]) => [
+          key,
+          {
+            descriptor: stored.descriptor,
+            path: path.join(publishedRoot, path.basename(stored.path)),
+          },
+        ]),
+      );
+      session.attemptPages.clear();
+      session.attemptBytes = 0;
+      session.outputManifest = manifest;
+      session.state = "completed";
+      session.lastActivityAtMs = now();
+      void fs.promises.rm(attemptRoot(session, attempt), {
+        recursive: true,
+        force: true,
+      });
+      return status(session);
+    },
+
+    failExecution(sessionId, attempt, failure) {
+      const session = sessions.get(sessionId);
+      if (!session || session.currentAttempt !== attempt) {
+        return undefined;
+      }
+      if (session.state === "completed") {
+        return status(session);
+      }
+      discardAttempt(session, attempt);
+      session.state = "input_sealed";
+      session.lastFailure = { ...failure, atMs: now() };
+      session.lastActivityAtMs = now();
+      return status(session);
+    },
+
+    inputManifest(sessionId) {
+      return strictManifest(requireSession(sessionId).inputManifest);
+    },
+
+    getInputPage(sessionId, kind, pageIndex) {
+      const session = requireSession(sessionId);
+      if (session.state === "receiving_input") {
+        throw new CitationGraphTransferError("transfer_incomplete");
+      }
+      const stored = session.inputPages.get(identity(kind, pageIndex));
+      if (!stored) {
+        throw new CitationGraphTransferError("transfer_not_found");
+      }
+      return readStoredPage(stored);
+    },
+
     status(sessionId) {
       return status(requireSession(sessionId));
     },
 
     beginOutput(sessionId, manifestInput) {
+      const queued = owner.queueExecution(sessionId);
       const session = requireSession(sessionId);
-      if (session.state !== "input_sealed") {
+      if (!queued.admitted) {
         throw new CitationGraphTransferError("transfer_conflict");
       }
       const manifest = strictManifest(manifestInput);
@@ -384,21 +644,22 @@ export function createCitationGraphTransferOwner(
         throw new CitationGraphTransferError("transfer_conflict");
       }
       session.outputManifest = manifest;
-      session.state = "publishing_output";
-      session.lastActivityAtMs = now();
-      return status(session);
+      owner.startExecution(sessionId, queued.attempt);
+      return owner.startOutput(sessionId, queued.attempt);
     },
 
     putOutputPage(sessionId, page) {
       const session = requireSession(sessionId);
-      if (session.state !== "publishing_output" || !session.outputManifest) {
+      if (
+        session.state !== "publishing_output" ||
+        !session.outputManifest ||
+        session.currentAttempt === undefined
+      ) {
         throw new CitationGraphTransferError("transfer_conflict");
       }
-      return storePage(
-        session,
-        "output",
-        session.outputManifest,
-        session.outputPages,
+      return owner.putAttemptOutputPage(
+        sessionId,
+        session.currentAttempt,
         page,
       );
     },
@@ -408,16 +669,14 @@ export function createCitationGraphTransferOwner(
       if (session.state === "completed") {
         return status(session);
       }
-      if (
-        session.state !== "publishing_output" ||
-        !session.outputManifest ||
-        !complete(session.outputManifest, session.outputPages)
-      ) {
+      if (!session.outputManifest || session.currentAttempt === undefined) {
         throw new CitationGraphTransferError("transfer_incomplete");
       }
-      session.state = "completed";
-      session.lastActivityAtMs = now();
-      return status(session);
+      return owner.commitOutput(
+        sessionId,
+        session.currentAttempt,
+        session.outputManifest,
+      );
     },
 
     getOutputManifest(sessionId) {
@@ -437,9 +696,7 @@ export function createCitationGraphTransferOwner(
       if (!stored) {
         throw new CitationGraphTransferError("transfer_not_found");
       }
-      return rebuildSynthesisCitationGraphBuildTransferPage(
-        stored.page,
-      ) as unknown as SynthesisSidecarTransferPage;
+      return readStoredPage(stored);
     },
 
     cancel(sessionId) {

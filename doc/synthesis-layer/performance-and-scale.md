@@ -121,7 +121,7 @@ production readiness exceptions to slice cancellation. Wire-bounded Citation
 Graph build requests may exercise an authenticated internal canary, but no
 production rebuild calls it. Citation Graph layout and complex metrics use the
 same worker as production routes; layout retains its existing pre-start soft
-budget check. All three operations use 8 MiB UTF-8
+budget check. Those three monolithic operations use 8 MiB UTF-8
 request and response envelopes, at most 250,000 request and 50,000 response JSON
 structural nodes, one active task, two waiting tasks, a five-second hard
 deadline, 100 ms cancellation grace, and a 500 ms pool shutdown budget. General
@@ -132,8 +132,10 @@ wire-oversized DTO fails closed. Graph build's larger 25,000-source /
 staging capability before any future production routing. Transfer pages cap at
 4 MiB / 100,000 JSON nodes, each direction at 256 pages / 1 GiB, and the service
 at two sessions / 2 GiB; five-minute idle and thirty-minute absolute TTLs bound
-retention. Staging validates one page at a time and does not invoke the worker.
-The lazy worker and O(1) health and transfer snapshots keep
+retention. Staging validates one page at a time. Explicit `execute` sends one
+canonical page at a time to the shared worker, applies a 30-second active
+deadline, and publishes output only after attempt commit. The lazy worker and
+O(1) health and transfer snapshots keep
 supervisor steady-state overhead low. The plugin retains DB reads and
 hash-guarded promotion, and unavailable/busy/failed compute preserves stale
 coordinates or previous metrics without wait, retry, or in-process fallback.
@@ -152,7 +154,10 @@ request and a 71,757,129-byte / 6,714,045-node response; its direct kernel
 completed on the capture host, but strict result rebuilding exceeded seven
 seconds and the worker hit its five-second deadline. Target and stress
 materialization exhausted the isolated benchmark parent. These measurements
-reject direct production routing and do not establish target/stress budgets.
+reject direct monolithic production routing and do not establish target/stress
+budgets. Core 202 separately hard-gates packed streaming execution for the
+2,000-source/100,000-reference normal profile under the 256 MiB worker old
+generation limit; larger profiles remain report-only.
 See `artifact/synthesis_citation_graph_build_sidecar_baseline_20260717.md`.
 
 ## External Source Drift Policy

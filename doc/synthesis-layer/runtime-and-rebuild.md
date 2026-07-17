@@ -29,7 +29,7 @@ Citation Graph layout computation crosses the environment-neutral `SynthesisCita
 
 Citation Graph complex metrics cross the sibling `SynthesisCitationGraphMetricsEngine` seam with the same graph bounds. The application captures graph rows and persistence mappings under a short lock, sends the strict DTO through the authenticated sidecar worker outside the lock, then rechecks the DB graph hash before replacing complex metrics. Full rebuild, source-slice incremental refresh, and explicit metrics refresh use this one path. A superseded or failed result preserves previous metrics; graph structure and its ready cache basis remain readable while metrics report their existing stale or missing state. Canonical metrics hashing remains in the application adapter. Metrics shares the layout worker's one active slot, two waiting slots, five-second deadline, cancellation, replacement, and degraded fuse without retry or local fallback.
 
-Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the authenticated Node worker remains an internal canary rather than a production route. The sibling `compute.citation_graph_build_transfer` capability can stage canonical input and output rows over bounded authenticated pages, but it does not enqueue that worker or alter production state. See [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md).
+Citation Graph structure construction crosses `SynthesisCitationGraphBuildEngine`. The application captures active raw references, effective canonical ids, accepted bindings, and a durable-fact basis under a short lock; it then reads Zotero metadata and computes nodes, resolved and aggregate edges, source ownership, incoming groups, and light metrics outside the lock. Full rebuild and source-slice promotion recapture the same durable basis before replacing rows. Superseded, throwing, malformed, cancelled, or oversized builds preserve the last-good graph. Related-items fallback consumes the same engine result without promoting graph rows. Production limits are 25,000 source nodes, 1,250,000 reference instances, and 750,000 external targets; the authenticated Node worker remains an internal canary rather than a production route. The sibling `compute.citation_graph_build_transfer` capability stages canonical pages and can explicitly execute sealed input through a packed, one-page-at-a-time worker attempt with atomic paged output. It does not alter production state. See [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md).
 
 The explicit sidecar benchmark can execute synthetic graph builds while
 separating request rebuild/serialization, direct compute, strict result
@@ -39,8 +39,9 @@ CPU/memory, event-loop responsiveness, and cancellation. Its
 both response limits; the normal tier also times out in the worker because
 complete result validation recomputes the canonical graph. This evidence is a
 reason not to raise monolithic limits or route production traffic. The bounded
-transfer contract is now implemented as staging only; packed worker consumption
-and result publication remain the next independent step.
+transfer contract now executes an explicit packed worker canary and publishes
+attempt-scoped paged results. Production basis recapture and repository
+promotion remain the next independent cutover step.
 
 Concept KB search, overlay, and bounded exact label/alias queries cross
 `SynthesisConceptKbIndexEngine`. The application reads and sorts SQLite-owned

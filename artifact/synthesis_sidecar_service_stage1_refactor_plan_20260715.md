@@ -1025,9 +1025,13 @@ graph layout 作为第一条 process canary，因为：
   authenticated `compute.citation_graph_build_transfer` staging session，以 4 MiB、
   100,000 JSON nodes 的 canonical row pages、完整 manifest/root hash、幂等重试、
   两 session/2 GiB service 上限、idle/absolute TTL 和 500ms logical shutdown
-  预算承载超过单一 8 MiB envelope 的输入与结果访问。该 capability 不启动 worker，
-  output publication 仅为 service 内部边界；生产 graph build、Host/basis/DB promotion
-  仍由插件持有，packed worker consumption 由下一独立 change 实现。
+  预算承载超过单一 8 MiB envelope 的输入与结果访问。
+- 已交付 `connect-synthesis-citation-graph-build-transfer-to-streaming-worker`：sealed
+  session 可通过 authenticated `execute` 进入共享单 worker pool；service main 与 worker
+  以单页 transferable buffer/ACK 交换数据，worker 使用 string table/typed columns，
+  output 仅在 attempt manifest 原子提交后可见。normal 2,000 sources / 100,000
+  references 在 256 MiB old-generation 与 30 秒 active deadline 下作为硬门禁；
+  target/stress 仍为 report-only。生产 graph build、Host/basis/DB promotion 继续由插件持有。
 - runtime 仍不提供 remote `SynthesisClient`，不访问生产 SQLite/canonical/Host
   数据；五平台 prebuild 由独立 release 流程按新 fingerprint 重新生成和同步，
   在此之前 freshness/XPI release gate 保持 fail closed。

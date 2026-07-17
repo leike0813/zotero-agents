@@ -78,8 +78,11 @@ sampled parent peak reached about 1.11 GB RSS / 485 MB heap, main-loop lag was
    under the bounded benchmark parent. More canaries or direct routing would
    enlarge an already invalid data path.
 
-The next change must define bounded input staging/chunks, bounded result access
-and validation, cancellation/TTL/cleanup ownership, and a worker transfer layout
-that does not require one whole-library structured clone. It must preserve the
-plugin-owned repository basis and promotion until a separate ownership change.
-No automatic in-process fallback is authorized.
+The bounded transfer contract and packed streaming-worker follow-up now address
+that data-path prerequisite. Core 202 sends canonical pages one at a time,
+hard-gates the normal 2,000-source/100,000-reference profile under the worker's
+256 MiB old-generation limit and 30-second active deadline, and atomically
+publishes output larger than one 8 MiB envelope. This does not revise the
+captured monolithic measurements above. Target and stress remain report-only,
+and plugin-owned basis recapture and promotion still require a separate
+production-routing change. No automatic in-process fallback is authorized.

@@ -271,6 +271,7 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
         production_worker: boolean;
         sidecar_worker_canary?: boolean;
         sidecar_transfer_canary?: boolean;
+        sidecar_streaming_worker_canary?: boolean;
       }>;
     };
     assert.deepInclude(
@@ -282,6 +283,7 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
         production_worker: false,
         sidecar_worker_canary: true,
         sidecar_transfer_canary: true,
+        sidecar_streaming_worker_canary: true,
       },
     );
     assert.isFalse(

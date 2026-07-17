@@ -50,6 +50,7 @@ describe("Synthesis sidecar migration boundary", function () {
         implementation: string;
         production_worker: boolean;
         sidecar_worker_canary?: boolean;
+        sidecar_streaming_worker_canary?: boolean;
       }>;
     };
     assert.notInclude(
@@ -76,6 +77,7 @@ describe("Synthesis sidecar migration boundary", function () {
       implementation: "in_process",
       production_worker: false,
       sidecar_worker_canary: true,
+      sidecar_streaming_worker_canary: true,
     });
     const layoutEngine = rawInventory.internal_engines.find(
       (engine) => engine.id === "citation_graph_layout",
@@ -725,6 +727,8 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(engineImports, [
       "d3-force",
       "./canonicalJson.ts",
+      "./citationGraphBuildPacked.ts",
+      "./citationGraphBuildTransfer.ts",
       "./conceptKbIndex.ts",
       "./referenceMatcher.ts",
       "./tagVocabulary.ts",

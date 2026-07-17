@@ -121,6 +121,18 @@ export function createSynthesisSidecarTransferClient(options?: {
         callOptions,
       });
     },
+    execute(
+      connection: SynthesisSidecarTransferConnection,
+      sessionId: string,
+      callOptions?: SynthesisSidecarTransferCallOptions,
+    ): Promise<SynthesisSidecarTransferStatus> {
+      return call({
+        connection,
+        action: { action: "execute", sessionId },
+        rebuildResult: rebuildSynthesisSidecarTransferStatus,
+        callOptions,
+      });
+    },
     status(
       connection: SynthesisSidecarTransferConnection,
       sessionId: string,

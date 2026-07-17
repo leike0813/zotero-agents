@@ -44,8 +44,27 @@ export type SynthesisSidecarTransferPage = {
 export type SynthesisSidecarTransferState =
   | "receiving_input"
   | "input_sealed"
+  | "queued"
+  | "executing"
   | "publishing_output"
   | "completed";
+export type SynthesisSidecarTransferExecutionFailureCode =
+  | "worker_timeout"
+  | "worker_canceled"
+  | "worker_crashed"
+  | "worker_result_invalid"
+  | "worker_unavailable"
+  | "transfer_limit_exceeded"
+  | "transfer_conflict"
+  | "internal_error";
+export type SynthesisSidecarTransferExecution = {
+  attempts: number;
+  lastFailure?: {
+    code: SynthesisSidecarTransferExecutionFailureCode;
+    retryable: boolean;
+    atMs: number;
+  };
+};
 export type SynthesisSidecarTransferProgress = {
   receivedPages: number;
   totalPages: number;
@@ -56,6 +75,7 @@ export type SynthesisSidecarTransferStatus = {
   state: SynthesisSidecarTransferState;
   input: SynthesisSidecarTransferProgress;
   output?: SynthesisSidecarTransferProgress;
+  execution: SynthesisSidecarTransferExecution;
   stagedBytes: number;
   createdAtMs: number;
   lastActivityAtMs: number;
@@ -78,7 +98,12 @@ export type SynthesisSidecarTransferAction =
       page: SynthesisSidecarTransferPage;
     }
   | {
-      action: "seal_input" | "status" | "get_output_manifest" | "cancel";
+      action:
+        | "seal_input"
+        | "execute"
+        | "status"
+        | "get_output_manifest"
+        | "cancel";
       sessionId: string;
     }
   | {
@@ -267,7 +292,12 @@ export function rebuildSynthesisSidecarTransferPage(
 
 function sessionAction(
   object: SynthesisJsonObject,
-  action: "seal_input" | "status" | "get_output_manifest" | "cancel",
+  action:
+    | "seal_input"
+    | "execute"
+    | "status"
+    | "get_output_manifest"
+    | "cancel",
 ) {
   exactFields(object, ["action", "sessionId"], "transferAction");
   return {
@@ -312,6 +342,7 @@ export function rebuildSynthesisSidecarTransferAction(
         page: rebuildSynthesisSidecarTransferPage(object.page),
       };
     case "seal_input":
+    case "execute":
     case "status":
     case "get_output_manifest":
     case "cancel":
@@ -359,6 +390,59 @@ function progress(
   };
 }
 
+const EXECUTION_FAILURE_CODES = new Set<string>([
+  "worker_timeout",
+  "worker_canceled",
+  "worker_crashed",
+  "worker_result_invalid",
+  "worker_unavailable",
+  "transfer_limit_exceeded",
+  "transfer_conflict",
+  "internal_error",
+]);
+
+function execution(value: unknown): SynthesisSidecarTransferExecution {
+  const object = toSynthesisJsonObject(value, "transferStatus.execution");
+  exactFields(
+    object,
+    ["attempts", ...(object.lastFailure === undefined ? [] : ["lastFailure"])],
+    "transferStatus.execution",
+  );
+  const rebuilt: SynthesisSidecarTransferExecution = {
+    attempts: nonNegativeInteger(
+      object.attempts,
+      "transferStatus.execution.attempts",
+    ),
+  };
+  if (object.lastFailure !== undefined) {
+    const failure = toSynthesisJsonObject(
+      object.lastFailure,
+      "transferStatus.execution.lastFailure",
+    );
+    exactFields(
+      failure,
+      ["code", "retryable", "atMs"],
+      "transferStatus.execution.lastFailure",
+    );
+    if (
+      typeof failure.code !== "string" ||
+      !EXECUTION_FAILURE_CODES.has(failure.code) ||
+      typeof failure.retryable !== "boolean"
+    ) {
+      invalid("transferStatus.execution.lastFailure");
+    }
+    rebuilt.lastFailure = {
+      code: failure.code as SynthesisSidecarTransferExecutionFailureCode,
+      retryable: failure.retryable,
+      atMs: nonNegativeInteger(
+        failure.atMs,
+        "transferStatus.execution.lastFailure.atMs",
+      ),
+    };
+  }
+  return rebuilt;
+}
+
 export function rebuildSynthesisSidecarTransferStatus(
   value: unknown,
 ): SynthesisSidecarTransferStatus {
@@ -367,6 +451,7 @@ export function rebuildSynthesisSidecarTransferStatus(
     "sessionId",
     "state",
     "input",
+    "execution",
     "stagedBytes",
     "createdAtMs",
     "lastActivityAtMs",
@@ -376,6 +461,8 @@ export function rebuildSynthesisSidecarTransferStatus(
   if (
     object.state !== "receiving_input" &&
     object.state !== "input_sealed" &&
+    object.state !== "queued" &&
+    object.state !== "executing" &&
     object.state !== "publishing_output" &&
     object.state !== "completed"
   ) {
@@ -389,6 +476,7 @@ export function rebuildSynthesisSidecarTransferStatus(
     ),
     state: object.state,
     input: progress(object.input, "transferStatus.input"),
+    execution: execution(object.execution),
     stagedBytes: nonNegativeInteger(
       object.stagedBytes,
       "transferStatus.stagedBytes",

@@ -9,6 +9,8 @@ import {
 } from "d3-force";
 
 export * from "./canonicalJson.ts";
+export * from "./citationGraphBuildPacked.ts";
+export * from "./citationGraphBuildTransfer.ts";
 export * from "./conceptKbIndex.ts";
 export * from "./referenceMatcher.ts";
 export * from "./tagVocabulary.ts";

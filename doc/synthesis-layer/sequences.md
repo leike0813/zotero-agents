@@ -196,6 +196,43 @@ Constraints:
 - Graph cache refresh does not mark topic source-check state changed.
 - Graph metrics are optional enrichment for topic workflows.
 
+## `seq.graph.transfer_worker_canary`
+
+The internal canary exercises large graph-build compute without acquiring
+production read or write authority.
+
+```mermaid
+sequenceDiagram
+  participant C as Internal Transfer Client
+  participant M as Service Main
+  participant P as Shared Worker Pool
+  participant W as Packed Worker
+
+  C->>M: begin, upload bounded pages, seal input
+  C->>M: execute(sessionId)
+  M->>P: admit queued attempt
+  P->>W: open task-scoped MessagePort
+  loop one input page in flight
+    M->>W: transferable canonical rows
+    W->>M: validated input ACK
+  end
+  W->>W: compute through packed graph-build adapter
+  loop one output page in flight
+    W->>M: transferable canonical rows
+    M->>W: persisted output ACK
+  end
+  M->>M: rebuild manifest and atomically commit attempt
+  C->>M: poll status and read committed pages
+```
+
+Constraints:
+
+- The worker receives no staging path, DB, canonical-file, Host, Zotero, or
+  subprocess capability.
+- A failed attempt returns to sealed input; session cancel destroys all state.
+- Production basis recapture and repository promotion are not part of this
+  sequence.
+
 ## `seq.discovery.digest_apply_match`
 
 Discovery is a single-literature apply-time best-effort matcher.

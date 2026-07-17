@@ -52,6 +52,10 @@ import {
   createCitationGraphTransferOwner,
   type CitationGraphTransferOwner,
 } from "./citationGraphTransferOwner.js";
+import {
+  createCitationGraphBuildTransferExecutor,
+  type CitationGraphBuildTransferExecutor,
+} from "./citationGraphBuildTransferExecutor.js";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const SHUTDOWN_GRACE_MS = 1000;
@@ -67,6 +71,7 @@ export type SynthesisSidecarRuntime = {
 type SynthesisSidecarServerOptions = {
   computePool?: SynthesisSidecarComputeWorkerPool;
   transferOwner?: CitationGraphTransferOwner;
+  transferExecutor?: CitationGraphBuildTransferExecutor;
 };
 
 function bearerToken(request: IncomingMessage): string {
@@ -246,6 +251,12 @@ export async function startSynthesisSidecarServer(
         "citation-graph-transfers",
       ),
     });
+  const transferExecutor =
+    options.transferExecutor ??
+    createCitationGraphBuildTransferExecutor({
+      owner: transferOwner,
+      pool: computePool,
+    });
 
   const beginShutdown = (reason: string) => {
     if (shutdownStarted) {
@@ -253,6 +264,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    transferExecutor.shutdown();
     writeServiceLog("service_stopping", {
       reason,
       serviceInstanceId,
@@ -397,6 +409,9 @@ export async function startSynthesisSidecarServer(
             case "seal_input":
               result = transferOwner.sealInput(action.sessionId);
               break;
+            case "execute":
+              result = transferExecutor.execute(action.sessionId);
+              break;
             case "status":
               result = transferOwner.status(action.sessionId);
               break;
@@ -411,6 +426,7 @@ export async function startSynthesisSidecarServer(
               );
               break;
             case "cancel":
+              transferExecutor.cancel(action.sessionId);
               result = transferOwner.cancel(action.sessionId);
               break;
           }
@@ -431,6 +447,9 @@ export async function startSynthesisSidecarServer(
         } catch (error) {
           if (error instanceof CitationGraphTransferError) {
             throw transferRuntimeError(error);
+          }
+          if (error instanceof ComputeWorkerPoolError) {
+            throw computeRuntimeError(error);
           }
           throw new SidecarRuntimeError({
             status: 400,

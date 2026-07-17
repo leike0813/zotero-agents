@@ -176,6 +176,25 @@ export function canonicalizeSynthesisEngineJson(value: unknown) {
   return JSON.stringify(normalizeJson(value));
 }
 
+export function countSynthesisEngineJsonNodes(value: unknown) {
+  let count = 0;
+  const visit = (entry: unknown) => {
+    count += 1;
+    if (Array.isArray(entry)) {
+      entry.forEach(visit);
+      return;
+    }
+    if (isObject(entry)) {
+      for (const [key, child] of Object.entries(entry)) {
+        visit(key);
+        visit(child);
+      }
+    }
+  };
+  visit(value);
+  return count;
+}
+
 export function hashSynthesisEngineCanonicalJson(value: unknown) {
   return sha256SynthesisEngineText(canonicalizeSynthesisEngineJson(value));
 }

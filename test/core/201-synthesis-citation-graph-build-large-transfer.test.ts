@@ -14,6 +14,8 @@ import {
 } from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 import {
   SYNTHESIS_SIDECAR_TRANSFER_LIMITS,
+  rebuildSynthesisSidecarTransferAction,
+  rebuildSynthesisSidecarTransferStatus,
   type SynthesisSidecarTransferManifest,
 } from "../../packages/synthesis-contracts/src/sidecarTransfer";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
@@ -181,6 +183,32 @@ describe("Synthesis Citation Graph Build large transfer", function () {
       },
       result,
     );
+    assert.deepEqual(
+      rebuildSynthesisSidecarTransferAction({
+        action: "execute",
+        sessionId: "session:1",
+      }),
+      { action: "execute", sessionId: "session:1" },
+    );
+    assert.equal(
+      rebuildSynthesisSidecarTransferStatus({
+        sessionId: "session:1",
+        state: "input_sealed",
+        input: { receivedPages: 2, totalPages: 2, stagedBytes: 1 },
+        execution: {
+          attempts: 1,
+          lastFailure: {
+            code: "worker_timeout",
+            retryable: true,
+            atMs: 2,
+          },
+        },
+        stagedBytes: 1,
+        createdAtMs: 1,
+        lastActivityAtMs: 2,
+      }).execution.lastFailure?.code,
+      "worker_timeout",
+    );
   });
 
   it("seals aggregate input beyond the monolithic 8 MiB compute body", async function () {
@@ -340,6 +368,81 @@ describe("Synthesis Citation Graph Build large transfer", function () {
           .then(() => "success")
           .catch(errorCode),
         "transfer_conflict",
+      );
+    } finally {
+      await owner.shutdown();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back partial output to sealed input and commits an explicit retry atomically", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-transfer-attempt-"));
+    const owner = createCitationGraphTransferOwner({ root });
+    try {
+      const begun = owner.begin("attempt", inputManifest());
+      for (const page of inputPages()) {
+        owner.putInputPage(begun.sessionId, page);
+      }
+      owner.sealInput(begun.sessionId);
+      const first = owner.queueExecution(begun.sessionId);
+      assert.isTrue(first.admitted);
+      assert.equal(first.status.state, "queued");
+      assert.isFalse(owner.queueExecution(begun.sessionId).admitted);
+      owner.startExecution(begun.sessionId, first.attempt);
+      owner.startOutput(begun.sessionId, first.attempt);
+      const result =
+        await createInProcessSynthesisCitationGraphBuildEngine().compute(
+          graphBuildRequest(),
+        );
+      const outputPage = buildSynthesisCitationGraphBuildTransferPage(
+        "nodes",
+        0,
+        result.nodes,
+      );
+      owner.putAttemptOutputPage(begun.sessionId, first.attempt, outputPage);
+      const failed = owner.failExecution(begun.sessionId, first.attempt, {
+        code: "worker_timeout",
+        retryable: true,
+      });
+      assert.equal(failed?.state, "input_sealed");
+      assert.deepInclude(failed?.execution.lastFailure, {
+        code: "worker_timeout",
+        retryable: true,
+      });
+      assert.equal(
+        await Promise.resolve()
+          .then(() => owner.getOutputManifest(begun.sessionId))
+          .then(() => "success")
+          .catch(errorCode),
+        "transfer_output_not_ready",
+      );
+      assert.deepEqual(
+        owner.getInputPage(begun.sessionId, "references", 0),
+        inputPages()[1],
+      );
+
+      const second = owner.queueExecution(begun.sessionId);
+      assert.equal(second.attempt, 2);
+      owner.startExecution(begun.sessionId, second.attempt);
+      owner.startOutput(begun.sessionId, second.attempt);
+      owner.putAttemptOutputPage(begun.sessionId, second.attempt, outputPage);
+      const outputManifest = buildSynthesisCitationGraphBuildTransferManifest({
+        direction: "output",
+        header: {
+          contractVersion: result.contractVersion,
+          scope: result.scope,
+          diagnostics: result.diagnostics,
+        },
+        pages: [outputPage.descriptor],
+      });
+      assert.equal(
+        owner.commitOutput(begun.sessionId, second.attempt, outputManifest)
+          .state,
+        "completed",
+      );
+      assert.deepEqual(
+        owner.getOutputPage(begun.sessionId, "nodes", 0),
+        outputPage,
       );
     } finally {
       await owner.shutdown();

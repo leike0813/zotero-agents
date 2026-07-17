@@ -825,18 +825,27 @@ function selectPrimaryRole(
   })[0][0];
 }
 
+type SynthesisCitationGraphBuildComputeOptions = {
+  bounds?: SynthesisCitationGraphBuildBounds;
+  checkpoint?: SynthesisCitationGraphBuildCheckpoint;
+  checkpointInterval?: number;
+};
+
 export function computeSynthesisCitationGraphBuild(
   requestInput: SynthesisCitationGraphBuildRequest,
-  options: {
-    bounds?: SynthesisCitationGraphBuildBounds;
-    checkpoint?: SynthesisCitationGraphBuildCheckpoint;
-    checkpointInterval?: number;
-  } = {},
+  options: SynthesisCitationGraphBuildComputeOptions = {},
 ): SynthesisCitationGraphBuildResult {
   const request = rebuildSynthesisCitationGraphBuildRequest(
     requestInput,
     options.bounds,
   );
+  return computeRebuiltSynthesisCitationGraphBuild(request, options);
+}
+
+export function computeRebuiltSynthesisCitationGraphBuild(
+  request: SynthesisCitationGraphBuildRequest,
+  options: Omit<SynthesisCitationGraphBuildComputeOptions, "bounds"> = {},
+): SynthesisCitationGraphBuildResult {
   const checkpointInterval = positiveInteger(
     options.checkpointInterval ?? 1024,
     "checkpointInterval",

@@ -58,10 +58,10 @@ stdin EOF.
 
 ## Bounded Graph Compute
 
-`compute.citation_graph_layout`, `compute.citation_graph_metrics`, and the
-internal-only `compute.citation_graph_build` canary are the only worker
-operations. The shared pool is lazy, runs one task, retains at most two waiting
-tasks across all three operations, and rejects additional work
+`compute.citation_graph_layout`, `compute.citation_graph_metrics`, the
+internal-only `compute.citation_graph_build` canary, and explicit packed
+transfer execution are the only worker operations. The shared pool is lazy,
+runs one task, retains at most two waiting tasks across all four operations, and rejects additional work
 with `worker_busy`; it is not an operation queue and writes no persistent state.
 The HTTP main thread, worker, and main-thread result boundary all use the strict
 operation-specific rebuilders from `packages/synthesis-engine`. Compute request and response
@@ -76,7 +76,8 @@ transport, or worker failures are not retried and never fall back to the local
 engine. Request and service-instance identity are checked before strict result
 rebuild and plugin-owned graph-basis promotion.
 
-Each layout, metrics, or graph-build task has a five-second hard deadline. Active cancellation gets 100 ms of
+Each layout, metrics, or monolithic graph-build task has a five-second hard
+deadline; packed transfer execution has a 30-second active deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The worker is limited to 256 MiB
 old generation, 32 MiB young generation, and a 4 MiB stack and has no database,
 canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or

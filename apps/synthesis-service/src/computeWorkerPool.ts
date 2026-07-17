@@ -1,4 +1,9 @@
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import {
+  MessageChannel,
+  Worker,
+  type MessagePort,
+  type WorkerOptions,
+} from "node:worker_threads";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
@@ -22,9 +27,12 @@ import type {
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   type SynthesisSidecarComputeRunMessage,
+  type SynthesisSidecarTransferPortWorkerMessage,
 } from "./computeProtocol.js";
+import type { SynthesisCitationGraphBuildTransferPageDescriptor } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   concurrency: 1,
@@ -38,6 +46,22 @@ export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
     stackSizeMb: 4,
   }),
 });
+export const SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS = 30_000;
+
+export type SynthesisSidecarGraphBuildTransferPageFrame = {
+  descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
+  bytes: ArrayBuffer;
+};
+
+export type SynthesisSidecarGraphBuildTransferRun = {
+  header: Record<string, unknown>;
+  inputPages(): AsyncIterable<SynthesisSidecarGraphBuildTransferPageFrame>;
+  outputStarted(): void | Promise<void>;
+  outputPage(
+    frame: SynthesisSidecarGraphBuildTransferPageFrame,
+  ): void | Promise<void>;
+  outputComplete(header: Record<string, unknown>): void | Promise<void>;
+};
 
 type WorkerErrorCode = Extract<
   SynthesisSidecarErrorCode,
@@ -66,25 +90,30 @@ type Task = {
   operation:
     | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
     | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
+    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
   request:
     | SynthesisCitationGraphLayoutRequest
     | SynthesisCitationGraphMetricsRequest
-    | SynthesisCitationGraphBuildRequest;
+    | SynthesisCitationGraphBuildRequest
+    | SynthesisSidecarGraphBuildTransferRun;
   cancellation: Int32Array;
   resolve(
     result:
       | SynthesisCitationGraphLayoutResult
       | SynthesisCitationGraphMetricsResult
-      | SynthesisCitationGraphBuildResult,
+      | SynthesisCitationGraphBuildResult
+      | void,
   ): void;
-  reject(error: ComputeWorkerPoolError): void;
+  reject(error: unknown): void;
   signal?: AbortSignal;
   abortListener?: () => void;
   deadline?: NodeJS.Timeout;
   settled: boolean;
   terminating: boolean;
   acknowledgeCancellation?: () => void;
+  timeoutMs: number;
+  transferPort?: MessagePort;
 };
 
 export type SynthesisSidecarComputeWorkerPool = {
@@ -100,6 +129,10 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisCitationGraphBuildRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisCitationGraphBuildResult>;
+  runCitationGraphBuildTransfer(
+    run: SynthesisSidecarGraphBuildTransferRun,
+    options?: { signal?: AbortSignal },
+  ): Promise<void>;
   snapshot(): SynthesisSidecarComputePoolSnapshot;
   shutdown(): Promise<void>;
 };
@@ -110,6 +143,7 @@ type PoolOptions = {
   executionTimeoutMs?: number;
   cancellationGraceMs?: number;
   shutdownTimeoutMs?: number;
+  transferExecutionTimeoutMs?: number;
 };
 
 function delay(milliseconds: number) {
@@ -137,6 +171,9 @@ export function createSynthesisSidecarComputeWorkerPool(
   const shutdownTimeoutMs =
     options.shutdownTimeoutMs ??
     SYNTHESIS_SIDECAR_COMPUTE_LIMITS.shutdownTimeoutMs;
+  const transferExecutionTimeoutMs =
+    options.transferExecutionTimeoutMs ??
+    SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS;
   const queue: Task[] = [];
   const expectedExits = new WeakSet<Worker>();
   let worker: Worker | null = null;
@@ -183,6 +220,8 @@ export function createSynthesisSidecarComputeWorkerPool(
       task.signal.removeEventListener("abort", task.abortListener);
       task.abortListener = undefined;
     }
+    task.transferPort?.close();
+    task.transferPort = undefined;
   };
 
   const rejectTask = (task: Task, code: WorkerErrorCode) => {
@@ -192,6 +231,15 @@ export function createSynthesisSidecarComputeWorkerPool(
     task.settled = true;
     clearTaskHooks(task);
     task.reject(poolError(code));
+  };
+
+  const rejectTaskWithError = (task: Task, error: unknown) => {
+    if (task.settled) {
+      return;
+    }
+    task.settled = true;
+    clearTaskHooks(task);
+    task.reject(error);
   };
 
   const rejectQueue = (code: WorkerErrorCode) => {
@@ -325,6 +373,137 @@ export function createSynthesisSidecarComputeWorkerPool(
     }
   };
 
+  class TransferProtocolError extends Error {}
+
+  const waitForPortMessage = (
+    port: MessagePort,
+  ): Promise<SynthesisSidecarTransferPortWorkerMessage> =>
+    new Promise((resolve, reject) => {
+      const cleanup = () => {
+        port.off("message", onMessage);
+        port.off("messageerror", onError);
+        port.off("close", onClose);
+      };
+      const onMessage = (message: unknown) => {
+        cleanup();
+        resolve(message as SynthesisSidecarTransferPortWorkerMessage);
+      };
+      const onError = () => {
+        cleanup();
+        reject(new TransferProtocolError());
+      };
+      const onClose = () => {
+        cleanup();
+        reject(new TransferProtocolError());
+      };
+      port.once("message", onMessage);
+      port.once("messageerror", onError);
+      port.once("close", onClose);
+    });
+
+  const finishTransferSuccess = (task: Task) => {
+    if (task !== active || task.terminating || task.settled) {
+      return;
+    }
+    active = null;
+    task.settled = true;
+    clearTaskHooks(task);
+    consecutiveFailures = 0;
+    task.resolve(undefined);
+    pump();
+  };
+
+  const finishTransferControlFailure = (
+    task: Task,
+    error: unknown,
+    target: Worker,
+  ) => {
+    if (task !== active || task.terminating) {
+      return;
+    }
+    task.terminating = true;
+    const pending = (async () => {
+      await terminateWorker(target, cancellationGraceMs);
+      if (active === task) {
+        active = null;
+      }
+      rejectTaskWithError(task, error);
+    })();
+    trackTermination(pending);
+  };
+
+  const streamTransferTask = async (
+    task: Task,
+    target: Worker,
+    port: MessagePort,
+  ) => {
+    const run = task.request as SynthesisSidecarGraphBuildTransferRun;
+    try {
+      for await (const frame of run.inputPages()) {
+        if (task.terminating) {
+          return;
+        }
+        port.postMessage(
+          {
+            type: "input_page",
+            descriptor: frame.descriptor,
+            bytes: frame.bytes,
+          },
+          [frame.bytes],
+        );
+        const acknowledgment = await waitForPortMessage(port);
+        if (
+          acknowledgment.type !== "input_ack" ||
+          acknowledgment.kind !== frame.descriptor.kind ||
+          acknowledgment.pageIndex !== frame.descriptor.pageIndex
+        ) {
+          throw new TransferProtocolError();
+        }
+      }
+      port.postMessage({ type: "input_complete" });
+      let outputStarted = false;
+      while (!task.terminating) {
+        const message = await waitForPortMessage(port);
+        if (message.type === "output_started" && !outputStarted) {
+          outputStarted = true;
+          await run.outputStarted();
+          continue;
+        }
+        if (
+          message.type === "output_page" &&
+          outputStarted &&
+          message.bytes instanceof ArrayBuffer
+        ) {
+          await run.outputPage({
+            descriptor: message.descriptor,
+            bytes: message.bytes,
+          });
+          port.postMessage({
+            type: "output_ack",
+            kind: message.descriptor.kind,
+            pageIndex: message.descriptor.pageIndex,
+          });
+          continue;
+        }
+        if (message.type === "output_complete" && outputStarted) {
+          await run.outputComplete(message.header);
+          finishTransferSuccess(task);
+          return;
+        }
+        throw new TransferProtocolError();
+      }
+    } catch (error) {
+      if (task.terminating || task !== active) {
+        return;
+      }
+      if (error instanceof TransferProtocolError) {
+        finishRuntimeFailure(task, "worker_result_invalid", target);
+      } else {
+        finishTransferControlFailure(task, error, target);
+      }
+    }
+  };
+
   const ensureWorker = () => {
     if (worker) {
       return worker;
@@ -338,6 +517,10 @@ export function createSynthesisSidecarComputeWorkerPool(
     created.on("message", (message: unknown) => {
       const task = active;
       if (!task) {
+        return;
+      }
+      if (task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
+        finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
       }
       if (
@@ -425,9 +608,25 @@ export function createSynthesisSidecarComputeWorkerPool(
     const target = ensureWorker();
     task.deadline = setTimeout(() => {
       timeoutActive(task, target);
-    }, executionTimeoutMs);
+    }, task.timeoutMs);
     task.deadline.unref();
     const cancellation = task.cancellation.buffer as SharedArrayBuffer;
+    if (task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
+      const channel = new MessageChannel();
+      task.transferPort = channel.port1;
+      const run = task.request as SynthesisSidecarGraphBuildTransferRun;
+      const message: SynthesisSidecarComputeRunMessage = {
+        type: "run",
+        taskId: task.id,
+        operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
+        header: run.header,
+        port: channel.port2,
+        cancellation,
+      };
+      target.postMessage(message, [channel.port2]);
+      void streamTransferTask(task, target, channel.port1);
+      return;
+    }
     let message: SynthesisSidecarComputeRunMessage;
     switch (task.operation) {
       case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
@@ -493,6 +692,7 @@ export function createSynthesisSidecarComputeWorkerPool(
         resolve: (result) => resolve(result as Result),
         reject,
         signal: runOptions.signal,
+        timeoutMs: executionTimeoutMs,
         settled: false,
         terminating: false,
       };
@@ -550,6 +750,54 @@ export function createSynthesisSidecarComputeWorkerPool(
         runOptions,
       );
 
+  const runCitationGraphBuildTransfer: SynthesisSidecarComputeWorkerPool["runCitationGraphBuildTransfer"] =
+    (run, runOptions = {}) => {
+      if (stopping || degraded) {
+        throw poolError("worker_unavailable");
+      }
+      if (
+        active &&
+        queue.length >= SYNTHESIS_SIDECAR_COMPUTE_LIMITS.maxQueued
+      ) {
+        throw poolError("worker_busy");
+      }
+      if (runOptions.signal?.aborted) {
+        throw poolError("worker_canceled");
+      }
+      return new Promise<void>((resolve, reject) => {
+        const task: Task = {
+          id: `compute:${++taskSequence}`,
+          operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
+          request: run,
+          cancellation: new Int32Array(new SharedArrayBuffer(4)),
+          resolve: () => resolve(),
+          reject,
+          signal: runOptions.signal,
+          timeoutMs: transferExecutionTimeoutMs,
+          settled: false,
+          terminating: false,
+        };
+        if (task.signal) {
+          task.abortListener = () => {
+            if (task === active) {
+              cancelActive(task, "worker_canceled");
+              return;
+            }
+            const index = queue.indexOf(task);
+            if (index >= 0) {
+              queue.splice(index, 1);
+              rejectTask(task, "worker_canceled");
+            }
+          };
+          task.signal.addEventListener("abort", task.abortListener, {
+            once: true,
+          });
+        }
+        queue.push(task);
+        pump();
+      });
+    };
+
   const shutdown = () => {
     if (shutdownPromise) {
       return shutdownPromise;
@@ -586,6 +834,7 @@ export function createSynthesisSidecarComputeWorkerPool(
     runCitationGraphLayout,
     runCitationGraphMetrics,
     runCitationGraphBuild,
+    runCitationGraphBuildTransfer,
     snapshot,
     shutdown,
   };

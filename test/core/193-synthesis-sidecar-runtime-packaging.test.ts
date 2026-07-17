@@ -180,9 +180,11 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
       "service/apps/synthesis-service/src/citationGraphTransferOwner.js",
+      "service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
+      "service/packages/synthesis-engine/src/citationGraphBuildPacked.js",
       "service/packages/synthesis-contracts/src/sidecarTransfer.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
@@ -201,6 +203,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(packagedProtocol, "citation_graph_metrics.v1");
     assert.include(packagedProtocol, "citation_graph_build.v1");
+    assert.include(packagedProtocol, "citation_graph_build_transfer.v1");
     const packagedWorker = fs.readFileSync(
       path.join(
         outputRoot,
@@ -215,6 +218,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       packagedWorker,
       "createInProcessSynthesisCitationGraphBuildEngine",
+    );
+    assert.include(
+      packagedWorker,
+      "createSynthesisCitationGraphBuildPackedAccumulator",
     );
   });
 
@@ -430,7 +437,15 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       first.inputs,
+      "packages/synthesis-engine/src/citationGraphBuildPacked.ts",
+    );
+    assert.include(
+      first.inputs,
       "apps/synthesis-service/src/citationGraphTransferOwner.ts",
+    );
+    assert.include(
+      first.inputs,
+      "apps/synthesis-service/src/citationGraphBuildTransferExecutor.ts",
     );
     assert.include(
       first.inputs,

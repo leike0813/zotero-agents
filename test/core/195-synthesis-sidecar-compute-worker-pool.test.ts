@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
+  canonicalizeSynthesisEngineJson,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
@@ -10,6 +11,10 @@ import {
   type SynthesisCitationGraphLayoutRequest,
   type SynthesisCitationGraphMetricsRequest,
 } from "../../packages/synthesis-engine/src/index";
+import {
+  buildSynthesisCitationGraphBuildTransferPage,
+  rebuildSynthesisCitationGraphBuildTransferPage,
+} from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 import {
   createInProcessSynthesisCitationGraphBuildEngine,
   rebuildSynthesisCitationGraphBuildRequest,
@@ -20,6 +25,7 @@ import {
   ComputeWorkerPoolError,
   createSynthesisSidecarComputeWorkerPool,
   SYNTHESIS_SIDECAR_COMPUTE_LIMITS,
+  SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS,
 } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
@@ -97,6 +103,7 @@ function fixturePool(
     executionTimeoutMs?: number;
     cancellationGraceMs?: number;
     shutdownTimeoutMs?: number;
+    transferExecutionTimeoutMs?: number;
   } = {},
 ) {
   return createSynthesisSidecarComputeWorkerPool({
@@ -104,6 +111,7 @@ function fixturePool(
     executionTimeoutMs: overrides.executionTimeoutMs ?? 250,
     cancellationGraceMs: overrides.cancellationGraceMs ?? 20,
     shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 100,
+    transferExecutionTimeoutMs: overrides.transferExecutionTimeoutMs,
   });
 }
 
@@ -187,6 +195,7 @@ describe("Synthesis sidecar compute worker pool", function () {
         stackSizeMb: 4,
       },
     });
+    assert.equal(SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS, 30_000);
     let spawns = 0;
     let options: WorkerOptions | undefined;
     const pool = createSynthesisSidecarComputeWorkerPool({
@@ -240,6 +249,124 @@ describe("Synthesis sidecar compute worker pool", function () {
     } finally {
       await pool.shutdown();
     }
+  });
+
+  it("streams one acknowledged page at a time through the real worker", async function () {
+    const pool = createSynthesisSidecarComputeWorkerPool({
+      workerUrl: BUILT_WORKER,
+    });
+    const library = buildSynthesisCitationGraphBuildTransferPage(
+      "library_nodes",
+      0,
+      [{ nodeId: "paper:A", authors: [], aliases: [] }],
+    );
+    const references = buildSynthesisCitationGraphBuildTransferPage(
+      "references",
+      0,
+      [],
+    );
+    const output: unknown[] = [];
+    let publishing = false;
+    try {
+      await pool.runCitationGraphBuildTransfer({
+        header: {
+          contractVersion: "synthesis-citation-graph-build.v1",
+          scope: { kind: "full", sourceIds: [] },
+          rolePriority: [],
+        },
+        async *inputPages() {
+          for (const page of [library, references]) {
+            const encoded = new TextEncoder().encode(
+              canonicalizeSynthesisEngineJson(page.rows),
+            );
+            yield {
+              descriptor: page.descriptor,
+              bytes: encoded.buffer as ArrayBuffer,
+            };
+          }
+        },
+        outputStarted() {
+          publishing = true;
+        },
+        outputPage(frame) {
+          assert.isTrue(publishing);
+          output.push(
+            rebuildSynthesisCitationGraphBuildTransferPage({
+              descriptor: frame.descriptor,
+              rows: JSON.parse(new TextDecoder().decode(frame.bytes)),
+            }),
+          );
+        },
+        outputComplete(header) {
+          assert.equal(
+            header.contractVersion,
+            "synthesis-citation-graph-build.v1",
+          );
+        },
+      });
+      assert.isNotEmpty(output);
+      assert.equal(pool.snapshot().state, "idle");
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("applies a transfer-only active deadline", async function () {
+    const pool = fixturePool({ transferExecutionTimeoutMs: 30 });
+    try {
+      assert.equal(
+        await pool
+          .runCitationGraphBuildTransfer({
+            header: {},
+            async *inputPages() {
+              yield* [];
+            },
+            outputStarted() {},
+            outputPage() {},
+            outputComplete() {},
+          })
+          .then(() => "success")
+          .catch(errorCode),
+        "worker_timeout",
+      );
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("cancels streaming transfer and applies its failures to the shared fuse", async function () {
+    const run = {
+      header: {},
+      async *inputPages() {
+        yield* [];
+      },
+      outputStarted() {},
+      outputPage() {},
+      outputComplete() {},
+    };
+    const canceledPool = fixturePool({ transferExecutionTimeoutMs: 1_000 });
+    const controller = new AbortController();
+    const canceled = canceledPool
+      .runCitationGraphBuildTransfer(run, { signal: controller.signal })
+      .then(() => "success")
+      .catch(errorCode);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    assert.equal(await canceled, "worker_canceled");
+    await canceledPool.shutdown();
+
+    const failedPool = fixturePool({ transferExecutionTimeoutMs: 20 });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      assert.equal(
+        await failedPool
+          .runCitationGraphBuildTransfer(run)
+          .then(() => "success")
+          .catch(errorCode),
+        "worker_timeout",
+      );
+    }
+    assert.equal(failedPool.snapshot().state, "degraded");
+    await failedPool.shutdown();
   });
 
   it("shares admission bounds across layout, metrics, and graph build", async function () {

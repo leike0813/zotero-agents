@@ -16,6 +16,8 @@ import {
   rebuildSynthesisCitationGraphBuildRolePriority,
   rebuildSynthesisCitationGraphBuildScope,
 } from "./citationGraphBuild.ts";
+import type { SynthesisCitationGraphBuildResult } from "./citationGraphBuild.ts";
+import { countSynthesisEngineJsonNodes } from "./canonicalJson.ts";
 
 export const SYNTHESIS_CITATION_GRAPH_BUILD_TRANSFER_VERSION =
   "synthesis-citation-graph-build-transfer.v1" as const;
@@ -360,4 +362,95 @@ export function rebuildSynthesisCitationGraphBuildTransferManifest(
     return invalid("manifest_root_mismatch");
   }
   return rebuilt;
+}
+
+export function paginateSynthesisCitationGraphBuildRows(
+  kind: (typeof SYNTHESIS_CITATION_GRAPH_BUILD_OUTPUT_PAGE_KINDS)[number],
+  rows: unknown[],
+  limits: { pageBytes: number; pageJsonNodes: number },
+) {
+  const pages: SynthesisCitationGraphBuildTransferPage[] = [];
+  let pageRows: unknown[] = [];
+  let pageBytes = 2;
+  let pageJsonNodes = 1;
+  const flush = () => {
+    if (!pageRows.length) {
+      return;
+    }
+    pages.push(
+      buildSynthesisCitationGraphBuildTransferPage(
+        kind,
+        pages.length,
+        pageRows,
+      ),
+    );
+    pageRows = [];
+    pageBytes = 2;
+    pageJsonNodes = 1;
+  };
+  for (const row of rows) {
+    const rowBytes = byteLengthSynthesisEngineText(
+      canonicalizeSynthesisEngineJson(row),
+    );
+    const rowJsonNodes = countSynthesisEngineJsonNodes(row);
+    const separatorBytes = pageRows.length ? 1 : 0;
+    if (
+      pageBytes + separatorBytes + rowBytes > limits.pageBytes ||
+      pageJsonNodes + rowJsonNodes > limits.pageJsonNodes
+    ) {
+      if (!pageRows.length) {
+        invalid("output_row_exceeds_page_limit");
+      }
+      flush();
+    }
+    pageRows.push(row);
+    pageBytes += (pageRows.length > 1 ? 1 : 0) + rowBytes;
+    pageJsonNodes += rowJsonNodes;
+  }
+  flush();
+  return pages;
+}
+
+export function paginateSynthesisCitationGraphBuildResult(
+  result: SynthesisCitationGraphBuildResult,
+  limits: { pageBytes: number; pageJsonNodes: number },
+) {
+  const pages = [
+    ...paginateSynthesisCitationGraphBuildRows("nodes", result.nodes, limits),
+    ...paginateSynthesisCitationGraphBuildRows(
+      "resolved_edges",
+      result.resolvedEdges,
+      limits,
+    ),
+    ...paginateSynthesisCitationGraphBuildRows(
+      "aggregate_edges",
+      result.aggregateEdges,
+      limits,
+    ),
+    ...paginateSynthesisCitationGraphBuildRows(
+      "source_ownership",
+      result.sourceOwnership,
+      limits,
+    ),
+    ...paginateSynthesisCitationGraphBuildRows(
+      "incoming_groups",
+      result.incomingGroups,
+      limits,
+    ),
+    ...paginateSynthesisCitationGraphBuildRows(
+      "light_metrics",
+      result.lightMetrics,
+      limits,
+    ),
+  ];
+  const manifest = buildSynthesisCitationGraphBuildTransferManifest({
+    direction: "output",
+    header: {
+      contractVersion: result.contractVersion,
+      scope: result.scope,
+      diagnostics: result.diagnostics,
+    },
+    pages: pages.map((page) => page.descriptor),
+  });
+  return { manifest, pages };
 }

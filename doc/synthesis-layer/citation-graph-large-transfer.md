@@ -1,18 +1,19 @@
 # Citation Graph Build Large Transfer
 
 Citation Graph Build has an authenticated sidecar transfer capability for data
-sets that do not fit one compute request or response. It is a staging canary,
-not a production compute route. Production graph build remains in plugin
+sets that do not fit one compute request or response. Sealed input can now run
+through an explicit packed streaming-worker canary, but this is not a
+production compute route. Production graph build remains in plugin
 composition, which still owns Host capture, the durable-fact basis, basis
 recapture, `synthesis.db` promotion, canonical files, and last-good state.
 
 The single capability `compute.citation_graph_build_transfer` supports strict
-`begin`, `put_input_page`, `seal_input`, `status`, `get_output_manifest`,
+`begin`, `put_input_page`, `seal_input`, `execute`, `status`, `get_output_manifest`,
 `get_output_page`, and `cancel` actions. Input pages contain `library_nodes` or
 `references`. Output pages contain `nodes`, `resolved_edges`,
 `aggregate_edges`, `source_ownership`, `incoming_groups`, or `light_metrics`.
-Output mutation is service-internal until a later packed worker becomes the
-producer.
+Output mutation remains service-internal and is produced only by the packed
+worker attempt associated with an authenticated `execute`.
 
 Every transfer uses `synthesis-citation-graph-build-transfer.v1` and
 `canonical_json_rows.v1`. A complete manifest declares the direction-specific
@@ -36,6 +37,8 @@ every descriptor and the ordered root match.
 | Absolute lifetime | 30 minutes |
 | Reaper interval | 30 seconds |
 | Logical shutdown budget | 500 ms |
+| Streaming worker active deadline | 30 seconds |
+| Unacknowledged pages per direction | 1 |
 
 The existing 8 MiB / 250,000-node compute request and 8 MiB / 50,000-node
 response limits remain unchanged. Aggregate staging may exceed one envelope,
@@ -49,14 +52,19 @@ best-effort and retried at startup. Sessions are never recovered after a
 service restart. Health and handshake report only in-memory state, session
 count, and staged bytes.
 
-The HTTP boundary rebuilds one page at a time with synthesis-engine DTO
-validators. It does not invoke the full Citation Graph Build result rebuilder,
-which recomputes canonical graph semantics. Core 201 compares a paged small
-fixture with the direct engine oracle and proves aggregate input beyond 8 MiB,
-while the existing benchmark remains the evidence for normal/target/stress
-costs.
+The owner retains only descriptor/path metadata after atomic upload. During an
+attempt, the service main thread reads and strictly rebuilds one page, transfers
+its canonical bytes through a task-scoped `MessagePort`, and waits for worker
+acknowledgement before reading another. The worker packs validated rows into a
+string table and typed columns, computes through the shared graph-build kernel,
+and returns bounded pages with the same acknowledgement rule. It never receives
+a staging path or database, canonical-file, Host, Zotero-global, or subprocess
+authority.
 
-The next change may transform staged rows into a packed worker representation
-and publish bounded output pages. It must not give the worker database,
-canonical-file, Host, Zotero-global, or subprocess access. Production routing
-and streaming repository promotion remain separate changes.
+Output pages are written below an attempt directory and become addressable only
+after the service rebuilds the final manifest and atomically commits it. Failure
+returns the session to `input_sealed` with a structured error and permits an
+explicit retry; session `cancel` still destroys all state. Core 202 hard-gates
+the 2,000-source/100,000-reference normal profile under the 256 MiB worker old
+generation limit. Target/stress remain report-only. Production routing, basis
+recapture, and repository promotion remain a separate change.
