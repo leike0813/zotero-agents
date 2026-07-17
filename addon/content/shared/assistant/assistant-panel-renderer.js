@@ -262,6 +262,13 @@
       : labels;
   }
 
+  function transcriptLabels(panel) {
+    const labels = labelRoot(panel);
+    return labels.transcript && typeof labels.transcript === "object"
+      ? labels.transcript
+      : {};
+  }
+
   function labelOf(panel, path, fallback) {
     const parts = safeText(path).split(".").filter(Boolean);
     let cursor = labelRoot(panel);
@@ -833,7 +840,7 @@
     return renderAssistantMessageCounts(
       container,
       counts,
-      panel.labels && panel.labels.transcript,
+      transcriptLabels(panel),
     );
   }
 
@@ -2918,7 +2925,7 @@
               cumulative: counts.cumulative,
               completeness: counts.completeness,
               revision: counts.revision,
-              labels: panel.labels && panel.labels.transcript,
+              labels: transcriptLabels(panel),
             }
           : null,
         function () {

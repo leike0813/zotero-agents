@@ -725,9 +725,9 @@ describe("Assistant Workspace ACP UI v1", function () {
           assistantPanel: {
             emptyState: { noTask: "No task" },
             transcript: {
-              assistant: "Assistant",
-              thinking: "Thought",
-              tool: "Tool",
+              assistant: "助手",
+              thinking: "思考",
+              tool: "工具",
             },
           },
         },
@@ -759,7 +759,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       regions.messageCounter
         .querySelectorAll(".assistant-message-counter-label")
         .map((entry) => entry.textContent),
-      ["Assistant", "Thought", "Tool"],
+      ["助手", "思考", "工具"],
     );
     assert.deepEqual(
       counterValues.map((entry) => entry.textContent),
