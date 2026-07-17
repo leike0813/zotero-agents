@@ -37,6 +37,7 @@ const REQUIRED_FILES = [
   "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   "scripts/zotero_librarian_index_service.py",
@@ -68,12 +69,14 @@ const SHARED_CONTROL_INVARIANTS_SOURCE =
   "skills_src/host-bridge-shared/control-invariants.md";
 const CANONICAL_TOP_LEVEL_COMMANDS = new Set([
   "bridge",
+  "context",
   "library",
   "synthesis",
   "workflow",
   "run",
   "mutation",
   "file",
+  "product",
   "debug",
   "call",
 ]);

@@ -8,6 +8,8 @@
     "hostBridgeCapabilityRegistry": "src/modules/hostBridgeCapabilityRegistry.ts",
     "zoteroBridgeCliCommands": "cli/zotero-bridge/src/commands.rs",
     "zoteroBridgeCliRelease": "cli/zotero-bridge/release.json",
+    "releaseSet": "host-bridge/release-set.json",
+    "agentSurface": "cli/zotero-bridge/src/agent-surface.json",
     "profileVersionSource": "profiles_src/hermes/zotero-librarian/profile-version.json",
     "workflowManifest": "workflows_builtin/manifest.json",
     "profileExample": "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
@@ -17,6 +19,7 @@
       "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
       "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
       "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/library-maintenance.md",
       "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
       "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
       "skills_src/host-bridge-shared/terminology.md",
@@ -46,18 +49,19 @@
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "761e83b9b8f43e8f25597d4d10f441c8e7f9607160102fc9f00115fd63aff8e5",
-    "workflowCatalogChecksum": "1fe659ff51b66bdf9710aefcce41cf1e87c6a72198f1a3e7ddee12c359f822d1",
+    "catalogChecksum": "0b75c34ae27919261d97867cf29ec4e124124a891cd27e908fa7c7ec4683556f",
+    "workflowCatalogChecksum": "26d1a2a16902da1e2955f892e08d0a87232e159d51de9c08c9a6b39f7a4dec3b",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
-      "version": "0.2.1",
-      "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
+      "version": "0.2.2",
+      "buildFingerprint": "bf8ce58c83754b990bd5f94b03c5d142be6afadf882b9d0af6829ea323fda2dc",
+      "binariesBuildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
       "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91"
     },
-    "profileVersion": "0.2.2",
-    "zoteroBridgeCliVersion": "0.2.1",
-    "profileVersionSourceChecksum": "28c8146b5c4cb76660e021d68912c4e3a9a4d336dee3ea055fcf06376eb402b0",
-    "semanticSourceChecksum": "ff0a45b879e634adf8063c746e57339de53b09891cc2c4810f570b883aa83a5d",
+    "profileVersion": "0.2.3",
+    "zoteroBridgeCliVersion": "0.2.2",
+    "profileVersionSourceChecksum": "3af0a7856024f661896f229ed67c3a93081adcc536f91c739bb958bc0cac5492",
+    "semanticSourceChecksum": "58e59372a3ddfabeb99693893fdcbaae4bb39b935ee6cbb63ea928d00e124657",
     "serviceSourceChecksum": "e38589db906e5dc296d6586b8a1712b869424b74ef1ba245a4f009ecc16c00ec"
   }
 }

@@ -111,6 +111,7 @@ $ProfileTemplatePath = Join-Path $SkillDir 'assets' 'profile.template.json'
 $InstallPs1Path = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.ps1'
 $InstallShPath = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.sh'
 $BinRoot = Join-Path $DevRoot 'addon' 'bin'
+$ReleaseSetPath = Join-Path $DevRoot 'host-bridge' 'release-set.json'
 if (-not (Test-Path -LiteralPath (Join-Path $SkillDir 'SKILL.md'))) {
     Log-Error "Wrapper skill not found at skills_builtin\zotero-bridge-cli"
 }
@@ -125,6 +126,13 @@ if (-not (Test-Path -LiteralPath $InstallShPath)) {
 }
 if (-not (Test-Path -LiteralPath $BinRoot)) {
     Log-Error "Bundled CLI bin root not found at addon\bin"
+}
+if (-not (Test-Path -LiteralPath $ReleaseSetPath)) {
+    Log-Error "Release set not found at host-bridge/release-set.json"
+}
+$releaseSet = Get-Content -Encoding UTF8 -LiteralPath $ReleaseSetPath -Raw | ConvertFrom-Json
+if ([string]$releaseSet.schema -ne 'host-bridge.release-set.v1' -or -not [string]$releaseSet.releaseSetId) {
+    Log-Error "Invalid Host Bridge release set"
 }
 
 $porcelain = git -C $DevRoot status --porcelain
@@ -169,7 +177,6 @@ if (-not $platformEntries) {
 
 $sourceCommit = (git -C $DevRoot rev-parse HEAD).Trim()
 $sourceShortCommit = (git -C $DevRoot rev-parse --short HEAD).Trim()
-$publishedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
 $skillFiles = Get-ChildItem -LiteralPath $SkillDir -Recurse -File | ForEach-Object {
     Normalize-PathForManifest ("skills/zotero-bridge-cli/" + (Resolve-Path -Relative -LiteralPath $_.FullName -RelativeBasePath $SkillDir))
 }
@@ -268,16 +275,22 @@ try {
     Copy-Item -LiteralPath $InstallShPath -Destination (Join-Path $Worktree 'install.sh') -Force
 
     $manifest = [ordered]@{
-        schema          = 'zotero-bridge-cli-bundle.v1'
+        schema          = 'host-bridge.surface-release.v1'
+        releaseSetId    = [string]$releaseSet.releaseSetId
+        releaseSet      = $releaseSet
         source          = [ordered]@{
             repository = 'zotero-agents'
             commit     = $sourceCommit
             dirty      = [bool]$porcelain
         }
-        publishedAt     = $publishedAt
         branch          = $Branch
+        cliIdentity     = $releaseSet.cli.identity
         cli             = [ordered]@{
-            name      = 'zotero-bridge'
+            name                  = 'zotero-bridge'
+            version               = [string]$releaseSet.cli.version
+            buildFingerprint      = [string]$releaseSet.cli.buildFingerprint
+            commandCatalogChecksum = [string]$releaseSet.cli.commandCatalogChecksum
+            binaryAggregateSha256 = [string]$releaseSet.cli.binaryAggregateSha256
             platforms = @($platformEntries | ForEach-Object {
                     [ordered]@{
                         platform   = $_.platform
@@ -327,7 +340,7 @@ This branch is generated from the zotero-agents repository and contains only:
 - manifest.json with source commit, platform list, sizes, and checksums
 
 Source commit: $sourceCommit
-Published at: $publishedAt
+Release set: $($releaseSet.releaseSetId)
 
 Use this branch as a submodule, subtree, or vendored source in projects that
 need the Host Bridge CLI and its wrapper skill without embedding the full plugin

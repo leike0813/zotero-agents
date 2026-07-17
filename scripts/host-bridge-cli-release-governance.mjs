@@ -22,7 +22,7 @@ export const EXPECTED_PREBUILDS = [
 ];
 
 const BUILD_INPUT_EXACT_PATHS = new Set([
-  ".github/workflows/build-zotero-bridge-cli.yml",
+  ".github/workflows/release-host-bridge.yml",
   "scripts/build-zotero-bridge-cli.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
   "scripts/host-bridge-cli-release-governance.mjs",
@@ -252,6 +252,7 @@ async function readReleaseManifest(root) {
       schema: "zotero-bridge-cli-release.v1",
       version: "",
       buildFingerprint: "",
+      binariesBuildFingerprint: "",
       fingerprintInputs: [],
       binaries: [],
     };
@@ -325,6 +326,9 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
     schema: "zotero-bridge-cli-release.v1",
     version,
     buildFingerprint: status.fingerprint,
+    binariesBuildFingerprint: String(
+      manifest.binariesBuildFingerprint || manifest.buildFingerprint || "",
+    ),
     fingerprintInputs: status.files,
     binaries: Array.isArray(manifest.binaries) ? manifest.binaries : [],
     dispatchReason: options.dispatchReason || manifest.dispatchReason || "",
@@ -376,6 +380,7 @@ export async function recordHostBridgeCliBinaryChecksums(options = {}) {
     schema: "zotero-bridge-cli-release.v1",
     version: currentVersion,
     buildFingerprint: status.fingerprint,
+    binariesBuildFingerprint: status.fingerprint,
     fingerprintInputs: status.files,
     binaryAggregateSha256: aggregate.digest("hex"),
     binaries,

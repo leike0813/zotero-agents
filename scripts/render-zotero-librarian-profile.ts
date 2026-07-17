@@ -25,6 +25,11 @@ type WorkflowCatalogEntry = {
   path: string;
   parameters: string[];
   inputMode: string;
+  executionModes: {
+    hostOwned: true;
+    agentOwned: boolean;
+    requiredParameters: string[];
+  };
 };
 
 const ROOT = process.cwd();
@@ -65,12 +70,13 @@ const GENERATED_MARKER_EXAMPLES = [
   "zotero-librarian:host-bridge:start",
   "zotero-librarian:workflow-catalog:start",
 ];
-const PROFILE_SEMANTIC_COPIES = [
+export const PROFILE_SEMANTIC_COPIES = [
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
@@ -160,12 +166,14 @@ function writeOrCheck(
 function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   const order = [
     "bridge",
+    "context",
     "library",
     "synthesis",
     "workflow",
     "run",
     "mutation",
     "file",
+    "product",
   ];
   return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
     (left, right) => {
@@ -193,10 +201,12 @@ function renderHostBridgeReference(
       const group = mapping.command.split(" ")[0] || "";
       return [
         "bridge",
+        "context",
         "library",
         "workflow",
         "run",
         "file",
+        "product",
         "synthesis",
         "mutation",
       ].includes(group);
@@ -305,6 +315,21 @@ function loadWorkflowCatalog(): WorkflowCatalogEntry[] {
         (workflow.parameters as object | undefined) || {},
       ),
       inputMode: workflowInputMode(workflow),
+      executionModes: {
+        hostOwned: true,
+        agentOwned: !Object.values(
+          (workflow.parameters as
+            | Record<string, { required?: boolean }>
+            | undefined) || {},
+        ).some((parameter) => parameter.required === true),
+        requiredParameters: Object.entries(
+          (workflow.parameters as
+            | Record<string, { required?: boolean }>
+            | undefined) || {},
+        )
+          .filter(([, parameter]) => parameter.required === true)
+          .map(([key]) => key),
+      },
     });
   }
   return entries.sort((left, right) => left.id.localeCompare(right.id));
@@ -317,18 +342,18 @@ function renderWorkflowReference(entries: WorkflowCatalogEntry[]) {
         entry.provider,
       )} | ${markdownCell(entry.inputMode)} | ${markdownCell(
         entry.parameters.join(", ") || "none",
-      )} |`,
+      )} | ${entry.executionModes.agentOwned ? "yes" : "no"} |`,
   );
   return [
     "## Built-In Workflow Catalog",
     "",
     "Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py workflow-refresh`.",
     "",
-    "| Workflow | Label | Provider | Inputs | Parameters |",
-    "| --- | --- | --- | --- | --- |",
+    "| Workflow | Label | Provider | Inputs | Parameters | Agent-owned |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...rows,
     "",
-    "Use `workflow-show <workflow-id>` to inspect the cached payload contract before direct submission.",
+    "Use `workflow-show <workflow-id>` and live `workflow describe` executionModes before direct submission or handoff.",
     "Register and monitor only Host-owned submitted workflow runs with `run-register` and `run-watch`.",
   ].join("\n");
 }
@@ -351,6 +376,8 @@ function renderManifestSource(
         "src/modules/hostBridgeCapabilityRegistry.ts",
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       zoteroBridgeCliRelease: ZOTERO_BRIDGE_CLI_RELEASE_PATH,
+      releaseSet: "host-bridge/release-set.json",
+      agentSurface: "cli/zotero-bridge/src/agent-surface.json",
       profileVersionSource: ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,

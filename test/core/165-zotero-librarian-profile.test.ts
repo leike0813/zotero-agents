@@ -262,7 +262,7 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
     assert.strictEqual(
       packageJson.scripts["check:host-bridge-surface"],
-      "tsx scripts/render-host-bridge-surface.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check",
+      "tsx scripts/render-host-bridge-surface.ts --check && tsx scripts/render-zotero-library-agent-bundle.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check && tsx scripts/render-host-bridge-release-set.ts --check",
     );
     assert.include(
       packageJson.scripts["inspect:zotero-librarian-profile-version"],
@@ -299,8 +299,12 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.include(publishScript, "addon/bin");
     assert.include(publishScript, "assets/zotero-bridge/bin");
     assert.include(publishScript, "manifest.json");
+    const materializer = await fs.readFile(
+      "scripts/materialize-host-bridge-surfaces.ts",
+      "utf8",
+    );
+    assert.include(materializer, "releaseSet.cli.binaries");
     for (const platform of EXPECTED_PLATFORMS) {
-      assert.include(publishScript, platform);
       const stat = await fs.stat(path.join("addon", "bin", platform));
       assert.isTrue(stat.isDirectory(), platform);
     }

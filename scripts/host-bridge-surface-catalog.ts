@@ -422,6 +422,10 @@ function endpointMappings(): HostBridgeCliMapping[] {
       "workflow agent-apply",
       "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
     ],
+    [
+      "workflow agent-apply-status",
+      "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+    ],
     ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
     ["run cancel", "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"],
     ["run list", "GET /bridge/v1/tasks"],

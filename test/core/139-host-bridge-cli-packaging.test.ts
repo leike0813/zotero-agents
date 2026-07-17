@@ -62,7 +62,7 @@ async function createFreshnessFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-fresh-"));
   await writeTextFile(
     root,
-    ".github/workflows/build-zotero-bridge-cli.yml",
+    ".github/workflows/release-host-bridge.yml",
     "name: build\n",
   );
   await writeTextFile(
@@ -123,6 +123,7 @@ async function createFreshnessFixture() {
     schema: "zotero-bridge-cli-release.v1",
     version: "0.1.0",
     buildFingerprint: fingerprint.fingerprint,
+    binariesBuildFingerprint: fingerprint.fingerprint,
     fingerprintInputs: fingerprint.files,
     binaries,
   };
@@ -1241,7 +1242,7 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.isTrue(
       governance.isHostBridgeCliBuildInputPath(
-        ".github/workflows/build-zotero-bridge-cli.yml",
+        ".github/workflows/release-host-bridge.yml",
       ),
     );
     assert.isFalse(
@@ -1300,6 +1301,31 @@ describe("host bridge cli packaging and install", function () {
       assert.isFalse(result.ok);
       if (!result.ok) {
         assert.strictEqual(result.code, "host_bridge_cli_fingerprint_stale");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails Host Bridge CLI freshness when binaries belong to another fingerprint", async function () {
+    const { root, freshness } = await createFreshnessFixture();
+    try {
+      const manifestPath = path.join(root, "cli/zotero-bridge/release.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      manifest.binariesBuildFingerprint = "0".repeat(64);
+      await fs.writeFile(
+        manifestPath,
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
+      const result = await freshness.checkHostBridgeCliPrebuildFreshness({
+        root,
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(
+          result.code,
+          "host_bridge_cli_binary_identity_stale",
+        );
       }
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -1592,11 +1618,7 @@ describe("host bridge cli packaging and install", function () {
 
   it("declares CLI release packaging workflow and addon bin directories", async function () {
     const workflow = await fs.readFile(
-      ".github/workflows/build-zotero-bridge-cli.yml",
-      "utf8",
-    );
-    const surfaceWorkflow = await fs.readFile(
-      ".github/workflows/publish-host-bridge-surfaces.yml",
+      ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
     const releaseWorkflow = await fs.readFile(
@@ -1626,54 +1648,43 @@ describe("host bridge cli packaging and install", function () {
     ]) {
       assert.include(workflow, rustTarget);
     }
-    assert.include(workflow, "cargo install cargo-zigbuild --locked");
-    assert.include(workflow, "mlugg/setup-zig@v2");
-    assert.include(workflow, "Detect CLI build input changes");
-    assert.include(workflow, "host-bridge-cli-release-governance.mjs status");
-    assert.include(workflow, "bump-patch --write");
+    assert.include(workflow, "cargo install cargo-zigbuild --locked --version");
+    assert.include(workflow, "goto-bus-stop/setup-zig@v2");
+    assert.include(workflow, "group: host-bridge-release");
+    assert.include(workflow, "npm run release:host-bridge:plan");
     assert.include(workflow, "record-binaries --write");
     assert.include(workflow, "npm run render:host-bridge-surface");
-    assert.include(workflow, "npm run check:host-bridge-doc-sync");
     assert.include(
       workflow,
       "npm run check:host-bridge-cli-prebuild-freshness",
     );
-    assert.include(workflow, "npm run check:zotero-librarian-profile");
-    assert.include(workflow, "Publish Host Bridge CLI bundle branch");
-    assert.include(workflow, "Publish zotero-librarian profile repository");
-    assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
-    assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
-    assert.include(workflow, "leike0813/zotero-librarian-profile.git");
-    assert.include(workflow, "-AllowDirty -Push");
+    assert.include(workflow, "npm run check:host-bridge-surface");
+    assert.include(workflow, "materialize-host-bridge-surfaces.ts");
+    assert.include(workflow, "actions/attest-build-provenance@v2");
+    assert.include(workflow, "Publish immutable commits and tags");
+    assert.include(workflow, "Verify immutable manifests");
+    assert.include(
+      workflow,
+      "Advance mutable pointers after all immutable surfaces verify",
+    );
+    assert.include(workflow, "host-bridge.release-receipt.v1");
+    assert.notInclude(workflow, "bump-patch --write");
     assert.isBelow(
       workflow.indexOf("record-binaries --write"),
       workflow.indexOf("npm run render:host-bridge-surface"),
     );
     assert.isBelow(
-      workflow.indexOf("npm run render:host-bridge-surface"),
-      workflow.indexOf("npm run check:host-bridge-doc-sync"),
-    );
-    assert.isBelow(
       workflow.indexOf("npm run check:host-bridge-cli-prebuild-freshness"),
-      workflow.indexOf("Publish Host Bridge CLI bundle branch"),
+      workflow.indexOf("materialize-host-bridge-surfaces.ts"),
     );
     assert.isBelow(
-      workflow.indexOf("npm run check:zotero-librarian-profile"),
-      workflow.indexOf("Publish zotero-librarian profile repository"),
+      workflow.indexOf("Verify immutable manifests"),
+      workflow.indexOf(
+        "Advance mutable pointers after all immutable surfaces verify",
+      ),
     );
-    assert.include(workflow, "doc/host-bridge-cli.md");
-    assert.include(workflow, "skills_builtin/zotero-bridge-cli");
     assert.include(workflow, "profiles/hermes/zotero-librarian");
-    assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
-    assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
-    assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
-    assert.include(surfaceWorkflow, "npm run check:host-bridge-surface");
-    assert.include(surfaceWorkflow, "npm run render:host-bridge-surface");
-    assert.include(surfaceWorkflow, "Publish Host Bridge CLI bundle branch");
-    assert.include(
-      surfaceWorkflow,
-      "Publish zotero-librarian profile repository",
-    );
+    assert.include(workflow, "npm run sync:host-bridge-cli-prebuilds");
     assert.include(workflow, "actions/download-artifact@v4");
     assert.include(
       releaseWorkflow,
@@ -1754,10 +1765,10 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
-    assert.include(releaseSkill, "leike0813/zotero-librarian-profile");
-    assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(workflow, "leike0813/zotero-librarian-profile");
+    assert.include(releaseSkill, "seven pinned-runner prebuilds");
     assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
-    assert.include(releaseSkill, "publish-host-bridge-surfaces.yml");
+    assert.include(releaseSkill, "release-host-bridge.yml");
     assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
     assert.notInclude(
       releaseSkill,
@@ -1775,12 +1786,8 @@ describe("host bridge cli packaging and install", function () {
 
   it("declares the standalone Zotero Library Agent bundle surface", async function () {
     const packageJson = JSON.parse(await fs.readFile("package.json", "utf8"));
-    const buildWorkflow = await fs.readFile(
-      ".github/workflows/build-zotero-bridge-cli.yml",
-      "utf8",
-    );
-    const surfaceWorkflow = await fs.readFile(
-      ".github/workflows/publish-host-bridge-surfaces.yml",
+    const releaseWorkflow = await fs.readFile(
+      ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
     const publisher = await fs.readFile(
@@ -1819,7 +1826,7 @@ describe("host bridge cli packaging and install", function () {
       "zotero-library-agent.bundle.version.v1",
     );
     assert.strictEqual(versionSource.cliMajorMinor, "0.2");
-    assert.strictEqual(versionSource.patch, 0);
+    assert.strictEqual(versionSource.patch, 1);
     assert.include(skill, "references/task-routing.md");
     assert.include(skill, "references/workflow-execution.md");
     assert.include(skill, "references/evidence-handoff.md");
@@ -1828,19 +1835,10 @@ describe("host bridge cli packaging and install", function () {
     assert.strictEqual(wrapperControl, controlSource);
     assert.strictEqual(profileControl, controlSource);
 
-    for (const workflow of [buildWorkflow, surfaceWorkflow]) {
-      assert.include(workflow, "npm run check:zotero-library-agent-bundle");
-      assert.include(
-        workflow,
-        "Publish Zotero Library Agent bundle repository",
-      );
-      assert.include(workflow, "publish-zotero-library-agent-bundle.ps1");
-      assert.include(workflow, "leike0813/zotero-library-agent-bundle.git");
-    }
-    assert.include(
-      publisher,
-      "zotero-library-agent.bundle.release-manifest.v1",
-    );
+    assert.include(releaseWorkflow, "npm run check:host-bridge-surface");
+    assert.include(releaseWorkflow, "materialize-host-bridge-surfaces.ts");
+    assert.include(releaseWorkflow, "leike0813/zotero-library-agent-bundle");
+    assert.include(publisher, "host-bridge.surface-release.v1");
     assert.include(publisher, "skills/zotero-library-agent");
     assert.include(publisher, "skills/zotero-bridge-cli");
     assert.include(publisher, "cli/zotero-bridge/release.json");
@@ -1880,11 +1878,14 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_TOKEN");
       assert.include(source, "Platform override is not supported");
     }
-    for (const source of [wrapperSkill, wrapperReference, docs]) {
+    for (const source of [wrapperReference, docs]) {
       assert.include(source, "install.ps1");
       assert.include(source, "install.sh");
       assert.include(source, "--yes --json");
     }
+    assert.include(wrapperSkill, "surface identity --json");
+    assert.include(wrapperSkill, "surface describe <command> --json");
+    assert.include(wrapperSkill, "surface search --intent <intent> --json");
     assert.include(docs, "zotero-agents");
     assert.notInclude(wrapperReference, "--platform");
   });

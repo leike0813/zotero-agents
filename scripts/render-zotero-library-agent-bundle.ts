@@ -57,6 +57,9 @@ function writeOrCheck(
 
 function renderManifestSource() {
   const release = readZoteroBridgeCliRelease(ROOT);
+  const agentSurface = JSON.parse(
+    read("cli/zotero-bridge/src/agent-surface.json"),
+  );
   const version = inspectZoteroLibraryAgentBundleVersion(ROOT).resolved;
   const semanticSources = ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES.map((path) =>
     join(SOURCE_ROOT, path).replace(/\\/g, "/"),
@@ -76,10 +79,21 @@ function renderManifestSource() {
         semantic: semanticSources,
         shared: sharedSources,
         cliRelease: "cli/zotero-bridge/release.json",
+        releaseSet: "host-bridge/release-set.json",
+        agentSurface: "cli/zotero-bridge/src/agent-surface.json",
       },
       generated: {
         bundleVersion: version.version,
         cliVersion: release.version,
+        cliIdentity: {
+          schema: "host-bridge.surface-identity.v1",
+          protocol: agentSurface.protocol,
+          cliSchema: agentSurface.cliSchema,
+          version: release.version,
+          buildFingerprint: release.buildFingerprint,
+          commandCatalogChecksum: agentSurface.commandCatalogChecksum,
+        },
+        binaryAggregateSha256: release.binaryAggregateSha256,
         semanticChecksum: sha256(
           [...semanticSources, ...sharedSources]
             .map((path) => read(path))

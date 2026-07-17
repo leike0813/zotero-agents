@@ -25,6 +25,7 @@ import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
+  getHostBridgeWorkflowAgentRunApplyReceipt,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -2107,16 +2108,35 @@ async function agentRunWorkflow(request: HttpRequest) {
 }
 
 async function applyAgentRunWorkflow(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Workflow agent-run apply endpoint only supports POST",
-      "POST",
-    );
-  }
   const prefix = "/bridge/v1/workflows/agent-runs/";
   const suffix = "/apply";
   const encoded = request.path.slice(prefix.length, -suffix.length);
   const agentRunId = safeDecodeURIComponent(encoded) || "";
+  if (request.method === "GET") {
+    const receipt = getHostBridgeWorkflowAgentRunApplyReceipt(agentRunId);
+    if (!receipt) {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "agent_run_not_found",
+          "Agent run not found",
+          "workflow",
+          {
+            agentRunId,
+          },
+        ),
+        "agent_run_not_found",
+      );
+    }
+    return response(200, "OK", hostBridgeOk(receipt));
+  }
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow agent-run apply endpoint only supports GET and POST",
+      "GET, POST",
+    );
+  }
   let payload: HostBridgeWorkflowAgentApplyRequest;
   try {
     payload = parseJsonBody(

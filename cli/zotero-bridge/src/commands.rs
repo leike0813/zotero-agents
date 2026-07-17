@@ -34,9 +34,9 @@ use crate::{
         SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
         SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
         SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
-        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentRunArgs, WorkflowArgs,
-        WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs, WorkflowRequirementsArgs,
-        WorkflowRunArgs, WorkflowSubmitArgs,
+        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs,
+        WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
+        WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
     },
     client,
     config::BridgeConfig,
@@ -378,6 +378,7 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         }
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
+        WorkflowCommand::AgentApplyStatus(args) => workflow_agent_apply_status(config, args),
     }
 }
 
@@ -1039,6 +1040,26 @@ fn workflow_agent_apply(
     )
 }
 
+fn workflow_agent_apply_status(
+    config: &BridgeConfig,
+    args: WorkflowAgentApplyStatusArgs,
+) -> Result<Value, CliError> {
+    let agent_run_id = args.agent_run_id.trim();
+    if agent_run_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_agent_run_id",
+            "workflow agent-apply-status requires an agent run id",
+        ));
+    }
+    client::get(
+        config,
+        &format!(
+            "/workflows/agent-runs/{}/apply",
+            percent_encode_path(agent_run_id)
+        ),
+    )
+}
+
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
     let run_id = args.run_id.trim();
     if run_id.is_empty() {
@@ -1464,9 +1485,9 @@ fn file_upload(config: &BridgeConfig, args: FileUploadArgs) -> Result<Value, Cli
 }
 
 fn output_name(output: &Path) -> String {
-    output
-        .file_name()
-        .and_then(|entry| entry.to_str())
+    let raw = output.to_string_lossy();
+    raw.rsplit(['/', '\\'])
+        .find(|entry| !entry.is_empty())
         .unwrap_or("download")
         .to_string()
 }

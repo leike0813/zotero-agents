@@ -1,0 +1,251 @@
+name: Release Host Bridge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cli/zotero-bridge/**"
+      - "skills_src/zotero-bridge-cli/**"
+      - "skills_src/zotero-library-agent/**"
+      - "skills_src/host-bridge-shared/**"
+      - "profiles_src/hermes/zotero-librarian/**"
+      - "profiles/hermes/zotero-librarian/**"
+      - "workflows_builtin/**"
+      - "host-bridge/release-set.json"
+      - "scripts/*host-bridge*"
+      - "scripts/*zotero-library-agent*"
+      - "scripts/*zotero-librarian*"
+      - ".github/workflows/release-host-bridge.yml"
+  workflow_dispatch:
+    inputs:
+      release_set_id:
+        description: Existing releaseSetId to resume
+        required: false
+        type: string
+
+concurrency:
+  group: host-bridge-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  RUST_TOOLCHAIN: "1.88.0"
+  ZIG_VERSION: "0.13.0"
+  CARGO_ZIGBUILD_VERSION: "0.20.1"
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      release_set_id: ${{ steps.plan.outputs.release_set_id }}
+      needs_build: ${{ steps.plan.outputs.needs_build }}
+      cli_aggregate: ${{ steps.plan.outputs.cli_aggregate }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+          cache: npm
+      - run: npm ci
+      - id: plan
+        shell: bash
+        run: |
+          npm run release:host-bridge:plan > .host-bridge-plan.json
+          release_set_id="$(node -p "require('./host-bridge/release-set.json').releaseSetId")"
+          requested="${{ inputs.release_set_id }}"
+          if [ -n "$requested" ] && [ "$requested" != "$release_set_id" ]; then
+            echo "Requested release set does not match committed release set" >&2
+            exit 1
+          fi
+          needs_build="$(node -p "String(require('./.host-bridge-plan.json').prebuildRequired)")"
+          cli_aggregate="$(node -p "require('./host-bridge/release-set.json').cli.binaryAggregateSha256")"
+          echo "release_set_id=$release_set_id" >> "$GITHUB_OUTPUT"
+          echo "needs_build=$needs_build" >> "$GITHUB_OUTPUT"
+          echo "cli_aggregate=$cli_aggregate" >> "$GITHUB_OUTPUT"
+      - name: Check prepared surfaces against their recorded source
+        shell: bash
+        run: |
+          export HOST_BRIDGE_SOURCE_COMMIT="$(node -p "require('./host-bridge/release-set.json').source.commit")"
+          npm run check:host-bridge-surface
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.needs_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2022, platform: win32-x64, target: x86_64-pc-windows-msvc, binary: zotero-bridge.exe }
+          - { runner: macos-14, platform: darwin-x64, target: x86_64-apple-darwin, binary: zotero-bridge }
+          - { runner: macos-14, platform: darwin-arm64, target: aarch64-apple-darwin, binary: zotero-bridge }
+          - { runner: ubuntu-24.04, platform: linux-x86, target: i686-unknown-linux-gnu, binary: zotero-bridge }
+          - { runner: ubuntu-24.04, platform: linux-x64, target: x86_64-unknown-linux-gnu, binary: zotero-bridge }
+          - { runner: ubuntu-24.04, platform: linux-arm, target: armv7-unknown-linux-gnueabihf, binary: zotero-bridge }
+          - { runner: ubuntu-24.04, platform: linux-arm64, target: aarch64-unknown-linux-gnu, binary: zotero-bridge }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+      - if: startsWith(matrix.platform, 'linux-')
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - if: startsWith(matrix.platform, 'linux-')
+        run: cargo install cargo-zigbuild --locked --version "$CARGO_ZIGBUILD_VERSION"
+      - run: npm ci
+      - run: node scripts/build-zotero-bridge-cli.mjs --platform=${{ matrix.platform }} --target=${{ matrix.target }}
+      - shell: bash
+        run: addon/bin/${{ matrix.platform }}/${{ matrix.binary }} surface identity --json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zotero-bridge-${{ matrix.platform }}
+          path: addon/bin/${{ matrix.platform }}
+          if-no-files-found: error
+
+  materialize:
+    needs: [plan, build]
+    if: ${{ always() && needs.plan.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.17.0"
+          cache: npm
+      - run: npm ci
+      - if: needs.plan.outputs.needs_build == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: zotero-bridge-*
+          path: .host-bridge-prebuilds
+      - if: needs.plan.outputs.needs_build == 'true'
+        shell: bash
+        run: |
+          for artifact in .host-bridge-prebuilds/zotero-bridge-*; do
+            platform="${artifact##*/zotero-bridge-}"
+            mkdir -p "addon/bin/$platform"
+            cp -a "$artifact/." "addon/bin/$platform/"
+          done
+          node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=release-set
+          aggregate="$(node -p "require('./cli/zotero-bridge/release.json').binaryAggregateSha256")"
+          mkdir -p .host-bridge-prebuild-release
+          for platform in addon/bin/*; do
+            test -d "$platform" || continue
+            name="${platform##*/}"
+            (cd addon/bin && zip -qr "../../.host-bridge-prebuild-release/zotero-bridge-$name.zip" "$name")
+          done
+          gh release view "host-bridge-cli-$aggregate" >/dev/null 2>&1 || \
+            gh release create "host-bridge-cli-$aggregate" .host-bridge-prebuild-release/*.zip --title "Host Bridge CLI $aggregate" --notes "Immutable Host Bridge CLI prebuild set."
+      - if: needs.plan.outputs.needs_build != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          npm run sync:host-bridge-cli-prebuilds -- --tag=host-bridge-cli-${{ needs.plan.outputs.cli_aggregate }}
+      - name: Bind the materialized release set to the workflow source commit
+        shell: bash
+        run: HOST_BRIDGE_SOURCE_COMMIT="$GITHUB_SHA" npm run render:host-bridge-surface
+      - run: npm run check:host-bridge-cli-prebuild-freshness
+      - name: Check materialized surfaces
+        shell: bash
+        run: HOST_BRIDGE_SOURCE_COMMIT="$GITHUB_SHA" npm run check:host-bridge-surface
+      - run: npx tsx scripts/materialize-host-bridge-surfaces.ts --output-root=.host-bridge-surfaces
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ".host-bridge-surfaces/**"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-bridge-release-${{ needs.plan.outputs.release_set_id }}
+          path: .host-bridge-surfaces
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, materialize]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.HOST_BRIDGE_RELEASE_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: host-bridge-release-${{ needs.plan.outputs.release_set_id }}
+          path: .host-bridge-surfaces
+      - name: Publish immutable commits and tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="${{ needs.plan.outputs.release_set_id }}"
+          publish_surface() {
+            name="$1"; source="$2"; repo="$3"; branch="$4"
+            work=".publish/$name"
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${repo}.git" "$work"
+            git -C "$work" config user.name github-actions[bot]
+            git -C "$work" config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            tag="host-bridge/$release_id"
+            if git -C "$work" ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              git -C "$work" fetch origin "refs/tags/$tag:refs/tags/$tag"
+              git -C "$work" checkout --detach "$tag"
+              test "$(jq -r .releaseSetId "$work/manifest.json")" = "$release_id"
+              diff -u <(jq -S .cliIdentity "$source/manifest.json") <(jq -S .cliIdentity "$work/manifest.json")
+              git -C "$work" rev-parse HEAD > ".publish/$name.commit"
+              return
+            fi
+            git -C "$work" checkout -B "$branch"
+            find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp -a "$source/." "$work/"
+            git -C "$work" add -A
+            git -C "$work" commit -m "Publish Host Bridge $release_id" || true
+            git -C "$work" tag "$tag"
+            git -C "$work" push origin "refs/tags/$tag"
+            git -C "$work" rev-parse HEAD > ".publish/$name.commit"
+          }
+          mkdir -p .publish
+          publish_surface cli .host-bridge-surfaces/cli-bundle leike0813/zotero-agents host-bridge/zotero-bridge-cli-bundle
+          publish_surface library .host-bridge-surfaces/library-agent leike0813/zotero-library-agent-bundle main
+          publish_surface profile .host-bridge-surfaces/librarian-profile leike0813/zotero-librarian-profile main
+      - name: Verify immutable manifests
+        shell: bash
+        run: |
+          release_id="${{ needs.plan.outputs.release_set_id }}"
+          for repo in leike0813/zotero-agents leike0813/zotero-library-agent-bundle leike0813/zotero-librarian-profile; do
+            manifest="$(gh api "repos/$repo/contents/manifest.json?ref=host-bridge/$release_id" --jq .content | base64 -d)"
+            test "$(printf '%s' "$manifest" | jq -r .releaseSetId)" = "$release_id"
+          done
+      - name: Advance mutable pointers after all immutable surfaces verify
+        shell: bash
+        run: |
+          git -C .publish/cli push origin HEAD:host-bridge/zotero-bridge-cli-bundle
+          git -C .publish/library push origin HEAD:main
+          git -C .publish/profile push origin HEAD:main
+      - name: Write complete release receipt
+        shell: bash
+        run: |
+          jq -n \
+            --arg releaseSetId "${{ needs.plan.outputs.release_set_id }}" \
+            --arg sourceCommit "${{ github.sha }}" \
+            --arg workflowRun "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg cliCommit "$(cat .publish/cli.commit)" \
+            --arg libraryCommit "$(cat .publish/library.commit)" \
+            --arg profileCommit "$(cat .publish/profile.commit)" \
+            '{schema:"host-bridge.release-receipt.v1",status:"complete",releaseSetId:$releaseSetId,sourceCommit:$sourceCommit,workflowRun:$workflowRun,surfaces:{cliBundle:{commit:$cliCommit},libraryAgent:{commit:$libraryCommit},librarianProfile:{commit:$profileCommit}}}' \
+            > release-receipt.json
+          cat release-receipt.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-bridge-release-receipt-${{ needs.plan.outputs.release_set_id }}
+          path: release-receipt.json

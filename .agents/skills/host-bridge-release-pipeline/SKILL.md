@@ -1,122 +1,64 @@
 ---
 name: host-bridge-release-pipeline
-description: Execute the zotero-agents Host Bridge release steps after CLI, wrapper, Zotero Library Agent bundle, broker, Zotero Librarian profile, workflow catalog, or documentation changes. Use when Codex needs the exact render, version, check, fingerprint-gated prebuild, three-surface publication, and prebuild synchronization workflow.
+description: Plan, prepare, verify, and publish the unified Host Bridge CLI bundle, Zotero Library Agent bundle, and Zotero Librarian profile release set.
 ---
 
 # Host Bridge Release Pipeline
 
-Run this project-local workflow from the repository root:
+Run from the repository root. One prepared `host-bridge.release-set.v1` governs all three agent-facing surfaces.
+
+## Prepare
+
+1. Run `$host-bridge-semantic-surface-review` when the semantic collector requires review.
+2. Inspect the read-only release plan:
 
 ```powershell
-D:\Workspace\Code\JavaScript\zotero-agents
+npm run release:host-bridge:plan
 ```
 
-This is the operational sequence for updating the generated Host Bridge
-surface, releasing GitHub-built Host Bridge CLI prebuilds, and publishing
-surface-only artifacts. GitHub Actions is the build and publish authority for
-the Host Bridge CLI bundle branch, standalone Zotero Library Agent bundle, and
-standalone Zotero Librarian profile repository.
-
-## Commands
-
-1. Before rendering, run semantic surface review when Host Bridge capability,
-   endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge
-   specs, shared control facts, wrapper, Zotero Library Agent, or Zotero
-   Librarian profile semantic sources changed. Use
-   `$host-bridge-semantic-surface-review`, starting with:
+3. Prepare versions and generated surfaces exactly once:
 
 ```powershell
-npx tsx scripts/host-bridge-semantic-review-context.ts
+npm run prepare:host-bridge-release
 ```
 
-Continue only after the semantic review reports either aligned semantic sources
-or semantic-source edits applied.
+The coordinator applies required patch bumps for changed public content, renders the machine agent surface and three generated surfaces, materializes `host-bridge/release-set.json`, and runs the unified surface check. Generated-only drift does not require a content-version bump.
 
-2. Determine both independently patched surface versions before rendering:
+Treat the release set as prepared, not published. Compatibility is the exact
+CLI identity tuple of version, build fingerprint, and command catalog checksum;
+the binary aggregate additionally proves the seven packaged artifacts.
 
-```powershell
-npm run inspect:zotero-librarian-profile-version -- --json
-npm run inspect:zotero-library-agent-bundle-version -- --json
-```
-
-Read `references/profile-versioning.md`. When this release changes public
-Profile or Zotero Library Agent bundle content, run the corresponding bump
-command exactly once. Do not bump for generated output drift only or for a CLI
-patch-only release.
-
-```powershell
-npm run bump:zotero-librarian-profile
-npm run bump:zotero-library-agent-bundle
-```
-
-3. Render Host Bridge surfaces after semantic review and the Profile version
-decision complete. For Host Bridge CLI build-input changes, this local render is
-a preflight check; the `build-zotero-bridge-cli.yml` release job re-renders
-surfaces after the CLI version bump and binary checksum manifest are recorded.
-
-```powershell
-npm run render:host-bridge-surface
-npm run check:host-bridge-surface
-```
-
-4. Run the relevant local checks for the changed files. For Host Bridge CLI
-packaging and profile surface changes, use:
+## Local Verification
 
 ```powershell
 npm run check:host-bridge-doc-sync
+npm run check:host-bridge-surface
 npm run check:host-bridge-cli-prebuild-freshness
 npm run check:zotero-library-agent-bundle
 npm run check:zotero-librarian-profile
-npx tsx node_modules/mocha/bin/mocha "test/core/139-host-bridge-cli-packaging.test.ts" --require test/setup/zotero-mock.ts
+npx tsx node_modules/mocha/bin/mocha "test/core/108-host-bridge-workflow-control.test.ts" "test/core/139-host-bridge-cli-packaging.test.ts" "test/core/165-zotero-librarian-profile.test.ts" "test/core/167-host-bridge-semantic-review-skill.test.ts" "test/core/168-host-bridge-release-coordinator.test.ts" "test/core/169-host-bridge-agent-surface.test.ts" --require test/setup/zotero-mock.ts
 ```
 
-When CLI build inputs changed, `check:host-bridge-cli-prebuild-freshness`
-reports a stale fingerprint until `build-zotero-bridge-cli.yml` records the
-new release manifest and GitHub-built prebuild checksums. Treat that as the
-handoff condition for the build workflow, not as a reason to locally rewrite
-the release manifest without GitHub-built binaries.
+When the plan reports `prebuildRequired: true`,
+`check:host-bridge-cli-prebuild-freshness` remains stale until the release
+workflow creates the seven pinned-runner prebuilds and records their checksums.
+Treat only this controlled freshness failure as the CI build handoff.
 
-5. Publish the source changes to `main` through the normal repository flow.
-CLI build-input changes use `build-zotero-bridge-cli.yml`; wrapper, profile,
-broker, and surface-only changes use `publish-host-bridge-surfaces.yml`.
-Use the automatically created `push` workflow run as the release run.
+## Publish Or Resume
 
-Use manual dispatch only for recovery or an explicit republish of the current
-`main` artifacts:
+Normal publication is the automatic `release-host-bridge.yml` run for the prepared `main` commit. Manual dispatch is only for recovery and must name the existing release set when resuming:
 
 ```powershell
-gh workflow run build-zotero-bridge-cli.yml --ref main
-gh workflow run publish-host-bridge-surfaces.yml --ref main
+gh workflow run release-host-bridge.yml --ref main -f release_set_id=<releaseSetId>
 ```
 
-The CLI workflow records the CLI release, renders and checks surfaces, and
-publishes prebuilds and all three agent-facing surfaces. The surface-only workflow
-restores published prebuilds, verifies committed generated surfaces, then
-publishes all three surfaces without rebuilding the CLI.
+The workflow validates the committed plan, builds or restores one immutable CLI prebuild set, materializes all three surfaces, publishes immutable tags, re-reads their remote manifests, advances mutable branches only after all tags verify, and emits `release-receipt.json`. Recovery reuses verified tags for the same `releaseSetId`; never use a no-bump rebuild to replace different bytes under an existing version.
 
-6. After the GitHub workflow succeeds, sync the GitHub-built prebuilds back to
-the local checkout when local `addon/bin` artifacts are needed:
-
-```powershell
-npm run sync:host-bridge-cli-prebuilds
-```
+Publication is complete only when the receipt uses
+`host-bridge.release-receipt.v1`, names the prepared `releaseSetId`, reports
+`status: complete`, and records verified immutable targets plus advanced mutable
+pointers.
 
 ## Report
 
-After running, report which local commands ran, whether semantic surface review
-ran, the inspected and resolved Profile and Zotero Library Agent bundle
-versions, whether either surface patch bump ran, whether semantic source files changed,
-whether the review found a
-specification-to-semantic mismatch, whether publication used an automatic
-`push` run or a manual dispatch run, the GitHub workflow run used for
-publication, the reason for any manual dispatch, whether
-`host-bridge-cli-prebuilds` was updated, whether
-`host-bridge/zotero-bridge-cli-bundle` was updated, whether
-`leike0813/zotero-library-agent-bundle` was updated, the bundle manifest path,
-whether its binary checksums match `addon/bin`, whether
-`leike0813/zotero-librarian-profile` was updated, the profile manifest path,
-whether profile binary checksums match `addon/bin`, whether local `addon/bin`
-artifacts were synced, and whether `cli/zotero-bridge/release.json` records the
-CLI version and checksum set used for the publish, and whether the release
-workflow passed `check:host-bridge-cli-prebuild-freshness` and
-`check:host-bridge-surface`.
+Report semantic-review status and edits; release plan classification; CLI, wrapper, Library Agent, and Profile version decisions; `releaseSetId`; exact CLI identity; local checks; expected or resolved prebuild freshness; workflow run; immutable tags and commits; mutable pointer result; and final release receipt status.

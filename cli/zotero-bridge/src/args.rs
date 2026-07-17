@@ -36,6 +36,12 @@ pub struct Cli {
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     #[command(
+        about = "Inspect the offline machine-readable CLI control surface",
+        long_about = "Read the embedded Host Bridge agent surface without connecting to Zotero."
+    )]
+    Surface(SurfaceArgs),
+
+    #[command(
         about = "Inspect Host Bridge status and manifest",
         long_about = "Read Host Bridge health and authenticated manifest metadata."
     )]
@@ -73,6 +79,48 @@ pub enum Command {
 
     #[command(about = "Debug-only Host Bridge diagnostics and controls")]
     Debug(DebugArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SurfaceArgs {
+    #[command(subcommand)]
+    pub command: SurfaceCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum SurfaceCommand {
+    #[command(about = "Print exact CLI build and command-catalog identity")]
+    Identity(SurfaceJsonArgs),
+
+    #[command(about = "Describe one canonical command")]
+    Describe(SurfaceDescribeArgs),
+
+    #[command(about = "Search canonical commands by task intent")]
+    Search(SurfaceSearchArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SurfaceJsonArgs {
+    #[arg(long, help = "Emit JSON (the CLI output contract is always JSON)")]
+    pub json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SurfaceDescribeArgs {
+    #[arg(required = true, num_args = 1.., help = "Canonical command, for example workflow submit")]
+    pub command: Vec<String>,
+
+    #[arg(long, help = "Emit JSON (the CLI output contract is always JSON)")]
+    pub json: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SurfaceSearchArgs {
+    #[arg(long, required = true, help = "Natural-language task intent")]
+    pub intent: String,
+
+    #[arg(long, help = "Emit JSON (the CLI output contract is always JSON)")]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1085,6 +1133,12 @@ pub enum WorkflowCommand {
         long_about = "Call POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply. Each --result must be AGENT_REQUEST_ID=BUNDLE_PATH. The host recalculates workflow apply readiness and requests Zotero-side approval before applying."
     )]
     AgentApply(WorkflowAgentApplyArgs),
+
+    #[command(
+        name = "agent-apply-status",
+        about = "Read the auditable apply-back receipt for an agent run"
+    )]
+    AgentApplyStatus(WorkflowAgentApplyStatusArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1205,6 +1259,12 @@ pub struct WorkflowAgentApplyArgs {
         help = "Apply-back result mapping. Repeat for multiple request bundles."
     )]
     pub results: Vec<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentApplyStatusArgs {
+    #[arg(help = "Agent run id returned by workflow agent-run")]
+    pub agent_run_id: String,
 }
 
 #[derive(Debug, Clone, Args)]

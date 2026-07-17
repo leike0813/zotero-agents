@@ -2,6 +2,19 @@
 
 Choose the narrowest Host Bridge command family that owns the requested behavior.
 
+## Intent Recipes
+
+| Intent | Canonical path | Evidence |
+| --- | --- | --- |
+| Read the current selection | `context selection get` | returned item refs and summaries |
+| Find literature | `library item search`, then `library item get` | stable item refs and current metadata |
+| Inspect a bounded collection | `library items list` with cursor | page metadata and returned refs |
+| Run a Host-owned workflow | `workflow describe`, `workflow validate`, `workflow submit` | `executionModes.hostOwned`, `workflowRunId` |
+| Accept an agent handoff | `workflow describe`, `workflow agent-run` | `executionModes.agentOwned`, `agentRunId`, request contracts |
+| Apply agent results | `workflow agent-apply`, then `workflow agent-apply-status` | apply receipt and per-request status |
+| Attach a generated file | `file upload`, then `mutation item attach-file` | checksum, `fileId`, target item ref |
+| Recover a failure | follow error `safeNextActions` or `nextCommand` | error envelope and current-state query |
+
 ## Context And Identity
 
 - Use `context current` or `context selection get` when the request refers to the current Zotero selection, collection, tab, item, note, or attachment.
@@ -38,3 +51,4 @@ Choose the narrowest Host Bridge command family that owns the requested behavior
 
 - Use `bridge status|manifest`, profile inspection, backend diagnostics, recent run history, and cache/index status before debug-only raw calls.
 - Use maintenance commands only when the request is diagnosis or repair and the command's approval boundary is understood.
+- If command identity is uncertain, use offline `surface identity`, `surface describe`, or `surface search` before connecting.

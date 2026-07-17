@@ -5,6 +5,7 @@ export type ZoteroBridgeCliRelease = {
   schema: string;
   version: string;
   buildFingerprint: string;
+  binariesBuildFingerprint: string;
   binaryAggregateSha256: string;
 };
 
@@ -26,6 +27,9 @@ export function readZoteroBridgeCliRelease(
     schema: String(release.schema || ""),
     version,
     buildFingerprint: String(release.buildFingerprint || ""),
+    binariesBuildFingerprint: String(
+      release.binariesBuildFingerprint || "",
+    ),
     binaryAggregateSha256: String(release.binaryAggregateSha256 || ""),
   };
 }

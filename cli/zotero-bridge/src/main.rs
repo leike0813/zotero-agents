@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod error;
 mod output;
+mod surface;
 
 use clap::Parser;
 
@@ -28,8 +29,12 @@ fn main() {
 
 fn run(cli: Cli) -> Result<serde_json::Value, CliError> {
     let command = cli.command.clone();
+    if let Command::Surface(args) = command {
+        return surface::run(args);
+    }
     let config = config::BridgeConfig::load(&cli)?;
     match command {
+        Command::Surface(_) => unreachable!("surface commands return before configuration loading"),
         Command::Bridge(args) => commands::bridge(&config, args),
         Command::Call(args) => commands::call(&config, args),
         Command::Library(args) => commands::library(&config, args),

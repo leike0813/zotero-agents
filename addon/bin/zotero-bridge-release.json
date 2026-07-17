@@ -1,11 +1,13 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
-  "version": "0.2.1",
-  "buildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
+  "version": "0.2.2",
+  "buildFingerprint": "bf8ce58c83754b990bd5f94b03c5d142be6afadf882b9d0af6829ea323fda2dc",
+  "binariesBuildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
   "fingerprintInputs": [
-    ".github/workflows/build-zotero-bridge-cli.yml",
+    ".github/workflows/release-host-bridge.yml",
     "cli/zotero-bridge/Cargo.lock",
     "cli/zotero-bridge/Cargo.toml",
+    "cli/zotero-bridge/src/agent-surface.json",
     "cli/zotero-bridge/src/args.rs",
     "cli/zotero-bridge/src/client.rs",
     "cli/zotero-bridge/src/commands.rs",
@@ -13,6 +15,7 @@
     "cli/zotero-bridge/src/error.rs",
     "cli/zotero-bridge/src/main.rs",
     "cli/zotero-bridge/src/output.rs",
+    "cli/zotero-bridge/src/surface.rs",
     "scripts/build-zotero-bridge-cli.mjs",
     "scripts/host-bridge-cli-release-governance.mjs",
     "scripts/package-zotero-bridge-cli.mjs"

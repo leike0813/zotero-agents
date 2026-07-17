@@ -11,6 +11,10 @@ import {
   readZoteroBridgeCliRelease,
   type ZoteroBridgeCliRelease,
 } from "./zotero-bridge-cli-release";
+import {
+  buildHostBridgeAgentSurfaceDescriptor,
+  serializeHostBridgeAgentSurface,
+} from "./host-bridge-agent-surface";
 
 const ROOT = process.cwd();
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
@@ -488,6 +492,10 @@ const TARGETS: RenderTarget[] = [
 
 const COPY_TARGETS: CopyTarget[] = [
   {
+    path: "skills_builtin/zotero-bridge-cli/assets/runner.json",
+    sourcePath: "skills_src/zotero-bridge-cli/runner.json",
+  },
+  {
     path: "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
     sourcePath: WRAPPER_AGENT_GUIDANCE_SOURCE,
   },
@@ -525,6 +533,24 @@ function main() {
   }
 
   let changed = false;
+  const agentSurface = serializeHostBridgeAgentSurface(
+    buildHostBridgeAgentSurfaceDescriptor(catalog),
+  );
+  for (const path of [
+    "cli/zotero-bridge/src/agent-surface.json",
+    "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
+  ]) {
+    const current = existsSync(join(ROOT, path)) ? read(path) : "";
+    if (current !== agentSurface) {
+      changed = true;
+      if (check) {
+        console.error(`[host-bridge-surface] ${path} is out of date`);
+      } else {
+        write(path, agentSurface);
+        console.log(`[host-bridge-surface] rendered ${path}`);
+      }
+    }
+  }
   for (const target of TARGETS) {
     const source = target.sourcePath
       ? read(target.sourcePath)

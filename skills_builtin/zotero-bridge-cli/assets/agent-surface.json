@@ -1,0 +1,3911 @@
+{
+  "schema": "host-bridge.agent-surface.v1",
+  "protocol": "host-bridge.v1",
+  "cliSchema": "zotero-bridge.cli.v1",
+  "commandCatalogChecksum": "25c68c70847bf44a78c0022c99712dda123d022f2b455e69f6f7ddc52d691874",
+  "commands": [
+    {
+      "command": "bridge backend list",
+      "argv": [
+        "bridge",
+        "backend",
+        "list"
+      ],
+      "summary": "bridge backend list maps to GET /bridge/v1/diagnostics/backends.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/diagnostics/backends"
+        }
+      ],
+      "intents": [
+        "bridge backend list"
+      ]
+    },
+    {
+      "command": "bridge backend status",
+      "argv": [
+        "bridge",
+        "backend",
+        "status"
+      ],
+      "summary": "bridge backend status maps to GET /bridge/v1/diagnostics/backends/{backendId}.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/diagnostics/backends/{backendId}"
+        }
+      ],
+      "intents": [
+        "bridge backend status"
+      ]
+    },
+    {
+      "command": "bridge manifest",
+      "argv": [
+        "bridge",
+        "manifest"
+      ],
+      "summary": "bridge manifest maps to GET /bridge/v1/manifest.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/manifest"
+        }
+      ],
+      "intents": [
+        "bridge manifest"
+      ]
+    },
+    {
+      "command": "bridge profile diagnose",
+      "argv": [
+        "bridge",
+        "profile",
+        "diagnose"
+      ],
+      "summary": "bridge profile diagnose maps to GET /bridge/v1/diagnostics/profile/diagnose.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/diagnostics/profile/diagnose"
+        }
+      ],
+      "intents": [
+        "bridge profile diagnose"
+      ]
+    },
+    {
+      "command": "bridge profile inspect",
+      "argv": [
+        "bridge",
+        "profile",
+        "inspect"
+      ],
+      "summary": "bridge profile inspect maps to GET /bridge/v1/diagnostics/profile.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/diagnostics/profile"
+        }
+      ],
+      "intents": [
+        "bridge profile inspect"
+      ]
+    },
+    {
+      "command": "bridge status",
+      "argv": [
+        "bridge",
+        "status"
+      ],
+      "summary": "bridge status maps to GET /bridge/v1/health.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/health"
+        }
+      ],
+      "intents": [
+        "bridge status"
+      ]
+    },
+    {
+      "command": "context collection open",
+      "argv": [
+        "context",
+        "collection",
+        "open"
+      ],
+      "summary": "context collection open maps to POST /bridge/v1/context/collections/open.",
+      "category": "navigation",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "collectionKey"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/context/collections/open"
+        }
+      ],
+      "intents": [
+        "context collection open"
+      ]
+    },
+    {
+      "command": "context current",
+      "argv": [
+        "context",
+        "current"
+      ],
+      "summary": "context current maps to context.get_current_view, GET /bridge/v1/context/current.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "context.get_current_view"
+        },
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/context/current"
+        }
+      ],
+      "intents": [
+        "current pane",
+        "current view",
+        "active zotero"
+      ]
+    },
+    {
+      "command": "context item open",
+      "argv": [
+        "context",
+        "item",
+        "open"
+      ],
+      "summary": "context item open maps to POST /bridge/v1/context/items/open.",
+      "category": "navigation",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "itemRef"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/context/items/open"
+        }
+      ],
+      "intents": [
+        "context item open"
+      ]
+    },
+    {
+      "command": "context note open",
+      "argv": [
+        "context",
+        "note",
+        "open"
+      ],
+      "summary": "context note open maps to POST /bridge/v1/context/notes/open.",
+      "category": "navigation",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "noteRef"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/context/notes/open"
+        }
+      ],
+      "intents": [
+        "context note open"
+      ]
+    },
+    {
+      "command": "context selection get",
+      "argv": [
+        "context",
+        "selection",
+        "get"
+      ],
+      "summary": "context selection get maps to context.get_selected_items, GET /bridge/v1/context/selection.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [
+        "itemRef"
+      ],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "context.get_selected_items"
+        },
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/context/selection"
+        }
+      ],
+      "intents": [
+        "selected items",
+        "current selection",
+        "read selection"
+      ]
+    },
+    {
+      "command": "context selection open",
+      "argv": [
+        "context",
+        "selection",
+        "open"
+      ],
+      "summary": "context selection open maps to POST /bridge/v1/context/selection/open.",
+      "category": "navigation",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "itemRef"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/context/selection/open"
+        }
+      ],
+      "intents": [
+        "context selection open"
+      ]
+    },
+    {
+      "command": "debug acp-skill-run reapply-result",
+      "argv": [
+        "debug",
+        "acp-skill-run",
+        "reapply-result"
+      ],
+      "summary": "debug acp-skill-run reapply-result maps to debug.acpSkillRun.reapplyResult.",
+      "category": "debug",
+      "danger": "high",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "debug.acpSkillRun.reapplyResult"
+        }
+      ],
+      "intents": [
+        "debug acp skill run reapply result"
+      ]
+    },
+    {
+      "command": "debug persistence",
+      "argv": [
+        "debug",
+        "persistence"
+      ],
+      "summary": "debug persistence maps to debug.persistence.snapshot.",
+      "category": "debug",
+      "danger": "high",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "debug.persistence.snapshot"
+        }
+      ],
+      "intents": [
+        "debug persistence"
+      ]
+    },
+    {
+      "command": "debug status",
+      "argv": [
+        "debug",
+        "status"
+      ],
+      "summary": "debug status maps to debug.status.",
+      "category": "debug",
+      "danger": "high",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "debug.status"
+        }
+      ],
+      "intents": [
+        "debug status"
+      ]
+    },
+    {
+      "command": "debug synthesis diff",
+      "argv": [
+        "debug",
+        "synthesis",
+        "diff"
+      ],
+      "summary": "debug synthesis diff maps to debug.synthesis.diff.",
+      "category": "debug",
+      "danger": "high",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "debug.synthesis.diff"
+        }
+      ],
+      "intents": [
+        "debug synthesis diff"
+      ]
+    },
+    {
+      "command": "debug tasks",
+      "argv": [
+        "debug",
+        "tasks"
+      ],
+      "summary": "debug tasks maps to debug.tasks.snapshot.",
+      "category": "debug",
+      "danger": "high",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "debug.tasks.snapshot"
+        }
+      ],
+      "intents": [
+        "debug tasks"
+      ]
+    },
+    {
+      "command": "file download",
+      "argv": [
+        "file",
+        "download"
+      ],
+      "summary": "file download maps to GET /bridge/v1/files/{fileId}.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "file",
+      "consumes": [
+        "fileId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/files/{fileId}"
+        }
+      ],
+      "intents": [
+        "file download"
+      ]
+    },
+    {
+      "command": "file upload",
+      "argv": [
+        "file",
+        "upload"
+      ],
+      "summary": "file upload maps to POST /bridge/v1/files/upload.",
+      "category": "write",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [
+        "fileId"
+      ],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/files/upload"
+        }
+      ],
+      "intents": [
+        "upload file",
+        "create file handle"
+      ]
+    },
+    {
+      "command": "library annotation export",
+      "argv": [
+        "library",
+        "annotation",
+        "export"
+      ],
+      "summary": "library annotation export maps to library.export_annotations.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.export_annotations"
+        }
+      ],
+      "intents": [
+        "library annotation export"
+      ]
+    },
+    {
+      "command": "library annotation list",
+      "argv": [
+        "library",
+        "annotation",
+        "list"
+      ],
+      "summary": "library annotation list maps to library.list_annotations.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.list_annotations"
+        }
+      ],
+      "intents": [
+        "library annotation list"
+      ]
+    },
+    {
+      "command": "library item attachments",
+      "argv": [
+        "library",
+        "item",
+        "attachments"
+      ],
+      "summary": "library item attachments maps to library.get_item_attachments.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.get_item_attachments"
+        }
+      ],
+      "intents": [
+        "library item attachments"
+      ]
+    },
+    {
+      "command": "library item get",
+      "argv": [
+        "library",
+        "item",
+        "get"
+      ],
+      "summary": "library item get maps to library.get_item_detail.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.get_item_detail"
+        }
+      ],
+      "intents": [
+        "library item get"
+      ]
+    },
+    {
+      "command": "library item notes",
+      "argv": [
+        "library",
+        "item",
+        "notes"
+      ],
+      "summary": "library item notes maps to library.get_item_notes.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.get_item_notes"
+        }
+      ],
+      "intents": [
+        "library item notes"
+      ]
+    },
+    {
+      "command": "library item search",
+      "argv": [
+        "library",
+        "item",
+        "search"
+      ],
+      "summary": "library item search maps to library.search_items.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.search_items"
+        }
+      ],
+      "intents": [
+        "find literature",
+        "search library",
+        "find item"
+      ]
+    },
+    {
+      "command": "library items list",
+      "argv": [
+        "library",
+        "items",
+        "list"
+      ],
+      "summary": "library items list maps to library.list_items.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.list_items"
+        }
+      ],
+      "intents": [
+        "list library",
+        "inventory",
+        "page items"
+      ]
+    },
+    {
+      "command": "library note get",
+      "argv": [
+        "library",
+        "note",
+        "get"
+      ],
+      "summary": "library note get maps to library.get_note_detail.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.get_note_detail"
+        }
+      ],
+      "intents": [
+        "library note get"
+      ]
+    },
+    {
+      "command": "library note payload",
+      "argv": [
+        "library",
+        "note",
+        "payload"
+      ],
+      "summary": "library note payload maps to library.get_note_payload.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.get_note_payload"
+        }
+      ],
+      "intents": [
+        "library note payload"
+      ]
+    },
+    {
+      "command": "library note payloads",
+      "argv": [
+        "library",
+        "note",
+        "payloads"
+      ],
+      "summary": "library note payloads maps to library.list_note_payloads.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.list_note_payloads"
+        }
+      ],
+      "intents": [
+        "library note payloads"
+      ]
+    },
+    {
+      "command": "library readiness audit",
+      "argv": [
+        "library",
+        "readiness",
+        "audit"
+      ],
+      "summary": "library readiness audit maps to library.readiness_audit.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.readiness_audit"
+        }
+      ],
+      "intents": [
+        "library readiness audit"
+      ]
+    },
+    {
+      "command": "library readiness missing-analysis",
+      "argv": [
+        "library",
+        "readiness",
+        "missing-analysis"
+      ],
+      "summary": "library readiness missing-analysis maps to library.readiness_audit.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.readiness_audit"
+        }
+      ],
+      "intents": [
+        "library readiness missing analysis"
+      ]
+    },
+    {
+      "command": "library readiness missing-markdown",
+      "argv": [
+        "library",
+        "readiness",
+        "missing-markdown"
+      ],
+      "summary": "library readiness missing-markdown maps to library.readiness_audit.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.readiness_audit"
+        }
+      ],
+      "intents": [
+        "library readiness missing markdown"
+      ]
+    },
+    {
+      "command": "library readiness missing-pdf",
+      "argv": [
+        "library",
+        "readiness",
+        "missing-pdf"
+      ],
+      "summary": "library readiness missing-pdf maps to library.readiness_audit.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.readiness_audit"
+        }
+      ],
+      "intents": [
+        "library readiness missing pdf"
+      ]
+    },
+    {
+      "command": "library snapshot",
+      "argv": [
+        "library",
+        "snapshot"
+      ],
+      "summary": "library snapshot maps to library.sync_snapshot.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library.sync_snapshot"
+        }
+      ],
+      "intents": [
+        "library snapshot"
+      ]
+    },
+    {
+      "command": "mutation apply",
+      "argv": [
+        "mutation",
+        "apply"
+      ],
+      "summary": "mutation apply maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation apply"
+      ]
+    },
+    {
+      "command": "mutation collection add-items",
+      "argv": [
+        "mutation",
+        "collection",
+        "add-items"
+      ],
+      "summary": "mutation collection add-items maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation collection add items"
+      ]
+    },
+    {
+      "command": "mutation collection create",
+      "argv": [
+        "mutation",
+        "collection",
+        "create"
+      ],
+      "summary": "mutation collection create maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation collection create"
+      ]
+    },
+    {
+      "command": "mutation collection remove-items",
+      "argv": [
+        "mutation",
+        "collection",
+        "remove-items"
+      ],
+      "summary": "mutation collection remove-items maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation collection remove items"
+      ]
+    },
+    {
+      "command": "mutation item attach-file",
+      "argv": [
+        "mutation",
+        "item",
+        "attach-file"
+      ],
+      "summary": "mutation item attach-file maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "itemRef",
+        "fileId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "attach file",
+        "write attachment"
+      ]
+    },
+    {
+      "command": "mutation item update",
+      "argv": [
+        "mutation",
+        "item",
+        "update"
+      ],
+      "summary": "mutation item update maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation item update"
+      ]
+    },
+    {
+      "command": "mutation literature-ingest",
+      "argv": [
+        "mutation",
+        "literature-ingest"
+      ],
+      "summary": "mutation literature-ingest maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation literature ingest"
+      ]
+    },
+    {
+      "command": "mutation note create",
+      "argv": [
+        "mutation",
+        "note",
+        "create"
+      ],
+      "summary": "mutation note create maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation note create"
+      ]
+    },
+    {
+      "command": "mutation note update",
+      "argv": [
+        "mutation",
+        "note",
+        "update"
+      ],
+      "summary": "mutation note update maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation note update"
+      ]
+    },
+    {
+      "command": "mutation note upsert-payload",
+      "argv": [
+        "mutation",
+        "note",
+        "upsert-payload"
+      ],
+      "summary": "mutation note upsert-payload maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation note upsert payload"
+      ]
+    },
+    {
+      "command": "mutation preview",
+      "argv": [
+        "mutation",
+        "preview"
+      ],
+      "summary": "mutation preview maps to mutation.preview.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.preview"
+        }
+      ],
+      "intents": [
+        "mutation preview"
+      ]
+    },
+    {
+      "command": "mutation tag add",
+      "argv": [
+        "mutation",
+        "tag",
+        "add"
+      ],
+      "summary": "mutation tag add maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation tag add"
+      ]
+    },
+    {
+      "command": "mutation tag remove",
+      "argv": [
+        "mutation",
+        "tag",
+        "remove"
+      ],
+      "summary": "mutation tag remove maps to mutation.execute.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "mutation.execute"
+        }
+      ],
+      "intents": [
+        "mutation tag remove"
+      ]
+    },
+    {
+      "command": "product download",
+      "argv": [
+        "product",
+        "download"
+      ],
+      "summary": "product download maps to workflow_products.export.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "file",
+      "consumes": [
+        "productId"
+      ],
+      "returns": [
+        "fileId"
+      ],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "workflow_products.export"
+        }
+      ],
+      "intents": [
+        "product download"
+      ]
+    },
+    {
+      "command": "product get",
+      "argv": [
+        "product",
+        "get"
+      ],
+      "summary": "product get maps to workflow_products.get.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "productId"
+      ],
+      "returns": [
+        "productId"
+      ],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "workflow_products.get"
+        }
+      ],
+      "intents": [
+        "product get"
+      ]
+    },
+    {
+      "command": "product list",
+      "argv": [
+        "product",
+        "list"
+      ],
+      "summary": "product list maps to workflow_products.list.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "workflow_products.list"
+        }
+      ],
+      "intents": [
+        "product list"
+      ]
+    },
+    {
+      "command": "product remove",
+      "argv": [
+        "product",
+        "remove"
+      ],
+      "summary": "product remove maps to workflow_products.remove.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "productId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "workflow_products.remove"
+        }
+      ],
+      "intents": [
+        "product remove"
+      ]
+    },
+    {
+      "command": "run active",
+      "argv": [
+        "run",
+        "active"
+      ],
+      "summary": "run active maps to GET /bridge/v1/tasks/active.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/tasks/active"
+        }
+      ],
+      "intents": [
+        "run active"
+      ]
+    },
+    {
+      "command": "run cancel",
+      "argv": [
+        "run",
+        "cancel"
+      ],
+      "summary": "run cancel maps to POST /bridge/v1/workflows/runs/{workflowRunId}/cancel.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "workflowRunId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"
+        }
+      ],
+      "intents": [
+        "run cancel"
+      ]
+    },
+    {
+      "command": "run get",
+      "argv": [
+        "run",
+        "get"
+      ],
+      "summary": "run get maps to GET /bridge/v1/workflows/runs/{workflowRunId}.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "workflowRunId"
+      ],
+      "returns": [
+        "skillRunId"
+      ],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/workflows/runs/{workflowRunId}"
+        }
+      ],
+      "intents": [
+        "run get"
+      ]
+    },
+    {
+      "command": "run list",
+      "argv": [
+        "run",
+        "list"
+      ],
+      "summary": "run list maps to GET /bridge/v1/tasks.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/tasks"
+        }
+      ],
+      "intents": [
+        "run list"
+      ]
+    },
+    {
+      "command": "run notification ack",
+      "argv": [
+        "run",
+        "notification",
+        "ack"
+      ],
+      "summary": "run notification ack maps to POST /bridge/v1/notifications/ack.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/notifications/ack"
+        }
+      ],
+      "intents": [
+        "run notification ack"
+      ]
+    },
+    {
+      "command": "run notification list",
+      "argv": [
+        "run",
+        "notification",
+        "list"
+      ],
+      "summary": "run notification list maps to GET /bridge/v1/notifications.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/notifications"
+        }
+      ],
+      "intents": [
+        "run notification list"
+      ]
+    },
+    {
+      "command": "run notification wait",
+      "argv": [
+        "run",
+        "notification",
+        "wait"
+      ],
+      "summary": "run notification wait maps to GET /bridge/v1/notifications.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/notifications"
+        }
+      ],
+      "intents": [
+        "run notification wait"
+      ]
+    },
+    {
+      "command": "run permission get",
+      "argv": [
+        "run",
+        "permission",
+        "get"
+      ],
+      "summary": "run permission get maps to GET /bridge/v1/permissions/{permissionRequestId}.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/permissions/{permissionRequestId}"
+        }
+      ],
+      "intents": [
+        "run permission get"
+      ]
+    },
+    {
+      "command": "run permission pending",
+      "argv": [
+        "run",
+        "permission",
+        "pending"
+      ],
+      "summary": "run permission pending maps to GET /bridge/v1/permissions/pending.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/permissions/pending"
+        }
+      ],
+      "intents": [
+        "run permission pending"
+      ]
+    },
+    {
+      "command": "run recent",
+      "argv": [
+        "run",
+        "recent"
+      ],
+      "summary": "run recent maps to GET /bridge/v1/tasks/recent.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/tasks/recent"
+        }
+      ],
+      "intents": [
+        "run recent"
+      ]
+    },
+    {
+      "command": "run skill connect",
+      "argv": [
+        "run",
+        "skill",
+        "connect"
+      ],
+      "summary": "run skill connect maps to POST /bridge/v1/skill-runs/{skillRunId}/connect.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "skillRunId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/skill-runs/{skillRunId}/connect"
+        }
+      ],
+      "intents": [
+        "run skill connect"
+      ]
+    },
+    {
+      "command": "run skill events",
+      "argv": [
+        "run",
+        "skill",
+        "events"
+      ],
+      "summary": "run skill events maps to GET /bridge/v1/skill-runs/{skillRunId}/events.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/skill-runs/{skillRunId}/events"
+        }
+      ],
+      "intents": [
+        "run skill events"
+      ]
+    },
+    {
+      "command": "run skill get",
+      "argv": [
+        "run",
+        "skill",
+        "get"
+      ],
+      "summary": "run skill get maps to GET /bridge/v1/skill-runs/{skillRunId}.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "skillRunId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/skill-runs/{skillRunId}"
+        }
+      ],
+      "intents": [
+        "run skill get"
+      ]
+    },
+    {
+      "command": "run skill recent",
+      "argv": [
+        "run",
+        "skill",
+        "recent"
+      ],
+      "summary": "run skill recent maps to GET /bridge/v1/skill-runs/recent.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/skill-runs/recent"
+        }
+      ],
+      "intents": [
+        "run skill recent"
+      ]
+    },
+    {
+      "command": "run skill reply",
+      "argv": [
+        "run",
+        "skill",
+        "reply"
+      ],
+      "summary": "run skill reply maps to POST /bridge/v1/skill-runs/{skillRunId}/reply.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "skillRunId"
+      ],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/skill-runs/{skillRunId}/reply"
+        }
+      ],
+      "intents": [
+        "run skill reply"
+      ]
+    },
+    {
+      "command": "run workflow recent",
+      "argv": [
+        "run",
+        "workflow",
+        "recent"
+      ],
+      "summary": "run workflow recent maps to GET /bridge/v1/workflows/runs.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/workflows/runs"
+        }
+      ],
+      "intents": [
+        "run workflow recent"
+      ]
+    },
+    {
+      "command": "surface describe",
+      "argv": [
+        "surface",
+        "describe"
+      ],
+      "summary": "surface describe maps to embedded host-bridge.agent-surface.v1.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "surface identity"
+      ],
+      "targets": [
+        {
+          "kind": "service",
+          "target": "embedded host-bridge.agent-surface.v1"
+        }
+      ],
+      "intents": [
+        "describe command",
+        "command contract"
+      ]
+    },
+    {
+      "command": "surface identity",
+      "argv": [
+        "surface",
+        "identity"
+      ],
+      "summary": "surface identity maps to embedded host-bridge.agent-surface.v1.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface describe",
+        "surface search"
+      ],
+      "targets": [
+        {
+          "kind": "service",
+          "target": "embedded host-bridge.agent-surface.v1"
+        }
+      ],
+      "intents": [
+        "check compatibility",
+        "verify cli",
+        "exact identity"
+      ]
+    },
+    {
+      "command": "surface search",
+      "argv": [
+        "surface",
+        "search"
+      ],
+      "summary": "surface search maps to embedded host-bridge.agent-surface.v1.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface describe",
+        "surface identity"
+      ],
+      "targets": [
+        {
+          "kind": "service",
+          "target": "embedded host-bridge.agent-surface.v1"
+        }
+      ],
+      "intents": [
+        "find command",
+        "search intent",
+        "discover command"
+      ]
+    },
+    {
+      "command": "synthesis artifact export-filtered",
+      "argv": [
+        "synthesis",
+        "artifact",
+        "export-filtered"
+      ],
+      "summary": "synthesis artifact export-filtered maps to paper_artifacts.export_filtered.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "file",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "paper_artifacts.export_filtered"
+        }
+      ],
+      "intents": [
+        "synthesis artifact export filtered"
+      ]
+    },
+    {
+      "command": "synthesis artifact manifest",
+      "argv": [
+        "synthesis",
+        "artifact",
+        "manifest"
+      ],
+      "summary": "synthesis artifact manifest maps to paper_artifacts.get_manifest.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "paper_artifacts.get_manifest"
+        }
+      ],
+      "intents": [
+        "synthesis artifact manifest"
+      ]
+    },
+    {
+      "command": "synthesis artifact read",
+      "argv": [
+        "synthesis",
+        "artifact",
+        "read"
+      ],
+      "summary": "synthesis artifact read maps to paper_artifacts.read.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "paper_artifacts.read"
+        }
+      ],
+      "intents": [
+        "synthesis artifact read"
+      ]
+    },
+    {
+      "command": "synthesis artifact resolve-topic-digest",
+      "argv": [
+        "synthesis",
+        "artifact",
+        "resolve-topic-digest"
+      ],
+      "summary": "synthesis artifact resolve-topic-digest maps to paper_artifacts.resolve_topic_digest.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "paper_artifacts.resolve_topic_digest"
+        }
+      ],
+      "intents": [
+        "synthesis artifact resolve topic digest"
+      ]
+    },
+    {
+      "command": "synthesis cache invalidate",
+      "argv": [
+        "synthesis",
+        "cache",
+        "invalidate"
+      ],
+      "summary": "synthesis cache invalidate maps to POST /bridge/v1/synthesis/cache/invalidate.",
+      "category": "maintenance",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/synthesis/cache/invalidate"
+        }
+      ],
+      "intents": [
+        "synthesis cache invalidate"
+      ]
+    },
+    {
+      "command": "synthesis cache status",
+      "argv": [
+        "synthesis",
+        "cache",
+        "status"
+      ],
+      "summary": "synthesis cache status maps to GET /bridge/v1/synthesis/cache/status.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/synthesis/cache/status"
+        }
+      ],
+      "intents": [
+        "synthesis cache status"
+      ]
+    },
+    {
+      "command": "synthesis concept query",
+      "argv": [
+        "synthesis",
+        "concept",
+        "query"
+      ],
+      "summary": "synthesis concept query maps to concepts.query.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "concepts.query"
+        }
+      ],
+      "intents": [
+        "synthesis concept query"
+      ]
+    },
+    {
+      "command": "synthesis graph get-layout",
+      "argv": [
+        "synthesis",
+        "graph",
+        "get-layout"
+      ],
+      "summary": "synthesis graph get-layout maps to citation_graph.get_layout.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.get_layout"
+        }
+      ],
+      "intents": [
+        "synthesis graph get layout"
+      ]
+    },
+    {
+      "command": "synthesis graph get-metrics",
+      "argv": [
+        "synthesis",
+        "graph",
+        "get-metrics"
+      ],
+      "summary": "synthesis graph get-metrics maps to citation_graph.get_metrics.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.get_metrics"
+        }
+      ],
+      "intents": [
+        "synthesis graph get metrics"
+      ]
+    },
+    {
+      "command": "synthesis graph get-slice",
+      "argv": [
+        "synthesis",
+        "graph",
+        "get-slice"
+      ],
+      "summary": "synthesis graph get-slice maps to citation_graph.get_slice.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.get_slice"
+        }
+      ],
+      "intents": [
+        "synthesis graph get slice"
+      ]
+    },
+    {
+      "command": "synthesis graph overview",
+      "argv": [
+        "synthesis",
+        "graph",
+        "overview"
+      ],
+      "summary": "synthesis graph overview maps to citation_graph.get_overview.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.get_overview"
+        }
+      ],
+      "intents": [
+        "synthesis graph overview"
+      ]
+    },
+    {
+      "command": "synthesis graph query-cluster",
+      "argv": [
+        "synthesis",
+        "graph",
+        "query-cluster"
+      ],
+      "summary": "synthesis graph query-cluster maps to citation_graph.query_cluster.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.query_cluster"
+        }
+      ],
+      "intents": [
+        "synthesis graph query cluster"
+      ]
+    },
+    {
+      "command": "synthesis graph rank-external-references",
+      "argv": [
+        "synthesis",
+        "graph",
+        "rank-external-references"
+      ],
+      "summary": "synthesis graph rank-external-references maps to citation_graph.rank_external_references.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.rank_external_references"
+        }
+      ],
+      "intents": [
+        "synthesis graph rank external references"
+      ]
+    },
+    {
+      "command": "synthesis graph rank-library-papers",
+      "argv": [
+        "synthesis",
+        "graph",
+        "rank-library-papers"
+      ],
+      "summary": "synthesis graph rank-library-papers maps to citation_graph.rank_library_papers.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.rank_library_papers"
+        }
+      ],
+      "intents": [
+        "synthesis graph rank library papers"
+      ]
+    },
+    {
+      "command": "synthesis graph refresh-metrics",
+      "argv": [
+        "synthesis",
+        "graph",
+        "refresh-metrics"
+      ],
+      "summary": "synthesis graph refresh-metrics maps to citation_graph.refresh_metrics.",
+      "category": "maintenance",
+      "danger": "high",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "surface describe",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.refresh_metrics"
+        }
+      ],
+      "intents": [
+        "synthesis graph refresh metrics"
+      ]
+    },
+    {
+      "command": "synthesis index library get",
+      "argv": [
+        "synthesis",
+        "index",
+        "library",
+        "get"
+      ],
+      "summary": "synthesis index library get maps to library_index.get.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "library_index.get"
+        }
+      ],
+      "intents": [
+        "synthesis index library get"
+      ]
+    },
+    {
+      "command": "synthesis index reference get",
+      "argv": [
+        "synthesis",
+        "index",
+        "reference",
+        "get"
+      ],
+      "summary": "synthesis index reference get maps to reference_index.get.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "reference_index.get"
+        }
+      ],
+      "intents": [
+        "synthesis index reference get"
+      ]
+    },
+    {
+      "command": "synthesis index status",
+      "argv": [
+        "synthesis",
+        "index",
+        "status"
+      ],
+      "summary": "synthesis index status maps to GET /bridge/v1/synthesis/index/status.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/synthesis/index/status"
+        }
+      ],
+      "intents": [
+        "synthesis index status"
+      ]
+    },
+    {
+      "command": "synthesis insight attention-queue",
+      "argv": [
+        "synthesis",
+        "insight",
+        "attention-queue"
+      ],
+      "summary": "synthesis insight attention-queue maps to insights.get_attention_queue.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "insights.get_attention_queue"
+        }
+      ],
+      "intents": [
+        "synthesis insight attention queue"
+      ]
+    },
+    {
+      "command": "synthesis resolver resolve",
+      "argv": [
+        "synthesis",
+        "resolver",
+        "resolve"
+      ],
+      "summary": "synthesis resolver resolve maps to resolvers.resolve.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "resolvers.resolve"
+        }
+      ],
+      "intents": [
+        "synthesis resolver resolve"
+      ]
+    },
+    {
+      "command": "synthesis schema get",
+      "argv": [
+        "synthesis",
+        "schema",
+        "get"
+      ],
+      "summary": "synthesis schema get maps to schemas.get.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "schemas.get"
+        }
+      ],
+      "intents": [
+        "synthesis schema get"
+      ]
+    },
+    {
+      "command": "synthesis topic find-by-paper-ref",
+      "argv": [
+        "synthesis",
+        "topic",
+        "find-by-paper-ref"
+      ],
+      "summary": "synthesis topic find-by-paper-ref maps to topics.find_by_paper_ref.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.find_by_paper_ref"
+        }
+      ],
+      "intents": [
+        "synthesis topic find by paper ref"
+      ]
+    },
+    {
+      "command": "synthesis topic get-context",
+      "argv": [
+        "synthesis",
+        "topic",
+        "get-context"
+      ],
+      "summary": "synthesis topic get-context maps to topics.get_context.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.get_context"
+        }
+      ],
+      "intents": [
+        "synthesis topic get context"
+      ]
+    },
+    {
+      "command": "synthesis topic get-report",
+      "argv": [
+        "synthesis",
+        "topic",
+        "get-report"
+      ],
+      "summary": "synthesis topic get-report maps to topics.get_report.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.get_report"
+        }
+      ],
+      "intents": [
+        "synthesis topic get report"
+      ]
+    },
+    {
+      "command": "synthesis topic get-review-input",
+      "argv": [
+        "synthesis",
+        "topic",
+        "get-review-input"
+      ],
+      "summary": "synthesis topic get-review-input maps to topics.get_review_input.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.get_review_input"
+        }
+      ],
+      "intents": [
+        "synthesis topic get review input"
+      ]
+    },
+    {
+      "command": "synthesis topic list",
+      "argv": [
+        "synthesis",
+        "topic",
+        "list"
+      ],
+      "summary": "synthesis topic list maps to topics.list.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "topics.list"
+        }
+      ],
+      "intents": [
+        "synthesis topic list"
+      ]
+    },
+    {
+      "command": "workflow agent-apply",
+      "argv": [
+        "workflow",
+        "agent-apply"
+      ],
+      "summary": "workflow agent-apply maps to POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "agentRunId",
+        "agentRequestId"
+      ],
+      "returns": [
+        "applyReceipt"
+      ],
+      "retryable": false,
+      "stateChanged": true,
+      "safeNextActions": [
+        "workflow agent-apply-status",
+        "surface describe"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+        }
+      ],
+      "intents": [
+        "apply results",
+        "write back",
+        "apply handoff"
+      ]
+    },
+    {
+      "command": "workflow agent-apply-status",
+      "argv": [
+        "workflow",
+        "agent-apply-status"
+      ],
+      "summary": "workflow agent-apply-status maps to GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "agentRunId"
+      ],
+      "returns": [
+        "applyReceipt"
+      ],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply"
+        }
+      ],
+      "intents": [
+        "apply status",
+        "apply receipt",
+        "recover apply"
+      ]
+    },
+    {
+      "command": "workflow agent-run",
+      "argv": [
+        "workflow",
+        "agent-run"
+      ],
+      "summary": "workflow agent-run maps to POST /bridge/v1/workflows/agent-run.",
+      "category": "write",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "itemRef"
+      ],
+      "returns": [
+        "agentRunId"
+      ],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "workflow agent-apply",
+        "workflow agent-apply-status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/agent-run"
+        }
+      ],
+      "intents": [
+        "agent owned workflow",
+        "handoff workflow"
+      ]
+    },
+    {
+      "command": "workflow describe",
+      "argv": [
+        "workflow",
+        "describe"
+      ],
+      "summary": "workflow describe maps to POST /bridge/v1/workflows/describe.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/describe"
+        }
+      ],
+      "intents": [
+        "workflow describe"
+      ]
+    },
+    {
+      "command": "workflow list",
+      "argv": [
+        "workflow",
+        "list"
+      ],
+      "summary": "workflow list maps to GET /bridge/v1/workflows.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "cursor",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/workflows"
+        }
+      ],
+      "intents": [
+        "workflow list"
+      ]
+    },
+    {
+      "command": "workflow requirements",
+      "argv": [
+        "workflow",
+        "requirements"
+      ],
+      "summary": "workflow requirements maps to POST /bridge/v1/workflows/requirements.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/requirements"
+        }
+      ],
+      "intents": [
+        "workflow requirements"
+      ]
+    },
+    {
+      "command": "workflow submit",
+      "argv": [
+        "workflow",
+        "submit"
+      ],
+      "summary": "workflow submit maps to POST /bridge/v1/workflows/submit.",
+      "category": "write",
+      "danger": "review",
+      "approval": "zotero-ui-required",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [
+        "itemRef"
+      ],
+      "returns": [
+        "workflowRunId"
+      ],
+      "retryable": true,
+      "stateChanged": true,
+      "safeNextActions": [
+        "run get",
+        "run active"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/submit"
+        }
+      ],
+      "intents": [
+        "host owned workflow",
+        "submit workflow"
+      ]
+    },
+    {
+      "command": "workflow validate",
+      "argv": [
+        "workflow",
+        "validate"
+      ],
+      "summary": "workflow validate maps to POST /bridge/v1/workflows/validate.",
+      "category": "read",
+      "danger": "none",
+      "approval": "none",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "pagination": "none",
+      "consumes": [],
+      "returns": [],
+      "retryable": true,
+      "stateChanged": false,
+      "safeNextActions": [
+        "surface search",
+        "bridge status"
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/validate"
+        }
+      ],
+      "intents": [
+        "workflow validate"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.dev/schemas/host-bridge.agent-surface.v1.schema.json",
+  "title": "Host Bridge Agent Surface",
+  "type": "object",
+  "required": [
+    "schema",
+    "protocol",
+    "cliSchema",
+    "commandCatalogChecksum",
+    "commands"
+  ],
+  "properties": {
+    "schema": { "const": "host-bridge.agent-surface.v1" },
+    "protocol": { "const": "host-bridge.v1" },
+    "cliSchema": { "const": "zotero-bridge.cli.v1" },
+    "commandCatalogChecksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "command",
+          "argv",
+          "category",
+          "danger",
+          "approval",
+          "inputSchema",
+          "outputSchema",
+          "pagination",
+          "consumes",
+          "returns",
+          "retryable",
+          "stateChanged",
+          "safeNextActions",
+          "targets",
+          "intents"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false
+}

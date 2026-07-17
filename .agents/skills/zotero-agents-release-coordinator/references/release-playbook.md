@@ -31,7 +31,9 @@ gate.
 ## Stage 3: Host Bridge
 
 If the gate returns `run_host_bridge_pipeline`, use `$host-bridge-release-pipeline`.
-After the Host Bridge pipeline is complete, rerun:
+Record the prepared `releaseSetId`; preparation and local verification do not
+satisfy this gate. Publish or resume that exact release set, then verify its
+`host-bridge.release-receipt.v1` has `status: complete` before rerunning:
 
 ```powershell
 npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --host-bridge-done
