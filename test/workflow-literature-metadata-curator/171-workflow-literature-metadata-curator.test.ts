@@ -329,6 +329,30 @@ describe("workflow: literature-metadata-curator", function () {
       source: "literature-metadata-search",
       metadata: {
         itemType: "thesis",
+        originalTitle: {
+          value: "示例文献",
+          language: "zh-CN",
+          script: "Hans",
+        },
+        alternateTitles: [
+          {
+            value: "Example Literature",
+            role: "translated",
+            language: "en",
+            script: "Latn",
+          },
+        ],
+        language: "zh-CN",
+        script: "Hans",
+        containers: [
+          {
+            role: "journal",
+            title: "示例期刊",
+            language: "zh-CN",
+            script: "Hans",
+          },
+        ],
+        creatorCompleteness: "complete",
         fields: {
           title: "A Partial Metadata Record",
           DOI: "10.1000/example",
@@ -354,6 +378,13 @@ describe("workflow: literature-metadata-curator", function () {
       error: {},
     };
     assertSchemaValid(outputSchema, succeeded);
+    assertSchemaValid(outputSchema, {
+      ...succeeded,
+      status: "verified_no_change",
+      metadata: { fields: {}, creators: [] },
+      evidence: [],
+      warnings: [],
+    });
     assertSchemaValid(outputSchema, {
       ...succeeded,
       status: "skipped",
@@ -522,6 +553,49 @@ describe("workflow: literature-metadata-curator", function () {
     ]);
   });
 
+  it("preserves authoritative Chinese title and creators on a romanized DOI fast path", async function () {
+    const parent = await createParent({
+      title: "面向学术知识发现的智能体方法研究",
+      doi: "10.1016/example.chinese",
+    });
+    (parent as any).setCreators([{ name: "欧阳明", creatorType: "author" }]);
+    await parent.saveTx();
+
+    const outcome = await preflight({
+      selectionContext: await selectionFor(parent),
+      runtime: makeRuntimeWithTranslate({
+        items: [
+          {
+            DOI: "10.1016/example.chinese",
+            title: "Agentic Methods for Academic Knowledge Discovery",
+            date: "2026",
+            creators: [
+              {
+                firstName: "Ming",
+                lastName: "Ouyang",
+                creatorType: "author",
+              },
+            ],
+          },
+        ],
+      }),
+    } as any);
+
+    assert.equal(outcome.kind, "short-circuit-apply");
+    const result = (outcome as any).apply.resultJson;
+    assert.notProperty(result.metadata.fields, "title");
+    assert.notProperty(result.metadata, "creators");
+    assert.equal(result.metadata.fields.date, "2026");
+    assert.include(
+      result.warnings.map((entry: any) => entry.code),
+      "native_title_translation_only",
+    );
+    assert.include(
+      result.warnings.map((entry: any) => entry.code),
+      "native_creator_names_unverified",
+    );
+  });
+
   it("derives stable identifiers from DOI, arXiv, and PubMed URLs", function () {
     assert.deepInclude(
       selectIdentifier({
@@ -565,6 +639,34 @@ describe("workflow: literature-metadata-curator", function () {
           url: "https://example.org/article-without-stable-id",
         },
       }),
+    );
+  });
+
+  it("extracts identifiers from multi-line Extra metadata", function () {
+    assert.deepInclude(
+      selectIdentifier({
+        fields: {
+          extra:
+            "Original title: 示例文献\nPMID: 12345678\narXiv: 2301.12345v2",
+        },
+      }),
+      {
+        type: "arXiv",
+        normalized: "2301.12345v2",
+        source: "extra",
+      },
+    );
+    assert.deepInclude(
+      selectIdentifier({
+        fields: {
+          extra: "Citation Key: sample\nDOI: 10.1000/extra-doi\nPMID: 9",
+        },
+      }),
+      {
+        type: "DOI",
+        normalized: "10.1000/extra-doi",
+        source: "extra",
+      },
     );
   });
 
@@ -1028,6 +1130,141 @@ describe("workflow: literature-metadata-curator", function () {
     ]);
   });
 
+  it("removes the metadata-curation tag after successful apply", async function () {
+    const parent = await createParent({ title: "Before tagged metadata" });
+    const removed: Array<{ item: unknown; tags: string[] }> = [];
+    const runtimeHandlers = {
+      ...handlers,
+      tag: {
+        ...handlers.tag,
+        async remove(item: unknown, tags: string[]) {
+          removed.push({ item, tags });
+        },
+      },
+    };
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: { fields: { title: "After tagged metadata" } },
+        },
+      },
+      runtime: { zotero: Zotero, handlers: runtimeHandlers },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.deepEqual(removed, [
+      {
+        item: parent.id,
+        tags: ["status:need-metadata-curation"],
+      },
+    ]);
+    assert.isTrue(result.curationTagRemoved);
+  });
+
+  it("keeps the metadata-curation tag when curation is skipped", async function () {
+    let removals = 0;
+    const result = (await applyResult({
+      parent: await createParent({ title: "Unresolved metadata" }),
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "skipped",
+          source: "test",
+          metadata: { fields: {} },
+        },
+      },
+      runtime: {
+        zotero: Zotero,
+        handlers: {
+          ...handlers,
+          tag: {
+            ...handlers.tag,
+            async remove() {
+              removals += 1;
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.isTrue(result.skipped);
+    assert.equal(removals, 0);
+  });
+
+  it("removes the metadata-curation tag after verified no-change", async function () {
+    const parent = await createParent({ title: "Already canonical" });
+    const removals: unknown[] = [];
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "verified_no_change",
+          source: "test",
+          metadata: { fields: {}, creators: [] },
+        },
+      },
+      runtime: {
+        zotero: Zotero,
+        handlers: {
+          ...handlers,
+          tag: {
+            ...handlers.tag,
+            async remove(item: unknown, tags: string[]) {
+              removals.push({ item, tags });
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.isFalse(result.applied);
+    assert.isTrue(result.verifiedNoChange);
+    assert.isTrue(result.curationTagRemoved);
+    assert.deepEqual(removals, [
+      { item: parent.id, tags: ["status:need-metadata-curation"] },
+    ]);
+  });
+
+  it("reports tag cleanup failure as a partial successful apply", async function () {
+    const parent = await createParent({ title: "Cleanup failure" });
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: { fields: { date: "2026" }, creators: [] },
+        },
+      },
+      runtime: {
+        zotero: Zotero,
+        handlers: {
+          ...handlers,
+          tag: {
+            ...handlers.tag,
+            async remove() {
+              throw new Error("tag store unavailable");
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.isTrue(result.partial);
+    assert.isFalse(result.curationTagRemoved);
+    assert.include(
+      result.cleanupWarnings.map((entry: any) => entry.code),
+      "metadata_curation_tag_cleanup_failed",
+    );
+  });
+
   it("preserves existing creators when canonical metadata has no replacement list", async function () {
     const parent = await createParent({ title: "Chinese paper" });
     (parent as any).setCreators([
@@ -1062,6 +1299,42 @@ describe("workflow: literature-metadata-curator", function () {
     assert.deepEqual((parent as any).getCreators(), [
       { firstName: "Existing", lastName: "Author", creatorType: "author" },
     ]);
+  });
+
+  it("does not apply an explicitly incomplete creator replacement list", async function () {
+    const parent = await createParent({ title: "Incomplete creator record" });
+    (parent as any).setCreators([
+      { firstName: "Existing", lastName: "Author", creatorType: "author" },
+    ]);
+    await parent.saveTx();
+
+    const result = (await applyResult({
+      parent,
+      runResult: {
+        resultJson: {
+          kind: "literature_metadata_curation",
+          status: "succeeded",
+          source: "test",
+          metadata: {
+            fields: { date: "2026" },
+            creators: [
+              { firstName: "Only", lastName: "One", creatorType: "author" },
+            ],
+            creatorCompleteness: "incomplete",
+          },
+        },
+      },
+      runtime: { zotero: Zotero, handlers },
+    } as any)) as any;
+
+    assert.isTrue(result.applied);
+    assert.deepEqual((parent as any).getCreators(), [
+      { firstName: "Existing", lastName: "Author", creatorType: "author" },
+    ]);
+    assert.include(
+      result.warnings.map((entry: any) => entry.code),
+      "incomplete_creator_list_not_applied",
+    );
   });
 
   it("changes item type before applying target-specific canonical metadata", async function () {

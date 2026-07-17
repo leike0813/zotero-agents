@@ -320,19 +320,18 @@ export type ZoteroHostMutationOperation =
   | "collection.removeItems";
 
 export type ZoteroHostIngestPaperInput = {
-  title?: string;
-  authors?: string[] | string;
-  year?: string | number;
-  doi?: string;
-  arxiv?: string;
-  pmid?: string;
-  isbn?: string;
+  itemType: string;
+  fields: Record<string, string | number | boolean | null>;
+  creators: ZoteroHostMetadataCreatorDto[];
+  identifiers: {
+    doi?: string;
+    arxiv?: string;
+    pmid?: string;
+    isbn?: string;
+  };
   landingUrl?: string;
-  url?: string;
   pdfUrl?: string;
   attachLandingUrlOnMissingPdf?: boolean;
-  abstract?: string;
-  venue?: string;
 };
 
 export type ZoteroHostIngestPaperResult = {
@@ -2128,16 +2127,47 @@ function normalizeIdentifier(value: unknown) {
     .trim();
 }
 
-function normalizePaperAuthors(value: unknown) {
-  const raw = Array.isArray(value)
-    ? value
-    : String(value ?? "")
-        .split(/\s*(?:;|\band\b|\n)\s*/i)
-        .filter(Boolean);
-  return raw
-    .map((entry) => normalizePaperText(entry, 300))
-    .filter(Boolean)
-    .slice(0, 50);
+function normalizePaperCreators(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error("paper.creators must be an array");
+  }
+  return value.slice(0, 50).map((creator, index) => {
+    if (!creator || typeof creator !== "object" || Array.isArray(creator)) {
+      throw new Error(`paper.creators[${index}] must be an object`);
+    }
+    const input = creator as ZoteroHostMetadataCreatorDto;
+    const name = normalizePaperText(input.name, 300);
+    const firstName = normalizePaperText(input.firstName, 150);
+    const lastName = normalizePaperText(input.lastName, 150);
+    const creatorType = normalizePaperText(input.creatorType, 80) || "author";
+    if (name) {
+      return { name, creatorType };
+    }
+    if (firstName || lastName) {
+      return { firstName, lastName, creatorType };
+    }
+    throw new Error(
+      `paper.creators[${index}] requires name or firstName/lastName`,
+    );
+  });
+}
+
+function normalizePaperFields(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("paper.fields must be an object");
+  }
+  const fields: Record<string, string | number | boolean> = {};
+  for (const [field, raw] of Object.entries(value)) {
+    const key = String(field || "").trim();
+    if (!key || raw === null || raw === undefined || raw === "") {
+      continue;
+    }
+    if (!["string", "number", "boolean"].includes(typeof raw)) {
+      throw new Error(`paper.fields.${key} must be a scalar value`);
+    }
+    fields[key] = typeof raw === "string" ? normalizePaperText(raw, 4000) : raw;
+  }
+  return fields;
 }
 
 function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
@@ -2154,27 +2184,65 @@ function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
     throw new Error("paper must be an object");
   }
   const input = request.paper;
-  const title = normalizePaperText(input.title, 500);
-  const doi = normalizeIdentifier(input.doi);
-  const arxiv = normalizeIdentifier(input.arxiv);
-  const pmid = normalizeIdentifier(input.pmid);
-  const isbn = normalizeIdentifier(input.isbn);
+  const itemType = normalizePaperText(input.itemType, 100);
+  if (!itemType) {
+    throw new Error("paper.itemType is required");
+  }
+  const fields = normalizePaperFields(input.fields);
+  const creators = normalizePaperCreators(input.creators);
+  if (
+    !input.identifiers ||
+    typeof input.identifiers !== "object" ||
+    Array.isArray(input.identifiers)
+  ) {
+    throw new Error("paper.identifiers must be an object");
+  }
+  const doi = normalizeIdentifier(input.identifiers.doi || fields.DOI);
+  const arxiv = normalizeIdentifier(input.identifiers.arxiv);
+  const pmid = normalizeIdentifier(input.identifiers.pmid);
+  const isbn = normalizeIdentifier(input.identifiers.isbn || fields.ISBN);
+  const title = normalizePaperText(fields.title, 500);
   if (!title && !doi && !arxiv && !pmid && !isbn) {
     throw new Error("paper requires title or identifier");
   }
+  const landingUrl = normalizePaperText(input.landingUrl, 1000);
+  const extraIdentifiers = [
+    doi && !fields.DOI ? `DOI: ${doi}` : "",
+    isbn && !fields.ISBN ? `ISBN: ${isbn}` : "",
+    arxiv ? `arXiv: ${arxiv}` : "",
+    pmid ? `PMID: ${pmid}` : "",
+  ].filter(Boolean);
+  if (extraIdentifiers.length > 0) {
+    const existingExtra = normalizePaperText(fields.extra, 4000);
+    const existingLines = existingExtra
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const seen = new Set(existingLines.map((line) => line.toLowerCase()));
+    fields.extra = [
+      ...existingLines,
+      ...extraIdentifiers.filter((line) => {
+        const key = line.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      }),
+    ].join("\n");
+  }
   return {
+    itemType,
+    fields,
+    creators,
     title,
-    authors: normalizePaperAuthors(input.authors),
-    year: normalizePaperText(input.year, 40),
     doi,
     arxiv,
     pmid,
     isbn,
-    landingUrl: normalizePaperText(input.landingUrl || input.url, 1000),
+    landingUrl,
     pdfUrl: normalizePaperText(input.pdfUrl, 1000),
     attachLandingUrlOnMissingPdf: input.attachLandingUrlOnMissingPdf === true,
-    abstract: normalizePaperText(input.abstract, 4000),
-    venue: normalizePaperText(input.venue, 500),
   };
 }
 
@@ -2241,106 +2309,32 @@ function setItemFieldIfPresent(
   if (normalized === undefined || normalized === null || normalized === "") {
     return;
   }
-  try {
-    item.setField(field as any, normalized as any);
-  } catch {
-    // Some item types do not support every bibliographic field. Best-effort ingest
-    // should keep the item rather than fail on one non-critical field.
-  }
+  item.setField(field as any, normalized as any);
 }
 
-function setItemCreators(item: Zotero.Item, authors: string[]) {
-  if (!authors.length) {
+function setItemCreators(
+  item: Zotero.Item,
+  creators: ZoteroHostMetadataCreatorDto[],
+) {
+  if (!creators.length) {
     return;
   }
-  const creatorData = authors.map((author) => {
-    const parts = author.split(/\s+/).filter(Boolean);
-    if (parts.length <= 1) {
-      return {
-        name: author,
-        creatorType: "author",
-      };
-    }
-    return {
-      firstName: parts.slice(0, -1).join(" "),
-      lastName: parts[parts.length - 1],
-      creatorType: "author",
-    };
-  });
   const target = item as unknown as {
-    setCreators?: (creators: typeof creatorData) => void;
+    setCreators?: (creators: ZoteroHostMetadataCreatorDto[]) => void;
   };
-  try {
-    target.setCreators?.(creatorData);
-  } catch {
-    // Creator normalization is best-effort for mock/runtime compatibility.
-  }
-}
-
-async function tryTranslateIdentifier(
-  paper: ReturnType<typeof normalizeIngestPaper>,
-  libraryID: number,
-) {
-  const Translate = (resolveZotero() as any).Translate;
-  if (!Translate?.Search) {
-    return null;
-  }
-  if (!paper.doi && !paper.arxiv && !paper.isbn && !paper.pmid) {
-    return null;
-  }
-  try {
-    const translate = new Translate.Search();
-    if (paper.doi || paper.arxiv || paper.pmid) {
-      translate.setIdentifier?.({
-        ...(paper.doi ? { DOI: paper.doi } : {}),
-        ...(paper.arxiv ? { arXiv: paper.arxiv } : {}),
-        ...(paper.pmid ? { PMID: paper.pmid } : {}),
-      });
-    } else if (paper.isbn) {
-      translate.setSearch?.({
-        itemType: "book",
-        ISBN: paper.isbn,
-      });
-    }
-    const translators = await translate.getTranslators?.();
-    if (translators?.length) {
-      translate.setTranslator?.(translators);
-    }
-    const items = await translate.translate?.({
-      libraryID,
-      saveAttachments: false,
-    });
-    return Array.isArray(items) && items[0] ? (items[0] as Zotero.Item) : null;
-  } catch {
-    return null;
-  }
+  target.setCreators?.(creators);
 }
 
 async function createMetadataPaperItem(
   paper: ReturnType<typeof normalizeIngestPaper>,
   libraryID: number,
 ) {
-  const item = new Zotero.Item("journalArticle" as any);
+  const item = new Zotero.Item(paper.itemType as any);
   (item as any).libraryID = libraryID;
-  setItemFieldIfPresent(
-    item,
-    "title",
-    paper.title || paper.doi || paper.arxiv || paper.pmid || paper.isbn,
-  );
-  setItemFieldIfPresent(item, "date", paper.year);
-  setItemFieldIfPresent(item, "DOI", paper.doi);
-  setItemFieldIfPresent(item, "ISBN", paper.isbn);
-  setItemFieldIfPresent(item, "url", paper.landingUrl);
-  setItemFieldIfPresent(item, "abstractNote", paper.abstract);
-  setItemFieldIfPresent(item, "publicationTitle", paper.venue);
-  const extra = [
-    paper.arxiv ? `arXiv: ${paper.arxiv}` : "",
-    paper.pmid ? `PMID: ${paper.pmid}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  setItemFieldIfPresent(item, "extra", extra);
-  setItemCreators(item, paper.authors);
+  for (const [field, value] of Object.entries(paper.fields)) {
+    setItemFieldIfPresent(item, field, value);
+  }
+  setItemCreators(item, paper.creators);
   await item.saveTx();
   return item;
 }
@@ -2493,9 +2487,7 @@ async function ingestOnePaper(
             (collection as unknown as { libraryID?: unknown }).libraryID,
           )
         : normalizeLibraryId(undefined);
-      item =
-        (await tryTranslateIdentifier(paper, libraryID)) ||
-        (await createMetadataPaperItem(paper, libraryID));
+      item = await createMetadataPaperItem(paper, libraryID);
     }
     if (collection) {
       try {

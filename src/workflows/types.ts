@@ -25,7 +25,11 @@ import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type { SynthesisService } from "../modules/synthesis/service";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
-export type WorkflowParameterType = "string" | "number" | "boolean";
+export type WorkflowParameterType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "array";
 
 export type WorkflowParameterOptionsSource = {
   kind: "zotero.collections" | "synthesis.topics" | string;
@@ -63,6 +67,9 @@ export type WorkflowParameterSchema = {
   description?: string;
   default?: unknown;
   enum?: unknown[];
+  items?: {
+    type: "string";
+  };
   allowCustom?: boolean;
   optionsSource?: WorkflowParameterOptionsSource;
   min?: number;

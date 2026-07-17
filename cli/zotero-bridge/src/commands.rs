@@ -2112,7 +2112,7 @@ mod tests {
     #[test]
     fn builds_literature_ingest_mutation_input() {
         let input = literature_ingest_input(LiteratureIngestArgs {
-            input: "{\"paper\":{\"title\":\"Bridge Paper\",\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
+            input: "{\"paper\":{\"itemType\":\"thesis\",\"fields\":{\"title\":\"Bridge Paper\",\"university\":\"Example University\"},\"creators\":[{\"name\":\"欧阳明\",\"creatorType\":\"author\"}],\"identifiers\":{},\"attachLandingUrlOnMissingPdf\":true},\"collection\":{\"key\":\"COLL\",\"libraryId\":1}}".to_string(),
         })
         .unwrap();
         assert_eq!(
@@ -2120,7 +2120,16 @@ mod tests {
             json!({
                 "operation": "literature.ingest",
                 "paper": {
-                    "title": "Bridge Paper",
+                    "itemType": "thesis",
+                    "fields": {
+                        "title": "Bridge Paper",
+                        "university": "Example University"
+                    },
+                    "creators": [{
+                        "name": "欧阳明",
+                        "creatorType": "author"
+                    }],
+                    "identifiers": {},
                     "attachLandingUrlOnMissingPdf": true
                 },
                 "collection": {
@@ -2137,7 +2146,7 @@ mod tests {
             "zotero-bridge-literature-ingest-input-{}.json",
             std::process::id()
         ));
-        fs::write(&path, "{\"paper\":{\"doi\":\"10.1000/example\"}}").unwrap();
+        fs::write(&path, "{\"paper\":{\"itemType\":\"journalArticle\",\"fields\":{\"title\":\"Example\",\"DOI\":\"10.1000/example\"},\"creators\":[],\"identifiers\":{\"doi\":\"10.1000/example\"}}}").unwrap();
         let input = literature_ingest_input(LiteratureIngestArgs {
             input: format!("@{}", path.display()),
         })
@@ -2147,7 +2156,15 @@ mod tests {
             json!({
                 "operation": "literature.ingest",
                 "paper": {
-                    "doi": "10.1000/example"
+                    "itemType": "journalArticle",
+                    "fields": {
+                        "title": "Example",
+                        "DOI": "10.1000/example"
+                    },
+                    "creators": [],
+                    "identifiers": {
+                        "doi": "10.1000/example"
+                    }
                 }
             })
         );

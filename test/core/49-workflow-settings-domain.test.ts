@@ -152,6 +152,28 @@ describe("workflow settings domain", function () {
     assert.equal(normalized.language, "zh-CN");
   });
 
+  it("normalizes string-array workflow parameters without losing non-Latin values", function () {
+    const manifest = {
+      id: "multilingual-search",
+      label: "Multilingual Search",
+      hooks: { applyResult: "hooks/applyResult.js" },
+      parameters: {
+        languageHints: {
+          type: "array",
+          items: { type: "string" },
+          default: [],
+        },
+      },
+    } as WorkflowManifest;
+
+    assert.deepEqual(
+      normalizeWorkflowParamsBySchema(manifest, {
+        languageHints: [" zh-CN ", "日本語", "zh-CN", 42],
+      }).languageHints,
+      ["zh-CN", "日本語"],
+    );
+  });
+
   it("validates required workflow parameters without rejecting false or zero", function () {
     const manifest = {
       id: "required-contract",

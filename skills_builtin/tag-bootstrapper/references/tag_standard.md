@@ -112,6 +112,7 @@ Tags 只用于下列维度（分面 / Facet）：
 1) 入库后立即确保存在：
 - `status:0-inbox`
 - `match_status:unmatched`
+- 元数据不完整、来源冲突或需人工核验时使用 `status:need-metadata-curation`；元数据整理成功或确认无需修改后移除。
 
 2) 30 秒 triage：
 - 补 `field:`（至少 1）
@@ -137,6 +138,8 @@ Tags 只用于下列维度（分面 / Facet）：
 - `status:5-extracted`
 - `status:6-cited`
 - `status:x-parked`
+
+`status:need-metadata-curation` 是元数据整理工作流的受控状态标签，不占用彩色阅读进度槽位。
 
 效果：列表里一眼可见处理进度；也便于键盘 1–9 快速打标。
 
@@ -203,9 +206,3 @@ Tags 只用于下列维度（分面 / Facet）：
 - `topic:risk-factor`
 - `status:2-to-read`
 - `match_status:unmatched`
-
----
-
-## 10. 版本记录
-- v2.0：引入“大写缩写注册表”、`field:` 三段式（一级/二级/方向）、合并 UG 与 Tunnel 体系；拆分为维护说明与受控词表两个文档。
-- v1.0：初版发布。

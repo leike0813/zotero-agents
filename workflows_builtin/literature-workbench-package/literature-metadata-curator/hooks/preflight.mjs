@@ -225,6 +225,7 @@ async function preflightImpl({ selectionContext, executionOptions, runtime }) {
         parent: parentSnapshot.id || parent,
         resultJson: canonicalResultFromMetadata({
           source: "zotero-translate-search",
+          parent: parentSnapshot,
           metadata: translated.item,
           evidence: [
             {

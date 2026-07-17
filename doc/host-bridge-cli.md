@@ -1551,18 +1551,30 @@ canonical mutation operation：
 {
   "operation": "literature.ingest",
   "paper": {
-    "title": "Paper title",
-    "authors": ["Author One"],
-    "year": 2026,
-    "doi": "10.1000/example",
-    "arxiv": "2601.00001",
-    "pmid": "12345678",
-    "isbn": "9780000000000",
+    "itemType": "journalArticle",
+    "fields": {
+      "title": "Paper title",
+      "date": "2026",
+      "DOI": "10.1000/example",
+      "publicationTitle": "Journal",
+      "abstractNote": "Optional abstract",
+      "url": "https://example.org/paper"
+    },
+    "creators": [
+      {
+        "firstName": "Author",
+        "lastName": "One",
+        "creatorType": "author"
+      }
+    ],
+    "identifiers": {
+      "doi": "10.1000/example",
+      "arxiv": "2601.00001",
+      "pmid": "12345678"
+    },
     "landingUrl": "https://example.org/paper",
     "pdfUrl": "https://example.org/paper.pdf",
-    "attachLandingUrlOnMissingPdf": true,
-    "abstract": "Optional abstract",
-    "venue": "Journal"
+    "attachLandingUrlOnMissingPdf": true
   },
   "collection": {
     "key": "COLLKEY",

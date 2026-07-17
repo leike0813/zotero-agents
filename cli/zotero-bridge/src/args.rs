@@ -922,7 +922,7 @@ pub enum MutationCommand {
     #[command(
         name = "literature-ingest",
         about = "Ingest searched literature into Zotero",
-        long_about = "Execute the canonical literature.ingest mutation through Host Bridge approval. Input is a JSON object with one paper and optional collection."
+        long_about = "Execute the canonical literature.ingest mutation through Host Bridge approval. Input is a JSON object with one typed paper (itemType, fields, creators, identifiers) and optional collection."
     )]
     LiteratureIngest(LiteratureIngestArgs),
 
@@ -945,7 +945,7 @@ pub struct LiteratureIngestArgs {
         long,
         value_name = "JSON_OR_FILE",
         help = "Literature ingest payload as inline JSON, a file path, @file, or '-' for stdin",
-        long_help = "Literature ingest payload. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. The payload must be an object with one paper and optional collection."
+        long_help = "Literature ingest payload. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. The payload must be an object with one typed paper (itemType, fields, creators, identifiers) and optional collection."
     )]
     pub input: String,
 }

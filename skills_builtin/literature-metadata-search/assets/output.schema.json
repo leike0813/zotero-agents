@@ -18,7 +18,7 @@
     },
     "status": {
       "type": "string",
-      "enum": ["succeeded", "skipped", "failed"]
+      "enum": ["succeeded", "verified_no_change", "skipped", "failed"]
     },
     "source": {
       "type": "string",
@@ -31,6 +31,66 @@
         "itemType": {
           "type": "string",
           "description": "Optional Zotero bibliographic item type name for a high-confidence correction."
+        },
+        "originalTitle": {
+          "type": "object",
+          "description": "Authoritative original-script title used as the direct-work identity.",
+          "required": ["value"],
+          "properties": {
+            "value": { "type": "string", "minLength": 1 },
+            "language": { "type": "string" },
+            "script": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "alternateTitles": {
+          "type": "array",
+          "description": "Translated, romanized, abbreviated, or other alternate titles retained for matching only.",
+          "items": {
+            "type": "object",
+            "required": ["value", "role"],
+            "properties": {
+              "value": { "type": "string", "minLength": 1 },
+              "role": {
+                "type": "string",
+                "enum": ["translated", "romanized", "abbreviated", "alternate"]
+              },
+              "language": { "type": "string" },
+              "script": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "language": {
+          "type": "string",
+          "description": "Language of the direct work when evidenced."
+        },
+        "script": {
+          "type": "string",
+          "description": "Script of the direct work's authoritative title when evidenced."
+        },
+        "containers": {
+          "type": "array",
+          "description": "Semantically typed containers retained separately from the direct-work title.",
+          "items": {
+            "type": "object",
+            "required": ["role", "title"],
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": ["journal", "book", "proceedings", "conference", "institution", "series"]
+              },
+              "title": { "type": "string", "minLength": 1 },
+              "language": { "type": "string" },
+              "script": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "creatorCompleteness": {
+          "type": "string",
+          "enum": ["complete", "incomplete", "unknown"],
+          "description": "Whether the creator list is verified complete. Only complete lists are applied."
         },
         "fields": {
           "type": "object",
@@ -75,6 +135,7 @@
             "callNumber": { "type": ["string", "number", "boolean"] },
             "rights": { "type": ["string", "number", "boolean"] },
             "accessDate": { "type": ["string", "number", "boolean"] }
+            ,"extra": { "type": ["string", "number", "boolean"] }
           },
           "additionalProperties": false
         },

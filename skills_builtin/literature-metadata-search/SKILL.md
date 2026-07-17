@@ -15,6 +15,10 @@ This skill is read-only. It does not import literature, fetch PDFs, update
 Zotero, create notes, add tags, or call Zotero Host Bridge. It only resolves
 metadata candidates and reports evidence.
 
+Read [Multilingual metadata rules](references/multilingual-metadata.md) before
+matching or emitting metadata for a record whose original language or script is
+not English/Latin.
+
 ## Inputs
 
 Read `assets/input.schema.json` as the machine contract when the runtime exposes
@@ -41,6 +45,9 @@ return the failed output shape with `error.code: "invalid_input"`.
      case-insensitively.
    - ISBN: strip prefixes, spaces, and hyphens.
    - PMID and arXiv: compare normalized identifiers exactly.
+   - Multi-line `fields.extra`: recognize line-prefixed `DOI:`, `ISBN:`,
+     `arXiv:`, and `PMID:` values without treating unrelated lines as part of
+     the identifier.
 2. Search by trusted identifiers first. Prefer DOI.org, Crossref, publisher
    pages, PubMed, arXiv, ISBN catalogs, library catalogs, and authoritative
    repository pages.
@@ -63,7 +70,8 @@ return the failed output shape with `error.code: "invalid_input"`.
 Accept a candidate when one of these conditions is met:
 
 - A normalized input identifier exactly matches the candidate identifier, and the
-  candidate has a title or core bibliographic fields.
+  candidate has a title or core bibliographic fields, provided there is no
+  material conflict in work type, version, title identity, or publication facts.
 - Without an identifier, the candidate is the same direct bibliographic work,
   the normalized title clearly matches, at least two independent signals also
   match, and an authoritative publisher, repository, university, or library
@@ -99,6 +107,20 @@ field instead. Use Zotero-compatible field names under `metadata.fields`:
 - Thesis/report/archive: `university`, `thesisType`, `reportType`,
   `institution`, `archive`, `archiveLocation`, `callNumber`
 
+Treat direct-work identity, alternate names, and containers as different roles:
+
+- `metadata.originalTitle` identifies the authoritative original-script title.
+- `metadata.alternateTitles` contains translated, romanized, abbreviated, or
+  alternate forms for matching and evidence only. Never copy them into
+  `metadata.fields.title` when an authoritative original-script title exists.
+- `metadata.language` and `metadata.script` describe the direct work only when
+  evidenced.
+- `metadata.containers` records journal, book, proceedings, conference,
+  institution, or series roles; also map an evidenced container to the correct
+  Zotero field rather than replacing the direct-work title.
+- `metadata.creatorCompleteness` is `complete`, `incomplete`, or `unknown`.
+  Emit a non-empty replacement creator list only when it is `complete`.
+
 Emit `metadata.itemType` only when the same high-confidence evidence proves that
 the source record has a different Zotero bibliographic type. It must name a
 regular bibliographic type such as `thesis`, `journalArticle`, or `bookSection`;
@@ -119,6 +141,11 @@ the Chinese names. Do not guess, infer, or back-transliterate Chinese characters
 from pinyin, romanized, or translated names. This rule does not apply to an
 English-language paper merely because its authors are Chinese; preserve the
 officially published romanized names for that work.
+
+Original-script protection does not block language-neutral corrections. An
+evidenced date, identifier, volume, issue, pages, publisher, institution,
+container field, URL, or item type may still be returned when a translated title
+or romanized creator list is rejected.
 
 A non-empty `metadata.creators` array is a complete replacement list. Never emit
 a partial creator list. If the complete Chinese-character list cannot be
@@ -229,6 +256,10 @@ Skipped result:
 }
 ```
 
+When authoritative evidence confirms the current record is already canonical,
+return `status: "verified_no_change"` with empty fields and creators. This is a
+successful verification outcome, distinct from unresolved `skipped`.
+
 Failed result:
 
 ```json
@@ -257,6 +288,8 @@ Before final stdout, verify:
 - `metadata.itemType`, when present, is an evidence-backed regular bibliographic
   type and is never placed in `metadata.fields`.
 - `metadata.creators` is present as an array, even when empty.
+- Translated and romanized title forms occur only in `alternateTitles`, not as
+  replacements for an authoritative original-script title.
 - A non-empty `metadata.creators` is a complete, evidence-backed replacement
   list; unverified native creator names leave it empty.
 - `warnings` and `evidence` are arrays.

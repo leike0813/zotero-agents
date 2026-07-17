@@ -84,6 +84,21 @@
     if (type === "boolean") {
       return value === true;
     }
+    if (type === "array") {
+      const seen = Object.create(null);
+      return toText(value)
+        .split(/[\n,]/)
+        .map(function (entry) {
+          return entry.trim();
+        })
+        .filter(function (entry) {
+          if (!entry || seen[entry]) {
+            return false;
+          }
+          seen[entry] = true;
+          return true;
+        });
+    }
     return toText(value);
   }
 
@@ -593,7 +608,10 @@
           isPositiveIntegerField(args.entry) ? "numeric" : "decimal",
         );
       }
-      control.value = toText(currentValue == null ? "" : currentValue);
+      control.value =
+        args.entry.type === "array" && Array.isArray(currentValue)
+          ? currentValue.join(", ")
+          : toText(currentValue == null ? "" : currentValue);
       if (enumValues.length > 0) {
         const listId = `list-${args.section}-${args.entry.key}`;
         control.setAttribute("list", listId);
