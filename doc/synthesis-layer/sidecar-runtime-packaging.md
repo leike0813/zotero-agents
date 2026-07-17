@@ -18,7 +18,8 @@ or macOS signing/notarization where applicable. It then combines the minimal
 Node executable and license with the compiled service worker, the
 `packages/synthesis-engine` JavaScript graph, the environment-neutral
 `packages/synthesis-repository` foundation plus designated `node:sqlite`
-adapter/owner, and the exact runtime source and
+adapter/owner, the environment-neutral `packages/synthesis-application`
+Workbench operational query and strict Workbench contract, and the exact runtime source and
 licenses for `d3-force`, `d3-dispatch`, `d3-quadtree`, and `d3-timer`.
 
 Each platform directory contains one strict

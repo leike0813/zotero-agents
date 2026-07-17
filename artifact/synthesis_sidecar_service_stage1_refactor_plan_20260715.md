@@ -1111,6 +1111,10 @@ graph layout 作为第一条 process canary，因为：
 - health/handshake 只暴露 path-free O(1) `isolated_shadow` snapshot；
   `mutationEnabled: false`、108 methods / 1 direct consumer、八个 engine 的生产 owner
   和两个 production worker 均未改变。
+- `packages/synthesis-application` 已承接第一个环境中立 use case：固定读取两项 cache
+  readiness 与最多 50 个 running、20 个 current failed operation。插件 chrome/progress
+  复用同一投影；认证 `workbench.chrome.read` 只针对隔离 shadow 运行，不接入生产
+  `SynthesisClient` 或 Workbench。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、canonical files、Host capability 或公开 `SynthesisClient`。

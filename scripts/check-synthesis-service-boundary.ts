@@ -60,6 +60,10 @@ const REPOSITORY_ROOT = path.join(
   ROOT_DIR,
   "packages/synthesis-repository/src",
 );
+const APPLICATION_ROOT = path.join(
+  ROOT_DIR,
+  "packages/synthesis-application/src",
+);
 const WORKER_THREAD_ALLOWLIST = new Set([
   "apps/synthesis-service/src/computeWorker.ts",
   "apps/synthesis-service/src/computeWorkerPool.ts",
@@ -306,6 +310,42 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
       violations.push(
         `${relativePath}: repository foundation is not environment neutral`,
       );
+    }
+  }
+  for (const filePath of walkTypeScriptFiles(APPLICATION_ROOT)) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    if (
+      /node:|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules|globalThis\.Zotero|zotero-plugin|HostEffect|HostRead|canonical(?:Store|File|Path)|topicArtifactPersistence|Window|Document|HTMLElement/.test(
+        source,
+      )
+    ) {
+      violations.push(
+        `${relativePath}: application package is not environment neutral`,
+      );
+    }
+    const sourceFile = ts.createSourceFile(
+      filePath,
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    for (const statement of sourceFile.statements) {
+      if (
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier)
+      ) {
+        const specifier = statement.moduleSpecifier.text;
+        if (
+          !specifier.includes("synthesis-contracts/src/") &&
+          !specifier.includes("synthesis-repository/src/")
+        ) {
+          violations.push(
+            `${relativePath}: forbidden application import ${specifier}`,
+          );
+        }
+      }
     }
   }
   for (const filePath of walkTypeScriptFiles(

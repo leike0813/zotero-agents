@@ -53,6 +53,12 @@ export function createSynthesisSidecarTransferClient(options?: {
     fetch: options?.fetch,
     deadlineMs: options?.deadlineMs ?? 5_000,
     requestIdPrefix: "transfer",
+    transportErrors: {
+      canceled: "worker_canceled",
+      timeout: "worker_timeout",
+      invalidResponse: "worker_result_invalid",
+      unavailable: "worker_unavailable",
+    },
   });
 
   const call = async <Result>(args: {

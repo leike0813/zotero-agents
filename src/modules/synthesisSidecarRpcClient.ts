@@ -2,6 +2,7 @@ import {
   SYNTHESIS_SIDECAR_CALL_PATH,
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  isSynthesisSidecarComputeCapability,
   isSynthesisSidecarErrorCode,
   type SynthesisSidecarCapability,
   type SynthesisSidecarErrorCode,
@@ -15,6 +16,13 @@ export type SynthesisSidecarRpcConnection = {
 };
 
 type FetchLike = typeof fetch;
+
+export type SynthesisSidecarRpcTransportErrors = {
+  canceled: SynthesisSidecarErrorCode;
+  timeout: SynthesisSidecarErrorCode;
+  invalidResponse: SynthesisSidecarErrorCode;
+  unavailable: SynthesisSidecarErrorCode;
+};
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -114,10 +122,17 @@ export function createSynthesisSidecarRpcClient(options?: {
   fetch?: FetchLike;
   deadlineMs?: number;
   requestIdPrefix?: string;
+  transportErrors?: SynthesisSidecarRpcTransportErrors;
 }) {
   const fetchImpl = options?.fetch ?? globalThis.fetch;
   const defaultDeadlineMs = options?.deadlineMs ?? 5_000;
   const requestIdPrefix = options?.requestIdPrefix ?? "rpc";
+  const transportErrors = options?.transportErrors ?? {
+    canceled: "worker_canceled",
+    timeout: "worker_timeout",
+    invalidResponse: "worker_result_invalid",
+    unavailable: "worker_unavailable",
+  };
   if (typeof fetchImpl !== "function") {
     throw new Error("sidecar_rpc_fetch_unavailable");
   }
@@ -131,7 +146,7 @@ export function createSynthesisSidecarRpcClient(options?: {
       deadlineMs?: number;
     }): Promise<Result> {
       if (args.signal?.aborted) {
-        return fail("worker_canceled");
+        return fail(transportErrors.canceled);
       }
       const requestId = nextRequestId(requestIdPrefix);
       const requestSource = JSON.stringify({
@@ -141,9 +156,12 @@ export function createSynthesisSidecarRpcClient(options?: {
         capability: args.capability,
         payload: args.payload,
       });
+      const isCompute = isSynthesisSidecarComputeCapability(args.capability);
       if (
         textEncoder.encode(requestSource).byteLength >
-        SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
+        (isCompute
+          ? SYNTHESIS_SIDECAR_LIMITS.computeRequestBodyBytes
+          : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes)
       ) {
         return fail("request_body_too_large");
       }
@@ -166,7 +184,9 @@ export function createSynthesisSidecarRpcClient(options?: {
         );
         const responseSource = await readBoundedResponse(
           response,
-          SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,
+          isCompute
+            ? SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes
+            : SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes,
         );
         let body: {
           ok?: unknown;
@@ -178,7 +198,7 @@ export function createSynthesisSidecarRpcClient(options?: {
         try {
           body = JSON.parse(responseSource) as typeof body;
         } catch {
-          return fail("worker_result_invalid");
+          return fail(transportErrors.invalidResponse);
         }
         if (
           (typeof body.requestId === "string" &&
@@ -206,19 +226,19 @@ export function createSynthesisSidecarRpcClient(options?: {
         try {
           return args.rebuildResult(body.data);
         } catch {
-          return fail("worker_result_invalid");
+          return fail(transportErrors.invalidResponse);
         }
       } catch (error) {
         if (error instanceof SynthesisSidecarRpcError) {
           throw error;
         }
         if (args.signal?.aborted) {
-          return fail("worker_canceled");
+          return fail(transportErrors.canceled);
         }
         if (deadline.timedOut()) {
-          return fail("worker_timeout");
+          return fail(transportErrors.timeout);
         }
-        return fail("worker_unavailable");
+        return fail(transportErrors.unavailable);
       } finally {
         deadline.dispose();
       }

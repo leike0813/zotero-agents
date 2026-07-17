@@ -23,6 +23,10 @@ import {
   type SynthesisCitationGraphBuildEngine,
 } from "../../../packages/synthesis-engine/src/citationGraphBuild";
 import {
+  isSynthesisWorkbenchCurrentFailedOperation,
+  readSynthesisWorkbenchOperationalChrome,
+} from "../../../packages/synthesis-application/src/index";
+import {
   SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
   SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
   SynthesisClientError,
@@ -6620,180 +6624,6 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return [...commands].sort((left, right) => left.localeCompare(right));
   }
 
-  function jobProgressStatusToBackgroundStatus(
-    status: unknown,
-  ): SynthesisUiBackgroundJobRow["status"] {
-    const normalized = cleanString(status);
-    if (normalized === "running") {
-      return "running";
-    }
-    if (normalized === "queued") {
-      return "queued";
-    }
-    if (normalized === "waiting") {
-      return "waiting";
-    }
-    if (normalized === "failed_retryable" || normalized === "failed_terminal") {
-      return "failed";
-    }
-    return "queued";
-  }
-
-  function jobProgressSource(
-    source: unknown,
-  ): SynthesisUiBackgroundJobRow["source"] {
-    const normalized = cleanString(source);
-    if (
-      normalized === "operation" ||
-      normalized === "reference_sidecar_refresh" ||
-      normalized === "citation_graph_cache_rebuild" ||
-      normalized === "citation_graph_layout" ||
-      normalized === "webdav_sync" ||
-      normalized === "canonical_maintenance"
-    ) {
-      return normalized;
-    }
-    return "operation";
-  }
-
-  function backgroundJobFromProgress(
-    row: SynthesisJobProgressRecord,
-  ): SynthesisUiBackgroundJobRow | null {
-    const jobName = cleanString(row.jobName);
-    if (!jobName) {
-      return null;
-    }
-    const total = Math.max(0, Math.floor(Number(row.totalCount) || 0));
-    const current = Math.min(
-      total,
-      Math.max(0, Math.floor(Number(row.processedCount) || 0)),
-    );
-    const progress =
-      row.progressMode === "determinate" && total > 0
-        ? {
-            mode: "determinate" as const,
-            current,
-            total,
-            percent: Math.max(
-              0,
-              Math.min(100, Math.round((current / total) * 100)),
-            ),
-            label: cleanString(row.phaseLabel || row.message) || undefined,
-          }
-        : {
-            mode: "indeterminate" as const,
-            label: cleanString(row.phaseLabel || row.message) || undefined,
-          };
-    return {
-      job_id: jobName,
-      source: jobProgressSource(row.source),
-      status: jobProgressStatusToBackgroundStatus(row.status),
-      label: cleanString(row.label) || jobName,
-      detail:
-        cleanString(row.message) ||
-        cleanString(row.phaseLabel) ||
-        cleanString(row.phase) ||
-        undefined,
-      updated_at:
-        cleanString(row.heartbeatAt) ||
-        cleanString(row.updatedAt) ||
-        cleanString(row.startedAt),
-      progress,
-    };
-  }
-
-  function operationStatusToBackgroundStatus(
-    status: unknown,
-  ): SynthesisUiBackgroundJobRow["status"] {
-    const normalized = cleanString(status);
-    if (normalized === "running") {
-      return "running";
-    }
-    if (normalized === "failed" || normalized === "canceled") {
-      return "failed";
-    }
-    if (normalized === "completed") {
-      return "submitted";
-    }
-    return "queued";
-  }
-
-  function backgroundJobFromOperation(
-    row: SynthesisOperationRecord,
-  ): SynthesisUiBackgroundJobRow | null {
-    const operationId = cleanString(row.operationId);
-    if (!operationId) {
-      return null;
-    }
-    const total = Math.max(0, Math.floor(Number(row.totalCount) || 0));
-    const current = Math.min(
-      total,
-      Math.max(0, Math.floor(Number(row.processedCount) || 0)),
-    );
-    const progress =
-      row.progressMode === "determinate" && total > 0
-        ? {
-            mode: "determinate" as const,
-            current,
-            total,
-            percent: Math.max(
-              0,
-              Math.min(100, Math.round((current / total) * 100)),
-            ),
-            label: cleanString(row.phaseLabel || row.message) || undefined,
-          }
-        : {
-            mode: "indeterminate" as const,
-            label: cleanString(row.phaseLabel || row.message) || undefined,
-          };
-    return {
-      job_id: operationId,
-      source: jobProgressSource(row.operationType),
-      status: operationStatusToBackgroundStatus(row.status),
-      label: cleanString(row.label) || operationId,
-      detail:
-        cleanString(row.message) ||
-        cleanString(row.phaseLabel) ||
-        cleanString(row.phase) ||
-        undefined,
-      updated_at:
-        cleanString(row.updatedAt) ||
-        cleanString(row.completedAt) ||
-        cleanString(row.startedAt) ||
-        cleanString(row.createdAt),
-      progress,
-    };
-  }
-
-  function cacheBasisForOperationType(operationType: string) {
-    if (operationType === "reference_sidecar_refresh") {
-      return synthesisRepository.getCacheBasis("reference-sidecar:library");
-    }
-    if (
-      operationType === "citation_graph_cache_rebuild" ||
-      operationType === "citation_graph_cache_incremental_refresh"
-    ) {
-      return getCitationGraphCacheBasis();
-    }
-    return null;
-  }
-
-  function isCurrentFailedOperation(row: SynthesisOperationRecord) {
-    if (cleanString(row.status) !== "failed") {
-      return false;
-    }
-    const basis = cacheBasisForOperationType(row.operationType);
-    if (!basis) {
-      return true;
-    }
-    if (basis.status === "failed") {
-      return true;
-    }
-    const basisUpdatedAt = cleanString(basis.refreshedAt || basis.updatedAt);
-    const operationUpdatedAt = cleanString(row.updatedAt || row.completedAt);
-    return Boolean(operationUpdatedAt && operationUpdatedAt > basisUpdatedAt);
-  }
-
   function cancelRestartOrphanedOperation(row: SynthesisOperationRecord) {
     const diagnostic = referenceSidecarDiagnostic({
       code: "synthesis_operation_stale_after_restart",
@@ -6836,29 +6666,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   function activeJobProgressRows() {
     try {
-      const running = synthesisRepository.listOperations({
-        statuses: ["running"],
-        limit: 50,
-      });
-      const failed = synthesisRepository
-        .listOperations({
-          statuses: ["failed"],
-          operationTypes: [
-            "reference_sidecar_refresh",
-            "citation_graph_cache_rebuild",
-          ],
-          includeCompleted: true,
-          limit: 20,
-        })
-        .filter(isCurrentFailedOperation);
-      return [...running, ...failed]
-        .sort(
-          (left, right) =>
-            (right.updatedAt || "").localeCompare(left.updatedAt || "") ||
-            left.operationId.localeCompare(right.operationId),
-        )
-        .map(backgroundJobFromOperation)
-        .filter((row): row is SynthesisUiBackgroundJobRow => Boolean(row));
+      return readSynthesisWorkbenchOperationalChrome(synthesisRepository)
+        .maintenance.backgroundJobs as SynthesisUiBackgroundJobRow[];
     } catch {
       return [];
     }
@@ -7301,7 +7110,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       }).length,
       failed_count: synthesisRepository
         .listOperations({ statuses: ["failed"], includeCompleted: true })
-        .filter(isCurrentFailedOperation).length,
+        .filter((row) =>
+          isSynthesisWorkbenchCurrentFailedOperation(synthesisRepository, row),
+        ).length,
       active_worker_count: maintenance.active_worker_count,
       active_worker_kind: maintenance.active_worker_kind,
       canonical_sync_pending: maintenance.pending_sync,
@@ -15327,10 +15138,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const webDavSyncState = await webDavSync
       .loadWebDavSyncState()
       .catch(() => undefined);
-    const referenceSidecarCache = synthesisRepository.getCacheBasis(
-      "reference-sidecar:library",
-    );
-    const citationGraphCache = getCitationGraphCacheBasis();
+    const operational =
+      readSynthesisWorkbenchOperationalChrome(synthesisRepository);
+    const referenceReadiness = operational.maintenance.cacheReadiness[0];
+    const citationReadiness = operational.maintenance.cacheReadiness[1];
+    const referenceSidecarCache =
+      referenceReadiness.status === "missing" ? null : referenceReadiness;
+    const citationGraphCache =
+      citationReadiness.status === "missing" ? null : citationReadiness;
     const sync = assessSynthesisSyncRecovery({
       root: {
         state: rootReady ? "ready" : "missing",
@@ -15350,7 +15165,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       citationGraphFound: Boolean(citationGraphCache),
     });
     const backgroundJobs = buildMaintenanceBackgroundJobs({
-      jobProgressRows: activeJobProgressRows(),
+      jobProgressRows: operational.maintenance
+        .backgroundJobs as SynthesisUiBackgroundJobRow[],
     });
     const registryReviewItems = synthesisRepository.listReviewItems({
       statuses: ["open"],

@@ -14,12 +14,18 @@ import {
   SYNTHESIS_SIDECAR_LIMITS,
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarCapability,
+  isSynthesisSidecarGeneralCapability,
   isSynthesisSidecarWorkerCapability,
   isSynthesisSidecarSystemCapability,
   type SynthesisSidecarHealth,
   type SynthesisSidecarLifecycleState,
   type SynthesisSidecarSuccess,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
+import {
+  rebuildSynthesisWorkbenchChromeReadRequest,
+  rebuildSynthesisWorkbenchOperationalChromeResult,
+} from "../../../packages/synthesis-contracts/src/workbench.js";
+import { readSynthesisWorkbenchOperationalChrome } from "../../../packages/synthesis-application/src/index.js";
 import { rebuildSynthesisSidecarTransferAction } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
   toSynthesisJsonObject,
@@ -472,6 +478,37 @@ export async function startSynthesisSidecarServer(
           });
         }
         return;
+      }
+      if (isSynthesisSidecarGeneralCapability(call.capability)) {
+        if (call.capability === "workbench.chrome.read") {
+          try {
+            rebuildSynthesisWorkbenchChromeReadRequest(call.payload);
+          } catch {
+            throw new SidecarRuntimeError({
+              status: 400,
+              code: "invalid_request",
+              message: "The Workbench chrome request is invalid.",
+            });
+          }
+          const result = rebuildSynthesisWorkbenchOperationalChromeResult(
+            readSynthesisWorkbenchOperationalChrome(repository.store),
+          );
+          writeJson(
+            response,
+            200,
+            success({
+              requestId: call.requestId,
+              serviceInstanceId,
+              data: toSynthesisJsonObject(result, "workbenchChromeResult"),
+            }),
+            {},
+            {
+              maxBytes: SYNTHESIS_SIDECAR_LIMITS.requestBodyBytes,
+              maxJsonNodes: SYNTHESIS_SIDECAR_LIMITS.jsonNodes,
+            },
+          );
+          return;
+        }
       }
       if (isSynthesisSidecarWorkerCapability(call.capability)) {
         let runCompute: (signal: AbortSignal) => Promise<unknown>;

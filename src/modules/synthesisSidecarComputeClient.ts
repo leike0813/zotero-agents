@@ -48,6 +48,12 @@ export function createSynthesisSidecarComputeClient(options?: {
     fetch: options?.fetch,
     deadlineMs: options?.deadlineMs ?? SYNTHESIS_SIDECAR_COMPUTE_DEADLINE_MS,
     requestIdPrefix: "compute",
+    transportErrors: {
+      canceled: "worker_canceled",
+      timeout: "worker_timeout",
+      invalidResponse: "worker_result_invalid",
+      unavailable: "worker_unavailable",
+    },
   });
 
   const compute = async <Request, Result>(args: {

@@ -49,12 +49,14 @@ ids only.
 ## SQLite Policy
 
 The service's WS5 shadow database is limited to three foundation tables and
-short synchronous main-process transactions. It performs no engine compute,
-Host/file/network IO, production reads, or Workbench queries. Startup schema
-validation and running-operation reconciliation complete before readiness;
-health/handshake use a maintained snapshot and never query row counts. Adding
-table families or domain workload requires a later parity design rather than
-expanding this canary implicitly.
+short synchronous main-process transactions. Its only application read is the
+`workbench.chrome.read` canary: two fixed indexed cache lookups plus at most 50
+running and 20 current failed operations, under the 150 ms chrome target. It
+performs no engine compute, Host/file/network IO, production reads, review
+queries, or content-surface reads. Startup schema validation and running-operation
+reconciliation complete before readiness; health/handshake use a maintained
+snapshot and never query row counts. Adding table families or domain workload
+requires a later parity design rather than expanding this canary implicitly.
 
 Write transactions should be short:
 

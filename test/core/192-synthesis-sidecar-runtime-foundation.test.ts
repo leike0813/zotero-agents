@@ -19,6 +19,7 @@ import {
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
   isSynthesisSidecarComputeCapability,
+  isSynthesisSidecarGeneralCapability,
   isSynthesisSidecarSystemCapability,
   rebuildSynthesisSidecarCallRequest,
   rebuildSynthesisSidecarComputePoolSnapshot,
@@ -268,12 +269,17 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.deepEqual(SYNTHESIS_SIDECAR_CAPABILITIES, [
       "system.handshake",
       "system.shutdown",
+      "workbench.chrome.read",
       "compute.citation_graph_layout",
       "compute.citation_graph_metrics",
       "compute.citation_graph_build",
       "compute.citation_graph_build_transfer",
     ]);
     assert.isTrue(isSynthesisSidecarSystemCapability("system.handshake"));
+    assert.isTrue(isSynthesisSidecarGeneralCapability("workbench.chrome.read"));
+    assert.isFalse(
+      isSynthesisSidecarGeneralCapability("compute.citation_graph_layout"),
+    );
     assert.isFalse(
       isSynthesisSidecarSystemCapability("compute.citation_graph_layout"),
     );

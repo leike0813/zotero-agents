@@ -188,6 +188,8 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
       "service/packages/synthesis-engine/src/citationGraphBuildPacked.js",
       "service/packages/synthesis-contracts/src/sidecarTransfer.js",
+      "service/packages/synthesis-contracts/src/workbench.js",
+      "service/packages/synthesis-application/src/index.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
@@ -460,6 +462,8 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(first.inputs, "packages/synthesis-repository/src/index.ts");
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
+    assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
+    assert.include(first.inputs, "packages/synthesis-application/package.json");
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -467,6 +471,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/sidecarTransfer.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/workbench.ts",
     );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
@@ -505,6 +513,8 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(xpiCheck, "isolatedRepository.js");
     assert.include(xpiCheck, "repositoryNodeSqlite.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
+    assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
+    assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(

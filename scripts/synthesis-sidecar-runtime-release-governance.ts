@@ -37,6 +37,8 @@ const FINGERPRINT_STATIC_INPUTS = [
   "packages/synthesis-engine/tsconfig.json",
   "packages/synthesis-repository/package.json",
   "packages/synthesis-repository/tsconfig.json",
+  "packages/synthesis-application/package.json",
+  "packages/synthesis-application/tsconfig.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
@@ -78,10 +80,12 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
     ...(await collectFiles(root, "apps/synthesis-service/src")),
     ...(await collectFiles(root, "packages/synthesis-engine/src")),
     ...(await collectFiles(root, "packages/synthesis-repository/src")),
+    ...(await collectFiles(root, "packages/synthesis-application/src")),
     ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
       (file) =>
         file.endsWith("/sidecarLifecycle.ts") ||
         file.endsWith("/sidecarSystem.ts") ||
+        file.endsWith("/workbench.ts") ||
         file.endsWith("/sidecarTransfer.ts") ||
         file.endsWith("/sidecarRuntimeBundle.ts"),
     ),

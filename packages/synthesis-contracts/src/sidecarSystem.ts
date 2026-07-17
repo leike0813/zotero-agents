@@ -14,6 +14,9 @@ export const SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES = [
   "system.handshake",
   "system.shutdown",
 ] as const;
+export const SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES = [
+  "workbench.chrome.read",
+] as const;
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",
   "compute.citation_graph_metrics",
@@ -27,6 +30,7 @@ export const SYNTHESIS_SIDECAR_WORKER_CAPABILITIES = [
 ] as const;
 export const SYNTHESIS_SIDECAR_CAPABILITIES = [
   ...SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES,
+  ...SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES,
   ...SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES,
 ] as const;
 
@@ -46,6 +50,8 @@ export const SYNTHESIS_SIDECAR_LIMITS = {
 
 export type SynthesisSidecarSystemCapability =
   (typeof SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES)[number];
+export type SynthesisSidecarGeneralCapability =
+  (typeof SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES)[number];
 export type SynthesisSidecarComputeCapability =
   (typeof SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES)[number];
 export type SynthesisSidecarWorkerCapability =
@@ -135,6 +141,9 @@ export const SYNTHESIS_SIDECAR_ERROR_CODES = [
   "request_json_too_large",
   "request_string_too_long",
   "request_timeout",
+  "request_canceled",
+  "response_invalid",
+  "service_unavailable",
   "method_not_allowed",
   "not_found",
   "unauthorized",
@@ -238,6 +247,14 @@ export function isSynthesisSidecarSystemCapability(
   value: string,
 ): value is SynthesisSidecarSystemCapability {
   return (SYNTHESIS_SIDECAR_SYSTEM_CAPABILITIES as readonly string[]).includes(
+    value,
+  );
+}
+
+export function isSynthesisSidecarGeneralCapability(
+  value: string,
+): value is SynthesisSidecarGeneralCapability {
+  return (SYNTHESIS_SIDECAR_GENERAL_CAPABILITIES as readonly string[]).includes(
     value,
   );
 }

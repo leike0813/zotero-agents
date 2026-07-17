@@ -12,6 +12,14 @@ isolated_repository:
   production_mutation_enabled: false
   remote_capability: false
 
+application_canaries:
+  - id: workbench_chrome_operational
+    package: packages/synthesis-application
+    capability: workbench.chrome.read
+    repository_mode: isolated_shadow
+    production_route: false
+    production_mutation_enabled: false
+
 internal_engines:
   - id: citation_graph_build
     contract: SynthesisCitationGraphBuildEngine

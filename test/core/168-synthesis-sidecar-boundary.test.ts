@@ -428,6 +428,28 @@ describe("Synthesis sidecar migration boundary", function () {
       repositoryFoundation,
       /(?:node:|Zotero|child_process|worker_threads|src\/modules\/synthesis)/,
     );
+    const applicationFoundation = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-application/src/index.ts"),
+      "utf8",
+    );
+    assert.include(
+      applicationFoundation,
+      "readSynthesisWorkbenchOperationalChrome",
+    );
+    assert.notMatch(
+      applicationFoundation,
+      /(?:node:|globalThis\.Zotero|zotero-plugin|child_process|worker_threads|repositoryNodeSqlite|isolatedRepository|src\/modules)/,
+    );
+    const workbenchCanaryClient = fs.readFileSync(
+      path.join(ROOT_DIR, "src/modules/synthesisSidecarWorkbenchClient.ts"),
+      "utf8",
+    );
+    assert.include(
+      workbenchCanaryClient,
+      'capability: "workbench.chrome.read"',
+    );
+    assert.notInclude(workbench, "synthesisSidecarWorkbenchClient");
+    assert.notInclude(legacyComposition, "synthesisSidecarWorkbenchClient");
     const computeWorker = fs.readFileSync(
       path.join(sidecarAppRoot, "src/computeWorker.ts"),
       "utf8",
