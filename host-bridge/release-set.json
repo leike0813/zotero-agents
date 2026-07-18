@@ -1,17 +1,17 @@
 {
   "schema": "host-bridge.release-set.v1",
-  "releaseSetId": "hbrs-7db4e8f9002ab56a14a40e75",
+  "releaseSetId": "hbrs-48dc5475047dec4bd6ab661d",
   "status": "planned",
   "source": {
     "repository": "leike0813/zotero-agents",
-    "commit": "64e6f915592def707d024bc5a2c26a2f5e57dd6f"
+    "commit": "8258efc9872062a951e57701c4d3f3ca40c0283c"
   },
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v2",
   "cli": {
     "schema": "zotero-bridge-cli-release.v1",
     "version": "0.3.0",
-    "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+    "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
     "binariesBuildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
     "binaryAggregateSha256": "",
     "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40",
@@ -65,7 +65,7 @@
       "protocol": "host-bridge.v1",
       "cliSchema": "zotero-bridge.cli.v2",
       "version": "0.3.0",
-      "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+      "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
       "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
     }
   },
@@ -75,13 +75,13 @@
       "contentDigest": "2fe9f579e6948942964efb2bda4a67176219b345b40017d49549b66e11fe2dfd",
       "repository": "leike0813/zotero-agents",
       "mutableRef": "host-bridge/zotero-bridge-cli-bundle",
-      "immutableTag": "host-bridge/hbrs-7db4e8f9002ab56a14a40e75",
+      "immutableTag": "host-bridge/hbrs-48dc5475047dec4bd6ab661d",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v2",
         "protocol": "host-bridge.v1",
         "cliSchema": "zotero-bridge.cli.v2",
         "version": "0.3.0",
-        "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+        "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
         "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
       }
     },
@@ -90,13 +90,13 @@
       "contentDigest": "a5d8dddf7b137e1cec4df6377cbb99a5a236d3be4b687a0cccdac88e5ad9516b",
       "repository": "leike0813/zotero-library-agent-bundle",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-7db4e8f9002ab56a14a40e75",
+      "immutableTag": "host-bridge/hbrs-48dc5475047dec4bd6ab661d",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v2",
         "protocol": "host-bridge.v1",
         "cliSchema": "zotero-bridge.cli.v2",
         "version": "0.3.0",
-        "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+        "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
         "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
       }
     },
@@ -105,13 +105,13 @@
       "contentDigest": "0c50e077ad6accf2bb6c364d3530c342c71698f1b63be5242a63bb9696914cb5",
       "repository": "leike0813/zotero-librarian-profile",
       "mutableRef": "main",
-      "immutableTag": "host-bridge/hbrs-7db4e8f9002ab56a14a40e75",
+      "immutableTag": "host-bridge/hbrs-48dc5475047dec4bd6ab661d",
       "cliIdentity": {
         "schema": "host-bridge.surface-identity.v2",
         "protocol": "host-bridge.v1",
         "cliSchema": "zotero-bridge.cli.v2",
         "version": "0.3.0",
-        "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+        "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
         "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
       }
     }
